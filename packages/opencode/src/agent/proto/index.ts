@@ -26,25 +26,18 @@ import _RAW_WFRAMES from "./prompt/proto_wireframes.txt"
 import _RAW_MODIFY from "./prompt/proto_modify.txt"
 import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 
-// 3D 场景 stastics（替代 load_components_docs 工具，agent 直接读静态目录生成 mesh/group）
-import SCENE_CONFIG_SCHEMA from "./prompt/stastics/SCENE_CONFIG_SCHEMA.txt"
-import MESH_GEOMETRY_CATALOG from "./prompt/stastics/MESH_GEOMETRY_CATALOG.txt"
-// 3D codegen 静态契约片段（handler 契约 / 分组场景格式 / 注册模板，注入 scene_3d_codegen prompt）
-import HANDLER_CONTRACT from "./prompt/stastics/HANDLER_CONTRACT.txt"
-import TREE_SCENE_FORMAT from "./prompt/stastics/TREE_SCENE_FORMAT.txt"
-import REGISTRATION_PATTERN from "./prompt/stastics/REGISTRATION_PATTERN.txt"
+// 3D codegen 静态契约片段（handler 契约 / 分组场景格式 / 注册模板，注入 scene_3d_codegen prompt）。
+// 3D 片段统一放 scene_3d/stastics/（与 3D 模板同目录自包含）；stastics/ 只剩 2D 片段。
+// 旧 planner/module 流的 SCENE_CONFIG_SCHEMA / MESH_GEOMETRY_CATALOG 片段已随 2026-09-04 全清删除。
+import HANDLER_CONTRACT from "./prompt/scene_3d/stastics/HANDLER_CONTRACT.txt"
+import TREE_SCENE_FORMAT from "./prompt/scene_3d/stastics/TREE_SCENE_FORMAT.txt"
+import REGISTRATION_PATTERN from "./prompt/scene_3d/stastics/REGISTRATION_PATTERN.txt"
 // 3D 组件精简目录（预烘 .txt，npm run gen:component-catalog 从 @a3d/a3d-components/docs 生成；
 // 预烘而非运行时烘：避免 proto/index.ts → 3d_components_docs 的循环依赖 TDZ）
-import COMPONENT_CATALOG from "./prompt/stastics/COMPONENT_CATALOG.txt"
+import COMPONENT_CATALOG from "./prompt/scene_3d/stastics/COMPONENT_CATALOG.txt"
 
-// 3D 场景 agent prompts
-import _RAW_SCENE_3D_INTENT from "./prompt/scene_3d/scene_3d_intent.txt"
-import _RAW_SCENE_3D_INTENT_CONFIRM from "./prompt/scene_3d/scene_3d_intent_confirm.txt"
-import _RAW_SCENE_3D_INTENT_AUDIT from "./prompt/scene_3d/scene_3d_intent_audit.txt"
-import _RAW_SCENE_3D_PLANNER_CREATE from "./prompt/scene_3d/scene_3d_planner_create.txt"
-import _RAW_SCENE_3D_PLANNER_MODIFY from "./prompt/scene_3d/scene_3d_planner_modify.txt"
-import _RAW_SCENE_3D_MODULE_CREATE from "./prompt/scene_3d/scene_3d_module_create.txt"
-import _RAW_SCENE_3D_MODULE_MODIFY from "./prompt/scene_3d/scene_3d_module_modify.txt"
+// 3D 场景 agent prompts（Step 7 3-agent codegen 流：triage→plan→codegen；
+// 旧 8-agent 流水线模板（intent/intent_confirm/intent_audit/planner_*/module_*）已随 2026-09-04 全清删除）
 import _RAW_SCENE_3D_TRIAGE from "./prompt/scene_3d/scene_3d_triage.txt"
 import _RAW_SCENE_3D_PLAN from "./prompt/scene_3d/scene_3d_plan.txt"
 import _RAW_SCENE_3D_CODEGEN from "./prompt/scene_3d/scene_3d_codegen.txt"
@@ -62,8 +55,6 @@ const _staticData: Record<string, string> = {
   brand_guide,
   responsive_adaptive,
   design_system,
-  SCENE_CONFIG_SCHEMA,
-  MESH_GEOMETRY_CATALOG,
   HANDLER_CONTRACT,
   TREE_SCENE_FORMAT,
   REGISTRATION_PATTERN,
@@ -93,14 +84,7 @@ export const PROMPT_PROTO_WFRAMES = formatPrompt(_RAW_WFRAMES)
 export const PROMPT_PROTO_MODIFY = formatPrompt(_RAW_MODIFY)
 export const PROMPT_PROTO_REPLANNER = formatPrompt(_RAW_REPLANNER)
 
-// 3D 场景 agent prompts（formatPrompt 插值 {SCENE_CONFIG_SCHEMA} / {MESH_GEOMETRY_CATALOG}）
-export const PROMPT_SCENE_3D_INTENT = formatPrompt(_RAW_SCENE_3D_INTENT)
-export const PROMPT_SCENE_3D_INTENT_CONFIRM = formatPrompt(_RAW_SCENE_3D_INTENT_CONFIRM)
-export const PROMPT_SCENE_3D_INTENT_AUDIT = formatPrompt(_RAW_SCENE_3D_INTENT_AUDIT)
-export const PROMPT_SCENE_3D_PLANNER_CREATE = formatPrompt(_RAW_SCENE_3D_PLANNER_CREATE)
-export const PROMPT_SCENE_3D_PLANNER_MODIFY = formatPrompt(_RAW_SCENE_3D_PLANNER_MODIFY)
-export const PROMPT_SCENE_3D_MODULE_CREATE = formatPrompt(_RAW_SCENE_3D_MODULE_CREATE)
-export const PROMPT_SCENE_3D_MODULE_MODIFY = formatPrompt(_RAW_SCENE_3D_MODULE_MODIFY)
+// 3D 场景 agent prompts（Step 7 3-agent codegen 流）
 export const PROMPT_SCENE_3D_TRIAGE = formatPrompt(_RAW_SCENE_3D_TRIAGE)
 // 3D codegen agent prompts（formatPrompt 插值 {HANDLER_CONTRACT} / {TREE_SCENE_FORMAT} / {REGISTRATION_PATTERN}）
 export const PROMPT_SCENE_3D_PLAN = formatPrompt(_RAW_SCENE_3D_PLAN)
@@ -120,13 +104,6 @@ export const RAW_TEMPLATES: Record<string, string> = {
   proto_wireframes: _RAW_WFRAMES,
   proto_modify: _RAW_MODIFY,
   proto_replanner: _RAW_REPLANNER,
-  scene_3d_intent: _RAW_SCENE_3D_INTENT,
-  scene_3d_intent_confirm: _RAW_SCENE_3D_INTENT_CONFIRM,
-  scene_3d_intent_audit: _RAW_SCENE_3D_INTENT_AUDIT,
-  scene_3d_planner_create: _RAW_SCENE_3D_PLANNER_CREATE,
-  scene_3d_planner_modify: _RAW_SCENE_3D_PLANNER_MODIFY,
-  scene_3d_module_create: _RAW_SCENE_3D_MODULE_CREATE,
-  scene_3d_module_modify: _RAW_SCENE_3D_MODULE_MODIFY,
   scene_3d_triage: _RAW_SCENE_3D_TRIAGE,
   scene_3d_plan: _RAW_SCENE_3D_PLAN,
   scene_3d_codegen: _RAW_SCENE_3D_CODEGEN,

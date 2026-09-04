@@ -101,7 +101,7 @@ export function formatDoc(doc: ComponentDoc): string {
   lines.push(`## ${doc.name}`)
   lines.push(`> ${doc.summary}`)
   lines.push("")
-  lines.push(`- import: \`${doc.importPath}\``)
+  lines.push(`- import: \`import { ${doc.name} } from '../../../../components'\`  (barrel，handler 相对路径；运行态/导出工程 vendor @a3d 均可解析)`)
   lines.push(`- extends: ${doc.extends}`)
   lines.push(`- 构造: \`${doc.constructor}\``)
 
@@ -168,6 +168,7 @@ export function formatCatalog(): string {
   for (const doc of docs) {
     lines.push(`### ${doc.name}`)
     lines.push(`> ${shortSummary(doc.summary)}`)
+    lines.push(`- extends: ${doc.extends}  (Mesh/Group→group.add，Material→mesh.material=)`)
     lines.push(`- 构造: \`${doc.constructor}\``)
     if (doc.options.length > 0) {
       lines.push("")
@@ -183,6 +184,25 @@ export function formatCatalog(): string {
         lines.push(`- **${dt.name}**:`)
         for (const f of dt.fields) {
           lines.push(`  - \`${f.name}\` (${f.type}) 默认 \`${f.default}\` — ${f.description}`)
+        }
+      }
+    }
+    // 非 Object3D/材质组件（extends 空，如 HeatMap 纹理生成器）：LLM 无法靠 extends 推断用法，
+    // 必须补 properties（怎么取产物）+ methods（怎么操作）。实证：漏补致 HeatMap 被脑补 getTexture()
+    // （实际是 texture 属性）渲染失败。
+    if (!doc.extends) {
+      if (doc.properties.length > 0) {
+        lines.push("")
+        lines.push("Properties:")
+        for (const p of doc.properties) {
+          lines.push(`- \`${p.name}\` (${p.type}) — ${p.description}`)
+        }
+      }
+      if (doc.methods.length > 0) {
+        lines.push("")
+        lines.push("Methods:")
+        for (const m of doc.methods) {
+          lines.push(`- \`${m.signature}\` — ${m.description}`)
         }
       }
     }

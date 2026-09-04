@@ -1,5 +1,6 @@
 ### BitmapText
 > SDF 位图文字组件
+- extends: THREE.Mesh  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new BitmapText(options?: BitmapTextOptions)`
 
 Options:
@@ -38,6 +39,7 @@ Options:
 
 ### Grid
 > 无限网格
+- extends: THREE.Mesh  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Grid(options?: GridOptions)`
 
 Options:
@@ -57,8 +59,47 @@ Options:
 - `visible` (boolean) 默认 `true` — 是否可见
 - `userData` (object) 默认 `—` — 自定义数据
 
+### HeatMap
+> Canvas 热力图纹理生成器
+- extends:   (Mesh/Group→group.add，Material→mesh.material=)
+- 构造: `new HeatMap(options?: HeatMapOptions)`
+
+Options:
+- `width` (number) 默认 `256` — Canvas 宽度（像素）
+- `height` (number) 默认 `256` — Canvas 高度（像素）
+- `radius` (number) 默认 `40` — 默认热力点半径（像素）
+- `opacity` (number) 默认 `0.6` — 全局不透明度 0–1
+- `gradient` (HeatMapGradient) 默认 `蓝→绿→黄→红` — 颜色梯度映射
+
+DataTypes:
+- **HeatMapPoint**:
+  - `x` (number) 默认 `—` — X 坐标（像素，0 – width）
+  - `y` (number) 默认 `—` — Y 坐标（像素，0 – height）
+  - `value` (number) 默认 `—` — 强度 / 权重，归一化到 max / min
+- **HeatMapData**:
+  - `data` (HeatMapPoint[]) 默认 `—` — 数据点数组
+  - `max` (number) 默认 `—` — 归一化最大值，省略则自动取数据最大值
+  - `min` (number) 默认 `—` — 归一化最小值，默认 0
+
+Properties:
+- `texture` (THREE.CanvasTexture) — Three.js 纹理，赋给材质 map
+- `canvas` (HTMLCanvasElement) — 底层显示 Canvas，可用于非 Three.js 场景
+- `width` (number) — Canvas 宽度（只读）
+- `height` (number) — Canvas 高度（只读）
+
+Methods:
+- `.setData(data: HeatMapData): this` — 设置热力图数据并重新渲染。替换已有数据，Canvas 和纹理立即更新。返回 this 支持链式调用。
+- `.addData(point: HeatMapPoint): this` — 追加单个数据点并重新渲染。若新点 value 超过当前 max 则自动更新。返回 this。
+- `.setGradient(gradient: HeatMapGradient): this` — 替换颜色梯度并重新渲染。返回 this。
+- `.setRadius(radius: number): this` — 设置默认热力点半径并重新渲染。用于未指定 radius 的数据点。值自动钳制到 ≥ 1。返回 this。
+- `.setOpacity(opacity: number): this` — 设置全局不透明度并重新渲染。值自动钳制到 0–1。返回 this。
+- `.getData(): Readonly<HeatMapData>` — 返回当前数据集的只读引用。
+- `.clear(): this` — 清空所有数据并重新渲染。返回 this。
+- `.dispose(): void` — 释放 CanvasTexture 资源。离屏 Canvas 将被 GC 回收。
+
 ### Html
 > 3D 空间中的 HTML 覆盖层组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Html(options?: HtmlOptions)`
 
 Options:
@@ -90,6 +131,7 @@ Options:
 
 ### InstancedMesh2
 > 高性能实例化渲染器
+- extends: THREE.Mesh  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new InstancedMesh2<TData, TGeometry, TMaterial>(geometry, material, params?, LOD?)`
 
 Options:
@@ -98,8 +140,32 @@ Options:
 - `allowsEuler` (boolean) 默认 `false` — 允许 InstancedEntity.rotation（Euler），与 quaternion 双向同步
 - `renderer` (WebGLRenderer) 默认 `—` — 若提供则立即初始化缓冲区；否则延迟到首次渲染
 
+### MeshReflectorMaterial
+> 实时平面反射材质
+- extends: THREE.MeshStandardMaterial  (Mesh/Group→group.add，Material→mesh.material=)
+- 构造: `new MeshReflectorMaterial(options?: MeshReflectorMaterialOptions)`
+
+Options:
+- `resolution` (number) 默认 `256` — 反射 RenderTarget 分辨率，越高越清晰但更耗性能
+- `blur` (number | [number, number]) 默认 `[0, 0]` — 模糊半径，单值或 [宽, 高] 元组，0 为禁用
+- `mixBlur` (number) 默认 `0` — 模糊混合度 (0=仅清晰, 1=全模糊)
+- `mixStrength` (number) 默认 `1` — 反射强度乘数
+- `mixContrast` (number) 默认 `1` — 反射对比度 (1=不变, >1=更高, <1=更低)
+- `mirror` (number) 默认 `0` — 镜面程度 (0=与基础色混合, 1=纯反射)
+- `distortion` (number) 默认 `1` — 扭曲强度，需配合 distortionMap 使用
+- `distortionMap` (THREE.Texture) 默认 `null` — 扭曲贴图，红通道作为 UV 偏移
+- `minDepthThreshold` (number) 默认 `0.9` — 深度感知模糊最小阈值
+- `maxDepthThreshold` (number) 默认 `1` — 深度感知模糊最大阈值
+- `depthScale` (number) 默认 `0` — 深度缩放 (>0 启用深度感知模糊)
+- `depthToBlurRatioBias` (number) 默认 `0.25` — 深度与模糊比率偏置
+- `reflectorOffset` (number) 默认 `0` — 反射面沿法线偏移，避免 z-fighting
+- `color` (ColorRepresentation) 默认 `0xffffff` — 基础颜色
+- `metalness` (number) 默认 `0` — 金属度 0–1
+- `roughness` (number) 默认 `0` — 粗糙度 0–1 (也影响模糊混合)
+
 ### Outlines
 > 描边（轮廓）组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Outlines(options: OutlinesOptions)`
 
 Options:
@@ -122,6 +188,7 @@ Options:
 
 ### Path
 > 路径绘制组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Path(options: PathOptions)`
 
 Options:
@@ -161,8 +228,37 @@ DataTypes:
   - `sharp` (boolean) 默认 `false` — 是否在锐角拐角做几何修补（避免带面撕裂）
   - `arrow` (boolean) 默认 `false` — 末端是否生成箭头
 
+### Rack
+> 仓储货架组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
+- 构造: `new Rack(options?: RackOptions)`
+
+Options:
+- `data` (RackData) 默认 `—` — 初始货架数据。不传则创建空货架，之后可随时 set()
+- `frameMaterial` (THREE.Material) 默认 `—` — 框架（立柱 + 横梁）共享材质。不传则使用默认 MeshStandardMaterial（白色）
+- `plankMaterial` (THREE.Material) 默认 `—` — 层板共享材质。不传则使用默认 MeshStandardMaterial（木色 0xeac58b）
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()（set() 重建时保留）
+
+DataTypes:
+- **RackData**:
+  - `row` (number | number[]) 默认 `—` — 必填。横向货位划分：数量 ⇒ 等分 row 个货位、每个宽 width；数组 ⇒ 逐货位宽度（此时忽略 width）。如 3 或 [1, 2, 1]
+  - `col` (number | number[]) 默认 `—` — 必填。纵向层划分：数量 ⇒ 等分 col 层、每层高 height；数组 ⇒ 逐层高度（此时忽略 height）。如 3 或 [0.5, 1, 1.5]
+  - `width` (number) 默认 `1` — 每个货位的宽度，仅 row 为数量时生效
+  - `height` (number) 默认 `1` — 每层的高度，仅 col 为数量时生效
+  - `depth` (number) 默认 `—` — 必填。货架深度（Z 方向）。正面在 z = 0、背面在 z = -depth
+  - `firstplane` (boolean) 默认 `false` — 最底层（y = 0）是否也生成层板 / 横梁。关闭时底层直接落地，首个层板位于第一层顶部
+  - `goodsPlank` (string | number | RackPlank[]) 默认 `—` — 层板模式：不传 ⇒ 每层一块通长实心层板；字符串 ⇒ 每货位一块，宽度为货位净宽的百分比（'60' ⇒ 60%）；数值 ⇒ 每货位一块固定宽度层板；数组 ⇒ 不自动生成，由数组显式指定每块层板
+- **RackPlank**:
+  - `position` (Vec3) 默认 `—` — 必填。层板中心位置（货架局部坐标：x 沿宽、y 沿高、z 沿深）
+  - `width` (number) 默认 `—` — 必填。层板宽度（X 方向）
+  - `depth` (number) 默认 `—` — 必填。层板深度（Z 方向）
+
 ### Shape
 > 异形面绘制组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Shape(options: ShapeOptions)`
 
 Options:
@@ -183,6 +279,7 @@ DataTypes:
 
 ### Sky
 > 天空穹顶
+- extends: THREE.Mesh  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Sky(options?: SkyOptions)`
 
 Options:
@@ -197,6 +294,7 @@ Options:
 
 ### Wall
 > 墙体绘制组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Wall(options: WallOptions)`
 
 Options:
@@ -224,6 +322,7 @@ DataTypes:
 
 ### Wireframe
 > 线框化组件
+- extends: THREE.Group  (Mesh/Group→group.add，Material→mesh.material=)
 - 构造: `new Wireframe(options: WireframeOptions)`
 
 Options:

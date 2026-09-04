@@ -41,23 +41,6 @@ export type TriageInputContext = {
   forcePatch?: boolean
 }
 
-// legacy item 类型 —— 旧 8-agent 孤儿文件（modify-scene-ai.ts）仍读 TriageResult.delete/add/modify，
-// codegen 流不再产出这些（LLM 只输出 routing+types），wrapper 默认 []。Step 8 清理孤儿后可删。
-export interface TriageModifyItem {
-  section_id: string
-  element_id: string
-  action: string
-}
-
-export interface TriageDeleteItem {
-  element_id: string
-  action: string
-}
-
-export interface TriageAddItem {
-  action: string
-}
-
 export interface TriageTypes {
   create: string[]
   modify: string[]
@@ -68,10 +51,6 @@ export interface TriageResult {
   types: TriageTypes
   /** routing=patch 时输出；基于原场景的局部增删查改 ops（Phase A：set_instance 材质/transform） */
   patchOps: PatchOp[]
-  // legacy（孤儿兼容，codegen 流恒为空数组）
-  delete: TriageDeleteItem[]
-  add: TriageAddItem[]
-  modify: TriageModifyItem[]
   reply: string
   reason: string
   attachment_description: string | null
@@ -115,10 +94,6 @@ export default async function scene_3d_triage(ctx: TriageInputContext): Promise<
       modify: toStringArray(rawTypes.modify),
     },
     patchOps: parsePatchOps(triageJson.patchOps),
-    // codegen 流 LLM 不再输出 delete/add/modify；留空数组供孤儿 modify-scene-ai.ts 不崩
-    delete: [],
-    add: [],
-    modify: [],
     reply: (triageJson.reply as string) ?? "",
     reason: (triageJson.reason as string) ?? "",
     attachment_description: normalizeAttachmentDesc(triageJson.attachment_description),

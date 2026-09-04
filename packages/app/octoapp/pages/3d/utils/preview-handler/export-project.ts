@@ -5,7 +5,7 @@
  *   1. 当前版本生成的 handler 代码（codeDir → src/3d/managers/component/handlers/... + index.ts，覆盖母版基础 handler）
  *   2. 场景数据 public/live-data.json（sceneConfig，in-memory 当前 merged 为权威）
  *   3. 开发者 README.md
- *   4. 改 package.json：加 `@a3d/a3d-components: file:./vendor/3d-components`（libraryBridge 用此名 import）
+ *   4. 改 package.json：加 `@a3d/a3d-components: file:./vendor/3d-components`（组件 barrel 用此名 import）
  *   5. 删副本 vite.config.ts 的 @a3d/a3d-components alias（让其走 node_modules → vendor）
  *   6. vendor 3d-components/dist → vendor/3d-components/dist + 精简 vendor package.json（name @a3d/a3d-components）
  *
@@ -96,7 +96,7 @@ export async function exportProject(opts: {
     content: DEV_README,
   })
 
-  // 4. 改 package.json：加 @a3d/a3d-components file: 依赖（libraryBridge 用此名 import）
+  // 4. 改 package.json：加 @a3d/a3d-components file: 依赖（组件 barrel 用此名 import）
   try {
     const pkgJsonBuf = await desktopApi.readFileBuffer(`${opts.templateSrc}/package.json`)
     if (pkgJsonBuf) {

@@ -9,8 +9,6 @@ export function GenerationCard(props: {
   errorAgent?: string
   errorCallId?: string
   errorDescription?: string
-  needsConfirm: boolean
-  confirmText?: { title: string; subtitle: string } | null
   onRetry?: () => void
 }): JSX.Element {
   const cardState = () => {
@@ -18,17 +16,16 @@ export function GenerationCard(props: {
       const parts = [props.errorAgent].filter(Boolean)
       return { title: props.error, subtitle: parts.join(" · "), badge: "gc-error-badge", badgeText: "失败" } as const
     }
-    if (props.needsConfirm && props.confirmText) return { title: props.confirmText.title, subtitle: props.confirmText.subtitle, badge: "gc-confirm-badge", badgeText: "待确认" } as const
     if (props.generating) return { title: "正在执行中", subtitle: "请稍候…", badge: "gc-gen-badge", badgeText: "生成中" } as const
     if (props.cancelled) return { title: "已取消", subtitle: "生成已中断", badge: "gc-cancel-badge", badgeText: "取消" } as const
     return { title: "生成完成", subtitle: "请在右侧查看", badge: "gc-done-badge", badgeText: "完成" } as const
   }
 
   return (
-    <Show when={props.generating || props.canPreview || props.cancelled || props.error || props.needsConfirm}>
+    <Show when={props.generating || props.canPreview || props.cancelled || props.error}>
       <div
         class="generation-card mx-3 mb-3 text-left transition-all"
-        classList={{ generating: props.generating && !props.error, cancelled: props.cancelled, error: !!props.error, confirming: !!props.needsConfirm }}
+        classList={{ generating: props.generating && !props.error, cancelled: props.cancelled, error: !!props.error }}
       >
         <div class="flex items-center gap-3">
           <span class="flex-shrink-0 flex items-center">

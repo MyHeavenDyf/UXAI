@@ -19,8 +19,8 @@ import { formatCatalog } from "../src/tool/proto_tool/3d_components_docs"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const root = path.resolve(__dirname, "..")
-const outPath = path.resolve(root, "src/agent/proto/prompt/stastics/COMPONENT_CATALOG.txt")
+const outPath = path.resolve(root, "src/agent/proto/prompt/scene_3d/stastics/COMPONENT_CATALOG.txt")
 
 const catalog = formatCatalog()
 fs.writeFileSync(outPath, catalog)
-console.log(`gen:component-catalog → 写入 ${catalog.length} 字符到 src/agent/proto/prompt/stastics/COMPONENT_CATALOG.txt`)
+console.log(`gen:component-catalog → 写入 ${catalog.length} 字符到 src/agent/proto/prompt/scene_3d/stastics/COMPONENT_CATALOG.txt`)

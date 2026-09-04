@@ -9,7 +9,7 @@ import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { SCENE_PLAN_FORMAT } from "./schema"
 import { agentThrow } from "../../utils/error-msg"
-import type { SceneCreateInput } from "../../workflow/create-scene"
+import type { SceneCreateInput } from "../../workflow/scene-create-input"
 import type { TriageTypes } from "../scene-triage"
 
 const AGENT_NAME = "scene_3d_plan"
@@ -86,6 +86,24 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     agentThrow(AGENT_NAME, planRes.childSessionId, planRes.error)
   }
   const planJson = extractJson(planRes.text)
+  // 正常返回也可能被截断（GLM-V5_1 实证 finish=stop 但正文 JSON 写到 camera 之后停，ses 见
+  // 取证）：extractJson 的绝地求生只认「完整闭合对象」，截断时返回最后一个闭合的相机内层碎片
+  // （keys=[type,position,lookAt,perspective]，丢 types 外钥）。此处对「null / types 不完整碎片」
+  // 再走截断抢救（补未闭合括号救回外层壳 + safeEnd 回退掉不完整尾部）——types 完整则继续，
+  // camera/lights/scene 残缺由 assemblePlan/merge 的默认值兜底，仍能物化出场景（不丢物体）。
+  if (!planJson || !isPlanTypesComplete(planJson, types)) {
+    const recovered = extractJsonFromTruncated(planRes.text)
+    if (recovered && isPlanTypesComplete(recovered, types)) {
+      console.warn(
+        `[scene_3d_plan] 正文 JSON 截断（${
+          planJson ? `碎片 keys=[${Object.keys(planJson).slice(0, 5).join(",")}]` : "无对象"
+        }），截断抢救还原外层且 types 完整，继续流水线`,
+      )
+      const planValue = assemblePlan(recovered)
+      logAgentParsed(planRes.childSessionId, { ...planValue, recoveredFromTruncation: true })
+      return planValue
+    }
+  }
   if (!planJson) {
     console.error(`[scene_3d_plan] extractJson 失败。text.length=${planRes.text.length}`)
     console.error(`[scene_3d_plan] 输出前 2000 字符:\n`, planRes.text.slice(0, 2000))

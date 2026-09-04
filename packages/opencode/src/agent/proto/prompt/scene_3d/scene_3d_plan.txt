@@ -78,3 +78,4 @@ Field descriptions:
 3. **组件名必须来自上方组件目录**：不得臆造组件名。native / model 实现的 components 为空数组。
 4. **资源 src 格式**：`asset:<id>`（内置资产）或 `hunyuan:prompt=<中文描述>`（混元生成）。`asset:<id>` 的 `<id>` 必须来自 `[可用资产清单]` 真实条目，不得臆造。
 5. **modify 时**：types 含被重写的 type（purpose 注明重写原因）+ 新增 type；**未受影响的 type 不列入**（codegen 会从 CURRENT_HANDLERS / CURRENT_LIVE_DATA 继承它们）。
+6. **types 优先完整输出**：`types` 是存活关键字段（缺一个 type 会导致场景丢物体），务必在 `scene_description` 之后**最先、完整**写出、恰好覆盖 [分诊 type 清单] 的全部 create+modify type。`camera` / `lights` / `scene` 放在 `types` 之后最后写（若输出被流式中断，优先保住 `types` 完整，环境字段可缺省）。

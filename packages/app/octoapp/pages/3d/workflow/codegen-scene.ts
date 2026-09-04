@@ -7,7 +7,7 @@
  *     → parseCodeFiles + extractSceneData
  *     → onCodeReady（onCodeVersionReady 物化 workspace + 启 51857 + iframe 重载 + SCENE_UPDATE 推分组）
  *
- * 替换旧 8-agent JSON 流水线（create-scene.ts / modify-scene-ai.ts 成孤儿保留，Step 8/9 清理）。
+ * 旧 8-agent JSON 流水线（create-scene.ts / modify-scene-ai.ts + 7 个 intent/planner/module agent）已全删（2026-09-04）。
  * 全砍暂停点（intent_confirm / 线框审查）：NL→triage→plan→codegen→预览，代码先行。
  *
  * 发送层渐进迁移：pendingPreviewData 存分组 TreeScene（onCodeVersionReady 回填），不碰 14 个平铺 SceneConfig 文件。
@@ -22,7 +22,7 @@ import { getDesktopApi } from "../utils/desktop-api"
 import { workspaceDir, materialize } from "../utils/workspace"
 import { extractPatchCandidates, looksLikeScalarChange, type PatchCandidate } from "./patch-resolver"
 import { patchScene, type PatchOp } from "./patch-scene"
-import type { SceneCreateInput } from "./create-scene"
+import type { SceneCreateInput } from "./scene-create-input"
 import type { GateFinding, GateResult } from "../utils/scene-gate"
 
 const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])

@@ -18,9 +18,6 @@ import { tracker } from "@/utils/tracker"
 import { AttachmentBar, type Attachment } from "./attachment-bar"
 import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
-import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
-import type { IntentConfirmResult } from "../../agents/scene-intent-confirm"
-import type { PatternMatchItem } from "../../utils/scene-resource"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
 import { ChartInput, type ChartInputProps } from "./chart-input"
@@ -41,10 +38,6 @@ function RoundCard(props: {
   errorAgent?: string
   errorCallId?: string
   errorDescription?: string
-  needsConfirm: boolean
-  confirmText?: { title: string; subtitle: string } | null
-  pauseMs: number
-  pauseStartedAt?: number
   onRetry?: () => void
   elapsedText?: string
   blockTime?: number
@@ -55,8 +48,8 @@ function RoundCard(props: {
   onRetryTimeout?: () => void
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
-  const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
-  const done = () => !isLatest() || (!props.pipelineBusy && !props.needsConfirm)
+  const generating = () => isLatest() && props.pipelineBusy
+  const done = () => !isLatest() || !props.pipelineBusy
   const cancelled = () => !props.error && done() && (props.cancelled || (isLatest() && props.endTime === undefined))
   // 阻塞渐进式阈值（3D 适配：codegen 慢，120s 灰/300s 橙+中止，make 是 60/180）
   const blockWarn = () => (props.blockTime ?? 0) >= 120
@@ -72,8 +65,6 @@ function RoundCard(props: {
         errorAgent={props.errorAgent}
         errorCallId={props.errorCallId}
         errorDescription={props.errorDescription}
-        needsConfirm={props.needsConfirm}
-        confirmText={props.confirmText}
         onRetry={props.onRetry}
       />
       {/* 执行计时 —— 仅最新轮生成中显示（镜像 make insight-turn.tsx:1366） */}
@@ -132,8 +123,8 @@ function RoundCard(props: {
           </div>
         </div>
       </Show>
-      <Show when={done() || generating() || props.needsConfirm}>
-        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={props.pauseMs} pauseStartedAt={props.pauseStartedAt} />
+      <Show when={done() || generating()}>
+        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={0} />
       </Show>
     </>
   )
@@ -182,31 +173,12 @@ export function ChatPanel(props: {
   onRetryTimeout?: () => void
   /** 按轮分组的消息 */
   roundMessages: Round[]
-  needsConfirm: boolean
-  confirmText: { title: string; subtitle: string } | null
-  pauseMs: number
-  pauseStartedAt?: number
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件更新 */
   onTitleChanged: (title: string) => void
   /** 重试失败的 pipeline */
   onRetry?: () => void
-  intentConfirmResult?: IntentConfirmResult | null
-  /** block 模板匹配结果列表（用户选完维度后匹配出来的候选模板） */
-  blockMatches?: PatternMatchItem[]
-  /** 是否正在匹配 block 模板（loading 状态） */
-  blockMatching?: boolean
-  /** block 匹配是否出错（卡片内显示重试） */
-  blockMatchError?: boolean
-  /** 卡片初始步骤（恢复断点时直接跳到 blocks） */
-  initialStep?: "dimensions" | "blocks"
-  /** 3D 模式：跳过 block 模板选择步骤，维度确认后直接提交 */
-  skipBlocks?: boolean
-  /** 用户点「匹配pattern」时触发，传入维度确认后的 enrichedInput */
-  onMatchPattern?: (enrichedInput: string) => void
-  /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
-  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -430,10 +402,6 @@ export function ChatPanel(props: {
                           errorAgent={round().errorAgent}
                           errorCallId={round().errorCallId}
                           errorDescription={round().errorDescription}
-                          needsConfirm={props.needsConfirm}
-                          confirmText={props.confirmText}
-                          pauseMs={props.pauseMs}
-                          pauseStartedAt={props.pauseStartedAt}
                           onRetry={props.onRetry}
                           elapsedText={props.elapsedText}
                           blockTime={props.blockTime}
@@ -455,21 +423,6 @@ export function ChatPanel(props: {
           <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
           <ChartInput {...props.inputProps} rows={3} />
         </div>
-
-        <Show when={props.intentConfirmResult && props.onConfirmIntent}>
-          <div class="ic-card-overlay">
-            <IntentConfirmCard
-              result={props.intentConfirmResult!}
-              blockMatches={props.blockMatches ?? []}
-              blockMatching={props.blockMatching ?? false}
-              blockMatchError={props.blockMatchError ?? false}
-              initialStep={props.initialStep}
-              skipBlocks={props.skipBlocks}
-              onMatchPattern={props.onMatchPattern!}
-              onConfirm={props.onConfirmIntent!}
-            />
-          </div>
-        </Show>
       </Show>
     </div>
   )

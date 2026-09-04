@@ -72,9 +72,9 @@ export function mergeSceneObjects(
 
   // 3. 保留旧物体：只保留 operation==="none" 的分区旧物体。
   //    none：分区未变动，无 agent 重生成，原样保留其旧物体。
-  //    modify：分区有改动，module_modify 按契约返回该分区【完整】物体清单（含未改动的原物体，
-  //           见 scene_3d_module_modify.txt "输出完整的该分区全部物体"）。旧物体会被 module 输出整体替换 ——
-  //           若再保留旧物，被删除的物体会从旧集复活（删除失效，且改名物体会重复）。故 modify 分区旧物体一律不保留。
+  //    modify：分区有改动，按契约返回该分区【完整】物体清单（含未改动的原物体）。旧物体会被
+  //           新输出整体替换 —— 若再保留旧物，被删除的物体会从旧集复活（删除失效，且改名物体会重复）。
+  //           故 modify 分区旧物体一律不保留。（契约出自旧 module_modify 流，语义延续至今。）
   //    create：新分区，无旧物体。
   //    归属判断：沿 parentId 链向上查找，直到命中某 slot.element_id，取其 operation。
   //    （孙物体 parentId 指向子 group，非 element_id 本身，需递归向上找分区根。）

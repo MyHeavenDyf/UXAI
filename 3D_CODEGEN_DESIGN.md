@@ -261,7 +261,7 @@ Step 9 拆 **9a（确定性结构健全性门控，零模型依赖）** + **9b�
 
 - **Step 8 🔄 进行中（①✅ 落地+验证，②③⬜ 待做）**：照抄 make 加速模式 ①②③，**不照抄④单 agent 直出**。
 
-  **① ✅ 已落地+验证（plan 工具改静态注入）**：`3d_components_docs.ts` 加 `formatCatalog()`（精简目录：name+summary+构造+Options+DataTypes，跳过 methods/examples/properties 省 token）；预烘 `prompt/stastics/COMPONENT_CATALOG.txt`（11889 字符/10 组件）；`proto/index.ts` 静态 import + 注册 `_staticData`；`scene_3d_plan.txt` 删 `# Tools` 工具段改 `{COMPONENT_CATALOG}` 注入（4 处引用改"上方组件目录"）；`agent.ts` plan permission `*:deny`（删 list_3d_components/get_3d_component_doc/read allow）；`script/gen-component-catalog.ts` + `npm run gen:component-catalog` 重跑入口。**关键发现**：运行时烘（method A，proto import 时调 formatCatalog）有**循环依赖 TDZ**——`3d_components_docs`→`Tool`→`proto`→`formatCatalog`→`loadDocs`→`docCache` 在 `let` 初始化前被访问。改预烘 .txt（method B，同 `HANDLER_CONTRACT` 模式）规避：proto 只静态 import .txt 不调函数，无环。**验证**：tsgo EXIT=0 + gen 脚本可重跑 + 端到端 `PROMPT_SCENE_3D_PLAN` 含目录（16308 字符）、无 `{COMPONENT_CATALOG}` 占位符残留、无 `list_3d_components` 工具引用残留。**运行时验证通过（效果远超预期）**：机房场景 11:35→7s（plan 从 3-7 轮工具往返→1 轮直出 JSON，之前 11:35 基本全耗在 plan 工具往返上）、热力图 1:30。**瓶颈转移**：① 后主瓶颈从 plan 转到 codegen（64000 token 串行输出，热力图 90s 大头是 codegen 而非 plan/triage/session）。
+  **① ✅ 已落地+验证（plan 工具改静态注入）**：`3d_components_docs.ts` 加 `formatCatalog()`（精简目录：name+summary+构造+Options+DataTypes，跳过 methods/examples/properties 省 token）；预烘 `prompt/scene_3d/stastics/COMPONENT_CATALOG.txt`（11889 字符/10 组件，2026-09-04 起 3D 片段统一迁入 scene_3d/stastics/）；`proto/index.ts` 静态 import + 注册 `_staticData`；`scene_3d_plan.txt` 删 `# Tools` 工具段改 `{COMPONENT_CATALOG}` 注入（4 处引用改"上方组件目录"）；`agent.ts` plan permission `*:deny`（删 list_3d_components/get_3d_component_doc/read allow）；`script/gen-component-catalog.ts` + `npm run gen:component-catalog` 重跑入口。**关键发现**：运行时烘（method A，proto import 时调 formatCatalog）有**循环依赖 TDZ**——`3d_components_docs`→`Tool`→`proto`→`formatCatalog`→`loadDocs`→`docCache` 在 `let` 初始化前被访问。改预烘 .txt（method B，同 `HANDLER_CONTRACT` 模式）规避：proto 只静态 import .txt 不调函数，无环。**验证**：tsgo EXIT=0 + gen 脚本可重跑 + 端到端 `PROMPT_SCENE_3D_PLAN` 含目录（16308 字符）、无 `{COMPONENT_CATALOG}` 占位符残留、无 `list_3d_components` 工具引用残留。**运行时验证通过（效果远超预期）**：机房场景 11:35→7s（plan 从 3-7 轮工具往返→1 轮直出 JSON，之前 11:35 基本全耗在 plan 工具往返上）、热力图 1:30。**瓶颈转移**：① 后主瓶颈从 plan 转到 codegen（64000 token 串行输出，热力图 90s 大头是 codegen 而非 plan/triage/session）。
 
   **②③ 暂缓决策（2026-08-19）**：②（合并 triage+plan，省 ~5-15s）+ ③（runChildSession 流式，省 ~10-15s 体感）合计对热力图 90s 省 ~20-30s，但都不碰 codegen（真瓶颈）；③ 动 session 消费层（之前出过竞态，见 3d-first-create-blank-race）有风险。① 已把"不可用"变"可用"（机房 695s→7s）。**下一步转 Step 9 门控循环**（tsc/运行时门控 + 截图 + VLM 打分 + refine）——提质量 + 为 codegen 激进优化（换非 reasoning 模型 / 并行分 type，见分析「九」）铺路。②③ 是独立改动，随时"继续第 8 步"捡回：Step 9 后若实测 triage/session 成新瓶颈再做。
 
@@ -287,7 +287,7 @@ Step 9 拆 **9a（确定性结构健全性门控，零模型依赖）** + **9b�
 4. **3d-components 既有 TS 错误**：~~24 个 noUnusedLocals 错误挡 `npm run build`~~ **已修（Step 6 期间）**：8 个文件 TS6133/18047/2345/2532 修复，`vue-tsc -b --force` 0 错误。
 5. **包名统一**：~~libraryBridge 用 `@cyc/3d-components`（dev alias）~~ **更正**：libraryBridge 实际 import `@a3d/a3d-components`（库真名，见 `libraryBridge.ts:18-20`），vite.config alias 亦是 `@a3d/a3d-components`（非 @cyc）；@cyc 是早期设想的死名、无任何代码用。Step 10 导出统一用 `@a3d/a3d-components`（vendor package.json 原名，无需改名）。
 6. **handler 代码化后卡片 / 选区 / 增量更新接线**：CardHost / CardManager / SelectionService / `handle.update` 走 Embed + createScene3D 路径，handler 要支持这些需在 manager/handler 层接线（CodeScene 砍掉后不涉及）。属性编辑持久化见第十三节。
-7. 老 8-agent JSON 流水线（`create-scene.ts`/`modify-scene-ai.ts`/`merge.ts` 等 14 个平铺 SceneConfig 文件）在 Step 7 后**已成孤儿**——handleSubmit 不再调用它们，改走 `codegen-scene.ts` 3-agent 流。保留不删（Step 8/9 清理）；TriageResult 的 delete/add/modify 字段留空数组供 `modify-scene-ai.ts` 孤儿不崩。
+7. ~~老 8-agent JSON 流水线在 Step 7 后已成孤儿，保留不删（Step 8/9 清理）~~ **已全清（2026-09-04）**：`create-scene.ts`/`modify-scene-ai.ts`/`module-retry.ts` + 7 个 app agent 目录（scene-intent*/scene-planner-*/scene-module-*）+ 7 个 opencode 模板（scene_3d_intent*/planner_*/module_*）+ 死片段 SCENE_CONFIG_SCHEMA/MESH_GEOMETRY_CATALOG + 死 UI（IntentConfirmReview/SceneWireframeReview/intent-confirm-card）全删；opencode agent.ts 只注册 triage/plan/codegen 三员；TriageResult legacy delete/add/modify 字段连同 TriageModifyItem 等类型一并删除（唯一消费者 modify-scene-ai.ts 已不在）。唯一保留的孤儿消费方：`merge.ts` 的 mergeSceneObjects（version-history.ts 仍用）。检查点统一只认 stage=codegen（旧 stage 读到按无可恢复处理）。
 8. **workspace 机制**：~~未落地~~ **已落地（Step 6 ✅ 运行时验证通过）**：模板拷贝 / 全局 workspace 物化（node_modules junction + vite.config 别名重写）/ 版本 code 归档 / 切版本覆盖+重启 dev 均已实现并运行时验证（51857 起 + mock 渲染）。LLM 生成路径 Step 7 起改写 workspace（onCodeVersionReady hook 已 stub）。
 9. **adm-zip 的 zip 前提未验证（Step 5 遗留）**：middleware 用 adm-zip 解混元 `QueryHunyuanTo3DProJob` 返回的 `ResultFile3Ds[].Url`（设计阶段资料称是 .zip 内含 .glb），但"返回 zip"前提**未用真实密钥验证**——若实际直接返回 GLB，zip 分支永不执行、adm-zip 即冗余。adm-zip 带 2 个 dev-only high vuln（仅 vite dev middleware 用，不进前端 bundle/生产，输入受信 zip 非用户上传，风险极低）。**用户决定保留现状到验证后**：写 .env.local 真实密钥验证返回格式——若返 GLB 则删 adm-zip+zip 分支（最简）；若返 zip 则保留或换 `node:zlib`（注：zlib 单独不认 ZIP 容器，须配手写 ZIP 容器解析 ~35 行）。`extractGlbFromBuffer` 已用 magic bytes 兼容 GLB/zip 两种。
 
@@ -455,7 +455,7 @@ const SUB_OVERRIDES: Record<string, { transform?: { position?: number[]; rotatio
 ### 11. 落地清单（按仓库，文件级，先不写代码）
 
 **codegen 契约（opencode）**：
-- `prompt/stastics/HANDLER_CONTRACT.txt` + `prompt/scene_3d/scene_3d_codegen.txt`：handler 须 a) 材质以可定位字面量 / config 声明；b) GLB 实例每实例 `material.clone()` 独立；c) 循环建子物带 `__id=${node.id}-${子类型}-${索引}`（严守，非确定 handler 漂移责任自负）；d) 一个空 `SUB_OVERRIDES: Record<string,{transform?,material?}> = {}` 骨架 + 循环查表 apply；e) 可变数量/尺寸进 `params` + 实现 `update()` 重读 + 声明 `dataSchema`（数据驱动，杠杆）。
+- `prompt/scene_3d/stastics/HANDLER_CONTRACT.txt` + `prompt/scene_3d/scene_3d_codegen.txt`：handler 须 a) 材质以可定位字面量 / config 声明；b) GLB 实例每实例 `material.clone()` 独立；c) 循环建子物带 `__id=${node.id}-${子类型}-${索引}`（严守，非确定 handler 漂移责任自负）；d) 一个空 `SUB_OVERRIDES: Record<string,{transform?,material?}> = {}` 骨架 + 循环查表 apply；e) 可变数量/尺寸进 `params` + 实现 `update()` 重读 + 声明 `dataSchema`（数据驱动，杠杆）。
 - `prompt/scene_3d/scene_3d_plan.txt` + `scene_3d_triage`：modify 产操作清单（`op/target/field/value`），Tier 路由到 A 层（数据）或 B 层（代码）；scoped codegen 只输出受影响 type。
 
 **确定性 patch 工具（UXAI 新增 `utils/patch-handler.ts`）**：给定 (handler 源码, 目标 `__id`/type, `MaterialConfig`/transform, 批量|per-instance) → 定位材质字面量 / override Map / 循环 / params → 改或加项 → 返回新源码。不走 LLM。
@@ -632,9 +632,9 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 
 **硬上限（做多少阶段都到不了 100%）**：① LLM 判定层（triage 仍可能选错 op / __id / type，有 schema 校验挡臆造 + `forcePatch` 兜底再问，但语义匹配错时仍 fallback）；② 结构性操作（新主题 / 贴图 / 新物体类型）本就该 codegen 重建，不属 patch。
 
-## 十四、待办清单（P0→P5，完成一项打勾）
+## 十四、修复史归档（原待办清单，已完成项的根因/修法取证）
 
-> 机制：完成一项告知 Claude，他把 `- [ ]` 改 `- [x]`。来源 §九/§十/§13.14 + memory + 实证 `ses_faa391560ffea3`。最后更新 2026-09-02（+P1.5）。
+> **⚠️ 活跃待办已迁出**（2026-09-04，本节 checkbox 不再维护）：还没做的 16 项唯一权威清单看 [3D_TODO.md](3D_TODO.md)（按优先级分梯队，带用例引用）。本节只作归档——P0.1~P0.10 / P1 G1G2 / P1.1~P1.5 / P6-2~3 全系已修+已验的取证记录。
 
 ### P0 — e2e 验证（2026-08-31 首跑 §十五，结果已标注）
 - [x] 1. M-3① 灯调亮→set_light（不闪不丢编辑态）✅
@@ -835,25 +835,25 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 > **可行性已验证（2026-09-02）**：registry 全仓零真实消费方（buildings.ts 一处调用 + barrel 导出 + 注释，无 JSON loader 接线）；host 侧 ensureApplyOverride 手术匹配 `objVar.userData.__id` **变量赋值形态**不匹配组件调用形态（`const wall = new Wall(...)` 照常命中）、isFallbackPartId 匹配 part-N 命名、`__componentName` UXAI 零读取——**host 业务逻辑零改动**，UXAI 只改 prompt 文本 + 注入格式。
 
 **前置（3d-components 仓）**
-- [ ] U1. gen 脚本删 `CREATABLE_DOMAINS`（有 import tag 即进 catalog）
-- [ ] U2. HeatMap / MeshReflectorMaterial 文档页补 import tag + 重跑 gen（catalog 覆盖全部公开组件）
+- [x] U1. ✅ gen 脚本删 `CREATABLE_DOMAINS`（有 import tag 即进 catalog，不限制域）
+- [x] U2. ✅ HeatMap / MeshReflectorMaterial 文档页补 import tag + 重跑 gen（catalog 11→13 个组件，覆盖全部公开组件）
 
 **3d-templete（5 处）**
-- [ ] U3. components/index.ts 全域 re-export（`export * from '@a3d/a3d-components/{core,heat,material}'`，17 名零冲突已核）
-- [ ] U4. libraryBridge.ts 整删（registry / createComponentObject / POSITIONAL_CTORS / initLibraryBridge）
-- [ ] U5. 3d/index.ts:70 删 bridge re-export 行
-- [ ] U6. buildings.ts `createComponentObject('Wall')` → `new Wall({ path })`
-- [ ] U7. createScene3D.ts setupUpdatables 改 traverse 探测 `typeof obj.update === 'function'`（直接 new 的 IUpdatable 组件如 Html 也自动进渲染循环）
+- [x] U3. ✅ components/index.ts 全域 barrel re-export（`export * from '@a3d/a3d-components/{core,heat,material}'`，vue-tsc 0 error）
+- [x] U4. ✅ libraryBridge.ts 整删（registry / createComponentObject / POSITIONAL_CTORS / initLibraryBridge）
+- [x] U5. ✅ 3d/index.ts 删 bridge re-export（第 69-71 行显式列名 4 个）
+- [x] U6. ✅ buildings.ts `createComponentObject('Wall')` → `new Wall({ path })`（try/catch 回落原生）
+- [x] U7. ✅ createScene3D.ts setupUpdatables 改 traverse 探测 `typeof obj.update === 'function'`（不靠 `__updatable` 标记，直接 new 的 IUpdatable 组件自动进渲染循环）
 
 **UXAI（3 文件，零逻辑代码）**
-- [ ] U8. scene_3d_codegen.txt 5 处（行 10/25/130/133/138）「黑盒按名创建」→「import 类 + new，照 catalog constructor/extends/examples」
-- [ ] U9. HANDLER_CONTRACT.txt 4 处（行 89/91-92/110/133）示例与规则的工厂调用改 new 形态
-- [ ] U10. 3d_components_docs.ts formatCatalog **加 extends 行**（LLM 靠它判挂载方式：Mesh/Group→group.add、Material→mesh.material=，现精简目录无此字段）+ formatDoc import 行改 barrel 实际写法（现显示 `@a3d/a3d-components/core` 与 handler 写法不符有误导）；agent.ts:639 注释顺手
+- [x] U8. ✅ scene_3d_codegen.txt 4 处「黑盒按名创建」→「import 类 + new，照 catalog constructor/extends」
+- [x] U9. ✅ HANDLER_CONTRACT.txt 4 处（行 89/91-92/110/133）示例与规则的工厂调用改 new 形态
+- [x] U10. ✅ 3d_components_docs.ts formatCatalog **加 extends 行**（LLM 靠它判挂载方式：Mesh/Group→group.add、Material→mesh.material=）+ formatDoc import 行改 barrel 实际写法（`import { 类名 } from '../../../../components'`）
 
 **风险验证**
-- [ ] U11. vue-tsc：`export *` 拉 @a3d 类型进检查面（@types/three 双版本已知坑，M-1a 曾遇）冒错 → barrel 改显式列名导出（17 名）
-- [ ] U12. 存量版本 handler 扫描：版本目录有无 createComponentObject 调用（有→旧版回切 vite 崩，需评估存量迁移/过渡保留）
-- [ ] U13. e2e：TC-24 组（3D_E2E_TESTCASES.md Phase 9 / §十五 TC-H）
+- [x] U11. ✅ vue-tsc `export *` 拉 @a3d 类型进检查面 → EXIT=0 无冲突（不需退显式列名）
+- [x] U12. ✅ 存量版本扫描：20 个历史 handler 含 `createComponentObject` 调用——用户定调「不管旧版」，删工厂后旧版回切 vite 崩但不影响新生成
+- [ ] U13. e2e：TC-24 组（3D_E2E_TESTCASES.md Phase 9 / §十五 TC-H）— 重启 opencode 后生成场景验证组件直接 new 正常
 
 ### P2 — Phase R 代码结构重构（e2e 绿后，纯结构，S/L 前提，§13.14）
 - [ ] R1-R7 拆 7 个 app 级单例 Manager（renderer/scene/environment/camera/light/controls/renderLoop）
@@ -874,7 +874,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [ ] M-4 数据驱动 handler（数量/尺寸进 params，**根治 modify 保真 G1/G2 + 加删实例丢物体**，大工程）
 - [ ] 9b VLM 审美评审
 - [ ] 混元真实密钥验证
-- [ ] 孤儿 8-agent 清理
+- [x] 孤儿 8-agent 清理 ✅ 已落地（2026-09-04）：7 opencode 模板+7 注册、7 app agent 目录、create-scene/modify-scene-ai/module-retry、死 UI 三件、死片段 2、TriageResult legacy 字段全删；检查点统一 codegen stage。tsgo 双包 0 错 + oxlint 0 error。e2e 待跑（重启 opencode→create/modify/patch/切历史/重试无断点 toast）
 
 ### P6 — 性能优化（2026-09-03 定案；P6-2/P6-3 已落地，P6-1/P6-4/P6-5 后续再做）
 
@@ -931,7 +931,8 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
   - 关联：P5 Step8③
 
 ### 贯穿
-- [ ] 三仓改动 commit（e2e 绿后，dev_cyc1）
+- [ ] 三仓改动 commit（e2e 绿后，dev_cyc1；当前堆着：P1.5 + 全清 + P0.4~P0.10 已验项）
+- [ ] 打包 exe e2e（`release.ts --win --channel dev` → exe 内 3D 全链路，TC-36；2026-09-04 漏账补录，memory [[3d-package-exe]] 落地后一直未验）
 
 ### 不数据驱动边界（设计决策，非待办）
 - 构造期 only 参数（antialias/precision）→ 重生成

@@ -4,7 +4,6 @@
 ```ts
 import { componentManager, type ComponentHandler } from '../ComponentManager';
 import { sharedState } from './base/shared';
-import { registerAllComponents } from '../../../components';
 import { buildingsHandler } from './buildings/buildings';
 import { roadsHandler } from './roads/roads';
 import { waterHandler } from './water/water';
@@ -28,7 +27,6 @@ const typeHandlers: Array<{ type: string; handler: ComponentHandler }> = [
 ];
 
 export const registerComponentHandlers = (): void => {
-  registerAllComponents();
   componentManager.registerHandlers(typeHandlers);
 };
 
@@ -43,5 +41,5 @@ export const disposeComponentHandlers = (): void => {
 3. **modify 重写时**：被重写的 type 的 import 行指向同路径（内容已覆盖），typeHandlers 注册行不变；新增 type 追加；**未受影响的 type 原样保留**（其 handler 文件未改，import 行不变）。
 4. **handler 命名**：导出名 = `<type>Handler`（camelCase，如 heatmap → heatmapHandler、fountain → fountainHandler）。
 5. **文件路径**：handler 文件 = `handlers/<type>/<type>.ts`，导出名 `<type>Handler`，index.ts import 路径 `./<type>/<type>`。
-6. **registerAllComponents() / disposeComponentHandlers() 原样保留**：前者注册 3d-components 底层组件表，后者释放共享状态。
+6. **registerComponentHandlers() / disposeComponentHandlers() 原样保留**：前者只做 `componentManager.registerHandlers(typeHandlers)` 业务注册，后者释放共享状态。组件（Wall/Grid/HeatMap 等）由各 handler 直接 `import { 类 } from ...components` + `new 类(opts)`，**无工厂注册步骤**。
 7. **禁止 Node 专属 API / CJS shim**：代码跑在浏览器 vite，严禁 `import ... from 'node:module'`、`createRequire`、`require()`、`import.meta.filename`、`import.meta.dirname`、`__dirname`、`__filename`、`process.*`。只允许 ESM `import`。index.ts 必须是上面模板的**精确副本**——只加 import 行 + 注册行，不得加任何其他代码（无 CJS shim、无变量声明、无 helper）。

@@ -9,7 +9,7 @@
  */
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
-import type { SceneCreateInput } from "../../workflow/create-scene"
+import type { SceneCreateInput } from "../../workflow/scene-create-input"
 import type { PlanResult } from "../scene-plan"
 import { formatGateFindingsForCodegen, type GateFinding } from "../../utils/scene-gate"
 import { formatSyntaxErrorsForCodegen, type SyntaxError } from "../../utils/parse-check"
