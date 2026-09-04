@@ -323,7 +323,7 @@ export default function StudioPage() {
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(true)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
@@ -1833,8 +1833,11 @@ export default function StudioPage() {
       }
     }
     if (prevIsSeedream && !nextIsSeedream) {
-      seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
-      setPrompt("")
+      const hasMentions = Object.keys(seedreamInputApi.serializeMentionImages()).length > 0
+      if (hasMentions) {
+        seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
+        setPrompt("")
+      }
     }
     setStyleModel(value)
     if (!prevIsSeedream && nextIsSeedream && seedreamAtSnapshot) {
