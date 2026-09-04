@@ -1,17 +1,13 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import {
+  STUDIO_STYLE_TEMPLATE_DIMENSIONS,
+  type StudioStyleDimensionId,
+  type StudioTemplateStyleDescription,
+} from "./studio-style-template-utils"
+
+export type { StudioStyleDimensionId, StudioTemplateStyleDescription } from "./studio-style-template-utils"
 
 export type StudioCanvasView = "canvas" | "file-manager" | "template-creator"
-export type StudioStyleDimensionId =
-  | "tonal"
-  | "composition"
-  | "volume"
-  | "surface"
-  | "color"
-  | "linework"
-  | "shape_structure"
-  | "role_design"
-  | "lettering"
-  | "post_processing"
 export type TemplateUploadImage = {
   url: string
 }
@@ -51,10 +47,6 @@ type TemplateCreatorSelectOption<T extends string> = {
   value: T
   label: string
 }
-type StudioTemplateStyleDescription = {
-  overview: string
-} & Partial<Record<StudioStyleDimensionId, string>>
-
 type StudioTemplatePublishBaseInput = {
   allowed_user_ids: string | null
   creator_user_id?: string
@@ -108,59 +100,7 @@ const REFERENCE_COUNT_OPTIONS = [
   { value: "3", label: "3" },
 ] satisfies TemplateCreatorSelectOption<`${ReferenceCount}`>[]
 
-const STYLE_DIMENSIONS = [
-  {
-    id: "tonal",
-    label: "明暗",
-    placeholder: "描述图片的明暗特征，包括整体亮度倾向、对比范围、层次丰富程度。",
-  },
-  {
-    id: "composition",
-    label: "构图",
-    placeholder: "描述图片的构图特征，包括透视类型、背景处理方式、负空间、景深、视觉层级，以及画面的整体节奏感。",
-  },
-  {
-    id: "volume",
-    label: "体积感",
-    placeholder: "描述图片的形体立体感，包括物体表面的过渡方式、过渡的边缘特征，以及形体边界的质量。",
-  },
-  {
-    id: "surface",
-    label: "表面质感",
-    placeholder: "描述图片中物体的表面属性，包括质感、纹理特征、细节密度、工艺痕迹",
-  },
-  {
-    id: "color",
-    label: "色彩",
-    placeholder: "描述图片的色彩系统，包括主导色、背景色、饱和度分布、点缀色",
-  },
-  {
-    id: "linework",
-    label: "线条",
-    placeholder: "描述线条与笔触特征",
-  },
-  {
-    id: "shape_structure",
-    label: "造型特征",
-    placeholder: "描述形状语言与造型构造",
-  },
-  {
-    id: "role_design",
-    label: "角色形象",
-    placeholder: "描述角色或生物的造型设计，包括人物比例特征以及整体形态语言风格",
-  },
-  {
-    id: "lettering",
-    label: "字体",
-    placeholder: "描述文字或者字体设计",
-  },
-  {
-    id: "post_processing",
-    label: "后期效果",
-    placeholder: "描述后期处理效果",
-  },
-] satisfies { id: StudioStyleDimensionId; label: string; placeholder: string }[]
-
+const STYLE_DIMENSIONS = STUDIO_STYLE_TEMPLATE_DIMENSIONS
 const DEFAULT_STYLE_DIMENSIONS: StudioStyleDimensionId[] = ["tonal", "composition", "volume", "surface"]
 const STYLE_DESCRIPTION_FIELDS = new Set<StyleDescriptionStreamField>(["overview", ...STYLE_DIMENSIONS.map((dimension) => dimension.id)])
 

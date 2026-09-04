@@ -69,7 +69,14 @@ import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
 import type { StudioStyleTemplateListInput, StudioStyleTemplateListItem, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
-import { styleTemplateFinalPrompt, styleTemplatePromptPayload, styleTemplateTargetModel } from "./studio/studio-style-template-utils"
+import {
+  STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS,
+  styleTemplateFinalPrompt,
+  styleTemplatePromptPayload,
+  styleTemplateTargetModel,
+  type StudioStyleDescriptionFieldId,
+  type StudioTemplateStyleDescription,
+} from "./studio/studio-style-template-utils"
 import type {
   StudioCanvasView,
   StudioStyleDescriptionGenerateHandlers,
@@ -385,6 +392,8 @@ export default function StudioPage() {
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<StudioComposerMenu>(null)
   const [selectedStyleTemplate, setSelectedStyleTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [styleTemplateEditorOpen, setStyleTemplateEditorOpen] = createSignal(false)
+  const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
@@ -1538,6 +1547,22 @@ export default function StudioPage() {
     if (template.reference_image_setting === "fixed" && assets().length !== template.reference_image_count) return `请上传 ${template.reference_image_count} 张参考图。`
     if (template.reference_image_setting === "optional" && assets().length > template.reference_image_count) return `最多上传 ${template.reference_image_count} 张参考图。`
   })
+  function updateStyleTemplateDescriptionDraft(field: StudioStyleDescriptionFieldId, value: string) {
+    setStyleTemplateDescriptionDraft((current) => ({
+      overview: current?.overview ?? "",
+      ...(current ?? {}),
+      [field]: value,
+    }))
+  }
+  function restoreStyleTemplateDescriptionDraft(field: StudioStyleDescriptionFieldId) {
+    const template = selectedStyleTemplate()
+    if (template?.template_type !== "extract_style") return
+    setStyleTemplateDescriptionDraft((current) => ({
+      overview: current?.overview ?? template.style_description.overview ?? "",
+      ...(current ?? {}),
+      [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
+    }))
+  }
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -1965,6 +1990,8 @@ export default function StudioPage() {
     setStyleModel(value)
     if (shouldClearStyleTemplate) {
       setSelectedStyleTemplate(undefined)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(undefined)
       setPrompt("")
       setRecipeMainPrompt("")
       setRecipeExtraPrompt("")
@@ -1985,6 +2012,8 @@ export default function StudioPage() {
     seedreamAtSnapshot = undefined
     batch(() => {
       setSelectedStyleTemplate(template)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(styleTemplateDescriptionFromTemplate(template))
       setCapability("image.generate")
       setRecipeMainPrompt("")
       setRecipeExtraPrompt("")
@@ -1997,6 +2026,8 @@ export default function StudioPage() {
   function clearStyleTemplate() {
     batch(() => {
       setSelectedStyleTemplate(undefined)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(undefined)
       setRecipeMainPrompt("")
       setRecipeExtraPrompt("")
     })
@@ -2432,6 +2463,8 @@ export default function StudioPage() {
     setMode("preview")
     setCapability("image.generate")
     setSelectedStyleTemplate(undefined)
+    setStyleTemplateEditorOpen(false)
+    setStyleTemplateDescriptionDraft(undefined)
     setRecipeMainPrompt("")
     setRecipeExtraPrompt("")
     setPrompt("")
@@ -2553,6 +2586,22 @@ export default function StudioPage() {
     const value = recordValue(templateUsageRecord(result), "prompt")
     if (!value || typeof value !== "object" || Array.isArray(value)) return {}
     return value as Record<string, unknown>
+  }
+
+  function styleTemplateDescriptionFromTemplate(template: StudioStyleTemplateListItem, promptRecord?: Record<string, unknown>) {
+    if (template.template_type !== "extract_style") return undefined
+    const originalDescription = template.style_description as Record<string, string | undefined>
+    return {
+      overview: stringValue(promptRecord, "overview") ?? originalDescription.overview ?? "",
+      ...Object.fromEntries(
+        STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS
+          .filter((field) => field.id !== "overview" && Object.prototype.hasOwnProperty.call(originalDescription, field.id))
+          .map((field) => [
+            field.id,
+            stringValue(promptRecord, field.id) ?? originalDescription[field.id] ?? "",
+          ]),
+      ),
+    } as StudioTemplateStyleDescription
   }
 
   function taskRequestRecord(result: StudioGenerationResult) {
@@ -2759,6 +2808,8 @@ export default function StudioPage() {
       setStudioWorkspaceOverlayOpen(false)
       setCapability("image.generate")
       setSelectedStyleTemplate(template)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(styleTemplateDescriptionFromTemplate(template, templatePrompt))
       setStyleModel(targetModel)
       setAspectRatio(draft.aspectRatio)
       if (draft.count) setCount(draft.count)
@@ -3625,7 +3676,10 @@ export default function StudioPage() {
       extraPrompt: recipeExtraPrompt().trim(),
       mainPrompt: recipeMainPrompt().trim(),
     }
-    const finalPrompt = styleTemplateFinalPrompt(template, templateInput).trim()
+    const effectiveTemplate = template.template_type === "extract_style"
+      ? { ...template, style_description: styleTemplateDescriptionDraft() ?? template.style_description }
+      : template
+    const finalPrompt = styleTemplateFinalPrompt(effectiveTemplate, templateInput).trim()
     if (!finalPrompt) return
     const displayPrompt = template.template_type === "preset_recipe"
       ? `${templateInput.mainPrompt}${templateInput.extraPrompt}`.trim() || template.title
@@ -3643,7 +3697,7 @@ export default function StudioPage() {
         skipPromptRefine: true,
         template: {
           id: template.idx,
-          prompt: styleTemplatePromptPayload(template, templateInput),
+          prompt: styleTemplatePromptPayload(effectiveTemplate, templateInput),
         },
       },
     })
@@ -4267,6 +4321,8 @@ export default function StudioPage() {
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   selectedStyleTemplate={selectedStyleTemplate()}
+                  styleTemplateEditorOpen={styleTemplateEditorOpen()}
+                  styleTemplateDescription={styleTemplateDescriptionDraft()}
                   recipeMainPrompt={recipeMainPrompt()}
                   recipeExtraPrompt={recipeExtraPrompt()}
                   wordBook={wordBook}
@@ -4287,6 +4343,9 @@ export default function StudioPage() {
                   onListStyleTemplates={listStudioStyleTemplates}
                   onSelectStyleTemplate={applyStyleTemplate}
                   onClearStyleTemplate={clearStyleTemplate}
+                  onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
+                  onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
+                  onRestoreStyleTemplateDescription={restoreStyleTemplateDescriptionDraft}
                   onRecipeMainPrompt={setRecipeMainPrompt}
                   onRecipeExtraPrompt={setRecipeExtraPrompt}
                   onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
@@ -4488,6 +4547,8 @@ if (!headerTitle.pendingRename) return
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             selectedStyleTemplate={selectedStyleTemplate()}
+            styleTemplateEditorOpen={styleTemplateEditorOpen()}
+            styleTemplateDescription={styleTemplateDescriptionDraft()}
             recipeMainPrompt={recipeMainPrompt()}
             recipeExtraPrompt={recipeExtraPrompt()}
             wordBook={wordBook}
@@ -4508,6 +4569,9 @@ if (!headerTitle.pendingRename) return
             onListStyleTemplates={listStudioStyleTemplates}
             onSelectStyleTemplate={applyStyleTemplate}
             onClearStyleTemplate={clearStyleTemplate}
+            onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
+            onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
+            onRestoreStyleTemplateDescription={restoreStyleTemplateDescriptionDraft}
             onRecipeMainPrompt={setRecipeMainPrompt}
             onRecipeExtraPrompt={setRecipeExtraPrompt}
             onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}

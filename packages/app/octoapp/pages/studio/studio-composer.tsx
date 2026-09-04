@@ -6,13 +6,19 @@ import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabil
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListItem, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
-import { splitStyleTemplatePlayDescription } from "./studio-style-template-utils"
+import {
+  STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS,
+  splitStyleTemplatePlayDescription,
+  type StudioStyleDescriptionFieldId,
+  type StudioTemplateStyleDescription,
+} from "./studio-style-template-utils"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
 const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
+type StudioExtractStyleTemplate = Extract<StudioStyleTemplateListItem, { template_type: "extract_style" }>
 
 export type StudioComposerMenu = "capability" | "style" | "settings" | "material" | "style-template" | null
 
@@ -51,6 +57,8 @@ export function StudioComposer(props: {
   openMenu: StudioComposerMenu
   canSubmit: boolean
   selectedStyleTemplate?: StudioStyleTemplateListItem
+  styleTemplateEditorOpen: boolean
+  styleTemplateDescription?: StudioTemplateStyleDescription
   recipeMainPrompt: string
   recipeExtraPrompt: string
   wordBook?: Resource<MaterialWordBook[]>
@@ -70,6 +78,9 @@ export function StudioComposer(props: {
   onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
   onSelectStyleTemplate?: (item: StudioStyleTemplateListItem) => void
   onClearStyleTemplate?: () => void
+  onStyleTemplateEditorOpen: (value: boolean) => void
+  onStyleTemplateDescription: (field: StudioStyleDescriptionFieldId, value: string) => void
+  onRestoreStyleTemplateDescription: (field: StudioStyleDescriptionFieldId) => void
   onRecipeMainPrompt: (value: string) => void
   onRecipeExtraPrompt: (value: string) => void
   onUnsupportedReferenceUpload?: () => void
@@ -111,6 +122,7 @@ export function StudioComposer(props: {
   const isSeedreamModel = createMemo(() => styleModelId(props.styleModel) === "seedream-5-lite")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isRecipeTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "preset_recipe")
+  const selectedExtractStyleTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "extract_style" ? props.selectedStyleTemplate : undefined)
   const isTemplatePromptDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.prompt_setting === "not_supported")
   const recipeTemplateParts = createMemo(() => (
     props.selectedStyleTemplate?.template_type === "preset_recipe"
@@ -119,6 +131,11 @@ export function StudioComposer(props: {
   ))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const toggleStyleTemplateEditor = () => {
+    props.onOpenMenu(null)
+    setMoreMenuOpen(false)
+    props.onStyleTemplateEditorOpen(!props.styleTemplateEditorOpen)
+  }
   onCleanup(() => {
     if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
   })
@@ -864,6 +881,15 @@ export function StudioComposer(props: {
           </div>
         )}
       </Show>
+      <Show when={selectedExtractStyleTemplate() && props.styleTemplateEditorOpen && props.styleTemplateDescription}>
+        <StyleTemplatePresetEditor
+          template={selectedExtractStyleTemplate()!}
+          value={props.styleTemplateDescription!}
+          onChange={props.onStyleTemplateDescription}
+          onRestore={props.onRestoreStyleTemplateDescription}
+          onClose={() => props.onStyleTemplateEditorOpen(false)}
+        />
+      </Show>
       <div
         class="studio-composer"
         classList={{ video: isVideoGeneration(), dragging: dragActive() }}
@@ -1139,8 +1165,14 @@ export function StudioComposer(props: {
                     <SelectedTemplateButton
                       active={props.openMenu === "style-template"}
                       disabled={isBusy()}
+                      editable={Boolean(selectedExtractStyleTemplate())}
+                      editorOpen={props.styleTemplateEditorOpen}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
+                      onClick={() => {
+                        props.onStyleTemplateEditorOpen(false)
+                        props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")
+                      }}
+                      onEdit={toggleStyleTemplateEditor}
                       onClear={props.onClearStyleTemplate}
                     />
                   </Show>
@@ -1258,7 +1290,13 @@ export function StudioComposer(props: {
                         <SelectedTemplateButton
                           active={props.openMenu === "style-template"}
                           disabled={isBusy()}
-                          onClick={() => props.onOpenMenu("style-template")}
+                          editable={Boolean(selectedExtractStyleTemplate())}
+                          editorOpen={props.styleTemplateEditorOpen}
+                          onClick={() => {
+                            props.onStyleTemplateEditorOpen(false)
+                            props.onOpenMenu("style-template")
+                          }}
+                          onEdit={toggleStyleTemplateEditor}
                           onClear={props.onClearStyleTemplate}
                         />
                       </div>
@@ -1463,7 +1501,16 @@ function ToolButton(props: { label: string; active?: boolean; disabled?: boolean
   )
 }
 
-function SelectedTemplateButton(props: { active?: boolean; disabled?: boolean; onClick: () => void; onPointerDown?: () => void; onClear?: () => void }): JSX.Element {
+function SelectedTemplateButton(props: {
+  active?: boolean
+  disabled?: boolean
+  editable?: boolean
+  editorOpen?: boolean
+  onClick: () => void
+  onPointerDown?: () => void
+  onEdit?: () => void
+  onClear?: () => void
+}): JSX.Element {
   return (
     <div
       role="button"
@@ -1480,7 +1527,20 @@ function SelectedTemplateButton(props: { active?: boolean; disabled?: boolean; o
       aria-disabled={props.disabled ? "true" : undefined}
     >
       <span class="studio-composer-template-applied-label">模版应用中</span>
-      <span class="studio-composer-template-applied-icon" aria-hidden="true" />
+      <Show when={props.editable}>
+        <button
+          type="button"
+          class="studio-composer-template-applied-icon"
+          classList={{ active: props.editorOpen }}
+          disabled={props.disabled}
+          aria-label="调整模板预设"
+          title="调整模板预设"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onEdit?.()
+          }}
+        />
+      </Show>
       <button
         type="button"
         class="studio-composer-template-applied-clear"
@@ -1492,6 +1552,81 @@ function SelectedTemplateButton(props: { active?: boolean; disabled?: boolean; o
           props.onClear?.()
         }}
       />
+    </div>
+  )
+}
+
+function StyleTemplatePresetEditor(props: {
+  template: StudioExtractStyleTemplate
+  value: StudioTemplateStyleDescription
+  onChange: (field: StudioStyleDescriptionFieldId, value: string) => void
+  onRestore: (field: StudioStyleDescriptionFieldId) => void
+  onClose: () => void
+}): JSX.Element {
+  const originalDescription = createMemo(() => props.template.style_description as Record<string, string | undefined>)
+  const fields = createMemo(() =>
+    STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(originalDescription(), field.id)),
+  )
+
+  return (
+    <div class="studio-composer-template-preset-editor">
+      <div class="studio-composer-template-preset-editor-head">
+        <div>
+          <div class="studio-composer-template-preset-editor-title">预设调整</div>
+          <div class="studio-composer-template-preset-editor-tip">提醒：此处对提示词进行的修改不会影响原始图片模板提示词</div>
+        </div>
+        <button
+          type="button"
+          class="studio-composer-template-preset-editor-close"
+          aria-label="关闭预设调整"
+          title="关闭预设调整"
+          onClick={props.onClose}
+        />
+      </div>
+      <div class="studio-composer-template-preset-editor-summary">
+        <Show
+          when={props.template.example_images?.[0]?.url}
+          fallback={<div class="studio-composer-template-preset-editor-cover placeholder" />}
+        >
+          {(src) => <img src={src()} alt="" class="studio-composer-template-preset-editor-cover" />}
+        </Show>
+        <div class="studio-composer-template-preset-editor-meta">
+          <div class="studio-composer-template-preset-editor-name">{props.template.title}</div>
+          <div class="studio-composer-template-preset-editor-usage">{props.template.usage_instructions}</div>
+        </div>
+      </div>
+      <ScrollView class="studio-composer-template-preset-editor-fields">
+        <div class="studio-composer-template-preset-editor-fields-inner">
+          <For each={fields()}>
+            {(field) => {
+              const currentValue = () => (props.value as Record<string, string | undefined>)[field.id] ?? ""
+              const originalValue = () => originalDescription()[field.id] ?? ""
+              const changed = () => currentValue() !== originalValue()
+              return (
+                <div class="studio-composer-template-preset-editor-field">
+                  <div class="studio-composer-template-preset-editor-field-head">
+                    <div class="studio-composer-template-preset-editor-field-label">{field.label}</div>
+                    <button
+                      type="button"
+                      class="studio-composer-template-preset-editor-restore"
+                      disabled={!changed()}
+                      onClick={() => props.onRestore(field.id)}
+                    >
+                      <span class="studio-composer-template-preset-editor-restore-icon" aria-hidden="true" />
+                      <span>还原</span>
+                    </button>
+                  </div>
+                  <textarea
+                    class="studio-composer-template-preset-editor-textarea"
+                    value={currentValue()}
+                    onInput={(event) => props.onChange(field.id, event.currentTarget.value)}
+                  />
+                </div>
+              )
+            }}
+          </For>
+        </div>
+      </ScrollView>
     </div>
   )
 }
