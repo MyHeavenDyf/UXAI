@@ -101,3 +101,18 @@ function handleClose() {
     </template>
   </ElDrawer>
 </template>
+<style lang="less">
+.el-drawer__header {
+  padding: 24px;
+  padding-bottom: 0;
+  margin-bottom: 16px;
+  font-size: 20px;
+  .el-icon.el-drawer__close {
+    font-size: 23px;
+  }
+}
+.el-drawer__body {
+  padding: 24px;
+  padding-top: 0;
+}
+</style>
