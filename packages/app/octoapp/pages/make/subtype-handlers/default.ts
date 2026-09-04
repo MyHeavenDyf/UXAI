@@ -1,9 +1,92 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
+import type { ModelEditConfig, ModelEditElement } from '../components/model-edit-items/types'
 import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 import JSZip from 'jszip'
+
+function flattenJsonValue(key: string, value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{')) return [`${key}: ${value}`]
+  try {
+    const obj = JSON.parse(trimmed)
+    const lines: string[] = []
+    for (const [subKey, subVal] of Object.entries(obj)) {
+      if (subVal !== '' && subVal !== null && subVal !== undefined) {
+        lines.push(`  ${subKey}: ${String(subVal)}`)
+      }
+    }
+    return lines
+  } catch {
+    return [`${key}: ${value}`]
+  }
+}
+
+function buildModelEditPrompt(
+  element: ModelEditElement,
+  prev: Record<string, string>,
+  current: Record<string, string>,
+  filePath: string,
+): string {
+  const lines: string[] = []
+  lines.push(`[文件路径: ${filePath}]`)
+  lines.push('')
+  lines.push('请修改以下元素:')
+  lines.push(`标签: <${element.tagName}>`)
+  if (element.className) lines.push(`类名: ${element.className}`)
+  lines.push(`选择器: ${element.selector}`)
+  lines.push(`当前HTML: ${element.htmlHint}`)
+  lines.push('')
+  const changes: string[] = []
+  for (const key of new Set([...Object.keys(prev), ...Object.keys(current)])) {
+    const before = prev[key] ?? ''
+    const after = current[key] ?? ''
+    if (before !== after) {
+      const beforeLines = flattenJsonValue(key, before)
+      const afterLines = flattenJsonValue(key, after)
+      if (beforeLines.length <= 1 && afterLines.length <= 1) {
+        changes.push(`  ${key}: ${before || '(empty)'} → ${after || '(empty)'}`)
+      } else {
+        changes.push(`  ${key}:`)
+        changes.push(`    修改前:`)
+        beforeLines.forEach(l => changes.push(`      ${l.trim()}`))
+        changes.push(`    修改后:`)
+        afterLines.forEach(l => changes.push(`      ${l.trim()}`))
+      }
+    }
+  }
+  if (changes.length > 0) {
+    lines.push('修改内容:')
+    lines.push(changes.join('\n'))
+  } else {
+    lines.push('（无变化）')
+  }
+  return lines.join('\n')
+}
+
+function buildModelDeletePrompt(element: ModelEditElement, filePath: string): string {
+  const lines: string[] = []
+  lines.push(`[文件路径: ${filePath}]`)
+  lines.push('')
+  lines.push('请删除以下元素:')
+  lines.push(`标签: <${element.tagName}>`)
+  if (element.className) lines.push(`类名: ${element.className}`)
+  lines.push(`选择器: ${element.selector}`)
+  lines.push(`当前HTML: ${element.htmlHint}`)
+  return lines.join('\n')
+}
+
+const defaultModelEditConfig: ModelEditConfig = {
+  saveCallback: ({ type, prev, current, dom, filePath }) => {
+    return buildModelEditPrompt(dom, prev, current, filePath)
+  },
+  deleteCallback: ({ type, dom, filePath }) => {
+    return buildModelDeletePrompt(dom, filePath)
+  },
+}
+
+export { defaultModelEditConfig }
 
 /**
  * 默认 SubtypeHandler 实现

@@ -29,6 +29,7 @@ interface EditorRef {
   updateMentionPath: (id: string, path: string) => void
   isAlive: () => boolean
   replaceDoc: (json: any) => void
+  closeMention: () => void
 }
 
 interface Props {
@@ -52,7 +53,9 @@ interface Props {
   onPreview?: (url: string) => void
   onPaste?: (e: ClipboardEvent) => void
   ref?: (el: EditorRef) => void
+  onTriggerStateChange?: (active: boolean) => void
   productId?: number
+  placeholder?: string
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (filename: string, path: string) => void
 }
@@ -74,6 +77,7 @@ export const ProseMirrorEditor = (props: Props) => {
     } else {
       setPopoverPosition(null)
     }
+    props.onTriggerStateChange?.(!!state?.active)
   }, props.onTriggerMention)
 
   const slashTriggerPlugin = createSlashTriggerPlugin((state) => {
@@ -347,10 +351,27 @@ export const ProseMirrorEditor = (props: Props) => {
             ? docFromJSON(json)
             : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
           const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
-          // replaceWith 整体替换时,原 selection 落在被替换区间内会被映射成覆盖新内容的非折叠范围,
-          // 表现为切换 session 后编辑器"全选"了所有内容。显式收敛到段首折叠态。
           tr.setSelection(TextSelection.atStart(tr.doc))
           v.dispatch(tr)
+        },
+        closeMention: () => {
+          const v = view()
+          const trigger = triggerState()
+          if (v && trigger) {
+            const from = Math.min(trigger.from, v.state.doc.content.size)
+            const to = Math.min(trigger.to, v.state.doc.content.size)
+            if (from < to) {
+              const tr = v.state.tr.delete(from, to)
+              v.dispatch(tr)
+            }
+          }
+          if (v) {
+            const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+            v.dispatch(tr)
+          }
+          setTriggerState(null)
+          setPopoverPosition(null)
+          props.onTriggerStateChange?.(false)
         },
       })
     }
@@ -534,7 +555,7 @@ export const ProseMirrorEditor = (props: Props) => {
   return (
     <div class="pm-editor-wrapper">
       <Show when={isEmpty() && !props.disabled}>
-        <div class="pm-placeholder">输入你的想法生成可交互的原型效果...</div>
+        <div class="pm-placeholder">{props.placeholder ?? "输入你的想法生成可交互的原型效果..."}</div>
       </Show>
       <div 
         ref={containerRef} 
