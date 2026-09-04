@@ -4525,7 +4525,7 @@ onPreview={(url) => {
                         contextLimit={contextLimit()}
                         contextLocale={language.intl()}
                         contextCompactionDisabled={contextCompactionDisabled()}
-                        contextLimitVisible={contextSendBlocked()}
+                        contextWarningVisible={contextSendBlocked() || contextWarningVisible()}
                         onCompactContext={confirmCompactContext}
                       />
                     </Show>
@@ -4559,7 +4559,7 @@ onPreview={(url) => {
                             contextLimit={contextLimit()}
                             contextLocale={language.intl()}
                             contextCompactionDisabled={contextCompactionDisabled()}
-                            contextLimitVisible={contextSendBlocked()}
+                            contextWarningVisible={contextSendBlocked() || contextWarningVisible()}
                             onCompactContext={confirmCompactContext}
                           />
                         )

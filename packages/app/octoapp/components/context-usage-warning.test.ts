@@ -34,7 +34,7 @@ describe("isContextAtLimit", () => {
 })
 
 describe("shouldShowTurnError", () => {
-  test("does not repeat context overflow when the persistent limit warning is visible", () => {
+  test("does not repeat context overflow when the persistent context warning is visible", () => {
     expect(shouldShowTurnError("ContextOverflowError", true)).toBe(false)
     expect(shouldShowTurnError("ContextOverflowError")).toBe(true)
     expect(shouldShowTurnError("ProviderAuthError", true)).toBe(true)

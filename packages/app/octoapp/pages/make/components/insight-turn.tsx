@@ -665,7 +665,7 @@ export function InsightTurn(props: {
   contextLimit?: number
   contextLocale?: string
   contextCompactionDisabled?: boolean
-  contextLimitVisible?: boolean
+  contextWarningVisible?: boolean
   onCompactContext?: () => void
 }): JSX.Element {
   const data = useData()
@@ -781,7 +781,7 @@ export function InsightTurn(props: {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
-      if (!shouldShowTurnError(err.name as string, props.contextLimitVisible)) continue
+      if (!shouldShowTurnError(err.name as string, props.contextWarningVisible)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }
