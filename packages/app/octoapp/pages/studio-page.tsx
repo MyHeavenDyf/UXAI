@@ -279,9 +279,20 @@ export default function StudioPage() {
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   let reversePromptRunning = false
   let reversePromptController: AbortController | undefined
-  const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
-  const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("480")
-  const [videoMode, setVideoMode] = createSignal<StudioVideoMode>("all-reference")
+  const [videoSettingStore, setVideoSettingStore] = persisted(
+    Persist.global("studio.video.settings"),
+    createStore({
+      videoDuration: "5" as StudioVideoDuration,
+      videoQualityMode: "480" as StudioVideoQualityMode,
+      videoMode: "all-reference" as StudioVideoMode,
+    }),
+  )
+  const videoDuration = () => videoSettingStore.videoDuration
+  const setVideoDuration = (v: StudioVideoDuration) => setVideoSettingStore("videoDuration", v)
+  const videoQualityMode = () => videoSettingStore.videoQualityMode
+  const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
+  const videoMode = () => videoSettingStore.videoMode
+  const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
@@ -311,7 +322,7 @@ export default function StudioPage() {
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
+  const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
   const [canUseSeedream, setCanUseSeedream] = createSignal(true)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
@@ -392,6 +403,10 @@ export default function StudioPage() {
   let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
   let seedreamAtSnapshot: { assets: StudioAsset[]; html: string } | undefined
+  let savedImageAspectRatio: StudioAspectRatio | undefined
+  let savedImageCount: 1 | 2 | 3 | 4 | undefined
+  let savedVideoAspectRatio: StudioAspectRatio | undefined
+  let savedVideoCount: 1 | 2 | 3 | 4 | undefined
   const seedreamInputApi: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void } = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {} }
   const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
     Persist.global("studio.left.collapsed"),
@@ -1336,7 +1351,9 @@ export default function StudioPage() {
         }
         if (!preserveEditorEntry) {
           setPendingEditorEntries([])
-          if (!preserveGenerationCapability) setCapability("image.generate")
+          // 仅重置编辑类 capability（inpaint/outpaint/upscale/cutout）为默认生图模式，
+          // 保留 video.generate / image.generate，避免切换 session 时丢失视频生成模式
+          if (!preserveGenerationCapability && workspaceModeForCapability(capability())) setCapability("image.generate")
         }
         setCanvasTabImages([])
         setCanvasTabLabels({})
@@ -1392,9 +1409,8 @@ export default function StudioPage() {
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
-  createEffect(() => {
-    if (videoQualityLocked()) setVideoQualityMode("720")
-  })
+  // 首尾帧同时存在时强制 720p，但不写入持久化 store，保留用户手动选择的质量
+  const effectiveVideoQualityMode = createMemo(() => videoQualityLocked() ? "720" as StudioVideoQualityMode : videoQualityMode())
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -2124,10 +2140,24 @@ export default function StudioPage() {
     if (prevSeedreamImage && !nextSeedreamImage) {
       seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
     }
+    if (value === "video.generate" && prevCapability !== "video.generate") {
+      savedImageAspectRatio = aspectRatio()
+      savedImageCount = count()
+    }
+    if (prevCapability === "video.generate" && value !== "video.generate") {
+      savedVideoAspectRatio = aspectRatio()
+      savedVideoCount = count()
+    }
     setCapability(value)
     if (value === "video.generate") {
-      setAspectRatio("1:1")
-      setCount(1)
+      setAspectRatio(savedVideoAspectRatio ?? "1:1")
+      setCount(savedVideoCount ?? 1)
+    }
+    if (prevCapability === "video.generate" && value === "image.generate") {
+      setAspectRatio(savedImageAspectRatio ?? "3:4")
+      setCount(savedImageCount ?? 4)
+      savedImageAspectRatio = undefined
+      savedImageCount = undefined
     }
     if (value !== "video.generate") clearVideoFrames()
     if (value !== "image.generate") {
@@ -2193,7 +2223,7 @@ export default function StudioPage() {
       extend: JSON.stringify({
         aspectRatio: aspectRatio(),
         duration: videoDuration(),
-        quality: videoQualityMode(),
+        quality: effectiveVideoQualityMode(),
         mode: videoFrames.first ? "first_last_frame" : "text",
       }),
     })
@@ -2945,7 +2975,7 @@ export default function StudioPage() {
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
-    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? effectiveVideoQualityMode()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -3795,7 +3825,7 @@ export default function StudioPage() {
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
-                  videoQualityMode={videoQualityMode()}
+                  videoQualityMode={effectiveVideoQualityMode()}
                   videoQualityLocked={videoQualityLocked()}
                   videoMode={videoMode()}
                   status={effectiveStatus()}
@@ -4006,7 +4036,7 @@ if (!headerTitle.pendingRename) return
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
-            videoQualityMode={videoQualityMode()}
+            videoQualityMode={effectiveVideoQualityMode()}
             videoQualityLocked={videoQualityLocked()}
             videoMode={videoMode()}
             status={effectiveStatus()}
