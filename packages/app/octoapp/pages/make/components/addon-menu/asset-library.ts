@@ -20,11 +20,18 @@ export interface AssetFolder {
   children?: AssetFolder[]
 }
 
+export interface AssetVersionInfo {
+  filePath: string
+  fileName: string
+  fileSize: number
+}
+
 export interface AssetFile {
   fileName: string
   snapshot: string
   s3BaseUrl: string
   convertHtmlUrl: string
+  versionInfo?: AssetVersionInfo[] | null
 }
 
 export interface AssetNode {
@@ -36,7 +43,8 @@ export interface AssetNode {
  * Infer an ArtifactFileKind from the convertHtmlUrl extension so product-asset
  * files can reuse getFileIcon (which needs a kind).
  */
-export function inferKindFromUrl(url: string): ArtifactFileKind {
+export function inferKindFromUrl(url: string | null | undefined): ArtifactFileKind {
+  if (!url) return "binary"
   const clean = url.split("?")[0].split("#")[0]
   const ext = clean.slice(clean.lastIndexOf(".") + 1).toLowerCase()
   switch (ext) {
@@ -98,12 +106,16 @@ const MOCK_FILES: AssetFile[] = [
     snapshot: "image/ad270bbc7e41f8772b3d0bcc7be511fa53149cc8.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
+    versionInfo: [
+      { filePath: "/a/b", fileName: "source.zip", fileSize: 111111 },
+    ],
   },
   {
     fileName: "容器2",
     snapshot: "image/Iconolor.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
+    versionInfo: null,
   },
 ]
 
@@ -144,6 +156,17 @@ export function joinUrl(base: string, path: string): string {
   return base + "/" + path
 }
 
+/**
+ * Unique id for an asset file chip: joinUrl(s3BaseUrl, convertHtmlUrl).
+ * Falls back to appending fileName when convertHtmlUrl is empty/null,
+ * so files sharing the same s3BaseUrl still get distinct ids.
+ */
+export function assetFileId(file: AssetFile): string {
+  const base = joinUrl(file.s3BaseUrl || "", file.convertHtmlUrl || "")
+  if (file.convertHtmlUrl) return base
+  return joinUrl(base, file.fileName)
+}
+
 async function getJson(url: string): Promise<any> {
   const resp = await fetch(url)
   if (!resp.ok) throw new Error(`请求失败: ${resp.status}`)
@@ -174,16 +197,18 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
  * 获取某文件夹下的文件列表。
  * 非登录态: 返回 mock 文件(任何 teamId 都返回同一份)。
  * 登录态: GET assetFile/getList?teamId=folderId
+ * 筛选掉没有 versionInfo 或该属性为空/空数组的项(spec line 67)
  */
 export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
+  const filterByVersion = (files: AssetFile[]): AssetFile[] =>
+    files.filter((f) => Array.isArray(f.versionInfo) && f.versionInfo.length > 0)
   if (!isLoggedIn()) {
-    return MOCK_FILES
+    return filterByVersion(MOCK_FILES)
   }
   const base = getBaseUrl()
   const resp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
   )
   const files = (resp?.content as AssetFile[]) ?? []
-  // Filter out entries without convertHtmlUrl (spec line 60)
-  return files.filter((f) => f.convertHtmlUrl && f.convertHtmlUrl.trim() !== "")
+  return filterByVersion(files)
 }

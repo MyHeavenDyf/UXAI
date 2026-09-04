@@ -562,7 +562,7 @@
 .studio-at-menu.studio-menu > div:first-child {
   margin: 0;
   padding: 12px 0 0 12px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 18px;
   color: #777777;
 }
@@ -622,7 +622,7 @@
 }
 
 .studio-at-menu-empty-text {
-  font-size: 10px;
+  font-size: 12px;
   color: #777777;
 }
 
@@ -1378,7 +1378,7 @@
   background: rgba(15, 23, 42, 0.06);
   border-radius: 4px;
   white-space: nowrap;
-  vertical-align: baseline;
+  vertical-align: middle;
 }
 
 .studio-user-bubble-mention img {

@@ -159,6 +159,8 @@ export type ElectronAPI = {
   statFile: (path: string) => Promise<{ size: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
+  /** 目录存在性预检：仅当路径是存在的目录时返回 true(与 fileExists 对称) */
+  dirExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>
   /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
   renameFile: (srcPath: string, destPath: string) => Promise<void>

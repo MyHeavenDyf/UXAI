@@ -44,3 +44,22 @@ export function toHex(color: string): string {
   if (!m) return color
   return '#' + [Number(m[1]), Number(m[2]), Number(m[3])].map(n => n.toString(16).padStart(2, '0')).join('')
 }
+
+export function stripImportant(cls: string): string {
+  if (cls.length > 1 && cls.startsWith('!')) return cls.slice(1)
+  if (cls.length > 1 && cls.endsWith('!')) return cls.slice(0, -1)
+  return cls
+}
+
+export function hasImportant(cls: string): boolean {
+  return cls.length > 1 && (cls.startsWith('!') || cls.endsWith('!'))
+}
+
+export function renameRowField(rows: Record<string, unknown>[], oldField: string, newField: string): Record<string, unknown>[] {
+  return rows.map(r => {
+    if (!(oldField in r)) return r
+    const next: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(r)) next[k === oldField ? newField : k] = v
+    return next
+  })
+}

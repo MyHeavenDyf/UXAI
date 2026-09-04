@@ -1,8 +1,8 @@
-# BubbleChart | 气泡图
+# BubbleChart | 气泡图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Bubble Chart
+## Example: Basic Bubble Chart
 - Data uses `name`, `value` (bubble size), `xAxis`, `yAxis` fields
 - `yAxisTitle` is the Y-axis visible label (required)
 
@@ -35,5 +35,5 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430"]` — custom bubble colors

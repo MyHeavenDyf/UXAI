@@ -304,7 +304,8 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var part = el.tagName.toLowerCase()
       
       if (el.id && !el.id.match(/^el-\d+$/)) {
-        part += '#' + CSS.escape(el.id)
+        parts.unshift(part + '#' + CSS.escape(el.id))
+        return parts.join(' > ')
       } else {
         var classAttr = el.getAttribute('class')
         if (classAttr) {

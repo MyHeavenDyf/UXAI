@@ -8,9 +8,9 @@ import {
   TW_FONT_SIZES, FW_TO_TW,
   GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
-import { normalizeCssKeys, toHex } from "./utils"
+import { normalizeCssKeys, toHex, stripImportant, hasImportant, renameRowField } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
-import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
+import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, matchShadowToken, effectsSignature } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
@@ -178,30 +178,15 @@ export function PropertyEditorPopup(props: {
   const [dataPanelOpen, setDataPanelOpen] = createSignal(false)
   let dataPanelRef!: HTMLDivElement
 
-  const SHADOW_TOKEN_MAP: [string, string][] = [
-    ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
-    ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
-    ["0px 8px 24px 0px rgba(0,0,0,0.16)", "popover"],
-    ["0px 16px 48px 0px rgba(0,0,0,0.16)", "modal"],
-  ]
-
-  function matchShadowToken(effect: typeof effects[number]): string | null {
-    if (effect.type !== 'drop-shadow') return null
-    const hex = effect.color.replace('#', '')
-    const r = parseInt(hex.slice(0, 2), 16)
-    const g = parseInt(hex.slice(2, 4), 16)
-    const b = parseInt(hex.slice(4, 6), 16)
-    const alpha = effect.opacity / 100
-    const cssVal = `${effect.offsetX}px ${effect.offsetY}px ${effect.blur}px 0px rgba(${r},${g},${b},${alpha})`
-    for (const [val, token] of SHADOW_TOKEN_MAP) {
-      if (val === cssVal) return token
-    }
-    return null
-  }
-
   const [editProps, setEditProps] = createStore<Record<string, string>>({})
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
+  const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
+
+  function updateEditProp(key: string, val: string) {
+    setEditProps(key, val)
+    setDirtyPropKeys(key, true)
+  }
 
   const dataFields = createMemo(() => {
     const set: string[] = []
@@ -339,7 +324,7 @@ export function PropertyEditorPopup(props: {
   }
 
   function classifyClassGroup(c: string): string | null {
-    const s = c.startsWith('!') ? c.slice(1) : c
+    const s = stripImportant(c)
     if (s === 'text-left' || s === 'text-center' || s === 'text-right' || s === 'text-justify') return 'textAlign'
     if (s.startsWith('text-[#')) return 'textColor'
     if (/^text-hui-/.test(s)) return 'textColor'
@@ -384,6 +369,53 @@ export function PropertyEditorPopup(props: {
     return dirty
   }
 
+  // 取消"填充/适应 宽高"勾选，分两种情况：
+  // 1) 该勾选是用户本次会话点选的（打开时未勾选）→ 恢复整组到打开时状态（originalSnapshot），
+  //    找回被互斥清掉的另一半及原 px/百分比值。
+  // 2) 该勾选打开时就存在（元素原始 class 本来就有 w-full/h-auto 等）→ 恢复是原地踏步，
+  //    用户的意图是"移除这个宽/高约束"，此时清空整组而非恢复，否则 signal 不变、不触发提交，
+  //    checkbox 与 signal 脱钩，元素样式也回不去。
+  // 提交交给 autoSave effect 的 300ms 防抖：恢复后快照与最近提交基线不同会自动提交；
+  // 相同则说明 doc 未被改过（如 300ms 内快速勾选又取消），无需提交。旧实现的强制
+  // handleConfirm 会与 effect 补排的定时器产生一次空 dirty 的重复提交，已移除。
+  function revertGroup(group: 'width' | 'height', box: 'fill' | 'hug') {
+    // originalSnapshot 尚未生成（tailwindToCss IPC 还在途，autoSave effect 未初始化）时，
+    // 恢复语义不可用（原始值还没解析出来）。此时直接清空整组：signal 与 DOM checkbox
+    // 保持一致，初始化完成时 applyCssVariables 会按原始 class 重设这些 signal（与面板
+    // "初始化前的编辑被覆盖"的既有行为一致）。若在此 early return，DOM 已取消勾选而
+    // signal 不变，二者脱钩，之后的 setFillWidth(true)（值未变）也不会把 DOM 拉回。
+    let initSnap: Record<string, unknown> | null = null
+    if (originalSnapshotJson) {
+      try { initSnap = JSON.parse(originalSnapshotJson) as Record<string, unknown> } catch { initSnap = null }
+    }
+    if (group === 'width') {
+      const origFill = initSnap ? Boolean(initSnap.fillWidth) : false
+      const origHug = initSnap ? Boolean(initSnap.hugWidth) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditWidth(''); setEditWidthPx(0); setFoundWidthPx(false)
+        setFillWidth(false); setHugWidth(false)
+      } else {
+        setEditWidth(String(initSnap?.width ?? ''))
+        setEditWidthPx(Number(initSnap?.widthPx ?? 0))
+        setFoundWidthPx(Boolean(initSnap?.foundWidthPx))
+        setFillWidth(origFill)
+        setHugWidth(origHug)
+      }
+    } else {
+      const origFill = initSnap ? Boolean(initSnap.fillHeight) : false
+      const origHug = initSnap ? Boolean(initSnap.hugHeight) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditHeightPx(0); setFoundHeightPx(false)
+        setFillHeight(false); setHugHeight(false)
+      } else {
+        setEditHeightPx(Number(initSnap?.heightPx ?? 0))
+        setFoundHeightPx(Boolean(initSnap?.foundHeightPx))
+        setFillHeight(origFill)
+        setHugHeight(origHug)
+      }
+    }
+  }
+
   function buildClassName(dirtyGroups?: Set<string> | null) {
     const parts = parsedClasses.filter(c => {
       const g = classifyClassGroup(c)
@@ -403,7 +435,7 @@ export function PropertyEditorPopup(props: {
     }
     if (isDirty('fontFamily') && editFontFamily()) parts.push(`font-${editFontFamily()}`)
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
-    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
+    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing()}px]`)
     if (isDirty('textAlign') && editAlign()) parts.push(`text-${editAlign()}`)
     if (isDirty('vAlign') && editVAlign()) parts.push(`items-${editVAlign()}`)
 
@@ -530,11 +562,11 @@ export function PropertyEditorPopup(props: {
     if (v.fontWeight) { setEditFontWeight(px(v.fontWeight)); setFoundFontWeight(true) }
     if (v.fontFamily) setEditFontFamily(v.fontFamily)
     if (v.textAlign) setEditAlign(v.textAlign)
-    if (v.lineHeight) setEditLineHeight(v.lineHeight)
+    if (v.lineHeight) setEditLineHeight(v.lineHeight === 'normal' ? 'auto' : v.lineHeight)
     if (v.letterSpacing) {
       const ls = String(v.letterSpacing)
       const n = parseFloat(ls)
-      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') ? Math.round(n * 100) : n)
+      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') || ls.endsWith('rem') ? Math.round(n * 16 * 100) / 100 : n)
     }
 
     if (v.padding) {
@@ -951,7 +983,15 @@ export function PropertyEditorPopup(props: {
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
+  let confirmInFlight = false
+  let confirmAgain = false
+  let editGeneration = 0
+  let initializedForElement = ''
+  let lastSubmittedClassName = ''
+  /** 最近一次提交时的快照（脏组检测基线，每次 handleConfirm 后推进） */
   let initialSnapshotJson = ''
+  /** 打开面板那一刻的快照（永不推进），revertGroup 取消勾选时恢复到它 */
+  let originalSnapshotJson = ''
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
@@ -981,6 +1021,7 @@ export function PropertyEditorPopup(props: {
     setMenuTree([])
     setTableColumns([])
     setTableData([])
+    setDirtyPropKeys(reconcile({}))
     preservedCssVars = {}
   }
 
@@ -989,19 +1030,24 @@ export function PropertyEditorPopup(props: {
       setReady(false)
       apiCalled = false
       initialized = false
+      confirmInFlight = false
+      confirmAgain = false
+      initializedForElement = ''
+      lastSubmittedClassName = ''
       initialSnapshotJson = ''
+      originalSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
+    const eid = props.elementId
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
     const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
     const rawCls = parsedClassName || props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    const allClasses = rawCls.split(/\s+/).filter(Boolean)
+    parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
     importantSet = new Set(
-      rawCls.split(/\s+/)
-        .filter(c => c.startsWith('!') && !c.startsWith('!el-'))
-        .map(c => c.slice(1))
+      allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
     )
     const cleanCls = parsedClasses.join(' ')
 
@@ -1009,8 +1055,10 @@ export function PropertyEditorPopup(props: {
 
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
 
-    if (!apiCalled) {
+    if (!apiCalled || initializedForElement !== eid) {
       apiCalled = true
+      initializedForElement = eid
+      editGeneration++
       resetEditorSignals()
       setInitialPos('right', 5)
       setInitialPos('top', 50)
@@ -1040,7 +1088,7 @@ export function PropertyEditorPopup(props: {
             if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
           setDragOffset({ x: 0, y: 0 })
-          initialEffectsJson = JSON.stringify(effects)
+          initialEffectsJson = effectsSignature(effects)
           setReady(true)
         })
       } else {
@@ -1052,7 +1100,7 @@ export function PropertyEditorPopup(props: {
           if (f) setEditBgColor(f.color)
         }
         setDragOffset({ x: 0, y: 0 })
-        initialEffectsJson = JSON.stringify(effects)
+        initialEffectsJson = effectsSignature(effects)
         setReady(true)
       }
     }
@@ -1167,7 +1215,7 @@ export function PropertyEditorPopup(props: {
       tag: editTag(),
       fills: fills.map(f => `${f.id}:${f.color}:${f.opacity}:${f.visible}`),
       strokes: strokes.map(s => `${s.id}:${s.color}:${s.visible}:${s.width}:${s.position}:${s.individualOpen}:${s.widthTop}:${s.widthRight}:${s.widthBottom}:${s.widthLeft}`),
-      effects: effects.map(e => `${e.id}:${e.type}:${e.visible}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`),
+      effects: effectsSignature(effects),
       menuTree: JSON.stringify(menuTree),
       menuErrCount: menuErrors().filter(e => e.type === 'error').length,
       tableColumns: JSON.stringify(tableColumns),
@@ -1183,12 +1231,22 @@ export function PropertyEditorPopup(props: {
     if (!ready()) return
     if (!initialized) {
       initialized = true
-      initialSnapshotJson = JSON.stringify(snap)
+      originalSnapshotJson = JSON.stringify(snap)
+      initialSnapshotJson = originalSnapshotJson
       return
     }
-    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 先清掉上一次排程的提交：快速勾选又取消（<300ms）时快照回到基线，
+    // 之前排程的提交不应再触发。
     clearTimeout(autoUpdateTimer)
-    autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
+    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 300ms 防抖：拖拽实时预览用（mousemove 高频需合并）。键盘输入由 DragInput 的
+    // onBlur/Enter 触发 setValue，这里同样 300ms 防抖合并连续多字段编辑。
+    autoUpdateTimer = setTimeout(() => {
+      // 触发时二次校验：等待期间快照可能已回到基线（如取消勾选恢复原值），
+      // 此时无需（也不应）再提交。
+      if (JSON.stringify(autoSnapshot()) === initialSnapshotJson) return
+      handleConfirm(true)
+    }, 300)
   })
 
   function updateDims() {
@@ -1274,7 +1332,7 @@ export function PropertyEditorPopup(props: {
     if (isDirty('fontFamily') && editFontFamily()) css['font-family'] = editFontFamily()
     if (isDirty('textAlign') && editAlign()) css['text-align'] = editAlign()
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
-    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
+    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = editLetterSpacing() + 'px'
 
     if (isDirty('textColor') && editTextColor()) css['color'] = editTextColor()
 
@@ -1402,7 +1460,19 @@ export function PropertyEditorPopup(props: {
   }
 
   async function handleConfirm(skipChangeCheck?: boolean) {
+    if (confirmInFlight) { confirmAgain = true; return }
+    confirmInFlight = true
+    const gen = ++editGeneration
+    if (lastSubmittedClassName) {
+      const allClasses = lastSubmittedClassName.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant))
+    }
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
+    // 提交时刻的快照：css 部分在 await 前读取，基线必须推进到"本次实际提交的状态"。
+    // 若用 await 之后的快照推进（旧实现），用户在 IPC await 窗口内的编辑会被吞进基线，
+    // autoSave effect 排程的定时器触发时发现 snapshot === baseline 而跳过，编辑丢失。
+    const snapAtSubmit = JSON.stringify(autoSnapshot())
     let className = props.currentClass || ''
     if (hasClassEditor()) {
       const dirtyGroups = computeDirtyGroups()
@@ -1439,8 +1509,8 @@ export function PropertyEditorPopup(props: {
         const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
         if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
         if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
-        const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
-        const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged = effectsSignature(effects) === initialEffectsJson
+        const originalShadowTokens = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged && originalShadowTokens.length > 0) {
@@ -1454,8 +1524,8 @@ export function PropertyEditorPopup(props: {
         }
       } else {
         className = buildClassName(dirtyGroups)
-        const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
-        const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged2 = effectsSignature(effects) === initialEffectsJson
+        const origShadows = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged2 && origShadows.length > 0) {
@@ -1490,11 +1560,14 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    className = className.split(/\s+/).filter(c => c && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => {
-      const stripped = c.startsWith('!') ? c.slice(1) : c
+    className = [...new Set(className.split(/\s+/).filter(Boolean))].join(' ')
+    className = className.split(/\s+/).filter(c => c && !stripImportant(c).startsWith('el-')).map(c => {
+      const stripped = stripImportant(c)
       const shouldImportant = importantSet.has(stripped)
-      const hasImportant = c.startsWith('!')
-      return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
+      const isImportant = hasImportant(c)
+      if (shouldImportant && !isImportant) return c + '!'
+      if (!shouldImportant && isImportant) return stripped
+      return c
     }).join(' ')
 
     const componentProps: Record<string, string | boolean | object> = {}
@@ -1503,9 +1576,9 @@ export function PropertyEditorPopup(props: {
         if (key === 'className') continue
         if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
-        const isEnum = getEnumOptions(key).length > 0
-        const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
-        if (isEnum || val || hasRaw) {
+        const rawVal = (rawProps as Record<string, string>)[key]
+        const hasRaw = rawVal !== undefined
+        if (dirtyPropKeys[key] || (hasRaw && val !== String(rawVal ?? ''))) {
           componentProps[key] = BOOL_PROP_KEY_SET.has(key)
             ? val === 'true'
             : val
@@ -1585,8 +1658,24 @@ export function PropertyEditorPopup(props: {
       if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: String(componentProps[key] ?? '') })
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
-    props.onConfirm(confirmData)
-    initialSnapshotJson = JSON.stringify(autoSnapshot())
+    if (gen === editGeneration) {
+      props.onConfirm(confirmData)
+      initialSnapshotJson = snapAtSubmit
+      lastSubmittedClassName = className
+      const allClasses = className.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(
+        allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
+      )
+      initialEffectsJson = effectsSignature(effects)
+      initialBgUrl = editBgUrl()
+    }
+    confirmInFlight = false
+    if (confirmAgain && gen === editGeneration) {
+      confirmAgain = false
+      const cur = autoSnapshot()
+      if (cur && JSON.stringify(cur) !== initialSnapshotJson) void handleConfirm(true)
+    }
   }
 
   function confirmMenuItems() {
@@ -1609,6 +1698,18 @@ export function PropertyEditorPopup(props: {
     void handleConfirm(true)
   }
 
+  // 关闭面板：若 300ms 防抖窗内仍有未提交的改动，立即 flush，
+  // 再调 onCancel。handleConfirm 在 props.show 仍为 true 时同步执行
+  // （捕获快照 + computeDirtyGroups），await 部分异步完成时 signals 仍有效。
+  function closePopup() {
+    clearTimeout(autoUpdateTimer)
+    if (initialized && initialSnapshotJson) {
+      const snap = autoSnapshot()
+      if (snap && JSON.stringify(snap) !== initialSnapshotJson) void handleConfirm(true)
+    }
+    props.onCancel()
+  }
+
   type TrblInput = {
     value: Accessor<number>
     setValue: (v: number) => void
@@ -1616,6 +1717,8 @@ export function PropertyEditorPopup(props: {
     found: Accessor<boolean>
     placeholder: string
     icon?: string | JSX.Element
+    /** 透传给 DragInput 的 min；不传则走默认 0（padding/圆角/描边）。margin 需要负值时传负数。 */
+    min?: number
   }
 
   function renderTrblGrid(
@@ -1623,8 +1726,8 @@ export function PropertyEditorPopup(props: {
   ) {
     const row = (a: TrblInput, b: TrblInput) => (
       <div class="flex items-center gap-1.5 w-full min-w-0">
-        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} />
-        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} />
+        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} min={a.min} />
+        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} min={b.min} />
         {hasSpacer ? <div class="w-6 shrink-0" /> : null}
       </div>
     )
@@ -1640,7 +1743,7 @@ export function PropertyEditorPopup(props: {
     <Show when={props.show}>
       <div
         class="property-editor-overlay"
-        onClick={() => props.onCancel()}
+        onClick={closePopup}
         onContextMenu={(e) => e.preventDefault()}
       />
       <div
@@ -1653,7 +1756,7 @@ export function PropertyEditorPopup(props: {
           <span class="text-xs text-slate-400 ml-2 truncate">{props.elementId}</span>
           <button
             type="button"
-            onClick={() => props.onCancel()}
+            onClick={closePopup}
             class="ml-auto flex items-center justify-center w-5 h-5 rounded-sm text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
             id="popup-header-close-btn"
           >
@@ -1695,11 +1798,11 @@ export function PropertyEditorPopup(props: {
                       fallback={
                         <div class="flex items-center gap-1 flex-1 min-w-0">
                           <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            onInput={(e) => setEditProps(key, e.currentTarget.value)}
+                            onInput={(e) => updateEditProp(key, e.currentTarget.value)}
                             type="text" placeholder={key}
                   class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
                           <Show when={key === 'src'}>
-                            <button onClick={() => pickAndUploadImage((url) => setEditProps('src', url))}
+                            <button onClick={() => pickAndUploadImage((url) => updateEditProp('src', url))}
                               class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
                             </button>
@@ -1710,7 +1813,7 @@ export function PropertyEditorPopup(props: {
                       <CustomSelect
                         value={(editProps as Record<string, string>)[key] ?? ''}
                         options={getEnumOptions(key)}
-                        onChange={(v) => setEditProps(key, v)}
+                        onChange={(v) => updateEditProp(key, v)}
                         class="flex-1 min-w-0"
                       />
                     </Show>
@@ -1907,7 +2010,17 @@ export function PropertyEditorPopup(props: {
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <input value={c.dataIndex}
-                                onInput={(e) => setTableColumns(i(), 'dataIndex', e.currentTarget.value)}
+                                onInput={(e) => {
+                                  const idx = i()
+                                  const oldField = tableColumns[idx].dataIndex
+                                  const newField = e.currentTarget.value
+                                  setTableColumns(idx, 'dataIndex', newField)
+                                  if (oldField && oldField !== newField && newField) {
+                                    setTableData(tableData.map(r =>
+                                      oldField in r.row ? { ...r, row: renameRowField([r.row], oldField, newField)[0] } : r
+                                    ))
+                                  }
+                                }}
                                 type="text" placeholder="字段"
                                 class={`w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.dataIndex ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <button onClick={() => setTableColumns(tableColumns.filter(x => x.id !== c.id))}
@@ -2212,7 +2325,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" icon={MarginIcon()} />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -2220,19 +2333,19 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMr} setValue={(v) => { setEditMr(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMr(v); setFoundMl(v) }}
-                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} />
+                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} min={-9999} />
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMb(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMb(v) }}
-                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} />
+                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'trbl'}>
                 {renderTrblGrid(
-                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑" },
-                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→" },
-                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓" },
-                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←" },
+                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑", min: -9999 },
+                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→", min: -9999 },
+                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓", min: -9999 },
+                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←", min: -9999 },
                 )}
               </Show>
             </div>
@@ -2249,19 +2362,19 @@ export function PropertyEditorPopup(props: {
               </div>
               <div class="grid grid-cols-2 gap-x-2 gap-y-1">
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { setFillWidth(e.currentTarget.checked); if (e.currentTarget.checked) setHugWidth(false) }} />
+                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
                   <span class="text-[10px] text-slate-500">填充宽度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { setFillHeight(e.currentTarget.checked); if (e.currentTarget.checked) setHugHeight(false) }} />
+                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
                   <span class="text-[10px] text-slate-500">填充高度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { setHugWidth(e.currentTarget.checked); if (e.currentTarget.checked) setFillWidth(false) }} />
+                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
                   <span class="text-[10px] text-slate-500">适应宽度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { setHugHeight(e.currentTarget.checked); if (e.currentTarget.checked) setFillHeight(false) }} />
+                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
                   <span class="text-[10px] text-slate-500">适应高度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer col-span-2">
@@ -2338,12 +2451,12 @@ export function PropertyEditorPopup(props: {
                     { label: 'Extra Bold', value: '800' },
                     { label: 'Black', value: '900' },
                   ]}
-                  onChange={(v) => setEditFontWeight(Number(v))}
+                  onChange={(v) => { setEditFontWeight(Number(v)); setFoundFontWeight(true) }}
                 />
               </div>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <span class="text-[10px] text-slate-400 w-8 shrink-0">字号</span>
-                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
+                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={setFoundFontSize} found={foundFontSize} placeholder="字号" icon={"S"} />
               </div>
 
               <ColorPicker value={editTextColor()} onChange={setEditTextColor} onTokenChange={setTextColorToken} label="文字色" tokens={TEXT_COLOR_TOKENS} />
@@ -2351,7 +2464,7 @@ export function PropertyEditorPopup(props: {
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">行高</span>
-                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : Number(editLineHeight()) || 0} setValue={(v) => setEditLineHeight(String(v))} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
+                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : parseFloat(editLineHeight()) || 0} setValue={(v) => { const suf = (editLineHeight().match(/(px|rem|em)$/) ?? [])[1] ?? ''; setEditLineHeight(v + suf) }} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
                 </div>
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">字间距</span>

@@ -20,6 +20,27 @@
           ]
         }
       }
+    },
+    "MenuItem": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "key": {
+          "type": ["string", "number"]
+        },
+        "icon": {
+          "type": "string",
+          "description": "Dropdown item icon (Lucide icon name in kebab-case, e.g., 'chevron-right')"
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MenuItem" },
+          "description": "Nested sub-menu items. Optional — when present, this item renders as a submenu (each entry has the same shape as a top-level MenuItem)."
+        }
+      },
+      "required": ["label", "key"]
     }
   },
   "properties": {
@@ -36,7 +57,7 @@
       "properties": {
         "placement": {
           "type": "string",
-          "enum": ["bottom", "bottomLeft", "bottomRight", "top", "topLeft", "topRight"]
+          "enum": ["top", "left", "right", "bottom", "topLeft", "topRight", "bottomLeft", "bottomRight", "leftTop", "leftBottom", "rightTop", "rightBottom"]
         },
         "trigger": {
           "type": "array",
@@ -50,20 +71,7 @@
           "oneOf": [{
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string"
-                },
-                "key": {
-                  "type": ["string", "number"]
-                },
-                "icon": {
-                  "type": "string",
-                  "description": "Dropdown item icon (Lucide icon name in kebab-case, e.g., 'chevron-right')"
-                }
-              },
-              "required": ["label", "key"]
+              "$ref": "#/$defs/MenuItem"
             }
           },
           {

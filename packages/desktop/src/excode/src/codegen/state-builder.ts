@@ -27,9 +27,9 @@
 
 import type { MappedPage } from '../pipeline/pipeline-context'
 import type { BuildNode, LoopNode, ExtractNode, RegularNode, RenderFnScope, Scope } from '../core/node-types'
-import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/value-types'
+import type { BindingValue, ComputedValue, ComputedTransformCtx, OverrideStore, PropValue } from '../core/value-types'
 import { resolveIcon } from '../core/icon-collection'
-import { collectRelativeCVsDeep, applyScopedCV } from '../core/scoped-enrichment'
+import { collectRelativeCVsDeep, applyScopedCV, applyOverrideToNode } from '../core/scoped-enrichment'
 import { rewriteResourcePathsInValue } from '../core/resource-path'
 import { jsxConstName, makeEnrichmentConstName } from '../core/access-path'
 import { setNested, pathToSegments, resolveBySegments } from '../core/state-path'
@@ -75,6 +75,14 @@ export interface StateBuilderContext {
 
   /** 当前作用域链（循环/ render fn 范围内联用） */
   currentScope?: Scope
+
+  /**
+   * 当前正在 walk 的所属节点（component/html）—— ComputedValue.transform 的 override
+   * 旁路据此把 tag/import 应用到对的节点。由 walk 的 component/html 分支 save/restore 透传
+   * （照 currentUnit 的 withUnit 模式）；consumeValue computed 分支读它应用 override。
+   * 裸调 consumeValue（不经 walk）时为 undefined，override 应用跳过（不崩）。
+   */
+  currentNode?: BuildNode
 
   /** 全局 state 数据集（最终 → state.js 的 initialState） */
   stateEntries: Record<string, any>
@@ -244,6 +252,35 @@ function buildTransformCtx(
   return ctx
 }
 
+/**
+ * 跑一次 ComputedValue.transform 并应用 override 旁路（调用点 1：绝对路径 CV）。
+ *
+ *   1. 建空 OverrideStore 注入 ctxForCv.override
+ *   2. 调 transform 拿 result——return 主路照走（进 jsxLiteralConsts / stateEntries，由调用方分流）
+ *   3. transform 若往 ctx.override 写了 tag/import → 应用到 owning node（ctx.currentNode）
+ *
+ * opt-in：transform 不写 override 则节点零变化，既有 mapping 行为不受影响。
+ * ctx.currentNode 缺省（裸调 consumeValue 不经 walk）时跳过应用、不崩。
+ *
+ * 应用时机：import 收集（file-assembler collectImports）与 jsx-emitter 读 node.tag/import
+ * 都在 state-builder 之后，故此处写进节点即被下游看到。state-builder 已有「就地改节点」先例
+ * （给 binding 打 v.shared 标），改 node.tag/import 与之一致。
+ *
+ * 调用点 1（绝对路径 CV，本 helper，consumeValue computed 分支）+ 调用点 2（相对路径 CV，
+ * processLoop 的 applyScopedCV，scoped-enrichment 内同样 save/restore + read-back + 应用）
+ * 两条路径都已接通 override。用户契约：循环每一项都有对应数据（无缺项）→ uniform override。
+ */
+function evalCvWithOverride(v: ComputedValue, raw: any, ctx: StateBuilderContext): any {
+  const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
+  // seed 空 store：transform 可「原地改写」（ctx.override.tag = ...）或「整体赋值」（ctx.override = {...}）
+  ctxForCv.override = {}
+  const result = v.transform(raw, ctxForCv)
+  // 跑完再从 ctxForCv.override 读回——两种写法都覆盖（原地改写 / 整体赋值）
+  // 应用到 owning node（tag/import/renameProps/deleteProps），与调用点 2 共用 applyOverrideToNode
+  applyOverrideToNode(ctx.currentNode, ctxForCv.override)
+  return result
+}
+
 
 // ─── state.js 生成 ───
 
@@ -275,8 +312,18 @@ function walk(node: BuildNode, ctx: StateBuilderContext): void {
   switch (node.kind) {
     case 'component':
     case 'html':
-      consumeProps(node.props, ctx)
-      walkChildren(node.children, ctx, (node as any).id ?? '')
+      // save/restore currentNode：让本节点 props 内的 CV（override 旁路）能找到 owning node。
+      // 嵌套 walk（含 slotNode→walk、children→walk）各自 save/restore，互不串。
+      {
+        const prevNode = ctx.currentNode
+        ctx.currentNode = node
+        try {
+          consumeProps(node.props, ctx)
+          walkChildren(node.children, ctx, (node as any).id ?? '')
+        } finally {
+          ctx.currentNode = prevNode
+        }
+      }
       return
     case 'text':
       consumeTextValue(node.value, ctx)
@@ -381,8 +428,7 @@ export function consumeValue(v: any, ctx: StateBuilderContext): void {
           const raw = getValueFromState(ctx.rawState, v.path)
           const name = makeComputedKey(v, (v as any).nodeId, (v as any).propKey)
           try {
-            const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
-            const result = v.transform(raw, ctxForCv)
+            const result = evalCvWithOverride(v, raw, ctx)
             ctx.currentUnit.jsxLiteralConsts.push({ name, value: result })
           } catch (err: any) {
             console.warn(`  [warn] state-builder: computed 求值失败 (path: ${v.path}): ${err.message}`)
@@ -397,8 +443,8 @@ export function consumeValue(v: any, ctx: StateBuilderContext): void {
           if (v.accessPath) {
             const raw = getValueFromState(ctx.rawState, v.path)
             try {
-              const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
-              setNested(ctx.stateEntries, v.accessPath, v.transform(raw, ctxForCv))
+              const result = evalCvWithOverride(v, raw, ctx)
+              setNested(ctx.stateEntries, v.accessPath, result)
             } catch (err: any) {
               console.warn(`  [warn] state-builder: computed 求值失败 (path: ${v.path}): ${err.message}`)
             }
@@ -536,6 +582,9 @@ export function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNode
     //     处理：第一个 CV 保留原 key；后续撞键的 CV 生成新 key 并改写其 accessPath
     //     （applyScopedCV 按 accessPath 写、collectRelativeFields 按 accessPath 收 destructure 字段），
     //     cv.path 保留原值用于读原始 item 数据。
+    // per-scopedCV override store（调用点 2：相对路径 CV override 旁路）
+    const overrideStores = scopedCVs.map(() => ({}) as OverrideStore)
+
     const usedKeys = new Set<string>()
     for (const { cv } of scopedCVs) {
       let key = (cv as any).accessPath ?? cv.path
@@ -555,9 +604,11 @@ export function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNode
       // 循环内 relative computed → cvCtx.currentItem 由 applyScopedCV 递归内更新为当前项，
       // transform 内 resolveValueFromPath(relative) 从 currentItem 解析
       const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
-      for (const { cv, loopChain } of scopedCVs) {
-        applyScopedCV(out, loopChain, cv, ctxForCv)
-      }
+      scopedCVs.forEach((sc, i) => {
+        // 调用点 2（相对路径 CV）override：per-CV store，透传 ownerNode，
+        // applyScopedCV 内 save/restore cvCtx.override 隔离、read-back、应用到 ownerNode
+        applyScopedCV(out, sc.loopChain, sc.cv, ctxForCv, sc.ownerNode, overrideStores[i])
+      })
       return out
     })
 

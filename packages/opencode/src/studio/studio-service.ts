@@ -154,7 +154,7 @@ export type StudioGenerationResult = {
   aspectRatio: string
   videoMode?: "text" | "first_last_frame"
   duration?: string
-  videoQualityMode?: "std" | "pro"
+  videoQualityMode?: "480" | "720" | "1080" | "4k"
   images: { id: string; kind?: "image" | "video"; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
   response?: unknown
@@ -245,9 +245,13 @@ function videoDuration(input: StudioGenerationRequest) {
   return Number.isInteger(n) && n >= 4 && n <= 15 ? value : "5"
 }
 
-function videoQualityMode(input: StudioGenerationRequest) {
-  const value = input.extra?.mode
-  return value === "pro" ? "pro" : "std"
+function videoQualityMode(input: StudioGenerationRequest): "480" | "720" | "1080" | "4k" {
+  const value = input.extra?.resolution
+  if (value === "480p") return "480"
+  if (value === "720p") return "720"
+  if (value === "1080p") return "1080"
+  if (value === "4k") return "4k"
+  return "480"
 }
 
 function isEditorGenerationCapability(capability: StudioCapability) {

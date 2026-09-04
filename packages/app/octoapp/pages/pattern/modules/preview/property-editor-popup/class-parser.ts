@@ -1,5 +1,5 @@
 import { TW_FONT_SIZES, TW_FONT_WEIGHTS } from "./constants"
-import { _px, _pxGap } from "./utils"
+import { _px, _pxGap, stripImportant } from "./utils"
 
 export interface ParsedClassInfo {
   fontSize: number
@@ -57,7 +57,7 @@ export interface ParsedClassInfo {
 }
 
 export function parseClass(cls: string): { classes: string[]; info: ParsedClassInfo } {
-  const classes = cls.split(/\s+/).filter(Boolean).map(c => c.startsWith('!') ? c.slice(1) : c)
+  const classes = cls.split(/\s+/).filter(Boolean).map(stripImportant)
   let fs = 14, fw = 400, ta = '', pt = 0, pr = 0, pb = 0, pl = 0
   let fFS = false, fFW = false
   let mt = 0, mr = 0, mb = 0, ml = 0, br = 0, w = '', wp = 0, hp = 0, op = 100
@@ -88,9 +88,17 @@ export function parseClass(cls: string): { classes: string[]; info: ParsedClassI
       const lm = c.match(/^leading-(\d+)$/); if (lm) lh = String(Number(lm[1]) / 4)
     }
     if (c.startsWith('tracking-[')) {
-      const tm = c.match(/tracking-\[([\d.]+)(?:em|px)?\]/); if (tm) ls = Math.round(Number(tm[1]) * 100)
+      const tm = c.match(/tracking-\[([\d.]+)(px|em|rem)?\]/)
+      if (tm) {
+        const n = Number(tm[1])
+        if (!isNaN(n)) ls = tm[2] === 'em' || tm[2] === 'rem' ? Math.round(n * 16 * 100) / 100 : n
+      }
     } else {
-      const tm = c.match(/^tracking-(.+)$/); if (tm) ls = tm[1] as unknown as number
+      const tm = c.match(/^tracking-(tighter|tight|normal|wide|wider|widest)$/)
+      if (tm) {
+        const emMap: Record<string, number> = { tighter: -0.05, tight: -0.025, normal: 0, wide: 0.025, wider: 0.05, widest: 0.1 }
+        ls = Math.round(emMap[tm[1]] * 16 * 100) / 100
+      }
     }
     if (c === 'text-left') ta = 'left'
     else if (c === 'text-center') ta = 'center'

@@ -393,6 +393,9 @@ export const layer = Layer.effect(
                 "*": "deny",
                 read: "ask",
                 websearch: "allow",
+                // "*" deny 已隐含禁用 skill 工具,显式声明使意图可见,且 prompt.ts 的
+                // command() 分支据此拦截 session.command 的 skill 模板注入
+                skill: "deny",
               }),
               user,
             ),

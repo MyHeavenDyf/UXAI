@@ -81,7 +81,7 @@ export interface SubtypeHandler {
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
    */
-  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ blob: Blob; fileName: string } | null>
+  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ files: { path: string; content: string | Uint8Array }[] } | null>
 
   /**
    * 下载下拉选项

@@ -1,8 +1,8 @@
-# PieChart | 饼图
+# PieChart | 饼图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Pie Chart (Donut)
+## Example: Basic Pie Chart (Donut)
 - Pie chart requires `name` and `value` fields in data
 
 ```json
@@ -22,7 +22,7 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430", "#715afb"]` — custom slice colors
 - `"label": { "show": true }` — show/hide slice labels
 - `"title": { "text": "160", "subText": "总数" }` — center text overlay

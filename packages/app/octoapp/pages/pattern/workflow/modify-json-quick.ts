@@ -283,7 +283,13 @@ export async function handleModifyElement(
         beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
-        if (data.textContent) el.props.value = data.textContent
+        {
+          const origValue = (beforeProps as Record<string, unknown>)?.value
+          const isBound = origValue && typeof origValue === "object" && !Array.isArray(origValue) && typeof (origValue as Record<string, unknown>).path === "string"
+          if (!isBound && (data.textContent || (typeof origValue === "string" && origValue !== ""))) {
+            el.props.value = data.textContent
+          }
+        }
         if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>, false)
         if (data.componentProps) applyStateBindings(beforeProps as Record<string, unknown>, data.componentProps)
         break

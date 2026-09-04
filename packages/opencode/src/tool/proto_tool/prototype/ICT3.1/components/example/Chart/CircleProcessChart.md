@@ -1,6 +1,6 @@
-# CircleProcessChart | 圆环进度图
+# CircleProcessChart | 圆环进度图 示例
 
-### Example: Basic CircleProcess Chart
+## Example: Basic CircleProcess Chart
 - Use `data` prop with `value` and `name` fields
 
 ```json
@@ -16,5 +16,5 @@
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3"]` — custom CircleProcess color

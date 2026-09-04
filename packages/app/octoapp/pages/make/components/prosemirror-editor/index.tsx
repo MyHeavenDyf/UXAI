@@ -90,7 +90,7 @@ export const ProseMirrorEditor = (props: Props) => {
       if (m.type === "skill") {
         return { type: "skill", name: m.name, label: m.label }
       } else {
-        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined }
+        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.type === "folder" ? true : undefined }
       }
     })
     props.setMentionSelections(selections)
@@ -288,7 +288,13 @@ export const ProseMirrorEditor = (props: Props) => {
           if (!v || !v.dom?.isConnected) return
           const attrs = selection.type === "skill"
             ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-            : { id: selection.path, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+            : {
+                id: selection.path,
+                name: selection.filename,
+                type: (selection as any).isFolder ? ("folder" as const) : ("file" as const),
+                label: selection.filename,
+                path: selection.path,
+              }
           const node = editorSchema.nodes.mention.create(attrs)
           const { from, to } = v.state.selection
           const tr = v.state.tr.replaceWith(from, to, node)

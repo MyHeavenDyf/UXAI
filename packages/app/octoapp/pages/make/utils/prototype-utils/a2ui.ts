@@ -18,6 +18,53 @@ export function buildSiblingMap(data: unknown): Record<string, string[]> | undef
   return Object.keys(map).length > 0 ? map : undefined
 }
 
+// 解析 data.js 的 JSON 文本，三层兜底：严格 JSON → 空格归一后 JSON → new Function 求值。
+function parseA2uiJson(raw: string): { doc: unknown } | { err: string } {
+  // 1) 严格解析：干净文件（含 persist 回写后的）走这层，零开销。
+  try {
+    return { doc: JSON.parse(raw) }
+  } catch {}
+  // 2) 把字符串字面量之外的非 ASCII 空格类字符（NBSP/全角空格/零宽空格/BOM/行段分隔）归一成普通空格后重试：
+  //    AI 偶用它们当缩进，但 JSON 合法空白只有 0x20/0x09/0x0A/0x0D，V8 报 "Expected property name or '}'"。
+  const out: string[] = []
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    const c = raw.charCodeAt(i)
+    if (esc) {
+      out.push(ch)
+      esc = false
+      continue
+    }
+    if (ch === "\\") {
+      out.push(ch)
+      esc = true
+      continue
+    }
+    if (ch === '"') {
+      out.push(ch)
+      inStr = !inStr
+      continue
+    }
+    if (!inStr && (c === 0xA0 || c === 0xFEFF || c === 0x3000 || (c >= 0x2000 && c <= 0x200B) || c === 0x2028 || c === 0x2029)) {
+      out.push(" ")
+      continue
+    }
+    out.push(ch)
+  }
+  try {
+    return { doc: JSON.parse(out.join("")) }
+  } catch {}
+  // 3) new Function 求值：AI 偶把 data.js 写成 JS 对象字面量（键名无引号、尾逗号），JSON.parse 吃不下。
+  //    data.js 本就被 iframe 当 <script> 执行（index.html:444），同信任级；仅自家 AI 生成、不导入第三方。
+  try {
+    return { doc: new Function("return (" + raw + ")")() }
+  } catch (e) {
+    return { err: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 /** 读取与 prototype.html 同目录的 data.js（内联 window.__A2UI_DATA__），按 session 缓存。
  *  命中缓存时比对 data.js 的 stat size；size 变了（外部修改/刷新）就丢弃重读，避免用旧 doc 覆盖。
  *  无 statFile（纯 web、无 desktopApi）时无法检测，退回「有缓存就用」。解析失败不缓存，下次重试。 */
@@ -36,13 +83,19 @@ export async function loadA2uiData(session: PrototypeSession, ctx: SubtypeHandle
   const text = new TextDecoder().decode(new Uint8Array(buffer))
   const stripped = text.replace(/^\uFEFF/, "").trimStart()
   const jsonStr = stripped.replace(/^window\.__A2UI_DATA__\s*=\s*/, "").replace(/;\s*$/, "")
-  try {
-    const doc = JSON.parse(jsonStr)
-    session.a2ui = { doc, loadSize: currentSize }
-    return doc
-  } catch {
+  const parsed = parseA2uiJson(jsonStr)
+  if ("err" in parsed) {
+    console.error("[loadA2uiData] parse failed", {
+      path: dataJsPath,
+      length: jsonStr.length,
+      head: jsonStr.slice(0, 120),
+      tail: jsonStr.slice(-120),
+      err: parsed.err,
+    })
     return null
   }
+  session.a2ui = { doc: parsed.doc, loadSize: currentSize }
+  return parsed.doc
 }
 
 /** 把缓存的 A2UI JSON 序列化回 data.js（window.__A2UI_DATA__ = ...）写盘，iframe 重载即生效。
