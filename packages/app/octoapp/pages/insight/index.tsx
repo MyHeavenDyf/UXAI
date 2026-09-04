@@ -166,6 +166,7 @@ const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round
 // 值为 JSON {dir, id}(id 空串 = 上次在新建空态):id 绑定其所属目录,恢复时目录不符不跳——
 // 服务端 session.get 按 id 全局查(不按 project 过滤),仅靠存在性校验拦不住跨目录复活旧会话。
 const LAST_SESSION_KEY = "octo:insight:last-session"
+const PROMPT_KEY_PREFIX = "octo:insight:prompt:"
 // 兼容历史纯 id 字符串记录:无目录信息无法校验归属,视为无记录(宁可落空态,不串台)。
 function readLastSession(): { dir: string; id: string } | undefined {
   const raw = localStorage.getItem(LAST_SESSION_KEY)
@@ -629,6 +630,31 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
+  type InsightPromptDoc = Exclude<Parameters<InsightEditorRef["replaceDoc"]>[0], undefined>
+  const promptStorageKey = (sessionId: string | undefined) => PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+  function loadPromptDoc(sessionId: string | undefined) {
+    const raw = localStorage.getItem(promptStorageKey(sessionId))
+    if (!raw) return undefined
+    try {
+      const parsed = JSON.parse(raw) as { doc?: unknown }
+      if (!parsed.doc || typeof parsed.doc !== "object") return undefined
+      const doc = parsed.doc as { type?: unknown; content?: unknown }
+      if (doc.type !== "doc" || !Array.isArray(doc.content)) return undefined
+      return parsed.doc as InsightPromptDoc
+    } catch {
+      return undefined
+    }
+  }
+  function savePromptDoc(sessionId: string | undefined, doc: InsightPromptDoc) {
+    localStorage.setItem(promptStorageKey(sessionId), JSON.stringify({ v: 1, doc }))
+  }
+  const [promptDoc, setPromptDoc] = createSignal<InsightPromptDoc | undefined>(loadPromptDoc(params.id))
+  let currentSessionIdForPrompt = params.id
+  function handleComposerContentChange(doc: InsightPromptDoc, text: string) {
+    setPromptDoc(doc)
+    setPrompt(text)
+    savePromptDoc(currentSessionIdForPrompt, doc)
+  }
   // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
   // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
   // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
@@ -989,14 +1015,23 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件，并恢复目标会话输入草稿
   // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
   //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
-  // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
+  // 附件草稿仍按原逻辑清理；输入框草稿按 session 分桶持久化，切回原 session / agent 后恢复。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
   //   (否则切换 session 可绕过 3 分钟防抖,spec task-card.md §7.1)。
   createEffect(on(() => params.id, () => {
+    currentSessionIdForPrompt = params.id
+    const doc = loadPromptDoc(params.id)
+    setPromptDoc(doc)
+    setPrompt("")
+    setMentionSelections([])
+    requestAnimationFrame(() => {
+      const ref = pmRefWelcome?.isAlive() ? pmRefWelcome : (pmRefConv?.isAlive() ? pmRefConv : undefined)
+      ref?.replaceDoc(doc)
+    })
     tabStore.reset()
     setPanelCollapsed(false)
     setResultViewMode("files")
@@ -1008,7 +1043,6 @@ function InsightContent() {
       revokeAllPreviews()
       filesById.clear()
       setAttachments([])
-      clearComposers()
       setMcpSelection(null)
     }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
@@ -2349,8 +2383,10 @@ function InsightContent() {
                         filesLoading={mentionFiles.loading}
                         mentionSelections={mentionSelections()}
                         setMentionSelections={setMentionSelections}
+                        initialDocJSON={promptDoc()}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                        onContentChange={setPrompt}
+                        onContentChange={handleComposerContentChange}
+                        onInitialContent={setPrompt}
                         onSubmit={() => void handleSubmit("enter")}
                         onTriggerMention={loadInsightSkills}
                         onMentionOpen={trackMentionOpen}
@@ -2589,8 +2625,10 @@ function InsightContent() {
                     filesLoading={mentionFiles.loading}
                     mentionSelections={mentionSelections()}
                     setMentionSelections={setMentionSelections}
+                    initialDocJSON={promptDoc()}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                    onContentChange={setPrompt}
+                    onContentChange={handleComposerContentChange}
+                    onInitialContent={setPrompt}
                     onSubmit={() => void handleSubmit("enter")}
                     onTriggerMention={loadInsightSkills}
                     onMentionOpen={trackMentionOpen}

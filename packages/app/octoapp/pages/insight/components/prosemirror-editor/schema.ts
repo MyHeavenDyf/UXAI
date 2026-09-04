@@ -111,3 +111,7 @@ export function getDocTextWithMentions(doc: PMNode): string {
     return ""
   })
 }
+
+export function docFromJSON(json: ReturnType<PMNode["toJSON"]>): PMNode {
+  return editorSchema.nodeFromJSON(json)
+}
