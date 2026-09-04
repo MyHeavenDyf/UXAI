@@ -1,0 +1,25 @@
+.el-rate {
+  --el-rate-icon-margin: 5px;
+  --el-rate-fill-color: var(--el-color-warning);
+  --el-rate-disabled-void-color: var(--el-fill-color-dark);
+}
+
+.theme-dark {
+  .el-rate {
+    --el-rate-fill-color: var(--yellow-50);
+    --el-rate-disabled-void-color: var(--gray-60);
+  }
+}
+
+.el-rate__item {
+  width: 1rem;
+  height: 1rem;
+}
+
+.el-rate .el-rate__icon {
+  font-size: var(--el-font-size-medium);
+}
+
+.el-rate__item + .el-rate__item {
+  margin-left: var(--spacing-2);
+}
