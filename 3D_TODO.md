@@ -27,9 +27,10 @@
 **验证结论（09-04，ses_f9563390）**：五步 + 组件专项全跑通（create 仓库 / modify 加叉车·删天花板·加热力图 / patch 墙色·背景 / 切走切回 / GLB 改色确认）。第 3 步「墙改蓝」暴露 Wall 组件 `hole` 漏 `segment` → 构造抛异常走 fallback 灰墙致改色失效，已在 3d-components `Wall.ts` 治本（`segment` 非法仅跳过挖洞、不再整墙 fallback）。⚡ plan 截断抢救未压到（本次 create 未截断），留待多 type 场景。
 **绿了才能**：commit（第 2 项）。
 
-### 2. 三仓 commit ⬜
+### 2. 三仓 commit ✅
 **是什么**：dev_cyc1 堆着 P1.5 + 全清 + P0.4~P0.10 约 40+ 文件未提交，e2e 绿后一次提交（含 3d-templete / 3d-components）。
 **测试用例**：无（git 层操作；提交前跑 tsgo/oxlint 双包 0 error 即可）。
+**结论（09-04）**：已提交并 push（3d-components `e287dfb` / 3d-templete `23dd6f7` / UXAI `f89cb51c6`）。UXAI push 前 turbo typecheck 12/12 通过（tsgo 0 error）；3d-components / 3d-templete lint-staged eslint 通过。
 
 ### 3. 打包 exe 内 3D 全链路 ⬜
 **是什么**：`release.ts --win --channel dev` 打 exe，验 3D 全链路。exe 是最终分发形态，这条不绿都是 dev 自嗨。
