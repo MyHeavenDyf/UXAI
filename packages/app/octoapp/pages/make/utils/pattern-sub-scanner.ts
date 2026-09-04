@@ -4,10 +4,12 @@ export type TextPartLike = { type: string; text?: string }
 
 export interface PatternMatchResult {
   results: Array<{ id: string; name: string; score: number }>
+  matchedMessageId?: string
 }
 
 export interface ModuleListResult {
   modules: Array<{ type: string; description: string }>
+  matchedMessageId?: string
 }
 
 // 兼容弱模型：允许标签带属性（如 <pattern-match type="json">）
@@ -82,11 +84,11 @@ export function scanPatternMatchFromMessages(
     const m = text.match(PATTERN_MATCH_RE)
     if (m) {
       const parsed = tryParseJSON(m[1])
-      if (parsed && Array.isArray(parsed.results)) return parsed as PatternMatchResult
+      if (parsed && Array.isArray(parsed.results)) return { ...parsed, matchedMessageId: messages[i].id } as PatternMatchResult
     }
     // 2. 兜底：无标签时尝试提取 JSON
     const fallback = extractJSONWithKey(text, "results")
-    if (fallback) return fallback as PatternMatchResult
+    if (fallback) return { ...fallback, matchedMessageId: messages[i].id } as PatternMatchResult
   }
   return null
 }
@@ -103,10 +105,10 @@ export function scanModuleListFromMessages(
     const m = text.match(MODULE_LIST_RE)
     if (m) {
       const parsed = tryParseJSON(m[1])
-      if (parsed && Array.isArray(parsed.modules)) return parsed as ModuleListResult
+      if (parsed && Array.isArray(parsed.modules)) return { ...parsed, matchedMessageId: messages[i].id } as ModuleListResult
     }
     const fallback = extractJSONWithKey(text, "modules")
-    if (fallback) return fallback as ModuleListResult
+    if (fallback) return { ...fallback, matchedMessageId: messages[i].id } as ModuleListResult
   }
   return null
 }
