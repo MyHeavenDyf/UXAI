@@ -1,23 +1,26 @@
-import { createSignal, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
+import { For, Show, createSignal, createEffect, onCleanup, onMount, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore } from "solid-js/store"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { CustomSelect } from "./custom-select"
+import { createIconPlusStore } from "./icon-plus-fetch"
+import { iconColors, iconCssColor } from "./icon-colors"
 import noDataEmptySvg from "../../../assets/images/noDataEmpty.svg?url"
 import deleteSvg from "../../../assets/images/delete.svg?url"
-import { iconColors, iconCssColor } from "./icon-colors"
 
 const PANEL_W = 380
 const PANEL_H = 682
 const ACCENT = "#3D99FF"
 
-/** 图标来源 tab：基础图标 / 质感图标 / 2.5D图标 / 天气 / 自定义 */
-const TABS = [
-  { label: '基础图标', value: 'basic' },
-  { label: '质感图标', value: 'texture' },
-  { label: '2.5D图标', value: '2.5d' },
-  { label: '天气', value: 'weather' },
-  { label: '自定义', value: 'custom' },
+/** 图标来源 tab 兜底：offline 或 tags 未返回前用这份渲染，tags 返回后由 store.tabs 覆盖 */
+const FALLBACK_TABS = [
+  { label: '基础图标', value: '基础图标' },
+  { label: '质感图标', value: '质感图标' },
+  { label: '2.5D图标', value: '2.5D图标' },
+  { label: '天气', value: '天气' },
+  { label: '拓扑图标', value: '拓扑图标' },
+  { label: '智慧图标', value: '智慧图标' },
+  { label: '自定义', value: '自定义' },
 ] as const
 
 /** 分类筛选（按图标名前缀归类） */
@@ -36,14 +39,38 @@ const CATEGORY_OPTIONS = [
   { label: '通信安全', value: 'comm' },
 ]
 
-/** 底部线性筛选 */
+/** 底部风格筛选：value（中文标签）即 getIcon 的 style 入参 */
 const SHAPE_OPTIONS = [
-  { label: '线性', value: 'outline' },
-  { label: '面性', value: 'filled' },
-  { label: '线性双色', value: 'outline-two-tone' },
-  { label: '面性双色', value: 'filled-two-tone' },
-  { label: '圆托底', value: 'circle' },
-  { label: '方托底', value: 'square' },
+  {
+    key: "border",
+    value: "线性",
+    label: "线性",
+  },
+  {
+    key: "filled",
+    value: "面性",
+    label: "面性",
+  },
+  {
+    key: "two_colors1",
+    value: "线性双色",
+    label: "线性双色",
+  },
+  {
+    key: "two_colors2",
+    value: "面性双色",
+    label: "面性双色",
+  },
+  {
+    key: "round_bottom2",
+    value: "圆底托",
+    label: "圆底托",
+  },
+  {
+    key: "square_bottom2",
+    value: "方底托",
+    label: "方底托",
+  },
 ]
 
 const SIZE_OPTIONS = ['12', '14', '16', '20', '24', '32', '36', '40'].map(s => ({ label: `${s}px`, value: s }))
@@ -61,7 +88,7 @@ function EmptyState(props: { text: string }) {
   )
 }
 
-/** 图标颜色筛选：色板圆点(18px) + 名称，选项取自 iconColors */
+/** 图标颜色筛选：色板圆点(18px) + 名称，选项取自 icon-colors.ts 的 iconColors 语义色 */
 function IconColorSelect(props: { value: string; onChange: (key: string) => void }) {
   const [open, setOpen] = createSignal(false)
   const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
@@ -127,7 +154,7 @@ function IconColorSelect(props: { value: string; onChange: (key: string) => void
   )
 }
 
-/** 图标选择弹窗：筛选/搜索 + 五个来源 tab + 图标网格（60px，一行五个）+ 底部线性/尺寸筛选与确认取消按钮 */
+/** 图标选择弹窗：筛选/搜索 + 来源 tab + 图标网格（60px，一行五个）+ 底部线性/尺寸/颜色筛选与确认取消按钮 */
 export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
@@ -138,19 +165,20 @@ export function IconPickerPopup(props: {
   onConfirm?: () => void
 }): JSX.Element {
   const [state, setState] = createStore({
-    keyword: '',
     category: 'all',
-    tab: 'basic',
-    shape: 'outline',
-    iconSize: '24',
     iconColorKey: 'default',
-    iconColor: iconCssColor('default'),
     customIcons: [] as string[],
     selected: props.current,
     tip: null as { name: string; x: number; y: number } | null,
     uploadTip: null as { x: number; y: number; cx: number } | null,
     pos: { x: 0, y: 0 },
   })
+  /** icon-plus 服务：打开弹窗即拉 getConfig（联通再取 tags），用 tags 重建 tab 列表（末尾固定"自定义"）；不联通回退 lucide */
+  const iconStore = createIconPlusStore()
+  onMount(() => { void iconStore.init(); iconStore.setColor(iconCssColor('default')) })
+  onCleanup(() => iconStore.dispose())
+  /** tabs：接口返回前用兜底，返回后用 store 数据 */
+  const tabs = () => iconStore.state.tabs.length ? iconStore.state.tabs : FALLBACK_TABS
   let popupRef: HTMLDivElement | undefined
   let fileRef: HTMLInputElement | undefined
 
@@ -174,8 +202,9 @@ export function IconPickerPopup(props: {
   window.addEventListener('mousedown', onOutside)
   onCleanup(() => window.removeEventListener('mousedown', onOutside))
 
+  /** offline 兜底：本地 lucide 过滤（关键词读 store、分类读本地 state） */
   const filtered = () => {
-    const kw = state.keyword.trim().toLowerCase()
+    const kw = iconStore.state.keyword.trim().toLowerCase()
     const matcher = state.category === 'all' ? null : CATEGORY_MATCHERS[state.category]
     return LUCIDE_ICONS.filter(i => {
       if (matcher && !matcher.test(i.name)) return false
@@ -184,25 +213,33 @@ export function IconPickerPopup(props: {
     })
   }
 
-  /** 渲染 24px 网格图标预览（容器 60px 高，居中展示）；底部筛选仅作用于当前选中的图标；颜色经 style 传入以支持 CSS 变量 */
+  /** 渲染后端返回的整段 svg 文本（online 时网格用）；24px 居中 */
+  const ApiIcon = (props: { url: string }) => {
+    const svg = () => iconStore.state.svgCache[props.url] ?? ''
+    return (
+      <Show when={svg()} fallback={<span class="text-[10px] text-slate-400">…</span>}>
+        <div class="flex h-[24px] w-[24px] items-center justify-center [&>svg]:h-[24px] [&>svg]:w-[24px]" innerHTML={svg()} />
+      </Show>
+    )
+  }
+
+  /** 渲染 24px 网格图标预览（容器 60px 高，居中展示）；底部 shape/color 仅作用于当前选中的图标 */
   const GridIcon = (svg: string, s: string = 'outline', c: string = '#191919') => {
-    const ABS = 'position:absolute;inset:0;margin:auto;'
     const strokeEl = (w: number, style?: string) => (
-      <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" innerHTML={svg} style={`stroke:${c};${style ?? ''}`} />
+      <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke={c} stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" innerHTML={svg} style={style} />
     )
     const fillEl = (w: number, fill: string, fillOpacity: number | undefined, style?: string) => (
-      <svg width={w} height={w} viewBox="0 0 24 24" stroke="none" innerHTML={svg}
-        style={`fill:${fill};fill-opacity:${fillOpacity ?? 1};${style ?? ''}`} />
+      <svg width={w} height={w} viewBox="0 0 24 24" fill={fill} fill-opacity={fillOpacity} stroke="none" innerHTML={svg} style={style} />
     )
     if (s === 'filled') return fillEl(24, c, undefined)
     if (s === 'outline-two-tone' || s === 'filled-two-tone') {
       return (
         <span class="relative inline-flex h-[24px] w-[24px]">
           {s === 'outline-two-tone'
-            ? strokeEl(24, ABS)
-            : fillEl(24, c, undefined, ABS)}
-          {fillEl(17, ACCENT, 0.85, ABS)}
+            ? strokeEl(24, 'position:absolute;inset:0;margin:auto')
+            : fillEl(24, c, undefined, 'position:absolute;inset:0;margin:auto')}
+          {fillEl(17, ACCENT, 0.85, 'position:absolute;inset:0;margin:auto')}
         </span>
       )
     }
@@ -290,7 +327,7 @@ export function IconPickerPopup(props: {
             <CustomSelect value={state.category} options={CATEGORY_OPTIONS} onChange={v => setState('category', v)}
               class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:bg-[#F2F3F5] [&>button]:text-[12px] [&>button]:text-[#333333] [&>button]:border-transparent" />
           </div>
-          <input value={state.keyword} onInput={(e) => setState('keyword', e.currentTarget.value)}
+          <input value={iconStore.state.keyword} onInput={(e) => iconStore.setKeyword(e.currentTarget.value)}
             type="search" placeholder="请搜索..."
             class="h-9 w-[231px] shrink-0 rounded-[36px] bg-[#F2F3F5] pl-[38px] pr-3 text-[12px] text-[#333333] outline-none placeholder:text-[#777777]"
             style={{
@@ -300,15 +337,15 @@ export function IconPickerPopup(props: {
             }} />
         </div>
 
-        {/* 五个来源 tab：选中 #0A59F7 文字 + 10% 透明度背景，未选中 #777777 纯文字 */}
-        <div class="mt-4 flex shrink-0 items-center gap-0 px-4">
-          <For each={[...TABS]}>
+        {/* 来源 tab：选中 #0A59F7 文字 + 10% 透明度背景，未选中 #777777 纯文字 */}
+        <div class="mt-4 flex shrink-0 items-center gap-0 overflow-x-auto px-4 icon-picker-scroll">
+          <For each={tabs()}>
             {(t) => (
-              <button type="button" onClick={() => setState('tab', t.value)}
-                class="px-3 py-1 text-center text-[12px] leading-5 rounded-[28px]"
+              <button type="button" onClick={() => iconStore.setTab(t.value)}
+                class="shrink-0 px-3 py-1 text-center text-[12px] leading-5 rounded-[28px] whitespace-nowrap"
                 classList={{
-                  'bg-[#0A59F7]/10 text-[#0A59F7]': state.tab === t.value,
-                  'text-[#777777]': state.tab !== t.value,
+                  'bg-[#0A59F7]/10 text-[#0A59F7]': iconStore.state.activeTab === t.value,
+                  'text-[#777777]': iconStore.state.activeTab !== t.value,
                 }}>
                 {t.label}
               </button>
@@ -318,71 +355,94 @@ export function IconPickerPopup(props: {
 
         {/* 主内容：随 tab 切换；可滚动，底部筛选与按钮始终固定在弹窗底部 */}
         <div class="icon-picker-scroll mt-4 min-h-0 flex-1 overflow-y-auto px-4" onScroll={() => setState('tip', null)}>
-          <Show when={state.tab === 'basic'} fallback={
-            <Show when={state.tab === 'custom'} fallback={<EmptyState text="暂无内容" />}>
-              <div class="flex h-full min-h-[240px] flex-col">
-                <div class="flex shrink-0 items-center justify-between">
-                  <span class="text-[13px] font-semibold text-slate-700">自定义图标</span>
-                  <div class="relative">
-                    <button type="button"
-                      onMouseEnter={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect()
-                        setState('uploadTip', { x: r.left, y: r.top - 6, cx: r.left + r.width / 2 })
-                      }}
-                      onMouseLeave={() => setState('uploadTip', null)}
-                      onClick={() => fileRef?.click()}
-                      class="flex cursor-pointer items-center gap-1 text-[12px] text-[#0A59F7]">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                      上传图标
-                    </button>
-                  </div>
+          <Show when={iconStore.state.activeTab === '自定义'} fallback={
+            <Show when={iconStore.state.online} fallback={
+              /* offline 兜底：仅 '基础图标' tab 显示 lucide 网格，其余"暂无内容" */
+              <Show when={iconStore.state.activeTab === '基础图标'} fallback={<EmptyState text="暂无内容" />}>
+                <div class="grid grid-cols-5 gap-2">
+                  <For each={filtered()}>
+                    {(icon) => (
+                      <button type="button"
+                        onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
+                        onMouseLeave={() => setState('tip', null)}
+                        onClick={() => setState('selected', icon.name)}
+                        class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selected }}>
+                        {icon.name === state.selected
+                          ? GridIcon(icon.svg, iconStore.state.shape, iconStore.state.iconColor)
+                          : GridIcon(icon.svg)}
+                      </button>
+                    )}
+                  </For>
                 </div>
-                <div class="mt-4 min-h-0 flex-1">
-                  <Show when={state.customIcons.length > 0}
-                    fallback={<EmptyState text="暂无内容，点击上传图标吧～" />}>
-                    <div class="grid grid-cols-5 gap-2">
-                      <For each={state.customIcons}>
-                        {(u, i) => (
-                          <div class="group relative flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]">
-                            <img src={u} class="max-h-full max-w-full object-contain" />
-                            <button type="button" title="删除"
-                              onClick={() => deleteCustomIcon(i())}
-                              class="absolute right-[6px] top-[6px] z-10 hidden cursor-pointer group-hover:block">
-                              <img src={deleteSvg} width="16" height="16" alt="" />
-                            </button>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
+                <Show when={filtered().length === 0}>
+                  <div class="py-8 text-center text-[12px] text-slate-400">未找到匹配的图标</div>
+                </Show>
+              </Show>
+            }>
+              {/* online：icon-plus 网格 */}
+              <Show when={iconStore.state.icons.length > 0} fallback={
+                <EmptyState text={iconStore.state.searching ? '搜索中…' : '未找到匹配的图标'} />
+              }>
+                <div class="grid grid-cols-5 gap-2">
+                  <For each={iconStore.state.icons}>
+                    {(icon) => (
+                      <button type="button"
+                        onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
+                        onMouseLeave={() => setState('tip', null)}
+                        onClick={() => setState('selected', icon.name)}
+                        class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selected }}>
+                        <ApiIcon url={icon.url} />
+                      </button>
+                    )}
+                  </For>
                 </div>
-                <input ref={fileRef} type="file" accept=".svg,.png,.jpg,.jpeg" multiple class="hidden" onChange={onFiles} />
-              </div>
+              </Show>
             </Show>
           }>
-            <div class="grid grid-cols-5 gap-2">
-              <For each={filtered()}>
-                {(icon) => (
+            <div class="flex h-full min-h-[240px] flex-col">
+              <div class="flex shrink-0 items-center justify-between">
+                <span class="text-[13px] font-semibold text-slate-700">自定义图标</span>
+                <div class="relative">
                   <button type="button"
-                    onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
-                    onMouseLeave={() => setState('tip', null)}
-                    onClick={() => setState('selected', icon.name)}
-                    class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                    classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selected }}>
-                    {icon.name === state.selected
-                      ? GridIcon(icon.svg, state.shape, state.iconColor)
-                      : GridIcon(icon.svg)}
+                    onMouseEnter={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect()
+                      setState('uploadTip', { x: r.left, y: r.top - 6, cx: r.left + r.width / 2 })
+                    }}
+                    onMouseLeave={() => setState('uploadTip', null)}
+                    onClick={() => fileRef?.click()}
+                    class="flex cursor-pointer items-center gap-1 text-[12px] text-[#0A59F7]">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    上传图标
                   </button>
-                )}
-              </For>
+                </div>
+              </div>
+              <div class="mt-4 min-h-0 flex-1">
+                <Show when={state.customIcons.length > 0}
+                  fallback={<EmptyState text="暂无内容，点击上传图标吧～" />}>
+                  <div class="grid grid-cols-5 gap-2">
+                    <For each={state.customIcons}>
+                      {(u, i) => (
+                        <div class="group relative flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]">
+                          <img src={u} class="max-h-full max-w-full object-contain" />
+                          <button type="button" title="删除"
+                            onClick={() => deleteCustomIcon(i())}
+                            class="absolute right-[6px] top-[6px] z-10 hidden cursor-pointer group-hover:block">
+                            <img src={deleteSvg} width="16" height="16" alt="" />
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+              <input ref={fileRef} type="file" accept=".svg,.png,.jpg,.jpeg" multiple class="hidden" onChange={onFiles} />
             </div>
-            <Show when={filtered().length === 0}>
-              <div class="py-8 text-center text-[12px] text-slate-400">未找到匹配的图标</div>
-            </Show>
           </Show>
         </div>
 
@@ -390,16 +450,16 @@ export function IconPickerPopup(props: {
         <div class="mt-4 shrink-0 px-4">
           <div class="flex items-center gap-2">
             <div class="w-[96px] shrink-0">
-              <CustomSelect value={state.shape} options={SHAPE_OPTIONS} onChange={v => setState('shape', v)}
+              <CustomSelect value={iconStore.state.shape} options={SHAPE_OPTIONS} onChange={v => iconStore.setShape(v)}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
             <div class="w-[96px] shrink-0">
-              <CustomSelect value={state.iconSize} options={SIZE_OPTIONS} onChange={v => setState('iconSize', v)}
+              <CustomSelect value={iconStore.state.iconSize} options={SIZE_OPTIONS} onChange={v => iconStore.setSize(v)}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
             <div class="min-w-0 flex-1">
               <IconColorSelect value={state.iconColorKey}
-                onChange={v => { setState('iconColorKey', v); setState('iconColor', iconCssColor(v)) }} />
+                onChange={v => { setState('iconColorKey', v); iconStore.setColor(iconCssColor(v)) }} />
             </div>
           </div>
           <div class="mt-4 flex items-center justify-end gap-2">
