@@ -79,10 +79,9 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const available = createMemo(() => {
       const api = apiModels()
       if (!api) return []
-      const connected = new Set(api.connected)
-      return api.all
-        .filter((provider) => connected.has(provider.id))
-        .flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider })))
+      return api.all.flatMap((provider) =>
+        Object.values(provider.models).map((model) => ({ ...model, provider })),
+      )
     })
 
     const release = createMemo(
