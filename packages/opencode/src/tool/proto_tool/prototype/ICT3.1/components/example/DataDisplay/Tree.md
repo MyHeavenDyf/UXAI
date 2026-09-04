@@ -1,6 +1,6 @@
-# Tree
+# Tree 示例
 
-### Example: Tree with data binding options
+## Example: Tree with data binding options
 
 ```json
 {
@@ -55,7 +55,7 @@
 }
 ```
 
-### Example: Tree with static options
+## Example: Tree with static options
 
 ```json
 {

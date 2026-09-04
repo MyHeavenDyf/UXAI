@@ -7,6 +7,7 @@ import "@/pages/pattern/assets/style/preview/PropertyEditorPopup.css"
 import {
   onPrototypeQuickFix,
   onPrototypeClosePanels,
+  onPrototypeRectUpdate,
   closePrototypePanels,
   applyPrototypeModify,
   dispatchPrototypePickerSubmit,
@@ -16,6 +17,7 @@ import {
 
 export function PrototypePropertyEditor(): JSX.Element {
   const [data, setData] = createSignal<PrototypeQuickFixData | null>(null)
+  let lastData: PrototypeQuickFixData | null = null
   const [pickerText, setPickerText] = createSignal("")
   const [pickerVisible, setPickerVisible] = createSignal(false)
   const [pickerDrag, setPickerDrag] = createStore({ x: 0, y: 0 })
@@ -29,13 +31,38 @@ export function PrototypePropertyEditor(): JSX.Element {
   }
 
   const unsubQuickFix = onPrototypeQuickFix((d) => {
-    setData(d)
-    setPickerText("")
-    setPickerDrag({ x: 0, y: 0 })
-    setPickerVisible(true)
+    // 已打开时换元素：先 null-toggle 触发 PropertyEditorPopup 重置，
+    // 对齐 pattern 侧 openQuickModify 的 show:false → microtask → show:true。
+    if (data()) {
+      setData(null)
+      queueMicrotask(() => {
+        lastData = d
+        setData(d)
+        setPickerText("")
+        setPickerDrag({ x: 0, y: 0 })
+        setPickerVisible(true)
+      })
+    } else {
+      lastData = d
+      setData(d)
+      setPickerText("")
+      setPickerDrag({ x: 0, y: 0 })
+      setPickerVisible(true)
+    }
+  })
+  // 选中元素在编辑过程中尺寸/位置变化（如改 className/文本导致换行/宽度变化）时，
+  // iframe ResizeObserver 会经 message-handler 派发 prototype:rect-update。这里按
+  // elementId 匹配当前选中的元素，更新 elementRect，让 mask 蓝框和编辑器弹窗跟随。
+  const unsubRectUpdate = onPrototypeRectUpdate((d) => {
+    const cur = data() ?? lastData
+    if (cur && cur.elementId === d.elementId) {
+      const updated = { ...cur, elementRect: d.elementRect }
+      lastData = updated
+      if (data()) setData(updated)
+    }
   })
   const unsubClose = onPrototypeClosePanels(() => { closeUi(); closePicker() })
-  onCleanup(() => { unsubQuickFix(); unsubClose() })
+  onCleanup(() => { unsubQuickFix(); unsubRectUpdate(); unsubClose() })
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") closeAll()
@@ -119,25 +146,21 @@ export function PrototypePropertyEditor(): JSX.Element {
         </Show>
       </Show>
 
-      <Show when={data()}>
-        {(d) => (
-          <PropertyEditorPopup
-            show={true}
-            elementId={d().elementId}
-            componentType={d().componentType}
-            currentClass={d().currentClass}
-            elementProps={d().elementProps}
-            htmlFilePath={d().filePath}
-            elementRect={d().elementRect}
-            containerSize={{ width: window.innerWidth, height: window.innerHeight }}
-            onConfirm={(mod: ModifyElementData) => {
-              applyPrototypeModify(mod)
-              if (!mod.keepOpen) closeAll()
-            }}
-            onCancel={closeAll}
-          />
-        )}
-      </Show>
+      <PropertyEditorPopup
+        show={!!data()}
+        elementId={(data() ?? lastData)?.elementId ?? ''}
+        componentType={(data() ?? lastData)?.componentType ?? ''}
+        currentClass={(data() ?? lastData)?.currentClass ?? ''}
+        elementProps={(data() ?? lastData)?.elementProps ?? ''}
+        htmlFilePath={(data() ?? lastData)?.filePath}
+        elementRect={(data() ?? lastData)?.elementRect ?? { top: 0, left: 0, width: 0, height: 0 }}
+        containerSize={{ width: window.innerWidth, height: window.innerHeight }}
+        onConfirm={(mod: ModifyElementData) => {
+          applyPrototypeModify(mod)
+          if (!mod.keepOpen) closeAll()
+        }}
+        onCancel={closeAll}
+      />
 
       <Show when={pickerVisible()}>
         <div

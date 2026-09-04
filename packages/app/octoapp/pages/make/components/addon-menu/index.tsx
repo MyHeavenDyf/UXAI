@@ -1,5 +1,6 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -34,11 +35,15 @@ interface AddonMenuProps {
   productId?: number
   onEnterDesignStrategy?: () => void
   planActive?: boolean
+  onEnterPatternPage?: () => void
+  patternPageActive?: boolean
   onOpen?: () => void
   disabled: boolean
 }
 
 export function AddonMenu(props: AddonMenuProps): JSX.Element {
+  const { request, gate } = useUploadRiskGate()
+
   const [open, setOpen] = createSignal(false)
   const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
   const [skillsCategory, setSkillsCategory] = createSignal<'platform' | 'custom'>('platform')
@@ -308,8 +313,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const handleAddAttachment = () => {
-    closeMenu()
-    props.onAddAttachment()
+    request(() => {
+      closeMenu()
+      props.onAddAttachment()
+    })
   }
 
   // Click-outside handling
@@ -320,6 +327,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       if (target.closest(".addon-menu-container")) return
       if (target.closest(".addon-menu-trigger")) return
       if (target.closest(".addon-menu-url-overlay")) return
+      if (target.closest(".make-model-risk-overlay")) return
       closeMenu()
     }
     document.addEventListener("mousedown", handler)
@@ -542,23 +550,27 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <button
               type="button"
               class={`addon-menu-item addon-menu-item--assets ${activeSecondary() === 'assets' ? 'addon-menu-item--active' : ''}`}
-              onClick={async () => {
-                if (activeSecondary() === 'assets') {
-                  setActiveSecondary(null)
-                  return
-                }
-                setActiveSecondary('assets')
-                setAssetStack([])
-                setAssetError(null)
-                setAssetLoading(true)
-                try {
-                  const folders = await fetchTeamTree(props.productId)
-                  setAssetStack([{ folder: null, children: folders, files: [], loadingFiles: false }])
-                } catch (err) {
-                  setAssetError(err instanceof Error ? err.message : "加载失败")
-                } finally {
-                  setAssetLoading(false)
-                }
+              onClick={() => {
+                request(() => {
+                  if (activeSecondary() === 'assets') {
+                    setActiveSecondary(null)
+                    return
+                  }
+                  setActiveSecondary('assets')
+                  setAssetStack([])
+                  setAssetError(null)
+                  setAssetLoading(true)
+                  void (async () => {
+                    try {
+                      const folders = await fetchTeamTree(props.productId)
+                      setAssetStack([{ folder: null, children: folders, files: [], loadingFiles: false }])
+                    } catch (err) {
+                      setAssetError(err instanceof Error ? err.message : "加载失败")
+                    } finally {
+                      setAssetLoading(false)
+                    }
+                  })()
+                })
               }}
             >
               <span class="addon-menu-item-icon"><AssetsIcon /></span>
@@ -571,11 +583,13 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               type="button"
               class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
               onClick={() => {
-                if (activeSecondary() === 'files') {
-                  setActiveSecondary(null)
-                } else {
-                  setActiveSecondary('files')
-                }
+                request(() => {
+                  if (activeSecondary() === 'files') {
+                    setActiveSecondary(null)
+                  } else {
+                    setActiveSecondary('files')
+                  }
+                })
               }}
             >
               <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
@@ -587,7 +601,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <button
               type="button"
               class="addon-menu-item"
-              disabled={props.planActive}
+              disabled={props.planActive || props.patternPageActive}
               onClick={() => {
                 closeMenu()
                 props.onEnterDesignStrategy?.()
@@ -595,6 +609,20 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             >
               <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
               <span class="addon-menu-item-text">进入设计策略模式</span>
+            </button>
+
+             {/* 进入patternPage模式 */}
+            <button
+              type="button"
+              class="addon-menu-item"
+              disabled={props.planActive || props.patternPageActive}
+              onClick={() => {
+                closeMenu()
+                props.onEnterPatternPage?.()
+              }}
+            >
+              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+              <span class="addon-menu-item-text">进入Pattern模式</span>
             </button>
 
             {/* 接收设计资产链接URL — 暂时隐藏 */}
@@ -1125,6 +1153,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           </div>
         </Portal>
       </Show>
+
+      {gate}
     </>
   )
 }

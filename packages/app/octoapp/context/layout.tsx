@@ -67,6 +67,10 @@ export type LocalProject = Partial<Project> & { worktree: string; expanded: bool
 
 export type ReviewDiffStyle = "unified" | "split"
 
+export function isActiveProject(activeDirectory: string | undefined, directory: string) {
+  return !!activeDirectory && activeDirectory === directory
+}
+
 export function ensureSessionKey(key: string, touch: (key: string) => void, seed: (key: string) => void) {
   touch(key)
   seed(key)
@@ -413,7 +417,11 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       return available[Math.floor(Math.random() * available.length)]
     }
 
-    function enrich(project: { worktree: string; expanded: boolean }) {
+    function enrich(project: LocalProject): LocalProject {
+      if (!isActiveProject(activeDirectory(), project.worktree)) {
+        const metadata = globalSync.data.project.find((item) => item.worktree === project.worktree)
+        return metadata ? { ...metadata, ...project } : project
+      }
       const [childStore] = globalSync.child(project.worktree, { bootstrap: false })
       const projectID = childStore.project
       const metadata = projectID
@@ -463,6 +471,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       return directory
     }
 
+    const activeDirectory = createMemo(() => {
+      const directory = server.projects.last()
+      if (!directory) return
+      return rootFor(directory)
+    })
+
     createEffect(() => {
       const projects = server.projects.list()
       const seen = new Set(projects.map((project) => project.worktree))
@@ -501,6 +515,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       if (!globalSync.ready) return
 
       for (const project of projects) {
+        if (!isActiveProject(activeDirectory(), project.worktree)) continue
         if (!project.id) continue
         if (project.id === "global") continue
         globalSync.project.icon(project.worktree, project.icon?.override)
@@ -522,6 +537,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
 
       for (const project of projects) {
+        if (!isActiveProject(activeDirectory(), project.worktree)) continue
         if (project.icon?.color || project.icon?.override || project.icon?.url) continue
         const worktree = project.worktree
         const existing = colors[worktree]
@@ -552,16 +568,16 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     let sessionFrame: number | undefined
     let sessionTimer: number | undefined
 
-    onMount(() => {
+    createEffect(() => {
+      const directory = activeDirectory()
+      if (!directory) return
+      if (sessionFrame !== undefined) cancelAnimationFrame(sessionFrame)
+      if (sessionTimer !== undefined) window.clearTimeout(sessionTimer)
       sessionFrame = requestAnimationFrame(() => {
         sessionFrame = undefined
         sessionTimer = window.setTimeout(() => {
           sessionTimer = undefined
-          void Promise.all(
-            server.projects.list().map((project) => {
-              return globalSync.project.loadSessions(project.worktree)
-            }),
-          )
+          void globalSync.project.loadSessions(directory)
         }, 0)
       })
     })

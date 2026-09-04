@@ -37,6 +37,12 @@ export type PrototypeQuickFixData = {
   filePath?: string
 }
 
+/** 选中元素尺寸/位置变化时由 iframe ResizeObserver 回传，让父侧 mask 蓝框跟随更新。 */
+export type PrototypeRectUpdateData = {
+  elementId: string
+  elementRect: { top: number; left: number; width: number; height: number }
+}
+
 export type PrototypeModifyData = {
   elementId: string
   className: string

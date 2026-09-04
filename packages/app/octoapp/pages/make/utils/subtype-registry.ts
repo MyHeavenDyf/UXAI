@@ -3,6 +3,7 @@ import defaultHandler from "../subtype-handlers/default"
 import shadcnHandler from "../subtype-handlers/shadcn"
 import prototypeHandler from "../subtype-handlers/prototype"
 import demoHandler from "../subtype-handlers/demo"
+import componentsHandler from "../subtype-handlers/components"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -20,3 +21,4 @@ registerSubtypeHandler(defaultHandler)
 registerSubtypeHandler(shadcnHandler)
 registerSubtypeHandler(prototypeHandler)
 registerSubtypeHandler(demoHandler)
+registerSubtypeHandler(componentsHandler)

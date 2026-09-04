@@ -1,8 +1,9 @@
-import type { PrototypeCtxMenuData, PrototypeEditTarget, PrototypeQuickFixData } from "./types"
+import type { PrototypeCtxMenuData, PrototypeEditTarget, PrototypeQuickFixData, PrototypeRectUpdateData } from "./types"
 
 const PROTOTYPE_EDIT_EVENT = "prototype:edit-selected"
 const PROTOTYPE_CTX_MENU_EVENT = "prototype:ctx-menu"
 const PROTOTYPE_QUICK_FIX_EVENT = "prototype:quick-fix"
+const PROTOTYPE_RECT_UPDATE_EVENT = "prototype:rect-update"
 const PROTOTYPE_CLOSE_PANELS_EVENT = "prototype:close-panels"
 const PROTOTYPE_PICKER_SUBMIT_EVENT = "prototype:picker-submit"
 const PROTOTYPE_PICKER_APPEND_EVENT = "prototype:picker-append"
@@ -37,6 +38,16 @@ export function onPrototypeQuickFix(handler: (data: PrototypeQuickFixData) => vo
   const listener = (e: Event) => handler((e as CustomEvent<PrototypeQuickFixData>).detail)
   window.addEventListener(PROTOTYPE_QUICK_FIX_EVENT, listener)
   return () => window.removeEventListener(PROTOTYPE_QUICK_FIX_EVENT, listener)
+}
+
+export function dispatchPrototypeRectUpdate(data: PrototypeRectUpdateData) {
+  window.dispatchEvent(new CustomEvent(PROTOTYPE_RECT_UPDATE_EVENT, { detail: data }))
+}
+
+export function onPrototypeRectUpdate(handler: (data: PrototypeRectUpdateData) => void) {
+  const listener = (e: Event) => handler((e as CustomEvent<PrototypeRectUpdateData>).detail)
+  window.addEventListener(PROTOTYPE_RECT_UPDATE_EVENT, listener)
+  return () => window.removeEventListener(PROTOTYPE_RECT_UPDATE_EVENT, listener)
 }
 
 export function dispatchPrototypeClosePanels() {

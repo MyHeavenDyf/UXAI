@@ -21,6 +21,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { dirname, joinPath } from "../../utils/references"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
@@ -429,8 +430,7 @@ export function HtmlRenderer(props: {
       htmlContent = extractHtmlContent(htmlContent)
       
       // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
-      let srcZipBlob: Blob | null = null
-      let srcFileName: string | undefined
+      let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
       const handler = getSubtypeHandler(props.subtype)
       if (handler?.buildArchiveSrc && props.tabId) {
         const m = local.model.current()
@@ -462,8 +462,7 @@ export function HtmlRenderer(props: {
         try {
           const r = await handler.buildArchiveSrc(ctx)
           if (r) {
-            srcZipBlob = r.blob
-            srcFileName = r.fileName
+            srcFiles = r.files
           } else if (props.subtype === "prototype") {
             showOctoToast({ title: "代码包生成失败，已跳过 src/" })
           }
@@ -473,6 +472,11 @@ export function HtmlRenderer(props: {
         }
       }
       
+      // prototype 的 assets 是 symlink 指向 ict-coder 安装位置（不带 hash，与 HTML 引用 ./assets/index.js 匹配）；
+      // list-directory 用 readdirSync 跟随 symlink，能列出真实内容
+      const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
+      const previewExtraDirs = props.subtype === "prototype" && htmlDir ? [joinPath(htmlDir, "assets")] : []
+
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -482,8 +486,8 @@ export function HtmlRenderer(props: {
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || "",
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
-        srcZipBlob,
-        srcFileName,
+        srcFiles,
+        previewExtraDirs,
       })
       
       if (isLoggedIn) {

@@ -595,11 +595,15 @@
   font-size: 14px;
 }
 
-.studio-composer-input:empty::before {
-  content: attr(data-placeholder);
+.studio-composer-input-placeholder {
+  position: absolute;
+  inset: 0;
   color: rgba(15, 23, 42, 0.45);
   font-size: 14px;
+  line-height: 22px;
   pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .studio-composer-at-chip {
@@ -614,7 +618,7 @@
   vertical-align: top;
   user-select: none;
   -webkit-user-select: none;
-  margin: 0 2px;
+  margin: 0 2px 2px;
   cursor: text;
   box-sizing: border-box;
   background: rgba(15, 23, 42, 0.06);

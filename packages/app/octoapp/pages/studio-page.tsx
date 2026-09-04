@@ -241,6 +241,7 @@ export default function StudioPage() {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const setStudioPrompt = (value: string) => setPrompt(value.trim() === "" ? "" : value)
   const [imageSettingStore, setImageSettingStore] = persisted(
     Persist.global("studio.image.settings"),
     createStore({
@@ -278,11 +279,23 @@ export default function StudioPage() {
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   let reversePromptRunning = false
   let reversePromptController: AbortController | undefined
-  const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
-  const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("480")
-  const [videoMode, setVideoMode] = createSignal<StudioVideoMode>("all-reference")
+  const [videoSettingStore, setVideoSettingStore] = persisted(
+    Persist.global("studio.video.settings"),
+    createStore({
+      videoDuration: "5" as StudioVideoDuration,
+      videoQualityMode: "480" as StudioVideoQualityMode,
+      videoMode: "all-reference" as StudioVideoMode,
+    }),
+  )
+  const videoDuration = () => videoSettingStore.videoDuration
+  const setVideoDuration = (v: StudioVideoDuration) => setVideoSettingStore("videoDuration", v)
+  const videoQualityMode = () => videoSettingStore.videoQualityMode
+  const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
+  const videoMode = () => videoSettingStore.videoMode
+  const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
+  const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
   const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [rebootingGenerationIDs, setRebootingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
@@ -309,8 +322,8 @@ export default function StudioPage() {
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(true)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
@@ -389,6 +402,12 @@ export default function StudioPage() {
   let generationToken = 0
   let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
+  let seedreamAtSnapshot: { assets: StudioAsset[]; html: string } | undefined
+  let savedImageAspectRatio: StudioAspectRatio | undefined
+  let savedImageCount: 1 | 2 | 3 | 4 | undefined
+  let savedVideoAspectRatio: StudioAspectRatio | undefined
+  let savedVideoCount: 1 | 2 | 3 | 4 | undefined
+  const seedreamInputApi: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void } = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {} }
   const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
     Persist.global("studio.left.collapsed"),
     createStore({ collapsed: false }),
@@ -834,6 +853,7 @@ export default function StudioPage() {
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages ?? normalized.inputImages,
+          mentionImages: mentionImagesMap(),
           result: normalizeResultValue(pending),
         }
       })
@@ -902,6 +922,7 @@ export default function StudioPage() {
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages,
+          mentionImages: mentionImagesMap(),
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -1330,7 +1351,9 @@ export default function StudioPage() {
         }
         if (!preserveEditorEntry) {
           setPendingEditorEntries([])
-          if (!preserveGenerationCapability) setCapability("image.generate")
+          // 仅重置编辑类 capability（inpaint/outpaint/upscale/cutout）为默认生图模式，
+          // 保留 video.generate / image.generate，避免切换 session 时丢失视频生成模式
+          if (!preserveGenerationCapability && workspaceModeForCapability(capability())) setCapability("image.generate")
         }
         setCanvasTabImages([])
         setCanvasTabLabels({})
@@ -1365,6 +1388,7 @@ export default function StudioPage() {
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
+        seedreamAtSnapshot = undefined
         setAssets([])
         clearVideoFrames()
         setPrompt("")
@@ -1385,9 +1409,8 @@ export default function StudioPage() {
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
-  createEffect(() => {
-    if (videoQualityLocked()) setVideoQualityMode("720")
-  })
+  // 首尾帧同时存在时强制 720p，但不写入持久化 store，保留用户手动选择的质量
+  const effectiveVideoQualityMode = createMemo(() => videoQualityLocked() ? "720" as StudioVideoQualityMode : videoQualityMode())
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -1730,9 +1753,22 @@ export default function StudioPage() {
     const mime = mimeFromDataUrl(dataUrl)
     return {
       id: crypto.randomUUID(),
-      name: `reference-image.${studioImageExtension(mime)}`,
+      name: imageUrlFilename(url) ?? `reference-image.${studioImageExtension(mime)}`,
       mime,
       dataUrl,
+    }
+  }
+
+  function imageUrlFilename(url: string): string | undefined {
+    if (url.startsWith("data:")) return
+    try {
+      const parsed = new URL(url)
+      const pathParam = parsed.searchParams.get("path")
+      const segments = (pathParam ?? parsed.pathname).split(/[/\\]/).filter(Boolean)
+      const filename = segments.pop()
+      return filename && /\.[a-zA-Z0-9]+$/.test(filename) ? filename : undefined
+    } catch {
+      return
     }
   }
 
@@ -1796,8 +1832,19 @@ export default function StudioPage() {
         setCustomHeight(Math.min(customHeight(), 1664))
       }
     }
+    if (prevIsSeedream && !nextIsSeedream) {
+      seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
+      setPrompt("")
+    }
     setStyleModel(value)
-    setAssets((items) => items.slice(0, referenceImageLimit(value)))
+    if (!prevIsSeedream && nextIsSeedream && seedreamAtSnapshot) {
+      const snap = seedreamAtSnapshot
+      seedreamAtSnapshot = undefined
+      setAssets(snap.assets.slice(0, referenceImageLimit(value)))
+      seedreamInputApi.restore(snap.html)
+    } else {
+      setAssets((items) => items.slice(0, referenceImageLimit(value)))
+    }
   }
 
   async function addReferenceAsset(asset: StudioAsset) {
@@ -2087,14 +2134,35 @@ export default function StudioPage() {
   }
 
   function applyStudioCapability(value: StudioCapability) {
+    const prevCapability = capability()
+    const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
+    const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
+    if (prevSeedreamImage && !nextSeedreamImage) {
+      seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
+    }
+    if (value === "video.generate" && prevCapability !== "video.generate") {
+      savedImageAspectRatio = aspectRatio()
+      savedImageCount = count()
+    }
+    if (prevCapability === "video.generate" && value !== "video.generate") {
+      savedVideoAspectRatio = aspectRatio()
+      savedVideoCount = count()
+    }
     setCapability(value)
     if (value === "video.generate") {
-      setAspectRatio("1:1")
-      setCount(1)
+      setAspectRatio(savedVideoAspectRatio ?? "1:1")
+      setCount(savedVideoCount ?? 1)
+    }
+    if (prevCapability === "video.generate" && value === "image.generate") {
+      setAspectRatio(savedImageAspectRatio ?? "3:4")
+      setCount(savedImageCount ?? 4)
+      savedImageAspectRatio = undefined
+      savedImageCount = undefined
     }
     if (value !== "video.generate") clearVideoFrames()
     if (value !== "image.generate") {
       setAssets([])
+      setPrompt("")
       // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
       setIsCustomStore(false)
       setCustomWidth(0)
@@ -2103,6 +2171,12 @@ export default function StudioPage() {
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
+    }
+    if (nextSeedreamImage && seedreamAtSnapshot && prevCapability !== "image.generate") {
+      const snap = seedreamAtSnapshot
+      seedreamAtSnapshot = undefined
+      setAssets(snap.assets.slice(0, referenceImageLimit(styleModel())))
+      seedreamInputApi.restore(snap.html)
     }
     batch(() => {
       setWorkspaceImage(undefined)
@@ -2149,7 +2223,7 @@ export default function StudioPage() {
       extend: JSON.stringify({
         aspectRatio: aspectRatio(),
         duration: videoDuration(),
-        quality: videoQualityMode(),
+        quality: effectiveVideoQualityMode(),
         mode: videoFrames.first ? "first_last_frame" : "text",
       }),
     })
@@ -2178,6 +2252,7 @@ export default function StudioPage() {
   function startNewStudioConversation() {
     tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
+    seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
     generationToken++
@@ -2219,6 +2294,38 @@ export default function StudioPage() {
   function stringArrayValue(value: unknown) {
     if (!Array.isArray(value)) return []
     return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+  }
+
+  function stringRecordValue(value: unknown): Record<string, string> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0,
+      ),
+    )
+  }
+
+  function buildMentionHtml(text: string, mentionImages: Record<string, string>): string {
+    if (!text || Object.keys(mentionImages).length === 0) return text
+    const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
+    const regex = /@([^@\u200B]*)\u200B/g
+    let html = ""
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      html += escapeHtml(text.slice(last, m.index)).replace(/\n/g, "<br>")
+      const name = m[1]
+      const src = mentionImages[name]
+      if (src) {
+        html += `<span class="studio-composer-at-chip" contenteditable="false" data-mention="${escapeAttr(name)}"><img src="${escapeAttr(src)}" alt="${escapeAttr(name)}"><span class="studio-composer-at-chip-name">${escapeHtml(name)}</span></span>\u200B`
+      } else {
+        html += escapeHtml(m[0])
+      }
+      last = m.index + m[0].length
+    }
+    html += escapeHtml(text.slice(last)).replace(/\n/g, "<br>")
+    return html
   }
 
   function countValue(value: unknown) {
@@ -2364,12 +2471,14 @@ export default function StudioPage() {
       prompt: result.detailPrompt !== undefined
         ? result.detailPrompt
         : stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
+      mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
       styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
       height: result.height,
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+      referenceImageNames: stringArrayValue(recordValue(extra, "referenceImageNames")),
       videoFrames: restoredVideoFrames(result),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
       videoQualityMode: videoResolutionValue(recordValue(extra, "resolution")) ?? result.videoQualityMode,
@@ -2406,9 +2515,9 @@ export default function StudioPage() {
     }
   }
 
-  async function restoredImageAssets(referenceImages: string[], limit: number) {
+  async function restoredImageAssets(referenceImages: string[], names: string[], limit: number) {
     return (await Promise.all(referenceImages.slice(0, limit).map((referenceImage, index) =>
-      studioAssetFromImageUrl(referenceImage, `reference-${index + 1}.png`).catch((error) => {
+      studioAssetFromImageUrl(referenceImage, names[index] ?? `reference-${index + 1}.png`).catch((error) => {
         console.warn("[StudioPage] restore edit draft reference image failed", error)
         return undefined
       })
@@ -2461,7 +2570,8 @@ export default function StudioPage() {
     if (draft.capability === "image.generate") {
       if (draft.styleModel) setStyleModel(draft.styleModel)
       clearVideoFrames()
-      setAssets(await restoredImageAssets(draft.referenceImages, referenceImageLimit(draft.styleModel ?? styleModel())))
+      setAssets(await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel())))
+      if (Object.keys(draft.mentionImages).length) seedreamInputApi.restore(buildMentionHtml(draft.prompt, draft.mentionImages))
       showEditDraftSyncedToast()
       return
     }
@@ -2865,7 +2975,7 @@ export default function StudioPage() {
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
-    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? effectiveVideoQualityMode()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -2877,7 +2987,9 @@ export default function StudioPage() {
           }
     const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
-    const actualUserPrompt = (overrides?.prompt ?? prompt()).trim()
+    const actualUserPrompt = (overrides?.prompt ?? seedreamInputApi.serializeText()).trim()
+    const mentionImages = overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages()
+    setMentionImagesMap(mentionImages)
     const text = actualUserPrompt || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -2941,6 +3053,10 @@ export default function StudioPage() {
     const generationExtra = {
       ...(overrides?.extra ?? {}),
       ...(studioContext ? { studioContext } : {}),
+      ...(Object.keys(mentionImages).length ? { mentionImages } : {}),
+      ...(nextCapability === "image.generate" && referenceImages.length && !overrides?.referenceImages
+        ? { referenceImageNames: assets().map((a) => a.name) }
+        : {}),
       ...(nextCapability === "video.generate"
         ? {
           videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
@@ -3000,6 +3116,7 @@ export default function StudioPage() {
     })
     setStickToBottom(true)
     if (!overrides?.useRestoredInputs) {
+      seedreamAtSnapshot = undefined
       setPrompt("")
       setAssets([])
     }
@@ -3708,7 +3825,7 @@ export default function StudioPage() {
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
-                  videoQualityMode={videoQualityMode()}
+                  videoQualityMode={effectiveVideoQualityMode()}
                   videoQualityLocked={videoQualityLocked()}
                   videoMode={videoMode()}
                   status={effectiveStatus()}
@@ -3716,7 +3833,8 @@ export default function StudioPage() {
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   wordBook={wordBook}
-                  onPrompt={setPrompt}
+                  onPrompt={setStudioPrompt}
+                  inputApi={seedreamInputApi}
                   onCapability={selectStudioCapability}
                   onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
@@ -3885,6 +4003,7 @@ if (!headerTitle.pendingRename) return
               <StudioConversation
                 result={result()}
                 turns={stableDisplayTurns()}
+                mentionImages={mentionImagesMap()}
                 sdkUrl={globalSDK.url}
                 directory={projectDir()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
@@ -3917,7 +4036,7 @@ if (!headerTitle.pendingRename) return
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
-            videoQualityMode={videoQualityMode()}
+            videoQualityMode={effectiveVideoQualityMode()}
             videoQualityLocked={videoQualityLocked()}
             videoMode={videoMode()}
             status={effectiveStatus()}
@@ -3925,7 +4044,8 @@ if (!headerTitle.pendingRename) return
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             wordBook={wordBook}
-            onPrompt={setPrompt}
+            onPrompt={setStudioPrompt}
+            inputApi={seedreamInputApi}
             onCapability={selectStudioCapability}
             onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}

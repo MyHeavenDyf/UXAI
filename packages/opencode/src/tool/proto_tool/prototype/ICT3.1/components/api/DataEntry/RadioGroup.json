@@ -55,10 +55,6 @@
 					"type": "string",
 					"description": "Tailwind CSS classes for the component."
 				},
-				"optionType": {
-					"type": "string",
-					"enum": ["default", "button"]
-				},
 				"size": {
 					"type": "string",
 					"enum": ["large", "medium", "small"]

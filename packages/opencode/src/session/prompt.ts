@@ -1848,6 +1848,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         throw error
       }
 
+      // skill 命令的模板注入不走工具调用,若不在此检查,agent 层禁用的 skill 权限会被
+      // session.command 绕过(如 octo_make_plan 已 "*" deny,skill 内容仍可整份注入规划会话)
+      if (cmd.source === "skill" && Permission.disabled(["skill"], agent.permission).has("skill")) {
+        const error = new NamedError.Unknown({
+          message: `Skill "${input.command}" is not available for agent "${agentName}".`,
+        })
+        yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
+
       const templateParts = yield* resolvePromptParts(template)
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
       const parts = isSubtask

@@ -4,7 +4,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
-import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
+import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation, STUDIO_VIDEO_RESOLUTION } from "./studio-shared"
 import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
@@ -15,9 +15,72 @@ import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
 
+function StudioUserBubbleText(props: { text: string; mentionImages: Record<string, string> }) {
+  const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
+  const segments = createMemo(() => {
+    const text = props.text
+    const result: { mention?: string; text?: string }[] = []
+    const regex = /@[^@\u200B]*\u200B/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index > last) result.push({ text: text.slice(last, m.index).replace(/\u200B/g, "") })
+      result.push({ mention: m[0].slice(1, -1) })
+      last = m.index + m[0].length
+    }
+    if (last < text.length) result.push({ text: text.slice(last).replace(/\u200B/g, "") })
+    return result
+  })
+  const handleMentionEnter = (e: MouseEvent, mention: string, src: string) => {
+    const target = e.currentTarget as HTMLElement
+    const img = target.querySelector("img")
+    const rect = (img ?? target).getBoundingClientRect()
+    const size = 140
+    let left = rect.left + rect.width / 2 - size / 2
+    let top = rect.top - size - 8
+    left = Math.max(8, Math.min(left, window.innerWidth - size - 8))
+    if (top < 8) top = 8
+    setRefPreview({ src, name: mention, left, top })
+  }
+  return (
+    <span>
+      <For each={segments()}>
+        {(seg) =>
+          seg.mention !== undefined
+            ? <span
+                class="studio-user-bubble-mention"
+                onMouseEnter={(e) => {
+                  const src = props.mentionImages[seg.mention!]
+                  if (src) handleMentionEnter(e, seg.mention!, src)
+                }}
+                onMouseLeave={() => setRefPreview(null)}
+              >
+                <Show when={props.mentionImages[seg.mention]}>
+                  {(src) => <img src={src()} alt={seg.mention} />}
+                </Show>
+                <span class="studio-user-bubble-mention-name">{seg.mention}</span>
+              </span>
+            : <span>{seg.text}</span>
+        }
+      </For>
+      <Show when={refPreview()}>
+        {(p) => (
+          <Portal>
+            <div class="studio-composer-ref-preview" style={{ left: `${p().left}px`, top: `${p().top}px` }}>
+              <img src={p().src} alt={p().name} />
+              <span class="studio-composer-ref-preview-name">{p().name}</span>
+            </div>
+          </Portal>
+        )}
+      </Show>
+    </span>
+  )
+}
+
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
+  mentionImages: Record<string, string>
   sdkUrl: string
   directory: string
   busy: boolean
@@ -91,7 +154,7 @@ export function StudioConversation(props: {
                 </div>
               </Show>
               <div class="studio-user-bubble">
-                {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
+                <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
               </div>
               <Show when={turn.editCapability} fallback={
                 <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
@@ -743,6 +806,9 @@ export function StudioDetails(props: {
           <InfoRow label="分辨率" value={resolution()} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
+        <Show when={isVideoResult()}>
+          <InfoRow label="分辨率" value={props.result.videoQualityMode ? STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode].toUpperCase() : "-"} />
+        </Show>
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>
       <section class="studio-detail-section">

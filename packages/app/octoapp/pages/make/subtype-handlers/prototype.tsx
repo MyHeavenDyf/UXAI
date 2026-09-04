@@ -1,7 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { JSX } from 'solid-js'
 import { createSignal } from 'solid-js'
-import JSZip from "jszip"
 import {
   setActiveSessionId,
   getSessionById,
@@ -16,6 +15,7 @@ import { showPromiseToast } from "../components/octo-toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
 import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 import type { DesktopApi } from "../lib/electron-api"
+import { joinPath } from "../utils/references"
 
 let downloading = false
 
@@ -29,12 +29,14 @@ let downloading = false
 async function buildPrototypeCodeFiles(
   ctx: SubtypeHandlerContext,
   targetLib = 'eview-react',
-  opts: { silent?: boolean } = {},
+  opts: { silent?: boolean; planner?: Record<string, unknown> | null } = {},
 ): Promise<{
   files: { path: string; content: string }[]
   uploadsDir?: string | null
   /** prototype.html 同级 uploads 目录（make 侧属性编辑器上传的图片落点） */
   makeUploadsDir?: string | null
+  /** 本次使用的 planner（供调用方复用给其他 targetLib，避免重复调 LLM） */
+  planner: Record<string, unknown> | null
 } | null> {
   const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showOctoToast(msg) }
 
@@ -57,27 +59,33 @@ async function buildPrototypeCodeFiles(
     return null
   }
 
-  // 3. 检查 replanner 必需参数
-  if (!ctx.sdk || !ctx.modelKey || !ctx.sessionId) {
-    toast({ title: "缺少必要参数，无法生成代码" })
-    return null
-  }
-
-  // 4. 调用 proto_replanner 重新生成 planner
-  let planner: Record<string, unknown> | null = null
-  let replannerSessionId: string | undefined
-  try {
-    const result = await proto_replanner({
-      sdk: ctx.sdk!,
-      sync: ctx.sync,
-      modelKey: ctx.modelKey!,
-      rootSession: ctx.sessionId!,
-      finalA2UIJson: a2uiData as Record<string, unknown>,
-      onSessionCreated: (childID: string) => { replannerSessionId = childID },
-    })
-    planner = result as unknown as Record<string, unknown>
-  } finally {
-    if (replannerSessionId) await ctx.sdk!.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+  // 4. 生成 planner：外部传入则复用（省一次 LLM），否则调 proto_replanner
+  let planner: Record<string, unknown> | null = opts.planner ?? null
+  if (!planner) {
+    // replanner 必需参数
+    if (!ctx.sdk || !ctx.modelKey || !ctx.sessionId) {
+      toast({ title: "缺少必要参数，无法生成代码" })
+      return null
+    }
+    let replannerSessionId: string | undefined
+    try {
+      const result = await proto_replanner({
+        sdk: ctx.sdk!,
+        sync: ctx.sync,
+        modelKey: ctx.modelKey!,
+        rootSession: ctx.sessionId!,
+        finalA2UIJson: a2uiData as Record<string, unknown>,
+        onSessionCreated: (childID: string) => { replannerSessionId = childID },
+      })
+      planner = result as unknown as Record<string, unknown>
+    } finally {
+      // 归档（而非 delete）临时子 session：session.list 默认排除 archived，
+      // discoverChildSessions 不会发现它；即使归档失败，Fix（agent 过滤）也会跳过 proto_replanner
+      if (replannerSessionId) await ctx.sdk!.client.session.update({
+        sessionID: replannerSessionId,
+        body: { time: { archived: Date.now() } },
+      } as any).catch(() => {})
+    }
   }
 
   // 5. 调用 downloadHuiCode 生成代码文件
@@ -96,26 +104,20 @@ async function buildPrototypeCodeFiles(
   const htmlPath = ctx.tab.filePath || ctx.tab.absoluteFilePath
   const makeUploadsDir = htmlPath ? htmlPath.replace(/[\\/][^\\/]+$/, '') + '/uploads' : null
 
-  return { files, uploadsDir, makeUploadsDir }
+  return { files, uploadsDir, makeUploadsDir, planner }
 }
 
-/** 递归列出目录下所有文件（绝对路径） */
+/** 列出目录下所有文件（绝对路径）。
+ *  list-directory IPC 已递归 walk，返回的 path 是相对 dir 的相对路径，这里拼回绝对。 */
 async function listAllFiles(
   api: DesktopApi,
   dir: string,
 ): Promise<string[]> {
   if (!api.listDirectory) return []
   const entries = await api.listDirectory(dir)
-  const out: string[] = []
-  for (const e of entries) {
-    if (e.type === 'file') {
-      out.push(e.path)
-    } else if (e.type === 'directory') {
-      const nested = await listAllFiles(api, e.path)
-      out.push(...nested)
-    }
-  }
-  return out
+  return entries
+    .filter(e => e.type === 'file')
+    .map(e => joinPath(dir, e.path.replace(/\\/g, '/')))
 }
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
@@ -190,6 +192,9 @@ export default {
     }
     const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
+    // 进入编辑态后请 iframe 把当前 surface 运行时 state 回传合并进 doc.state，
+    // 避免首次 applyPrototypeModify 用磁盘旧 state 覆盖 iframe 内存态（modal 关闭等）。
+    ctx.postMessageToIframe?.({ type: "od:a2ui-state-request" })
     return false
   },
 
@@ -216,7 +221,7 @@ export default {
       return true
     }
 
-    const sessionId = ctx.tab.sessionId ?? ""
+    const sessionId = ctx.sessionId ?? ""
 
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end
@@ -281,25 +286,27 @@ export default {
 
   /**
    * 归档钩子：构建等价于"下载"按钮产物的代码包 zip，塞进归档 zip 的 src/。
-   * 用 JSZip 在内存构建，避免 exportZip 弹保存对话框打断归档流程。
    * 失败时返回 null，归档主流程会 toast "代码包生成失败，已跳过 src/"。
    */
   async buildArchiveSrc(ctx) {
     try {
       // silent: 归档路径自己处理 toast，不重复提示
-      const result = await buildPrototypeCodeFiles(ctx, 'eview-react', { silent: true })
-      if (!result) return null
+      // 先生成 eview-react 代码包并复用其 planner 给 eview-ui，省一次 LLM 调用
+      const reactResult = await buildPrototypeCodeFiles(ctx, 'eview-react', { silent: true })
+      if (!reactResult) return null
 
+      const uiResult = await buildPrototypeCodeFiles(ctx, 'eview-ui', { silent: true, planner: reactResult.planner })
+      if (!uiResult) ctx.showOctoToast({ title: "eview-ui 代码包生成失败，已跳过 eview-ui" })
+
+      const out: { path: string; content: string | Uint8Array }[] = []
+      // 两包并列子目录，避免根级文件冲突
+      for (const f of reactResult.files) out.push({ path: `eview-react/${f.path}`, content: f.content })
+      if (uiResult) for (const f of uiResult.files) out.push({ path: `eview-ui/${f.path}`, content: f.content })
+
+      // 打包 pattern 侧 + make 侧 uploads 资源：每个代码包各自 public/assets/
+      // codegen 已把 /uploads/... 和 uploads/... 改写为 /assets/...，故都落到各包 public/assets/
       const desktopApi = ctx.getDesktopApi()
-      const { files, uploadsDir, makeUploadsDir } = result
-
-      const zip = new JSZip()
-      for (const f of files) {
-        zip.file(f.path, f.content)
-      }
-
-      // 打包 pattern 侧 + make 侧 uploads 资源到 public/assets
-      // codegen 已把 /uploads/... 和 uploads/... 改写为 /assets/...，故都落到 public/assets/
+      const { uploadsDir, makeUploadsDir } = reactResult
       const fullUploadsPath = uploadsDir && ctx.sessionId
         ? `${uploadsDir}/${ctx.sessionId}/uploads`
         : null
@@ -307,6 +314,8 @@ export default {
         ...(fullUploadsPath ? [fullUploadsPath] : []),
         ...(makeUploadsDir ? [makeUploadsDir] : []),
       ]
+      // uploads 同步写入每个成功的包
+      const libs = uiResult ? ['eview-react', 'eview-ui'] : ['eview-react']
       if (desktopApi && desktopApi.listDirectory && desktopApi.readFileBuffer) {
         for (const dir of uploadDirs) {
           try {
@@ -314,7 +323,9 @@ export default {
             for (const absPath of allFiles) {
               const rel = absPath.slice(dir.length).replace(/^[\\/]+/, '')
               const buffer = await desktopApi.readFileBuffer(absPath)
-              if (buffer) zip.file(`public/assets/${rel}`, new Uint8Array(buffer))
+              if (!buffer) continue
+              const bytes = new Uint8Array(buffer)
+              for (const lib of libs) out.push({ path: `${lib}/public/assets/${rel}`, content: bytes })
             }
           } catch (err) {
             console.warn('[Archive] Failed to bundle uploads:', err)
@@ -322,8 +333,7 @@ export default {
         }
       }
 
-      const blob = await zip.generateAsync({ type: "blob" })
-      return { blob, fileName: 'code-export.zip' }
+      return { files: out }
     } catch (err) {
       console.warn('[Archive] buildArchiveSrc failed:', err)
       return null

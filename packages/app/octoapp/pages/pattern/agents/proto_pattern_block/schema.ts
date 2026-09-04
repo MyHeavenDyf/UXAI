@@ -6,6 +6,7 @@ const schema = {
       items: {
         type: "object",
         properties: {
+          type: { type: "string" },
           description: { type: "string" },
         },
         required: ["description"],

@@ -107,3 +107,42 @@ export function parseEffectsFromRawCls(rawCls: string, skip: { shadow?: boolean;
   }
   return result
 }
+
+const SHADOW_TOKEN_MAP: [string, string][] = [
+  ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
+  ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
+  ["0px 8px 24px 0px rgba(0,0,0,0.16)", "popover"],
+  ["0px 16px 48px 0px rgba(0,0,0,0.16)", "modal"],
+]
+
+function expandHex3(hex: string): string {
+  const h = hex.replace('#', '')
+  if (h.length === 3) return '#' + h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+  if (h.length === 4) return '#' + h[0] + h[0] + h[1] + h[1] + h[2] + h[2] + h[3] + h[3]
+  return hex
+}
+
+export function matchShadowToken(effect: {
+  type: string; color: string; opacity: number; blur: number; offsetX: number; offsetY: number
+}): string | null {
+  if (effect.type !== 'drop-shadow') return null
+  const fullHex = expandHex3(effect.color)
+  const h = fullHex.replace('#', '')
+  if (h.length < 6) return null
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null
+  const alpha = effect.opacity / 100
+  const cssVal = `${effect.offsetX}px ${effect.offsetY}px ${effect.blur}px 0px rgba(${r},${g},${b},${alpha})`
+  for (const [val, token] of SHADOW_TOKEN_MAP) {
+    if (val === cssVal) return token
+  }
+  return null
+}
+
+export function effectsSignature(effects: EffectData[]): string {
+  return effects.map(e =>
+    `${e.type}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`
+  ).join('|')
+}

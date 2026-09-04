@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isContextAtLimit, shouldShowContextWarning } from "./context-usage-warning"
+import { isContextAtLimit, shouldShowContextWarning, shouldShowTurnError } from "./context-usage-warning"
 
 describe("shouldShowContextWarning", () => {
   test("shows from 80% for an active session", () => {
@@ -30,5 +30,13 @@ describe("isContextAtLimit", () => {
   test("does not block without a session or a known limit", () => {
     expect(isContextAtLimit(128_000, 128_000)).toBe(false)
     expect(isContextAtLimit(128_000, undefined, "session-1")).toBe(false)
+  })
+})
+
+describe("shouldShowTurnError", () => {
+  test("does not repeat context overflow when the persistent limit warning is visible", () => {
+    expect(shouldShowTurnError("ContextOverflowError", true)).toBe(false)
+    expect(shouldShowTurnError("ContextOverflowError")).toBe(true)
+    expect(shouldShowTurnError("ProviderAuthError", true)).toBe(true)
   })
 })
