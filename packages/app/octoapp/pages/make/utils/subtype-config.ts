@@ -91,6 +91,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: false,
+      modelEdit: false,
       drawEdit: false,
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
