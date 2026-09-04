@@ -7,6 +7,10 @@ type ApiModel = {
   name?: string
   family?: string
   isExternal?: boolean
+  attachment?: boolean
+  reasoning?: boolean
+  temperature?: boolean
+  tool_call?: boolean
   release_date?: string
   headers?: Record<string, string>
   capabilities?: Model["capabilities"]
@@ -224,7 +228,7 @@ function withUiplusToken(api: ApiModels, token: string): ApiModels {
   )
 }
 
-export function hasApiModels(api: ApiModels | undefined) {
+export function hasApiModels(api: ApiModels | undefined): api is ApiModels {
   return !!api && Object.keys(api).length > 0
 }
 
@@ -326,10 +330,10 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(
           name: typeof item.name === "string" && item.name ? item.name : modelKey,
           family: typeof item.family === "string" ? item.family : "",
           capabilities: {
-            temperature: item.capabilities?.temperature ?? false,
-            reasoning: item.capabilities?.reasoning ?? false,
-            attachment: item.capabilities?.attachment ?? false,
-            toolcall: item.capabilities?.toolcall ?? false,
+            temperature: item.temperature ?? item.capabilities?.temperature ?? false,
+            reasoning: item.reasoning ?? item.capabilities?.reasoning ?? false,
+            attachment: item.attachment ?? item.capabilities?.attachment ?? false,
+            toolcall: item.tool_call ?? item.capabilities?.toolcall ?? false,
             input: item.modalities?.input
               ? capabilitiesFromModalities(item.modalities.input)
               : (item.capabilities?.input ?? capabilitiesFromModalities(["text"])),

@@ -5,6 +5,13 @@ import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } fro
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import {
+  fetchModelsApi,
+  hasApiModels,
+  modelsApiListForProviders,
+  modelsLocalListForProviders,
+  type ApiModels,
+} from "@/network/models-api"
 import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
@@ -35,6 +42,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       return result.data
     }
     const [apiModels, { refetch: refetchApiModels }] = createResource(loadApiModels)
+    const [remoteModels, setRemoteModels] = createSignal<ApiModels>()
     const [refreshing, setRefreshing] = createSignal(false)
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
@@ -43,15 +51,20 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setRefreshing(true)
       setRefreshError(undefined)
       try {
+        const remote = await fetchModelsApi()
+        if (!hasApiModels(remote)) throw new Error("Remote model catalog is empty")
+        setRemoteModels(remote)
         const result = await refetchApiModels()
         globalSync.invalidateProviders()
         console.log("[models] refreshed provider catalog", {
+          source: "remote",
           providers: result?.all.map((provider) => ({
             id: provider.id,
-            models: Object.keys(provider.models),
+            models: modelsApiListForProviders(remote, [provider]).map((model) => model.id),
           })),
         })
       } catch (error) {
+        setRemoteModels(undefined)
         setRefreshError(error)
       } finally {
         setRefreshing(false)
@@ -71,9 +84,21 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const api = apiModels()
       if (!api) return []
       const connected = new Set(api.connected)
-      return api.all
-        .filter((provider) => connected.has(provider.id))
-        .flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider })))
+      const providers = api.all.filter((provider) => connected.has(provider.id))
+      const remote = remoteModels()
+      if (!hasApiModels(remote)) return modelsLocalListForProviders(providers)
+      const remoteProviderIDs = new Set(
+        Object.entries(remote).map(([key, provider]) => provider?.id?.trim() || key),
+      )
+      return uniqueBy(
+        [
+          ...modelsApiListForProviders(remote, providers),
+          ...modelsLocalListForProviders(
+            providers.filter((provider) => provider.source === "config" && !remoteProviderIDs.has(provider.id)),
+          ),
+        ],
+        (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
+      )
     })
 
     const release = createMemo(
