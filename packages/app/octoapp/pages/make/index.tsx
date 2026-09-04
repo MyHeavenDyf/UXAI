@@ -4152,6 +4152,7 @@ if (dsId) {
                       gutter={8}
                       arrow
                       interactive
+                      inactive={contextSendBlocked() || contextWarningVisible()}
                       contentClass="make-token-tooltip"
                       value={
                         <div class="make-token-tooltip-copy">
