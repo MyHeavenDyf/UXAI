@@ -69,6 +69,10 @@ function uiplusToken() {
   return localStorageValue("uiplusToken")
 }
 
+export function hasModelsApiToken() {
+  return Boolean(uiplusToken())
+}
+
 function modelsApiChannel() {
   const channel = (import.meta.env as Record<string, string | undefined>).VITE_OCTO_CHANNEL
   return channel === "prod" ? "prod" : "beta"

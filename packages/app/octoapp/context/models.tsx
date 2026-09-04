@@ -8,6 +8,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   hasApiModels,
+  hasModelsApiToken,
   modelsApiListForProviders,
   modelsLocalListForProviders,
   type ApiModels,
@@ -41,20 +42,29 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       if (!result.data) throw new Error("Provider list response is empty")
       return result.data
     }
-    const [apiModels, { refetch: refetchApiModels }] = createResource(loadApiModels)
+    const [apiModels, { mutate: setApiModels }] = createResource(
+      () => hasModelsApiToken() || undefined,
+      loadApiModels,
+    )
     const [remoteModels, setRemoteModels] = createSignal<ApiModels>()
     const [refreshing, setRefreshing] = createSignal(false)
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
     const refreshApiModels = async () => {
       if (refreshing()) return
+      if (!hasModelsApiToken()) {
+        setApiModels(undefined)
+        setRemoteModels(undefined)
+        return
+      }
       setRefreshing(true)
       setRefreshError(undefined)
       try {
         const remote = await fetchModelsApi()
         if (!hasApiModels(remote)) throw new Error("Remote model catalog is empty")
         setRemoteModels(remote)
-        const result = await refetchApiModels()
+        const result = await loadApiModels()
+        setApiModels(result)
         globalSync.invalidateProviders()
         console.log("[models] refreshed provider catalog", {
           source: "remote",
@@ -66,6 +76,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       } catch (error) {
         setRemoteModels(undefined)
         setRefreshError(error)
+        await loadApiModels().then(setApiModels, () => setApiModels(undefined))
+        globalSync.invalidateProviders()
       } finally {
         setRefreshing(false)
       }

@@ -18,6 +18,7 @@ import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
+import { hasModelsApiToken } from "@/network/models-api"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
 import { loadMcpQuery } from "../global-sync"
 
@@ -188,6 +189,7 @@ export const loadProvidersQuery = (directory: string | null, sdk: OpencodeClient
     queryKey: [directory, "providers"],
     staleTime: 1000,
     queryFn: async () => {
+      if (!hasModelsApiToken()) return { all: [], connected: [], default: {} }
       console.log("[octo:query] provider.list start", { directory, t: Date.now() })
       const x = await retry(() => sdk.provider.list())
       console.log("[octo:query] provider.list result", {
