@@ -22,6 +22,7 @@ import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
 import type { OutputCardType } from "../utils/output-type"
+import { isSuccessfulCompaction } from "../utils/context-usage"
 
 // OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
 export type { OutputCardType } from "../utils/output-type"
@@ -133,7 +134,7 @@ function InsightCompactionTurn(props: { sessionID: string; messageID: string }) 
     ),
   )
   const text = createMemo(() => parts().find((part) => part.type === "text")?.text?.trim() || "/compact")
-  const compacted = createMemo(() => messages().some((message) => message.summary && message.finish && !message.error))
+  const compacted = createMemo(() => messages().some(isSuccessfulCompaction))
   const aborted = createMemo(() => messages().some((message) => message.error?.name === "MessageAbortedError"))
   const failed = createMemo(() => messages().some((message) => message.error && message.error.name !== "MessageAbortedError"))
 

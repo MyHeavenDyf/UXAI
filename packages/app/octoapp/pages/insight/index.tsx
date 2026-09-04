@@ -92,6 +92,13 @@ import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
 import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
+import {
+  insightContextCommandName,
+  insightContextTokens,
+  isInsightSendDisabled,
+  isMessageAbortedError,
+  isSuccessfulCompaction,
+} from "./utils/context-usage"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -105,11 +112,6 @@ function contextCommandErrorMessage(error: unknown) {
   }
   const message = Reflect.get(error, "message")
   if (typeof message === "string") return message
-}
-
-function contextCommandName(text: string) {
-  if (text === "/compact") return "compact" as const
-  if (text === "/summarize") return "summarize" as const
 }
 
 /**
@@ -565,10 +567,7 @@ function InsightContent() {
     ].find((limit) => typeof limit === "number" && limit > 0),
   )
   const contextTokens = createMemo(() => {
-    const context = contextMetrics()
-    if (!context) return 0
-    if (context.message.summary) return context.output
-    return context.total
+    return insightContextTokens(contextMetrics())
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
@@ -604,13 +603,16 @@ function InsightContent() {
         model: `${model.provider.id}/${model.id}`,
       })
       const info = result.data?.info
-      if (info && info.summary === true && info.finish && !info.error) {
+      if (info && isSuccessfulCompaction(info)) {
         showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
         return
       }
-      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(info?.error ?? result.error) ?? "请稍后重试", variant: "error" })
+      const error = info?.error ?? result.error
+      if (isMessageAbortedError(error)) return
+      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
     } catch (error) {
       console.error(`[InsightPage] command /${command} failed`, error)
+      if (isMessageAbortedError(error)) return
       showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
     } finally {
       setContextCommandPending(false)
@@ -1699,7 +1701,7 @@ function InsightContent() {
     // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
     if (!text || hasUploadingAttachments()) return
 
-    const contextCommand = contextCommandName(text)
+    const contextCommand = insightContextCommandName(text)
     if (contextCommand) {
       if (!params.id) {
         showToast({ title: "当前没有可压缩的对话" })
@@ -1871,7 +1873,14 @@ function InsightContent() {
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
-  const sendDisabled = createMemo(() => !stopping() && (contextSendBlocked() || !prompt().trim() || hasUploadingAttachments()))
+  const sendDisabled = createMemo(() =>
+    isInsightSendDisabled({
+      stopping: stopping(),
+      contextBlocked: contextSendBlocked(),
+      text: prompt(),
+      uploading: hasUploadingAttachments(),
+    }),
+  )
 
   // 注:方案 B 换 ProseMirror 后,输入法合成、Enter 发送、退格删胶囊、@ 面板开关均由编辑器内部处理
   // (Enter keymap → onSubmit;atomKeymap 退格删原子节点;mention-trigger 插件管面板);此处不再需要 textarea 版键盘/合成逻辑。
