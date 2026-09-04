@@ -1,14 +1,17 @@
+import type { MentionAttrs } from '../components/prosemirror-editor/schema'
+
 export const SEND_TEXT_EVENT = 'octo:send-text'
 
 export interface SendTextEventDetail {
   text: string
   source?: string
+  mentions?: MentionAttrs[]
   ack?: (result: { ok: boolean; message?: string }) => void
 }
 
 export function sendTextToAgent(
   text: string,
-  opts?: { source?: string; timeoutMs?: number }
+  opts?: { source?: string; timeoutMs?: number; mentions?: MentionAttrs[] }
 ): Promise<{ ok: boolean; message?: string }> {
   return new Promise((resolve) => {
     let settled = false
@@ -25,6 +28,7 @@ export function sendTextToAgent(
     const detail: SendTextEventDetail = {
       text,
       source: opts?.source,
+      mentions: opts?.mentions,
       ack: (r) => {
         window.clearTimeout(timer)
         finish(r)

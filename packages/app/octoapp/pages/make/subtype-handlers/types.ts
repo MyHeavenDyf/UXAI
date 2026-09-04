@@ -1,5 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { ManualEditTarget } from "../edit-mode/source-patches"
+import type { ModelEditConfig } from "../components/model-edit-items/types"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -104,6 +105,11 @@ export interface SubtypeHandler {
    * 接收版本的文件列表，由 handler 决定如何应用（如复制回原始路径、更新 tab 等）
    */
   applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
+
+  /**
+   * Model Edit 配置（组件感知属性面板）
+   */
+  modelEditConfig?: ModelEditConfig
 
   /**
    * UI 配置（配置方式）

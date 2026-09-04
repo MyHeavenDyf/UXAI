@@ -11,6 +11,10 @@ import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
+import { ModelEditPanel } from "./model-edit-panel"
+import { ModelEditAreaDialog } from "./model-edit-area-dialog"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup } from "../model-edit-items/types"
+import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
@@ -157,6 +161,10 @@ export function HtmlRenderer(props: {
   palette?: PaletteId | null
   inspecting?: boolean
   editing?: boolean
+  modelEditing?: boolean
+  modelEditConfig?: ModelEditConfig
+  onModelEditSave?: (element: ModelEditElement, prev: Record<string, string>, current: Record<string, string>) => Promise<void>
+  onModelEditDelete?: (element: ModelEditElement) => Promise<void>
   drawing?: boolean
   commenting?: boolean
   archiving?: boolean
@@ -186,6 +194,12 @@ export function HtmlRenderer(props: {
   subtype?: string
   /** 当前 tab 的 id（用于构造 SubtypeHandlerContext） */
   tabId?: string
+  disabled?: boolean
+  skillConfig?: import("../skill-config-types").SkillConfig
+  artifactFiles?: { generated: import("../../utils/artifact-file-api").ArtifactFile[]; uploaded: import("../../utils/artifact-file-api").ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -210,6 +224,16 @@ export function HtmlRenderer(props: {
   )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditTarget, setModelEditTarget] = createSignal<ModelEditElement | null>(null)
+  const [modelEditPanelConfig, setModelEditPanelConfig] = createSignal<ConfigGroup[]>([])
+  const [modelEditPanelData, setModelEditPanelData] = createSignal<Record<string, string>>({})
+  const [modelEditPanelTitle, setModelEditPanelTitle] = createSignal('')
+  const [modelEditPanelInfo, setModelEditPanelInfo] = createSignal('')
+  const [modelEditPanelPosition, setModelEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditPrevData, setModelEditPrevData] = createSignal<Record<string, string>>({})
+  const [mentionPanelOpen, setMentionPanelOpen] = createSignal(false)
+  const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
+  const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
     elementId: string | null
@@ -539,7 +563,7 @@ createEffect(() => {
     if (props.editing && editTarget() && !editPanelPosition()) {
       // Calculate initial position (right side with padding)
       const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
-      const panelWidth = 340
+      const panelWidth = 268
       const padding = 12
       setEditPanelPosition({
         left: Math.max(padding, canvasWidth - panelWidth - padding),
@@ -847,6 +871,7 @@ createEffect(() => {
       picker: true,
       inspectBridge: true,
       editBridge: true,
+      modelEditBridge: true,
       snapshotBridge: true,
       commentBridge: true,
       resourceCollectorBridge: true,
@@ -1058,6 +1083,64 @@ createEffect(() => {
         "*"
       )
     }
+
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
+
+// Listen to model-edit messages from iframe
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.modelEditing) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+
+    if (d.type === "od:model-edit-selected") {
+      if (mentionPanelOpen() || pendingModelEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
+      const target: ModelEditElement = d.target
+      const config = props.modelEditConfig
+      if (!config) return
+
+      let panelConfig: ConfigGroup[] = []
+      let panelData: Record<string, string> = {}
+
+      if (target.selectionKind === 'component' && target.componentType && config.componentConfig?.[target.componentType]) {
+        const compConfig = config.componentConfig[target.componentType]
+        panelConfig = compConfig.config
+        panelData = compConfig.data(target)
+        setModelEditPanelTitle(compConfig.title)
+        const info = compConfig.info ? compConfig.info(target) : ''
+        setModelEditPanelInfo(info)
+      } else {
+        const defaultConfig = getDefaultNativeConfig(target.elementKind, target.isLayoutContainer)
+        const defaultData = readNativeDefaults(target.elementKind, target)
+
+        if (target.selectionKind === 'native' && target.htmlType && config.htmlConfig?.[target.htmlType]) {
+          const htmlConfig = config.htmlConfig[target.htmlType]
+          panelConfig = htmlConfig.config(defaultConfig)
+          panelData = htmlConfig.data(defaultData, target)
+        } else {
+          panelConfig = defaultConfig
+          panelData = defaultData
+        }
+
+        setModelEditPanelTitle(target.tagName)
+        setModelEditPanelInfo(target.htmlHint)
+      }
+
+      setModelEditPrevData({ ...panelData })
+      setModelEditTarget(target)
+      setModelEditPanelConfig(panelConfig)
+      setModelEditPanelData(panelData)
+    }
   }
 
   window.addEventListener("message", handleMessage)
@@ -1229,6 +1312,35 @@ createEffect(() => {
     }
   })
 
+  // Send model-edit-mode toggle to iframe
+  createEffect(() => {
+    if (iframeRef && props.mode === "preview") {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage(
+        {
+          type: "od:model-edit-mode",
+          enabled: !!props.modelEditing,
+          componentFlag: config?.componentFlag || null,
+          htmlFlag: config?.htmlFlag || null,
+        },
+        "*"
+      )
+      if (!props.modelEditing) {
+        setModelEditTarget(null)
+      }
+    }
+  })
+
+  // Watch for model reply completion after save/delete/confirm
+  createEffect(on(() => props.disabled, (disabled, prev) => {
+    if (prev && !disabled && pendingModelEditClose()) {
+      setPendingModelEditClose(false)
+      setModelEditTarget(null)
+      iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+      props.onRefreshNeeded?.()
+    }
+  }))
+
 // Send inspect-mode toggle to iframe
   createEffect(() => {
     if (iframeRef && props.mode === "preview") {
@@ -1376,7 +1488,7 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: pendingModelEditClose() ? 'wait' : undefined }}
     >
       {props.mode === "preview" ? (
         <DrawOverlay
@@ -1430,6 +1542,15 @@ return (
                     const comments = savedComments()
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
                   }
+                  if (props.modelEditing) {
+                    const config = props.modelEditConfig
+                    iframeRef.contentWindow?.postMessage({
+                      type: "od:model-edit-mode",
+                      enabled: true,
+                      componentFlag: config?.componentFlag || null,
+                      htmlFlag: config?.htmlFlag || null,
+                    }, "*")
+                  }
                   if (props.palette) {
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
                   }
@@ -1474,6 +1595,15 @@ return (
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
                     const comments = savedComments()
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+                  }
+                  if (props.modelEditing) {
+                    const config = props.modelEditConfig
+                    iframeRef.contentWindow?.postMessage({
+                      type: "od:model-edit-mode",
+                      enabled: true,
+                      componentFlag: config?.componentFlag || null,
+                      htmlFlag: config?.htmlFlag || null,
+                    }, "*")
                   }
                   if (props.palette) {
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
@@ -1704,7 +1834,59 @@ onExit={() => {
 }}
 onFloatingPositionChange={setEditPanelPosition}
                />
-             </Show>
+              </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditPanel
+              element={modelEditTarget()}
+              config={modelEditPanelConfig()}
+              panelData={modelEditPanelData()}
+              panelTitle={modelEditPanelTitle()}
+              panelInfo={modelEditPanelInfo()}
+              filePath={props.filePath || ''}
+              disabled={props.disabled}
+              floatingStyle={modelEditPanelPosition() ?? undefined}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onSave={async (current) => {
+                const target = modelEditTarget()
+                if (target) {
+                  await props.onModelEditSave?.(target, modelEditPrevData(), current)
+                }
+              }}
+              onDelete={async () => {
+                const target = modelEditTarget()
+                if (target) {
+                  await props.onModelEditDelete?.(target)
+                }
+              }}
+              onExit={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+              }}
+              onFloatingPositionChange={setModelEditPanelPosition}
+            />
+          </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditAreaDialog
+              element={modelEditTarget()}
+              iframeRect={iframeRef?.getBoundingClientRect()}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+              }}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+            />
+          </Show>
 <Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
                 <CommentHoverTooltip
                   target={commentHoverTarget()!}
