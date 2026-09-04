@@ -4,7 +4,6 @@ import { useGlobalSync } from "@/context/global-sync"
 import { createSessionQueueRunner } from "@/utils/session-queue-runner"
 import { allQueues, updateSessionQueue, type QueuedSend } from "./utils/send-queue"
 import { sendQueuedItem } from "./utils/queue-drain"
-import { useProviders } from "@/hooks/use-providers"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { isContextAtLimit } from "@/components/context-usage-warning"
 import { insightContextTokens } from "./utils/context-usage"
@@ -22,7 +21,6 @@ import { insightContextTokens } from "./utils/context-usage"
 export function InsightQueueRunner() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
-  const providers = useProviders()
   // 本组件的稳定 owner：用它承载 child(dir) 的 pin，保证有排队的目录 child store 常驻、
   // session_status 持续经 SSE 更新（否则目录 store 在 TTL 后被驱逐，后台就收不到 idle）。
   // pinForOwner 幂等（同 owner+dir 只 pin 一次），故在 effect 里反复调用无 pin 抖动。
@@ -43,9 +41,10 @@ export function InsightQueueRunner() {
 
     const messages = [...(store.message[sid] ?? [])]
     messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
-    const context = getSessionContextMetrics(messages, providers.all()).context
+    const providers = store.provider_ready ? store.provider.all : globalSync.data.provider.all
+    const context = getSessionContextMetrics(messages, providers).context
     const model = head.model
-      ? providers.all().find((provider) => provider.id === head.model?.providerID)?.models[head.model.modelID]
+      ? providers.find((provider) => provider.id === head.model?.providerID)?.models[head.model.modelID]
       : undefined
     const limit = [
       model?.limit.input,
