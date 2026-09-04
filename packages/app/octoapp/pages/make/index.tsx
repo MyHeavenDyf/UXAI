@@ -2111,7 +2111,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPatternMatches(null)
     setPatternBlockMatches([])
     setPatternBlockMatching(false)
-    if (!mainSid) return
+    if (!mainSid) { handleEndPatternPage(); return }
     let blocksToSend: BlockModuleItem[] = []
     if (selectedBlocks && selectedBlocks.length > 0) {
       try { blocksToSend = (await getBlockContent({ results: selectedBlocks }, mainSid)).results } catch (err) { console.error("[MakePage] getBlockContent failed", err) }
@@ -2134,13 +2134,8 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
-    // 关闭匹配弹窗，但保持 pattern 模式：用户可继续在输入框输入需求，
-    // 后续消息仍路由到 ict_pattern agent，直到点击 banner 退出按钮才退出
-    setPatternMatches(null)
-    setPatternBlockMatches([])
-    setPatternBlockMatching(false)
-    setPatternSubPhase("match")
-    setOptimisticPatternIntent(false)
+    // 保存完成后结束 pattern 模式流程并退出
+    handleEndPatternPage()
   }
 
   /** 用户点击 [退出] → 中止子 session + 退出 */
