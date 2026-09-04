@@ -6,6 +6,10 @@ export function isContextAtLimit(tokens: number, limit?: number, sessionID?: str
   return !!sessionID && !!limit && tokens >= limit
 }
 
+export function shouldShowTurnError(errorName: string, contextLimitVisible = false) {
+  return errorName !== "ContextOverflowError" || !contextLimitVisible
+}
+
 export function ContextUsageWarning(props: {
   tokens: number
   limit: number
