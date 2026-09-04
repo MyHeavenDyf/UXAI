@@ -24,11 +24,11 @@ const response = {
   },
 }
 
-afterEach(() => configureModelsApi({ url: process.env["OPENCODE_MODELS_URL"] }))
+afterEach(() => configureModelsApi({ url: process.env["OPENCODE_MODELS_URL"], headers: { uiplustoken: "test-token" } }))
 
 test("HTTP models catalog is authoritative and keyed by provider id", async () => {
   using server = Bun.serve({ port: 0, fetch: () => Response.json(response) })
-  configureModelsApi({ url: `${server.url}api.json` })
+  configureModelsApi({ url: `${server.url}api.json`, headers: { uiplustoken: "test-token" } })
 
   const catalog = await modelsApiCatalog()
 
@@ -37,7 +37,7 @@ test("HTTP models catalog is authoritative and keyed by provider id", async () =
   expect(catalog?.w3.models["remote-only"].isExternal).toBe(true)
 })
 
-test("HTTP models catalog fails instead of returning a previous response", async () => {
+test("HTTP models catalog falls back when a request fails", async () => {
   const state = { available: true, calls: 0 }
   using server = Bun.serve({
     port: 0,
@@ -46,11 +46,13 @@ test("HTTP models catalog fails instead of returning a previous response", async
       return state.available ? Response.json(response) : new Response(undefined, { status: 503 })
     },
   })
-  configureModelsApi({ url: `${server.url}api.json` })
+  configureModelsApi({ url: `${server.url}api.json`, headers: { uiplustoken: "test-token" } })
   expect((await modelsApiCatalog()).w3.models["remote-only"]).toBeDefined()
 
   state.available = false
-  expect(modelsApiCatalog()).rejects.toThrow("503")
+  const catalog = await modelsApiCatalog()
+  expect(catalog.w3.models["remote-only"]).toBeUndefined()
+  expect(catalog.w3.models["GLM-V5"]).toBeDefined()
   expect(state.calls).toBe(2)
 })
 
@@ -90,9 +92,29 @@ test("HTTP models catalog accepts provider models arrays", async () => {
         errorMessage: null,
       }),
   })
-  configureModelsApi({ url: `${server.url}api.json` })
+  configureModelsApi({ url: `${server.url}api.json`, headers: { uiplustoken: "test-token" } })
 
   const catalog = await modelsApiCatalog()
 
   expect(catalog.opencode.models["remote-only"].name).toBe("Remote Only")
+})
+
+test("HTTP models catalog uses the local fallback without a token", async () => {
+  const state = { calls: 0 }
+  using server = Bun.serve({
+    port: 0,
+    fetch: () => {
+      state.calls++
+      return Response.json(response)
+    },
+  })
+  configureModelsApi({ url: `${server.url}api.json` })
+
+  const catalog = await modelsApiCatalog()
+
+  expect(state.calls).toBe(0)
+  expect(Object.keys(catalog)).toEqual(["opencode", "bpit", "w3"])
+  expect(Object.keys(catalog.opencode.models)).toHaveLength(6)
+  expect(Object.keys(catalog.bpit.models)).toHaveLength(4)
+  expect(Object.keys(catalog.w3.models)).toHaveLength(5)
 })

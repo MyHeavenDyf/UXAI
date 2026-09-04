@@ -2,6 +2,7 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Schema } from "effect"
 import * as ModelsDev from "@/provider/models"
+import { ModelsFallbackResponse } from "@/provider/models-fallback"
 
 let modelsApi = { url: catalogUrl(Flag.OPENCODE_MODELS_URL ?? "https://models.dev") } as {
   url: string
@@ -120,12 +121,26 @@ export async function fetchRemoteModelCatalog(input: {
   return result
 }
 
+function modelsFallbackCatalog(reason: string) {
+  const result = Object.fromEntries(
+    Object.values(decodeCatalog(apiModels(ModelsFallbackResponse))).map((provider) => [provider.id, provider]),
+  )
+  console.warn("[models-api] using local fallback catalog", {
+    reason,
+    providerIDs: Object.keys(result),
+  })
+  return result
+}
+
 export async function modelsApiCatalog() {
+  if (!modelsApi.headers?.uiplustoken) return modelsFallbackCatalog("uiplustoken is missing")
   const key = JSON.stringify(modelsApi)
   if (loading?.key === key) return loading.promise
-  const promise = fetchRemoteModelCatalog(modelsApi).finally(() => {
-    if (loading?.promise === promise) loading = undefined
-  })
+  const promise = fetchRemoteModelCatalog(modelsApi)
+    .catch((error) => modelsFallbackCatalog(error instanceof Error ? error.message : String(error)))
+    .finally(() => {
+      if (loading?.promise === promise) loading = undefined
+    })
   loading = { key, promise }
   return promise
 }
@@ -149,7 +164,13 @@ export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
       Object.assign(
         output.headers,
         readHeaders(findApiModel(await modelsApiCatalog(), input.model.providerID, input.model.id, input.model.api.id)),
+        modelsApi.headers,
       )
+      console.log("[models-api] chat request token", {
+        providerID: input.model.providerID,
+        modelID: input.model.id,
+        tokenSuffix: output.headers.uiplustoken?.slice(-6),
+      })
     },
   }
 }

@@ -2036,7 +2036,7 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.release_date).toBe("")
 })
 
-test("HTTP models catalog refreshes built-in models without fallback", async () => {
+test("HTTP models catalog refreshes built-in models and falls back on failure", async () => {
   const state = { modelID: "remote-only", available: true }
   using server = Bun.serve({
     port: 0,
@@ -2069,9 +2069,10 @@ test("HTTP models catalog refreshes built-in models without fallback", async () 
         : new Response(undefined, { status: 503 }),
   })
   using _reset = {
-    [Symbol.dispose]: () => configureModelsApi({ url: process.env["OPENCODE_MODELS_URL"] }),
+    [Symbol.dispose]: () =>
+      configureModelsApi({ url: process.env["OPENCODE_MODELS_URL"], headers: { uiplustoken: "test-token" } }),
   }
-  configureModelsApi({ url: `${server.url}api.json` })
+  configureModelsApi({ url: `${server.url}api.json`, headers: { uiplustoken: "test-token" } })
   await using tmp = await tmpdir()
 
   await WithInstance.provide({
@@ -2101,7 +2102,9 @@ test("HTTP models catalog refreshes built-in models without fallback", async () 
 
       state.available = false
       await run((provider) => provider.refresh(true))
-      expect(list()).rejects.toThrow("503")
+      const fallback = await list()
+      expect(fallback[ProviderID.make("w3")].models["remote-next"]).toBeUndefined()
+      expect(fallback[ProviderID.make("w3")].models["GLM-V5"]).toBeDefined()
     },
   })
 })

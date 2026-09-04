@@ -85,6 +85,11 @@ delete process.env["OPENCODE_SERVER_USERNAME"]
 process.env["OPENCODE_DB"] = ":memory:"
 
 // Now safe to import from src/
+const { configureModelsApi } = await import("../src/plugin/model-headers")
+configureModelsApi({
+  url: process.env["OPENCODE_MODELS_URL"],
+  headers: { uiplustoken: "test-token" },
+})
 const { Log } = await import("@opencode-ai/core/util/log")
 const { initProjectors } = await import("../src/server/projectors")
 
