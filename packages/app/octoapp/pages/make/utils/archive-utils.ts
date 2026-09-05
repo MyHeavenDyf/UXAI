@@ -348,7 +348,7 @@ export async function createDeliverable(teamId: number, fileName: string): Promi
   }
   
   return {
-    deliverableId: data.content.deliverableId || data.content.agentDeliverableId || data.content.id,
+    deliverableId: data.content.deliverableId || data.content.id,
     uniqueId: data.content.uniqueId || data.content.docId
   }
 }
