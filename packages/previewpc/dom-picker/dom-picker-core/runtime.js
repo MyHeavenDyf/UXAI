@@ -4,14 +4,28 @@ const PICKER_COMPONENT_ATTR = 'dom-picker-component'
 const OVERLAY_ID = 'dom-picker-overlay'
 const ACTIVE_ATTR = 'data-dom-picker-active'
 
+// A2UI 元素与宿主页面元素的框选配色。宿主色（橙）区别于 A2UI（蓝）。
+const A2UI_BORDER = '#007bff'
+const A2UI_BG = 'rgba(0, 123, 255, 0.1)'
+const HOST_BORDER = '#fa8c16'
+const HOST_BG = 'rgba(250, 140, 22, 0.12)'
+
+function applyOverlayColor(overlay, kind) {
+  if (kind === 'host') {
+    overlay.style.border = `2px solid ${HOST_BORDER}`
+    overlay.style.background = HOST_BG
+    return
+  }
+  overlay.style.border = `2px solid ${A2UI_BORDER}`
+  overlay.style.background = A2UI_BG
+}
+
 function createOverlay() {
   const overlay = document.createElement('div')
   overlay.id = OVERLAY_ID
   overlay.style.position = 'fixed'
   overlay.style.zIndex = '2147483646'
   overlay.style.pointerEvents = 'none'
-  overlay.style.border = '2px solid #007bff'
-  overlay.style.background = 'rgba(0, 123, 255, 0.1)'
   overlay.style.opacity = '0'
   overlay.style.transition = 'all 0.1s ease-out'
   return overlay
@@ -127,12 +141,89 @@ function resolveVueComponentSource(target) {
   return null
 }
 
-function updateOverlay(overlay, element) {
+function cssEscapeId(id) {
+  if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id)
+  return String(id).replace(/([^\w-])/g, '\\$1')
+}
+
+// 为宿主元素生成唯一 CSS 选择器：优先 #id，其次逐层 tag.class / tag:nth-of-type(k)，
+// 每层用 querySelectorAll 验证唯一即停；一直上溯到 html 保证最终唯一。
+function buildHostSelector(el) {
+  if (!el || !(el instanceof Element)) return ''
+
+  if (el.id) {
+    const sel = `#${cssEscapeId(el.id)}`
+    try {
+      if (document.querySelectorAll(sel).length === 1) return sel
+    } catch (_) { /* 非法选择器，降级 */ }
+  }
+
+  const segments = []
+  let cur = el
+  while (cur && cur.nodeType === 1) {
+    const tag = cur.tagName.toLowerCase()
+    const cls = cur.getAttribute('class')
+    let seg
+    if (cls) {
+      const firstClass = cls.trim().split(/\s+/)[0]
+      if (firstClass) {
+        seg = `${tag}.${firstClass}`
+        const candidate = `${segments.join(' > ')} ${seg}`.trim()
+        try {
+          if (document.querySelectorAll(candidate).length === 1) return candidate
+        } catch (_) { /* 降级到 nth-of-type */ }
+      }
+    }
+    if (!seg) {
+      const parent = cur.parentElement
+      if (parent) {
+        let index = 0
+        let sibling = cur
+        while ((sibling = sibling.previousElementSibling)) {
+          if (sibling.tagName === cur.tagName) index++
+        }
+        seg = `${tag}:nth-of-type(${index + 1})`
+      } else {
+        seg = tag
+      }
+    }
+    segments.unshift(seg)
+    const candidate = segments.join(' > ')
+    try {
+      if (document.querySelectorAll(candidate).length === 1) return candidate
+    } catch (_) { /* 继续 */ }
+    if (cur === document.documentElement) break
+    cur = cur.parentElement
+  }
+
+  return segments.length > 0 ? segments.join(' > ') : el.tagName.toLowerCase()
+}
+
+// 宿主页面元素（非 A2UI）：直接命中指针下的最里层元素，跳过 html/body/head
+// （空白背景不可选）。要选容器可走右键「选择父容器」逐层上溯。
+function resolveHostTarget(target) {
+  if (!(target instanceof Element)) return null
+
+  const tag = target.tagName.toLowerCase()
+  if (tag === 'html' || tag === 'body' || tag === 'head') return null
+
+  const selector = buildHostSelector(target)
+  if (!selector) return null
+
+  return {
+    element: target,
+    location: selector,
+    kind: 'host',
+  }
+}
+
+function updateOverlay(overlay, element, kind) {
   if (!element) {
     overlay.style.opacity = '0'
     return
   }
 
+  applyOverlayColor(overlay, kind)
   const rect = element.getBoundingClientRect()
   overlay.style.opacity = '1'
   overlay.style.top = `${rect.top}px`
@@ -154,6 +245,8 @@ export function installDomPicker(options = {}) {
 
   let activeElement = null
   let activeLocation = ''
+  let activeKind = 'a2ui'
+  let activeSelector = ''
   let frozen = false
   let disabled = true
   let lastContextMenuX = 0
@@ -185,7 +278,7 @@ export function installDomPicker(options = {}) {
     if (resizeObserver) return
     resizeObserver = new ResizeObserver(() => {
       if (!frozen || !activeElement) return
-      updateOverlay(overlay, activeElement)
+      updateOverlay(overlay, activeElement, activeKind)
       postRectUpdate()
     })
   }
@@ -259,6 +352,7 @@ export function installDomPicker(options = {}) {
       return {
         element: markedElement,
         location: markedElement.getAttribute(ATTRIBUTE_NAME) || '',
+        kind: 'a2ui',
       }
     }
 
@@ -267,18 +361,26 @@ export function installDomPicker(options = {}) {
       return {
         element: componentElement,
         location: componentElement.getAttribute(PICKER_ID_ATTR) || '',
+        kind: 'a2ui',
       }
     }
 
-    const pickerElement = target.closest(`[${PICKER_ID_ATTR}]`)
-    if (pickerElement) {
+    // 宿主页面元素：无 A2UI 标记，按块级吸附 + CSS 选择器命中。
+    const hostTarget = resolveHostTarget(target)
+    if (hostTarget) {
+      return hostTarget
+    }
+
+    const vueResolved = resolveVueComponentSource(target)
+    if (vueResolved) {
       return {
-        element: pickerElement,
-        location: pickerElement.getAttribute(PICKER_ID_ATTR) || '',
+        element: vueResolved.element,
+        location: vueResolved.location,
+        kind: 'a2ui',
       }
     }
 
-    return resolveVueComponentSource(target)
+    return null
   }
 
   const handlePointerMove = (event) => {
@@ -287,7 +389,9 @@ export function installDomPicker(options = {}) {
     const resolvedTarget = resolveMarkedTarget(event.target)
     activeElement = resolvedTarget?.element || null
     activeLocation = resolvedTarget?.location || ''
-    updateOverlay(overlay, activeElement)
+    activeKind = resolvedTarget?.kind || 'a2ui'
+    activeSelector = resolvedTarget?.kind === 'host' ? resolvedTarget.location : ''
+    updateOverlay(overlay, activeElement, activeKind)
   }
 
   const handleClick = async (event) => {
@@ -298,7 +402,9 @@ export function installDomPicker(options = {}) {
         window.parent.postMessage(
           {
             type: 'od:dom-picker-quick-fix',
+            kind: activeKind,
             id: activeLocation,
+            selector: activeSelector,
             domPickerComponent: activeElement.getAttribute(PICKER_COMPONENT_ATTR) || '',
             domPickerClass: activeElement.getAttribute('class') || '',
             elementProps: activeElement.getAttribute('data-element-props') || '',
@@ -326,8 +432,12 @@ export function installDomPicker(options = {}) {
 
     const element = resolvedTarget.element
     const location = resolvedTarget.location
+    const kind = resolvedTarget.kind || 'a2ui'
+    const selector = kind === 'host' ? location : ''
     activeElement = element
     activeLocation = location
+    activeKind = kind
+    activeSelector = selector
     frozen = true
     ensureResizeObserver()
     observeActiveElement(element)
@@ -339,7 +449,9 @@ export function installDomPicker(options = {}) {
     window.parent.postMessage(
       {
         type: 'od:dom-picker-quick-fix',
+        kind,
         id: location,
+        selector,
         domPickerComponent: element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: element.getAttribute('class') || '',
         elementProps: element.getAttribute('data-element-props') || '',
@@ -350,15 +462,15 @@ export function installDomPicker(options = {}) {
       },
       '*',
     )
-    console.log(`[${logPrefix}] selected:`, location, element)
+    console.log(`[${logPrefix}] selected:`, kind, location, element)
     scheduleStableRectReport()
   }
 
   const handleContextMenu = (event) => {
     if (disabled) return
 
-    const resolvedTarget = frozen && activeElement && activeLocation
-      ? { element: activeElement, location: activeLocation }
+    let resolvedTarget = frozen && activeElement && activeLocation
+      ? { element: activeElement, location: activeLocation, kind: activeKind }
       : resolveMarkedTarget(event.target)
     if (!resolvedTarget?.element || !resolvedTarget.location) {
       return
@@ -367,8 +479,12 @@ export function installDomPicker(options = {}) {
     event.preventDefault()
     event.stopPropagation()
 
+    const kind = resolvedTarget.kind || 'a2ui'
+    const selector = kind === 'host' ? resolvedTarget.location : ''
     activeElement = resolvedTarget.element
     activeLocation = resolvedTarget.location
+    activeKind = kind
+    activeSelector = selector
     frozen = true
     ensureResizeObserver()
     observeActiveElement(resolvedTarget.element)
@@ -380,7 +496,9 @@ export function installDomPicker(options = {}) {
     window.parent.postMessage(
       {
         type: 'od:dom-picker-context-menu',
+        kind,
         id: resolvedTarget.location,
+        selector,
         domPickerComponent: resolvedTarget.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolvedTarget.element.getAttribute('class') || '',
         elementProps: resolvedTarget.element.getAttribute('data-element-props') || '',
@@ -391,13 +509,13 @@ export function installDomPicker(options = {}) {
       },
       '*',
     )
-    console.log(`[${logPrefix}] context menu:`, resolvedTarget.location, resolvedTarget.element)
+    console.log(`[${logPrefix}] context menu:`, kind, resolvedTarget.location, resolvedTarget.element)
     scheduleStableRectReport()
   }
 
   const handleScrollOrResize = () => {
     if (disabled) return
-    updateOverlay(overlay, activeElement)
+    updateOverlay(overlay, activeElement, activeKind)
   }
 
   document.body.append(overlay)
@@ -413,14 +531,17 @@ export function installDomPicker(options = {}) {
     if (!parent || !(parent instanceof Element)) return
     const resolved = resolveMarkedTarget(parent)
     if (!resolved?.element || !resolved.location) return
+    const kind = resolved.kind || 'a2ui'
     activeElement = resolved.element
     activeLocation = resolved.location
+    activeKind = kind
+    activeSelector = kind === 'host' ? resolved.location : ''
     frozen = true
     ensureResizeObserver()
     observeActiveElement(resolved.element)
     applyActiveMarker()
-    updateOverlay(overlay, activeElement)
-    console.log(`[${logPrefix}] select parent:`, resolved.location, resolved.element)
+    updateOverlay(overlay, activeElement, activeKind)
+    console.log(`[${logPrefix}] select parent:`, kind, resolved.location, resolved.element)
     scheduleStableRectReport()
   }
 
@@ -429,8 +550,10 @@ export function installDomPicker(options = {}) {
       frozen = false
       activeElement = null
       activeLocation = ''
+      activeKind = 'a2ui'
+      activeSelector = ''
       applyActiveMarker()
-      updateOverlay(overlay, null)
+      updateOverlay(overlay, null, activeKind)
       if (resizeObserver) resizeObserver.disconnect()
       cleanupStableRectReport()
     }
@@ -452,25 +575,32 @@ export function installDomPicker(options = {}) {
     if (activeElement && document.body.contains(activeElement)) return
 
     requestAnimationFrame(() => {
-      const allPickerElements = document.querySelectorAll(`[id]`)
+      // a2ui 元素按 id 重定位；宿主元素按 CSS 选择器重定位（activeLocation 即选择器）。
       let newElement = null
-      for (const el of allPickerElements) {
-        if ((el.getAttribute('id') || '') === activeLocation) {
-          newElement = el
-          break
+      if (activeKind === 'host') {
+        try { newElement = document.querySelector(activeLocation) } catch (_) { newElement = null }
+      } else {
+        const allPickerElements = document.querySelectorAll(`[id]`)
+        for (const el of allPickerElements) {
+          if ((el.getAttribute('id') || '') === activeLocation) {
+            newElement = el
+            break
+          }
         }
       }
       if (newElement) {
         activeElement = newElement
         observeActiveElement(newElement)
         applyActiveMarker()
-        updateOverlay(overlay, activeElement)
+        updateOverlay(overlay, activeElement, activeKind)
       } else {
         frozen = false
         activeElement = null
         activeLocation = ''
+        activeKind = 'a2ui'
+        activeSelector = ''
         applyActiveMarker()
-        updateOverlay(overlay, null)
+        updateOverlay(overlay, null, activeKind)
       }
     })
   })

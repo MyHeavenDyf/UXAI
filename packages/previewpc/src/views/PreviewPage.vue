@@ -23,20 +23,28 @@ function applyA2UIJson(data: any) {
 
 function handleMessage(event: MessageEvent) {
   if (event.data?.type === "od:a2ui-update") {
+    // 多实例（混合页多个 A2UI 节点共用一个 iframe 文档）下，本消息会广播给所有 PreviewPage 实例。
+    // 仅当 payload.rootId 与本实例已渲染的 rootId 匹配时才应用；currentContent 未就绪或
+    // payload 无 rootId（旧父层）时回退为应用，兼容旧单实例与首次加载。
+    const payload = event.data.payload
+    if (payload && currentContent.value && payload.rootId && currentContent.value.rootId && payload.rootId !== currentContent.value.rootId) {
+      return
+    }
     loading.value = false
-    if (event.data.payload === null) {
+    if (payload === null) {
       currentContent.value = null
-    } else if (event.data.payload) {
-      applyA2UIJson(event.data.payload)
+    } else if (payload) {
+      applyA2UIJson(payload)
     }
   }
   // 父侧进入编辑态时请求当前 surface 运行时 state（包含用户在非编辑态的交互态，
   // 如已打开的 Modal/Drawer、已切换的 Tab），用于合并进父侧 doc.state，避免首次
   // applyPrototypeModify 触发的 od:a2ui-update 用磁盘旧 state 覆盖 iframe 内存态。
+  // 带 rootId：混合页多实例时父侧按 rootId 路由到对应 doc，避免状态串扰。
   if (event.data?.type === "od:a2ui-state-request") {
     const surface = store.getSurface(surfaceId) as any
     const state = surface?.dataModel?.getData?.() ?? null
-    window.parent.postMessage({ type: "od:a2ui-state-snapshot", state }, "*")
+    window.parent.postMessage({ type: "od:a2ui-state-snapshot", state, rootId: currentContent.value?.rootId ?? null }, "*")
   }
 }
 

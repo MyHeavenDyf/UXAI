@@ -15,6 +15,7 @@
 ;(function () {
   var ATTR = "id"
   var ACTIVE_ATTR = "data-dom-picker-active"
+  var PICKER_COMPONENT_ATTR = "dom-picker-component"
   var LONG_PRESS_MS = 300
   var dragMode = false
   var siblingMap = {}
@@ -102,15 +103,24 @@
     return document.querySelector("[" + ACTIVE_ATTR + "]")
   }
 
+  // 仅 A2UI 元素（带 dom-picker-component 或位于 .preview-a2ui-app 内）可拖拽；
+  // 宿主页面元素不参与 A2UI reorder，避免向 reorder 通道发非法 id。
+  function isA2uiContext(el) {
+    if (!el || !el.closest) return false
+    if (el.closest("[" + PICKER_COMPONENT_ATTR + "]")) return true
+    if (el.closest(".preview-a2ui-app")) return true
+    return false
+  }
+
   function draggable(target) {
     if (!target || !target.closest) return null
     var first = target.closest("[" + ATTR + "]")
     var el = first
     while (el) {
-      if (getSibs(el).length > 1) return el
+      if (getSibs(el).length > 1) return isA2uiContext(el) ? el : null
       el = el.parentElement ? el.parentElement.closest("[" + ATTR + "]") : null
     }
-    return first
+    return first && isA2uiContext(first) ? first : null
   }
 
   function orderedSibs(sibs, dir) {
@@ -237,6 +247,8 @@
     var sel = selectedEl()
     var el
     if (sel) {
+      // 宿主元素冻结后不可拖拽（无 A2UI reorder 语义）
+      if (!isA2uiContext(sel)) return
       if (e.target !== sel && !sel.contains(e.target)) return
       el = sel
     } else {
