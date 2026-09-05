@@ -1,8 +1,8 @@
-import type { SceneDocument, SceneObject } from '../utils/scene-protocol'
+import type { CameraNode, GlbAsset, MaterialNode, SceneDocument, SceneObject, TextureAsset } from '../utils/scene-protocol'
 
 type ScenePlanner = {
   scene?: Record<string, unknown>
-  camera: Record<string, unknown>
+  camera: CameraNode
   lights?: unknown[]
   rootId?: string
   groups?: SceneObject[]
@@ -10,9 +10,9 @@ type ScenePlanner = {
 }
 
 type SlotAssets = {
-  glb?: Record<string, unknown>
-  materials?: Record<string, unknown>
-  textures?: Record<string, unknown>
+  glb?: Record<string, GlbAsset>
+  materials?: Record<string, MaterialNode>
+  textures?: Record<string, TextureAsset>
 }
 
 export type SlotResult = {
@@ -67,9 +67,9 @@ export function mergeScene(planner: ScenePlanner, slotResults: SlotResult[]): Sc
   const allObjects: SceneObject[] = [...groups]
 
   // 收集资源声明(glb/材质/纹理),各 slot 可能各自声明,这里合并
-  const assetsGlb: Record<string, unknown> = {}
-  const assetsMaterials: Record<string, unknown> = {}
-  const assetsTextures: Record<string, unknown> = {}
+  const assetsGlb: Record<string, GlbAsset> = {}
+  const assetsMaterials: Record<string, MaterialNode> = {}
+  const assetsTextures: Record<string, TextureAsset> = {}
 
   for (const r of slotResults) {
     allObjects.push(...(r.objects ?? []))
@@ -95,7 +95,7 @@ export function mergeScene(planner: ScenePlanner, slotResults: SlotResult[]): Sc
     version: "1",
     angleUnit: "degree",
     scene: (planner.scene as SceneDocument["scene"]) ?? { environment: { preset: "studio" }, renderStyle: "studio" },
-    camera: planner.camera as SceneDocument["camera"],
+    camera: planner.camera,
     lights: (planner.lights as SceneDocument["lights"]) ?? [],
     assets: hasAssets ? { glb: assetsGlb, materials: assetsMaterials, textures: assetsTextures } : undefined,
     objects: topoSortByParent(deduped),
