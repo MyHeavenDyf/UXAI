@@ -2,12 +2,12 @@ import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
 import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
-import { Slice, Fragment } from "prosemirror-model"
+import { Slice, Fragment, type Node as PMNode } from "prosemirror-model"
 import { buildParagraphs, validTrigger, nextInsertPos } from "../../utils/mention"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
-import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
+import { docFromJSON, editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
 import { createMentionTriggerPlugin, mentionTriggerKey, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
@@ -26,6 +26,8 @@ export interface InsightEditorRef {
   clear: () => void
   /** 覆盖式回填「文本 + 引用」(排队项回填):按 @名 重建 mention 胶囊,selections 由 syncPlugin 自动派生 */
   setContent: (text: string, mentions: MentionAttrs[]) => void
+  isAlive: () => boolean
+  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined) => void
 }
 
 
@@ -44,7 +46,9 @@ interface Props {
   placeholder?: string
   onSubmit?: () => void
   onTriggerMention?: () => void
-  onContentChange?: (text: string) => void
+  onContentChange?: (docJSON: ReturnType<PMNode["toJSON"]>, text: string) => void
+  onInitialContent?: (text: string) => void
+  initialDocJSON?: ReturnType<PMNode["toJSON"]>
   /** 面板由关到开那一次(打点 mention-open) */
   onMentionOpen?: () => void
   /** 选中一项(打点 mention-select) */
@@ -110,12 +114,24 @@ export function ProseMirrorEditor(props: Props) {
   }, props.onContentChange)
 
   const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
+  const emptyDoc = () => editorSchema.nodes.doc.create(null, editorSchema.nodes.paragraph.create())
+  function restoreDoc(json: ReturnType<PMNode["toJSON"]> | undefined) {
+    if (!json?.content?.length) return emptyDoc()
+    try {
+      return docFromJSON(json)
+    } catch {
+      return emptyDoc()
+    }
+  }
 
   onMount(() => {
     if (!containerRef) return
 
+    const initialDoc = restoreDoc(props.initialDocJSON)
+
     const state = EditorState.create({
       schema: editorSchema,
+      doc: initialDoc,
       plugins: [
         history(),
         keymap({
@@ -188,7 +204,26 @@ export function ProseMirrorEditor(props: Props) {
         tr.setSelection(TextSelection.atEnd(tr.doc))
         v.dispatch(tr)
       },
+      isAlive: () => connected(view()),
+      replaceDoc: (json) => {
+        const v = view()
+        if (!connected(v)) return
+        const doc = restoreDoc(json)
+        const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, doc.content)
+        tr.setSelection(TextSelection.atStart(tr.doc))
+        v.dispatch(tr)
+      },
     })
+
+    const initialMentions = extractMentionsFromDoc(initialDoc)
+    props.setMentionSelections(initialMentions.map((mention) =>
+      mention.type === "skill"
+        ? { type: "skill", name: mention.name, label: mention.label }
+        : { type: "file", filename: mention.name, path: mention.path || "" },
+    ))
+    const initialText = getDocTextWithMentions(initialDoc)
+    setIsEmpty(initialText.trim().length === 0)
+    props.onInitialContent?.(initialText)
 
     // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
     if (props.autofocus && !props.disabled) {
