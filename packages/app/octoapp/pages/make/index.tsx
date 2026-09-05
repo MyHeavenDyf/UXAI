@@ -104,7 +104,7 @@ import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
@@ -692,6 +692,28 @@ const sessionMessagesLoaded = createMemo(() => {
 
     window.addEventListener(SEND_TEXT_EVENT, handleSendText)
     onCleanup(() => window.removeEventListener(SEND_TEXT_EVENT, handleSendText))
+  })
+
+  // ── Append-to-composer event listener (from model-edit-area-dialog "下一项" / "确认") ──
+  createEffect(() => {
+    const handleAppend = (e: Event) => {
+      const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
+      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      const prev = ref?.getText?.() ?? ""
+      ref?.clear?.()
+      ref?.insertText?.(prev ? `${prev}\n${detail.text}` : detail.text)
+    }
+    window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
+    onCleanup(() => window.removeEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend))
+  })
+
+  // ── Submit-composer event listener (from model-edit-area-dialog "确认") ──
+  createEffect(() => {
+    const handleSubmitEvent = () => {
+      void handleSubmit()
+    }
+    window.addEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent)
+    onCleanup(() => window.removeEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent))
   })
 
   // 调试日志：打印当前 session 相关的 SSE 事件

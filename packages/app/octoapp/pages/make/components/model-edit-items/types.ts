@@ -83,4 +83,5 @@ export type ModelEditConfig = {
   htmlConfig?: Record<string, HtmlTypeConfig>
   saveCallback: (args: SaveCallbackArgs) => string
   deleteCallback: (args: DeleteCallbackArgs) => string
+  promptCallback?: (filePath: string, selector: string) => string
 }

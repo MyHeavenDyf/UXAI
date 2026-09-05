@@ -6,7 +6,8 @@ import { ProseMirrorEditor } from '../prosemirror-editor'
 import type { MentionSelection } from '../mention-popover'
 import type { ArtifactFile } from '../../utils/artifact-file-api'
 import type { SkillConfig } from '../skill-config-types'
-import { sendTextToAgent } from '../../utils/agent-events'
+import { sendTextToAgent, appendToMainComposer, submitMainComposer } from '../../utils/agent-events'
+import { processMentions } from '../../utils/mention-processor'
 import './model-edit-area-dialog.css'
 
 type EditorRef = {
@@ -36,6 +37,7 @@ export function ModelEditAreaDialog(props: {
   onSubmitStart?: () => void
   onMentionActiveChange?: (active: boolean) => void
   closeMentionTrigger?: number
+  promptCallback?: (filePath: string, selector: string) => string
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
@@ -145,26 +147,43 @@ export function ModelEditAreaDialog(props: {
     document.addEventListener('mouseup', up)
   }
 
-  const handleConfirm = async () => {
-    if (isDisabled()) return
-    const text = editorRef?.getText?.() || ''
-    const mentions = editorRef?.getMentions?.() || []
-
+  const buildPrefix = () => {
+    if (props.promptCallback) {
+      return props.promptCallback(props.filePath, props.element?.selector || '')
+    }
     const lines: string[] = []
     if (props.filePath) lines.push(`[文件路径: ${props.filePath}]`)
     if (props.tabTitle) lines.push(`[页面: ${props.tabTitle}]`)
     if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}]`)
-    lines.push('')
-    lines.push(text)
-    const prompt = lines.join('\n')
+    return lines.join('\n')
+  }
 
+  const buildFullText = () => {
+    const text = editorRef?.getText?.() || ''
+    const mentions = editorRef?.getMentions?.() || []
+    const { processed } = processMentions(text, mentions)
+    const prefix = buildPrefix()
+    return prefix ? `${prefix}\n\n${processed}` : processed
+  }
+
+  const handleNext = () => {
+    if (isDisabled()) return
+    const text = editorRef?.getText?.() || ''
+    if (!text.trim()) return
+    const fullText = buildFullText()
+    appendToMainComposer(fullText)
+    editorRef?.clear?.()
+    setMentionSelections([])
+  }
+
+  const handleConfirm = async () => {
+    if (isDisabled()) return
+    const fullText = buildFullText()
+    appendToMainComposer(fullText)
     setSubmitting(true)
     props.onSubmitStart?.()
-    try {
-      await sendTextToAgent(prompt, { source: 'model-edit-area', mentions })
-    } finally {
-      setSubmitting(false)
-    }
+    submitMainComposer()
+    setSubmitting(false)
   }
 
   return (
@@ -204,6 +223,14 @@ export function ModelEditAreaDialog(props: {
             onClick={props.onClose}
           >
             取消
+          </button>
+          <button
+            type="button"
+            class="model-edit-area-btn secondary"
+            disabled={isDisabled()}
+            onClick={handleNext}
+          >
+            下一项
           </button>
           <button
             type="button"
