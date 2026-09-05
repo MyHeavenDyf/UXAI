@@ -8,6 +8,7 @@ import type { ArtifactFile } from '../../utils/artifact-file-api'
 import type { SkillConfig } from '../skill-config-types'
 import { sendTextToAgent, appendToMainComposer, submitMainComposer } from '../../utils/agent-events'
 import { processMentions } from '../../utils/mention-processor'
+import { tracker } from '@/utils/tracker'
 import './model-edit-area-dialog.css'
 
 type EditorRef = {
@@ -174,6 +175,7 @@ export function ModelEditAreaDialog(props: {
     appendToMainComposer(fullText)
     editorRef?.clear?.()
     setMentionSelections([])
+    tracker.interaction({ module: "design", name: "append-model-edit-prompt" })
   }
 
   const handleConfirm = async () => {
@@ -184,6 +186,7 @@ export function ModelEditAreaDialog(props: {
     props.onSubmitStart?.()
     submitMainComposer()
     setSubmitting(false)
+    tracker.interaction({ module: "design", name: "submit-model-edit-prompt" })
   }
 
   return (

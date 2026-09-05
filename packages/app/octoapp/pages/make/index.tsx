@@ -2771,6 +2771,7 @@ const sessionMessagesLoaded = createMemo(() => {
   async function handleHistorySwitch(entry: VersionEntry) {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
+    tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
     await historyController.switchVersion(entry, tab)
   }
 
@@ -3834,18 +3835,21 @@ if (dsId) {
         setAttachments(prev => prev.map(a =>
           a.id === id ? { ...a, status: 'error', error: '当前环境无法导入该图片，请从文件选择器选择文件', retriable: false } : a
         ))
+        tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
         return false
       }
       const landedName = dest.split(/[\\/]/).pop()
       setAttachments(prev => prev.map(a =>
         a.id === id ? { ...a, status: 'done', source: 'pending', path: dest, filename: landedName || a.filename, error: undefined } : a
       ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: true, kind: "image" }) })
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : '导入失败'
       setAttachments(prev => prev.map(a =>
         a.id === id ? { ...a, status: 'error', error: message, retriable: true } : a
       ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
       return false
     }
   }
@@ -4144,6 +4148,7 @@ if (dsId) {
       a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
     ))
 
+    tracker.interaction({ module: "design", name: "attachment-retry", extend: JSON.stringify({ filename: att.filename }) })
     void doImageImport(id, file, att.filename)
   }
 
@@ -5533,6 +5538,7 @@ onPreview={(url) => {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)
                   }
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
                   setShowHistoryPanel(!showHistoryPanel())
                 }}
                 onCollapseDrawer={

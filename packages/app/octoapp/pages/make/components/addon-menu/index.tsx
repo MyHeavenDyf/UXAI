@@ -13,6 +13,7 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon, FolderIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
 import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, inferKindFromUrl, assetFileId, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { tracker } from "@/utils/tracker"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -208,6 +209,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
+      tracker.interaction({ module: "design", name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
     }
   }
 
@@ -219,6 +221,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     } else {
       setLocalFileSelections(prev => [...prev, selection])
       props.onSelect(selection)
+      tracker.interaction({ module: "design", name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
     }
   }
 
@@ -238,6 +241,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
+      tracker.interaction({ module: "design", name: "addon-select-product-asset", extend: JSON.stringify({ fileName: file.fileName }) })
     }
   }
 

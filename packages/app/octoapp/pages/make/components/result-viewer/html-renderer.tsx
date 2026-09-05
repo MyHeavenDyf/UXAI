@@ -1889,6 +1889,7 @@ onFloatingPositionChange={setEditPanelPosition}
               onExit={() => {
                 setModelEditTarget(null)
                 iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "close-model-edit-panel" })
               }}
               onFloatingPositionChange={setModelEditPanelPosition}
             />
@@ -1909,6 +1910,7 @@ onFloatingPositionChange={setEditPanelPosition}
               onClose={() => {
                 setModelEditTarget(null)
                 iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "cancel-model-edit-area" })
               }}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onMentionActiveChange={setMentionPanelOpen}
