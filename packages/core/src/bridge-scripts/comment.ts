@@ -482,11 +482,15 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var scrollY = window.scrollY || document.documentElement.scrollTop
       var viewportWidth = document.documentElement.clientWidth
       
-      var leftPx = rect.left + scrollX + rect.width
-      var topPx = rect.top + scrollY - 40
+      var bodyRect = document.body.getBoundingClientRect()
+      var bodyOffsetX = bodyRect.left + scrollX
+      var bodyOffsetY = bodyRect.top + scrollY
       
-      var overflowTop = rect.top + scrollY < 40
-      var overflowRight = leftPx + 40 > viewportWidth + scrollX
+      var leftPx = rect.left + scrollX + rect.width - bodyOffsetX
+      var topPx = rect.top + scrollY - 40 - bodyOffsetY
+      
+      var overflowTop = rect.top + scrollY - bodyOffsetY < 40
+      var overflowRight = leftPx + 40 > viewportWidth + scrollX - bodyOffsetX
       
       var pinLeft = overflowRight ? (leftPx - 40) : leftPx
       var pinTop = overflowTop ? (rect.top + scrollY) : topPx
