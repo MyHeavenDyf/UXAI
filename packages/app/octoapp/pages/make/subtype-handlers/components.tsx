@@ -182,7 +182,7 @@ export default {
     }
   },
 
-  onHistoryTrigger() {
+  async onHistoryTrigger() {
     return ['.']
   },
 

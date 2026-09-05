@@ -1,0 +1,85 @@
+{
+  "name": "Empty",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": ["/value", "/form/value"]
+        }
+      }
+    },
+    "SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    }
+  },
+  "description": "Empty state placeholder.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Empty"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Raw text content to render directly (e.g., 'No data')."
+            },
+            {
+              "$ref": "#/$defs/SlotNode",
+              "description": "Structural node reference rendered as the description (custom ReactNode)."
+            },
+            {
+              "$ref": "#/$defs/DataBinding",
+              "description": "State path resolving to a string used as the description text."
+            }
+          ],
+          "description": "Customized description of the empty state. ReactNode in antd; here a raw string, a structural node reference, or a state path that resolves to a string."
+        },
+        "image": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Image URL or a preset identifier (antd Empty.PRESENTED_IMAGE_DEFAULT / Empty.PRESENTED_IMAGE_SIMPLE)."
+            },
+            {
+              "$ref": "#/$defs/SlotNode",
+              "description": "Structural node reference rendered as the image (custom ReactNode, e.g. a custom SVG/icon element)."
+            },
+            {
+              "$ref": "#/$defs/DataBinding",
+              "description": "State path resolving to a string used as the image URL or preset identifier."
+            }
+          ],
+          "description": "Customized image of the empty state. ReactNode in antd; here an image URL/preset string, a structural node reference, or a state path that resolves to a string."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": []
+    }
+  },
+  "required": ["id", "component", "props"]
+}

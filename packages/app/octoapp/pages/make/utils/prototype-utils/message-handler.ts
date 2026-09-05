@@ -2,7 +2,7 @@ import type { PrototypeSession } from "./types"
 import { setActiveSessionId, closePrototypePanels } from "./session"
 import { dispatchPrototypeCtxMenu, dispatchPrototypeQuickFix, dispatchPrototypeRectUpdate } from "./events"
 import { applyPrototypeReorder, writeStateBinding } from "./modify"
-import { loadA2uiData, buildSiblingMap, schedulePersistA2ui } from "./a2ui"
+import { loadA2uiDocs, buildSiblingMap, findDocByElementId, findDocByRootId, schedulePersistA2uiDoc } from "./a2ui"
 
 /** 构造 prototype iframe 的 message 路由器：把 od:dom-picker-* / od:drag-reorder 等消息
  *  派发给对应 UI 事件 / 改写函数。在派发用户可见事件前置 activeSessionId，保证全局单例面板命中本 session。 */
@@ -18,10 +18,16 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
     if (!t.startsWith("od:dom-picker") && t !== "od:drag-reorder" && t !== "od:a2ui-ready" && t !== "A2UI_STATE_CHANGE" && t !== "od:a2ui-state-snapshot") return
     if (t === "A2UI_STATE_CHANGE") {
       // iframe 内交互状态变更（Tabs 切换 / Modal/Drawer 开关 / 滑块等）。
-      // 把变更同步进 session.a2ui.doc（内存），这样下次 applyPrototypeModify / commitA2ui
+      // 把变更同步进所属 entry.doc（内存），这样下次 applyPrototypeModify / commitA2uiDoc
       // 回推 iframe 重渲染时不会丢失用户当前的交互状态（避免 Tab 切回初始页签）。
       // 带 path（数据绑定）→ 写 state；否则（静态字面量）→ 改元素 props。
-      const doc = session.a2ui?.doc
+      // 混合页多 doc：commitActivation 带 elementId → 按 elementId 定位 entry；
+      // setState 仅 path → 按 rootId（若 iframe 带）定位，否则回退首个 entry（旧单实例）。
+      const elementId = typeof d.elementId === "string" ? d.elementId : ""
+      const rootId = typeof d.rootId === "string" ? d.rootId : ""
+      const entry = elementId ? findDocByElementId(session.a2uiDocs, elementId) : findDocByRootId(session.a2uiDocs, rootId)
+      if (!entry) return
+      const doc = entry.doc
       if (!doc || typeof doc !== "object") return
       let mutated = false
       const path = typeof d.path === "string" && d.path ? d.path : ""
@@ -38,28 +44,28 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
           mutated = true
         }
       }
-      // 落盘：A2UI_STATE_CHANGE 之前只改内存 doc 未触发 schedulePersistA2ui，
-      // 导致 Tab 切换 / Modal/Drawer 开关在 iframe 刷新或会话关闭后丢失。仅在 editing 态
-      // （session.a2ui.doc 由 od:a2ui-ready 加载）下排程写盘，与 applyPrototypeModify 对齐。
+      // 落盘：A2UI_STATE_CHANGE 之前只改内存 doc 未触发 schedulePersistA2uiDoc，
+      // 导致 Tab 切换 / Modal/Drawer 开关在 iframe 刷新或会话关闭后丢失。仅在 editing 态下排程写盘。
       if (mutated && session.editing) {
-        const filePath = session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || ""
-        if (filePath) schedulePersistA2ui(session, filePath)
+        schedulePersistA2uiDoc(session, entry)
       }
       return
     }
     if (t === "od:a2ui-state-snapshot") {
       // iframe 回传当前 surface 运行时 state（用户在非编辑态的交互态：已打开的
-      // Modal/Drawer、已切换的 Tab 等）。进入编辑态时父侧 loadA2uiData 从磁盘读到
+      // Modal/Drawer、已切换的 Tab 等）。进入编辑态时父侧 loadA2uiDocs 从磁盘读到
       // 的 doc.state 是旧值，若不合并就用旧值重建 surface 会让 modal 关闭等。
-      // 这里整体替换 doc.state 为 iframe 最新运行时值（snapshot 是 doc.state 的超集，
-      // 含用户交互过的修改），再排程落盘。仅 editing 态处理，避免预览态污染。
+      // 这里按 rootId 定位到对应 entry，整体替换其 doc.state 为 iframe 最新运行时值，
+      // 再排程落盘。仅 editing 态处理，避免预览态污染。
       if (!session.editing) return
-      const doc = session.a2ui?.doc
+      const rootId = typeof d.rootId === "string" ? d.rootId : ""
+      const entry = findDocByRootId(session.a2uiDocs, rootId)
+      if (!entry) return
+      const doc = entry.doc
       const state = d.state
       if (!doc || typeof doc !== "object" || !state || typeof state !== "object") return
       ;(doc as { state?: Record<string, unknown> }).state = state
-      const filePath = session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || ""
-      if (filePath) schedulePersistA2ui(session, filePath)
+      schedulePersistA2uiDoc(session, entry)
       return
     }
     if (t === "od:dom-picker-rect-update") {
@@ -87,13 +93,13 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
     if (t === "od:a2ui-ready") {
       // iframe（重新）加载完成、A2UI 运行时就绪。本 session 处于编辑态时，
       // 重新激活 dom-picker + drag-mode（刷新后 iframe 内运行时已重置），
-      // 并清缓存重读 data.js 重建 siblingMap（顺带修刷新后父侧缓存陈旧）。
+      // 并清缓存重读所有数据文件重建 siblingMap（顺带修刷新后父侧缓存陈旧）。
       if (!session.editing) return
       setActiveSessionId(session.tabId)
       session.ctx?.postMessageToIframe?.({ type: "od:dom-picker-mode", enabled: true })
-      session.a2ui = null
-      void loadA2uiData(session, session.ctx).then((doc) => {
-        session.ctx?.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap: buildSiblingMap(doc) })
+      session.a2uiDocs = []
+      void loadA2uiDocs(session, session.ctx).then((entries) => {
+        session.ctx?.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap: buildSiblingMap(entries) })
       })
       return
     }
@@ -109,6 +115,8 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
         y: rect.top + (d.clickY ?? 0) * scale,
         id: String(d.id ?? ""),
         tagName: String(d.tagName ?? ""),
+        kind: d.kind === 'host' ? 'host' : 'a2ui',
+        selector: String(d.selector ?? ""),
       })
       return
     }
@@ -125,6 +133,8 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
         currentClass: String(d.domPickerClass ?? ""),
         elementProps: String(d.elementProps ?? ""),
         filePath: session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || "",
+        kind: d.kind === 'host' ? 'host' : 'a2ui',
+        selector: String(d.selector ?? ""),
         elementRect: er ? {
           top: rect.top + (er?.top ?? 0) * scale,
           left: rect.left + (er?.left ?? 0) * scale,

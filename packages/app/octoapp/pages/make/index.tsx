@@ -907,6 +907,11 @@ const sessionMessagesLoaded = createMemo(() => {
   const [patternUserInput, setPatternUserInput] = createSignal("")
   const [optimisticPatternIntent, setOptimisticPatternIntent] = createSignal(false)
   const [patternEnded, setPatternEnded] = createSignal(false)
+  // 已 enrich 过的 match / module-list 消息 id：复用已结束子 session 继续对话时，
+  // 跳过历史中已处理过的 <pattern-match>/<module-list>，避免旧匹配弹窗重新弹出。
+  // 新建子 session 或恢复活跃子 session 时清空（恢复时需重新 enrich）。
+  let lastEnrichedPatternMatchMsgId: string | null = null
+  let lastEnrichedModuleListMsgId: string | null = null
   /** 输入框中的 PatternPage 胶囊状态，用户提交后才创建子 session */
   const [patternPageCapsule, setPatternPageCapsule] = createSignal(false)
   const patternPageCapsuleActive = () => patternPageCapsule() && !activePatternSessionId() && !patternEnded()
@@ -1334,8 +1339,9 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
-    const line = text ? `[选中元素: ${id}] ${text};` : ""
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = text ? `[${tag}: ${id}] ${text};` : ""
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     if (text) {
@@ -1344,8 +1350,9 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     void handleSubmit()
   })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
-    const line = `[选中元素: ${id}] ${text};`
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = `[${tag}: ${id}] ${text};`
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     ref?.clear?.()
@@ -1841,25 +1848,37 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => {
     const sid = activePatternSessionId(); if (!sid || patternSubPhase() === "module") return null
     return moduleListScanned()
-  }, (ml) => { if (ml) setPatternSubPhase("module") }, { defer: true }))
+  }, (ml) => {
+    if (!ml) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    setPatternSubPhase("module")
+  }, { defer: true }))
   // [模块匹配] 已发送但 agent 未响应时，也恢复到 module 阶段
   // 覆盖场景：用户点"跳过"/"下一步"进入 Phase 2 后切换 session 或刷新页面，
   // agent 仍在处理中（无 <module-list> 输出），用 user 消息中的 [模块匹配] 标记恢复阶段
+  // 只看最后一条用户消息：复用已结束子 session 继续对话时，历史中的旧 [模块匹配]
+  // 不应再把 phase 拉回 module，避免新一轮 <pattern-match> 弹窗从「模块」步起
   createEffect(on(() => {
     const sid = activePatternSessionId()
     if (!sid || patternSubPhase() === "module") return false
     const msgs = sync.data.message?.[sid]
-    if (!msgs) return false
-    return msgs.some((m: any) => {
-      if (m.role !== "user") return false
-      const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-      return text?.includes("[模块匹配]")
-    })
+    if (!msgs || msgs.length === 0) return false
+    let lastUser: Message | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") { lastUser = msgs[i]; break }
+    }
+    if (!lastUser) return false
+    const text = (sync.data.part?.[lastUser.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+    return text?.includes("[模块匹配]") ?? false
   }, (hasPrompt) => { if (hasPrompt) setPatternSubPhase("module") }, { defer: true }))
   // <pattern-match> 扫描到后 enrich file/preview
   createEffect(on(() => patternSubMatchScanned(), async (scanned, prev) => {
     if (!scanned || scanned === prev) return
     if (scanned.results.length === 0) { setPatternMatches(null); return }
+    if (scanned.matchedMessageId && scanned.matchedMessageId === lastEnrichedPatternMatchMsgId) return
+    lastEnrichedPatternMatchMsgId = scanned.matchedMessageId ?? null
+    // 新一轮匹配：重置到 match 阶段，避免复用继续对话时历史 [模块匹配] 把 phase 拉回 module 导致弹窗从「模块」步起
+    setPatternSubPhase("match")
     setPatternSubEnriching(true)
     try {
       const enriched = await getPagePatternResource({ results: scanned.results })
@@ -1870,6 +1889,8 @@ const sessionMessagesLoaded = createMemo(() => {
   // <module-list> 扫描到后调 getBlockPatternResource 搜索向量库补全预览图
   createEffect(on(() => moduleListScanned(), async (ml, prev) => {
     if (!ml || ml === prev) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    lastEnrichedModuleListMsgId = ml.matchedMessageId ?? null
     setPatternBlockMatching(true)
     setPatternBlockMatchError(false)
     setPatternBlockMatches([])
@@ -2028,6 +2049,8 @@ const sessionMessagesLoaded = createMemo(() => {
   function handleOpenPatternPageConfirm() {
     if (activePatternSessionId() || patternPageCapsule()) return
     setPatternEnded(false)
+    const sid = params.id
+    if (sid) localStorage.removeItem(PATTERN_SUB_ENDED_LS + sid)
     setPatternPageCapsule(true)
     requestAnimationFrame(() => textareaRef?.focus())
   }
@@ -2505,6 +2528,8 @@ const sessionMessagesLoaded = createMemo(() => {
             setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
             sync.session.sync(restoredPatternSubSid).catch(() => {})
           }
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
           setActivePatternSessionId(restoredPatternSubSid)
           setPatternSubParentSessionId(newSid)
           // 恢复用户输入（handleMatchPattern Phase 2 拼装所需）
@@ -2567,6 +2592,8 @@ const sessionMessagesLoaded = createMemo(() => {
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childId); return n })
           sync.session.sync(childId).catch(() => {})
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
           setActivePatternSessionId(childId)
           setPatternSubParentSessionId(newSid)
           setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
@@ -3403,6 +3430,8 @@ const sessionMessagesLoaded = createMemo(() => {
           const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
           const patternChildSession = patternChild.data as Session | undefined
           if (patternChildSession) {
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
             loadedChildSessions.add(patternChildSession.id)
             setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
             setActivePatternSessionId(patternChildSession.id)
@@ -3467,23 +3496,46 @@ if (dsId) {
         sid = session.id
       }
       autoScroll.forceScrollToBottom()
-      // 有 session + PatternPage 胶囊：创建 ict_pattern 子 session，消息发给子 session
+      // 有 session + PatternPage 胶囊：优先复用上一次已结束的 ict_pattern 子 session，
+      // 保留会话上下文不清空历史，继续在下面输入输出；首次进入才创建新子 session。
       if (shouldStartPatternPage && sid && !shouldStartInitialPlan) {
         const dir2 = sdk.directory
         if (dir2) {
-          const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
-          const patternChildSession = patternChild.data as Session | undefined
-          if (patternChildSession) {
-            loadedChildSessions.add(patternChildSession.id)
-            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
-            setActivePatternSessionId(patternChildSession.id)
+          // 复用本 session 上一次的 ict_pattern 子 session（已结束但未归档），保留会话上下文继续在下面输入输出
+          const existingChildId = _patternSubChildCache[sid] ?? localStorage.getItem(PATTERN_SUB_CHILD_LS + sid) ?? null
+          if (existingChildId) {
+            if (!loadedChildSessions.has(existingChildId)) {
+              loadedChildSessions.add(existingChildId)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(existingChildId); return n })
+              sync.session.sync(existingChildId).catch(() => {})
+            }
+            setActivePatternSessionId(existingChildId)
             setPatternSubParentSessionId(sid)
-            localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
-            _patternSubChildCache[sid] = patternChildSession.id
             setPatternSubPhase("match")
             setPatternMatches(null)
-            sync.session.sync(patternChildSession.id).catch(() => {})
-            await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+            setPatternBlockMatches([])
+            setPatternBlockMatching(false)
+            // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
+            // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
+            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+          } else {
+            // 首次进入：创建新的 ict_pattern 子 session
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
+            const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
+            const patternChildSession = patternChild.data as Session | undefined
+            if (patternChildSession) {
+              loadedChildSessions.add(patternChildSession.id)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+              setActivePatternSessionId(patternChildSession.id)
+              setPatternSubParentSessionId(sid)
+              localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
+              _patternSubChildCache[sid] = patternChildSession.id
+              setPatternSubPhase("match")
+              setPatternMatches(null)
+              sync.session.sync(patternChildSession.id).catch(() => {})
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+            }
           }
         }
       } else {
@@ -5270,6 +5322,16 @@ onPreview={(url) => {
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                   }}
                 >
+                  {/* PatternPage 模式胶囊 */}
+                  <Show when={patternPageCapsuleActive()}>
+                    <div class="make-plan-capsule-row">
+                      <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
+                        <span class="make-plan-capsule-icon">✦</span>
+                        <span>PatternPage 模式</span>
+                        <span class="make-plan-capsule-close">×</span>
+                      </button>
+                    </div>
+                  </Show>
                   {/* Slash Command Popover */}
                   <Show when={slashState() && filteredSlash().length > 0}>
                     <div class="slash-popover">
