@@ -251,11 +251,6 @@ export function CommentPopover(props: {
     const pp = props.target!.pinPosition
     const hoverX = props.target!.hoverPoint?.x
     
-    console.log('[DEBUG popover] hoverPoint:', props.target?.hoverPoint)
-    console.log('[DEBUG popover] pinPosition:', pp)
-    console.log('[DEBUG popover] popoverWidth:', pw)
-    console.log('[DEBUG popover] iframeWidth:', iframeWidth)
-    
     // 有 pinPosition（点击现有 pin）
     if (pp && hoverX !== undefined) {
       if (hoverX + pw > iframeWidth) {

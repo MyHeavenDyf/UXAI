@@ -1177,7 +1177,7 @@ createEffect(() => {
           htmlHint: comment.htmlHint,
           label: comment.label,
           note: comment.note,
-          pinPosition: d.position,
+          pinPosition: transformRect(d.position),
           commenterAvatar: comment.commenterAvatar,
           commenterName: comment.commenterName,
           createdAt: comment.createdAt,
@@ -1202,7 +1202,7 @@ createEffect(() => {
         position: d.position,
         htmlHint: d.htmlHint,
         label: d.label,
-        hoverPoint: d.hoverPoint,
+        hoverPoint: transformPoint(d.hoverPoint),
       })
       setEditingComment(null)
       setCommentReadOnly(false)
@@ -1215,7 +1215,7 @@ createEffect(() => {
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
-        const pinPos = d.pinPosition
+        const pinPos = transformRect(d.pinPosition)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -1237,7 +1237,7 @@ createEffect(() => {
     
     if (d.type === "od:comment-pin-position") {
       const commentId = d.commentId
-      const pinPos = d.pinPosition
+      const pinPos = transformRect(d.pinPosition)
       const comment = savedComments().find(c => c.id === commentId)
       if (comment && pinPos) {
         setEditingComment(comment)
@@ -1451,21 +1451,49 @@ createEffect(() => {
     return vp !== "desktop" && props.mode === "preview"
   }
 
-  const containerStyle = createMemo(() => {
-    if (!isResponsive()) return {}
-
+  const viewportTransform = createMemo(() => {
+    if (!isResponsive()) return { scale: 1, offsetX: 0, offsetY: 0 }
     const vp = props.viewport!
     const dims = VIEWPORT_DIMS[vp]
     const { w, h } = canvasSize()
     const scale = effectiveScale(vp, w, h)
     const pad = 24
+    return {
+      scale,
+      offsetX: pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2),
+      offsetY: pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2),
+    }
+  })
 
+  const transformPoint = (point: { x: number; y: number }) => {
+    const t = viewportTransform()
+    return {
+      x: t.offsetX + point.x * t.scale,
+      y: t.offsetY + point.y * t.scale,
+    }
+  }
+
+  const transformRect = (rect: { left: number; top: number; width: number; height: number }) => {
+    const t = viewportTransform()
+    return {
+      left: t.offsetX + rect.left * t.scale,
+      top: t.offsetY + rect.top * t.scale,
+      width: rect.width * t.scale,
+      height: rect.height * t.scale,
+    }
+  }
+
+  const containerStyle = createMemo(() => {
+    if (!isResponsive()) return {}
+    const vp = props.viewport!
+    const dims = VIEWPORT_DIMS[vp]
+    const t = viewportTransform()
     return {
       "--octo-vp-width": `${dims.width}px`,
       "--octo-vp-height": `${dims.height}px`,
-      "--octo-vp-scale": scale,
-      "--octo-vp-offset-x": `${pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2)}px`,
-      "--octo-vp-offset-y": `${pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2)}px`,
+      "--octo-vp-scale": t.scale,
+      "--octo-vp-offset-x": `${t.offsetX}px`,
+      "--octo-vp-offset-y": `${t.offsetY}px`,
     } as JSX.CSSProperties
   })
 
@@ -1891,7 +1919,11 @@ onFloatingPositionChange={setEditPanelPosition}
 <Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
                 <CommentHoverTooltip
                   target={commentHoverTarget()!}
-                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                  iframeBounds={(() => {
+                    const vp = props.viewport ?? "desktop"
+                    const dims = VIEWPORT_DIMS[vp]
+                    return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                  })()}
                   onClose={() => setCommentHoverTarget(null)}
                   onClick={() => {
                     const hoverTarget = commentHoverTarget()
@@ -1931,8 +1963,12 @@ setEditingComment(comment)
               </Show>
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
-                   iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-target={editingComment() ? {
+                    iframeBounds={(() => {
+                      const vp = props.viewport ?? "desktop"
+                      const dims = VIEWPORT_DIMS[vp]
+                      return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                    })()}
+ target={editingComment() ? {
                       elementId: editingComment()!.elementId,
                       selector: editingComment()!.selector,
                       contentSignature: editingComment()!.contentSignature,
@@ -1942,11 +1978,12 @@ target={editingComment() ? {
                       position: editingComment()!.position,
                       htmlHint: editingComment()!.htmlHint,
                       hoverPoint: commentTarget()?.hoverPoint || (() => {
-                        const bounds = iframeRef?.getBoundingClientRect()
-                        return {
-                          x: editingComment()!.position.x * (bounds?.width || 800),
-                          y: editingComment()!.position.y * (bounds?.height || 600)
-                        }
+                        const vp = props.viewport ?? "desktop"
+                        const dims = VIEWPORT_DIMS[vp]
+                        return transformPoint({
+                          x: editingComment()!.position.x * (dims.width || 800),
+                          y: editingComment()!.position.y * (dims.height || 600)
+                        })
                       })(),
                       pinPosition: commentTarget()?.pinPosition,
                     } : {
