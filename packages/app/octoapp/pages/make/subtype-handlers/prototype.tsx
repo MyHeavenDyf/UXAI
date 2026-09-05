@@ -8,12 +8,13 @@ import {
   disposeSession,
   createPrototypeMessageHandler,
   buildSiblingMap,
+  loadA2uiDocs,
   loadA2uiData,
+  getA2uiDataRelativePaths,
   invalidatePrototypeCache,
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "../components/octo-toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
-import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 import type { DesktopApi } from "../lib/electron-api"
 import { joinPath } from "../utils/references"
 
@@ -46,11 +47,15 @@ async function buildPrototypeCodeFiles(
   if (!session) session = createSession(tabId, ctx)
   session.ctx = ctx
 
-  const a2uiData = await loadA2uiData(session, ctx)
-  if (!a2uiData) {
+  const entries = await loadA2uiDocs(session, ctx)
+  if (entries.length === 0) {
     toast({ title: "暂无可下载的内容" })
     return null
   }
+  // 混合模式：a2ui-data 下有节点（entry.jsonPath 含 'a2ui-data'）。
+  // 多节点时每个 doc 作为 jsonInput 一项（接口已兼容多份数据 → 导出一份合并代码），
+  // 且无需 replanner 重新生成 planner。纯 A2UI 页（单 data.js）走原 replanner 流程。
+  const isMixed = entries.some((e) => e.jsonPath.includes("a2ui-data"))
 
   // 2. 检查 desktop API 可用性
   const desktopApi = ctx.getDesktopApi()
@@ -59,9 +64,10 @@ async function buildPrototypeCodeFiles(
     return null
   }
 
-  // 4. 生成 planner：外部传入则复用（省一次 LLM），否则调 proto_replanner
+  // 4. planner：外部传入则复用；纯 A2UI 页且未提供时调 proto_replanner 生成。
+  //    混合模式跳过 replanner（各节点 doc 直传 jsonInput 数组，无需重新生成 planner）。
   let planner: Record<string, unknown> | null = opts.planner ?? null
-  if (!planner) {
+  if (!isMixed && !planner) {
     // replanner 必需参数
     if (!ctx.sdk || !ctx.modelKey || !ctx.sessionId) {
       toast({ title: "缺少必要参数，无法生成代码" })
@@ -74,7 +80,7 @@ async function buildPrototypeCodeFiles(
         sync: ctx.sync,
         modelKey: ctx.modelKey!,
         rootSession: ctx.sessionId!,
-        finalA2UIJson: a2uiData as Record<string, unknown>,
+        finalA2UIJson: entries[0]!.doc as Record<string, unknown>,
         onSessionCreated: (childID: string) => { replannerSessionId = childID },
       })
       planner = result as unknown as Record<string, unknown>
@@ -89,7 +95,12 @@ async function buildPrototypeCodeFiles(
   }
 
   // 5. 调用 downloadHuiCode 生成代码文件
-  const jsonInput = [{ planner: planner!, mergedA2UI: a2uiData as Record<string, unknown> }]
+  //    混合模式：每个 a2ui-data 节点 doc 作为 jsonInput 一项（接口已兼容多份数据 → 导出一份合并代码）。
+  //    纯 A2UI 页：单条（mergedA2UI = data.js doc）。
+  const plannerForInput = planner ?? ({"slots":[]} as Record<string, unknown>)
+  const jsonInput = isMixed
+    ? entries.map((e) => ({ planner: plannerForInput, mergedA2UI: e.doc as Record<string, unknown> }))
+    : [{ planner: plannerForInput, mergedA2UI: entries[0]!.doc as Record<string, unknown> }]
   const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib })
   const files = result?.files
   if (!files || files.length === 0) {
@@ -190,7 +201,7 @@ export default {
       session.messageHandler = createPrototypeMessageHandler(session)
       window.addEventListener("message", session.messageHandler)
     }
-    const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
+    const siblingMap = buildSiblingMap(await loadA2uiDocs(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
     // 进入编辑态后请 iframe 把当前 surface 运行时 state 回传合并进 doc.state，
     // 避免首次 applyPrototypeModify 用磁盘旧 state 覆盖 iframe 内存态（modal 关闭等）。
@@ -340,32 +351,28 @@ export default {
     }
   },
 
-  /** 历史记录触发点：只记录 data.js（HTML 几乎不变，A2UI 数据承载全部用户编辑状态）。 */
-  onHistoryTrigger(_event, _ctx) {
-    return ['./data.js']
+  /** 历史记录触发点：返回需快照的 A2UI 数据文件相对路径。
+   *  混合页：解析 prototype.html 的 dataPath → a2ui-data 下各 .json（+ .data.js 孪生）；
+   *  纯 A2UI 页：['./data.js']。HTML 自身不记（手写部分几乎不变，A2UI 数据承载全部用户编辑状态）。 */
+  async onHistoryTrigger(_event, ctx) {
+    return getA2uiDataRelativePaths(ctx)
   },
 
-  /** 历史版本恢复：把版本里的 data.js 拷回原路径，并丢弃 a2ui 内存缓存，让 iframe 重载时重读。 */
+  /** 历史版本恢复：把版本里每个数据文件拷回原路径，并丢弃 a2ui 内存缓存，让 iframe 重载时重读。 */
   async applyVersionFiles(ctx, files) {
     const { tab, getDesktopApi } = ctx
     const api = getDesktopApi()
     if (!api?.copyFileTo || !tab.filePath) return
 
-    const rel = './data.js'
-    const id = relativePathToId(rel)
-    const originalPath = resolveRelativePath(rel, tab.filePath)
-    const ext = getExt(originalPath)
-    const versionFileName = id + ext
-    const versionFile = files.find((f) => f.fileName === versionFileName)
-    if (versionFile) {
+    for (const f of files) {
       try {
-        await api.copyFileTo(versionFile.filePath, originalPath)
+        await api.copyFileTo(f.filePath, f.originalPath)
       } catch {
-        // 版本里缺 data.js 时静默跳过
+        // 版本里缺该文件时静默跳过
       }
     }
 
-    // 失效内存中的 a2ui 缓存，下一次 loadA2uiData 会重读磁盘
+    // 失效内存中的 a2ui 缓存，下一次 loadA2uiDocs 会重读磁盘
     invalidatePrototypeCache(tab.id)
   },
 

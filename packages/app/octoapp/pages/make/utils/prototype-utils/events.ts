@@ -8,7 +8,7 @@ const PROTOTYPE_CLOSE_PANELS_EVENT = "prototype:close-panels"
 const PROTOTYPE_PICKER_SUBMIT_EVENT = "prototype:picker-submit"
 const PROTOTYPE_PICKER_APPEND_EVENT = "prototype:picker-append"
 
-export type PrototypePickerData = { text: string; id: string }
+export type PrototypePickerData = { text: string; id: string; kind?: 'a2ui' | 'host' }
 
 export function dispatchPrototypeEditTarget(target: PrototypeEditTarget) {
   window.dispatchEvent(new CustomEvent(PROTOTYPE_EDIT_EVENT, { detail: target }))

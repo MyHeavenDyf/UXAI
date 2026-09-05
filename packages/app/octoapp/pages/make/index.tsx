@@ -1339,8 +1339,9 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
-    const line = text ? `[选中元素: ${id}] ${text};` : ""
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = text ? `[${tag}: ${id}] ${text};` : ""
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     if (text) {
@@ -1349,8 +1350,9 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     void handleSubmit()
   })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
-    const line = `[选中元素: ${id}] ${text};`
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = `[${tag}: ${id}] ${text};`
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     ref?.clear?.()

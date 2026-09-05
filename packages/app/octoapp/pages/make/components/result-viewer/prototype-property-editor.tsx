@@ -73,7 +73,7 @@ export function PrototypePropertyEditor(): JSX.Element {
   function submitPicker() {
     const d = data()
     const text = pickerText().trim()
-    dispatchPrototypePickerSubmit({ text, id: d?.elementId ?? "" })
+    dispatchPrototypePickerSubmit({ text, id: d?.elementId ?? "", kind: d?.kind ?? 'a2ui' })
     closeAll()
   }
 
@@ -81,7 +81,7 @@ export function PrototypePropertyEditor(): JSX.Element {
     const d = data()
     const text = pickerText().trim()
     if (!text) return
-    dispatchPrototypePickerAppend({ text, id: d?.elementId ?? "" })
+    dispatchPrototypePickerAppend({ text, id: d?.elementId ?? "", kind: d?.kind ?? 'a2ui' })
     setPickerText("")
     closeAll()
   }
@@ -128,12 +128,16 @@ export function PrototypePropertyEditor(): JSX.Element {
     const r = data()?.elementRect
     if (!r) return {}
     const c = containerRect()
+    // host（宿主页面元素）用橙色边框，A2UI 用蓝色，与 iframe 内 overlay 配色一致
+    const isHost = (data()?.kind ?? 'a2ui') === 'host'
     return {
       position: "fixed",
       left: `${r.left - c.left}px`, top: `${r.top - c.top}px`, width: `${r.width}px`, height: `${r.height}px`,
       "z-index": "50", "pointer-events": "none",
       "box-shadow": "0 0 0 9999px rgba(0,0,0,0.3)",
-      border: "2px solid #007bff", background: "rgba(0,123,255,0.1)", "box-sizing": "border-box",
+      border: `2px solid ${isHost ? '#fa8c16' : '#007bff'}`,
+      background: isHost ? 'rgba(250,140,22,0.12)' : 'rgba(0,123,255,0.1)',
+      "box-sizing": "border-box",
     }
   })
 
@@ -147,7 +151,7 @@ export function PrototypePropertyEditor(): JSX.Element {
       </Show>
 
       <PropertyEditorPopup
-        show={!!data()}
+        show={!!data() && (data()?.kind ?? 'a2ui') !== 'host'}
         elementId={(data() ?? lastData)?.elementId ?? ''}
         componentType={(data() ?? lastData)?.componentType ?? ''}
         currentClass={(data() ?? lastData)?.currentClass ?? ''}

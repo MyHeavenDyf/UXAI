@@ -40,19 +40,19 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   }
 
   /** 取 tab 关联的全部文件相对路径（由 subtype handler 决定）。
-   *  default 只关心 HTML 自身（"."），prototype 只关心 data.js。
-   *  这样 onFileRefresh 能检测到 agent 对 data.js 的修改（HTML 不变时也能触发）。 */
-  function getTabFiles(tab: ResultTab): string[] {
+   *  default 只关心 HTML 自身（"."），prototype 关心 a2ui-data 下各 .json（+孪生）或旧页 data.js。
+   *  这样 onFileRefresh 能检测到 agent 对 A2UI 数据文件的修改（HTML 不变时也能触发）。 */
+  async function getTabFiles(tab: ResultTab): Promise<string[]> {
     const handler = getSubtypeHandler(tab.subtype)
     const ctx = buildCtx(tab)
-    return handler?.onHistoryTrigger?.({ type: "agent-file-edit" }, ctx) ?? ["."]
+    return (await handler?.onHistoryTrigger?.({ type: "agent-file-edit" }, ctx)) ?? ["."]
   }
 
   /** 计算 tab 关联的所有文件的合并 hash。
    *  把每个文件的 hash 用 "|" 拼接，任一文件变化都会改变合并 hash。 */
   async function getTabFileSetHash(tab: ResultTab): Promise<string | null> {
     if (!tab.filePath) return null
-    const files = getTabFiles(tab)
+    const files = await getTabFiles(tab)
     if (!files || files.length === 0) return null
     const hashes: string[] = []
     for (const rel of files) {
@@ -89,7 +89,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     if (!isEligible(tab)) return
     const handler = getSubtypeHandler(tab.subtype)
     const ctx = buildCtx(tab)
-    const files = handler?.onHistoryTrigger?.(event, ctx)
+    const files = await handler?.onHistoryTrigger?.(event, ctx)
     if (!files || files.length === 0) return
 
     if (event.type === "open" && event.isNew) {
@@ -110,7 +110,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   async function switchVersion(entry: VersionEntry, tab: ResultTab): Promise<void> {
     const handler = getSubtypeHandler(tab.subtype)
     const ctx = buildCtx(tab)
-    const configFiles = handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx) ?? ["."]
+    const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
     const files = await historyStore.getVersionFiles(entry.id, tab, configFiles)
 
     writingTabs.add(tab.id)
@@ -203,7 +203,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   /** 对比 tab 当前合并 hash 和各版本同文件集的合并 hash，找匹配的版本 */
   async function findVersionByHash(tab: ResultTab, list: VersionEntry[], targetHash: string): Promise<VersionEntry | null> {
-    const files = getTabFiles(tab)
+    const files = await getTabFiles(tab)
     for (const entry of list) {
       const versionFiles = await historyStore.getVersionFiles(entry.id, tab, files)
       const hashes: string[] = []
