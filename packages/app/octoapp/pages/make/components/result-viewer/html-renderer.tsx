@@ -1885,6 +1885,7 @@ onFloatingPositionChange={setEditPanelPosition}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onMentionActiveChange={setMentionPanelOpen}
               closeMentionTrigger={closeMentionTrigger()}
+              promptCallback={props.modelEditConfig?.promptCallback}
             />
           </Show>
 <Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
