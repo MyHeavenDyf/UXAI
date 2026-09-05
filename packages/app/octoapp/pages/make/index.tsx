@@ -2808,20 +2808,29 @@ const sessionMessagesLoaded = createMemo(() => {
         const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
         const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
         for (const sel of selections) {
-          if (sel.type !== "file") continue
+          if (sel.type !== "file" && sel.type !== "folder") continue
           const p = sel.path
           if (!p || !p.includes(tmpsMarker)) continue
           try {
-            // Resolve unique filename in session uploads dir (handle collisions)
+            const isFolder = sel.type === "folder"
             const filename = p.split(sep).pop() || sel.name
             let candidate = filename
             let i = 1
-            const dot = filename.lastIndexOf(".")
-            const base = dot > 0 ? filename.slice(0, dot) : filename
-            const ext = dot > 0 ? filename.slice(dot) : ""
-            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
-              candidate = `${base} (${i})${ext}`
-              i++
+            if (isFolder) {
+              // Folders: dedup with dirExists (fs.rename fails if target exists)
+              while (await api.dirExists?.([uploadsDir, candidate].join(sep))) {
+                candidate = `${filename} (${i})`
+                i++
+              }
+            } else {
+              // Files: dedup with fileExists
+              const dot = filename.lastIndexOf(".")
+              const base = dot > 0 ? filename.slice(0, dot) : filename
+              const ext = dot > 0 ? filename.slice(dot) : ""
+              while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+                candidate = `${base} (${i})${ext}`
+                i++
+              }
             }
             const newPath = [uploadsDir, candidate].join(sep)
             await api.renameFile!(p, newPath)
@@ -4212,21 +4221,20 @@ if (dsId) {
   async function moveAssetsConfigToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
+
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const tempPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-    
+    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
     try {
-      const buffer = await api.readFileBuffer(tempPath)
-      if (!buffer) return
-      
-      const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+      const info = await api.getAssetsConfig() as AssetsConfig
+      const encoder = new TextEncoder()
+      const buffer = encoder.encode(JSON.stringify(info)).buffer as ArrayBuffer
       await api.writeFileBuffer(finalPath, buffer)
     } catch (err) {
-      console.error("[moveAssetsConfigToSession] Failed to move assets_config.json:", err)
+      console.error("[moveAssetsConfigToSession] Failed:", err)
     }
   }
 
