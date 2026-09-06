@@ -116,6 +116,11 @@ export function ensure(sessionDir: string): EnsureResult {
       stdio: ["ignore", logFd, logFd],
     })
   } catch (error) {
+    try {
+      closeSync(logFd)
+    } catch {
+      /* 已关或无效 */
+    }
     return { ok: false, error: `启动失败: ${String(error)}` }
   }
 
@@ -148,9 +153,13 @@ export function ensure(sessionDir: string): EnsureResult {
 
   child.on("exit", (code) => {
     log.info("[fastui] dev server 退出", { sessionDir, port: entry.port, code })
-    if (running.get(sessionDir) === entry) running.delete(sessionDir)
+    // rmSync 必须在这个条件**内**:被 LRU 淘汰的旧进程可能延迟退出,
+    // 而那时同一个 sessionDir 上可能已经起了新进程并写好了 .devserver.json ——
+    // 在条件外删就会把新进程的状态文件删掉,表现成"宿主时灵时不灵"
+    if (running.get(sessionDir) !== entry) return
+    running.delete(sessionDir)
     // 进程没了就把状态文件删掉 —— 留着的话 verify 会读到一个死 pid,
-    // 虽然它有 pidAlive 兜底,但那条路径上端口可能已经被别的会话占用了
+    // 而那时端口可能已经被别的会话占用了
     try {
       rmSync(join(sessionDir, ".devserver.json"), { force: true })
     } catch {
@@ -175,21 +184,45 @@ export function ensure(sessionDir: string): EnsureResult {
   return { ok: true, port: entry.port, pid: entry.pid, logPath, reused: false }
 }
 
-export function stop(sessionDir: string) {
+/**
+ * @param sync 同步等待进程结束。**只有 app 退出时才该传 true** ——
+ *   `spawnSync` 阻塞的是主进程,平时用会直接冻住整个 Electron UI;
+ *   而退出那一刻必须同步,否则来不及杀就没了。
+ */
+export function stop(sessionDir: string, { sync = false }: { sync?: boolean } = {}) {
   const entry = running.get(sessionDir)
   if (!entry) return false
   running.delete(sessionDir)
-  try {
-    if (process.platform === "win32") {
-      // Windows 上 child.kill() 只结束直接子进程,而 webpack dev server 底下还有
-      // worker,留下来会继续占着端口和内存。taskkill /T 杀整棵树,/F 强制。
-      spawnSync("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true })
-    } else {
+
+  // Windows 上 child.kill() 只结束直接子进程,而 webpack dev server 底下还有 worker,
+  // 留下来会继续占着端口和内存。taskkill /T 杀整棵树,/F 强制。
+  const fallback = () => {
+    try {
       entry.child.kill()
+    } catch (error) {
+      log.warn("[fastui] 结束 dev server 失败", { sessionDir, pid: entry.pid, error: String(error) })
+    }
+  }
+
+  try {
+    if (process.platform !== "win32") {
+      fallback()
+    } else if (sync) {
+      // spawnSync 失败不 throw,只把错误放在返回值里 —— 不查的话 taskkill 挂了会静默漏杀
+      const result = spawnSync("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true })
+      if (result.error || result.status !== 0) fallback()
+    } else {
+      const killer = spawn("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true })
+      killer.on("error", fallback)
+      killer.on("exit", (code) => {
+        if (code !== 0) fallback()
+      })
     }
   } catch (error) {
     log.warn("[fastui] 结束 dev server 失败", { sessionDir, pid: entry.pid, error: String(error) })
+    fallback()
   }
+
   try {
     rmSync(join(sessionDir, ".devserver.json"), { force: true })
   } catch {
@@ -200,7 +233,8 @@ export function stop(sessionDir: string) {
 
 /** app 退出时统一清理 —— 不做的话设计师做几个页面就留下一堆常驻 webpack */
 export function stopAll() {
-  for (const sessionDir of [...running.keys()]) stop(sessionDir)
+  // app 退出:必须同步,否则进程还没杀掉 Electron 就没了
+  for (const sessionDir of [...running.keys()]) stop(sessionDir, { sync: true })
   for (const [sessionDir, entry] of pending) {
     entry.watcher?.close()
     clearInterval(entry.timer)
