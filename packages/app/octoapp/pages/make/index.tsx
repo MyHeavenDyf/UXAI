@@ -1607,6 +1607,11 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
     api.writeFileBuffer(outputsInitPath, buffer)
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
+    // fastui dev server:挂着等 skill 写出 .octo-fastui.json,出现即由主进程起服务并持有
+    // (SPEC-DES-001 §8.6.1)。skill 脚本是短命的,它自己起的进程在 Windows 下活不过本次调用。
+    // 非 fastui 会话等不到那个文件,超时静默放弃,对其他 Design 用法零影响。
+    api.fastuiDevServerArm?.([dir, ".octo", id].join(sep))
+      .catch((err: unknown) => console.warn("[MakePage] failed to arm fastui dev server", err))
   }))
 
   // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）

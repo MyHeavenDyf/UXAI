@@ -1,0 +1,243 @@
+/**
+ * fastui dev server 的生命周期管理(SPEC-DES-001 §8.6.1)
+ *
+ * 为什么由主进程持有,而不是让 skill 脚本自己起:
+ * 内网实测(2026-09-06)——`verify.mjs` 用 detached 起的 dev server,脚本一退出就没了。
+ * 根因在上游 `packages/opencode/src/tool/shell.ts`:Windows 下 shell 工具显式用
+ * `detached: false`,整条链 opencode → PowerShell → verify.mjs → dev server 在同一个
+ * Job Object 里,工具收尾时整棵树被清掉;而 shell 工具没有 background 参数。
+ *
+ * 主流 agent 的做法都是「让一个长命进程持有它」而不是「让子进程脱离」,
+ * Electron 主进程正好是那个长命进程。附带解决两件事:
+ *   - 不再弹空的 node 窗口(主进程是 GUI 应用,没有 console 可继承)
+ *   - 进程有人回收(mac 上 detached 能活,但活到没人管,是另一种问题)
+ */
+import { type ChildProcess, spawn } from "node:child_process"
+import { existsSync, openSync, readFileSync, watch, writeFileSync, type FSWatcher } from "node:fs"
+import { join } from "node:path"
+
+import log from "electron-log/main.js"
+
+/** webpack dev server 每实例吃数百 MB,不设上限会把设计师的机器拖垮 */
+const MAX_SERVERS = 3
+
+type SessionState = {
+  name?: string
+  projectDir: string
+  port: number
+  envDir: string
+  depsDir: string
+}
+
+type Running = {
+  sessionDir: string
+  projectDir: string
+  port: number
+  pid: number
+  child: ChildProcess
+  startedAt: number
+}
+
+const running = new Map<string, Running>()
+/** 正在等 .octo-fastui.json 出现的会话 */
+const pending = new Map<string, { watcher?: FSWatcher; timer: NodeJS.Timeout; deadline: NodeJS.Timeout }>()
+
+export type EnsureResult =
+  | { ok: true; port: number; pid: number; logPath: string; reused: boolean }
+  | { ok: false; error: string }
+
+function nodeBinOf(envDir: string) {
+  return process.platform === "win32" ? join(envDir, "node", "node.exe") : join(envDir, "node", "bin", "node")
+}
+
+function readState(sessionDir: string): SessionState | null {
+  try {
+    const raw = readFileSync(join(sessionDir, ".octo-fastui.json"), "utf8")
+    const state = JSON.parse(raw) as SessionState
+    if (!state?.projectDir || !state?.port || !state?.depsDir || !state?.envDir) return null
+    return state
+  } catch {
+    return null
+  }
+}
+
+/** 关掉最旧的,直到运行数低于上限 */
+function enforceLimit() {
+  while (running.size >= MAX_SERVERS) {
+    let oldest: Running | undefined
+    for (const r of running.values()) if (!oldest || r.startedAt < oldest.startedAt) oldest = r
+    if (!oldest) return
+    log.info("[fastui] 超过并发上限,关闭最旧的 dev server", { sessionDir: oldest.sessionDir, port: oldest.port })
+    stop(oldest.sessionDir)
+  }
+}
+
+/**
+ * 起(或复用)一个会话的 dev server。
+ * 幂等:同一个 sessionDir 重复调用直接返回已有的。
+ */
+export function ensure(sessionDir: string): EnsureResult {
+  const existing = running.get(sessionDir)
+  if (existing && !existing.child.killed && existing.child.exitCode === null) {
+    return { ok: true, port: existing.port, pid: existing.pid, logPath: join(sessionDir, "devserver.log"), reused: true }
+  }
+
+  const state = readState(sessionDir)
+  if (!state) return { ok: false, error: `读不到会话状态 ${join(sessionDir, ".octo-fastui.json")}` }
+
+  const nodeBin = nodeBinOf(state.envDir)
+  if (!existsSync(nodeBin)) return { ok: false, error: `共享池里没有 node: ${nodeBin}` }
+
+  const cli = join(state.depsDir, "@turboui", "turbo-ui-cli-service", "bin", "turbo-ui-cli-service.js")
+  if (!existsSync(cli)) return { ok: false, error: `共享池里没有 turbo-ui-cli-service: ${cli}` }
+
+  const portalDir = join(state.projectDir, "packages", "portal")
+  if (!existsSync(portalDir)) return { ok: false, error: `工程目录不存在: ${portalDir}` }
+
+  enforceLimit()
+
+  // 日志路径固定为 .octo/<sid>/devserver.log —— verify 靠读它做编译判定,换地方它就只能超时
+  const logPath = join(sessionDir, "devserver.log")
+  let logFd: number
+  try {
+    logFd = openSync(logPath, "a")
+  } catch (error) {
+    return { ok: false, error: `打不开日志文件 ${logPath}: ${String(error)}` }
+  }
+
+  let child: ChildProcess
+  try {
+    child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=esnext"], {
+      cwd: portalDir,
+      // OCTO_DEPS 缺了 copy-webpack-plugin 找不到拷贝源会 Failed to compile;
+      // OCTO_PORT 缺了会回落 8081,多会话必撞(SPEC-DES-001 §2.2)
+      env: { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(state.port) },
+      windowsHide: true,
+      stdio: ["ignore", logFd, logFd],
+    })
+  } catch (error) {
+    return { ok: false, error: `启动失败: ${String(error)}` }
+  }
+
+  if (!child.pid) return { ok: false, error: "启动后拿不到 pid" }
+
+  const entry: Running = {
+    sessionDir,
+    projectDir: state.projectDir,
+    port: state.port,
+    pid: child.pid,
+    child,
+    startedAt: Date.now(),
+  }
+  running.set(sessionDir, entry)
+
+  child.on("exit", (code) => {
+    log.info("[fastui] dev server 退出", { sessionDir, port: entry.port, code })
+    if (running.get(sessionDir) === entry) running.delete(sessionDir)
+  })
+
+  try {
+    writeFileSync(
+      join(sessionDir, ".devserver.json"),
+      JSON.stringify(
+        { port: entry.port, pid: entry.pid, projectDir: entry.projectDir, logPath, startedAt: new Date().toISOString() },
+        null,
+        2,
+      ),
+    )
+  } catch (error) {
+    log.warn("[fastui] 写 .devserver.json 失败", { sessionDir, error: String(error) })
+  }
+
+  log.info("[fastui] dev server 已启动", { sessionDir, port: entry.port, pid: entry.pid })
+  return { ok: true, port: entry.port, pid: entry.pid, logPath, reused: false }
+}
+
+export function stop(sessionDir: string) {
+  const entry = running.get(sessionDir)
+  if (!entry) return false
+  running.delete(sessionDir)
+  try {
+    entry.child.kill()
+  } catch (error) {
+    log.warn("[fastui] 结束 dev server 失败", { sessionDir, pid: entry.pid, error: String(error) })
+  }
+  return true
+}
+
+/** app 退出时统一清理 —— 不做的话设计师做几个页面就留下一堆常驻 webpack */
+export function stopAll() {
+  for (const sessionDir of [...running.keys()]) stop(sessionDir)
+  for (const [sessionDir, entry] of pending) {
+    entry.watcher?.close()
+    clearInterval(entry.timer)
+    clearTimeout(entry.deadline)
+    pending.delete(sessionDir)
+  }
+}
+
+export function list() {
+  return [...running.values()].map((r) => ({
+    sessionDir: r.sessionDir,
+    projectDir: r.projectDir,
+    port: r.port,
+    pid: r.pid,
+    startedAt: r.startedAt,
+  }))
+}
+
+/**
+ * 会话还没跑 skill 时先挂着,等 `.octo-fastui.json` 一出现就起 dev server。
+ *
+ * 为什么要这样:前端在**建会话时**就调用它,但那时 skill 还没跑过 `new-session`,
+ * 状态文件不存在。让前端去轮询是把复杂度推给页面,而页面正好是最不该管进程的地方。
+ *
+ * 顺带解决了「怎么区分 fastui 会话和普通会话」——**只有 fastui skill 会写出那个文件**,
+ * 所以等不到就是普通会话,超时后静默放弃,对其他 Design 用法零影响。
+ *
+ * 时机上还有个收益:`new-session` 一写完就起,那时 views 下只有 golden example,
+ * 编译很快;模型写代码的几十秒里 webpack 已经编完进入 watch,等 verify 时只剩一次
+ * 增量编译(几秒),而不是干等 1–3 分钟的首次编译(SPEC-DES-001 §8.6.1)。
+ */
+export function ensureWhenReady(sessionDir: string, timeoutMs = 10 * 60 * 1000) {
+  if (running.has(sessionDir) || pending.has(sessionDir)) return
+  if (existsSync(join(sessionDir, ".octo-fastui.json"))) {
+    ensure(sessionDir)
+    return
+  }
+  if (!existsSync(sessionDir)) return
+
+  const done = () => {
+    const entry = pending.get(sessionDir)
+    if (!entry) return
+    pending.delete(sessionDir)
+    entry.watcher?.close()
+    clearInterval(entry.timer)
+    clearTimeout(entry.deadline)
+  }
+
+  const check = () => {
+    if (!existsSync(join(sessionDir, ".octo-fastui.json"))) return
+    done()
+    const result = ensure(sessionDir)
+    if (!result.ok) log.warn("[fastui] 自动启动 dev server 失败", { sessionDir, error: result.error })
+  }
+
+  let watcher: FSWatcher | undefined
+  try {
+    // watch 的事件在各平台不完全一致(尤其 Windows 的重命名/原子写),
+    // 所以配一个 3 秒的轮询兜底 —— 一次 existsSync 的开销可以忽略
+    watcher = watch(sessionDir, () => check())
+  } catch {
+    /* 目录还不可监听,靠轮询 */
+  }
+  pending.set(sessionDir, {
+    watcher,
+    timer: setInterval(check, 3000),
+    deadline: setTimeout(() => {
+      log.info("[fastui] 等待会话状态文件超时,按普通会话处理", { sessionDir })
+      done()
+    }, timeoutMs),
+  })
+  check()
+}

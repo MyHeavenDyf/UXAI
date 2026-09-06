@@ -12,6 +12,13 @@ export type AssetsConfig = {
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
+  /**
+   * fastui dev server(SPEC-DES-001 §8.6.1):建会话时调一次,主进程挂着等 skill
+   * 写出 .octo-fastui.json,出现即起 dev server 并持有它。
+   * 非 fastui 会话等不到那个文件,超时静默放弃。
+   */
+  fastuiDevServerArm?: (sessionDir: string) => Promise<boolean>
+  fastuiDevServerStop?: (sessionDir: string) => Promise<boolean>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
