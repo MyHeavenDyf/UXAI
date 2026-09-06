@@ -12,8 +12,8 @@
  *   - 不再弹空的 node 窗口(主进程是 GUI 应用,没有 console 可继承)
  *   - 进程有人回收(mac 上 detached 能活,但活到没人管,是另一种问题)
  */
-import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, openSync, readFileSync, watch, writeFileSync, type FSWatcher } from "node:fs"
+import { type ChildProcess, spawn, spawnSync } from "node:child_process"
+import { closeSync, existsSync, openSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs"
 import { join } from "node:path"
 
 import log from "electron-log/main.js"
@@ -119,6 +119,21 @@ export function ensure(sessionDir: string): EnsureResult {
     return { ok: false, error: `启动失败: ${String(error)}` }
   }
 
+  // spawn 的失败分两种:同步 throw(上面 try/catch 接住)和**异步 error 事件**。
+  // 后者(ENOENT、权限不足等)如果没有监听器,Node 会把它当成 unhandled error 抛出去,
+  // 直接打爆主进程 —— 参照 server.ts:114 的处理方式。
+  child.on("error", (error) => {
+    log.warn("[fastui] dev server 进程错误", { sessionDir, error: String(error) })
+    if (running.get(sessionDir)?.child === child) running.delete(sessionDir)
+  })
+
+  // fd 传给子进程后它有自己的副本,父进程这边必须关掉,否则每起一次泄漏一个
+  try {
+    closeSync(logFd)
+  } catch {
+    /* 已关或无效,忽略 */
+  }
+
   if (!child.pid) return { ok: false, error: "启动后拿不到 pid" }
 
   const entry: Running = {
@@ -134,6 +149,13 @@ export function ensure(sessionDir: string): EnsureResult {
   child.on("exit", (code) => {
     log.info("[fastui] dev server 退出", { sessionDir, port: entry.port, code })
     if (running.get(sessionDir) === entry) running.delete(sessionDir)
+    // 进程没了就把状态文件删掉 —— 留着的话 verify 会读到一个死 pid,
+    // 虽然它有 pidAlive 兜底,但那条路径上端口可能已经被别的会话占用了
+    try {
+      rmSync(join(sessionDir, ".devserver.json"), { force: true })
+    } catch {
+      /* 删不掉不影响什么 */
+    }
   })
 
   try {
@@ -158,9 +180,20 @@ export function stop(sessionDir: string) {
   if (!entry) return false
   running.delete(sessionDir)
   try {
-    entry.child.kill()
+    if (process.platform === "win32") {
+      // Windows 上 child.kill() 只结束直接子进程,而 webpack dev server 底下还有
+      // worker,留下来会继续占着端口和内存。taskkill /T 杀整棵树,/F 强制。
+      spawnSync("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true })
+    } else {
+      entry.child.kill()
+    }
   } catch (error) {
     log.warn("[fastui] 结束 dev server 失败", { sessionDir, pid: entry.pid, error: String(error) })
+  }
+  try {
+    rmSync(join(sessionDir, ".devserver.json"), { force: true })
+  } catch {
+    /* 忽略 */
   }
   return true
 }
@@ -205,7 +238,9 @@ export function ensureWhenReady(sessionDir: string, timeoutMs = 10 * 60 * 1000) 
     ensure(sessionDir)
     return
   }
-  if (!existsSync(sessionDir)) return
+  // 注意:这里**不能**因为会话目录还不存在就放弃 —— 前端建目录用的 writeFileBuffer 是异步的
+  // 且没有 await,arm 到达主进程时目录多半还没落盘。放弃的话新建会话首次进入必然接管不上,
+  // 表现成"宿主根本没接管",而且是个必现的假阴性。下面 watch 建不起来时靠轮询兜底。
 
   const done = () => {
     const entry = pending.get(sessionDir)
