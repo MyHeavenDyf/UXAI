@@ -56,6 +56,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-start
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import * as FastuiDevServer from "./fastui-devserver"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
@@ -181,6 +182,9 @@ function setupApp() {
   })
 
   app.on("will-quit", () => {
+    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-001 §8.6.1)——
+    // 不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
+    FastuiDevServer.stopAll()
     void killSidecar()
   })
 
