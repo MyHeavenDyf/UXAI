@@ -69,6 +69,10 @@ function uiplusToken() {
   return localStorageValue("uiplusToken")
 }
 
+export function hasModelsApiToken() {
+  return !!uiplusToken()
+}
+
 function modelsApiChannel() {
   const channel = (import.meta.env as Record<string, string | undefined>).VITE_OCTO_CHANNEL
   return channel === "prod" ? "prod" : "beta"
@@ -253,11 +257,13 @@ export async function refreshModelsApi() {
   return models
 }
 
-export async function refreshModelsAfterLogin() {
+export async function refreshRemoteModels() {
   if (!modelsApiUrl()) return false
   await refreshModelsApi()
   return true
 }
+
+export const refreshModelsAfterLogin = refreshRemoteModels
 
 export function modelsLocalListForProviders<TProvider extends ProviderLike & { models: Record<string, Model> }>(
   providers: TProvider[],

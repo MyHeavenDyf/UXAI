@@ -9,11 +9,12 @@ import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   hasApiModels,
+  hasModelsApiToken,
   modelsApiListForProviders,
   modelsApiProviders,
   modelsApiUrl,
   modelsLocalListForProviders,
-  refreshModelsApi as requestModelsApiRefresh,
+  refreshRemoteModels,
   registerModelsApiRefresh,
 } from "@/network/models-api"
 import { Persist, persisted } from "@/utils/persist"
@@ -62,7 +63,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setRefreshing(true)
       setRefreshError(undefined)
       try {
-        await requestModelsApiRefresh()
+        await refreshRemoteModels()
       } catch (error) {
         setRefreshError(error)
       } finally {
@@ -71,9 +72,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     onMount(() => {
-      if (!modelsApiUrl()) return
-      const timer = setTimeout(() => void refreshApiModels(), 10_000)
-      onCleanup(() => clearTimeout(timer))
+      if (!hasModelsApiToken()) return
+      void refreshApiModels()
     })
 
     onCleanup(
