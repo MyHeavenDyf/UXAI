@@ -27,25 +27,24 @@ export function normalizeProviderList(input: ProviderListResponse): ProviderList
   }
 }
 
-export function mergeProviderList(current: ProviderListResponse, incoming: Provider[]): ProviderListResponse {
-  const providers = new Map(incoming.map((provider) => [provider.id, provider]))
+export function replaceProviderList(current: ProviderListResponse, incoming: Provider[]): ProviderListResponse {
+  const remoteIDs = new Set(incoming.map((provider) => provider.id))
+  const custom = current.all.filter((provider) => provider.source === "config" && !remoteIDs.has(provider.id))
+  const all = [...incoming, ...custom]
   return {
     ...current,
-    all: [
-      ...current.all.map((provider) => {
-        const next = providers.get(provider.id)
-        if (!next) return provider
-        providers.delete(provider.id)
-        return {
-          ...provider,
-          name: next.name,
-          env: next.env,
-          models: { ...provider.models, ...next.models },
-        }
-      }),
-      ...providers.values(),
+    all,
+    connected: [
+      ...incoming.map((provider) => provider.id),
+      ...custom.filter((provider) => current.connected.includes(provider.id)).map((provider) => provider.id),
     ],
-    connected: [...new Set([...current.connected, ...incoming.map((provider) => provider.id)])],
+    default: Object.fromEntries(
+      all.flatMap((provider) => {
+        const existing = current.default[provider.id]
+        const modelID = existing && provider.models[existing] ? existing : Object.keys(provider.models)[0]
+        return modelID ? [[provider.id, modelID] as const] : []
+      }),
+    ),
   }
 }
 

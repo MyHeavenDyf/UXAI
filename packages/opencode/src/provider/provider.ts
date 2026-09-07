@@ -19,7 +19,7 @@ import { iife } from "@/util/iife"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Schema, Types } from "effect"
+import { Effect, Layer, Context, Option, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -29,9 +29,10 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiProviderUrl } from "@/plugin/model-headers"
+import { modelsApiCatalog, modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
+const decodeModelsApiProvider = Schema.decodeUnknownOption(ModelsDev.Provider)
 
 function shouldUseCopilotResponsesApi(modelID: string): boolean {
   const match = /^gpt-(\d+)/.exec(modelID)
@@ -2273,19 +2274,48 @@ const layer: Layer.Layer<
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
+      const catalog = yield* Effect.promise(modelsApiCatalog)
+      if (catalog) {
+        const remote = Option.getOrUndefined(decodeModelsApiProvider(catalog[providerID]))
+        const remoteModel =
+          remote?.models[modelID] ?? Object.values(remote?.models ?? {}).find((item) => item.id === modelID)
+        if (remote && remoteModel) {
+          const created = fromModelsDevProvider(remote)
+          const info = created.models[modelID] ?? fromModelsDevModel(remote, remoteModel)
+          if (provider) {
+            provider.name = created.name
+            provider.env = created.env
+            provider.models = created.models
+            return info
+          }
+
+          const envs = yield* env.all()
+          const key = remote.env.map((item) => envs[item]).find(Boolean)
+          if (key && remote.env.length === 1) {
+            created.key = key
+            created.source = "env"
+          }
+          s.providers[providerID] = created
+          return info
+        }
+
+        const available = remote ? Object.keys(remote.models) : Object.keys(catalog)
+        const matches = fuzzysort.go(remote ? modelID : providerID, available, { limit: 3, threshold: -10000 })
+        throw new ModelNotFoundError({ providerID, modelID, suggestions: matches.map((match) => match.target) })
+      }
+
+      const local = provider?.models[modelID]
+      if (local) return local
+
       if (!provider) {
         const available = Object.keys(s.providers)
         const matches = fuzzysort.go(providerID, available, { limit: 3, threshold: -10000 })
         throw new ModelNotFoundError({ providerID, modelID, suggestions: matches.map((m) => m.target) })
       }
 
-      const info = provider.models[modelID]
-      if (!info) {
-        const available = Object.keys(provider.models)
-        const matches = fuzzysort.go(modelID, available, { limit: 3, threshold: -10000 })
-        throw new ModelNotFoundError({ providerID, modelID, suggestions: matches.map((m) => m.target) })
-      }
-      return info
+      const available = Object.keys(provider.models)
+      const matches = fuzzysort.go(modelID, available, { limit: 3, threshold: -10000 })
+      throw new ModelNotFoundError({ providerID, modelID, suggestions: matches.map((m) => m.target) })
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {

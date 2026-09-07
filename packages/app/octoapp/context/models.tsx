@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
+import { createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
@@ -41,7 +41,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const globalSync = useGlobalSync()
     const mergeApiModels = (models: Awaited<ReturnType<typeof fetchModelsApi>>) => {
       const remoteProviders = modelsApiProviders(models)
-      globalSync.mergeProviders(remoteProviders)
+      globalSync.replaceProviders(remoteProviders)
       showToast({
         variant: "success",
         icon: "circle-check",
@@ -52,24 +52,9 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         )} models`,
       })
     }
-    const loadApiModels = async () => {
-      const models = await fetchModelsApi()
-      mergeApiModels(models)
-      return models
-    }
-    const [loadRemoteModels, setLoadRemoteModels] = createSignal(false)
-    const [apiModels, { mutate: setApiModels }] = createResource(
-      () => loadRemoteModels() || undefined,
-      loadApiModels,
-    )
+    const [apiModels, setApiModels] = createSignal<Awaited<ReturnType<typeof fetchModelsApi>>>()
     const [refreshing, setRefreshing] = createSignal(false)
     const [refreshError, setRefreshError] = createSignal<unknown>()
-
-    onMount(() => {
-      if (!modelsApiUrl()) return
-      const timer = setTimeout(() => setLoadRemoteModels(true), 10_000)
-      onCleanup(() => clearTimeout(timer))
-    })
 
     const refreshApiModels = async () => {
       if (!modelsApiUrl()) return
@@ -84,6 +69,13 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         setRefreshing(false)
       }
     }
+
+    onMount(() => {
+      if (!modelsApiUrl()) return
+      const timer = setTimeout(() => void refreshApiModels(), 10_000)
+      onCleanup(() => clearTimeout(timer))
+    })
+
     onCleanup(
       registerModelsApiRefresh(async (models) => {
         mergeApiModels(models)
@@ -224,8 +216,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       ready,
       remote: {
         api: apiModels,
-        loading: () => apiModels.loading || refreshing(),
-        error: () => refreshError() ?? apiModels.error,
+        loading: refreshing,
+        error: refreshError,
         refresh: refreshApiModels,
       },
       list,

@@ -33,7 +33,7 @@ import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
 import { createRefreshQueue } from "./global-sync/queue"
-import { directoryKey, mergeProviderList } from "./global-sync/utils"
+import { directoryKey, replaceProviderList } from "./global-sync/utils"
 
 // jk-j60099994-replace-with-60062650-global-sync-2-start
 // jk-j60099994-replace-with-60062650-global-sync-2-end
@@ -451,10 +451,10 @@ function createGlobalSync() {
     peek: children.peek,
     // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
-    mergeProviders: (providers: ProviderListResponse["all"]) => {
+    replaceProviders: (providers: ProviderListResponse["all"]) => {
       queryClient.setQueriesData<ProviderListResponse>(
         { predicate: (query) => query.queryKey[1] === "providers" },
-        (current) => mergeProviderList(current ?? { all: [], connected: [], default: {} }, providers),
+        (current) => replaceProviderList(current ?? { all: [], connected: [], default: {} }, providers),
       )
     },
     invalidateProviders: () => {
