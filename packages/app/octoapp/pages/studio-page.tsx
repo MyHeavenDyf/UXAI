@@ -246,7 +246,7 @@ export default function StudioPage() {
     Persist.global("studio.image.settings"),
     createStore({
       capability: "image.generate" as StudioCapability,
-      styleModel: "seedream-5-lite",
+      styleModel: "qwen",
     }),
   )
   const [imageSessionStore, setImageSessionStore] = persisted(
