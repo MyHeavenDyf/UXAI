@@ -32,13 +32,17 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
   comm: /^(mail|phone|message|bell|megaphone|at-sign|rss|wifi|bluetooth|shield|lock|key|bug|terminal|code|braces|git|globe|map-pin)/,
 }
 
-/** 底部形状筛选：value 与旧组件 Icon.shape 枚举一致（带入/回传/store 的 style 入参） */
+/** 底部形状筛选：value 与旧组件 Icon.shape 枚举一致（CustomSelect 选中/回传用）；
+ *  key 为传给 store 的 style 入参（即后端 getIcon 所需的中文标签，与 label 一致） */
 const SHAPE_OPTIONS = [
-  { label: '线性', value: 'outline' },
-  { label: '线性双色', value: 'two-tone' },
-  { label: '方拖底', value: 'square' },
-  { label: '圆拖底', value: 'circle' },
+  { key: '线性', label: '线性', value: 'outline' },
+  { key: '线性双色', label: '线性双色', value: 'two-tone' },
+  { key: '方拖底', label: '方拖底', value: 'square' },
+  { key: '圆拖底', label: '圆拖底', value: 'circle' },
 ]
+
+/** 按枚举 value 反查 store 所需的 style 中文标签（key） */
+const shapeKeyToStyle = (value: string) => SHAPE_OPTIONS.find(o => o.value === value)?.key ?? value
 
 const SIZE_OPTIONS = ['12', '14', '16', '20', '24', '32', '36', '40'].map(s => ({ label: `${s}px`, value: s }))
 
@@ -162,7 +166,7 @@ export function IconPickerPopup(props: {
   const iconStore = createIconPlusStore()
   onMount(() => {
     if (props.initialSize && /^\d+$/.test(props.initialSize)) iconStore.setSize(props.initialSize)
-    iconStore.setShape(state.shapeKey)
+    iconStore.setShape(shapeKeyToStyle(state.shapeKey))
     iconStore.setColor(normalizeInitialColor(props.initialColor))
     void iconStore.init()
   })
@@ -510,7 +514,7 @@ export function IconPickerPopup(props: {
           <div class="flex items-center gap-2">
             <div class="w-[96px] shrink-0">
               <CustomSelect value={state.shapeKey} options={SHAPE_OPTIONS}
-                onChange={v => { setState('shapeKey', v); iconStore.setShape(v) }}
+                onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
             <div class="w-[96px] shrink-0">
