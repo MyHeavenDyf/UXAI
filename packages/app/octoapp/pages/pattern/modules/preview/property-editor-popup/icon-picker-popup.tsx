@@ -37,8 +37,8 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
 const SHAPE_OPTIONS = [
   { key: '线性', label: '线性', value: 'outline' },
   { key: '线性双色', label: '线性双色', value: 'two-tone' },
-  { key: '方拖底', label: '方拖底', value: 'square' },
-  { key: '圆拖底', label: '圆拖底', value: 'circle' },
+  { key: '方底托', label: '方底托', value: 'square' },
+  { key: '圆底托', label: '圆底托', value: 'circle' },
 ]
 
 /** 按枚举 value 反查 store 所需的 style 中文标签（key） */
@@ -163,7 +163,7 @@ export function IconPickerPopup(props: {
     pos: { x: 0, y: 0 },
   })
   /** icon-plus 服务：打开弹窗即拉 getConfig（联通再取 tags），用 tags 重建 tab 列表（末尾固定"自定义"）；不联通回退 lucide */
-  const iconStore = createIconPlusStore()
+  const iconStore = createIconPlusStore(props.current ?? "")
   onMount(() => {
     if (props.initialSize && /^\d+$/.test(props.initialSize)) iconStore.setSize(props.initialSize)
     iconStore.setShape(shapeKeyToStyle(state.shapeKey))

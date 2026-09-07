@@ -241,7 +241,7 @@ export function buildTabsFromTags(items: string[]): TabItem[] {
 
 export type IconPlusStore = ReturnType<typeof createIconPlusStore>
 
-export function createIconPlusStore() {
+export function createIconPlusStore(initialKeyword = "") {
   const [state, setState] = createStore({
     config: null as IconPlusConfig | null,
     tags: [] as string[],
@@ -253,7 +253,8 @@ export function createIconPlusStore() {
     /** getConfig 是否联通：false 时弹窗回退 lucide，store 内所有请求方法跳过 */
     online: false,
     status: "idle" as "idle" | "loading" | "ready" | "error",
-    keyword: "",
+    /** 弹窗打开时带入的当前图标名：非空则 init 末尾 search 按该名请求关联图标，空则回退预设 25 个 */
+    keyword: initialKeyword,
     activeTab: "基础图标",
     shape: "线性",
     iconSize: "24",
