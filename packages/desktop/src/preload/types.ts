@@ -86,6 +86,13 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
+  /** fastui dev server:起(或复用)一个会话的 dev server,SPEC-DES-001 §8.6.1 */
+  fastuiDevServerEnsure: (
+    sessionDir: string,
+  ) => Promise<{ ok: true; port: number; pid: number; logPath: string; reused: boolean } | { ok: false; error: string }>
+  fastuiDevServerStop: (sessionDir: string) => Promise<boolean>
+  /** 建会话时调:挂着等 skill 写出会话状态文件,出现即起 dev server;非 fastui 会话超时静默放弃 */
+  fastuiDevServerArm: (sessionDir: string) => Promise<boolean>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>

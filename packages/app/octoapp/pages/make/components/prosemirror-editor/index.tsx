@@ -387,6 +387,7 @@ export const ProseMirrorEditor = (props: Props) => {
     }
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)
+    props.onContentChange?.(initialDoc.toJSON(), initialText)
 
     // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
     if (props.autofocus && !props.disabled) {

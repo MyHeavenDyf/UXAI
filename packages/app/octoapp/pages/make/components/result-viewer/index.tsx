@@ -312,6 +312,7 @@ export function ResultViewer(props: {
       type, prev, current, dom: element, filePath: tab.filePath || '',
     })
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
+    tracker.interaction({ module: "design", name: "save-model-edit-changes", extend: JSON.stringify({ type: tab.type }) })
   }
 
   const handleModelEditDelete = async (element: ModelEditElement) => {
@@ -324,6 +325,7 @@ export function ResultViewer(props: {
       type, dom: element, filePath: tab.filePath || '',
     })
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
+    tracker.interaction({ module: "design", name: "delete-model-edit-element", extend: JSON.stringify({ type: tab.type }) })
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"

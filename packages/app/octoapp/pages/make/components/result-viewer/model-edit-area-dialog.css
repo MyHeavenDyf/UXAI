@@ -68,6 +68,16 @@
   border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
+.model-edit-area-btn.secondary {
+  background: rgb(10, 89, 247);
+  color: #fff;
+  border: none;
+}
+
+.model-edit-area-btn.secondary:hover:not(:disabled) {
+  background: #0950de;
+}
+
 .model-edit-area-btn.subtle:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.05);
 }

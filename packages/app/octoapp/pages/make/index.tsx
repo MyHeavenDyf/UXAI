@@ -104,7 +104,7 @@ import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
@@ -692,6 +692,28 @@ const sessionMessagesLoaded = createMemo(() => {
 
     window.addEventListener(SEND_TEXT_EVENT, handleSendText)
     onCleanup(() => window.removeEventListener(SEND_TEXT_EVENT, handleSendText))
+  })
+
+  // ── Append-to-composer event listener (from model-edit-area-dialog "下一项" / "确认") ──
+  createEffect(() => {
+    const handleAppend = (e: Event) => {
+      const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
+      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      const prev = ref?.getText?.() ?? ""
+      ref?.clear?.()
+      ref?.insertText?.(prev ? `${prev}\n${detail.text}` : detail.text)
+    }
+    window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
+    onCleanup(() => window.removeEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend))
+  })
+
+  // ── Submit-composer event listener (from model-edit-area-dialog "确认") ──
+  createEffect(() => {
+    const handleSubmitEvent = () => {
+      void handleSubmit()
+    }
+    window.addEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent)
+    onCleanup(() => window.removeEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent))
   })
 
   // 调试日志：打印当前 session 相关的 SSE 事件
@@ -1592,6 +1614,11 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
     api.writeFileBuffer(outputsInitPath, buffer)
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
+    // fastui dev server:挂着等 skill 写出 .octo-fastui.json,出现即由主进程起服务并持有
+    // (SPEC-DES-001 §8.6.1)。skill 脚本是短命的,它自己起的进程在 Windows 下活不过本次调用。
+    // 非 fastui 会话等不到那个文件,超时静默放弃,对其他 Design 用法零影响。
+    api.fastuiDevServerArm?.([dir, ".octo", id].join(sep))
+      .catch((err: unknown) => console.warn("[MakePage] failed to arm fastui dev server", err))
   }))
 
   // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
@@ -2776,6 +2803,7 @@ const sessionMessagesLoaded = createMemo(() => {
   async function handleHistorySwitch(entry: VersionEntry) {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
+    tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
     await historyController.switchVersion(entry, tab)
   }
 
@@ -2835,20 +2863,29 @@ const sessionMessagesLoaded = createMemo(() => {
         const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
         const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
         for (const sel of selections) {
-          if (sel.type !== "file") continue
+          if (sel.type !== "file" && sel.type !== "folder") continue
           const p = sel.path
           if (!p || !p.includes(tmpsMarker)) continue
           try {
-            // Resolve unique filename in session uploads dir (handle collisions)
+            const isFolder = sel.type === "folder"
             const filename = p.split(sep).pop() || sel.name
             let candidate = filename
             let i = 1
-            const dot = filename.lastIndexOf(".")
-            const base = dot > 0 ? filename.slice(0, dot) : filename
-            const ext = dot > 0 ? filename.slice(dot) : ""
-            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
-              candidate = `${base} (${i})${ext}`
-              i++
+            if (isFolder) {
+              // Folders: dedup with dirExists (fs.rename fails if target exists)
+              while (await api.dirExists?.([uploadsDir, candidate].join(sep))) {
+                candidate = `${filename} (${i})`
+                i++
+              }
+            } else {
+              // Files: dedup with fileExists
+              const dot = filename.lastIndexOf(".")
+              const base = dot > 0 ? filename.slice(0, dot) : filename
+              const ext = dot > 0 ? filename.slice(dot) : ""
+              while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+                candidate = `${base} (${i})${ext}`
+                i++
+              }
             }
             const newPath = [uploadsDir, candidate].join(sep)
             await api.renameFile!(p, newPath)
@@ -2864,35 +2901,27 @@ const sessionMessagesLoaded = createMemo(() => {
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const skillCommands: string[] = []
-      const skillDisplays: string[] = []
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
           if (inPlanSession) {
             planSkillStash.push({ name: sel.name, label: sel.label })
           } else {
-            processedText = processedText.replace(`@${sel.name}`, ' ')
-            skillCommands.push(`/${sel.name}`)
+            processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
           }
-          const display = sel.label && sel.label !== sel.name ? `@${sel.label}` : `@${sel.name}`
-          displayText = displayText.replace(`@${sel.name}`, ' ')
-          skillDisplays.push(display)
+          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
+          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
+          if (sel.label && sel.label !== sel.name) {
+            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
+          }
         } else {
           const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
         }
       }
-
-      if (skillCommands.length > 0) {
-        processedText = skillCommands.join(' ') + ' ' + processedText
-        displayText = skillDisplays.join(' ') + ' ' + displayText
-      }
-
       // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
       // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
       processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
-      displayText = displayText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -3863,18 +3892,21 @@ if (dsId) {
         setAttachments(prev => prev.map(a =>
           a.id === id ? { ...a, status: 'error', error: '当前环境无法导入该图片，请从文件选择器选择文件', retriable: false } : a
         ))
+        tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
         return false
       }
       const landedName = dest.split(/[\\/]/).pop()
       setAttachments(prev => prev.map(a =>
         a.id === id ? { ...a, status: 'done', source: 'pending', path: dest, filename: landedName || a.filename, error: undefined } : a
       ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: true, kind: "image" }) })
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : '导入失败'
       setAttachments(prev => prev.map(a =>
         a.id === id ? { ...a, status: 'error', error: message, retriable: true } : a
       ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
       return false
     }
   }
@@ -4173,6 +4205,7 @@ if (dsId) {
       a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
     ))
 
+    tracker.interaction({ module: "design", name: "attachment-retry", extend: JSON.stringify({ filename: att.filename }) })
     void doImageImport(id, file, att.filename)
   }
 
@@ -4264,21 +4297,20 @@ if (dsId) {
   async function moveAssetsConfigToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
+
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const tempPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-    
+    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
     try {
-      const buffer = await api.readFileBuffer(tempPath)
-      if (!buffer) return
-      
-      const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+      const info = await api.getAssetsConfig() as AssetsConfig
+      const encoder = new TextEncoder()
+      const buffer = encoder.encode(JSON.stringify(info)).buffer as ArrayBuffer
       await api.writeFileBuffer(finalPath, buffer)
     } catch (err) {
-      console.error("[moveAssetsConfigToSession] Failed to move assets_config.json:", err)
+      console.error("[moveAssetsConfigToSession] Failed:", err)
     }
   }
 
@@ -5573,6 +5605,7 @@ onPreview={(url) => {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)
                   }
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
                   setShowHistoryPanel(!showHistoryPanel())
                 }}
                 onCollapseDrawer={
