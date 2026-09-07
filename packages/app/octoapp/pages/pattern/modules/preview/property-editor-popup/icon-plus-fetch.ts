@@ -255,7 +255,7 @@ export function createIconPlusStore() {
     status: "idle" as "idle" | "loading" | "ready" | "error",
     keyword: "",
     activeTab: "基础图标",
-    shape: "线性",
+    shape: "outline",
     iconSize: "24",
     iconColor: "#191919",
     icons: [] as IconInfo[],

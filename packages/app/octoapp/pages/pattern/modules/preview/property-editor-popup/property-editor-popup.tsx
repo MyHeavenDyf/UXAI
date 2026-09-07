@@ -15,6 +15,7 @@ import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
+import { iconColors } from "./icon-colors"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -186,6 +187,29 @@ export function PropertyEditorPopup(props: {
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
   const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
+
+  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
+  const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
+
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(name: string, extra?: { size: string; style: string; color: string }) {
+    const key = iconPickerKey()!
+    updateEditProp(key, name)
+    if (!extra) return
+    updateEditProp(`${key}Size`, extra.size)
+    updateEditProp(`${key}Style`, extra.style)
+    updateEditProp(`${key}Color`, extra.color)
+    const px = Number(extra.size)
+    if (px > 0) {
+      setFillWidth(false); setHugWidth(false)
+      setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
+      setFillHeight(false); setHugHeight(false)
+      setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
+    }
+    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === extra.style)) updateEditProp('shape', extra.style)
+    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === extra.color)
+    if (colorKey && COMPONENT_ENUMS[`${props.componentType}.color`]?.some(o => o.value === colorKey)) updateEditProp('color', colorKey)
+  }
 
   function updateEditProp(key: string, val: string) {
     setEditProps(key, val)
@@ -1785,10 +1809,10 @@ export function PropertyEditorPopup(props: {
             </div>
           </Show>
 
-          <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
+          <Show when={!isTextElement() && propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color'))).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
-              <For each={propKeys().filter(k => k !== 'className' || !hasClassEditor())}>
+              <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
                   <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
@@ -2367,35 +2391,38 @@ export function PropertyEditorPopup(props: {
 
             </div> */}
 
-            <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-semibold text-slate-500">宽高</span>
-              <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
-                <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+            {/* 宽高组：图标类组件不展示（宽高由图标弹窗确认时写入），其余组件保持原样 */}
+            <Show when={!isIconComponent()}>
+              <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
+                <span class="text-[12px] font-semibold text-slate-500">宽高</span>
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
+                  <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+                </div>
+                <div class="grid grid-cols-2 gap-x-2 gap-y-1">
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer col-span-2">
+                    <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
+                    <span class="text-[10px] text-slate-500">裁剪内容</span>
+                  </label>
+                </div>
               </div>
-              <div class="grid grid-cols-2 gap-x-2 gap-y-1">
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
-                  <span class="text-[10px] text-slate-500">填充宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
-                  <span class="text-[10px] text-slate-500">填充高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
-                  <span class="text-[10px] text-slate-500">适应宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
-                  <span class="text-[10px] text-slate-500">适应高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer col-span-2">
-                  <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
-                  <span class="text-[10px] text-slate-500">裁剪内容</span>
-                </label>
-              </div>
-            </div>
+            </Show>
 
             <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
@@ -2691,8 +2718,14 @@ export function PropertyEditorPopup(props: {
           <Show when={iconPickerOpen() && iconPickerKey()}>
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
+              initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
+                ?? (editHeightPx() || editWidthPx() ? String(editHeightPx() || editWidthPx()) : undefined)
+                ?? (editProps as Record<string, string>)['size']
+                ?? '24'}
+              initialStyle={(editProps as Record<string, string>)[`${iconPickerKey()!}Style`] ?? (editProps as Record<string, string>)['shape']}
+              initialColor={(editProps as Record<string, string>)[`${iconPickerKey()!}Color`] ?? (editProps as Record<string, string>)['color']}
               anchor={iconPickerAnchor()}
-              onPick={(name) => updateEditProp(iconPickerKey()!, name)}
+              onPick={handleIconPick}
               onClose={() => setIconPickerOpen(false)}
             />
           </Show>
