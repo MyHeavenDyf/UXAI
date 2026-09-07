@@ -1,0 +1,2116 @@
+{
+  "planner": {
+    "rootId": "mainAppContainer",
+    "elements": [
+      {
+        "id": "mainAppContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerNavContainer",
+          "mainContentArea",
+          "overlayProdDetailContainer",
+          "overlayCartContainer",
+          "pageFooterContainer"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 bg-surface-container-highest shadow-sm px-page flex items-center"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 flex flex-col overflow-y-auto"
+        },
+        "children": [
+          "mainBannerContainer",
+          "mainCategoryContainer",
+          "mainProductGridContainer"
+        ]
+      },
+      {
+        "id": "mainBannerContainer",
+        "component": "section",
+        "props": {
+          "className": "w-full"
+        },
+        "children": []
+      },
+      {
+        "id": "mainCategoryContainer",
+        "component": "div",
+        "props": {
+          "className": "w-full px-page"
+        },
+        "children": []
+      },
+      {
+        "id": "mainProductGridContainer",
+        "component": "section",
+        "props": {
+          "className": "w-full px-page flex-1"
+        },
+        "children": []
+      },
+      {
+        "id": "overlayProdDetailContainer",
+        "component": "aside",
+        "props": {
+          "className": "fixed top-0 right-0 h-full w-96 bg-surface-container-highest shadow-lg z-50"
+        },
+        "children": []
+      },
+      {
+        "id": "overlayCartContainer",
+        "component": "aside",
+        "props": {
+          "className": "fixed top-0 right-0 h-full w-96 bg-surface-container-highest shadow-lg z-50"
+        },
+        "children": []
+      },
+      {
+        "id": "pageFooterContainer",
+        "component": "footer",
+        "props": {
+          "className": "mt-auto bg-surface-container-highest py-gutter px-page"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "headerNavigation",
+        "element_id": "headerNavContainer",
+        "id_prefix": "hdNv"
+      },
+      {
+        "section_id": "promotionalBanner",
+        "element_id": "mainBannerContainer",
+        "id_prefix": "pBnr"
+      },
+      {
+        "section_id": "productCategories",
+        "element_id": "mainCategoryContainer",
+        "id_prefix": "pCat"
+      },
+      {
+        "section_id": "productGrid",
+        "element_id": "mainProductGridContainer",
+        "id_prefix": "pGrd"
+      },
+      {
+        "section_id": "productDetailPanel",
+        "element_id": "overlayProdDetailContainer",
+        "id_prefix": "pDet"
+      },
+      {
+        "section_id": "cartSidebar",
+        "element_id": "overlayCartContainer",
+        "id_prefix": "cSbr"
+      },
+      {
+        "section_id": "pageFooter",
+        "element_id": "pageFooterContainer",
+        "id_prefix": "pFtr"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "mainAppContainer",
+    "elements": [
+      {
+        "id": "mainAppContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerNavContainer",
+          "mainContentArea",
+          "overlayProdDetailContainer",
+          "overlayCartContainer",
+          "pageFooterContainer"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 bg-surface-container-highest shadow-sm px-page flex items-center"
+        },
+        "children": [
+          "hdNvLeftSection",
+          "hdNvCenterSection",
+          "hdNvRightSection"
+        ]
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 flex flex-col overflow-y-auto"
+        },
+        "children": [
+          "mainBannerContainer",
+          "mainCategoryContainer",
+          "mainProductGridContainer"
+        ]
+      },
+      {
+        "id": "mainBannerContainer",
+        "component": "section",
+        "props": {
+          "className": "w-full"
+        },
+        "children": [
+          "pBnrTitleRow",
+          "pBnrCarousel"
+        ]
+      },
+      {
+        "id": "mainCategoryContainer",
+        "component": "div",
+        "props": {
+          "className": "w-full px-page"
+        },
+        "children": [
+          "pCatContainer"
+        ]
+      },
+      {
+        "id": "mainProductGridContainer",
+        "component": "section",
+        "props": {
+          "className": "w-full px-page flex-1"
+        },
+        "children": [
+          "pGrdHeader",
+          "pGrdProductGrid"
+        ]
+      },
+      {
+        "id": "overlayProdDetailContainer",
+        "component": "aside",
+        "props": {
+          "className": "fixed top-0 right-0 h-full w-96 bg-surface-container-highest shadow-lg z-50"
+        },
+        "children": [
+          "pDetHeader",
+          "pDetBody",
+          "pDetFooter"
+        ]
+      },
+      {
+        "id": "overlayCartContainer",
+        "component": "aside",
+        "props": {
+          "className": "fixed top-0 right-0 h-full w-96 bg-surface-container-highest shadow-lg z-50"
+        },
+        "children": [
+          "cSbrContainer"
+        ]
+      },
+      {
+        "id": "pageFooterContainer",
+        "component": "footer",
+        "props": {
+          "className": "mt-auto bg-surface-container-highest py-gutter px-page"
+        },
+        "children": [
+          "pFtrDivider",
+          "pFtrContentWrap",
+          "pFtrCopyright"
+        ]
+      },
+      {
+        "id": "hdNvLeftSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline"
+        },
+        "children": [
+          "hdNvLogoIcon",
+          "hdNvBrandName"
+        ]
+      },
+      {
+        "id": "hdNvLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "bread",
+          "color": "primary",
+          "shape": "square",
+          "className": "w-8 h-8"
+        }
+      },
+      {
+        "id": "hdNvBrandName",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "鲜麦坊"
+        }
+      },
+      {
+        "id": "hdNvCenterSection",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex justify-center px-page"
+        },
+        "children": [
+          "hdNvSearchInput"
+        ]
+      },
+      {
+        "id": "hdNvSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchText"
+          },
+          "placeholder": "搜索面包...",
+          "prefix": "search",
+          "className": "w-96"
+        }
+      },
+      {
+        "id": "hdNvRightSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "hdNvCartBadge",
+          "hdNvUserDropdown"
+        ]
+      },
+      {
+        "id": "hdNvCartBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/cartCount"
+          },
+          "overflowCount": 99
+        },
+        "children": [
+          "hdNvCartBtn"
+        ]
+      },
+      {
+        "id": "hdNvCartBtn",
+        "component": "Button",
+        "props": {
+          "icon": "shopping-cart",
+          "shape": "circle",
+          "className": "w-8 h-8 flex items-center justify-center"
+        }
+      },
+      {
+        "id": "hdNvUserDropdown",
+        "component": "Dropdown",
+        "props": {
+          "placement": "bottomRight",
+          "trigger": [
+            "click"
+          ],
+          "menu": {
+            "path": "/userMenuItems"
+          }
+        },
+        "children": [
+          "hdNvUserAvatarWrap"
+        ]
+      },
+      {
+        "id": "hdNvUserAvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "cursor-pointer w-8 h-8 rounded-full overflow-hidden"
+        },
+        "children": [
+          "hdNvUserAvatarImg"
+        ]
+      },
+      {
+        "id": "hdNvUserAvatarImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatar"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "用户头像"
+        }
+      },
+      {
+        "id": "pBnrTitleRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 px-6 py-3"
+        },
+        "children": [
+          "pBnrTitleIcon",
+          "pBnrTitleText"
+        ]
+      },
+      {
+        "id": "pBnrTitleIcon",
+        "component": "Icon",
+        "props": {
+          "name": "zap",
+          "color": "primary",
+          "shape": "fill",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "pBnrTitleText",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": {
+            "path": "/cardTitle"
+          }
+        }
+      },
+      {
+        "id": "pBnrCarousel",
+        "component": "Carousel",
+        "props": {
+          "arrows": true,
+          "dotPlacement": "bottom",
+          "adaptiveHeight": true,
+          "className": "w-full"
+        },
+        "children": {
+          "path": "/banners",
+          "componentId": "pBnrCard"
+        }
+      },
+      {
+        "id": "pBnrCard",
+        "component": "div",
+        "props": {
+          "className": "relative w-full h-80 overflow-hidden"
+        },
+        "children": [
+          "pBnrCardImg",
+          "pBnrCardOverlay"
+        ]
+      },
+      {
+        "id": "pBnrCardImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "bannerImage"
+          },
+          "alt": {
+            "path": "title"
+          },
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "pBnrCardOverlay",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 bg-gradient-to-r from-black/60 to-transparent flex flex-col justify-center px-12"
+        },
+        "children": [
+          "pBnrCardTitle",
+          "pBnrCardSubtitle",
+          "pBnrCardBtn"
+        ]
+      },
+      {
+        "id": "pBnrCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-white mb-2",
+          "value": {
+            "path": "title"
+          }
+        }
+      },
+      {
+        "id": "pBnrCardSubtitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg text-white/80 mb-4",
+          "value": {
+            "path": "subtitle"
+          }
+        }
+      },
+      {
+        "id": "pBnrCardBtn",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "buttonText"
+          },
+          "color": "primary",
+          "className": "w-fit"
+        }
+      },
+      {
+        "id": "pCatContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-stack w-full"
+        },
+        "children": [
+          "pCatTitleRow",
+          "pCatTabsWrapper"
+        ]
+      },
+      {
+        "id": "pCatTitleRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline"
+        },
+        "children": [
+          "pCatTitleIcon",
+          "pCatTitleText"
+        ]
+      },
+      {
+        "id": "pCatTitleIcon",
+        "component": "Icon",
+        "props": {
+          "name": "layout-grid",
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "pCatTitleText",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface",
+          "value": {
+            "path": "/pCatCardTitle"
+          }
+        }
+      },
+      {
+        "id": "pCatTabsWrapper",
+        "component": "div",
+        "props": {
+          "className": "w-full"
+        },
+        "children": [
+          "pCatTabs"
+        ]
+      },
+      {
+        "id": "pCatTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/pCatActiveCategory"
+          },
+          "size": "medium",
+          "className": "w-full"
+        },
+        "children": {
+          "path": "/pCatCategories",
+          "componentId": "pCatTabItem"
+        }
+      },
+      {
+        "id": "pCatTabItem",
+        "component": "TabItem",
+        "props": {
+          "key": {
+            "path": "id"
+          },
+          "label": {
+            "path": "label"
+          },
+          "icon": {
+            "path": "icon"
+          },
+          "content": {
+            "componentId": "pCatTabContent"
+          }
+        }
+      },
+      {
+        "id": "pCatTabContent",
+        "component": "div",
+        "props": {
+          "className": "hidden",
+          "value": ""
+        }
+      },
+      {
+        "id": "pGrdHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mb-section"
+        },
+        "children": [
+          "pGrdCardTitle",
+          "pGrdViewAllBtn"
+        ]
+      },
+      {
+        "id": "pGrdCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": {
+            "path": "/cardTitle"
+          }
+        }
+      },
+      {
+        "id": "pGrdViewAllBtn",
+        "component": "Button",
+        "props": {
+          "value": "查看全部",
+          "types": "link",
+          "icon": "arrow-right",
+          "iconPlacement": "end"
+        }
+      },
+      {
+        "id": "pGrdProductGrid",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter"
+        },
+        "children": {
+          "path": "/products",
+          "componentId": "pGrdProductCard"
+        }
+      },
+      {
+        "id": "pGrdProductCard",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-xl shadow-card overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200"
+        },
+        "children": [
+          "pGrdProductCardImgWrap",
+          "pGrdProductCardBody"
+        ]
+      },
+      {
+        "id": "pGrdProductCardImgWrap",
+        "component": "div",
+        "props": {
+          "className": "relative w-full aspect-square overflow-hidden bg-surface-variant"
+        },
+        "children": [
+          "pGrdProductCardImg"
+        ]
+      },
+      {
+        "id": "pGrdProductCardImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "productImage"
+          },
+          "alt": {
+            "path": "productName"
+          },
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "pGrdProductCardBody",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-2 flex-1"
+        },
+        "children": [
+          "pGrdProductCardName",
+          "pGrdProductCardRatingRow",
+          "pGrdProductCardDesc",
+          "pGrdProductCardTagsWrap",
+          "pGrdProductCardPriceRow"
+        ]
+      },
+      {
+        "id": "pGrdProductCardName",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface truncate",
+          "value": {
+            "path": "productName"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardRatingRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "pGrdProductCardRate",
+          "pGrdProductCardRatingTxt",
+          "pGrdProductCardSalesLabel",
+          "pGrdProductCardSalesCount"
+        ]
+      },
+      {
+        "id": "pGrdProductCardRate",
+        "component": "Rate",
+        "props": {
+          "value": {
+            "path": "rating"
+          },
+          "count": 5,
+          "size": "small",
+          "disabled": true
+        }
+      },
+      {
+        "id": "pGrdProductCardRatingTxt",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant font-medium",
+          "value": {
+            "path": "rating"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardSalesLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "已售"
+        }
+      },
+      {
+        "id": "pGrdProductCardSalesCount",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "salesCount"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardDesc",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant line-clamp-2",
+          "value": {
+            "path": "description"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardTagsWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-wrap gap-1 min-h-5"
+        },
+        "children": {
+          "path": "tags",
+          "componentId": "pGrdProductCardTag"
+        }
+      },
+      {
+        "id": "pGrdProductCardTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "tagName"
+          },
+          "color": {
+            "path": "tagColor"
+          },
+          "size": "small",
+          "variant": "filled"
+        }
+      },
+      {
+        "id": "pGrdProductCardPriceRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1 mt-auto pt-2"
+        },
+        "children": [
+          "pGrdProductCardYen",
+          "pGrdProductCardPrice",
+          "pGrdProductCardOrigPrice",
+          "pGrdProductCardActions"
+        ]
+      },
+      {
+        "id": "pGrdProductCardYen",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-primary",
+          "value": "¥"
+        }
+      },
+      {
+        "id": "pGrdProductCardPrice",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-primary",
+          "value": {
+            "path": "price"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardOrigPrice",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant line-through",
+          "value": {
+            "path": "originalPrice"
+          }
+        }
+      },
+      {
+        "id": "pGrdProductCardActions",
+        "component": "div",
+        "props": {
+          "className": "ml-auto flex items-center gap-1"
+        },
+        "children": [
+          "pGrdProductCardFavBtn",
+          "pGrdProductCardCartBtn"
+        ]
+      },
+      {
+        "id": "pGrdProductCardFavBtn",
+        "component": "Button",
+        "props": {
+          "icon": "heart",
+          "size": "small",
+          "shape": "circle",
+          "className": "text-on-surface-variant hover:text-error transition-colors"
+        }
+      },
+      {
+        "id": "pGrdProductCardCartBtn",
+        "component": "Button",
+        "props": {
+          "icon": "shopping-cart",
+          "color": "primary",
+          "size": "small",
+          "shape": "circle"
+        }
+      },
+      {
+        "id": "pDetHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3 px-4 h-14 border-b border-divider shrink-0"
+        },
+        "children": [
+          "pDetCloseBtn",
+          "pDetHeaderTitle"
+        ]
+      },
+      {
+        "id": "pDetCloseBtn",
+        "component": "Button",
+        "props": {
+          "icon": "x",
+          "types": "link",
+          "size": "small"
+        }
+      },
+      {
+        "id": "pDetHeaderTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface truncate",
+          "value": {
+            "path": "/pDetProduct/productName"
+          }
+        }
+      },
+      {
+        "id": "pDetBody",
+        "component": "div",
+        "props": {
+          "className": "flex-1 overflow-y-auto"
+        },
+        "children": [
+          "pDetCarousel",
+          "pDetInfoRow",
+          "pDetTagsRow",
+          "pDetStockRow",
+          "pDetPriceRow",
+          "pDetDescSection",
+          "pDetDetailedDesc",
+          "pDetSpecDivider",
+          "pDetSpecSection",
+          "pDetQuantityDivider",
+          "pDetQuantitySection"
+        ]
+      },
+      {
+        "id": "pDetCarousel",
+        "component": "Carousel",
+        "props": {
+          "arrows": true,
+          "dotPlacement": "bottom",
+          "className": "w-full"
+        },
+        "children": [
+          "pDetCarouselSlide1",
+          "pDetCarouselSlide2",
+          "pDetCarouselSlide3"
+        ]
+      },
+      {
+        "id": "pDetCarouselSlide1",
+        "component": "div",
+        "props": {
+          "className": "w-full h-56 flex items-center justify-center overflow-hidden bg-surface-variant"
+        },
+        "children": [
+          "pDetCarouselImg1"
+        ]
+      },
+      {
+        "id": "pDetCarouselImg1",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/pDetProduct/productImages/0"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "北海道奶香吐司展示图1"
+        }
+      },
+      {
+        "id": "pDetCarouselSlide2",
+        "component": "div",
+        "props": {
+          "className": "w-full h-56 flex items-center justify-center overflow-hidden bg-surface-variant"
+        },
+        "children": [
+          "pDetCarouselImg2"
+        ]
+      },
+      {
+        "id": "pDetCarouselImg2",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/pDetProduct/productImages/1"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "北海道奶香吐司展示图2"
+        }
+      },
+      {
+        "id": "pDetCarouselSlide3",
+        "component": "div",
+        "props": {
+          "className": "w-full h-56 flex items-center justify-center overflow-hidden bg-surface-variant"
+        },
+        "children": [
+          "pDetCarouselImg3"
+        ]
+      },
+      {
+        "id": "pDetCarouselImg3",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/pDetProduct/productImages/2"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "北海道奶香吐司展示图3"
+        }
+      },
+      {
+        "id": "pDetInfoRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 px-4 pt-4"
+        },
+        "children": [
+          "pDetRating",
+          "pDetRatingValue",
+          "pDetRatingDivider",
+          "pDetSalesLabel",
+          "pDetSalesValue"
+        ]
+      },
+      {
+        "id": "pDetRating",
+        "component": "Rate",
+        "props": {
+          "value": {
+            "path": "/pDetProduct/rating"
+          },
+          "count": 5,
+          "size": "small",
+          "disabled": true
+        }
+      },
+      {
+        "id": "pDetRatingValue",
+        "component": "span",
+        "props": {
+          "className": "text-md font-medium text-on-surface",
+          "value": {
+            "path": "/pDetProduct/rating"
+          }
+        }
+      },
+      {
+        "id": "pDetRatingDivider",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant mx-1",
+          "value": "|"
+        }
+      },
+      {
+        "id": "pDetSalesLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "已售"
+        }
+      },
+      {
+        "id": "pDetSalesValue",
+        "component": "span",
+        "props": {
+          "className": "text-md font-medium text-on-surface",
+          "value": {
+            "path": "/pDetProduct/salesCount"
+          }
+        }
+      },
+      {
+        "id": "pDetTagsRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 px-4 pt-3"
+        },
+        "children": [
+          "pDetTagHot",
+          "pDetTagDiscount"
+        ]
+      },
+      {
+        "id": "pDetTagHot",
+        "component": "Tag",
+        "props": {
+          "value": "热销",
+          "color": "error",
+          "variant": "filled",
+          "size": "small"
+        }
+      },
+      {
+        "id": "pDetTagDiscount",
+        "component": "Tag",
+        "props": {
+          "value": "限时折扣",
+          "color": "warning",
+          "variant": "filled",
+          "size": "small"
+        }
+      },
+      {
+        "id": "pDetStockRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 px-4 pt-2"
+        },
+        "children": [
+          "pDetStockIcon",
+          "pDetStockText",
+          "pDetSkuText"
+        ]
+      },
+      {
+        "id": "pDetStockIcon",
+        "component": "Icon",
+        "props": {
+          "name": "circle-check",
+          "color": "success",
+          "shape": "fill",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "pDetStockText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-success font-medium",
+          "value": "有货"
+        }
+      },
+      {
+        "id": "pDetSkuText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant ml-auto",
+          "value": {
+            "path": "/pDetProduct/productId"
+          }
+        }
+      },
+      {
+        "id": "pDetPriceRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-end gap-3 px-4 pt-3"
+        },
+        "children": [
+          "pDetCurrencySign",
+          "pDetCurrentPrice",
+          "pDetOriginalPrice",
+          "pDetDiscountBadge"
+        ]
+      },
+      {
+        "id": "pDetCurrencySign",
+        "component": "span",
+        "props": {
+          "className": "text-xl font-bold text-primary",
+          "value": "¥"
+        }
+      },
+      {
+        "id": "pDetCurrentPrice",
+        "component": "span",
+        "props": {
+          "className": "text-2xl font-bold text-primary",
+          "value": {
+            "path": "/pDetProduct/price"
+          }
+        }
+      },
+      {
+        "id": "pDetOriginalPrice",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant line-through",
+          "value": {
+            "path": "/pDetProduct/originalPrice"
+          }
+        }
+      },
+      {
+        "id": "pDetDiscountBadge",
+        "component": "Tag",
+        "props": {
+          "value": "7.9折",
+          "color": "critical",
+          "variant": "filled",
+          "size": "small"
+        }
+      },
+      {
+        "id": "pDetDescSection",
+        "component": "div",
+        "props": {
+          "className": "px-4 pt-4"
+        },
+        "children": [
+          "pDetDescTitle",
+          "pDetDescText"
+        ]
+      },
+      {
+        "id": "pDetDescTitle",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface mb-1",
+          "value": "商品简介"
+        }
+      },
+      {
+        "id": "pDetDescText",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface leading-relaxed",
+          "value": {
+            "path": "/pDetProduct/description"
+          }
+        }
+      },
+      {
+        "id": "pDetDetailedDesc",
+        "component": "div",
+        "props": {
+          "className": "px-4 pt-3"
+        },
+        "children": [
+          "pDetDetailedDescTitle",
+          "pDetDetailedDescText"
+        ]
+      },
+      {
+        "id": "pDetDetailedDescTitle",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface mb-1",
+          "value": "商品详情"
+        }
+      },
+      {
+        "id": "pDetDetailedDescText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant leading-relaxed",
+          "value": {
+            "path": "/pDetProduct/detailedDescription"
+          }
+        }
+      },
+      {
+        "id": "pDetSpecDivider",
+        "component": "div",
+        "props": {
+          "className": "h-px bg-divider mx-4 my-4"
+        }
+      },
+      {
+        "id": "pDetSpecSection",
+        "component": "div",
+        "props": {
+          "className": "px-4 flex flex-col gap-4"
+        },
+        "children": [
+          "pDetWeightGroup",
+          "pDetSliceGroup"
+        ]
+      },
+      {
+        "id": "pDetWeightGroup",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-2"
+        },
+        "children": [
+          "pDetWeightLabel",
+          "pDetWeightRadio"
+        ]
+      },
+      {
+        "id": "pDetWeightLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface",
+          "value": "重量"
+        }
+      },
+      {
+        "id": "pDetWeightRadio",
+        "component": "RadioGroup",
+        "props": {
+          "value": {
+            "path": "/pDetWeight"
+          },
+          "options": [
+            {
+              "label": "400g",
+              "value": "400g"
+            },
+            {
+              "label": "800g",
+              "value": "800g"
+            }
+          ],
+          "optionType": "button",
+          "size": "small",
+          "orientation": "horizontal"
+        }
+      },
+      {
+        "id": "pDetSliceGroup",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-2"
+        },
+        "children": [
+          "pDetSliceLabel",
+          "pDetSliceRadio"
+        ]
+      },
+      {
+        "id": "pDetSliceLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface",
+          "value": "切片"
+        }
+      },
+      {
+        "id": "pDetSliceRadio",
+        "component": "RadioGroup",
+        "props": {
+          "value": {
+            "path": "/pDetSlice"
+          },
+          "options": [
+            {
+              "label": "整条不切",
+              "value": "整条不切"
+            },
+            {
+              "label": "厚切",
+              "value": "厚切"
+            },
+            {
+              "label": "薄切",
+              "value": "薄切"
+            }
+          ],
+          "optionType": "button",
+          "size": "small",
+          "orientation": "horizontal"
+        }
+      },
+      {
+        "id": "pDetQuantityDivider",
+        "component": "div",
+        "props": {
+          "className": "h-px bg-divider mx-4 my-4"
+        }
+      },
+      {
+        "id": "pDetQuantitySection",
+        "component": "div",
+        "props": {
+          "className": "px-4 pb-4 flex items-center justify-between"
+        },
+        "children": [
+          "pDetQuantityLabel",
+          "pDetQuantityInput"
+        ]
+      },
+      {
+        "id": "pDetQuantityLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface",
+          "value": "数量"
+        }
+      },
+      {
+        "id": "pDetQuantityInput",
+        "component": "InputNumber",
+        "props": {
+          "value": {
+            "path": "/pDetQuantity"
+          },
+          "min": 1,
+          "max": 99,
+          "controls": true,
+          "size": "medium"
+        }
+      },
+      {
+        "id": "pDetFooter",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3 px-4 py-4 border-t border-divider bg-surface-container-highest shrink-0"
+        },
+        "children": [
+          "pDetFavoriteBtn",
+          "pDetAddCartBtn"
+        ]
+      },
+      {
+        "id": "pDetFavoriteBtn",
+        "component": "Button",
+        "props": {
+          "icon": "heart",
+          "color": "default",
+          "size": "large",
+          "className": "w-12 h-12 flex-shrink-0"
+        }
+      },
+      {
+        "id": "pDetAddCartBtn",
+        "component": "Button",
+        "props": {
+          "value": "加入购物车",
+          "color": "primary",
+          "size": "large",
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "cSbrContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col h-full"
+        },
+        "children": [
+          "cSbrHeader",
+          "cSbrItemList",
+          "cSbrFooter"
+        ]
+      },
+      {
+        "id": "cSbrHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between px-gutter py-stack border-b border-divider"
+        },
+        "children": [
+          "cSbrHeaderTitle",
+          "cSbrHeaderCloseBtn"
+        ]
+      },
+      {
+        "id": "cSbrHeaderTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface",
+          "value": {
+            "path": "/cSbrTitle"
+          }
+        }
+      },
+      {
+        "id": "cSbrHeaderCloseBtn",
+        "component": "Button",
+        "props": {
+          "icon": "x",
+          "shape": "circle",
+          "className": "w-8 h-8"
+        }
+      },
+      {
+        "id": "cSbrItemList",
+        "component": "div",
+        "props": {
+          "className": "flex-1 overflow-y-auto"
+        },
+        "children": {
+          "path": "/cSbrItems",
+          "componentId": "cSbrCartItem"
+        }
+      },
+      {
+        "id": "cSbrCartItem",
+        "component": "div",
+        "props": {
+          "className": "flex gap-3 px-gutter py-stack items-start border-b border-divider"
+        },
+        "children": [
+          "cSbrCartItemThumb",
+          "cSbrCartItemBody",
+          "cSbrCartItemDelete"
+        ]
+      },
+      {
+        "id": "cSbrCartItemThumb",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "productImage"
+          },
+          "className": "w-16 h-16 rounded-lg object-cover shrink-0",
+          "alt": {
+            "path": "productName"
+          }
+        }
+      },
+      {
+        "id": "cSbrCartItemBody",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col gap-1 min-w-0"
+        },
+        "children": [
+          "cSbrCartItemName",
+          "cSbrCartItemPrice",
+          "cSbrCartItemQty",
+          "cSbrCartItemStatus"
+        ]
+      },
+      {
+        "id": "cSbrCartItemName",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface truncate",
+          "value": {
+            "path": "productName"
+          }
+        }
+      },
+      {
+        "id": "cSbrCartItemPrice",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-0.5"
+        },
+        "children": [
+          "cSbrCartItemPriceSymbol",
+          "cSbrCartItemPriceValue"
+        ]
+      },
+      {
+        "id": "cSbrCartItemPriceSymbol",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "¥"
+        }
+      },
+      {
+        "id": "cSbrCartItemPriceValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface",
+          "value": {
+            "path": "price"
+          }
+        }
+      },
+      {
+        "id": "cSbrCartItemQty",
+        "component": "InputNumber",
+        "props": {
+          "value": {
+            "path": "quantity"
+          },
+          "min": 1,
+          "max": 99,
+          "controls": true,
+          "size": "small",
+          "className": "w-24"
+        }
+      },
+      {
+        "id": "cSbrCartItemStatus",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "stockStatus"
+          },
+          "color": "success",
+          "size": "small"
+        }
+      },
+      {
+        "id": "cSbrCartItemDelete",
+        "component": "Button",
+        "props": {
+          "icon": "trash-2",
+          "types": "link",
+          "className": "shrink-0"
+        }
+      },
+      {
+        "id": "cSbrFooter",
+        "component": "div",
+        "props": {
+          "className": "border-t border-divider"
+        },
+        "children": [
+          "cSbrTotalRow",
+          "cSbrCheckoutBtn"
+        ]
+      },
+      {
+        "id": "cSbrTotalRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between px-gutter py-stack"
+        },
+        "children": [
+          "cSbrTotalLabel",
+          "cSbrTotalValueContainer"
+        ]
+      },
+      {
+        "id": "cSbrTotalLabel",
+        "component": "span",
+        "props": {
+          "className": "text-base text-on-surface",
+          "value": "合计"
+        }
+      },
+      {
+        "id": "cSbrTotalValueContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-0.5"
+        },
+        "children": [
+          "cSbrTotalValuePrefix",
+          "cSbrTotalValueAmount"
+        ]
+      },
+      {
+        "id": "cSbrTotalValuePrefix",
+        "component": "span",
+        "props": {
+          "className": "text-xl font-bold text-primary",
+          "value": "¥"
+        }
+      },
+      {
+        "id": "cSbrTotalValueAmount",
+        "component": "span",
+        "props": {
+          "className": "text-xl font-bold text-primary",
+          "value": {
+            "path": "/cSbrTotalAmount"
+          }
+        }
+      },
+      {
+        "id": "cSbrCheckoutBtn",
+        "component": "div",
+        "props": {
+          "className": "px-gutter pb-inset"
+        },
+        "children": [
+          "cSbrCheckoutButton"
+        ]
+      },
+      {
+        "id": "cSbrCheckoutButton",
+        "component": "Button",
+        "props": {
+          "value": "去结算",
+          "color": "primary",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "pFtrDivider",
+        "component": "Divider",
+        "props": {
+          "className": "mb-stack"
+        }
+      },
+      {
+        "id": "pFtrContentWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col md:flex-row justify-between items-center gap-stack mb-stack"
+        },
+        "children": [
+          "pFtrInfoCol",
+          "pFtrSocialCol"
+        ]
+      },
+      {
+        "id": "pFtrInfoCol",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center md:items-start gap-1"
+        },
+        "children": [
+          "pFtrCompanyName",
+          "pFtrEmailRow"
+        ]
+      },
+      {
+        "id": "pFtrCompanyName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/companyName"
+          },
+          "className": "text-sm font-medium text-on-surface"
+        }
+      },
+      {
+        "id": "pFtrEmailRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline"
+        },
+        "children": [
+          "pFtrEmailIcon",
+          "pFtrEmailLink"
+        ]
+      },
+      {
+        "id": "pFtrEmailIcon",
+        "component": "Icon",
+        "props": {
+          "name": "mail",
+          "color": "default",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "pFtrEmailLink",
+        "component": "a",
+        "props": {
+          "href": "mailto:service@xianmaifang.com",
+          "value": {
+            "path": "/contactEmail"
+          },
+          "className": "text-sm text-primary hover:underline"
+        }
+      },
+      {
+        "id": "pFtrSocialCol",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline"
+        },
+        "children": {
+          "path": "/socialLinks",
+          "componentId": "pFtrSocialLink"
+        }
+      },
+      {
+        "id": "pFtrSocialLink",
+        "component": "a",
+        "props": {
+          "href": {
+            "path": "link"
+          },
+          "target": "_blank",
+          "className": "flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors"
+        },
+        "children": [
+          "pFtrSocialIcon",
+          "pFtrSocialLabel"
+        ]
+      },
+      {
+        "id": "pFtrSocialIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "icon"
+          },
+          "color": "default",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "pFtrSocialLabel",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "platform"
+          },
+          "className": "text-sm"
+        }
+      },
+      {
+        "id": "pFtrCopyright",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/copyright"
+          },
+          "className": "block text-xs text-on-surface-variant text-center"
+        }
+      }
+    ],
+    "state": {
+      "searchText": "",
+      "cartCount": 3,
+      "userAvatar": "https://randomuser.me/api/portraits/women/44.jpg",
+      "userMenuItems": [
+        {
+          "label": "个人中心",
+          "key": "profile",
+          "icon": "user"
+        },
+        {
+          "label": "我的订单",
+          "key": "orders",
+          "icon": "package"
+        },
+        {
+          "label": "退出登录",
+          "key": "logout",
+          "icon": "log-out"
+        }
+      ],
+      "cardTitle": "产品列表",
+      "banners": [
+        {
+          "bannerId": 1,
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=F4840C,0067D1&text_color=ffffff&text=FRESH+BREAD",
+          "title": "每日新鲜烘焙",
+          "subtitle": "全场面包第二件半价",
+          "buttonText": "立即抢购"
+        },
+        {
+          "bannerId": 2,
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=004EA8,0067D1&text_color=ffffff&text=NEW+ARRIVALS",
+          "title": "新品上市",
+          "subtitle": "比利时黑巧软欧今日首发",
+          "buttonText": "了解详情"
+        },
+        {
+          "bannerId": 3,
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=09AA71,FCC800&text_color=ffffff&text=MEMBER+DAY",
+          "title": "会员日特惠",
+          "subtitle": "积分兑换，超值满减",
+          "buttonText": "查看优惠"
+        }
+      ],
+      "pCatCardTitle": "面包分类",
+      "pCatActiveCategory": "1",
+      "pCatCategories": [
+        {
+          "id": "1",
+          "label": "全部",
+          "icon": "layout-grid"
+        },
+        {
+          "id": "2",
+          "label": "吐司面包",
+          "icon": "bread"
+        },
+        {
+          "id": "3",
+          "label": "法棍面包",
+          "icon": "croissant"
+        },
+        {
+          "id": "4",
+          "label": "欧式面包",
+          "icon": "danish"
+        },
+        {
+          "id": "5",
+          "label": "甜点面包",
+          "icon": "cake"
+        },
+        {
+          "id": "6",
+          "label": "全麦健康",
+          "icon": "leaf"
+        }
+      ],
+      "products": [
+        {
+          "productId": 101,
+          "productName": "北海道奶香吐司",
+          "productImage": "https://fpoimg.com/400x400?gradient=F3A183,F15F79&text_color=ffffff&text=吐司",
+          "description": "使用北海道鲜奶，口感柔软丝滑，早餐首选。",
+          "price": 28,
+          "originalPrice": 35,
+          "tags": [
+            {
+              "tagName": "热销",
+              "tagColor": "#F5222D"
+            },
+            {
+              "tagName": "限时折扣",
+              "tagColor": "#FA8C16"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.8,
+          "salesCount": 2349
+        },
+        {
+          "productId": 102,
+          "productName": "全麦坚果欧包",
+          "productImage": "https://fpoimg.com/400x400?gradient=11998E,38EF7D&text_color=ffffff&text=欧包",
+          "description": "富含坚果和燕麦，健康低脂，饱腹感强。",
+          "price": 32,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "新品",
+              "tagColor": "#52C41A"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.9,
+          "salesCount": 1120
+        },
+        {
+          "productId": 103,
+          "productName": "法式长棍面包",
+          "productImage": "https://fpoimg.com/400x400?gradient=FF512F,DD2476&text_color=ffffff&text=法棍",
+          "description": "传统法式工艺，外壳酥脆内部柔软，经典原味。",
+          "price": 18,
+          "originalPrice": null,
+          "tags": [],
+          "stockStatus": "inStock",
+          "rating": 4.5,
+          "salesCount": 5678
+        },
+        {
+          "productId": 104,
+          "productName": "黑巧熔岩软欧",
+          "productImage": "https://fpoimg.com/400x400?gradient=00C6FF,0072FF&text_color=ffffff&text=黑巧",
+          "description": "比利时黑巧克力流心，入口即化，甜而不腻。",
+          "price": 38,
+          "originalPrice": 45,
+          "tags": [
+            {
+              "tagName": "人气王",
+              "tagColor": "#FAAD14"
+            },
+            {
+              "tagName": "限时",
+              "tagColor": "#F5222D"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.9,
+          "salesCount": 8912
+        },
+        {
+          "productId": 105,
+          "productName": "蔓越莓贝果圈",
+          "productImage": "https://fpoimg.com/400x400?gradient=11998E,38EF7D&text_color=ffffff&text=贝果",
+          "description": "加拿大进口蔓越莓干，酸甜可口，韧性十足。",
+          "price": 25,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "低脂",
+              "tagColor": "#13C2C2"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.6,
+          "salesCount": 3456
+        },
+        {
+          "productId": 106,
+          "productName": "日式红豆包",
+          "productImage": "https://fpoimg.com/400x400?gradient=FF9A9E,FAD0C4&text_color=ffffff&text=红豆包",
+          "description": "细腻红豆馅，外皮松软，传统日式风味。",
+          "price": 22,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "经典",
+              "tagColor": "#1890FF"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.7,
+          "salesCount": 4321
+        },
+        {
+          "productId": 107,
+          "productName": "蒜香奶酪包",
+          "productImage": "https://fpoimg.com/400x400?gradient=333333,dd1818&text_color=ffffff&text=奶酪包",
+          "description": "蒜香黄油和奶油奶酪的结合，外酥里软。",
+          "price": 30,
+          "originalPrice": 36,
+          "tags": [
+            {
+              "tagName": "必买",
+              "tagColor": "#722ED1"
+            },
+            {
+              "tagName": "招牌",
+              "tagColor": "#F5222D"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.8,
+          "salesCount": 6543
+        },
+        {
+          "productId": 108,
+          "productName": "裸麦杂粮包",
+          "productImage": "https://fpoimg.com/400x400?gradient=11998E,38EF7D&text_color=ffffff&text=杂粮包",
+          "description": "多种谷物种子混合，高纤维，适合健身人群。",
+          "price": 26,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "健康",
+              "tagColor": "#52C41A"
+            }
+          ],
+          "stockStatus": "outOfStock",
+          "rating": 4.4,
+          "salesCount": 2341
+        },
+        {
+          "productId": 109,
+          "productName": "抹茶红豆麻薯面包",
+          "productImage": "https://fpoimg.com/400x400?gradient=00b09b,96c93d&text_color=ffffff&text=抹茶",
+          "description": "宇治抹茶搭配手工麻薯和红豆，层次丰富。",
+          "price": 35,
+          "originalPrice": 42,
+          "tags": [
+            {
+              "tagName": "新品",
+              "tagColor": "#52C41A"
+            },
+            {
+              "tagName": "限量",
+              "tagColor": "#FAAD14"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.9,
+          "salesCount": 1567
+        },
+        {
+          "productId": 110,
+          "productName": "黄油可颂",
+          "productImage": "https://fpoimg.com/400x400?gradient=FF512F,F09819&text_color=ffffff&text=可颂",
+          "description": "法国AOP黄油层层折叠，酥脆金黄，经典法式。",
+          "price": 20,
+          "originalPrice": null,
+          "tags": [],
+          "stockStatus": "inStock",
+          "rating": 4.6,
+          "salesCount": 7890
+        },
+        {
+          "productId": 111,
+          "productName": "肉桂卷",
+          "productImage": "https://fpoimg.com/400x400?gradient=11998E,38EF7D&text_color=ffffff&text=肉桂卷",
+          "description": "斯堪的纳维亚传统肉桂卷，浓郁肉桂香附糖霜。",
+          "price": 24,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "季节限定",
+              "tagColor": "#FA8C16"
+            }
+          ],
+          "stockStatus": "inStock",
+          "rating": 4.5,
+          "salesCount": 2134
+        },
+        {
+          "productId": 112,
+          "productName": "苹果肉桂面包",
+          "productImage": "https://fpoimg.com/400x400?gradient=FF9A9E,FECFEF&text_color=ffffff&text=苹果肉桂",
+          "description": "新鲜苹果丁与肉桂的完美融合，温暖冬日味道。",
+          "price": 29,
+          "originalPrice": null,
+          "tags": [
+            {
+              "tagName": "热销",
+              "tagColor": "#F5222D"
+            }
+          ],
+          "stockStatus": "limited",
+          "rating": 4.7,
+          "salesCount": 3245
+        }
+      ],
+      "pDetProduct": {
+        "productId": 101,
+        "productName": "北海道奶香吐司",
+        "productImages": [
+          "https://fpoimg.com/800x600?gradient=F3A183,F15F79&text_color=ffffff&text=北海道吐司1",
+          "https://fpoimg.com/800x600?gradient=00C6FF,0072FF&text_color=ffffff&text=北海道吐司2",
+          "https://fpoimg.com/800x600?gradient=11998E,38EF7D&text_color=ffffff&text=北海道吐司3"
+        ],
+        "price": 28,
+        "originalPrice": 35,
+        "description": "使用北海道鲜奶，口感柔软丝滑，早餐首选。",
+        "detailedDescription": "我们精选日本北海道特浓鲜牛乳，搭配法国进口黄油，经过72小时低温发酵，使面包组织格外细腻绵软。每一条吐司都手工整形，烘焙出金黄诱人的外表。适合直接食用或制作三明治。保质期：常温5天。",
+        "specifications": [
+          {
+            "name": "重量",
+            "options": [
+              "400g",
+              "800g"
+            ]
+          },
+          {
+            "name": "切片",
+            "options": [
+              "整条不切",
+              "厚切",
+              "薄切"
+            ]
+          }
+        ],
+        "rating": 4.8,
+        "salesCount": 2349,
+        "stockStatus": "inStock",
+        "tags": [
+          "热销",
+          "限时折扣"
+        ]
+      },
+      "pDetQuantity": 1,
+      "pDetWeight": "400g",
+      "pDetSlice": "整条不切",
+      "cSbrTitle": "购物车",
+      "cSbrItems": [
+        {
+          "productId": 101,
+          "productName": "北海道奶香吐司",
+          "productImage": "https://fpoimg.com/200x200?gradient=0067D1,004EA8&text_color=ffffff&text=吐司",
+          "price": 28,
+          "quantity": 2,
+          "stockStatus": "inStock"
+        },
+        {
+          "productId": 103,
+          "productName": "法式长棍面包",
+          "productImage": "https://fpoimg.com/200x200?gradient=09AA71,F4840C&text_color=ffffff&text=法棍",
+          "price": 18,
+          "quantity": 1,
+          "stockStatus": "inStock"
+        },
+        {
+          "productId": 107,
+          "productName": "蒜香奶酪包",
+          "productImage": "https://fpoimg.com/200x200?gradient=FCC800,0067D1&text_color=ffffff&text=奶酪包",
+          "price": 30,
+          "quantity": 3,
+          "stockStatus": "inStock"
+        }
+      ],
+      "cSbrTotalAmount": 158,
+      "copyright": "© 2025 鲜麦坊面包工坊 All Rights Reserved",
+      "companyName": "鲜麦坊食品有限公司",
+      "contactEmail": "service@xianmaifang.com",
+      "socialLinks": [
+        {
+          "platform": "微信",
+          "icon": "wechat",
+          "link": "#"
+        },
+        {
+          "platform": "微博",
+          "icon": "message-circle",
+          "link": "#"
+        },
+        {
+          "platform": "小红书",
+          "icon": "book-open",
+          "link": "#"
+        }
+      ]
+    }
+  }
+}

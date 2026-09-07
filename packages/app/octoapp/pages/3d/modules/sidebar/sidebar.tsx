@@ -17,12 +17,15 @@ import { useNotification } from "@/context/notification"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconSettings } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
+import { importPatternZip } from "../../utils/preview-handler/zip"
+import { getDesktopApi } from "../../utils/desktop-api"
+import { tracker } from "@/utils/tracker"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
       style={{
-        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transform: props.collapsed ? "rotate(0deg)" : "rotate(-90deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
@@ -32,7 +35,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function ThreeDSidebar(props: { width: number }): JSX.Element {
+export function Scene3DSidebar(props: { width: number }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
@@ -43,7 +46,7 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
   const projectDir = useProjectDir()
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
-  const [patternFetchedDir, setPatternFetchedDir] = createSignal<string>()
+  const [scene3dFetchedDir, setPatternFetchedDir] = createSignal<string>()
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
@@ -67,10 +70,10 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
         return [] as Session[]
       }
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      const result = await client.session.list({ roots: true })
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setPatternFetchedDir(d)
-      return data.filter(s => s.agent === "proto_3d_triage")
+      return data.filter(s => s.agent === "scene_3d_triage")
     },
   )
 
@@ -79,7 +82,7 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
     if (data) setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  const patternStable = createMemo(() => patternFetchedDir() === resolvedDir())
+  const scene3dStable = createMemo(() => scene3dFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -106,11 +109,8 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
     }
   }))
 
-  const [patternCollapsed, setPatternCollapsed] = createSignal(false)
+  const [scene3dCollapsed, setPatternCollapsed] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
-  let createTimer: ReturnType<typeof setTimeout> | undefined
-
-  onCleanup(() => clearTimeout(createTimer))
 
   const [contextMenu, setContextMenu] = createStore<{
     show: boolean
@@ -201,15 +201,70 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
   function newSession() {
     if (creating()) return
     setCreating(true)
-    clearTimeout(createTimer)
-    createTimer = setTimeout(() => setCreating(false), 500)
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "proto_3d_triage" }).then((result) => {
+    void client.session.create({ directory: dir, agent: "scene_3d_triage" }).then((result) => {
+      setCreating(false)
       const session = result.data as Session | undefined
-      if (session) navigate(`/3d/${session.id}`)
+      if (session) {
+        tracker.interaction({ module: "prototype", name: "new-session" })
+        navigate(`/3d/${session.id}`)
+      }
     })
+  }
+
+  async function handleFileImport() {
+    const dir = resolvedDir()
+    if (!dir) {
+      showToast({ title: "请先选择项目目录" })
+      return
+    }
+
+    const files = await importPatternZip()
+    if (!files) return
+
+    setCreating(true)
+    const client = globalSDK.createClient({ directory: dir })
+    const sessionResult = await client.session.create({ directory: dir, agent: "scene_3d_triage" })
+    setCreating(false)
+
+    const session = sessionResult.data as Session | undefined
+    if (!session) {
+      showToast({ title: "创建会话失败" })
+      return
+    }
+
+    const api = getDesktopApi()
+    const encoder = new TextEncoder()
+    const historyDir = `${dir}/.octo/design/history/${session.id}`
+
+    for (const file of files) {
+      await api?.writeFileBuffer?.(`${historyDir}/${file.name}`, encoder.encode(file.content).buffer)
+    }
+
+    const versionsFile = files.find((f) => f.name === "_versions.json")
+    let title = ""
+    if (versionsFile) {
+      try {
+        const idx = JSON.parse(versionsFile.content)
+        const current = idx.versions?.find((v: { id: string }) => v.id === idx.current)
+        title = current?.summary ?? idx.versions?.[0]?.summary ?? ""
+      } catch {}
+    }
+
+    if (title) {
+      await client.session.promptAsync({
+        sessionID: session.id,
+        parts: [{ type: "text", text: title }],
+        noReply: true,
+      })
+      try { await client.session.update({ sessionID: session.id, title }) } catch {}
+    }
+
+    await refetch()
+    tracker.interaction({ module: "prototype", name: "import-session" })
+    navigate(`/3d/${session.id}`)
   }
 
   return (
@@ -225,15 +280,26 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
       <div class="shrink-0 flex flex-col px-[12px]">
         <ProjectInfo />
         <div class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-            onClick={newSession}
-          >
-            <Icon name="plus" size="normal" class="shrink-0" />
-            <span>新建</span>
-          </button>
+          <div class="flex items-center justify-between gap-2 mb-[8px]">
+            <button
+              type="button"
+              class="flex items-center gap-2  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={newSession}
+            >
+              <Icon name="plus" size="normal" class="shrink-0" />
+              <span>新建</span>
+            </button>
+            {/* <button
+              type="button"
+              class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={() => void handleFileImport()}
+            >
+              <Icon name="download" size="normal" class="shrink-0" />
+              <span>导入</span>
+            </button> */}
+          </div>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
@@ -252,17 +318,17 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
               <span class="flex items-center gap-[12px] min-w-0">
                 <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
                 <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                  Octo 3D
+                  Octo Prototype
                 </span>
               </span>
-              <ChevronRightIcon collapsed={patternCollapsed()} />
+              <ChevronRightIcon collapsed={scene3dCollapsed()} />
             </button>
           </div>
 
-          <Show when={!patternCollapsed()}>
+          <Show when={!scene3dCollapsed()}>
             <div class="flex flex-col">
               <Show
-                when={patternStable()}
+                when={scene3dStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -273,7 +339,7 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
                   when={sessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      {isOnboarding() ? "请先选择项目目录" : "暂无 3D 场景"}
+                      {isOnboarding() ? "请先选择项目目录" : "暂无 Pattern"}
                     </div>
                   }
                 >

@@ -6,6 +6,7 @@ export type MaterialWordBook = { name: string; model: string[]; groups: { name: 
 export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; onSelectTag: (tag: string) => void }): JSX.Element {
   const [categoryIndex, setCategoryIndex] = createSignal(0)
   const [subcategoryIndex, setSubcategoryIndex] = createSignal(0)
+  const [selectedTag, setSelectedTag] = createSignal("")
 
   const currentWordBook = createMemo(() => {
     if (props.wordBook.error) return []
@@ -79,7 +80,11 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
                 <button
                   type="button"
                   class="studio-material-tag-btn"
-                  onClick={() => props.onSelectTag(tag.zh)}
+                  classList={{ active: selectedTag() === tag.zh }}
+                  onClick={() => {
+                    setSelectedTag(tag.zh)
+                    props.onSelectTag(tag.zh)
+                  }}
                 >
                   {tag.zh}
                 </button>

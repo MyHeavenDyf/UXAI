@@ -6,7 +6,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { A, useParams } from "@solidjs/router"
-import { type Accessor, createMemo, For, type JSX, Match, Show, Switch } from "solid-js"
+import { type Accessor, createEffect, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { getAvatarColors, type LocalProject, useLayout } from "@/context/layout"
@@ -100,10 +100,24 @@ const SessionRow = (props: {
   warmPress: () => void
   warmFocus: () => void
   onMarkViewed?: () => void
+  enableTruncationTooltip?: boolean
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
+  const [isTruncated, setIsTruncated] = createSignal(false)
+  let titleRef: HTMLSpanElement | undefined
+  let resizeObserver: ResizeObserver | undefined
 
-  return (
+  const checkTruncation = () => {
+    if (titleRef) setIsTruncated(titleRef.scrollWidth > titleRef.clientWidth)
+  }
+  createEffect(() => {
+    const _title = title()
+    void _title
+    queueMicrotask(() => checkTruncation())
+  })
+  onCleanup(() => resizeObserver?.disconnect())
+
+  const content = (
     <A
       href={`/${props.slug}/session/${props.session.id}`}
       class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
@@ -136,8 +150,34 @@ const SessionRow = (props: {
           </Switch>
         </div>
       </Show>
-      <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>
+      <span
+        ref={(el) => {
+          titleRef = el
+          resizeObserver?.disconnect()
+          resizeObserver = new ResizeObserver(() => checkTruncation())
+          resizeObserver.observe(el)
+          queueMicrotask(() => checkTruncation())
+        }}
+        class="text-14-regular text-text-strong min-w-0 flex-1 truncate"
+      >
+        {title()}
+      </span>
     </A>
+  )
+
+  return (
+    <Show when={props.enableTruncationTooltip} fallback={content}>
+      <Tooltip
+        value={title()}
+        inactive={!isTruncated()}
+        openDelay={500}
+        placement={props.mobile ? "bottom" : "right"}
+        gutter={10}
+        class="min-w-0 w-full"
+      >
+        {content}
+      </Tooltip>
+    </Show>
   )
 }
 
@@ -215,6 +255,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       onMarkViewed={() => notification.session.markViewed(props.session.id)}
+      enableTruncationTooltip={!tooltip()}
     />
   )
 

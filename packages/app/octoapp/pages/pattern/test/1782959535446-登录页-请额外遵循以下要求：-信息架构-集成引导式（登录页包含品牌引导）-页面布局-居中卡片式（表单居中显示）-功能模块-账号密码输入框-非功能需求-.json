@@ -1,0 +1,646 @@
+{
+  "planner": {
+    "state": {},
+    "rootId": "loginPageRoot",
+    "elements": [
+      {
+        "id": "loginPageRoot",
+        "component": "div",
+        "props": {
+          "className": "relative w-full min-h-screen flex items-center justify-center overflow-hidden bg-surface-container-lowest"
+        },
+        "children": [
+          "loginBackgroundSlot",
+          "loginCenterWrapper"
+        ]
+      },
+      {
+        "id": "loginBackgroundSlot",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 w-full h-full overflow-hidden"
+        },
+        "children": []
+      },
+      {
+        "id": "loginCenterWrapper",
+        "component": "div",
+        "props": {
+          "className": "relative z-10 flex flex-col items-center"
+        },
+        "children": [
+          "loginCardContainer",
+          "loginAuxSlot"
+        ]
+      },
+      {
+        "id": "loginCardContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[90%] max-w-[400px] bg-surface-container-highest shadow-card rounded-xl flex flex-col p-6 gap-4 overflow-hidden"
+        },
+        "children": [
+          "loginBrandSlot",
+          "loginFormSlot"
+        ]
+      },
+      {
+        "id": "loginBrandSlot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-4"
+        },
+        "children": []
+      },
+      {
+        "id": "loginFormSlot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": []
+      },
+      {
+        "id": "loginAuxSlot",
+        "component": "div",
+        "props": {
+          "className": "mt-4 flex flex-col items-center gap-2 text-sm text-on-surface-variant"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "backgroundSection",
+        "element_id": "loginBackgroundSlot",
+        "id_prefix": "bg"
+      },
+      {
+        "section_id": "brandSection",
+        "element_id": "loginBrandSlot",
+        "id_prefix": "brd"
+      },
+      {
+        "section_id": "loginFormSection",
+        "element_id": "loginFormSlot",
+        "id_prefix": "lgn"
+      },
+      {
+        "section_id": "auxiliarySection",
+        "element_id": "loginAuxSlot",
+        "id_prefix": "aux"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "loginPageRoot",
+    "elements": [
+      {
+        "id": "loginPageRoot",
+        "component": "div",
+        "props": {
+          "className": "relative w-full min-h-screen flex items-center justify-center overflow-hidden bg-surface-container-lowest"
+        },
+        "children": [
+          "loginBackgroundSlot",
+          "loginCenterWrapper"
+        ]
+      },
+      {
+        "id": "loginBackgroundSlot",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 w-full h-full overflow-hidden"
+        },
+        "children": [
+          "bgBackgroundContainer"
+        ]
+      },
+      {
+        "id": "loginCenterWrapper",
+        "component": "div",
+        "props": {
+          "className": "relative z-10 flex flex-col items-center"
+        },
+        "children": [
+          "loginCardContainer",
+          "loginAuxSlot"
+        ]
+      },
+      {
+        "id": "loginCardContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[90%] max-w-[400px] bg-surface-container-highest shadow-card rounded-xl flex flex-col p-6 gap-4 overflow-hidden"
+        },
+        "children": [
+          "loginBrandSlot",
+          "loginFormSlot"
+        ]
+      },
+      {
+        "id": "loginBrandSlot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-4"
+        },
+        "children": [
+          "brdLogo",
+          "brdTitle",
+          "brdWelcome",
+          "brdSubtext"
+        ]
+      },
+      {
+        "id": "loginFormSlot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": [
+          "lgnLoginCard"
+        ]
+      },
+      {
+        "id": "loginAuxSlot",
+        "component": "div",
+        "props": {
+          "className": "mt-4 flex flex-col items-center gap-2 text-sm text-on-surface-variant"
+        },
+        "children": [
+          "auxLinksContainer",
+          "auxVersionText",
+          "auxCopyrightText"
+        ]
+      },
+      {
+        "id": "bgBackgroundContainer",
+        "component": "div",
+        "props": {
+          "className": "relative w-full h-full bg-gradient-to-br from-primary to-primary-fixed-dim"
+        },
+        "children": [
+          "bgOverlayImageElement",
+          "bgDecorativeCircle1",
+          "bgDecorativeCircle2",
+          "bgDecorativeCircle3"
+        ]
+      },
+      {
+        "id": "bgOverlayImageElement",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/backgroundOverlayImage"
+          },
+          "className": "absolute inset-0 w-full h-full object-cover opacity-30",
+          "alt": "Semi-transparent brand texture overlay enhancing visual depth"
+        }
+      },
+      {
+        "id": "bgDecorativeCircle1",
+        "component": "div",
+        "props": {
+          "className": "absolute rounded-full w-[300px] h-[300px] left-[15%] top-[20%] bg-white/5"
+        }
+      },
+      {
+        "id": "bgDecorativeCircle2",
+        "component": "div",
+        "props": {
+          "className": "absolute rounded-full w-[200px] h-[200px] left-[80%] top-[70%] bg-white/10"
+        }
+      },
+      {
+        "id": "bgDecorativeCircle3",
+        "component": "div",
+        "props": {
+          "className": "absolute rounded-full w-[120px] h-[120px] left-[50%] top-[10%] bg-white/5"
+        }
+      },
+      {
+        "id": "brdLogo",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/logoIcon"
+          },
+          "color": "primary",
+          "shape": "square",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "brdTitle",
+        "component": "span",
+        "props": {
+          "className": "text-2xl font-bold text-on-surface",
+          "value": {
+            "path": "/brandName"
+          }
+        }
+      },
+      {
+        "id": "brdWelcome",
+        "component": "span",
+        "props": {
+          "className": "text-lg text-on-surface",
+          "value": {
+            "path": "/welcomeText"
+          }
+        }
+      },
+      {
+        "id": "brdSubtext",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "/subWelcomeText"
+          }
+        }
+      },
+      {
+        "id": "lgnLoginCard",
+        "component": "div",
+        "props": {
+          "className": "w-full max-w-[400px] mx-auto bg-surface-container-highest shadow-card rounded-xl p-inset flex flex-col gap-section"
+        },
+        "children": [
+          "lgnBrandSection",
+          "lgnFormBody",
+          "lgnAuxSection"
+        ]
+      },
+      {
+        "id": "lgnBrandSection",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-3"
+        },
+        "children": [
+          "lgnBrandIcon",
+          "lgnBrandTitle",
+          "lgnBrandSubtitle"
+        ]
+      },
+      {
+        "id": "lgnBrandIcon",
+        "component": "Icon",
+        "props": {
+          "name": "log-in",
+          "color": "primary",
+          "shape": "square",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "lgnBrandTitle",
+        "component": "h1",
+        "props": {
+          "value": "欢迎登录",
+          "className": "text-2xl font-bold text-on-surface"
+        }
+      },
+      {
+        "id": "lgnBrandSubtitle",
+        "component": "p",
+        "props": {
+          "value": "请输入您的账号信息以继续",
+          "className": "text-sm text-on-surface-variant"
+        }
+      },
+      {
+        "id": "lgnFormBody",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": [
+          "lgnUserNameInput",
+          "lgnPasswordInput",
+          "lgnCaptchaRow",
+          "lgnRememberField",
+          "lgnErrorAlert",
+          "lgnLoginBtn"
+        ]
+      },
+      {
+        "id": "lgnUserNameInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/username"
+          },
+          "placeholder": {
+            "path": "/formState/userNamePlaceholder"
+          },
+          "prefix": "user",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "lgnPasswordInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/password"
+          },
+          "placeholder": {
+            "path": "/formState/passwordPlaceholder"
+          },
+          "prefix": "lock",
+          "password": true,
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "lgnCaptchaRow",
+        "component": "div",
+        "props": {
+          "className": "flex gap-3 items-center"
+        },
+        "children": [
+          "lgnCaptchaInput",
+          "lgnCaptchaImg"
+        ]
+      },
+      {
+        "id": "lgnCaptchaInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/captcha"
+          },
+          "placeholder": {
+            "path": "/formState/captchaPlaceholder"
+          },
+          "size": "large",
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "lgnCaptchaImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/formState/captchaImage"
+          },
+          "alt": "验证码",
+          "className": "h-10 w-auto rounded-lg cursor-pointer border border-base shrink-0"
+        }
+      },
+      {
+        "id": "lgnRememberField",
+        "component": "Checkbox",
+        "props": {
+          "checked": {
+            "path": "/rememberMe"
+          },
+          "label": {
+            "path": "/formState/rememberMeLabel"
+          }
+        }
+      },
+      {
+        "id": "lgnErrorAlert",
+        "component": "div",
+        "props": {
+          "className": "bg-warning-container text-on-warning-container px-4 py-3 rounded-lg flex items-center gap-2"
+        },
+        "children": [
+          "lgnErrorIcon",
+          "lgnErrorText"
+        ]
+      },
+      {
+        "id": "lgnErrorIcon",
+        "component": "Icon",
+        "props": {
+          "name": "alert-triangle",
+          "color": "warning",
+          "shape": "fill",
+          "className": "w-5 h-5 shrink-0"
+        }
+      },
+      {
+        "id": "lgnErrorText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/securityStatus/errorMessage"
+          },
+          "className": "text-sm"
+        }
+      },
+      {
+        "id": "lgnLoginBtn",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "/formState/loginButtonText"
+          },
+          "icon": "log-in",
+          "iconPlacement": "start",
+          "color": "primary",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "lgnAuxSection",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-3"
+        },
+        "children": [
+          "lgnAuxLinks",
+          "lgnCopyright"
+        ]
+      },
+      {
+        "id": "lgnAuxLinks",
+        "component": "div",
+        "props": {
+          "className": "flex gap-4 justify-center"
+        },
+        "children": [
+          "lgnForgotPwdBtn",
+          "lgnRegisterBtn"
+        ]
+      },
+      {
+        "id": "lgnForgotPwdBtn",
+        "component": "Button",
+        "props": {
+          "value": "忘记密码？",
+          "types": "link"
+        }
+      },
+      {
+        "id": "lgnRegisterBtn",
+        "component": "Button",
+        "props": {
+          "value": "注册账号",
+          "types": "link"
+        }
+      },
+      {
+        "id": "lgnCopyright",
+        "component": "span",
+        "props": {
+          "value": "© 2026 企业管理系统 版权所有",
+          "className": "text-xs text-on-surface-variant"
+        }
+      },
+      {
+        "id": "auxLinksContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "auxForgotLink",
+          "auxLinkDivider",
+          "auxRegisterLink"
+        ]
+      },
+      {
+        "id": "auxForgotLink",
+        "component": "a",
+        "props": {
+          "className": "flex items-center gap-1 text-primary hover:underline",
+          "href": {
+            "path": "/forgotUrl"
+          }
+        },
+        "children": [
+          "auxForgotIcon",
+          "auxForgotText"
+        ]
+      },
+      {
+        "id": "auxForgotIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/forgotIcon"
+          },
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "auxForgotText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/forgotText"
+          }
+        }
+      },
+      {
+        "id": "auxLinkDivider",
+        "component": "span",
+        "props": {
+          "value": "|",
+          "className": "text-divider"
+        }
+      },
+      {
+        "id": "auxRegisterLink",
+        "component": "a",
+        "props": {
+          "className": "flex items-center gap-1 text-primary hover:underline",
+          "href": {
+            "path": "/registerUrl"
+          }
+        },
+        "children": [
+          "auxRegisterIcon",
+          "auxRegisterText"
+        ]
+      },
+      {
+        "id": "auxRegisterIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/registerIcon"
+          },
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "auxRegisterText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/registerText"
+          }
+        }
+      },
+      {
+        "id": "auxVersionText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/version"
+          }
+        }
+      },
+      {
+        "id": "auxCopyrightText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/copyright"
+          }
+        }
+      }
+    ],
+    "state": {
+      "backgroundOverlayImage": "https://fpoimg.com/1920x1080?gradient=0067D1,004EA8&text_color=ffffff&text=OVERLAY",
+      "logoIcon": "Rocket",
+      "logoIconSize": 48,
+      "brandName": "星辰科技",
+      "welcomeText": "欢迎回到星辰工作平台",
+      "subWelcomeText": "请登录您的账户以继续",
+      "username": "",
+      "password": "",
+      "captcha": "",
+      "rememberMe": true,
+      "formState": {
+        "userNamePlaceholder": "请输入用户名 / 邮箱",
+        "userNamePrefixIcon": "user",
+        "passwordPlaceholder": "请输入密码",
+        "passwordPrefixIcon": "lock",
+        "showCaptcha": true,
+        "captchaImage": "https://fpoimg.com/120x48?text=7KX9&gradient=0067D1,004EA8&text_color=ffffff",
+        "captchaPlaceholder": "请输入右侧验证码",
+        "rememberMeLabel": "记住我",
+        "loginButtonText": "登  录",
+        "loginButtonIcon": "log-in"
+      },
+      "securityStatus": {
+        "remainingAttempts": 2,
+        "maxAttempts": 5,
+        "errorMessage": "密码错误，剩余 2 次机会",
+        "errorSeverity": "warning"
+      },
+      "forgotText": "忘记密码？",
+      "forgotUrl": "/forgot-password",
+      "forgotIcon": "help-circle",
+      "registerText": "注册新账户",
+      "registerUrl": "/register",
+      "registerIcon": "user-plus",
+      "version": "v4.2.1",
+      "copyright": "© 2026 星辰科技 All Rights Reserved."
+    }
+  }
+}

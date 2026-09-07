@@ -1,8 +1,9 @@
 import "./studio/studio.css"
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -10,22 +11,30 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
+import { DialogSettings } from "@/components/dialog-settings"
+import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
+import { directoryHeader } from "@/utils/headers"
+import { modelsApiHeaders } from "@/network/models-api"
+import { useModels } from "@/context/models"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  referenceImageLimit,
+  styleModelId,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./studio/data"
@@ -42,7 +51,10 @@ import type {
 import {
   buildStudioConversationContext,
   buildStudioDisplayPrompt,
+  buildStudioInputImages,
   buildStudioTurns,
+  parseToolAttachments,
+  parseToolImages,
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
@@ -52,6 +64,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
@@ -63,6 +76,7 @@ import {
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
+  STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
   stringValue,
@@ -79,17 +93,37 @@ import {
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
+import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
+import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
+const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+
+type StudioPromptGenResponse = {
+  resp_code?: number
+  resp_msg?: string
+  result?: {
+    en?: string
+    zh?: string
+  }
+}
+
 type StudioGenerationOverrides = {
   capability?: StudioCapability
   prompt?: string
+  displayPrompt?: string
+  detailPrompt?: string
+  refinedPrompt?: string
+  effectivePrompt?: string
   sourceImage?: string
   referenceImages?: string[]
   extra?: Record<string, unknown>
   videoFrames?: { first?: string; last?: string }
   styleModel?: string
   aspectRatio?: StudioAspectRatio
+  width?: number
+  height?: number
   count?: 1 | 2 | 3 | 4
   videoDuration?: StudioVideoDuration
   videoQualityMode?: StudioVideoQualityMode
@@ -105,19 +139,35 @@ export default function StudioPage() {
   const language = useLanguage()
   const layout = useLayout()
   const server = useServer()
+  const models = useModels()
   const dialog = useDialog()
   let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
+  onCleanup(() => {
+    toaster.clear()
+    // 离开 studio 页面时清除所有 session 的筛选状态
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(STUDIO_FILTER_STATE_KEY_PREFIX)) localStorage.removeItem(key)
+    }
+  })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
+    // Fast path: check global sync store.
     const session = syncStore.session.find(s => s.id === sessionId)
-    return session?.agent === "octo_studio"
+    if (session?.agent === "octo_studio") return true
+    // Fallback: if messages have already been loaded for this session (the user
+    // is actively viewing it), treat it as valid even if the sync store hasn't
+    // caught up yet.  Otherwise runGeneration/openInpaint would create a new
+    // session when the user clicks generate in an existing one.
+    if (dataStore.message[sessionId]) return true
+    return false
   }
   const activeStudioSession = createMemo(() => {
     if (!params.id) return
@@ -143,6 +193,9 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
+    // 重置为默认生图模式，避免持久化的编辑 capability 导致
+    // hasStudioConversation 误判为 true，从而不显示 studio-empty-workspace
+    if (workspaceModeForCapability(capability())) setCapability("image.generate")
     const decoded = decode64(params.dir)
     if (!decoded) return
     const lastId = layout.lastSessionPerTab.studio(decoded)
@@ -151,28 +204,61 @@ export default function StudioPage() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
-  const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
-  const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [imageSettingStore, setImageSettingStore] = persisted(
-    Persist.global("studio.image.settings"),
-    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+    { ...Persist.global("studio.image.settings"), migrate: (value: unknown) => {
+      if (value && typeof value === "object" && (value as Record<string, unknown>).count === 1) {
+        return { ...(value as Record<string, unknown>), count: 4 }
+      }
+      return value
+    } },
+    createStore({
+      capability: "image.generate" as StudioCapability,
+      aspectRatio: "3:4" as StudioAspectRatio,
+      count: 4 as 1 | 2 | 3 | 4,
+      styleModel: "seedream-5-lite",
+    }),
   )
+  const capability = () => imageSettingStore.capability
+  const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
+  const aspectRatio = () => imageSettingStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
+  const count = () => imageSettingStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const styleModel = () => imageSettingStore.styleModel
+  const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [customWidth, setCustomWidth] = createSignal(0)
+  const [customHeight, setCustomHeight] = createSignal(0)
+  const [isCustomStore, setIsCustomStore] = createSignal(false)
+  const maxReferenceImages = () => referenceImageLimit(styleModel())
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
+  let reversePromptRunning = false
+  let reversePromptController: AbortController | undefined
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
+  const [rebootingGenerationIDs, setRebootingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
   const processedAutoAddResults = new Set<string>()
-  const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
+  const [studioViewPref, setStudioViewPref] = persisted(
+    Persist.global("studio.view.preference"),
+    createStore({ mode: "canvas" as "canvas" | "file-manager" }),
+  )
+  const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
+  const [showFileManager, setShowFileManager] = createSignal(true)
+  const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
+  // 记录上一次 session id，切换 session 时重置视图偏好
+  let lastStudioSessionId: string | undefined
+  // 记录文件管理详情页当前查看的 resultId / imageId，从 canvas 切回时恢复
+  let fileManagerDetailResultId: string | undefined
+  let fileManagerDetailImageId: string | undefined
+  const [fileManagerGenPending, setFileManagerGenPending] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
@@ -184,13 +270,14 @@ export default function StudioPage() {
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
+  onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
     () => server.current,
     async (current: any) => {
       const headers: Record<string, string> = {
         accept: "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -218,7 +305,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -256,22 +343,66 @@ export default function StudioPage() {
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   let generationToken = 0
+  let createGenerationController: AbortController | undefined
+  const terminatedGenerationIDs = new Set<string>()
+  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
+  const [studioLeftWidth, setStudioLeftWidth] = createSignal(studioLeftStore.width)
+  const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
   )
-  const studioLeftWidth = () => studioLeftStore.width
-  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
-  const studioCenterWidth = () => studioCenterStore.width
-  const setStudioCenterWidth = (w: number) => setStudioCenterStore({ width: w })
+  const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
   })
+  const studioThumbnails = createSessionThumbnailStore({
+    dir: () => projectDir(),
+    globalSDK,
+  })
+
+  // Reactive effect: auto-update thumbnail whenever pendingResult transitions to succeeded.
+  createEffect(() => {
+    const result = pendingResult()
+    console.log("[Thumbnail] Effect tick, pendingResult:", result?.status, "sessionID:", result?.sessionID, "images:", result?.images?.length)
+    if (!result || result.status !== "succeeded") return
+    const sid = result.sessionID ?? params.id
+    const images = result.images
+    if (sid && images && images.length > 0) {
+      console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
+      studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+    }
+  })
+  // Global listener: update thumbnails when any session's generation completes,
+  // regardless of which session is active. This covers the case where the user
+  // switches sessions while a generation is in progress.
+  const thumbnailUnsub = globalSDK.event.listen((event) => {
+    const payload = event.details
+    if (payload.type !== "message.part.updated") return
+    const part = payload.properties.part as Part & { sessionID?: string }
+    if (part.type !== "tool") return
+    const state = part.state as { status?: string; output?: string; attachments?: Array<{ url: string; kind?: string }> }
+    if (state.status !== "completed") return
+    const sessionID = part.sessionID
+    if (!sessionID) return
+    const attachments = parseToolAttachments(part as Extract<Part, { type: "tool" }>)
+    const images = parseToolImages(state.output ?? "")
+    if (attachments.length === 0 && images.length === 0) return
+    const url = attachments.length > 0
+      ? (attachments.find((a) => a.kind !== "video") ?? attachments[0]).url
+      : images[0]
+    if (url) {
+      console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
+      studioThumbnails.setThumbnail(sessionID, url)
+    }
+  })
+  onCleanup(thumbnailUnsub)
+
   let fileInputRef!: HTMLInputElement
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
@@ -279,6 +410,8 @@ export default function StudioPage() {
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
+  // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
+  const visitedSessionIds = new Set<string>()
   let pendingVideoFirstFrame: StudioAsset | undefined
   const blobUrlCache = new Map<string, string>()
 
@@ -297,6 +430,12 @@ export default function StudioPage() {
     const next = createBlobUrlFromDataUrl(url)
     blobUrlCache.set(url, next)
     return next
+  }
+
+  /** Pick the best thumbnail URL from a list of StudioImages. Prefers non-video images. */
+  function pickThumbnail(images: StudioImage[]): string | undefined {
+    const img = images.find((i) => !isVideoMedia(i)) ?? images[0]
+    return img ? (img.thumbnailUrl ?? img.url) : undefined
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
@@ -388,40 +527,151 @@ export default function StudioPage() {
     blobUrlCache.clear()
   })
 
-  function handleStudioLeftResize(event: MouseEvent) {
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioLeftWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioLeftWidth(Math.max(160, Math.min(360, startWidth + delta)))
+  const [resizingLeft, setResizingLeft] = createSignal(false)
+  const [resizingCenter, setResizingCenter] = createSignal(false)
+  const [resizeState, setResizeState] = createStore({ startX: 0, startWidth: 0 })
+
+  function onPagePointerMove(e: PointerEvent) {
+    if (resizingLeft()) {
+      const delta = e.clientX - resizeState.startX
+      setStudioLeftWidth(Math.max(200, Math.min(360, resizeState.startWidth + delta)))
     }
-    function onUp() {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    if (resizingCenter()) {
+      const delta = e.clientX - resizeState.startX
+      const pageWidth = studioPageRef?.clientWidth ?? window.innerWidth
+      const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+      const minCanvas = 800
+      // 左增右剪，左减右增：center 最大 = min(700, 页面宽度 - 左侧面板 - canvas 最小宽度)
+      const maxCenter = Math.min(700, pageWidth - leftW - minCanvas)
+      setStudioCenterWidth(Math.min(maxCenter, Math.max(360, resizeState.startWidth + delta)))
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
   }
 
-  function handleStudioCenterResize(event: MouseEvent) {
+  function onPagePointerUp() {
+    if (resizingLeft()) {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setResizingLeft(false)
+      setStudioLeftStore("width", studioLeftWidth())
+    }
+    if (resizingCenter()) {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setResizingCenter(false)
+      setStudioCenterStore("width", studioCenterWidth())
+    }
+  }
+
+  function handleStudioLeftResize(event: PointerEvent) {
     event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioCenterWidth()
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
+    setResizeState({ startX: event.clientX, startWidth: studioLeftWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingLeft(true)
+  }
+
+  // 窗口宽度（响应式追踪）
+  const [windowWidth, setWindowWidth] = createSignal(window.innerWidth)
+
+  // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
+  const [showToggleDrawer, setShowToggleDrawer] = createSignal(false)
+
+  // 窗口 <1228px 时隐藏 studio-center
+  const [showStudioCenter, setShowStudioCenter] = createSignal(true)
+  createEffect(() => {
+    const mql = window.matchMedia("(min-width: 1228px)")
+    const update = () => setShowStudioCenter(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // studio-canvas 实际宽度（依赖 showStudioCenter，需放在其声明之后）
+  const canvasWidth = createMemo(() => {
+    const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+    const centerW = showStudioCenter() ? studioCenterWidth() : 0
+    return windowWidth() - leftW - centerW
+  })
+
+  // 窗口 <1456px 时左侧栏以遮罩层形式展示
+  const [studioLeftOverlayOpen, setStudioLeftOverlayOpen] = createSignal(false)
+  const [isOverlayMode, setIsOverlayMode] = createSignal(false)
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => {
+      setIsOverlayMode(mql.matches)
+      if (!mql.matches) setStudioLeftOverlayOpen(false)
     }
-    function onUp() {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 窗口 <1456px 时左侧栏默认收缩
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => setStudioLeftCollapsed(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    window.addEventListener("resize", update)
+    onCleanup(() => {
+      mql.removeEventListener("change", update)
+      window.removeEventListener("resize", update)
+    })
+  })
+
+  // 自适应布局：
+  //   ≥1920px:         left=296, center=(w-296)*29%, 限幅[360,700]
+  //   1228px-1919px:   left=296, center=(w-296)*31%, 限幅[360,700]
+  createEffect(() => {
+    const mqlWide = window.matchMedia("(min-width: 1920px)")
+    const mqlMedium = window.matchMedia("(min-width: 1456px) and (max-width: 1919px)")
+    const mqlCenter31 = window.matchMedia("(min-width: 1228px) and (max-width: 1919px)")
+
+    const calcCenterWidth = () => {
+      setWindowWidth(window.innerWidth)
+      if (mqlWide.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.29)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      } else if (mqlCenter31.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.31)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      }
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+
+    const onMediaChange = () => {
+      setShowToggleDrawer(mqlMedium.matches)
+      if (mqlWide.matches || mqlMedium.matches) {
+        if (!studioLeftCollapsed()) setStudioLeftWidth(296)
+      }
+      setWindowWidth(window.innerWidth)
+      calcCenterWidth()
+    }
+
+    onMediaChange()
+    mqlWide.addEventListener("change", onMediaChange)
+    mqlMedium.addEventListener("change", onMediaChange)
+    mqlCenter31.addEventListener("change", onMediaChange)
+    window.addEventListener("resize", calcCenterWidth)
+    onCleanup(() => {
+      mqlWide.removeEventListener("change", onMediaChange)
+      mqlMedium.removeEventListener("change", onMediaChange)
+      mqlCenter31.removeEventListener("change", onMediaChange)
+      window.removeEventListener("resize", calcCenterWidth)
+    })
+  })
+
+  const centerResizeLeft = createMemo(() => {
+    if (studioLeftCollapsed()) return 68
+    return studioLeftWidth()
+  })
+
+  function handleStudioCenterResize(event: PointerEvent) {
+    event.preventDefault()
+    setResizeState({ startX: event.clientX, startWidth: studioCenterWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingCenter(true)
   }
 
   const isBusy = createMemo(() =>
@@ -430,11 +680,13 @@ export default function StudioPage() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  const isActionBusy = createMemo(() => isBusy() || rebootingGenerationIDs().size > 0)
   const turns = createMemo(() =>
     buildStudioTurns({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
       fallback: pendingResult(),
+      currentSessionID: params.id,
     }),
   )
   const displayTurns = createMemo(() =>
@@ -443,17 +695,22 @@ export default function StudioPage() {
       const pendingTurnID = pending ? `studio_${pending.id}` : undefined
       const next = turns().map((turn) => {
         const normalized = turn.result ? { ...turn, result: normalizeResultValue(turn.result) } : turn
-        if (!pending || normalized.id !== pendingTurnID) return normalized
+        if (!pending || normalized.id !== pendingTurnID && normalized.result?.id !== pending.id) return normalized
+        const assistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
+          ? STUDIO_REGENERATE_ASSISTANT_TEXT
+          : buildStudioThinkingText({
+              capability: pending.capability,
+              sourceImage: pending.sourceImage,
+            })
         return {
           ...normalized,
-          assistantText: normalized.assistantText || buildStudioThinkingText({
-            text: pending.prompt,
-            capability: pending.capability,
-            sourceImage: pending.sourceImage,
-          }),
+          userText: pending.displayPrompt || normalized.userText,
+          assistantText: pending.displayPrompt ? assistantText : normalized.assistantText || assistantText,
+          toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
-          toolRunning: pending.status === "running",
+          toolRunning: pending.status === "queued" || pending.status === "running",
+          inputImages: pending.inputImages ?? normalized.inputImages,
           result: normalizeResultValue(pending),
         }
       })
@@ -467,16 +724,28 @@ export default function StudioPage() {
           .map((turn, index, all) => ({ ...turn, isLatest: index === all.length - 1 }))
       }
       if (!pending) return mergeEditorEntries(next)
+      const pendingUserText = pending.displayPrompt || pending.prompt
+      const pendingAssistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
+        ? STUDIO_REGENERATE_ASSISTANT_TEXT
+        : buildStudioThinkingText({
+            capability: pending.capability,
+            sourceImage: pending.sourceImage,
+          })
       const latest = next.at(-1)
-      if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
+      const pendingVisible = next.some((turn) => matchesPendingTurn(turn, pending))
+      if (latest?.userText === pendingUserText && !latest.result?.images.length && latest.toolRunning) {
         if (isStudioGenerationFailure(pending.status)) {
           return mergeEditorEntries([
             ...next.slice(0, -1),
             {
               ...latest,
+              userText: pendingUserText,
+              assistantText: pendingAssistantText,
+              toolError: undefined,
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
               toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
+              inputImages: pending.inputImages ?? latest.inputImages,
               result: normalizeResultValue(pending),
             },
           ])
@@ -486,32 +755,30 @@ export default function StudioPage() {
           ...next.slice(0, -1),
           {
             ...latest,
-            assistantText: latest.assistantText || buildStudioThinkingText({
-              text: pending.prompt,
-              capability: pending.capability,
-              sourceImage: pending.sourceImage,
-            }),
+            userText: pendingUserText,
+            assistantText: pending.displayPrompt ? pendingAssistantText : latest.assistantText || pendingAssistantText,
+            toolError: undefined,
             toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
             toolName: "内部 · 完成",
             toolRunning: false,
+            inputImages: pending.inputImages ?? latest.inputImages,
             result: normalizeResultValue(pending),
           },
         ])
       }
-      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0) return mergeEditorEntries(next)
-      if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return mergeEditorEntries(next)
+      if (pendingVisible) return mergeEditorEntries(next)
+      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0 && !pending.displayPrompt) return mergeEditorEntries(next)
       return mergeEditorEntries([
         ...next,
         {
           id: pending.id,
-          userText: pending.prompt,
-          assistantText: buildStudioThinkingText({
-            text: pending.prompt,
-            capability: pending.capability,
-            sourceImage: pending.sourceImage,
-          }),
+          userText: pendingUserText,
+          assistantText: pendingAssistantText,
+          toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
+          toolRunning: pending.status === "queued" || pending.status === "running",
+          inputImages: pending.inputImages,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -526,7 +793,36 @@ export default function StudioPage() {
   })
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const defaultResult = createMemo(() => {
+    const pending = pendingResult()
+    if (
+      pending &&
+      !selectedResultId() &&
+      (sending() || pending.status === "queued" || pending.status === "running")
+    ) return pending
+
+    const turn = studioTurn()
+    // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
+    if (turn?.result && turn.result.images.length === 0 &&
+        (turn.result.status === "failed" || turn.result.status === "create_failed")) {
+      return latestCompletedTurn()?.result ?? pending
+    }
+    return turn?.result ?? latestCompletedTurn()?.result ?? pending
+  })
+  function isSamePendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
+    return Boolean(turn && (turn.id === pending.id || turn.id === `studio_${pending.id}` || turn.result?.id === pending.id))
+  }
+  function matchesPendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
+    if (isSamePendingTurn(turn, pending)) return true
+    if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
+    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
+    return Boolean(
+      turn?.result &&
+        (turn.userText === STUDIO_REGENERATE_DISPLAY_PROMPT || turn.result.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT) &&
+        turn.result.prompt === pending.prompt &&
+        turn.result.capability === pending.capability,
+    )
+  }
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -543,11 +839,34 @@ export default function StudioPage() {
     const r2 = filtered.length === r.images.length ? r : { ...r, images: filtered }
     return r2.images.length > 0 ? r2 : undefined
   })
+  // Keep showFileManager in sync with the persisted preference.
+  // When the current session has no data, hide canvas/file-manager and show StudioIntro.
+  // When switching sessions, default to the latest image tab (canvas).
+  createEffect(() => {
+    // 生成中时保持不变，避免文件管理覆盖 canvas 的 loading 状态
+    if (isBusy()) return
+    // 切换 session 时重置为默认显示图片/视频 tab
+    if (params.id !== lastStudioSessionId) {
+      lastStudioSessionId = params.id
+      setStudioViewPref("mode", "canvas")
+    }
+    const hasImages = displayTurns().some((t) => (t.result?.images.length ?? 0) > 0)
+    const hasData = displayTurns().length > 0 || pendingResult() || sending()
+    if (!hasData || !hasImages) {
+      // 无数据或无图片 → 显示 StudioIntro，隐藏 canvas 和文件管理
+      setShowStudioCanvas(false)
+      setShowFileManager(false)
+      return
+    }
+    // 有数据且有图片 → 显示 canvas 区域，默认图片 tab
+    setShowStudioCanvas(true)
+    setShowFileManager(studioViewPref.mode === "file-manager")
+  })
+
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
-    if (canvasResult()?.images.length) return "succeeded"
-    // isBusy 优先于 result status 检查，避免发送新生成时
-    // 因旧 turn 的 failed result 导致闪现"生成失败"
+    // isBusy 最优先，确保正在生成时显示 loading，而非被旧 result 的缓存图片掩盖
     if (isBusy()) return "running"
+    if (canvasResult()?.images.length) return "succeeded"
     if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
@@ -626,6 +945,8 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
+        setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
         return
       }
@@ -640,9 +961,32 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
+        setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
       }
     })
+  }
+
+  function selectFileManagerMedia(input: { resultID: string; imageID: string }) {
+    fileManagerDetailResultId = input.resultID
+    fileManagerDetailImageId = input.imageID
+    batch(() => {
+      setShowStudioCanvas(true)
+      setShowFileManager(true)
+      setFileManagerDetailView(true)
+      setSelectedResultId(input.resultID)
+      setSelectedImageId(input.imageID)
+      setDeletedImageIds(new Set<string>())
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("preview")
+    })
+  }
+
+  function backFromFileManagerDetail() {
+    setFileManagerGenPending(false)
+    setFileManagerDetailView(false)
   }
 
   function selectCanvasTab(id: string) {
@@ -655,6 +999,8 @@ export default function StudioPage() {
       setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
+      setShowFileManager(false)
+      setStudioViewPref("mode", "canvas")
       setMode("preview")
     })
   }
@@ -681,9 +1027,13 @@ export default function StudioPage() {
           .find((r) => r?.images.some((img) => img.id === nextId))
         if (turn) setSelectedResultId(turn.id)
       } else {
-        // 最后一个 tab：隐藏 canvas 和 details
-        // 注意：不清空 selectedImageId，否则 auto-show effect 会重新创建 tab
-        setShowStudioCanvas(false)
+        // 最后一个 tab：切换到文件管理，清除选中避免 fallback 重新创建 tab
+        setSelectedResultId(undefined)
+        setSelectedImageId(undefined)
+        setShowStudioCanvas(true)
+        setShowFileManager(true)
+        setFileManagerDetailView(false)
+        setStudioViewPref("mode", "file-manager")
       }
     })
   }
@@ -691,57 +1041,71 @@ export default function StudioPage() {
   createEffect(() => {
     const pending = pendingResult()
     if (!pending) return
-    if (studioTurn()?.id === pending.id) return
-    if (studioTurn()?.userText !== pending.prompt) return
-    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) return
-    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
-    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
-      const next = studioTurn()!.result!
+    const turn = studioTurn()
+    if (!matchesPendingTurn(turn, pending)) return
+    if (isStudioGenerationFailure(pending.status) && turn?.toolRunning) return
+    if (pending.status === "succeeded" && pending.images.length > 0 && turn?.toolRunning) return
+    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+      const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
     }
-    if (!studioTurn()?.result && !studioTurn()?.toolError) return
+    if (!turn?.result && !turn?.toolError) return
+    // Save thumbnail before clearing pendingResult — check both pending and turn for images
+    const images = (pending.images?.length ? pending.images : turn?.result?.images) ?? []
+    if (images.length > 0) {
+      const sid = pending.sessionID ?? params.id
+      if (sid) {
+        console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
+        studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+      }
+    }
     setPendingResult(undefined)
-    setStatus(studioTurn()?.result?.status ?? (studioTurn()?.toolError ? "failed" : "succeeded"))
+    setStatus(turn.result?.status ?? (turn.toolError ? "failed" : "succeeded"))
   })
 
   createEffect(() => {
     const pending = pendingResult()
     if (!pending || sending()) return
     if (sessionStatus().type !== "idle") return
-    if (studioTurn()?.id === pending.id) return
-    if (studioTurn()?.userText !== pending.prompt) return
-    if (studioTurn()?.result?.images.length) {
+    const turn = studioTurn()
+    if (!matchesPendingTurn(turn, pending)) return
+    if (turn?.result?.images.length) {
+      const sid = pending.sessionID ?? params.id
+      if (sid) {
+        console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
+        studioThumbnails.setThumbnail(sid, pickThumbnail(turn!.result!.images)!)
+      }
       setPendingResult(undefined)
       setStatus("succeeded")
       return
     }
-    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
-      const next = studioTurn()!.result!
+    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+      const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
     }
-    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) {
+    if (pending.status === "succeeded" && pending.images.length > 0 && turn?.toolRunning) {
       setStatus("succeeded")
       return
     }
-    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) {
+    if (isStudioGenerationFailure(pending.status) && turn?.toolRunning) {
       setStatus(pending.status)
       return
     }
-    if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
+    if (!turn?.toolError && !turn?.assistantText) return
     setPendingResult(undefined)
-    setStatus(studioTurn()?.result?.status ?? "failed")
+    setStatus(turn?.result?.status ?? "failed")
   })
 
   createEffect(
@@ -765,7 +1129,10 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
+        // Clear pendingResult when switching to an unrelated session, even
+        // when sending() is still true (the pending result is scoped to the
+        // previous session and should not ghost into the new one).
+        if (id && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -779,7 +1146,30 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
-        setShowStudioCanvas(false)
+        // 标记已访问，用于区分「加载中」和「空 session」
+        if (id) visitedSessionIds.add(id)
+        // 无图片数据时直接显示文件管理，避免展示空 canvas / 生成中 loading
+        // 但如果 session 完全没有数据，显示 StudioIntro
+        const sessionTurns = id ? buildStudioTurns({
+          messages: dataStore.message[id] ?? [],
+          parts: dataStore.part,
+          currentSessionID: id,
+        }) : []
+        const hasImages = (() => {
+          const latest = [...sessionTurns].reverse().find((t) => (t.result?.images.length ?? 0) > 0)
+          return (latest?.result?.images.length ?? 0) > 0
+        })()
+        const hasData = sessionTurns.length > 0 || pendingResult() || sending()
+        if (!hasData || !hasImages) {
+          // 无数据或无图片 → 显示 StudioIntro
+          setShowStudioCanvas(false)
+          setShowFileManager(false)
+        } else {
+          // 有数据且有图片 → 默认图片 tab
+          setShowStudioCanvas(true)
+          setShowFileManager(studioViewPref.mode === "file-manager")
+        }
+        setFileManagerDetailView(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
@@ -794,19 +1184,26 @@ export default function StudioPage() {
   const selectedCapabilityNeedsImage = createMemo(() =>
     capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
+  function resultRequiresSeedreamPermission(item?: StudioGenerationResult) {
+    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
+  }
+  function resultRegenerateDisabled(item?: StudioGenerationResult) {
+    return isActionBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
+  }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
+  const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   createEffect(() => {
     if (videoQualityLocked()) setVideoQualityMode("pro")
   })
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
-    !isBusy() &&
+    !isActionBusy() &&
     !selectedCapabilityNeedsImage() &&
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
-        ? prompt().trim().length > 0 || hasVideoFrames()
+        ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
         : prompt().trim().length > 0
     ),
   )
@@ -825,6 +1222,55 @@ export default function StudioPage() {
     saving: false,
   })
   let headerTitleRef: HTMLInputElement | undefined
+  const [isHeaderTruncated, setIsHeaderTruncated] = createSignal(false)
+  let headerSpanRef!: HTMLSpanElement
+  let headerResizeObserver: ResizeObserver | undefined
+  const checkHeaderTruncation = () => {
+    if (headerSpanRef) setIsHeaderTruncated(headerSpanRef.scrollWidth > headerSpanRef.clientWidth)
+  }
+  onCleanup(() => headerResizeObserver?.disconnect())
+  createEffect(() => {
+    const _title = currentTitle()
+    void _title
+    queueMicrotask(() => checkHeaderTruncation())
+  })
+  const [showHeaderTooltip, setShowHeaderTooltip] = createSignal(false)
+  let headerTooltipTimeout: ReturnType<typeof setTimeout> | undefined
+  let headerTooltipRef!: HTMLDivElement
+  const [headerTooltipStyle, setHeaderTooltipStyle] = createSignal<JSX.CSSProperties>({})
+  const updateHeaderTooltipPos = () => {
+    if (!headerSpanRef) return
+    const rect = headerSpanRef.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+      style.top = `${rect.bottom + 4}px`
+    } else {
+      style.bottom = `${window.innerHeight - rect.top + 4}px`
+    }
+    setHeaderTooltipStyle(style)
+  }
+  const enterHeaderTrigger = () => {
+    if (!isHeaderTruncated()) return
+    clearTimeout(headerTooltipTimeout)
+    updateHeaderTooltipPos()
+    setShowHeaderTooltip(true)
+  }
+  const leaveHeaderTrigger = () => {
+    headerTooltipTimeout = setTimeout(() => setShowHeaderTooltip(false), 150)
+  }
+  const enterHeaderTooltip = () => clearTimeout(headerTooltipTimeout)
+  const leaveHeaderTooltip = () => setShowHeaderTooltip(false)
+
+  // 菜单打开时关闭浮层侧边栏、清除 overflow 避免裁剪 Portal 内容
+  createEffect(() => {
+    if (headerTitle.menuOpen) {
+      setStudioLeftOverlayOpen(false)
+      studioPageRef.style.overflow = "visible"
+    } else {
+      studioPageRef.style.overflow = ""
+    }
+  })
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -837,8 +1283,11 @@ export default function StudioPage() {
 
   const openHeaderTitleEditor = () => {
     const session = activeStudioSession()
-    if (!session) return
-    setHeaderTitle({ editing: true, draft: sessionTitle(session.title) ?? "" })
+    // session 可能不在 syncStore 中，用 currentTitle() 兜底
+    const draft = session
+      ? (sessionTitle(session.title) ?? "")
+      : currentTitle()
+    setHeaderTitle({ editing: true, draft })
     requestAnimationFrame(() => {
       headerTitleRef?.focus()
       headerTitleRef?.select()
@@ -852,21 +1301,25 @@ export default function StudioPage() {
 
   const saveHeaderTitleEditor = async () => {
     const session = activeStudioSession()
-    if (!session || headerTitle.saving) return
+    const sessionId = session?.id ?? params.id
+    if (!sessionId || headerTitle.saving) return
 
     const next = headerTitle.draft.trim()
-    if (!next || next === (sessionTitle(session.title) ?? "")) {
+    const oldTitle = session
+      ? (sessionTitle(session.title) ?? "")
+      : currentTitle()
+    if (!next || next === oldTitle) {
       setHeaderTitle({ editing: false, draft: "" })
       return
     }
 
     setHeaderTitle("saving", true)
     await globalSDK.createClient({ directory: projectDir() }).session
-      .update({ sessionID: session.id, title: next })
+      .update({ sessionID: sessionId, title: next })
       .then(() => {
         setSyncStore(
           produce((draft) => {
-            const index = draft.session.findIndex((item) => item.id === session.id)
+            const index = draft.session.findIndex((item) => item.id === sessionId)
             if (index !== -1) draft.session[index].title = next
           }),
         )
@@ -884,7 +1337,8 @@ export default function StudioPage() {
 
   const deleteHeaderSession = async (session: Session) => {
     tracker.interaction({ module: "studio", name: "delete-session" })
-    const sessions = syncStore.session
+    const listResult = await globalSDK.createClient({ directory: projectDir() }).session.list()
+    const sessions = ((listResult.data ?? []) as Session[])
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     const index = sessions.findIndex((item) => item.id === session.id)
@@ -901,6 +1355,8 @@ export default function StudioPage() {
       })
 
     if (!result) return false
+
+    studioThumbnails.removeThumbnail(session.id)
 
     setSyncStore(
       produce((draft) => {
@@ -1061,20 +1517,51 @@ export default function StudioPage() {
     })
   }
 
-  async function resolveImageDataUrl(image: StudioImage) {
-    if (image.remoteUrl?.startsWith("data:image/")) return image.remoteUrl
-    if (image.url.startsWith("data:image/")) return image.url
-    const response = await fetch(image.remoteUrl ?? image.url)
+  function resolveStudioImageFetchUrl(url: string) {
+    if (url.startsWith("data:image/") || /^https?:\/\//i.test(url)) return url
+    const artifact = getArtifactRelativePath(url)
+    if (!artifact) return url
+    return getArtifactServeUrl(globalSDK.url, projectDir(), artifact.sessionId, artifact.relativePath)
+  }
+
+  async function resolveImageUrlDataUrl(url: string) {
+    if (url.startsWith("data:image/")) return url
+    const response = await fetch(resolveStudioImageFetchUrl(url))
     if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
     return readBlobAsDataUrl(blob)
   }
 
-  async function validateVideoFrame(file: File) {
-    if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
-    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
-    const asset = await readStudioAsset(file)
+  async function resolveImageDataUrl(image: StudioImage) {
+    return resolveImageUrlDataUrl(image.remoteUrl ?? image.url)
+  }
+
+  function dataUrlByteSize(dataUrl: string) {
+    const content = dataUrl.match(/^data:[^;,]+;base64,(.*)$/)?.[1]
+    if (!content) return new Blob([dataUrl]).size
+    const padding = content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0
+    return Math.floor(content.length * 3 / 4) - padding
+  }
+
+  function mimeFromDataUrl(dataUrl: string) {
+    return dataUrl.match(/^data:([^;,]+);base64,/)?.[1] ?? "image/png"
+  }
+
+  async function inputImageAssetFromUrl(url: string) {
+    const dataUrl = await resolveImageUrlDataUrl(url)
+    const mime = mimeFromDataUrl(dataUrl)
+    return {
+      id: crypto.randomUUID(),
+      name: `reference-image.${studioImageExtension(mime)}`,
+      mime,
+      dataUrl,
+    }
+  }
+
+  async function validateVideoFrameAsset(asset: StudioAsset) {
+    if (!asset.mime.startsWith("image/")) throw new Error("请上传图片文件。")
+    if (dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
     await new Promise<void>((resolve, reject) => {
       const image = new Image()
       image.onload = () => {
@@ -1093,6 +1580,13 @@ export default function StudioPage() {
       image.onerror = () => reject(new Error("无法读取图片尺寸。"))
       image.src = asset.dataUrl
     })
+  }
+
+  async function validateVideoFrame(file: File) {
+    if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
+    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
+    const asset = await readStudioAsset(file)
+    await validateVideoFrameAsset(asset)
     return asset
   }
 
@@ -1122,13 +1616,50 @@ export default function StudioPage() {
 
   const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
 
-  function addAssets(files: File[]) {
-    const file = files.find((item) => item.type.startsWith("image/"))
-    if (!file) return
+  function readStudioAssetDimensions(asset: StudioAsset) {
+    return new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = () => reject(new Error("无法读取图片尺寸。"))
+      img.src = asset.dataUrl
+    })
+  }
+
+  function selectStyleModel(value: string) {
+    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
+    const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
+    if (prevIsSeedream !== nextIsSeedream) {
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    } else if (isCustomStore()) {
+      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
+      const prevIsQwen = styleModel() === "qwen"
+      const nextIsQwen = value === "qwen"
+      if (!prevIsQwen && nextIsQwen) {
+        // 从其他模型切到千问：钳位到千问上限 1664
+        setCustomWidth(Math.min(customWidth(), 1664))
+        setCustomHeight(Math.min(customHeight(), 1664))
+      }
+    }
+    setStyleModel(value)
+    setAssets((items) => items.slice(0, referenceImageLimit(value)))
+  }
+
+  async function addReferenceAsset(asset: StudioAsset) {
+    const limit = maxReferenceImages()
+    if (limit !== 1 && assets().length >= limit) {
+      showToast({
+        title: "上传失败",
+        description: `最多上传 ${limit} 张参考图。`,
+      })
+      return
+    }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
-    const ext = file.name.split(".").pop()?.toLowerCase()
-    if (!ext || !allowedExts.includes(ext)) {
+    const ext = studioImageExtension(asset.mime)
+    if (!allowedExts.includes(ext)) {
       showToast({
         title: "上传失败",
         description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
@@ -1137,35 +1668,92 @@ export default function StudioPage() {
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
-    if (file.size > maxSize) {
+    if (dataUrlByteSize(asset.dataUrl) > maxSize) {
       showToast({
         title: "上传失败",
         description: `图片文件大小不能超过 ${maxSizeLabel}。`,
       })
       return
     }
-    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
-    readStudioAsset(file)
-      .then((asset) => {
-        const img = new Image()
-        img.onload = () => {
-          if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
-            showToast({
-              title: "上传失败",
-              description: "图片最大尺寸不能超过 7500px。",
-            })
-            return
-          }
-          setAssets([asset])
-          autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
-        }
-        img.onerror = () => {
+    const dimensions = await readStudioAssetDimensions(asset)
+    if (dimensions.width > 7500 || dimensions.height > 7500) {
+      showToast({
+        title: "上传失败",
+        description: "图片最大尺寸不能超过 7500px。",
+      })
+      return
+    }
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: 1 }) })
+    setAssets((current) => limit === 1 ? [asset] : [...current, asset].slice(0, limit))
+    autoSetAspectRatioFromDimensions(dimensions.width, dimensions.height)
+  }
+
+  function nextVideoFrameSlot() {
+    if (!videoFrames.first) return "first"
+    if (!videoFrames.last) return "last"
+    return "last"
+  }
+
+  async function addVideoFrameAsset(asset: StudioAsset) {
+    await validateVideoFrameAsset(asset)
+    setVideoFrames(nextVideoFrameSlot(), asset)
+  }
+
+  function useConversationInputImage(url: string) {
+    if (capability() !== "image.generate" && capability() !== "video.generate") return
+    inputImageAssetFromUrl(url)
+      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
+
+  function addAssets(files: File[]) {
+    const imageFiles = files.filter((item) => item.type.startsWith("image/"))
+    if (!imageFiles.length) return
+    const limit = maxReferenceImages()
+    const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
+    if (!selectedFiles.length) {
+      showToast({
+        title: "上传失败",
+        description: `最多上传 ${limit} 张参考图。`,
+      })
+      return
+    }
+    const isJimeng = imageTool() === "jimeng"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const invalidExtFile = selectedFiles.find((file) => !allowedExts.includes(file.name.split(".").pop()?.toLowerCase() ?? ""))
+    if (invalidExtFile) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+    const maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    if (selectedFiles.some((file) => file.size > maxSize)) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
+    Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
+      .then((items) => {
+        if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
           showToast({
             title: "上传失败",
-            description: "无法读取图片尺寸。",
+            description: "图片最大尺寸不能超过 7500px。",
           })
+          return
         }
-        img.src = asset.dataUrl
+        setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
+        autoSetAspectRatioFromDimensions(items[0].dimensions.width, items[0].dimensions.height)
       })
       .catch((error) => {
         showToast({
@@ -1277,6 +1865,15 @@ export default function StudioPage() {
   }
 
   function deleteWorkspaceImage() {
+    // 从文件管理详情页进入编辑器的，关闭时恢复文件管理详情视图
+    if (fileManagerDetailView()) {
+      batch(() => {
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+      })
+      return
+    }
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(true)
@@ -1308,7 +1905,8 @@ export default function StudioPage() {
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1376,7 +1974,13 @@ export default function StudioPage() {
       setAspectRatio("16:9")
     }
     if (value !== "video.generate") clearVideoFrames()
-    if (value !== "image.generate") setAssets([])
+    if (value !== "image.generate") {
+      setAssets([])
+      // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    }
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
@@ -1458,6 +2062,8 @@ export default function StudioPage() {
   function startNewStudioConversation() {
     tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
+    pendingEditorSessionID = undefined
+    pendingGenerationSessionID = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
@@ -1465,6 +2071,9 @@ export default function StudioPage() {
     setStatus("idle")
     setPendingResult(undefined)
     setSending(false)
+    setPendingEditorEntries([])
+    setMode("preview")
+    setCapability("image.generate")
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
@@ -1481,34 +2090,13 @@ export default function StudioPage() {
     return session.id
   }
 
-  function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    const isEditorCapability =
-      input.capability === "image.upscale" ||
-      input.capability === "image.cutout" ||
-      input.capability === "image.inpaint" ||
-      input.capability === "image.outpaint"
-    const opening =
-      input.capability === "image.upscale"
-        ? "好的，我将提升当前图片的清晰度和细节。"
-        : input.capability === "image.inpaint"
-          ? "好的，我将根据涂抹区域局部重绘当前图片。"
-        : input.capability === "image.outpaint"
-          ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
-          : input.capability === "video.generate"
-            ? `好的，我将为您生成一段${aspectRatio()}比例的视频。`
-          : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
-    return [
-      opening,
-      input.capability === "video.generate" || isEditorCapability ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
-      isEditorCapability ? undefined : `画幅比例：${aspectRatio()}`,
-      isEditorCapability ? undefined : `生成数量：${count()}`,
-      input.sourceImage
-        ? "将基于当前画面设定重新生成。"
-        : undefined,
-      `用户需求：${input.text}`,
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join("\n")
+  function buildStudioThinkingText(input: { capability: StudioCapability; sourceImage?: string }) {
+    if (input.capability === "image.upscale") return "好的，我将提升当前图片的清晰度和细节。"
+    if (input.capability === "image.inpaint") return "好的，我将根据涂抹区域局部重绘当前图片。"
+    if (input.capability === "image.outpaint") return "好的，我将扩展当前图片。"
+    if (input.capability === "video.generate") return "好的，我将为您生成一段视频。"
+    if (input.sourceImage) return "好的，我会基于当前画面继续创作。"
+    return `好的，我将为您生成${capabilityLabel(input.capability)}。`
   }
 
   function stringArrayValue(value: unknown) {
@@ -1563,7 +2151,6 @@ export default function StudioPage() {
     const restoredFirstFrame =
       stringValue(extra, "firstFrame") ??
       referenceImages[0] ??
-      referenceImages[1] ??
       dataUrlFromBase64(stringValue(args, "image"))
     return {
       first: restoredFirstFrame,
@@ -1580,58 +2167,213 @@ export default function StudioPage() {
     const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
     const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
     if (result.capability === "video.generate") {
+      const refinedPrompt = stringValue(input, "refinedPrompt")
+      const originalPrompt = stringValue(input, "prompt")
+      const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? result.prompt
       return {
         capability: result.capability,
-        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+        displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
+        refinedPrompt,
+        effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
-        extra: extra ? { ...extra } : undefined,
+        extra: { ...(extra ?? {}), skipPromptRefine: true },
         videoFrames: restoredVideoFrames(result),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
         videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
         useRestoredInputs: true,
       }
     }
     if (result.capability === "image.generate") {
+      const refinedPrompt = stringValue(input, "refinedPrompt")
+      const originalPrompt = stringValue(input, "prompt")
+      const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? (result.displayPrompt && result.prompt === result.displayPrompt ? undefined : result.prompt)
       return {
         capability: result.capability,
-        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+        displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
+        refinedPrompt,
+        effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
-        extra: extra ? { ...extra } : undefined,
-        styleModel: stringValue(input, "styleModel"),
+        extra: { ...(extra ?? {}), skipPromptRefine: true },
+        styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         useRestoredInputs: true,
       }
     }
+    const refinedPrompt = stringValue(input, "refinedPrompt")
+    const originalPrompt = stringValue(input, "prompt")
+    const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? result.prompt
     return {
       capability: result.capability,
-      prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+      prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+      displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+      detailPrompt: result.detailPrompt,
+      refinedPrompt,
+      effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
-      extra: extra ? { ...extra } : undefined,
+      extra: { ...(extra ?? {}), skipPromptRefine: true },
       aspectRatio: nextAspectRatio,
       count: nextCount,
+      width: result.width,
+      height: result.height,
       useRestoredInputs: true,
     }
+  }
+
+  function restoreGenerationEditDraft(result: StudioGenerationResult) {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
+    const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
+    return {
+      capability: result.capability,
+      prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
+      styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
+      aspectRatio: nextAspectRatio,
+      count: nextCount,
+      width: result.width,
+      height: result.height,
+      referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+      videoFrames: restoredVideoFrames(result),
+      videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
+      videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+    }
+  }
+
+  function canEditGenerationDraft(draft: ReturnType<typeof restoreGenerationEditDraft>) {
+    if (draft.capability === "video.generate" && !canGenerateVideo()) {
+      showToast({
+        title: "暂无视频生成权限",
+        description: "当前账号暂无视频生成权限，无法重新编辑该视频生成任务。",
+      })
+      return false
+    }
+    if (
+      draft.capability === "image.generate" &&
+      draft.styleModel &&
+      styleModelRequiresSeedreamPermission(draft.styleModel) &&
+      !canUseSeedream()
+    ) {
+      showToast({
+        title: "暂无模型使用权限",
+        description: "当前账号暂无该模型权限，无法重新编辑该图片生成任务。",
+      })
+      return false
+    }
+    return true
+  }
+
+  function showEditDraftSyncedToast() {
+    showFloatingNotice("info", "已经同步参数到左侧输入区")
+  }
+
+  async function studioAssetFromImageUrl(url: string, name: string): Promise<StudioAsset> {
+    return {
+      id: crypto.randomUUID(),
+      name,
+      mime: "image/png",
+      dataUrl: await resolveImageUrlDataUrl(url),
+    }
+  }
+
+  async function restoredImageAssets(referenceImages: string[], limit: number) {
+    return (await Promise.all(referenceImages.slice(0, limit).map((referenceImage, index) =>
+      studioAssetFromImageUrl(referenceImage, `reference-${index + 1}.png`).catch((error) => {
+        console.warn("[StudioPage] restore edit draft reference image failed", error)
+        return undefined
+      })
+    ))).filter((asset): asset is StudioAsset => Boolean(asset))
+  }
+
+  async function restoredVideoFrameAssets(frames: { first?: string; last?: string }) {
+    const first = frames.first
+      ? await studioAssetFromImageUrl(frames.first, "first-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft first frame failed", error)
+          return undefined
+        })
+      : undefined
+    const last = frames.last
+      ? await studioAssetFromImageUrl(frames.last, "last-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft last frame failed", error)
+          return undefined
+        })
+      : undefined
+    return { first, last }
+  }
+
+  async function editGenerationDraft(result: StudioGenerationResult) {
+    if (isActionBusy()) return
+    if (result.capability !== "image.generate" && result.capability !== "video.generate") return
+    const draft = restoreGenerationEditDraft(result)
+    if (!canEditGenerationDraft(draft)) return
+    batch(() => {
+      setOpenMenu(null)
+      setMode("preview")
+      setCapability(draft.capability)
+      setPrompt(draft.prompt)
+      setAspectRatio(draft.aspectRatio)
+      if (draft.count) setCount(draft.count)
+      if (draft.width) setCustomWidth(draft.width)
+      if (draft.height) setCustomHeight(draft.height)
+      setIsCustomStore(Boolean(draft.width && draft.height))
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "edit-generation-draft",
+      extend: JSON.stringify({
+        capability: result.capability,
+        aspectRatio: result.aspectRatio,
+        count: result.images.length,
+        hasReferenceImage: draft.referenceImages.length > 0 || Boolean(draft.videoFrames.first || draft.videoFrames.last),
+      }),
+    })
+    if (draft.capability === "image.generate") {
+      if (draft.styleModel) setStyleModel(draft.styleModel)
+      clearVideoFrames()
+      setAssets(await restoredImageAssets(draft.referenceImages, referenceImageLimit(draft.styleModel ?? styleModel())))
+      showEditDraftSyncedToast()
+      return
+    }
+    setAssets([])
+    if (draft.videoDuration) setVideoDuration(draft.videoDuration)
+    if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
+    replaceVideoFrames(await restoredVideoFrameAssets(draft.videoFrames))
+    showEditDraftSyncedToast()
   }
 
   async function createStudioGeneration(input: {
     sessionID: string
     text: string
+    displayPrompt?: string
+    detailPrompt?: string
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
+    width?: number
+    height?: number
     count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
+    refinedPrompt?: string
+    effectivePrompt?: string
     extra?: Record<string, unknown>
-  }) {
+  }, signal?: AbortSignal) {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1640,18 +2382,41 @@ export default function StudioPage() {
       })}`
     }
     const controller = new AbortController()
+    const abortSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
     const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CREATE_TIMEOUT_MS)
     const response = await fetch(new URL("/studio/generations", current.http.url), {
       method: "POST",
       headers,
-      signal: controller.signal,
+      signal: abortSignal,
       body: JSON.stringify({
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
+        displayPrompt: input.displayPrompt,
+        detailPrompt: input.detailPrompt,
+        refinedPrompt: input.refinedPrompt,
+        effectivePrompt: input.effectivePrompt,
+        promptRefineModels: models
+          .list()
+          .filter((model) =>
+            models.visible({
+              providerID: model.provider.id,
+              modelID: model.id,
+            }),
+          )
+          .map((model) => ({
+            providerID: model.provider.id,
+            modelID: model.id,
+          })),
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
-        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
+        aspectRatio: (input.width && input.height)
+          ? undefined
+          : input.capability === "image.generate" || input.capability === "video.generate"
+            ? input.aspectRatio ?? aspectRatio()
+            : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
+        isCustom: Boolean(input.width && input.height),
+        ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
         imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
@@ -1668,11 +2433,171 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  async function generatePromptFromReferenceImage(base64img: string, signal?: AbortSignal) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/prompt-gen", current.http.url), {
+      method: "POST",
+      headers,
+      signal,
+      body: JSON.stringify({ base64img }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    const result = JSON.parse(bodyText) as StudioPromptGenResponse
+    if (result.resp_code !== 200) throw new Error(result.resp_msg?.trim() || "提示词生成失败")
+    const zh = result.result?.zh?.trim()
+    if (!zh) throw new Error("提示词生成结果为空")
+    return zh
+  }
+
+  async function handleReversePrompt() {
+    const asset = assets()[0]
+    if (!asset) {
+      showFloatingNotice("warning", "请先上传参考图")
+      return
+    }
+    if (reversePromptRunning) return
+
+    tracker.interaction({ module: "studio", name: "reverse-prompt-click" })
+    reversePromptRunning = true
+    const controller = new AbortController()
+    reversePromptController = controller
+    const dismissNotice = showFloatingNotice({
+      type: "info",
+      message: "提示词正在生成中",
+      icon: "loading",
+      duration: 0,
+      action: {
+        label: "取消",
+        onClick: () => {
+          reversePromptController?.abort()
+          reversePromptRunning = false
+          dismissNotice()
+        },
+      },
+    })
+
+    try {
+      const zh = await generatePromptFromReferenceImage(asset.dataUrl, controller.signal)
+      if (controller.signal.aborted || !reversePromptRunning) return
+      setPrompt(zh)
+      dismissNotice()
+      showFloatingNotice("success", "反推结果已置入画板")
+    } catch (error) {
+      if (controller.signal.aborted || !reversePromptRunning) return
+      dismissNotice()
+      showFloatingNotice("error", error instanceof Error ? error.message : String(error))
+    } finally {
+      if (reversePromptController === controller) reversePromptController = undefined
+      if (!controller.signal.aborted) reversePromptRunning = false
+    }
+  }
+
+  function studioImageDataUrlPayload(value: string) {
+    const match = value.match(/^data:([^;,]+);base64,(.*)$/)
+    return {
+      mime: match?.[1] ?? "image/png",
+      content: match?.[2] ?? value,
+    }
+  }
+
+  function studioImageExtension(mime: string) {
+    if (mime === "image/jpeg") return "jpg"
+    if (mime === "image/webp") return "webp"
+    return "png"
+  }
+
+  async function persistStudioImage(input: {
+    sessionID: string
+    role: string
+    dataUrl: string
+  }) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const payload = studioImageDataUrlPayload(input.dataUrl)
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/artifact/upload", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        sessionId: input.sessionID,
+        filename: `${input.role}-${crypto.randomUUID()}.${studioImageExtension(payload.mime)}`,
+        content: payload.content,
+        path: "studio-inputs",
+      }),
+    })
+    if (!response.ok) throw new Error(`Failed to persist Studio image: ${response.statusText}`)
+    return response.json() as Promise<{ path: string }>
+  }
+
+  async function persistStudioGenerationMedia(input: {
+    sessionID: string
+    referenceImages: string[]
+    sourceImage?: string
+    extra?: Record<string, unknown>
+  }) {
+    const persisted = new Map<string, string>()
+    const persist = async (value: string | undefined, role: string) => {
+      if (!value?.startsWith("data:image/")) return value
+      const existing = persisted.get(value)
+      if (existing) return existing
+      const uploaded = await persistStudioImage({
+        sessionID: input.sessionID,
+        role,
+        dataUrl: value,
+      })
+      persisted.set(value, uploaded.path)
+      return uploaded.path
+    }
+    const referenceImages = await Promise.all(
+      input.referenceImages.map((item, index) => persist(item, `reference-${index + 1}`)),
+    )
+    const firstFrame = typeof input.extra?.firstFrame === "string"
+      ? await persist(input.extra.firstFrame, "first-frame")
+      : input.extra?.firstFrame
+    const lastFrame = typeof input.extra?.lastFrame === "string"
+      ? await persist(input.extra.lastFrame, "last-frame")
+      : input.extra?.lastFrame
+    const compositeImage = typeof input.extra?.compositeImage === "string"
+      ? await persist(input.extra.compositeImage, "inpaint-composite")
+      : input.extra?.compositeImage
+    return {
+      referenceImages: referenceImages.filter((item): item is string => Boolean(item)),
+      sourceImage: await persist(input.sourceImage, "source"),
+      extra: {
+        ...(input.extra ?? {}),
+        ...(typeof firstFrame === "string" ? { firstFrame } : {}),
+        ...(typeof lastFrame === "string" ? { lastFrame } : {}),
+        ...(typeof compositeImage === "string" ? { compositeImage } : {}),
+      },
+    }
+  }
+
   async function getStudioGeneration(id: string, signal?: AbortSignal) {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1697,11 +2622,19 @@ export default function StudioPage() {
       console.error("[StudioPage] cancel generation failed", new Error("No active server."))
       return
     }
+    // 立即阻止轮询并更新 UI，让停止/发送按钮同步切换，不等 API 返回
+    terminatedGenerationIDs.add(id)
+    generationToken++
+    const fallback = pendingResult()
+    if (fallback?.id === id) {
+      setPendingResult(undefined)
+      setStatus("idle")
+    }
     setCancellingGenerationIDs((ids) => new Set([...ids, id]))
     try {
       const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1718,11 +2651,7 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       const generation = JSON.parse(bodyText) as StudioGenerationResult
-      setPendingResult((item) => {
-        if (!item || item.id !== generation.id) return item
-        return { ...generation, sourceImage: item.sourceImage }
-      })
-      setStatus(generation.status)
+      // API 成功 — UI 已在上面立即更新
       const sessionID = generation.sessionID ?? params.id
       if (sessionID) {
         void loadSessionMessages(sessionID).catch((error) => {
@@ -1731,8 +2660,74 @@ export default function StudioPage() {
       }
     } catch (error) {
       console.error("[StudioPage] cancel generation failed", error)
+      // API 失败 — 回滚状态，允许轮询重新接管
+      terminatedGenerationIDs.delete(id)
+      if (fallback?.id === id) {
+        setPendingResult(fallback)
+        setStatus(fallback.status)
+      }
     } finally {
       setCancellingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
+  async function rebootStudioGeneration(id: string) {
+    if (rebootingGenerationIDs().has(id) || isActionBusy()) return
+    const current = server.current
+    if (!current) {
+      showToast({
+        title: "重新生成失败",
+        description: "No active server.",
+      })
+      return
+    }
+    setRebootingGenerationIDs((ids) => new Set([...ids, id]))
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        ...directoryHeader(projectDir()),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_REBOOT_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/reboot`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      const generation = JSON.parse(bodyText) as StudioGenerationResult
+      terminatedGenerationIDs.delete(id)
+      setPendingResult((current) => ({
+        ...generation,
+        sessionID: current?.sessionID ?? generation.sessionID ?? params.id,
+        displayPrompt: current?.id === generation.id ? current.displayPrompt ?? generation.displayPrompt : generation.displayPrompt,
+        sourceImage: current?.id === generation.id ? current.sourceImage : undefined,
+        inputImages: current?.id === generation.id ? current.inputImages : undefined,
+        // Preserve custom size fields from current state — API response may not include them
+        ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+        ...(current?.width ? { width: current.width } : {}),
+        ...(current?.height ? { height: current.height } : {}),
+      }))
+      setStatus(generation.status)
+      const sessionID = generation.sessionID ?? params.id
+      if (sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] rebooted session load failed", error)
+        })
+      }
+    } catch (error) {
+      showToast({
+        title: "重新生成失败",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setRebootingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
     }
   }
 
@@ -1744,6 +2739,9 @@ export default function StudioPage() {
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
+    const nextWidth = overrides?.width ?? customWidth()
+    const nextHeight = overrides?.height ?? customHeight()
+    const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
@@ -1756,8 +2754,10 @@ export default function StudioPage() {
             first: videoFrames.first?.dataUrl,
             last: videoFrames.last?.dataUrl,
           }
-    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first || nextVideoFrames.last)
-    const text = (overrides?.prompt ?? prompt()).trim() || (
+    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
+    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
+    const actualUserPrompt = (overrides?.prompt ?? prompt()).trim()
+    const text = actualUserPrompt || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
         : nextCapability === "image.cutout"
@@ -1770,13 +2770,14 @@ export default function StudioPage() {
               ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
-    if (!text || isBusy()) return
+    if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
+    const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
-      nextVideoFrames.first ?? nextVideoFrames.last,
+      nextVideoFrames.first,
       nextVideoFrames.first ? nextVideoFrames.last : undefined,
     ].filter((item): item is string => Boolean(item))
     const referenceImages = overrides?.referenceImages ?? (
@@ -1807,23 +2808,49 @@ export default function StudioPage() {
             parts: dataStore.part,
           })
         : ""
+    const generationExtra = {
+      ...(overrides?.extra ?? {}),
+      ...(studioContext ? { studioContext } : {}),
+      ...(nextCapability === "video.generate"
+        ? {
+          videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+          duration: nextVideoDuration,
+          mode: nextVideoQualityMode,
+          firstFrame: nextVideoFrames.first,
+          lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
+        }
+        : {}),
+    }
+    const pendingInputImages = buildStudioInputImages({
+      capability: nextCapability,
+      referenceImages,
+      sourceImage: overrides?.sourceImage,
+      extra: generationExtra,
+    })
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
     setStatus("submitting")
-    setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs && !fileManagerDetailView() && !selectedImage()) setSelectedResultId(undefined)
+    if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
       capability: nextCapability,
-      prompt: text,
+      prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
+      displayPrompt: overrides?.displayPrompt,
+      detailPrompt,
       provider: "internel",
       model: nextStyleModel,
-      aspectRatio: nextAspectRatio,
+      aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
+      width: nextIsCustom ? nextWidth : undefined,
+      height: nextIsCustom ? nextHeight : undefined,
+      isCustom: nextIsCustom || undefined,
       images: [],
       progress: 0,
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
+      inputImages: pendingInputImages,
       ...(nextCapability === "video.generate"
         ? {
             videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
@@ -1841,41 +2868,80 @@ export default function StudioPage() {
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
+      // Always attach sessionID to pendingResult so it can be scoped to the correct session.
+      setPendingResult((item) => item ? { ...item, sessionID } : item)
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        setPendingResult((item) => item ? { ...item, sessionID } : item)
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
+      createGenerationController?.abort()
+      const controller = new AbortController()
+      createGenerationController = controller
+      const persistedMedia = await persistStudioGenerationMedia({
+        sessionID,
+        referenceImages,
+        sourceImage: overrides?.sourceImage,
+        extra: generationExtra,
+      })
+      if (currentToken !== generationToken) return
+      setPendingResult((item) => item ? {
+        ...item,
+        sourceImage: persistedMedia.sourceImage ?? item.sourceImage,
+        inputImages: buildStudioInputImages({
+          capability: nextCapability,
+          referenceImages: persistedMedia.referenceImages,
+          sourceImage: persistedMedia.sourceImage,
+          extra: persistedMedia.extra,
+        }),
+      } : item)
       const generation = await createStudioGeneration({
         sessionID,
         text,
+        displayPrompt: overrides?.displayPrompt,
+        detailPrompt,
         capability: nextCapability,
+        refinedPrompt: overrides?.refinedPrompt,
+        effectivePrompt: overrides?.effectivePrompt,
         styleModel: nextStyleModel,
-        aspectRatio: nextAspectRatio,
+        aspectRatio: nextIsCustom ? undefined : nextAspectRatio,
+        width: nextIsCustom ? nextWidth : undefined,
+        height: nextIsCustom ? nextHeight : undefined,
         count: nextCount,
-        referenceImages,
-        sourceImage: overrides?.sourceImage,
+        referenceImages: persistedMedia.referenceImages,
+        sourceImage: persistedMedia.sourceImage,
         extra: {
-          ...(overrides?.extra ?? {}),
-          ...(studioContext ? { studioContext } : {}),
-          ...(nextCapability === "video.generate"
-            ? {
-              videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-              duration: nextVideoDuration,
-              mode: nextVideoQualityMode,
-              firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
-              lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
-            }
-            : {}),
+          ...persistedMedia.extra,
+          ...(nextIsCustom ? { width: nextWidth, height: nextHeight } : {}),
         },
-      })
+      }, controller.signal)
       if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
-      setPendingResult({
+      setPendingResult((current) => ({
         ...generation,
-        sourceImage: overrides?.sourceImage,
-      })
+        // Preserve sessionID from current — generation response may not include it
+        sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
+        displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+        detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
+        sourceImage: current?.sourceImage ?? overrides?.sourceImage,
+        inputImages: current?.inputImages ?? pendingInputImages,
+        // Preserve custom size fields from current state — API response may not include them
+        ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+        ...(current?.width ? { width: current.width } : {}),
+        ...(current?.height ? { height: current.height } : {}),
+      }))
       setStatus(generation.status)
+      // Update thumbnail immediately if generation already succeeded (fast path,
+      // e.g. mock/cached results — polling loop won't fire for non-queued status)
+      if (generation.status === "succeeded" && sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] generated session load failed", error)
+        })
+        const images = generation.images
+        if (images && images.length > 0) {
+          console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
+          studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+        }
+      }
     } catch (error) {
       if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
@@ -1891,9 +2957,37 @@ export default function StudioPage() {
         error: error instanceof Error ? error.message : String(error),
       } : item)
     } finally {
+      if (createGenerationController?.signal.aborted || currentToken === generationToken) createGenerationController = undefined
       if (currentToken === generationToken) setSending(false)
     }
   }
+
+  // 文件管理详情页触发生成后：
+  // - 成功：退出文件管理视图 + 创建 tab 并选中（与点击 studio-result-thumb 逻辑完全一致）
+  // - 失败/取消：回到文件管理网格视图
+  createEffect(() => {
+    if (!fileManagerGenPending()) return
+    if (!isBusy()) {
+      setFileManagerGenPending(false)
+      // pendingResult 可能已被 sync effect 清空，优先用它，其次查 displayTurns 最新项
+      const pending = pendingResult()
+      const latestTurn = displayTurns().at(-1)
+      const successResult =
+        (pending?.status === "succeeded" && pending.images.length > 0) ? pending
+        : (latestTurn?.result?.status === "succeeded" && latestTurn.result.images.length > 0) ? latestTurn.result
+        : null
+
+      if (successResult) {
+        batch(() => {
+          setFileManagerDetailView(false)
+          selectStudioImage({ resultID: successResult.id, imageID: successResult.images[0].id })
+        })
+      } else {
+        // 失败或取消：回到文件管理网格
+        backFromFileManagerDetail()
+      }
+    }
+  })
 
   const pollingGenerationID = createMemo(() => {
     const active = pendingResult() ?? studioTurn()?.result
@@ -1924,6 +3018,11 @@ export default function StudioPage() {
           try {
             const generation = await getStudioGeneration(id, controller.signal)
             if (stopped) return
+            // 用户主动取消后不再更新 pendingResult，防止任务"重新出现"
+            if (terminatedGenerationIDs.has(id)) {
+              stopped = true
+              return
+            }
             const current = pendingResult()
             if (current && current.id === id && isStudioGenerationStatusRegression(current.status, generation.status)) return
 
@@ -1937,7 +3036,19 @@ export default function StudioPage() {
                 current.error === generation.error &&
                 current.images.length === generation.images.length
               ) return current
-              return { ...generation, sourceImage: current?.sourceImage }
+              return {
+                ...generation,
+                // Preserve sessionID from current when generation doesn't include it
+                sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
+                displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+                detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
+                sourceImage: current?.sourceImage,
+                inputImages: current?.inputImages,
+                // Preserve custom size fields from current state — API response may not include them
+                ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+                ...(current?.width ? { width: current.width } : {}),
+                ...(current?.height ? { height: current.height } : {}),
+              }
             })
             setStatus(generation.status)
 
@@ -1946,11 +3057,19 @@ export default function StudioPage() {
               generation.status === "create_failed" ||
               generation.status === "failed"
             ) {
-              const sessionID = generation.sessionID ?? params.id
+              const sessionID = generation.sessionID ?? pendingResult()?.sessionID ?? params.id
               if (generation.status === "succeeded" && sessionID) {
                 void loadSessionMessages(sessionID).catch((error) => {
                   console.error("[StudioPage] generated session load failed", error)
                 })
+                // Update session thumbnail when generation succeeds
+                const images = generation.images
+                if (images && images.length > 0) {
+                  console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
+                  studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+                } else {
+                  console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
+                }
               }
               return
             }
@@ -1985,6 +3104,21 @@ export default function StudioPage() {
       },
     ),
   )
+
+  function handleCancelGeneration() {
+    const pollingId = pollingGenerationID()
+    if (pollingId) {
+      void cancelStudioGeneration(pollingId)
+      return
+    }
+    // Still in submitting phase — abort via token
+    createGenerationController?.abort()
+    createGenerationController = undefined
+    generationToken++
+    setPendingResult(undefined)
+    setStatus("idle")
+    setSending(false)
+  }
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
@@ -2029,7 +3163,7 @@ export default function StudioPage() {
   }
 
   function openHD() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.upscale")
       setWorkspaceImage(undefined)
@@ -2039,7 +3173,7 @@ export default function StudioPage() {
   }
 
   function openCutout() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.cutout")
       setWorkspaceImage(undefined)
@@ -2049,7 +3183,7 @@ export default function StudioPage() {
   }
 
   function openInpaint() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.inpaint")
       setWorkspaceImage(undefined)
@@ -2094,7 +3228,7 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isBusy() || !input.hasDrawing) return
+    if (isActionBusy()) return
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -2124,7 +3258,9 @@ export default function StudioPage() {
       void runGeneration({
         capability: "image.inpaint",
         sourceImage: sourceUrl,
-        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        prompt: input.prompt || (input.hasDrawing
+          ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
+          : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
         extra: {
           generateMode: input.mode,
           compositeImage: compositeData,
@@ -2214,7 +3350,7 @@ export default function StudioPage() {
 
   async function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
-    if (!image || isBusy()) return
+    if (!image || isActionBusy()) return
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -2235,7 +3371,7 @@ export default function StudioPage() {
 
   async function submitCutout() {
     const image = workspaceEditImage()
-    if (!image || isBusy()) return
+    if (!image || isActionBusy()) return
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -2252,9 +3388,9 @@ export default function StudioPage() {
   }
 
   function regenerateCurrentResult() {
-    const current = result()
+    const current = canvasResult() ?? result()
     if (!current) return
-    if (current.capability === "video.generate" && !canGenerateVideo()) return
+    if (resultRegenerateDisabled(current)) return
     tracker.interaction({
       module: "studio",
       name: "regenerate",
@@ -2268,14 +3404,21 @@ export default function StudioPage() {
     void runGeneration(restoreGenerationInput(current))
   }
 
-  const hasStudioConversation = createMemo(() =>
-    turns().length > 0 ||
-    pendingEditorEntries().length > 0 ||
-    Boolean(pendingResult()) ||
-    sending() ||
-    isEditingWorkspaceMode() ||
-    Boolean(workspaceModeForCapability(capability())),
-  )
+  const sessionDataLoaded = createMemo(() => {
+    if (!params.id) return false
+    return dataStore.message[params.id] !== undefined
+  })
+
+  const hasStudioConversation = createMemo(() => {
+    // 切换 session 数据未加载时保持对话布局，避免闪现空状态
+    if (params.id && !sessionDataLoaded()) return true
+    return turns().length > 0 ||
+      pendingEditorEntries().length > 0 ||
+      Boolean(pendingResult()) ||
+      sending() ||
+      isEditingWorkspaceMode() ||
+      Boolean(workspaceModeForCapability(capability()))
+  })
 
   const [hintVisible, setHintVisible] = createSignal(false)
 
@@ -2290,26 +3433,87 @@ export default function StudioPage() {
   })
 
   return (
-    <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
-      <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory
-          directory={projectDir()}
-          routeSlug={routeSlug()}
-          activeSessionID={params.id}
-          onNewConversation={startNewStudioConversation}
-        />
+    <div
+      ref={studioPageRef!}
+      class="studio-page"
+      style={{ position: "relative" }}
+      onPointerMove={onPagePointerMove}
+      onPointerUp={onPagePointerUp}
+    >
+      <aside
+        class="studio-left"
+        classList={{ collapsed: studioLeftCollapsed() }}
+        style={{
+          width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "min-width": studioLeftCollapsed() ? "68px" : undefined,
+          transition: resizingLeft() ? "none" : "width 200ms ease, flex-basis 200ms ease",
+        }}
+      >
+        <Show
+          when={!studioLeftCollapsed()}
+          fallback={
+            <div
+              class="h-full flex flex-col items-center"
+              style={{
+                background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+                padding: "12px 10px 24px 10px",
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                if (isOverlayMode()) {
+                  setStudioLeftOverlayOpen(true)
+                } else {
+                  toggleStudioLeft()
+                }
+              }}
+            >
+              <div class="flex flex-col items-center shrink-0" style={{ gap: "8px" }}>
+                <button
+                  type="button"
+                  class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+                  style={{ width: "36px", height: "36px" }}
+                  onClick={(e) => { e.stopPropagation(); startNewStudioConversation(); }}
+                >
+                  <Icon name="plus" size="normal" />
+                </button>
+                <div style={{ width: "48px", height: "1px", background: "rgba(0,0,0,0.1)" }} />
+              </div>
+              <img
+                src="/studio/IconStudio1.svg"
+                alt="Octo Studio"
+                style={{ width: "20px", height: "20px", "margin-top": "16px", "flex-shrink": "0" }}
+              />
+              <div class="flex-1" />
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
+                style={{ width: "36px", height: "36px" }}
+                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+              >
+                <Icon name="settings-gear" size="small" />
+              </button>
+            </div>
+          }
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={startNewStudioConversation}
+            toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
+            thumbnails={studioThumbnails.thumbnails}
+            thumbnailsLoading={studioThumbnails.loading()}
+            thumbnailVersion={studioThumbnails.version()}
+            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
+          />
+        </Show>
       </aside>
       <div
-        style={{
-          position: "absolute",
-          top: "0",
-          bottom: "0",
-          left: `${studioLeftWidth()}px`,
-          width: "8px",
-          cursor: "col-resize",
-          "z-index": "10",
-        }}
-        onMouseDown={handleStudioLeftResize}
+        class="absolute top-0 bottom-0 cursor-col-resize z-10"
+        classList={{ hidden: studioLeftCollapsed() }}
+        style={{ left: `${studioLeftWidth()}px`, width: "8px" }}
+        onPointerDown={handleStudioLeftResize}
       />
 
       <Show when={hasStudioConversation()} fallback={
@@ -2318,19 +3522,19 @@ export default function StudioPage() {
             <div class="studio-empty-group">
               <StudioIntro />
               <div class="relative size-full">
-                <Show when={hintVisible()}>
-                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
-                    {language.t("prompt.hint.newSession")}
-                  </div>
-                </Show>
+
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
+                  maxReferenceImages={maxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
+                  customWidth={customWidth()}
+                  customHeight={customHeight()}
+                  isCustom={isCustomStore()}
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
@@ -2342,12 +3546,16 @@ export default function StudioPage() {
                   wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
-                  onStyleModel={setStyleModel}
+                  onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
                   onCount={setCount}
+                  onCustomWidth={setCustomWidth}
+                  onCustomHeight={setCustomHeight}
+                  onIsCustom={setIsCustomStore}
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
+                  onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
                   onPickFile={() => fileInputRef.click()}
@@ -2359,17 +3567,42 @@ export default function StudioPage() {
                   onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
                   onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
                   onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+                  onReversePrompt={() => void handleReversePrompt()}
                 />
             </div>
           </div>
         </div>
         </main>
       }>
-        <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
+        <Show when={showStudioCenter()}>
+          <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
+            <div class="flex-1 min-w-0">
             <Show
               when={headerTitle.editing}
-              fallback={<div class="studio-center-title">{currentTitle()}</div>}
+              fallback={
+                <>
+                  <div
+                    ref={(el) => { headerSpanRef = el; headerResizeObserver?.disconnect(); headerResizeObserver = new ResizeObserver(() => checkHeaderTruncation()); headerResizeObserver.observe(el); queueMicrotask(() => checkHeaderTruncation()) }}
+                    class="studio-center-title"
+                    onMouseEnter={enterHeaderTrigger}
+                    onMouseLeave={leaveHeaderTrigger}
+                  >{currentTitle()}</div>
+                  <Show when={showHeaderTooltip()}>
+                    <Portal>
+                      <div
+                        ref={headerTooltipRef!}
+                        style={headerTooltipStyle()}
+                        onMouseEnter={enterHeaderTooltip}
+                        onMouseLeave={leaveHeaderTooltip}
+                        class="studio-custom-tooltip fixed z-[1000]"
+                      >
+                        {currentTitle()}
+                      </div>
+                    </Portal>
+                  </Show>
+                </>
+              }
             >
               <InlineInput
                 ref={(el) => {
@@ -2394,8 +3627,8 @@ export default function StudioPage() {
                 onBlur={() => void saveHeaderTitleEditor()}
               />
             </Show>
-            <Show when={activeStudioSession()} keyed>
-              {(session) => (
+            </div>
+            <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
@@ -2404,17 +3637,17 @@ export default function StudioPage() {
                 >
                   <DropdownMenu.Trigger
                     as={IconButton}
-                    icon="dot-grid"
+                    icon="ellipsis"
                     variant="ghost"
-                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active"
+                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active" style={{"z-index": "150", position: "relative"}}
                     aria-label={language.t("common.moreOptions")}
                     aria-expanded={headerTitle.menuOpen}
                   />
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
-                      style={{ "min-width": "104px" }}
+                      style={{ "min-width": "104px", "z-index": "1000" }}
                       onCloseAutoFocus={(event) => {
-                        if (!headerTitle.pendingRename) return
+if (!headerTitle.pendingRename) return
                         event.preventDefault()
                         setHeaderTitle("pendingRename", false)
                         openHeaderTitleEditor()
@@ -2422,24 +3655,23 @@ export default function StudioPage() {
                     >
                       <DropdownMenu.Item
                         onSelect={() => {
-                          setHeaderTitle({
-                            pendingRename: true,
-                            menuOpen: false,
-                          })
+                          setHeaderTitle({ pendingRename: true, menuOpen: false })
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
-                        onSelect={() => dialog.show(() => <DialogDeleteHeaderSession session={session} />)}
+                        onSelect={() => {
+                          const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
+                          dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                        }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
-              )}
             </Show>
           </div>
 
@@ -2452,15 +3684,22 @@ export default function StudioPage() {
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
+                sdkUrl={globalSDK.url}
+                directory={projectDir()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
+                rebootingGenerationIDs={rebootingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
+                onEditGeneration={(generation) => void editGenerationDraft(generation)}
+                onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
+                onUseInputImage={useConversationInputImage}
               />
             </Show>
           </ScrollView>
@@ -2471,8 +3710,12 @@ export default function StudioPage() {
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
+            maxReferenceImages={maxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
+            customWidth={customWidth()}
+            customHeight={customHeight()}
+            isCustom={isCustomStore()}
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
@@ -2484,12 +3727,16 @@ export default function StudioPage() {
             wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
-            onStyleModel={setStyleModel}
+            onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
+            onCustomWidth={setCustomWidth}
+            onCustomHeight={setCustomHeight}
+            onIsCustom={setIsCustomStore}
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
+            onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
@@ -2501,19 +3748,24 @@ export default function StudioPage() {
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+            onReversePrompt={() => void handleReversePrompt()}
           />
         </section>
+        </Show>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
-          onMouseDown={handleStudioCenterResize}
+          classList={{ hidden: !showStudioCenter() }}
+          style={{ left: `${centerResizeLeft() + studioCenterWidth()}px`, width: "8px" }}
+          onPointerDown={handleStudioCenterResize}
         />
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
-          <div class="studio-empty-workspace">
-            <StudioIntro />
-          </div>
+          params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : (
+            <div class="studio-empty-workspace">
+              <StudioIntro />
+            </div>
+          )
         }>
         <section class="studio-canvas">
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
@@ -2532,11 +3784,14 @@ export default function StudioPage() {
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
-                  // fallback 模式（无 tabs）：只有一个关闭按钮，删除全部图片隐藏 canvas 和 details
-                  setShowStudioCanvas(false)
+                  // fallback 模式（无 tabs）：切换到文件管理
+                  setShowFileManager(true)
+                  setFileManagerDetailView(false)
+                  setStudioViewPref("mode", "file-manager")
                   const allIds = result()?.images.map((img) => img.id) ?? []
                   setDeletedImageIds(new Set(allIds))
                   setSelectedImageId(undefined)
+                  setSelectedResultId(undefined)
                 })
               }}
               onCloseTab={closeCanvasTab}
@@ -2547,9 +3802,51 @@ export default function StudioPage() {
               onRegenerate={regenerateCurrentResult}
               onGenerateVideo={generateVideoFromSelectedImage}
               showVideoGeneration={canGenerateVideo()}
-              regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+              regenerateDisabled={resultRegenerateDisabled(result())}
+              actionDisabled={isActionBusy()}
+              showFileManagerTab={true}
+              onFileManagerClick={() => {
+                if (fileManagerDetailView()) {
+                  if (showFileManager()) {
+                    // 当前在详情页 → 返回网格视图
+                    backFromFileManagerDetail()
+                  } else {
+                    // 从 canvas 切回来 → 恢复之前的详情视图及选中项
+                    if (fileManagerDetailResultId && fileManagerDetailImageId) {
+                      setSelectedResultId(fileManagerDetailResultId)
+                      setSelectedImageId(fileManagerDetailImageId)
+                    }
+                    setShowFileManager(true)
+                    setStudioViewPref("mode", "file-manager")
+                  }
+                } else if (canvasTabImages().length === 0) {
+                  // 无图片 tab，保持在文件管理，不切换
+                } else {
+                  setShowFileManager((v) => {
+                    const next = !v
+                    setStudioViewPref("mode", next ? "file-manager" : "canvas")
+                    return next
+                  })
+                }
+              }}
+              showFileManager={showFileManager()}
+              fileManagerDetailView={fileManagerDetailView()}
+              onFileManagerBack={backFromFileManagerDetail}
+              onFileManagerSelectMedia={(item: { id: string; turnID: string }) => {
+                const turn = displayTurns().find((t) => t.result?.id === item.turnID || t.id === item.turnID)
+                if (turn?.result) {
+                  selectFileManagerMedia({ resultID: turn.result.id, imageID: item.id })
+                }
+              }}
+              studioCenterWidth={studioCenterWidth()}
+              showStudioCenter={showStudioCenter()}
+              hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
+              turns={displayTurns()}
+              canGenerateVideo={canGenerateVideo()}
+              sessionID={params.id}
+              fileManagerGenPending={fileManagerGenPending()}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+              <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"
@@ -2563,12 +3860,14 @@ export default function StudioPage() {
                         image={selectedImage()}
                         selectedImageId={selectedImageId()}
                         imageLabel={currentImageLabel()}
-                        regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                        regenerateDisabled={resultRegenerateDisabled(result())}
                         showVideoGeneration={canGenerateVideo()}
                         onSelectImage={(id) => {
                           const r = result()
                           batch(() => {
                             setShowStudioCanvas(true)
+                            setShowFileManager(false)
+                            setStudioViewPref("mode", "canvas")
                             if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
                               // 已有 tab → 只切选中
                               setSelectedImageId(id)
@@ -2630,7 +3929,7 @@ export default function StudioPage() {
               {(image) => (
                 <StudioCutoutEditor
                   image={image()}
-                  busy={isBusy()}
+                  busy={isActionBusy()}
                   onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitCutout}
@@ -2653,7 +3952,7 @@ export default function StudioPage() {
               {(image) => (
                 <StudioInpaintEditor
                   image={image()}
-                  busy={isBusy()}
+                  busy={isActionBusy()}
                   onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitInpaint}
@@ -2671,10 +3970,48 @@ export default function StudioPage() {
         </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
+      </Show>
+      <Show when={isOverlayMode() && studioLeftOverlayOpen()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            "z-index": "100",
+            background: "rgba(0, 0, 0, 0.2)",
+          }}
+          onClick={() => setStudioLeftOverlayOpen(false)}
+        />
+        <aside
+          style={{
+            position: "absolute",
+            top: "0",
+            left: "0",
+            bottom: "0",
+            width: "296px",
+            "z-index": "101",
+            background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+            "border-right": "1px solid var(--border-weak-base)",
+            overflow: "hidden",
+          }}
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={() => {
+              setStudioLeftOverlayOpen(false)
+              startNewStudioConversation()
+            }}
+            thumbnails={studioThumbnails.thumbnails}
+            thumbnailsLoading={studioThumbnails.loading()}
+            thumbnailVersion={studioThumbnails.version()}
+            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
+          />
+        </aside>
       </Show>
     </div>
   )

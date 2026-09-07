@@ -1,6 +1,7 @@
 import { createSignal, Show, type JSX } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { InsightSessionList } from "./components/session-list"
+import { Icon } from "@opencode-ai/ui/icon"
 
 /**
  * InsightSidebar —— insight 自带的左侧会话栏(SPEC-INS-010 §11:废弃 _shell 后侧栏归 insight)
@@ -88,7 +89,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
             <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
           </svg>
-          <span>新建</span>
+          <span>新建对话</span>
         </button>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
       </div>
@@ -102,7 +103,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px] min-w-0">
-              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <Icon name="tab-cowork" size="normal" style={{ color: "rgba(10,89,247,1)" }} />
               <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                 Octo Insight
               </span>
@@ -113,7 +114,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
       </div>
 
       {/* 会话列表 — 仅此区域可滚动;收起时容器保留占位,底部槽不上移 */}
-      <div class="flex-1 min-h-0 overflow-y-auto px-[12px]" style={{ "scrollbar-width": "none" }}>
+      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px]">
         <Show when={!collapsed()}>
           <InsightSessionList />
         </Show>

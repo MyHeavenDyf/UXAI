@@ -1,5 +1,6 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, type JSX } from "solid-js"
 import { getDesktopApi } from "../../lib/electron-api"
+import { tracker } from "@/utils/tracker"
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
@@ -12,6 +13,7 @@ export interface AnnotationEventDetail {
   file: File | null
   note: string
   action: 'queue' | 'send'
+  tabContext?: { title: string; filePath?: string }
   ack?: (result: { ok: boolean; message?: string }) => void
 }
 
@@ -20,6 +22,7 @@ interface Props {
   active?: boolean
   onActiveChange?: (active: boolean) => void
   sendDisabled?: boolean
+  tabContext?: { title: string; filePath?: string }
 }
 
 const STROKE_COLOR = '#ff3b30'
@@ -530,13 +533,14 @@ export function DrawOverlay(props: Props): JSX.Element {
         }
 
         window.setTimeout(() => {
-          finish({ ok: false, message: 'Annotation timeout' })
-        }, 60000)
+          finish({ ok: false, message: '标注超时' })
+        }, 1200000)
 
         const detail: AnnotationEventDetail = {
           file,
           note: note().trim(),
           action,
+          tabContext: props.tabContext,
           ack: finish,
         }
 
@@ -546,11 +550,12 @@ export function DrawOverlay(props: Props): JSX.Element {
       if (!result.ok) {
         setCaptureWarning({
           action,
-          message: result.message || 'Annotation failed',
+          message: result.message || '标注失败',
         })
         return
       }
 
+      tracker.interaction({ module: "design", name: "send-annotation", extend: JSON.stringify({ annotationCount: strokesRef.length + (hasBox() ? 1 : 0) }) })
       clearInk()
       setCaptureWarning(null)
       setNote('')

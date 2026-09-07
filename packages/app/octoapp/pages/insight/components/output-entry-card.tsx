@@ -58,6 +58,7 @@ function previewEntryLabel(card: OutputCard): string {
     case "json": return "JSON 数据"
     case "code": return card.fileName || "代码文件"
     case "file": return card.fileName || "文件"
+    case "image": return card.fileName || "图片"
   }
 }
 

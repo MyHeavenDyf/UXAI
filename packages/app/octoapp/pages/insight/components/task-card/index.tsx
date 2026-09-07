@@ -137,7 +137,7 @@ function Header(props: {
           type="button"
           onClick={props.onOpenResult}
           class="flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[13px] font-medium flex-shrink-0 transition-colors"
-          style={{ "min-width": "102px", padding: "0 14px", background: "var(--octo-brand)", color: "#FFFFFF" }}
+          style={{ "min-width": "102px", padding: "0 14px", background: "rgb(10,89,247)", color: "#FFFFFF" }}
         >
           <IconEye size={15} />
           查看结果

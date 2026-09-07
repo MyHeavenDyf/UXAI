@@ -5,6 +5,7 @@ export function UserInputCard(props: { text: string }): JSX.Element {
   const [userExpanded, setUserExpanded] = createSignal(false)
   const [contentOverflows, setContentOverflows] = createSignal(false)
   const [collapsedMaxHeight, setCollapsedMaxHeight] = createSignal("")
+  const [copied, setCopied] = createSignal(false)
   let bubbleContentRef: HTMLDivElement | undefined
 
   createEffect(() => {
@@ -33,6 +34,18 @@ export function UserInputCard(props: { text: string }): JSX.Element {
 
   const showCollapseBtn = createMemo(() => contentOverflows())
 
+  let copyTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => { if (copyTimer) clearTimeout(copyTimer) })
+  const handleCopy = () => {
+    navigator.clipboard.writeText(props.text)
+      .then(() => {
+        setCopied(true)
+        if (copyTimer) clearTimeout(copyTimer)
+        copyTimer = setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
+  }
+
   return (
     <div class="flex justify-end px-3 py-2.5">
       <div class="flex flex-col items-end max-w-[85%]">
@@ -43,6 +56,18 @@ export function UserInputCard(props: { text: string }): JSX.Element {
             "user-bubble-expanded": showCollapseBtn() && userExpanded(),
           }}
         >
+          <button type="button" class="user-bubble-copy-btn" onClick={handleCopy} title="复制">
+            <Show when={copied()} fallback={
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="5" width="8" height="8" rx="1.5" />
+                <path d="M3 11V4a1 1 0 0 1 1-1h7" />
+              </svg>
+            }>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 8.5L6.5 12L13 4.5" />
+              </svg>
+            </Show>
+          </button>
           <div class="text-sm whitespace-pre-wrap break-words leading-relaxed px-3 py-2 bubble-content">
             <div
               ref={bubbleContentRef}

@@ -374,7 +374,7 @@ export function MessageTimeline(props: {
     ms: pace(640),
   })
 
-  let more: HTMLButtonElement | undefined
+  const [moreRef, setMoreRef] = createSignal<HTMLButtonElement | null>(null)
   let head: HTMLDivElement | undefined
 
   createResizeObserver(
@@ -425,6 +425,7 @@ export function MessageTimeline(props: {
         }),
       )
       setTitle("editing", false)
+      window.dispatchEvent(new CustomEvent("octo:session-renamed", { detail: { sessionID: input.id, title: input.title } }))
     },
     onError: (err) => {
       showToast({
@@ -503,16 +504,8 @@ export function MessageTimeline(props: {
     titleMutation.mutate({ id, title: next })
   }
 
-  const navigateAfterSessionRemoval = (sessionID: string, parentID?: string, nextSessionID?: string) => {
+  const navigateAfterSessionRemoval = (sessionID: string) => {
     if (params.id !== sessionID) return
-    if (parentID) {
-      navigate(`/${params.dir}/chat/${parentID}`)
-      return
-    }
-    if (nextSessionID) {
-      navigate(`/${params.dir}/chat/${nextSessionID}`)
-      return
-    }
     const decoded = decode64(params.dir)
     if (decoded) layout.lastSessionPerTab.setChat(decoded, "")
     navigate(`/${params.dir}/chat`)
@@ -521,10 +514,6 @@ export function MessageTimeline(props: {
   const archiveSession = async (sessionID: string) => {
     const session = sync.session.get(sessionID)
     if (!session) return
-
-    const sessions = sync.data.session ?? []
-    const index = sessions.findIndex((s) => s.id === sessionID)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
     await sdk.client.session
       .update({ sessionID, time: { archived: Date.now() } })
@@ -535,7 +524,7 @@ export function MessageTimeline(props: {
             if (index !== -1) draft.session.splice(index, 1)
           }),
         )
-        navigateAfterSessionRemoval(sessionID, session.parentID, nextSession?.id)
+        navigateAfterSessionRemoval(sessionID)
       })
       .catch((err) => {
         showToast({
@@ -548,10 +537,6 @@ export function MessageTimeline(props: {
   const deleteSession = async (sessionID: string) => {
     const session = sync.session.get(sessionID)
     if (!session) return false
-
-    const sessions = (sync.data.session ?? []).filter((s) => !s.parentID && !s.time?.archived)
-    const index = sessions.findIndex((s) => s.id === sessionID)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
     const result = await sdk.client.session
       .delete({ sessionID })
@@ -602,7 +587,7 @@ export function MessageTimeline(props: {
       }),
     )
 
-    navigateAfterSessionRemoval(sessionID, session.parentID, nextSession?.id)
+    navigateAfterSessionRemoval(sessionID)
     return true
   }
 
@@ -720,7 +705,7 @@ export function MessageTimeline(props: {
             "--sticky-accordion-top": showHeader() ? "48px" : "0px",
           }}
         >
-          <div ref={props.setContentRef} class="min-w-0 w-full">
+          <div ref={props.setContentRef} class="min-w-0 w-full px-4 md:px-5">
             <Show when={showHeader()}>
               <div
                 ref={(el) => {
@@ -852,9 +837,7 @@ export function MessageTimeline(props: {
                               class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                               aria-label={language.t("common.moreOptions")}
                               style={{ color: "rgba(0,0,0,0.6)" }}
-                              ref={(el: HTMLButtonElement) => {
-                                more = el
-                              }}
+                              ref={setMoreRef}
                             >
                               <Icon name="ellipsis" class="size-5" />
                             </DropdownMenu.Trigger>
@@ -902,7 +885,10 @@ export function MessageTimeline(props: {
                                 </DropdownMenu.Item> */}
                                 <DropdownMenu.Separator />
                                 <DropdownMenu.Item
-                                  onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    dialog.show(() => <DialogDeleteSession sessionID={id} />)
+                                  }}
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
@@ -912,7 +898,10 @@ export function MessageTimeline(props: {
 
                           <KobaltePopover
                             open={share.open}
-                            anchorRef={() => more}
+                            anchorRef={() => {
+                              const el = moreRef()
+                              return el && el.isConnected ? el : undefined
+                            }}
                             placement="bottom-end"
                             gutter={4}
                             modal={false}
@@ -1147,6 +1136,13 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <div
+          class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+          style={{
+            height: "24px",
+            background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+          }}
+        />
       </div>
     </Show>
   )

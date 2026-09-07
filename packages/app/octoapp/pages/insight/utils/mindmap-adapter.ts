@@ -21,6 +21,34 @@ export function isMindmapJSON(text: string): boolean {
   return uxrJsonToMarkdown(text) != null
 }
 
+/** Octo 内网白板导入格式:节点用 `text` 字段(思维导图用 `name`),children 结构一致。 */
+export type OctoWhiteboardNode = { text: string; children?: OctoWhiteboardNode[] }
+
+/**
+ * 思维导图 JSON → Octo 白板导入 JSON。
+ * 与渲染/判定共用 collectRoots 同一条规则(覆盖 {name,children} / {mindmaps:[…]} / {nodes:[…]} / 顶层裸树),
+ * 只把节点字段 name → text 递归改写。
+ * 多根(mindmaps 可能多棵树)时,Octo 白板根为单对象,用 centerTitle 合成一个中心主题包住所有根。
+ * 无法解析(非导图 shape)→ 返回 null,由调用方决定报错文案。
+ */
+export function uxrJsonToOctoWhiteboard(text: string, centerTitle = "思维导图"): OctoWhiteboardNode | null {
+  const json = tryParseJSON(stripCodeFence(text))
+  if (json == null) return null
+
+  const roots = collectRoots(json)
+  if (roots.length === 0) return null
+
+  if (roots.length === 1) return toOctoNode(roots[0])
+  return { text: (centerTitle.trim() || "思维导图"), children: roots.map(toOctoNode) }
+}
+
+// leaf 节点不带 children 键(与 Octo 示例一致:{ "text": "子主题" });与 renderNode 的空节点兜底对齐((空))。
+function toOctoNode(node: MindmapNode): OctoWhiteboardNode {
+  const text = (node.name ?? "(空)").trim() || "(空)"
+  const children = Array.isArray(node.children) ? node.children.map(toOctoNode) : []
+  return children.length > 0 ? { text, children } : { text }
+}
+
 // declared = 是否处在「显式 mindmap 容器」(mindmaps / nodes 数组)内。
 // 容器内的元素是服务端**已声明**的导图节点(内网 MCP 强契约),沿用旧的宽松规则(name 或 children 任一即收),
 // 保证 MCP 返回的确定格式渲染**零变化**;只有顶层裸对象(无容器包裹)才收紧,杜绝普通 JSON 误判(见下)。

@@ -812,6 +812,11 @@ export const dict = {
   "session.delete.confirm": 'Slet session "{{name}}"?',
   "session.delete.button": "Slet session",
 
+  "file.delete.title": "Slet fil",
+  "file.delete.confirm": 'Slet filen "{{name}}"?',
+  "file.delete.plural.confirm": "Slet {{count}} valgte filer?",
+  "file.delete.button": "Slet",
+
   "workspace.new": "Nyt arbejdsområde",
   "workspace.type.local": "lokal",
   "workspace.type.sandbox": "sandkasse",

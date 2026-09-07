@@ -24,6 +24,10 @@ const RENDER_EXT: Record<string, OutputCardType> = {
   // 故一律出 json 卡(shiki 高亮 + 复制);真正要 markmap 预览的思维导图产物走路径 A
   // (MCP resource_link + business_type:"mindmap" 显式声明),不靠路径 C 嗅探。见 output-renderers.md §2.6.1。
   json: "json",
+  // 图片扩展名 → image 卡(走 ImageRenderer,local:// 协议读盘渲染 / uri 直接加载),
+  // 不走 file 卡(FileFallback 三按钮)。与 Design 页签同款行为。
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image",
+  tiff: "image", tif: "image", ico: "image", svg: "image", heic: "image", heif: "image", avif: "image",
 }
 
 // 走 file 卡(本地应用打开)的扩展名。判据:**office/系统能打开但我们应用内渲染无价值或无法渲染**。
@@ -33,8 +37,8 @@ const FILE_EXT = new Set([
   "csv", "tsv", "xls", "xlsx", "xlsm", "xlsb", "ods",
   // 文档 / 演示
   "doc", "docx", "ppt", "pptx", "odt", "odp", "rtf", "pdf", "pages", "numbers", "key", "epub",
-  // 图片
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "ico", "svg", "heic", "heif", "avif", "psd", "ai", "sketch", "fig",
+  // 图片(仅 psd/ai/sketch/fig 等无法浏览器内渲染的归 file;png/jpg/gif/svg 等已进 RENDER_EXT → image 卡)
+  "psd", "ai", "sketch", "fig",
   // 音视频
   "mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v", "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus",
   // 压缩 / 镜像 / 安装包
@@ -122,6 +126,30 @@ function readFilePath(input: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
+/** 从 completed 态 tool part 的 metadata 读服务端权威落点(write/edit 均返回 metadata.filepath = 实际写盘绝对路径)。 */
+function readMetadataFilepath(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== "object") return undefined
+  const v = (metadata as Record<string, unknown>).filepath
+  return typeof v === "string" && v.length > 0 ? v : undefined
+}
+
+/**
+ * 解析产物卡应使用的本地路径。**优先 state.metadata.filepath**(服务端 write/edit 实际写盘的绝对路径,
+ * 权威且恒等于真实落点),兜底 state.input.filePath。
+ *
+ * 为什么不能只信 state.input:insight 会话的 write 相对落点由服务端插件(octo-outputs-redirect)重定向到
+ * 会话 outputs/,但 state.input 记录的是模型产出的原始裸文件名(如 `报告.md`),与真实落点脱钩——客户端拿裸名
+ * 走 file.read / openPath 会相对项目根解析而定位失败。metadata.filepath 才是写盘用的那个路径,不受重定向 / 相对
+ * join 影响。见 output-renderers.md §2.6.3。
+ */
+function resolveCardPath(state: Record<string, unknown>): { filePath: string; source: "metadata" | "input" } | undefined {
+  const fromMeta = readMetadataFilepath(state.metadata)
+  if (fromMeta) return { filePath: fromMeta, source: "metadata" }
+  const fromInput = readFilePath(state.input)
+  if (fromInput) return { filePath: fromInput, source: "input" }
+  return undefined
+}
+
 export type WriteCard = {
   filePath: string
   type: OutputCardType
@@ -137,7 +165,7 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
   // 用 Map 按 filePath 去重并保留最后出现的顺序
   const byPath = new Map<string, WriteCard>()
   // 诊断:把扫到的每个工具 part 的判定过程记下来,便于"写了文件却不出卡"时定位是哪一环断的
-  const seen: Array<{ tool: unknown; status: unknown; isWrite: boolean; filePath?: string; type?: string; skip?: string }> = []
+  const seen: Array<{ tool: unknown; status: unknown; isWrite: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string }> = []
 
   for (const part of parts) {
     if (!part || typeof part !== "object") continue
@@ -146,7 +174,7 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
 
     const state = p.state as Record<string, unknown> | undefined
     const isWrite = isFileWriteTool(p.tool)
-    const rec: { tool: unknown; status: unknown; isWrite: boolean; filePath?: string; type?: string; skip?: string } = {
+    const rec: { tool: unknown; status: unknown; isWrite: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string } = {
       tool: p.tool,
       status: state?.status,
       isWrite,
@@ -162,15 +190,18 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
       seen.push(rec)
       continue
     }
-    const filePath = readFilePath(state.input)
-    if (!filePath) {
+    const resolved = resolveCardPath(state)
+    if (!resolved) {
       rec.skip = "no-filePath"
-      // 把 input 的 key 也带上,便于发现服务端用了别的字段名
-      rec.type = `inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
+      // 把 metadata / input 的 key 也带上,便于发现服务端用了别的字段名
+      rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +
+        `|inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
       seen.push(rec)
       continue
     }
+    const filePath = resolved.filePath
     rec.filePath = filePath
+    rec.pathSource = resolved.source
     rec.type = extToOutputType(filePath)
     seen.push(rec)
     // 重新插入以更新顺序到最后(覆盖语义)

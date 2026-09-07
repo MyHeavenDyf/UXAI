@@ -14,7 +14,7 @@ import type { Message } from "@opencode-ai/sdk/v2/client"
 import type { OutputCard } from "../components/insight-turn"
 import { createArtifactParser } from "./artifact-parser"
 
-type TextPartLike = { type: string; text?: string }
+export type TextPartLike = { type: string; text?: string }
 
 /** Build a stable, unique tab ID for a design-plan artifact within a session. */
 export function planTabId(sessionID: string, identifier: string): string {
@@ -42,15 +42,18 @@ export function scanDesignPlanFromMessages(
   for (const msg of messages) {
     if (msg.role !== "assistant") continue
     const text = concatMessageText(partStore?.[msg.id])
-    if (!text || !text.includes("<artifact")) continue
+    // 容错:agent 可能输出 `<XXXartifact` (中间插入了非字母字符如全角符号),
+    // 所以不用精确的 "<artifact" 判断,改用更宽松的 "artifact" + "design-plan" 组合判断。
+    if (!text || !text.includes("artifact") || !text.includes("type=")) continue
+
+    // 修复 < 和 artifact 之间的乱码字符:将 < 之后非字母字符到 artifact 的序列标准化
+    const normalized = text.replace(/<[^a-zA-Z]*?(artifact)/g, "<$1")
 
     const parser = createArtifactParser()
     let pendingStart: { identifier: string; title: string; createdAt: number } | null = null
 
     const handleEvent = (ev: import("./artifact-parser").ArtifactEvent) => {
       if (ev.type === "artifact:start") {
-        // 识别 design-plan:type 严格匹配 text/design-plan;或 agent 把 type 写错时
-        // (例如写成 markdown-document),只要 identifier 以 "plan-" 开头也视为方案 artifact。
         const isPlan =
           ev.artifactType === "text/design-plan" ||
           ev.identifier.startsWith("plan-")
@@ -64,8 +67,6 @@ export function scanDesignPlanFromMessages(
           createdAt: msg.time.created,
         }
       } else if (ev.type === "artifact:end" && pendingStart && ev.identifier === pendingStart.identifier) {
-        // Later messages overwrite earlier ones — agent may iterate the plan
-        // with the same identifier, in which case we want the newest version.
         if (pendingStart.createdAt >= latestCreatedAt) {
           latestCreatedAt = pendingStart.createdAt
           latest = {
@@ -81,8 +82,7 @@ export function scanDesignPlanFromMessages(
       }
     }
 
-    for (const ev of parser.feed(text)) handleEvent(ev)
-    // flush picks up any artifact that ended at the buffer boundary
+    for (const ev of parser.feed(normalized)) handleEvent(ev)
     for (const ev of parser.flush()) handleEvent(ev)
   }
 
@@ -141,6 +141,50 @@ export function isPlanConfirmed(
 }
 
 const HTML_ARTIFACT_RE = /<artifact\b[^>]*\btype\s*=\s*["']text\/html["']/
+
+/**
+ * Sentinel + response markers for the two-phase design-plan entry flow.
+ *
+ * Agent emits `[design-plan-intent]` when it wants to enter planning mode;
+ * user responds by clicking a button that sends `[enter-plan]` or `[skip-plan]`.
+ * The markers tolerate trailing args / whitespace inside the brackets.
+ */
+const PLAN_INTENT_RE = /\[design-plan-intent\b[^\]]*\]/
+const PLAN_RESPONSE_RE = /\[(?:enter-plan|skip-plan)\b[^\]]*\]/
+
+/**
+ * 是否存在尚未被用户响应的 `[design-plan-intent]` sentinel。
+ *
+ * "已被响应" = 最新 sentinel 之后,在任意消息中出现以下任一信号:
+ *   - 用户消息含 `[enter-plan]` 或 `[skip-plan]` (前端按钮触发)
+ *   - 助手消息含任何 `<artifact>` 标签 (agent 违规提前输出 plan/html,视同已流转)
+ *
+ * 没出现过 sentinel 或 sentinel 已被响应 → 返回 false (无 pending intent)。
+ */
+export function isPlanIntentResolved(
+  messages: Message[] | undefined,
+  partStore: Record<string, TextPartLike[] | undefined> | undefined,
+): boolean {
+  if (!messages || messages.length === 0) return true
+
+  let intentSeenIdx = -1
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.role !== "assistant") continue
+    const text = concatMessageText(partStore?.[msg.id])
+    if (text && PLAN_INTENT_RE.test(text)) intentSeenIdx = i
+  }
+  if (intentSeenIdx === -1) return true
+
+  for (let i = intentSeenIdx; i < messages.length; i++) {
+    const msg = messages[i]
+    const text = concatMessageText(partStore?.[msg.id])
+    if (!text) continue
+    if (msg.role === "user" && PLAN_RESPONSE_RE.test(text)) return true
+    if (msg.role === "assistant" && text.includes("<artifact")) return true
+  }
+  return false
+}
 
 function concatMessageText(parts: TextPartLike[] | undefined): string {
   if (!parts || parts.length === 0) return ""

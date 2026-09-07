@@ -31,6 +31,11 @@ export type StudioImage = {
   localPath?: string
 }
 
+export type StudioInputImage = {
+  id: string
+  url: string
+}
+
 export type StudioGenerationRequest = {
   capability: StudioCapability
   prompt: string
@@ -40,6 +45,8 @@ export type StudioGenerationRequest = {
   imageTool: StudioImageTool
   referenceImages: string[]
   sourceImage?: string
+  width?: number
+  height?: number
   extra?: Record<string, unknown>
 }
 
@@ -49,6 +56,8 @@ export type StudioGenerationResult = {
   status: Exclude<StudioGenerationStatus, "idle" | "submitting">
   capability: StudioCapability
   prompt: string
+  displayPrompt?: string
+  detailPrompt?: string
   provider: "mock" | "jimeng" | "internel"
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
@@ -57,6 +66,9 @@ export type StudioGenerationResult = {
   model: string
   styleModel?: string
   aspectRatio: StudioAspectRatio
+  width?: number
+  height?: number
+  isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
   duration?: "5" | "10"
   videoQualityMode?: "std" | "pro"

@@ -108,7 +108,7 @@ export function StudioCutoutEditor(props: {
       <div class="studio-cutout-body">
         <div class="studio-cutout-hint">
           <img src="/studio/studio_help_tips.png" alt="" class="studio-cutout-hint-icon" />
-          <span>基于大模型背景去除</span>
+          <span>基于大模型的背景去除</span>
         </div>
         <div class="studio-cutout-canvas-wrap">
           <img

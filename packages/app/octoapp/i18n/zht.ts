@@ -801,6 +801,11 @@ export const dict = {
   "session.delete.confirm": '刪除工作階段 "{{name}}"?',
   "session.delete.button": "刪除工作階段",
 
+  "file.delete.title": "刪除檔案",
+  "file.delete.confirm": '刪除檔案 "{{name}}"?',
+  "file.delete.plural.confirm": "刪除 {{count}} 個選取檔案？",
+  "file.delete.button": "刪除",
+
   "workspace.new": "新增工作區",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙盒",

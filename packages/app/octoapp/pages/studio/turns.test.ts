@@ -55,20 +55,21 @@ const textPart = (id: string, messageID: string, text: string) =>
     text,
   }) as Part
 
-  const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate") =>
-    ({
-      id,
-      sessionID: "ses_1",
-      messageID,
+const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate", input?: Record<string, unknown>) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
     type: "tool",
     tool,
-      state: {
-        status: "completed",
-        title: "图片生成",
-        time: { start: 1, end: 2 },
-        output,
-      },
-    }) as Part
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output,
+    },
+  }) as Part
 
 const attachmentToolPart = (id: string, messageID: string, url: string, tool = "jimeng_image_generate", mime = "image/png") =>
   ({
@@ -183,6 +184,33 @@ const contentFileToolPart = (id: string, messageID: string, url: string, tool = 
       content: [{ type: "file", uri: url, mime: "image/png", name: "internel-1.png" }],
     },
   }) as unknown as Part
+
+const completedGenerationToolPart = (
+  id: string,
+  messageID: string,
+  input: Record<string, unknown>,
+  output: Record<string, unknown> = {},
+  tool = "internel_image_generate",
+) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool,
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output: JSON.stringify({
+        ok: true,
+        images: ["https://example.com/regenerate.png"],
+        ...output,
+      }),
+    },
+  }) as Part
 
 const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): StudioGenerationResult =>
   ({
@@ -425,6 +453,55 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.error).toBe("生成失败")
   })
 
+  test("uses display prompt for regenerated turns while keeping the effective generation prompt", () => {
+    const user = userMessage("msg_regenerate_user")
+    const assistant = assistantMessage("msg_regenerate_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_regenerate_text", user.id, "一只大黄狗，阳光草地，胶片质感")],
+        [assistant.id]: [
+          textPart("p_regenerate_assistant", assistant.id, "好的，我会按当前结果的配置重新生成。"),
+          completedGenerationToolPart("p_regenerate_tool", assistant.id, {
+            capability: "image.generate",
+            prompt: "一只大黄狗",
+            displayPrompt: "再次生成",
+            detailPrompt: "一只大黄狗在草地上奔跑",
+            refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
+            effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
+            aspectRatio: "3:4",
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].userText).toBe("再次生成")
+    expect(turns[0].assistantText).toBe("好的，我会按当前结果的配置重新生成。")
+    expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
+    expect(turns[0].result?.displayPrompt).toBe("再次生成")
+    expect(turns[0].result?.detailPrompt).toBe("一只大黄狗在草地上奔跑")
+  })
+
+  test("uses the original user bubble as the detail prompt for legacy turns", () => {
+    const user = userMessage("msg_legacy_detail_user")
+    const assistant = assistantMessage("msg_legacy_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_legacy_detail_text", user.id, "雨中的木屋")],
+        [assistant.id]: [completedGenerationToolPart("p_legacy_detail_tool", assistant.id, {
+          capability: "image.generate",
+          prompt: "雨中的木屋",
+          refinedPrompt: "一座坐落在雨幕中的温暖木屋，电影感光影",
+          aspectRatio: "3:4",
+        })],
+      },
+    })
+
+    expect(turns[0].result?.prompt).toBe("一座坐落在雨幕中的温暖木屋，电影感光影")
+    expect(turns[0].result?.detailPrompt).toBe("雨中的木屋")
+  })
+
   test("restores create failure separately from generation failure", () => {
     const user = userMessage("msg_create_failed_user")
     const assistant = assistantMessage("msg_create_failed_assistant", 2)
@@ -459,12 +536,15 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "保持可爱风格，背景更明亮"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("上一轮助手说明")
     expect(summary).not.toContain("3:4")
     expect(summary).not.toContain("https://example.com/one.png")
@@ -482,14 +562,17 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "第一轮完成"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
         [m2.id]: [textPart("p_4", m2.id, "把它改成夜景")],
         [a2.id]: [runningToolPart("p_5", a2.id)],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("https://example.com/one.png")
     expect(summary).not.toContain("把它改成夜景")
   })
@@ -525,6 +608,7 @@ describe("buildStudioTurns", () => {
             sessionID: "ses_1",
             messageID: a1.id,
             type: "tool",
+            callID: "call_p_2",
             tool: "internel_image_generate",
             state: {
               status: "completed",
@@ -588,6 +672,138 @@ describe("buildStudioTurns", () => {
     })
 
     expect(turns[0].result?.images[0]?.url).toBe("https://example.com/final.png")
+  })
+
+  test("extracts input thumbnails from image reference images", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "参考这两张图生成")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ images: ["https://example.com/final.png"] }),
+            "internel_image_generate",
+            {
+              capability: "image.generate",
+              referenceImages: [
+                "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/reference-1.png",
+                "data:image/png;base64,QUJDREVGRw==",
+              ],
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([
+      "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/reference-1.png",
+      "data:image/png;base64,QUJDREVGRw==",
+    ])
+  })
+
+  test("extracts input thumbnails from video frames and dedupes references", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+    const firstFrame = "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/first-frame.png"
+    const lastFrame = "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/last-frame.png"
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "用首尾帧生成视频")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ videos: ["https://example.com/final.mp4"] }),
+            "internel_image_generate",
+            {
+              capability: "video.generate",
+              referenceImages: [firstFrame, lastFrame],
+              extra: {
+                firstFrame,
+                lastFrame,
+              },
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([firstFrame, lastFrame])
+  })
+
+  test("extracts input thumbnail from edit source image", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "重绘所选区域")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ images: ["https://example.com/inpaint.png"] }),
+            "internel_image_generate",
+            {
+              capability: "image.inpaint",
+              sourceImage: "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/source.png",
+              extra: {
+                compositeImage: "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/inpaint-composite.png",
+              },
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([
+      "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/source.png",
+    ])
+  })
+
+  test("does not extract input thumbnails from provider request only", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成一张图")],
+        [a1.id]: [
+          ({
+            id: "p_2",
+            sessionID: "ses_1",
+            messageID: a1.id,
+            type: "tool",
+            tool: "internel_image_generate",
+            state: {
+              status: "completed",
+              title: "图片生成",
+              time: { start: 1, end: 2 },
+              input: { capability: "image.generate" },
+              metadata: {
+                request: {
+                  args: {
+                    image_base64: "data:image/png;base64,QUJDREVGRw==",
+                  },
+                },
+              },
+              output: JSON.stringify({ images: ["https://example.com/final.png"] }),
+            },
+          }) as unknown as Part,
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages).toEqual([])
   })
 
   test("uses tool attachments when present", () => {

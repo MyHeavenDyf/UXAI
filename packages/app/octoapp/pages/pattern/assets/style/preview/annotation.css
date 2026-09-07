@@ -1,0 +1,356 @@
+/* ==========================================================================
+   标注功能样式
+   ========================================================================== */
+
+/* 标注图标 logo — 元素右上角，内含紫色圆与首字母 */
+.annotation-badge {
+  position: absolute;
+  z-index: 41;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  pointer-events: auto;
+  filter: drop-shadow(0 2px 6px rgba(10, 89, 249, 0.3));
+}
+
+.annotation-badge-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.annotation-badge-avatar {
+  position: absolute;
+  top: 45%;
+  left: 55%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.annotation-badge:hover {
+  transform: scale(1.15);
+}
+
+/* 标注高亮框 */
+.annotation-highlight {
+  position: absolute;
+  z-index: 40;
+  border: 2px solid #007bff;
+  background-color: rgba(0, 123, 255, 0.1);
+  pointer-events: none;
+}
+
+/* 标注弹框 */
+.annotation-popup {
+  position: absolute;
+  z-index: 41;
+  width: 320px;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+/* 顶部操作栏 */
+.annotation-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+
+.annotation-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.annotation-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.annotation-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #d1d5db;
+  cursor: default;
+}
+
+.annotation-nav-btn:disabled {
+  color: #d1d5db;
+  cursor: default;
+}
+
+.annotation-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.annotation-toolbar-btn:hover {
+  background: #eff6ff;
+  color: #0A59F7;
+}
+
+/* 已有标注列表 */
+.annotation-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.annotation-item {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px;
+}
+
+.annotation-item-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #6c00ff;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.annotation-item-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 2px;
+}
+
+.annotation-item-time {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(0, 0, 0, 0.6);
+  margin-left: 8px;
+  line-height: 22px;
+}
+
+.annotation-item-text {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.9);
+  line-height: 22px;
+  word-break: break-word;
+}
+
+.annotation-item-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.annotation-attachment-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #6b7280;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-attachment-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #9ca3af;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+}
+
+.annotation-attachment-remove:hover {
+  color: #ef4444;
+}
+
+/* 输入区域 */
+.annotation-input-content {
+   width: 100%;
+   height: 100%;
+   border-bottom: 1px solid #e5e7eb;
+   padding: 8px 16px;
+}
+.annotation-textarea {
+  width: 100%;
+  resize: none;
+  font-size: 13px;
+  color: #1f2937;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.annotation-textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* 折叠态 — 单行，图标 inline 在输入区尾部 */
+.annotation-input-area.annotation-input-collapsed {
+  position: relative;
+}
+
+.annotation-input-area.annotation-input-collapsed .annotation-input-content {
+  border-bottom: none;
+  padding-right: 72px;
+}
+
+.annotation-input-area.annotation-input-collapsed .annotation-textarea {
+  height: 28px;
+  line-height: 28px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.annotation-input-area.annotation-input-collapsed .annotation-actions {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 44px;
+  border: none;
+  padding: 0 8px;
+}
+
+/* 待上传文件列表 */
+.annotation-pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* 底部操作栏 — 右对齐 */
+.annotation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 44px;
+  padding: 0 16px;
+}
+
+.annotation-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.annotation-upload-btn:hover {
+  background: #f3f4f6;
+  color: #0A59F7;
+}
+
+.annotation-send-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: #0A59F7;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.annotation-send-btn:hover {
+  background: #0A59F7;
+}
+
+.annotation-send-btn:active {
+  transform: scale(0.96);
+}
+
+/* 编辑区域 — 仅替换文本部分 */
+.annotation-edit-area {
+  padding:8px 12px;
+  background: #f2f2f2;
+  border-radius: 8px;
+}
+
+.annotation-edit-textarea {
+  width: 100%;
+  resize: none;
+  font-size: 13px;
+  color: #1f2937;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  line-height: 1.5;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.annotation-edit-textarea::placeholder {
+  color: #9ca3af;
+}
+
+.annotation-edit-actions {
+  padding: 0;
+  height: auto;
+  margin-top: 4px;
+}

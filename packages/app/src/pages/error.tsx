@@ -275,7 +275,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           <Button size="large" onClick={platform.restart}>
             {language.t("error.page.action.restart")}
           </Button>
-          <Show when={Sentry.isEnabled}>
+          {/* <Show when={Sentry.isEnabled}>
             {(_) => {
               const [reported, setReported] = createSignal(false)
               return (
@@ -291,8 +291,8 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
                 </Button>
               )
             }}
-          </Show>
-          <Show when={platform.checkUpdate}>
+          </Show> */}
+          {/* <Show when={platform.checkUpdate}>
             <Show
               when={store.version}
               fallback={
@@ -307,7 +307,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
                 {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
               </Button>
             </Show>
-          </Show>
+          </Show> */}
         </div>
         <Show when={store.actionError}>
           {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
@@ -315,14 +315,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">
             {language.t("error.page.report.prefix")}
-            <button
+            {/* <button
               type="button"
               class="flex items-center text-text-interactive-base gap-1"
               onClick={() => platform.openLink("https://opencode.ai/desktop-feedback")}
             >
               <div>{language.t("error.page.report.discord")}</div>
               <Icon name="discord" class="text-text-interactive-base" />
-            </button>
+            </button> */}
           </div>
           <Show when={platform.version}>
             {(version) => (

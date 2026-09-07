@@ -86,20 +86,6 @@
   color: rgba(10, 89, 247, 1) !important;
 }
 
-/* Octo Insight 标题图标：16px 距左，20px 大小 */
-[data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto > div:nth-child(1) .h-\[32px\].px-\[4px\]::before {
-  content: "";
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
-  background-image: url("/insightIcon.svg");
-  background-size: 20px 20px;
-  background-repeat: no-repeat;
-}
-
 /* Octo Make 标题图标：16px 距左，20px 大小 */
 [data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto > div:nth-child(2) .h-\[32px\].px-\[4px\]::before {
   content: "";

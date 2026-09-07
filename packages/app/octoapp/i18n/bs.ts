@@ -818,6 +818,11 @@ export const dict = {
   "session.delete.confirm": 'Izbriši sesiju "{{name}}"?',
   "session.delete.button": "Izbriši sesiju",
 
+  "file.delete.title": "Izbriši datoteku",
+  "file.delete.confirm": 'Izbriši datoteku "{{name}}"?',
+  "file.delete.plural.confirm": "Izbriši {{count}} odabranih datoteka?",
+  "file.delete.button": "Izbriši",
+
   "workspace.new": "Novi radni prostor",
   "workspace.type.local": "lokalno",
   "workspace.type.sandbox": "sandbox",

@@ -33,7 +33,9 @@ export const DialogSelectDefaultModel: Component<{
     if (!modelStr) return undefined
     const [providerID, modelID] = modelStr.split("/")
     if (!providerID || !modelID) return undefined
-    return models.find({ providerID, modelID })
+    const model = { providerID, modelID }
+    if (!models.visible(model)) return undefined
+    return models.find(model)
   }
 
   const handleSelect = (model: { id: string; provider: { id: string } } | undefined) => {

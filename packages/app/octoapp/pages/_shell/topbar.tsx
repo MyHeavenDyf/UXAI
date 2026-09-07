@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   OctoLogo, IconSearch,
@@ -19,7 +20,6 @@ const TABS: TabDef[] = [
   { label: "Chat", href: "/chat", icon: "/IconChat.svg" },
   { label: "Cowork", href: "/insight", icon: "/IconCowork.svg" },
   { label: "Make", href: "/make", icon: "/makeTab.svg" },
-  { label: "3D", href: "/3d", icon: "/Icon3D.svg" },
   { label: "Studio", href: "/studio", icon: "/IconStudio.svg" },
 ]
 
@@ -29,6 +29,7 @@ export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const layout = useLayout()
+  const server = useServer()
   const projectDir = useProjectDir({ mode: "project" })
 
   const getConfigDirSlug = () => {
@@ -41,7 +42,6 @@ export function OctoTopbar(): JSX.Element {
     if (p === "/" || p.startsWith("/chat")) return "/chat"
     if (p.startsWith("/studio")) return "/studio"
     if (p.startsWith("/make")) return "/make"
-    if (p.startsWith("/3d")) return "/3d"
     return "/insight"
   }
 
@@ -102,14 +102,18 @@ export function OctoTopbar(): JSX.Element {
                         navigate("/insight")
                       }
                     } else if (tab.href === "/chat") {
-                      const dir = getConfigDirSlug()
-                      if (!dir) return
-                      const decoded = decode64(dir)
-                      const sessionId = decoded ? layout.lastSessionPerTab.chat(decoded) : undefined
-                      if (sessionId) {
-                        navigate(`/${dir}/chat/${sessionId}`)
+                      const lastDir = layout.lastSessionPerTab.lastChatDir() || server.projects.last()
+                      if (lastDir) {
+                        const slug = base64Encode(lastDir)
+                        const sessionId = layout.lastSessionPerTab.chat(lastDir)
+                        if (sessionId) {
+                          navigate(`/${slug}/chat/${sessionId}`)
+                        } else {
+                          navigate(`/${slug}/chat`)
+                        }
                       } else {
-                        navigate(`/${dir}/chat`)
+                        const fallbackSlug = getConfigDirSlug()
+                        if (fallbackSlug) navigate(`/${fallbackSlug}/chat`)
                       }
                     } else if (tab.href === "/studio") {
                       const dir = getConfigDirSlug()
@@ -120,13 +124,6 @@ export function OctoTopbar(): JSX.Element {
                         navigate(`/${dir}/studio/${sessionId}`)
                       } else {
                         navigate(`/${dir}/studio`)
-                      }
-                    } else if (tab.href === "/3d") {
-                      const threed = layout.lastSessionPerTab.threed()
-                      if (threed?.id) {
-                        navigate(`/3d/${threed.id}`)
-                      } else {
-                        navigate("/3d")
                       }
                     }
                   }}

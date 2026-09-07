@@ -90,13 +90,18 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const params = useParams()
   const settings = useSettings()
+  const server = useServer()
 
   const [store, setStore] = createStore({
     checking: false,
   })
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
-  const dir = createMemo(() => decode64(params.dir))
+  const dir = createMemo(() => {
+    const fromParams = decode64(params.dir)
+    if (fromParams) return fromParams
+    return server.projects.last() || ""
+  })
   const accepting = createMemo(() => {
     const value = dir()
     if (!value) return false

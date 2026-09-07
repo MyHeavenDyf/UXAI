@@ -1,0 +1,1452 @@
+{
+  "planner": {
+    "rootId": "appRootContainer",
+    "elements": [
+      {
+        "id": "appRootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerNavContainer",
+          "mainContentArea"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center bg-surface-container-highest px-8 shadow-sm"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 flex flex-col gap-4 p-8 overflow-auto"
+        },
+        "children": [
+          "mainMetricsContainer",
+          "mainChartsContainer",
+          "mainProjectsContainer",
+          "mainActivityContainer",
+          "mainQuickActionsContainer"
+        ]
+      },
+      {
+        "id": "mainMetricsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-4 gap-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainChartsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-2 gap-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainProjectsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainActivityContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest shadow-sm rounded-xl p-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainQuickActionsContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-wrap gap-4 items-center"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "headerArea",
+        "element_id": "headerNavContainer",
+        "id_prefix": "hdr"
+      },
+      {
+        "section_id": "metricsArea",
+        "element_id": "mainMetricsContainer",
+        "id_prefix": "metr"
+      },
+      {
+        "section_id": "chartsArea",
+        "element_id": "mainChartsContainer",
+        "id_prefix": "chrt"
+      },
+      {
+        "section_id": "projectCardsArea",
+        "element_id": "mainProjectsContainer",
+        "id_prefix": "prjc"
+      },
+      {
+        "section_id": "activityListArea",
+        "element_id": "mainActivityContainer",
+        "id_prefix": "actv"
+      },
+      {
+        "section_id": "quickActionsArea",
+        "element_id": "mainQuickActionsContainer",
+        "id_prefix": "qkac"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "appRootContainer",
+    "elements": [
+      {
+        "id": "appRootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerNavContainer",
+          "mainContentArea"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center bg-surface-container-highest px-8 shadow-sm"
+        },
+        "children": [
+          "hdrBrandSection",
+          "hdrCenterSection",
+          "hdrRightSection"
+        ]
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 flex flex-col gap-4 p-8 overflow-auto"
+        },
+        "children": [
+          "mainMetricsContainer",
+          "mainChartsContainer",
+          "mainProjectsContainer",
+          "mainActivityContainer",
+          "mainQuickActionsContainer"
+        ]
+      },
+      {
+        "id": "mainMetricsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-4 gap-4"
+        },
+        "children": {
+          "path": "/cardList",
+          "componentId": "metrMetricCard"
+        }
+      },
+      {
+        "id": "mainChartsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-2 gap-4"
+        },
+        "children": [
+          "chrtLineCard",
+          "chrtBarCard"
+        ]
+      },
+      {
+        "id": "mainProjectsContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4"
+        },
+        "children": [
+          "prjcTitleRow",
+          {
+            "path": "/projectList",
+            "componentId": "prjcCard"
+          }
+        ]
+      },
+      {
+        "id": "mainActivityContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest shadow-sm rounded-xl p-4"
+        },
+        "children": [
+          "actvHeader",
+          "actvTable"
+        ]
+      },
+      {
+        "id": "mainQuickActionsContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-wrap gap-4 items-center"
+        },
+        "children": [
+          "qkacCard"
+        ]
+      },
+      {
+        "id": "hdrBrandSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "hdrLogoIcon"
+        ]
+      },
+      {
+        "id": "hdrLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "LayoutDashboard",
+          "color": "primary",
+          "shape": "square",
+          "className": "w-8 h-8"
+        }
+      },
+      {
+        "id": "hdrCenterSection",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex justify-center px-8"
+        },
+        "children": [
+          "hdrSearchInput"
+        ]
+      },
+      {
+        "id": "hdrSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/hdrSearchValue"
+          },
+          "placeholder": "搜索功能、项目或人员...",
+          "prefix": "search",
+          "className": "w-96"
+        }
+      },
+      {
+        "id": "hdrRightSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "hdrNotificationBadge",
+          "hdrVerticalDivider",
+          "hdrUserDropdown"
+        ]
+      },
+      {
+        "id": "hdrNotificationBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/hdrNotificationCount"
+          },
+          "overflowCount": 99
+        },
+        "children": [
+          "hdrBellIcon"
+        ]
+      },
+      {
+        "id": "hdrBellIcon",
+        "component": "Icon",
+        "props": {
+          "name": "Bell",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "hdrVerticalDivider",
+        "component": "div",
+        "props": {
+          "className": "w-px h-5 bg-divider"
+        }
+      },
+      {
+        "id": "hdrUserDropdown",
+        "component": "Dropdown",
+        "props": {
+          "placement": "bottomRight",
+          "trigger": [
+            "click"
+          ],
+          "menu": {
+            "path": "/hdrMenuItems"
+          }
+        },
+        "children": [
+          "hdrUserTrigger"
+        ]
+      },
+      {
+        "id": "hdrUserTrigger",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 cursor-pointer"
+        },
+        "children": [
+          "hdrUserAvatar",
+          "hdrUserName"
+        ]
+      },
+      {
+        "id": "hdrUserAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/hdrUserAvatar"
+          },
+          "className": "w-8 h-8 rounded-full object-cover"
+        }
+      },
+      {
+        "id": "hdrUserName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/hdrUserName"
+          },
+          "className": "text-sm font-medium text-on-surface"
+        }
+      },
+      {
+        "id": "metrMetricCard",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-3 p-4 bg-surface-container-highest rounded-xl shadow-sm"
+        },
+        "children": [
+          "metrMetricHeaderRow",
+          "metrMetricValueRow",
+          "metrMetricTitle",
+          "metrMetricTrendRow"
+        ]
+      },
+      {
+        "id": "metrMetricHeaderRow",
+        "component": "div",
+        "props": {
+          "className": "flex justify-between items-start"
+        },
+        "children": [
+          "metrMetricIcon",
+          "metrMetricTag"
+        ]
+      },
+      {
+        "id": "metrMetricIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "metricIcon"
+          },
+          "color": "primary",
+          "shape": "square",
+          "className": "w-10 h-10"
+        }
+      },
+      {
+        "id": "metrMetricTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "changePercentage"
+          },
+          "color": {
+            "path": "tagColor"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "metrMetricValueRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-baseline gap-1"
+        },
+        "children": [
+          "metrMetricValue",
+          "metrMetricUnit"
+        ]
+      },
+      {
+        "id": "metrMetricValue",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "currentValue"
+          },
+          "className": "text-3xl font-bold text-on-surface"
+        }
+      },
+      {
+        "id": "metrMetricUnit",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "unit"
+          },
+          "className": "text-lg text-on-surface-variant"
+        }
+      },
+      {
+        "id": "metrMetricTitle",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "cardTitle"
+          },
+          "className": "text-sm text-on-surface-variant"
+        }
+      },
+      {
+        "id": "metrMetricTrendRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "metrMetricTrendIcon",
+          "metrMetricTrendText"
+        ]
+      },
+      {
+        "id": "metrMetricTrendIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "trendIcon"
+          },
+          "color": {
+            "path": "trendColor"
+          },
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "metrMetricTrendText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "comparisonPeriod"
+          },
+          "className": "text-xs text-on-surface-variant"
+        }
+      },
+      {
+        "id": "chrtLineCard",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-xl shadow-card p-4 flex flex-col"
+        },
+        "children": [
+          "chrtLineCardHeader",
+          "chrtLineChart"
+        ]
+      },
+      {
+        "id": "chrtLineCardHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mb-4"
+        },
+        "children": [
+          "chrtLineCardTitle",
+          "chrtLineCardAction"
+        ]
+      },
+      {
+        "id": "chrtLineCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface",
+          "value": {
+            "path": "/lineCardTitle"
+          }
+        }
+      },
+      {
+        "id": "chrtLineCardAction",
+        "component": "Button",
+        "props": {
+          "value": "查看详情",
+          "types": "link",
+          "icon": "arrow-right",
+          "iconPlacement": "end"
+        }
+      },
+      {
+        "id": "chrtLineChart",
+        "component": "LineChart",
+        "props": {
+          "option": {
+            "data": {
+              "path": "/lineChartRawData"
+            },
+            "xAxis": {
+              "data": "month",
+              "name": "月份"
+            },
+            "yAxisTitle": "订单量(单) / 收入(万元)",
+            "smooth": true
+          },
+          "className": "w-full h-80"
+        }
+      },
+      {
+        "id": "chrtBarCard",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-xl shadow-card p-4 flex flex-col"
+        },
+        "children": [
+          "chrtBarCardHeader",
+          "chrtBarChart"
+        ]
+      },
+      {
+        "id": "chrtBarCardHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mb-4"
+        },
+        "children": [
+          "chrtBarCardTitle",
+          "chrtBarCardAction"
+        ]
+      },
+      {
+        "id": "chrtBarCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface",
+          "value": {
+            "path": "/barCardTitle"
+          }
+        }
+      },
+      {
+        "id": "chrtBarCardAction",
+        "component": "Button",
+        "props": {
+          "value": "查看详情",
+          "types": "link",
+          "icon": "arrow-right",
+          "iconPlacement": "end"
+        }
+      },
+      {
+        "id": "chrtBarChart",
+        "component": "BarChart",
+        "props": {
+          "option": {
+            "data": {
+              "path": "/barChartRawData"
+            },
+            "xAxis": {
+              "data": "部门",
+              "name": "部门"
+            },
+            "yAxisTitle": "任务数"
+          },
+          "className": "w-full h-80"
+        }
+      },
+      {
+        "id": "prjcTitleRow",
+        "component": "div",
+        "props": {
+          "className": "col-span-full flex items-center justify-between"
+        },
+        "children": [
+          "prjcTitle",
+          "prjcAddBtn"
+        ]
+      },
+      {
+        "id": "prjcTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": {
+            "path": "/cardTitle"
+          }
+        }
+      },
+      {
+        "id": "prjcAddBtn",
+        "component": "Button",
+        "props": {
+          "value": "新建项目",
+          "icon": "plus",
+          "iconPlacement": "start",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "prjcCard",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "prjcCoverImg",
+          "prjcCardBody"
+        ]
+      },
+      {
+        "id": "prjcCoverImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "projectCoverImage"
+          },
+          "alt": {
+            "path": "projectName"
+          },
+          "className": "w-full h-36 object-cover"
+        }
+      },
+      {
+        "id": "prjcCardBody",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-3 p-4 flex-1"
+        },
+        "children": [
+          "prjcCardName",
+          "prjcCardManagerRow",
+          "prjcCardProgressRow",
+          "prjcCardFooter",
+          "prjcCardAction"
+        ]
+      },
+      {
+        "id": "prjcCardName",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface",
+          "value": {
+            "path": "projectName"
+          }
+        }
+      },
+      {
+        "id": "prjcCardManagerRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 text-sm text-on-surface-variant"
+        },
+        "children": [
+          "prjcCardManagerIcon",
+          "prjcCardManager"
+        ]
+      },
+      {
+        "id": "prjcCardManagerIcon",
+        "component": "Icon",
+        "props": {
+          "name": "user",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "prjcCardManager",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "projectManager"
+          }
+        }
+      },
+      {
+        "id": "prjcCardProgressRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "prjcCardProgress"
+        ]
+      },
+      {
+        "id": "prjcCardProgress",
+        "component": "Progress",
+        "props": {
+          "percent": {
+            "path": "progressPercent"
+          },
+          "size": "small",
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "prjcCardFooter",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mt-auto"
+        },
+        "children": [
+          "prjcCardStatus",
+          "prjcCardDueDate"
+        ]
+      },
+      {
+        "id": "prjcCardStatus",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusTag/text"
+          },
+          "color": {
+            "path": "statusTag/color"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "prjcCardDueDate",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "dueDate"
+          }
+        }
+      },
+      {
+        "id": "prjcCardAction",
+        "component": "Button",
+        "props": {
+          "value": "查看详情",
+          "types": "link",
+          "size": "small",
+          "className": "self-end"
+        }
+      },
+      {
+        "id": "actvHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mb-4"
+        },
+        "children": [
+          "actvTitle"
+        ]
+      },
+      {
+        "id": "actvTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface",
+          "value": {
+            "path": "/actvTableTitle"
+          }
+        }
+      },
+      {
+        "id": "actvTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "key",
+          "dataSource": {
+            "path": "/actvDataSource"
+          },
+          "columns": [
+            {
+              "title": "活动",
+              "dataIndex": "activity",
+              "minWidth": 220
+            },
+            {
+              "title": "用户",
+              "dataIndex": "user"
+            },
+            {
+              "title": "时间",
+              "dataIndex": "time"
+            },
+            {
+              "title": "状态",
+              "dataIndex": "statusText"
+            },
+            {
+              "title": "操作",
+              "dataIndex": "action"
+            }
+          ]
+        },
+        "children": {
+          "path": "/actvDataSource",
+          "componentId": "actvTableRow"
+        }
+      },
+      {
+        "id": "actvTableRow",
+        "component": "TableRow",
+        "children": [
+          "actvActivityCell",
+          "actvUserCell",
+          "actvTimeCell",
+          "actvStatusCell",
+          "actvActionCell"
+        ],
+        "props": {}
+      },
+      {
+        "id": "actvActivityCell",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "activity"
+          }
+        }
+      },
+      {
+        "id": "actvUserCell",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "user"
+          }
+        }
+      },
+      {
+        "id": "actvTimeCell",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "time"
+          }
+        }
+      },
+      {
+        "id": "actvStatusCell",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusText"
+          },
+          "color": {
+            "path": "statusColor"
+          }
+        }
+      },
+      {
+        "id": "actvActionCell",
+        "component": "div",
+        "props": {
+          "className": "flex gap-1 flex-wrap"
+        },
+        "children": {
+          "path": "actions",
+          "componentId": "actvActionBtn"
+        }
+      },
+      {
+        "id": "actvActionBtn",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "text"
+          },
+          "icon": {
+            "path": "icon"
+          },
+          "types": {
+            "path": "types"
+          },
+          "color": {
+            "path": "color"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "qkacCard",
+        "component": "div",
+        "props": {
+          "className": "w-full bg-surface-container-highest rounded-xl shadow-card p-4"
+        },
+        "children": [
+          "qkacHeader",
+          "qkacActionsRow"
+        ]
+      },
+      {
+        "id": "qkacHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 mb-4"
+        },
+        "children": [
+          "qkacTitleIcon",
+          "qkacTitle"
+        ]
+      },
+      {
+        "id": "qkacTitleIcon",
+        "component": "Icon",
+        "props": {
+          "name": "zap",
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "qkacTitle",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/qkacCardTitle"
+          },
+          "className": "text-lg font-semibold text-on-surface"
+        }
+      },
+      {
+        "id": "qkacActionsRow",
+        "component": "div",
+        "props": {
+          "className": "flex flex-wrap gap-3"
+        },
+        "children": [
+          "qkacCreateProjectWrap",
+          "qkacExportReportWrap",
+          "qkacInviteMemberWrap",
+          "qkacSystemSettingsWrap"
+        ]
+      },
+      {
+        "id": "qkacCreateProjectWrap",
+        "component": "div",
+        "props": {
+          "title": "快速启动新项目"
+        },
+        "children": [
+          "qkacCreateProjectBtn"
+        ]
+      },
+      {
+        "id": "qkacCreateProjectBtn",
+        "component": "Button",
+        "props": {
+          "icon": "plus-circle",
+          "iconPlacement": "start",
+          "value": "创建项目",
+          "color": "primary",
+          "size": "medium"
+        }
+      },
+      {
+        "id": "qkacExportReportWrap",
+        "component": "div",
+        "props": {
+          "title": "下载当前数据报表"
+        },
+        "children": [
+          "qkacExportReportBtn"
+        ]
+      },
+      {
+        "id": "qkacExportReportBtn",
+        "component": "Button",
+        "props": {
+          "icon": "file-down",
+          "iconPlacement": "start",
+          "value": "导出报告",
+          "color": "default",
+          "size": "medium"
+        }
+      },
+      {
+        "id": "qkacInviteMemberWrap",
+        "component": "div",
+        "props": {
+          "title": "发送邀请链接"
+        },
+        "children": [
+          "qkacInviteMemberBtn"
+        ]
+      },
+      {
+        "id": "qkacInviteMemberBtn",
+        "component": "Button",
+        "props": {
+          "icon": "user-plus",
+          "iconPlacement": "start",
+          "value": "邀请成员",
+          "color": "default",
+          "size": "medium"
+        }
+      },
+      {
+        "id": "qkacSystemSettingsWrap",
+        "component": "div",
+        "props": {
+          "title": "进入系统配置"
+        },
+        "children": [
+          "qkacSystemSettingsBtn"
+        ]
+      },
+      {
+        "id": "qkacSystemSettingsBtn",
+        "component": "Button",
+        "props": {
+          "icon": "settings",
+          "iconPlacement": "start",
+          "value": "系统设置",
+          "color": "default",
+          "size": "medium"
+        }
+      }
+    ],
+    "state": {
+      "hdrSearchValue": "",
+      "hdrNotificationCount": 5,
+      "hdrUserName": "张明",
+      "hdrUserAvatar": "https://randomuser.me/api/portraits/men/32.jpg",
+      "hdrMenuItems": [
+        {
+          "label": "个人中心",
+          "key": "profile",
+          "icon": "user"
+        },
+        {
+          "label": "系统设置",
+          "key": "settings",
+          "icon": "settings"
+        },
+        {
+          "label": "退出登录",
+          "key": "logout",
+          "icon": "log-out"
+        }
+      ],
+      "cardList": [
+        {
+          "cardTitle": "总用户数",
+          "metricIcon": "users",
+          "currentValue": "28,650",
+          "unit": "",
+          "trendIcon": "trending-up",
+          "trendColor": "success",
+          "changePercentage": "8.2%",
+          "tagColor": "success",
+          "comparisonPeriod": "较上月"
+        },
+        {
+          "cardTitle": "活跃项目",
+          "metricIcon": "folder-kanban",
+          "currentValue": "124",
+          "unit": "",
+          "trendIcon": "trending-up",
+          "trendColor": "success",
+          "changePercentage": "3.5%",
+          "tagColor": "success",
+          "comparisonPeriod": "较上周"
+        },
+        {
+          "cardTitle": "任务完成率",
+          "metricIcon": "check-circle",
+          "currentValue": "87.3",
+          "unit": "%",
+          "trendIcon": "trending-down",
+          "trendColor": "error",
+          "changePercentage": "-2.1%",
+          "tagColor": "error",
+          "comparisonPeriod": "较昨日"
+        },
+        {
+          "cardTitle": "平均响应时间",
+          "metricIcon": "timer",
+          "currentValue": "1.8",
+          "unit": "s",
+          "trendIcon": "trending-down",
+          "trendColor": "error",
+          "changePercentage": "-12.5%",
+          "tagColor": "error",
+          "comparisonPeriod": "较上周"
+        }
+      ],
+      "lineCardTitle": "月度业务趋势",
+      "barCardTitle": "部门任务完成对比",
+      "lineChartRawData": [
+        {
+          "month": "2025-07",
+          "订单量": 1200,
+          "收入": 45.2
+        },
+        {
+          "month": "2025-08",
+          "订单量": 1350,
+          "收入": 52.8
+        },
+        {
+          "month": "2025-09",
+          "订单量": 1100,
+          "收入": 48.5
+        },
+        {
+          "month": "2025-10",
+          "订单量": 1480,
+          "收入": 56.3
+        },
+        {
+          "month": "2025-11",
+          "订单量": 1620,
+          "收入": 61.7
+        },
+        {
+          "month": "2025-12",
+          "订单量": 1580,
+          "收入": 59.4
+        },
+        {
+          "month": "2026-01",
+          "订单量": 1750,
+          "收入": 68.9
+        },
+        {
+          "month": "2026-02",
+          "订单量": 1900,
+          "收入": 73.2
+        },
+        {
+          "month": "2026-03",
+          "订单量": 2050,
+          "收入": 81.5
+        },
+        {
+          "month": "2026-04",
+          "订单量": 2200,
+          "收入": 86
+        },
+        {
+          "month": "2026-05",
+          "订单量": 2150,
+          "收入": 82.3
+        },
+        {
+          "month": "2026-06",
+          "订单量": 2350,
+          "收入": 95.6
+        }
+      ],
+      "barChartRawData": [
+        {
+          "部门": "研发",
+          "已完成": 85,
+          "进行中": 12
+        },
+        {
+          "部门": "市场",
+          "已完成": 65,
+          "进行中": 25
+        },
+        {
+          "部门": "销售",
+          "已完成": 90,
+          "进行中": 8
+        },
+        {
+          "部门": "运营",
+          "已完成": 70,
+          "进行中": 20
+        },
+        {
+          "部门": "人事",
+          "已完成": 50,
+          "进行中": 30
+        }
+      ],
+      "cardTitle": "进行中的项目",
+      "projectList": [
+        {
+          "projectCoverImage": "https://fpoimg.com/800x600?gradient=0067D1,004EA8&text_color=ffffff&text=Project+A",
+          "projectName": "智慧门店系统升级",
+          "projectManager": "李伟",
+          "progressPercent": 75,
+          "statusTag": {
+            "text": "进行中",
+            "color": "processing"
+          },
+          "dueDate": "2026-09-30"
+        },
+        {
+          "projectCoverImage": "https://fpoimg.com/800x600?gradient=09AA71,38EF7D&text_color=ffffff&text=Project+B",
+          "projectName": "数据中台建设",
+          "projectManager": "王芳",
+          "progressPercent": 45,
+          "statusTag": {
+            "text": "开发中",
+            "color": "#0067D1"
+          },
+          "dueDate": "2026-12-15"
+        },
+        {
+          "projectCoverImage": "https://fpoimg.com/800x600?gradient=FCC800,F4840C&text_color=ffffff&text=Project+C",
+          "projectName": "用户增长计划",
+          "projectManager": "赵强",
+          "progressPercent": 90,
+          "statusTag": {
+            "text": "验收中",
+            "color": "#F4840C"
+          },
+          "dueDate": "2026-07-20"
+        },
+        {
+          "projectCoverImage": "https://fpoimg.com/800x600?gradient=0067D1,7579FF&text_color=ffffff&text=Project+D",
+          "projectName": "供应链数字化改造",
+          "projectManager": "陈丽",
+          "progressPercent": 30,
+          "statusTag": {
+            "text": "规划中",
+            "color": "default"
+          },
+          "dueDate": "2027-03-01"
+        },
+        {
+          "projectCoverImage": "https://fpoimg.com/800x600?gradient=E02128,F4840C&text_color=ffffff&text=Project+E",
+          "projectName": "企业微信集成平台",
+          "projectManager": "刘洋",
+          "progressPercent": 60,
+          "statusTag": {
+            "text": "进行中",
+            "color": "processing"
+          },
+          "dueDate": "2026-10-10"
+        }
+      ],
+      "actvTableTitle": "最近系统活动",
+      "actvDataSource": [
+        {
+          "key": "1",
+          "activity": "创建了项目“智慧门店系统升级”",
+          "user": "李伟",
+          "time": "2026-06-26 14:32",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "查看详情",
+              "icon": "eye",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "2",
+          "activity": "上传了数据报告 Q2 分析",
+          "user": "王芳",
+          "time": "2026-06-26 13:10",
+          "statusText": "处理中",
+          "statusColor": "processing",
+          "actions": [
+            {
+              "text": "查看",
+              "icon": "eye",
+              "types": "link",
+              "color": "default"
+            },
+            {
+              "text": "驳回",
+              "icon": "x-circle",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "3",
+          "activity": "修改了审批单 #10234 状态",
+          "user": "赵强",
+          "time": "2026-06-26 11:45",
+          "statusText": "失败",
+          "statusColor": "error",
+          "actions": [
+            {
+              "text": "重试",
+              "icon": "rotate-cw",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "4",
+          "activity": "添加了20名新用户到“用户增长计划”",
+          "user": "陈丽",
+          "time": "2026-06-26 10:20",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "查看详情",
+              "icon": "eye",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "5",
+          "activity": "导出了项目“数据中台建设”的报表",
+          "user": "刘洋",
+          "time": "2026-06-26 09:55",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "下载",
+              "icon": "download",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "6",
+          "activity": "更新了任务“开发支付接口”为已完成",
+          "user": "张明",
+          "time": "2026-06-26 09:30",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "查看详情",
+              "icon": "eye",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "7",
+          "activity": "创建了审批单 #10235",
+          "user": "王芳",
+          "time": "2026-06-26 08:50",
+          "statusText": "等待审批",
+          "statusColor": "warning",
+          "actions": [
+            {
+              "text": "审批",
+              "icon": "clipboard-check",
+              "types": "link",
+              "color": "primary"
+            }
+          ]
+        },
+        {
+          "key": "8",
+          "activity": "删除了过期日志文件",
+          "user": "系统",
+          "time": "2026-06-26 08:00",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": []
+        },
+        {
+          "key": "9",
+          "activity": "调整了项目“供应链数字化改造”的截止日期",
+          "user": "陈丽",
+          "time": "2026-06-25 20:15",
+          "statusText": "处理中",
+          "statusColor": "processing",
+          "actions": [
+            {
+              "text": "撤销",
+              "icon": "undo",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "10",
+          "activity": "完成了用户数据迁移任务",
+          "user": "李伟",
+          "time": "2026-06-25 18:40",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "查看报告",
+              "icon": "file-text",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        },
+        {
+          "key": "11",
+          "activity": "系统更新部署 v3.2.1",
+          "user": "系统",
+          "time": "2026-06-25 17:00",
+          "statusText": "失败",
+          "statusColor": "error",
+          "actions": [
+            {
+              "text": "回滚",
+              "icon": "rotate-ccw",
+              "types": "link",
+              "color": "danger"
+            }
+          ]
+        },
+        {
+          "key": "12",
+          "activity": "邀请新成员“周婷”加入项目“企业微信集成平台”",
+          "user": "刘洋",
+          "time": "2026-06-25 16:25",
+          "statusText": "已完成",
+          "statusColor": "success",
+          "actions": [
+            {
+              "text": "查看详情",
+              "icon": "eye",
+              "types": "link",
+              "color": "default"
+            }
+          ]
+        }
+      ],
+      "qkacCardTitle": "快捷操作"
+    }
+  }
+}

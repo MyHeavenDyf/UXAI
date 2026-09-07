@@ -14,7 +14,9 @@
     "opencode": "./bin/opencode"
   },
   "exports": {
-    "./*": "./src/*.ts"
+    "./*": "./src/*.ts",
+    "./bridge-scripts": "./src/bridge-scripts/index.ts",
+    "./bridge-scripts/*": "./src/bridge-scripts/*.ts"
   },
   "imports": {},
   "devDependencies": {

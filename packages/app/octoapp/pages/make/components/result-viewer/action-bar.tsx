@@ -1,11 +1,12 @@
 import type { JSX } from "solid-js"
-import { Show, For, createSignal } from "solid-js"
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
 import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
-import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconInspect, IconEditLine, IconRefresh, IconChevronDown } from "../../icons"
+import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron } from "../../icons"
+import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 
@@ -17,6 +18,14 @@ function copyToClipboard(text: string) {
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+function stripExtension(title: string, ext: string): string {
+  const suffix = `.${ext}`
+  if (title.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return title.slice(0, -suffix.length)
+  }
+  return title
 }
 
 async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
@@ -107,22 +116,23 @@ function getCodeSnippetExt(content: string): string {
 function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
   switch (tab.type) {
     case "html":
-      return { filename: `${tab.title}.html`, mime: "text/html;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "html")}.html`, mime: "text/html;charset=utf-8" }
     case "deck":
-      return { filename: `${tab.title}.pdf`, mime: "application/pdf" }
+      return { filename: `${stripExtension(tab.title, "pdf")}.pdf`, mime: "application/pdf" }
     case "svg":
-      return { filename: `${tab.title}.svg`, mime: "image/svg+xml;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "svg")}.svg`, mime: "image/svg+xml;charset=utf-8" }
     case "json":
-      return { filename: `${tab.title}.json`, mime: "application/json;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "json")}.json`, mime: "application/json;charset=utf-8" }
     case "table":
-      return { filename: `${tab.title}.csv`, mime: "text/csv;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "csv")}.csv`, mime: "text/csv;charset=utf-8" }
     case "code-snippet":
-      return { filename: `${tab.title}.${getCodeSnippetExt(tab.content)}`, mime: "text/plain;charset=utf-8" }
+      const ext = getCodeSnippetExt(tab.content)
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: "text/plain;charset=utf-8" }
     case "markdown":
     case "markdown-document":
-      return { filename: `${tab.title}.md`, mime: "text/markdown;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "md")}.md`, mime: "text/markdown;charset=utf-8" }
     default:
-      return { filename: `${tab.title}.txt`, mime: "text/plain;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "txt")}.txt`, mime: "text/plain;charset=utf-8" }
   }
 }
 
@@ -152,7 +162,7 @@ const EXPORT_MIME: Record<ArtifactExportKind, string> = {
 
 function getExportContent(tab: ResultTab, kind: ArtifactExportKind): { content: string | Uint8Array; filename: string } | null {
   const raw = extractDownloadContent(tab)
-  const base = tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_")
+  const base = stripExtension(tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_"), kind)
   switch (kind) {
     case "html":
       return { content: raw, filename: `${base}.html` }
@@ -166,11 +176,12 @@ function getExportContent(tab: ResultTab, kind: ArtifactExportKind): { content: 
       return { content: raw, filename: `${base}.md` }
     case "txt": {
       const ext = getCodeSnippetExt(tab.content)
-      return { content: raw, filename: `${base}.${ext}` }
+      const stripped = stripExtension(tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_"), ext)
+      return { content: raw, filename: `${stripped}.${ext}` }
     }
     case "pdf":
       if (tab.type === "deck") {
-        exportDeckAsPDF(tab.content, tab.title)
+        exportDeckAsPDF(tab.content, stripExtension(tab.title, "pdf"))
         return null
       }
       return { content: raw, filename: `${base}.html` }
@@ -230,8 +241,25 @@ function Dropdown(props: {
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
 
   const currentOption = () => props.options.find((o) => o.value === props.value) ?? props.options[0]
+
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (menuRef?.contains(target) || btnRef?.contains(target)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener("click", handler)
+    window.addEventListener("blur", onBlur)
+    onCleanup(() => {
+      document.removeEventListener("click", handler)
+      window.removeEventListener("blur", onBlur)
+    })
+  })
 
   return (
     <div class="octo-dropdown">
@@ -239,11 +267,11 @@ function Dropdown(props: {
         ref={btnRef}
         type="button"
         class="octo-dropdown-trigger"
-        classList={{ "octo-dropdown-disabled": props.disabled }}
+        classList={{ "octo-dropdown-disabled": props.disabled, "octo-dropdown-open": open() }}
         onClick={() => !props.disabled && setOpen(!open())}
       >
         <span>{currentOption().label}</span>
-        <IconChevronDown size={12} />
+        <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
@@ -251,6 +279,7 @@ function Dropdown(props: {
             const rect = btnRef?.getBoundingClientRect()
             return (
               <div
+                ref={menuRef}
                 class="octo-dropdown-menu"
                 style={{
                   top: `${(rect?.bottom ?? 0) + 4}px`,
@@ -265,8 +294,7 @@ function Dropdown(props: {
                   {(opt) => (
                     <button
                       type="button"
-                      class="octo-dropdown-item"
-                      classList={{ "octo-dropdown-item-active": opt.value === props.value }}
+                      class={`octo-dropdown-item${opt.value === props.value ? " octo-dropdown-item-active" : ""}`}
                       onClick={() => {
                         if (opt.value === props.value) return
                         props.onChange(opt.value)
@@ -294,6 +322,8 @@ export function ActionBar(props: {
     inspecting?: boolean
     editing?: boolean
     drawing?: boolean
+    commenting?: boolean
+    archiving?: boolean
     focusMode?: boolean
     onRefresh?: () => void
     onModeChange?: () => void
@@ -302,7 +332,10 @@ export function ActionBar(props: {
     onInspectToggle?: () => void
     onEditToggle?: () => void
     onDrawToggle?: () => void
+    onCommentToggle?: () => void
+    onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
+    onCanvasToDesign?: () => void
   }): JSX.Element {
   async function handleDownload() {
     if (props.tab.type === "deck") {
@@ -314,8 +347,16 @@ export function ActionBar(props: {
     await downloadBlob(content, info.filename, info.mime)
   }
 
-  const canToggleMode = () => props.tab.type === "html" || props.tab.type === "svg"
+  const canToggleMode = () => props.tab.type === "html"
   const showViewport = () => props.tab.type === "html"
+  const showRefreshButton = () => true
+  const shouldShowCopy = () =>
+    props.tab.type === "table" ||
+    props.tab.type === "markdown" ||
+    props.tab.type === "markdown-document" ||
+    props.tab.type === "json" ||
+    props.tab.type === "text" ||
+    props.tab.type === "code-snippet"
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
@@ -323,31 +364,36 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {showViewport() && props.onRefresh && (
+        {props.onRefresh && (
           <button
             type="button"
-            class="octo-action-btn"
+            class="octo-action-btn octo-action-btn-refresh"
             onClick={props.onRefresh}
             title="刷新预览"
           >
-            <IconRefresh size={13} />
+            <IconFileRefresh size={16} />
           </button>
         )}
         {canToggleMode() && props.onModeChange && (
-          <Dropdown
-            options={MODE_OPTIONS}
-            value={currentMode()}
-            onChange={() => props.onModeChange!()}
-          />
+          <>
+            <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
+            <Dropdown
+              options={MODE_OPTIONS}
+              value={currentMode()}
+              onChange={() => props.onModeChange!()}
+            />
+          </>
         )}
         {showViewport() && props.onViewportChange && (
-          <Dropdown
-            options={VIEWPORT_OPTIONS}
-            value={currentViewport()}
-            onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
-          />
+          <>
+            <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
+            <Dropdown
+              options={VIEWPORT_OPTIONS}
+              value={currentViewport()}
+              onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
+            />
+          </>
         )}
-        <div class="octo-action-bar-divider" />
       </div>
       <div class="octo-action-bar-right">
         {showViewport() && props.onPaletteChange && (
@@ -380,16 +426,16 @@ export function ActionBar(props: {
             </For>
           </div>
         )}
-        {showViewport() && props.onInspectToggle && (
+        {showViewport() && props.onEditToggle && (
           <button
             type="button"
             class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.inspecting }}
-            onClick={props.onInspectToggle}
-            title="元素检查"
+            classList={{ "octo-viewport-btn-active": !!props.editing }}
+            onClick={props.onEditToggle}
+            title="局部修改"
           >
-            <IconInspect size={13} />
-            <span>检查</span>
+            <IconLocalModify size={16} />
+            <span>局部修改</span>
           </button>
         )}
         {showViewport() && props.onDrawToggle && (
@@ -398,32 +444,64 @@ export function ActionBar(props: {
             class="octo-action-btn"
             classList={{ "octo-viewport-btn-active": !!props.drawing }}
             onClick={props.onDrawToggle}
-            title="标注绘图"
+            title="框选编辑"
           >
-            <span style={{ "font-size": "13px" }}>✎</span>
-            <span>标注</span>
+            <IconBoxSelectEdit size={16} />
+            <span>框选编辑</span>
           </button>
         )}
-        {showViewport() && props.onEditToggle && (
+        {showViewport() && props.onCanvasToDesign && (
           <button
             type="button"
             class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.editing }}
-            onClick={props.onEditToggle}
-            title="可视化元素编辑（文本、链接、图片、样式）"
+            onClick={props.onCanvasToDesign}
+            title="画布编辑"
           >
-            <IconEditLine size={13} />
-            <span>编辑</span>
+            <IconCanvasEdit size={16} />
+            <span>画布编辑</span>
           </button>
         )}
-        <Show when={props.tab.type !== "local-file"}>
+        <Show when={shouldShowCopy()}>
           <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
             <IconActionCopy size={13} />
             <span>复制</span>
           </button>
+        </Show>
+        <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
           <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
         </Show>
-        <Show when={props.onFocusModeToggle}>
+        <Show when={props.tab.type === "html"}>
+          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload}>
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+          </button>
+        </Show>
+        {showViewport() && props.onCommentToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.commenting }}
+            onClick={props.onCommentToggle}
+            title="标注元素"
+          >
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
+            </svg>
+            <span>标注</span>
+          </button>
+        )}
+        {showViewport() && props.onArchiveToggle && (
+          <button
+            type="button"
+            class="octo-action-btn octo-action-btn-archive"
+            classList={{ "octo-action-btn-archive-active": !!props.archiving }}
+            onClick={props.onArchiveToggle}
+            title="归档"
+          >
+            <span>归档</span>
+          </button>
+        )}
+        <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
           <button
             type="button"
             class="octo-action-btn"
@@ -476,8 +554,8 @@ function ExportButton(props: {
     <Show
       when={hasMultiple()}
       fallback={
-        <button type="button" class="octo-action-btn" onClick={props.onPrimaryDownload}>
-          <IconActionDownload size={13} />
+        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={props.onPrimaryDownload}>
+          <IconDownloadNew size={16} />
           <span>下载</span>
         </button>
       }
@@ -486,10 +564,10 @@ function ExportButton(props: {
         <button
           ref={btnRef}
           type="button"
-          class="octo-action-btn"
+          class="octo-action-btn octo-action-btn-download"
           onClick={() => setOpen(!open())}
         >
-          <IconActionDownload size={13} />
+          <IconDownloadNew size={16} />
           <span>导出</span>
         </button>
         <Show when={open()}>

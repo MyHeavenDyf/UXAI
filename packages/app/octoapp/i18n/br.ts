@@ -742,6 +742,12 @@ export const dict = {
   "session.delete.title": "Excluir sessão",
   "session.delete.confirm": 'Excluir sessão "{{name}}"?',
   "session.delete.button": "Excluir sessão",
+
+  "file.delete.title": "Excluir arquivo",
+  "file.delete.confirm": 'Excluir arquivo "{{name}}"?',
+  "file.delete.plural.confirm": "Excluir {{count}} arquivos selecionados?",
+  "file.delete.button": "Excluir",
+
   "workspace.new": "Novo espaço de trabalho",
   "workspace.type.local": "local",
   "workspace.type.sandbox": "sandbox",

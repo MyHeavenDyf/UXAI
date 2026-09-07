@@ -9,6 +9,7 @@ export type ToolCallInfo = {
   input?: Record<string, unknown>
   output?: string
   filePath?: string
+  error?: string
 }
 
 type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "other"

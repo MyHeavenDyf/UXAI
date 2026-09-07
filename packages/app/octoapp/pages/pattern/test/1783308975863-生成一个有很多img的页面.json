@@ -1,0 +1,1634 @@
+{
+  "planner": {
+    "rootId": "pageShell",
+    "elements": [
+      {
+        "id": "pageShell",
+        "component": "div",
+        "props": {
+          "className": "min-h-screen bg-surface-container-lowest flex flex-col"
+        },
+        "children": [
+          "hdrShell",
+          "bnrShell",
+          "galShell",
+          "ftrShell"
+        ]
+      },
+      {
+        "id": "hdrShell",
+        "component": "header",
+        "props": {
+          "className": "fixed top-0 left-0 w-full h-12 z-50 bg-surface-container-highest/80 backdrop-blur-sm flex items-center justify-between px-4"
+        },
+        "children": []
+      },
+      {
+        "id": "bnrShell",
+        "component": "section",
+        "props": {
+          "className": "w-full h-[600px] bg-surface-container-low relative overflow-hidden mt-12"
+        },
+        "children": []
+      },
+      {
+        "id": "galShell",
+        "component": "main",
+        "props": {
+          "className": "flex-1 w-full px-8 py-4 bg-surface-container-lowest"
+        },
+        "children": []
+      },
+      {
+        "id": "ftrShell",
+        "component": "footer",
+        "props": {
+          "className": "w-full bg-inverse-surface text-inverse-on-surface py-4 px-8"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "globalHeader",
+        "element_id": "hdrShell",
+        "id_prefix": "hdr"
+      },
+      {
+        "section_id": "heroBanner",
+        "element_id": "bnrShell",
+        "id_prefix": "bnr"
+      },
+      {
+        "section_id": "galleryGrid",
+        "element_id": "galShell",
+        "id_prefix": "gal"
+      },
+      {
+        "section_id": "footer",
+        "element_id": "ftrShell",
+        "id_prefix": "ftr"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "pageShell",
+    "elements": [
+      {
+        "id": "pageShell",
+        "component": "div",
+        "props": {
+          "className": "min-h-screen bg-surface-container-lowest flex flex-col"
+        },
+        "children": [
+          "hdrShell",
+          "bnrShell",
+          "galShell",
+          "ftrShell"
+        ]
+      },
+      {
+        "id": "hdrShell",
+        "component": "header",
+        "props": {
+          "className": "fixed top-0 left-0 w-full h-12 z-50 bg-surface-container-highest/80 backdrop-blur-sm flex items-center justify-between px-4"
+        },
+        "children": [
+          "hdrLeftSection",
+          "hdrSearchInput",
+          "hdrRightSection"
+        ]
+      },
+      {
+        "id": "bnrShell",
+        "component": "section",
+        "props": {
+          "className": "w-full h-[600px] bg-surface-container-low relative overflow-hidden mt-12"
+        },
+        "children": [
+          "bnrCarousel"
+        ]
+      },
+      {
+        "id": "galShell",
+        "component": "main",
+        "props": {
+          "className": "flex-1 w-full px-8 py-4 bg-surface-container-lowest"
+        },
+        "children": [
+          "galGridContainer"
+        ]
+      },
+      {
+        "id": "ftrShell",
+        "component": "footer",
+        "props": {
+          "className": "w-full bg-inverse-surface text-inverse-on-surface py-4 px-8"
+        },
+        "children": [
+          "ftrInnerContainer"
+        ]
+      },
+      {
+        "id": "hdrLeftSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "hdrLogoBlock",
+          "hdrNavMenu"
+        ]
+      },
+      {
+        "id": "hdrLogoBlock",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 cursor-pointer",
+          "title": "VisualGallery"
+        },
+        "children": [
+          "hdrLogoIcon",
+          "hdrLogoTxt"
+        ]
+      },
+      {
+        "id": "hdrLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "camera",
+          "color": "primary",
+          "shape": "fill",
+          "className": "w-6 h-6"
+        }
+      },
+      {
+        "id": "hdrLogoTxt",
+        "component": "span",
+        "props": {
+          "value": "VisualGallery",
+          "className": "text-lg font-bold text-primary"
+        }
+      },
+      {
+        "id": "hdrNavMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "horizontal",
+          "selectedKeys": {
+            "path": "/navSelectedKeys"
+          },
+          "items": {
+            "path": "/navItems"
+          },
+          "className": "border-0 bg-transparent"
+        }
+      },
+      {
+        "id": "hdrSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchValue"
+          },
+          "placeholder": "搜索图片、摄影师、标签...",
+          "prefix": "search",
+          "className": "w-96"
+        }
+      },
+      {
+        "id": "hdrRightSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "hdrNotifyBadge",
+          "hdrUserDropdown"
+        ]
+      },
+      {
+        "id": "hdrNotifyBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notifyBadgeCount"
+          },
+          "overflowCount": 99
+        },
+        "children": [
+          "hdrBellIcon"
+        ]
+      },
+      {
+        "id": "hdrBellIcon",
+        "component": "Icon",
+        "props": {
+          "name": "bell",
+          "shape": "outline",
+          "className": "w-5 h-5 cursor-pointer text-on-surface"
+        }
+      },
+      {
+        "id": "hdrUserDropdown",
+        "component": "Dropdown",
+        "props": {
+          "placement": "bottomRight",
+          "trigger": [
+            "click"
+          ],
+          "menu": {
+            "path": "/userMenuItems"
+          }
+        },
+        "children": [
+          "hdrUserAvatar"
+        ]
+      },
+      {
+        "id": "hdrUserAvatar",
+        "component": "div",
+        "props": {
+          "className": "w-8 h-8 rounded-full overflow-hidden cursor-pointer border-2 border-primary"
+        },
+        "children": [
+          "hdrAvatarImg"
+        ]
+      },
+      {
+        "id": "hdrAvatarImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/women/68.jpg",
+          "alt": "林悦",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "bnrCarousel",
+        "component": "Carousel",
+        "props": {
+          "arrows": true,
+          "dotPlacement": "bottom",
+          "className": "w-full h-full"
+        },
+        "children": {
+          "path": "/slides",
+          "componentId": "bnrSlide"
+        }
+      },
+      {
+        "id": "bnrSlide",
+        "component": "div",
+        "props": {
+          "className": "relative w-full h-full overflow-hidden"
+        },
+        "children": [
+          "bnrSlideBg",
+          "bnrSlideOverlay",
+          "bnrSlideContent"
+        ]
+      },
+      {
+        "id": "bnrSlideBg",
+        "component": "img",
+        "props": {
+          "className": "absolute inset-0 w-full h-full object-cover",
+          "src": {
+            "path": "bannerImage"
+          },
+          "alt": {
+            "path": "title"
+          }
+        }
+      },
+      {
+        "id": "bnrSlideOverlay",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"
+        }
+      },
+      {
+        "id": "bnrSlideContent",
+        "component": "div",
+        "props": {
+          "className": "absolute bottom-0 left-0 right-0 p-12 flex items-end justify-between"
+        },
+        "children": [
+          "bnrSlideLeft",
+          "bnrSlideBtnWrap"
+        ]
+      },
+      {
+        "id": "bnrSlideLeft",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-3"
+        },
+        "children": [
+          "bnrSlideTag",
+          "bnrSlideTitle",
+          "bnrSlidePhotographer"
+        ]
+      },
+      {
+        "id": "bnrSlideTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "categoryTag"
+          },
+          "color": {
+            "path": "categoryTagColor"
+          }
+        }
+      },
+      {
+        "id": "bnrSlideTitle",
+        "component": "h2",
+        "props": {
+          "className": "text-4xl font-bold text-white drop-shadow-lg",
+          "value": {
+            "path": "title"
+          }
+        }
+      },
+      {
+        "id": "bnrSlidePhotographer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "bnrSlidePhotoIcon",
+          "bnrSlidePhotoName"
+        ]
+      },
+      {
+        "id": "bnrSlidePhotoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "camera",
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "bnrSlidePhotoName",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-white/80",
+          "value": {
+            "path": "photographerName"
+          }
+        }
+      },
+      {
+        "id": "bnrSlideBtnWrap",
+        "component": "div",
+        "props": {
+          "className": "flex-shrink-0"
+        },
+        "children": [
+          "bnrSlideDetailBtn"
+        ]
+      },
+      {
+        "id": "bnrSlideDetailBtn",
+        "component": "Button",
+        "props": {
+          "value": "查看详情",
+          "color": "primary",
+          "icon": "arrow-right",
+          "iconPlacement": "end",
+          "className": "shadow-lg"
+        }
+      },
+      {
+        "id": "galGridContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-section"
+        },
+        "children": [
+          "galGridHeader",
+          "galTabs",
+          "galImageGrid",
+          "galDividerSection",
+          "galPaginationBar",
+          "galModalOverlay"
+        ]
+      },
+      {
+        "id": "galGridHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "galGridTitle",
+          "galGridSubtitle"
+        ]
+      },
+      {
+        "id": "galGridTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": {
+            "path": "/cardTitle"
+          }
+        }
+      },
+      {
+        "id": "galGridSubtitle",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": "发现精彩视觉作品，收藏灵感瞬间"
+        }
+      },
+      {
+        "id": "galTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTab"
+          },
+          "types": "line",
+          "size": "medium",
+          "className": "-mb-2"
+        },
+        "children": {
+          "path": "/categories",
+          "componentId": "galTabItem"
+        }
+      },
+      {
+        "id": "galTabItem",
+        "component": "TabItem",
+        "props": {
+          "key": {
+            "path": "key"
+          },
+          "label": {
+            "path": "label"
+          },
+          "content": {
+            "componentId": "galImageGrid"
+          }
+        }
+      },
+      {
+        "id": "galImageGrid",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-4 gap-gutter"
+        },
+        "children": {
+          "path": "/images",
+          "componentId": "galImageCard"
+        }
+      },
+      {
+        "id": "galImageCard",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card overflow-hidden flex flex-col transition-shadow hover:shadow-md cursor-pointer"
+        },
+        "children": [
+          "galCardImage",
+          "galCardBody",
+          "galCardActions"
+        ]
+      },
+      {
+        "id": "galCardImage",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "thumbnailImage"
+          },
+          "alt": {
+            "path": "title"
+          },
+          "className": "w-full h-48 object-cover"
+        }
+      },
+      {
+        "id": "galCardBody",
+        "component": "div",
+        "props": {
+          "className": "p-inline flex flex-col gap-stack"
+        },
+        "children": [
+          "galCardTitleRow",
+          "galCardMetaRow"
+        ]
+      },
+      {
+        "id": "galCardTitleRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-2"
+        },
+        "children": [
+          "galCardTitle",
+          "galCardCategoryTag"
+        ]
+      },
+      {
+        "id": "galCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface truncate flex-1",
+          "value": {
+            "path": "title"
+          }
+        }
+      },
+      {
+        "id": "galCardCategoryTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "categoryLabel"
+          },
+          "color": {
+            "path": "categoryTagColor"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "galCardMetaRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "galCardAvatar",
+          "galCardPhotographer",
+          "galCardLikes"
+        ]
+      },
+      {
+        "id": "galCardAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "photographerAvatarImage"
+          },
+          "className": "w-5 h-5 rounded-full object-cover shrink-0"
+        }
+      },
+      {
+        "id": "galCardPhotographer",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant truncate",
+          "value": {
+            "path": "photographerName"
+          }
+        }
+      },
+      {
+        "id": "galCardLikes",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1 ml-auto shrink-0"
+        },
+        "children": [
+          "galCardHeartIcon",
+          "galCardLikesCount"
+        ]
+      },
+      {
+        "id": "galCardHeartIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "favoriteIcon"
+          },
+          "color": "error",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "galCardLikesCount",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "likesCount"
+          }
+        }
+      },
+      {
+        "id": "galCardActions",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-end gap-1 px-inline pb-inline pt-0 border-t border-divider"
+        },
+        "children": [
+          "galCardFavoriteBtn",
+          "galCardDetailBtn"
+        ]
+      },
+      {
+        "id": "galCardFavoriteBtn",
+        "component": "Button",
+        "props": {
+          "icon": {
+            "path": "favoriteIcon"
+          },
+          "size": "small",
+          "types": "link",
+          "color": "danger"
+        }
+      },
+      {
+        "id": "galCardDetailBtn",
+        "component": "Button",
+        "props": {
+          "icon": "eye",
+          "size": "small",
+          "types": "link",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "galDividerSection",
+        "component": "Divider",
+        "props": {
+          "className": "my-2"
+        }
+      },
+      {
+        "id": "galPaginationBar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center gap-inline"
+        },
+        "children": [
+          "galPrevBtn",
+          "galPageInfo",
+          "galNextBtn"
+        ]
+      },
+      {
+        "id": "galPrevBtn",
+        "component": "Button",
+        "props": {
+          "value": "上一页",
+          "icon": "chevron-left",
+          "iconPlacement": "start",
+          "color": "default"
+        }
+      },
+      {
+        "id": "galPageInfo",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant px-4",
+          "value": "第 1 / 7 页"
+        }
+      },
+      {
+        "id": "galNextBtn",
+        "component": "Button",
+        "props": {
+          "value": "下一页",
+          "icon": "chevron-right",
+          "iconPlacement": "end",
+          "color": "default"
+        }
+      },
+      {
+        "id": "galModalOverlay",
+        "component": "div",
+        "props": {
+          "className": "fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        },
+        "children": [
+          "galModalContent"
+        ]
+      },
+      {
+        "id": "galModalContent",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-overlay shadow-modal max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+        },
+        "children": [
+          "galModalHeader",
+          "galModalBody",
+          "galModalFooter"
+        ]
+      },
+      {
+        "id": "galModalHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between px-inset py-inline border-b border-divider"
+        },
+        "children": [
+          "galModalTitle",
+          "galModalCloseBtn"
+        ]
+      },
+      {
+        "id": "galModalTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": {
+            "path": "/modalData/title"
+          }
+        }
+      },
+      {
+        "id": "galModalCloseBtn",
+        "component": "Button",
+        "props": {
+          "icon": "x",
+          "size": "small",
+          "types": "link",
+          "color": "default"
+        }
+      },
+      {
+        "id": "galModalBody",
+        "component": "div",
+        "props": {
+          "className": "flex gap-gutter p-inset"
+        },
+        "children": [
+          "galModalBodyLeft",
+          "galModalBodyRight"
+        ]
+      },
+      {
+        "id": "galModalBodyLeft",
+        "component": "div",
+        "props": {
+          "className": "w-3/5 shrink-0"
+        },
+        "children": [
+          "galModalFullImage"
+        ]
+      },
+      {
+        "id": "galModalFullImage",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/modalData/fullImage"
+          },
+          "alt": {
+            "path": "/modalData/title"
+          },
+          "className": "w-full rounded-lg object-cover"
+        }
+      },
+      {
+        "id": "galModalBodyRight",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col gap-3"
+        },
+        "children": [
+          "galModalDescription",
+          "galModalPhotographerRow",
+          "galModalCameraRow",
+          "galModalDateRow",
+          "galModalTagsTitle",
+          "galModalTagsList",
+          "galModalRelatedTitle",
+          "galModalRelatedGrid"
+        ]
+      },
+      {
+        "id": "galModalDescription",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface leading-relaxed",
+          "value": {
+            "path": "/modalData/description"
+          }
+        }
+      },
+      {
+        "id": "galModalPhotographerRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "galModalPhotographerAvatar",
+          "galModalPhotographerName"
+        ]
+      },
+      {
+        "id": "galModalPhotographerAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/modalData/photographerAvatarImage"
+          },
+          "className": "w-6 h-6 rounded-full object-cover"
+        }
+      },
+      {
+        "id": "galModalPhotographerName",
+        "component": "span",
+        "props": {
+          "className": "text-md font-medium text-on-surface",
+          "value": {
+            "path": "/modalData/photographerName"
+          }
+        }
+      },
+      {
+        "id": "galModalCameraRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "galModalCameraLabel",
+          "galModalCameraValue"
+        ]
+      },
+      {
+        "id": "galModalCameraLabel",
+        "component": "Icon",
+        "props": {
+          "name": "camera",
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "galModalCameraValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "/modalData/camera"
+          }
+        }
+      },
+      {
+        "id": "galModalDateRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "galModalDateLabel",
+          "galModalDateValue"
+        ]
+      },
+      {
+        "id": "galModalDateLabel",
+        "component": "Icon",
+        "props": {
+          "name": "calendar",
+          "color": "primary",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "galModalDateValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "/modalData/createdDate"
+          }
+        }
+      },
+      {
+        "id": "galModalTagsTitle",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface mt-1",
+          "value": "标签"
+        }
+      },
+      {
+        "id": "galModalTagsList",
+        "component": "div",
+        "props": {
+          "className": "flex flex-wrap gap-1"
+        },
+        "children": [
+          "galModalTag1",
+          "galModalTag2",
+          "galModalTag3",
+          "galModalTag4"
+        ]
+      },
+      {
+        "id": "galModalTag1",
+        "component": "Tag",
+        "props": {
+          "value": "鹿",
+          "color": "success",
+          "size": "small"
+        }
+      },
+      {
+        "id": "galModalTag2",
+        "component": "Tag",
+        "props": {
+          "value": "森林",
+          "color": "processing",
+          "size": "small"
+        }
+      },
+      {
+        "id": "galModalTag3",
+        "component": "Tag",
+        "props": {
+          "value": "晨雾",
+          "color": "default",
+          "size": "small"
+        }
+      },
+      {
+        "id": "galModalTag4",
+        "component": "Tag",
+        "props": {
+          "value": "野生动物",
+          "color": "warning",
+          "size": "small"
+        }
+      },
+      {
+        "id": "galModalRelatedTitle",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface mt-2",
+          "value": "推荐图片"
+        }
+      },
+      {
+        "id": "galModalRelatedGrid",
+        "component": "div",
+        "props": {
+          "className": "flex gap-2"
+        },
+        "children": {
+          "path": "/modalData/relatedImages",
+          "componentId": "galModalRelatedCard"
+        }
+      },
+      {
+        "id": "galModalRelatedCard",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1 items-center cursor-pointer group"
+        },
+        "children": [
+          "galModalRelatedImage",
+          "galModalRelatedLabel"
+        ]
+      },
+      {
+        "id": "galModalRelatedImage",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "thumbnailImage"
+          },
+          "className": "w-24 h-16 object-cover rounded-md group-hover:ring-2 ring-primary transition-all"
+        }
+      },
+      {
+        "id": "galModalRelatedLabel",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "title"
+          },
+          "className": "text-xs text-on-surface-variant truncate w-24 text-center"
+        }
+      },
+      {
+        "id": "galModalFooter",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-end px-inset py-inline border-t border-divider"
+        },
+        "children": [
+          "galModalFooterBtn"
+        ]
+      },
+      {
+        "id": "galModalFooterBtn",
+        "component": "Button",
+        "props": {
+          "value": "关闭",
+          "color": "default"
+        }
+      },
+      {
+        "id": "ftrInnerContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-row items-center justify-between max-w-7xl mx-auto w-full"
+        },
+        "children": [
+          "ftrCopyrightCol",
+          "ftrLinksCol",
+          "ftrSocialCol"
+        ]
+      },
+      {
+        "id": "ftrCopyrightCol",
+        "component": "div",
+        "props": {
+          "className": "flex items-center"
+        },
+        "children": [
+          "ftrCopyrightText"
+        ]
+      },
+      {
+        "id": "ftrCopyrightText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/copyright"
+          },
+          "className": "text-sm text-inverse-on-surface-variant"
+        }
+      },
+      {
+        "id": "ftrLinksCol",
+        "component": "div",
+        "props": {
+          "className": "flex flex-row items-center gap-6"
+        },
+        "children": [
+          "ftrLinksList"
+        ]
+      },
+      {
+        "id": "ftrLinksList",
+        "component": "div",
+        "props": {
+          "className": "flex flex-row gap-6"
+        },
+        "children": {
+          "path": "/links",
+          "componentId": "ftrLinkItem"
+        }
+      },
+      {
+        "id": "ftrLinkItem",
+        "component": "a",
+        "props": {
+          "href": {
+            "path": "url"
+          },
+          "className": "text-sm text-inverse-on-surface-variant hover:text-inverse-on-surface transition-colors"
+        },
+        "children": [
+          "ftrLinkName"
+        ]
+      },
+      {
+        "id": "ftrLinkName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "name"
+          },
+          "className": "text-sm"
+        }
+      },
+      {
+        "id": "ftrSocialCol",
+        "component": "div",
+        "props": {
+          "className": "flex flex-row items-center gap-4"
+        },
+        "children": [
+          "ftrFacebookLink",
+          "ftrTwitterLink",
+          "ftrInstagramLink",
+          "ftrGithubLink"
+        ]
+      },
+      {
+        "id": "ftrFacebookLink",
+        "component": "a",
+        "props": {
+          "href": "#",
+          "target": "_blank",
+          "rel": "noopener noreferrer",
+          "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface transition-colors"
+        },
+        "children": [
+          "ftrFacebookIcon"
+        ]
+      },
+      {
+        "id": "ftrFacebookIcon",
+        "component": "Icon",
+        "props": {
+          "name": "facebook",
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "ftrTwitterLink",
+        "component": "a",
+        "props": {
+          "href": "#",
+          "target": "_blank",
+          "rel": "noopener noreferrer",
+          "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface transition-colors"
+        },
+        "children": [
+          "ftrTwitterIcon"
+        ]
+      },
+      {
+        "id": "ftrTwitterIcon",
+        "component": "Icon",
+        "props": {
+          "name": "twitter",
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "ftrInstagramLink",
+        "component": "a",
+        "props": {
+          "href": "#",
+          "target": "_blank",
+          "rel": "noopener noreferrer",
+          "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface transition-colors"
+        },
+        "children": [
+          "ftrInstagramIcon"
+        ]
+      },
+      {
+        "id": "ftrInstagramIcon",
+        "component": "Icon",
+        "props": {
+          "name": "instagram",
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "ftrGithubLink",
+        "component": "a",
+        "props": {
+          "href": "#",
+          "target": "_blank",
+          "rel": "noopener noreferrer",
+          "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface transition-colors"
+        },
+        "children": [
+          "ftrGithubIcon"
+        ]
+      },
+      {
+        "id": "ftrGithubIcon",
+        "component": "Icon",
+        "props": {
+          "name": "github",
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      }
+    ],
+    "state": {
+      "searchValue": "",
+      "navSelectedKeys": [
+        "home"
+      ],
+      "notifyBadgeCount": 3,
+      "navItems": [
+        {
+          "title": "首页",
+          "key": "home",
+          "icon": "home"
+        },
+        {
+          "title": "发现",
+          "key": "explore",
+          "icon": "compass"
+        },
+        {
+          "title": "收藏",
+          "key": "favorites",
+          "icon": "heart"
+        },
+        {
+          "title": "上传",
+          "key": "upload",
+          "icon": "upload"
+        }
+      ],
+      "userMenuItems": [
+        {
+          "label": "个人中心",
+          "key": "profile",
+          "icon": "user"
+        },
+        {
+          "label": "我的收藏",
+          "key": "my-favorites",
+          "icon": "heart"
+        },
+        {
+          "label": "设置",
+          "key": "settings",
+          "icon": "settings"
+        },
+        {
+          "label": "退出登录",
+          "key": "logout",
+          "icon": "log-out"
+        }
+      ],
+      "slides": [
+        {
+          "slideId": "slide_1",
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=F4840C,FCC800&text=Sunset+City&text_color=ffffff",
+          "title": "晚霞城市",
+          "photographerName": "陈飞",
+          "categoryTag": "城市",
+          "categoryTagColor": "orange",
+          "detailLink": "#"
+        },
+        {
+          "slideId": "slide_2",
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=0067D1,004EA8&text=Ocean+Vibes&text_color=ffffff",
+          "title": "海洋之声",
+          "photographerName": "张悦",
+          "categoryTag": "自然",
+          "categoryTagColor": "cyan",
+          "detailLink": "#"
+        },
+        {
+          "slideId": "slide_3",
+          "bannerImage": "https://fpoimg.com/1920x600?gradient=09AA71,0067D1&text=Wilderness&text_color=ffffff",
+          "title": "荒野探险",
+          "photographerName": "王磊",
+          "categoryTag": "动物",
+          "categoryTagColor": "green",
+          "detailLink": "#"
+        }
+      ],
+      "cardTitle": "图片画廊",
+      "activeTab": "all",
+      "categories": [
+        {
+          "key": "all",
+          "label": "全部"
+        },
+        {
+          "key": "nature",
+          "label": "自然"
+        },
+        {
+          "key": "city",
+          "label": "城市"
+        },
+        {
+          "key": "portrait",
+          "label": "人像"
+        },
+        {
+          "key": "animals",
+          "label": "动物"
+        },
+        {
+          "key": "food",
+          "label": "美食"
+        }
+      ],
+      "images": [
+        {
+          "imageId": "img_001",
+          "title": "深林鹿影",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=00C6FF,0072FF&text=Deer&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=00C6FF,0072FF&text=Deer+Full&text_color=ffffff",
+          "categoryKey": "animals",
+          "categoryLabel": "动物",
+          "categoryTagColor": "processing",
+          "photographerName": "李想",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/1.jpg",
+          "likesCount": 128,
+          "isFavorited": true,
+          "favoriteIcon": "heart",
+          "description": "清晨在雾气弥漫的森林中捕捉到的鹿，仿佛从童话中走来。",
+          "tagList": [
+            "鹿",
+            "森林",
+            "晨雾",
+            "野生动物"
+          ],
+          "createdDate": "2026-06-15"
+        },
+        {
+          "imageId": "img_002",
+          "title": "城市之巅",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=FF512F,DD2476&text=City+Top&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=FF512F,DD2476&text=City+Top+Full&text_color=ffffff",
+          "categoryKey": "city",
+          "categoryLabel": "城市",
+          "categoryTagColor": "warning",
+          "photographerName": "王思远",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/2.jpg",
+          "likesCount": 256,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "从摩天大楼顶层俯瞰都市灯火，感受城市的脉搏。",
+          "tagList": [
+            "城市",
+            "夜景",
+            "高楼",
+            "灯光"
+          ],
+          "createdDate": "2026-06-20"
+        },
+        {
+          "imageId": "img_003",
+          "title": "花海少女",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=11998E,38EF7D&text=Flower+Girl&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=11998E,38EF7D&text=Flower+Girl+Full&text_color=ffffff",
+          "categoryKey": "portrait",
+          "categoryLabel": "人像",
+          "categoryTagColor": "error",
+          "photographerName": "刘子涵",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/women/3.jpg",
+          "likesCount": 89,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "少女在盛开的薰衣草田里回眸一笑，自然与人物完美融合。",
+          "tagList": [
+            "薰衣草",
+            "少女",
+            "人像",
+            "夏天"
+          ],
+          "createdDate": "2026-06-18"
+        },
+        {
+          "imageId": "img_004",
+          "title": "日式料理",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=ff9a9e,fad0c4&text=Sushi&text_color=333333",
+          "previewImage": "https://fpoimg.com/800x600?gradient=ff9a9e,fad0c4&text=Sushi+Full&text_color=333333",
+          "categoryKey": "food",
+          "categoryLabel": "美食",
+          "categoryTagColor": "default",
+          "photographerName": "周小厨",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/4.jpg",
+          "likesCount": 67,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "精致的寿司拼盘，色彩搭配令人食欲大增。",
+          "tagList": [
+            "日本料理",
+            "寿司",
+            "美食摄影",
+            "精致"
+          ],
+          "createdDate": "2026-06-22"
+        },
+        {
+          "imageId": "img_005",
+          "title": "雪山倒影",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=667eea,764ba2&text=Mount+Lake&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=667eea,764ba2&text=Mount+Lake+Full&text_color=ffffff",
+          "categoryKey": "nature",
+          "categoryLabel": "自然",
+          "categoryTagColor": "success",
+          "photographerName": "赵峰",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/5.jpg",
+          "likesCount": 412,
+          "isFavorited": true,
+          "favoriteIcon": "heart",
+          "description": "雪山与平静的湖面形成完美对称，大自然的杰作。",
+          "tagList": [
+            "雪山",
+            "湖泊",
+            "倒影",
+            "风光"
+          ],
+          "createdDate": "2026-06-10"
+        },
+        {
+          "imageId": "img_006",
+          "title": "街头涂鸦",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=ff6b6b,c0659c&text=Graffiti&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=ff6b6b,c0659c&text=Graffiti+Full&text_color=ffffff",
+          "categoryKey": "city",
+          "categoryLabel": "城市",
+          "categoryTagColor": "error",
+          "photographerName": "杨洋",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/women/6.jpg",
+          "likesCount": 55,
+          "isFavorited": true,
+          "favoriteIcon": "heart",
+          "description": "柏林墙上的现代涂鸦艺术，色彩张扬，充满故事感。",
+          "tagList": [
+            "涂鸦",
+            "街头",
+            "柏林",
+            "文化"
+          ],
+          "createdDate": "2026-06-25"
+        },
+        {
+          "imageId": "img_007",
+          "title": "晨间咖啡",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=667eea,764ba2&text=Coffee&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=667eea,764ba2&text=Coffee+Full&text_color=ffffff",
+          "categoryKey": "food",
+          "categoryLabel": "美食",
+          "categoryTagColor": "default",
+          "photographerName": "陈静",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/women/7.jpg",
+          "likesCount": 34,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "一杯完美的拿铁，配上早晨柔和的光线，静享时光。",
+          "tagList": [
+            "咖啡",
+            "拿铁",
+            "早餐",
+            "慢生活"
+          ],
+          "createdDate": "2026-06-26"
+        },
+        {
+          "imageId": "img_008",
+          "title": "鹰击长空",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=ff512f,dd2476&text=Eagle&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=ff512f,dd2476&text=Eagle+Full&text_color=ffffff",
+          "categoryKey": "animals",
+          "categoryLabel": "动物",
+          "categoryTagColor": "warning",
+          "photographerName": "孙大圣",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/8.jpg",
+          "likesCount": 178,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "雄鹰展翅高飞，霸气十足，抓拍瞬间极具冲击力。",
+          "tagList": [
+            "鹰",
+            "飞行",
+            "天空",
+            "猛禽"
+          ],
+          "createdDate": "2026-06-12"
+        },
+        {
+          "imageId": "img_009",
+          "title": "城市雨夜",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=0f0c29,302b63&text=Rainy+Night&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=0f0c29,302b63&text=Rainy+Night+Full&text_color=ffffff",
+          "categoryKey": "city",
+          "categoryLabel": "城市",
+          "categoryTagColor": "success",
+          "photographerName": "李小白",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/women/9.jpg",
+          "likesCount": 223,
+          "isFavorited": true,
+          "favoriteIcon": "heart",
+          "description": "雨夜的街道，倒影中的霓虹灯光迷离而浪漫。",
+          "tagList": [
+            "雨",
+            "夜景",
+            "倒影",
+            "霓虹"
+          ],
+          "createdDate": "2026-06-23"
+        },
+        {
+          "imageId": "img_010",
+          "title": "花丛蝴蝶",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=00b4db,0083b0&text=Butterfly&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=00b4db,0083b0&text=Butterfly+Full&text_color=ffffff",
+          "categoryKey": "nature",
+          "categoryLabel": "自然",
+          "categoryTagColor": "processing",
+          "photographerName": "何小蝶",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/women/10.jpg",
+          "likesCount": 91,
+          "isFavorited": true,
+          "favoriteIcon": "heart",
+          "description": "一只色彩斑斓的蝴蝶停在野花上，微距摄影的细节令人惊叹。",
+          "tagList": [
+            "蝴蝶",
+            "花朵",
+            "微距",
+            "自然"
+          ],
+          "createdDate": "2026-06-19"
+        },
+        {
+          "imageId": "img_011",
+          "title": "星空下的帐篷",
+          "thumbnailImage": "https://fpoimg.com/400x300?gradient=141e30,243b55&text=Tent+Stars&text_color=ffffff",
+          "previewImage": "https://fpoimg.com/800x600?gradient=141e30,243b55&text=Tent+Stars+Full&text_color=ffffff",
+          "categoryKey": "nature",
+          "categoryLabel": "自然",
+          "categoryTagColor": "processing",
+          "photographerName": "王星星",
+          "photographerAvatarImage": "https://randomuser.me/api/portraits/men/11.jpg",
+          "likesCount": 367,
+          "isFavorited": false,
+          "favoriteIcon": "heart-off",
+          "description": "在荒野中露营，银河清晰可见，帐篷的暖光与星空形成对比。",
+          "tagList": [
+            "星空",
+            "露营",
+            "银河",
+            "帐篷"
+          ],
+          "createdDate": "2026-06-17"
+        }
+      ],
+      "pagination": {
+        "currentPage": 1,
+        "pageSize": 20,
+        "total": 128
+      },
+      "modalData": {
+        "title": "深林鹿影",
+        "fullImage": "https://fpoimg.com/1200x800?gradient=00C6FF,0072FF&text=Deer+Full&text_color=ffffff",
+        "description": "清晨在雾气弥漫的森林中捕捉到的鹿，仿佛从童话中走来。",
+        "photographerName": "李想",
+        "photographerAvatarImage": "https://randomuser.me/api/portraits/men/1.jpg",
+        "createdDate": "2026-06-15",
+        "camera": "Sony A7R IV",
+        "lens": "FE 100-400mm F4.5-5.6 GM",
+        "tags": [
+          "鹿",
+          "森林",
+          "晨雾",
+          "野生动物"
+        ],
+        "relatedImages": [
+          {
+            "imageId": "img_005",
+            "thumbnailImage": "https://fpoimg.com/200x150?gradient=667eea,764ba2&text=Mount+Lake&text_color=ffffff",
+            "title": "雪山倒影"
+          },
+          {
+            "imageId": "img_010",
+            "thumbnailImage": "https://fpoimg.com/200x150?gradient=00b4db,0083b0&text=Butterfly&text_color=ffffff",
+            "title": "花丛蝴蝶"
+          },
+          {
+            "imageId": "img_011",
+            "thumbnailImage": "https://fpoimg.com/200x150?gradient=141e30,243b55&text=Tent+Stars&text_color=ffffff",
+            "title": "星空下的帐篷"
+          }
+        ]
+      },
+      "copyright": "© 2026 VisualGallery. All rights reserved.",
+      "links": [
+        {
+          "name": "关于我们",
+          "url": "#"
+        },
+        {
+          "name": "联系",
+          "url": "#"
+        },
+        {
+          "name": "隐私政策",
+          "url": "#"
+        },
+        {
+          "name": "服务条款",
+          "url": "#"
+        }
+      ]
+    }
+  }
+}

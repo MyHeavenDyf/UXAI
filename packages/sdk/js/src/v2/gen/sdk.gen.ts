@@ -9,6 +9,19 @@ import type {
   AppLogResponses,
   AppSkillsRefreshResponses,
   AppSkillsResponses,
+  ArtifactArchiveResponses,
+  ArtifactDeleteBatchResponses,
+  ArtifactDeleteResponses,
+  ArtifactListResponses,
+  ArtifactReadErrors,
+  ArtifactReadResponses,
+  ArtifactRenameResponses,
+  ArtifactServeErrors,
+  ArtifactServeResponses,
+  ArtifactUploadErrors,
+  ArtifactUploadFolderErrors,
+  ArtifactUploadFolderResponses,
+  ArtifactUploadResponses,
   Auth as Auth3,
   AuthRemoveErrors,
   AuthRemoveResponses,
@@ -58,6 +71,14 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  InsightFilesListErrors,
+  InsightFilesListResponses,
+  InsightFilesUploadErrors,
+  InsightFilesUploadFolderErrors,
+  InsightFilesUploadFolderResponses,
+  InsightFilesUploadResponses,
+  InsightSessionsListErrors,
+  InsightSessionsListResponses,
   InstanceDisposeResponses,
   LspStatusResponses,
   McpAddErrors,
@@ -176,8 +197,12 @@ import type {
   StudioGenerationsCreateResponses,
   StudioGenerationsGetErrors,
   StudioGenerationsGetResponses,
+  StudioGenerationsRebootErrors,
+  StudioGenerationsRebootResponses,
   StudioPermissionsCheckErrors,
   StudioPermissionsCheckResponses,
+  StudioPromptGenCreateErrors,
+  StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
   SubtaskPartInput,
@@ -610,6 +635,350 @@ export class Event extends HeyApiClient {
     )
     return (options?.client ?? this.client).sse.get<EventSubscribeResponses, unknown, ThrowOnError>({
       url: "/event",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Artifact extends HeyApiClient {
+  /**
+   * List artifacts
+   *
+   * List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      category?: "generated" | "uploaded"
+      path?: string
+      recursive?: "true" | "false"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "category" },
+            { in: "query", key: "path" },
+            { in: "query", key: "recursive" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+      url: "/artifact/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read artifact
+   *
+   * Read the content of an artifact file.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactReadResponses, ArtifactReadErrors, ThrowOnError>({
+      url: "/artifact/content",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete artifact
+   *
+   * Delete a single artifact file.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ArtifactDeleteResponses, unknown, ThrowOnError>({
+      url: "/artifact/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rename artifact
+   *
+   * Rename an artifact file.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      from?: string
+      to?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactRenameResponses, unknown, ThrowOnError>({
+      url: "/artifact/rename",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Archive artifacts
+   *
+   * Create a ZIP archive of selected artifact files.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactArchiveResponses, unknown, ThrowOnError>({
+      url: "/artifact/archive",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Batch delete artifacts
+   *
+   * Delete multiple artifact files.
+   */
+  public deleteBatch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactDeleteBatchResponses, unknown, ThrowOnError>({
+      url: "/artifact/delete-batch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload artifact
+   *
+   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      filename?: string
+      content?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactUploadResponses, ArtifactUploadErrors, ThrowOnError>({
+      url: "/artifact/upload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload folder
+   *
+   * Upload a folder with all its contents to the artifact directory. Preserves directory structure.
+   */
+  public uploadFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      folderName?: string
+      files?: Array<{
+        relativePath: string
+        content: string
+      }>
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "folderName" },
+            { in: "body", key: "files" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ArtifactUploadFolderResponses,
+      ArtifactUploadFolderErrors,
+      ThrowOnError
+    >({
+      url: "/artifact/upload-folder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Serve artifact file
+   *
+   * Serve artifact file with bridge scripts injected for HTML files. Used for iframe preview with relative path support.
+   */
+  public serve<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactServeResponses, ArtifactServeErrors, ThrowOnError>({
+      url: "/artifact/serve",
       ...options,
       ...params,
     })
@@ -3389,6 +3758,9 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
+      extra?: {
+        [key: string]: unknown
+      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -3409,6 +3781,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "extra" },
             { in: "body", key: "parts" },
           ],
         },
@@ -3742,6 +4115,9 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
+      extra?: {
+        [key: string]: unknown
+      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -3762,6 +4138,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "extra" },
             { in: "body", key: "parts" },
           ],
         },
@@ -4940,6 +5317,49 @@ export class Permissions extends HeyApiClient {
   }
 }
 
+export class PromptGen extends HeyApiClient {
+  /**
+   * Generate prompt from reference image
+   *
+   * Returns generated prompt text from the internal image prompt generation API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      base64img?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "base64img" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptGenCreateResponses,
+      StudioPromptGenCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-gen",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -4960,6 +5380,10 @@ export class Generations extends HeyApiClient {
         | "image.outpaint"
         | "image.fusion"
       prompt?: string
+      displayPrompt?: string
+      detailPrompt?: string
+      refinedPrompt?: string
+      effectivePrompt?: string
       styleModel?: string
       aspectRatio?: string
       count?: number
@@ -4982,6 +5406,10 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "sessionID" },
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
+            { in: "body", key: "displayPrompt" },
+            { in: "body", key: "detailPrompt" },
+            { in: "body", key: "refinedPrompt" },
+            { in: "body", key: "effectivePrompt" },
             { in: "body", key: "styleModel" },
             { in: "body", key: "aspectRatio" },
             { in: "body", key: "count" },
@@ -5040,6 +5468,42 @@ export class Generations extends HeyApiClient {
       ThrowOnError
     >({
       url: "/studio/generations/{generationID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Reboot Studio generation
+   *
+   * Reboots a failed asynchronous Studio generation with an existing provider task id.
+   */
+  public reboot<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsRebootResponses,
+      StudioGenerationsRebootErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/reboot",
       ...options,
       ...params,
     })
@@ -5140,6 +5604,11 @@ export class Studio extends HeyApiClient {
     return (this._permissions ??= new Permissions({ client: this.client }))
   }
 
+  private _promptGen?: PromptGen
+  get promptGen(): PromptGen {
+    return (this._promptGen ??= new PromptGen({ client: this.client }))
+  }
+
   private _generations?: Generations
   get generations(): Generations {
     return (this._generations ??= new Generations({ client: this.client }))
@@ -5148,6 +5617,185 @@ export class Studio extends HeyApiClient {
   private _editorEntries?: EditorEntries
   get editorEntries(): EditorEntries {
     return (this._editorEntries ??= new EditorEntries({ client: this.client }))
+  }
+}
+
+export class Sessions extends HeyApiClient {
+  /**
+   * List insight sessions (paged)
+   *
+   * List octo_insight sessions for a directory, agent-filtered server-side, with total count for pagination.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      limit?: number
+      offset?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<InsightSessionsListResponses, InsightSessionsListErrors, ThrowOnError>({
+      url: "/insight/sessions",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Files extends HeyApiClient {
+  /**
+   * List insight session files
+   *
+   * List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      category: "uploads" | "outputs"
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "category" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<InsightFilesListResponses, InsightFilesListErrors, ThrowOnError>({
+      url: "/insight/files",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Upload insight file
+   *
+   * Upload a base64 file to <projectDir>/insight/<sessionId>/uploads/[path]/. Auto-renames on conflict.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      filename?: string
+      content?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InsightFilesUploadResponses, InsightFilesUploadErrors, ThrowOnError>({
+      url: "/insight/upload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload insight folder
+   *
+   * Upload a folder (preserving structure) to <projectDir>/insight/<sessionId>/uploads/[path]/.
+   */
+  public uploadFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      folderName?: string
+      files?: Array<{
+        relativePath: string
+        content: string
+      }>
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "folderName" },
+            { in: "body", key: "files" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightFilesUploadFolderResponses,
+      InsightFilesUploadFolderErrors,
+      ThrowOnError
+    >({
+      url: "/insight/upload-folder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Insight extends HeyApiClient {
+  private _sessions?: Sessions
+  get sessions(): Sessions {
+    return (this._sessions ??= new Sessions({ client: this.client }))
+  }
+
+  private _files?: Files
+  get files(): Files {
+    return (this._files ??= new Files({ client: this.client }))
   }
 }
 
@@ -5177,6 +5825,11 @@ export class OpencodeClient extends HeyApiClient {
   private _event?: Event
   get event(): Event {
     return (this._event ??= new Event({ client: this.client }))
+  }
+
+  private _artifact?: Artifact
+  get artifact(): Artifact {
+    return (this._artifact ??= new Artifact({ client: this.client }))
   }
 
   private _config?: Config2
@@ -5297,5 +5950,10 @@ export class OpencodeClient extends HeyApiClient {
   private _studio?: Studio
   get studio(): Studio {
     return (this._studio ??= new Studio({ client: this.client }))
+  }
+
+  private _insight?: Insight
+  get insight(): Insight {
+    return (this._insight ??= new Insight({ client: this.client }))
   }
 }

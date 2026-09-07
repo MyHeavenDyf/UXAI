@@ -91,8 +91,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     })
 
     const validModel = (model: ModelKey) => {
-      const provider = providers.all().find((item) => item.id === model.providerID)
-      return !!provider?.models[model.modelID] && connected().has(model.providerID) && models.visible(model)
+      return !!models.find(model) && connected().has(model.providerID) && models.visible(model)
     }
 
     const firstModel = (...items: Array<() => ModelKey | undefined>) => {
@@ -165,7 +164,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (validModel(model)) return model
         }
 
-        const first = Object.values(provider.models)[0]
+        const first = models.list().find((model) => model.provider.id === provider.id)
         if (!first) continue
         const model = { providerID: provider.id, modelID: first.id }
         if (validModel(model)) return model

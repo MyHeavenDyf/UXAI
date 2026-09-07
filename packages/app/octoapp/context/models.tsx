@@ -1,9 +1,18 @@
-import { createMemo } from "solid-js"
+import { createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
+import { useGlobalSDK } from "@/context/global-sdk"
+import {
+  fetchModelsApi,
+  modelsApiListForProviders,
+  modelsApiSource,
+  modelsLocalListForProviders,
+  refreshModelsApi as requestModelsApiRefresh,
+  registerModelsApiRefresh,
+} from "@/network/models-api"
 import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
@@ -26,6 +35,34 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   name: "Models",
   init: () => {
     const providers = useProviders()
+    const globalSDK = useGlobalSDK()
+    const loadApiModels = async () => {
+      const models = await fetchModelsApi()
+      await globalSDK.client.provider.list()
+      return models
+    }
+    const [apiModels, { mutate: setApiModels }] = createResource(loadApiModels)
+    const [refreshing, setRefreshing] = createSignal(false)
+    const [refreshError, setRefreshError] = createSignal<unknown>()
+
+    const refreshApiModels = async () => {
+      if (refreshing()) return
+      setRefreshing(true)
+      setRefreshError(undefined)
+      try {
+        await requestModelsApiRefresh()
+      } catch (error) {
+        setRefreshError(error)
+      } finally {
+        setRefreshing(false)
+      }
+    }
+    onCleanup(
+      registerModelsApiRefresh(async (models) => {
+        await globalSDK.client.provider.list()
+        setApiModels(models)
+      }),
+    )
 
     const [store, setStore, _, ready] = persisted(
       Persist.global("model", ["model.v1"]),
@@ -36,14 +73,26 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       }),
     )
 
-    const available = createMemo(() =>
-      providers.connected().flatMap((p) =>
-        Object.values(p.models).map((m) => ({
-          ...m,
-          provider: p,
-        })),
-      ),
-    )
+    const available = createMemo(() => {
+      if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
+      const api = apiModels()
+      if (!api) return []
+      const remoteProviderIDs = new Set(
+        Object.entries(api).map(([key, provider]) =>
+          typeof provider?.id === "string" && provider.id ? provider.id : key,
+        ),
+      )
+      const connected = providers.connected()
+      return uniqueBy(
+        [
+          ...modelsApiListForProviders(api, connected),
+          ...modelsLocalListForProviders(
+            connected.filter((provider) => provider.source === "config" && !remoteProviderIDs.has(provider.id)),
+          ),
+        ],
+        (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
+      )
+    })
 
     const release = createMemo(
       () =>
@@ -146,6 +195,12 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     return {
       ready,
+      remote: {
+        api: apiModels,
+        loading: () => apiModels.loading || refreshing(),
+        error: () => refreshError() ?? apiModels.error,
+        refresh: refreshApiModels,
+      },
       list,
       find,
       visible,

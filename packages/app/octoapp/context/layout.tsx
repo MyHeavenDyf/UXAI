@@ -57,10 +57,12 @@ type LastSessionPerTab = {
   chat: Record<string, string>
   studio: Record<string, string>
   pattern?: { id: string }
-  threed?: { id: string }
+  threedimension?: { id: string }
+  lastChatDir?: string
+  newConversation: Record<string, boolean>
 }
 
-type SidebarSource = "cowork" | "make"
+type SidebarSource = "cowork" | "make" | "pattern"
 
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
@@ -280,7 +282,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       chat: {},
       studio: {},
       pattern: undefined,
-      threed: undefined,
+      threedimension: undefined,
+      lastChatDir: undefined,
+      newConversation: {},
     })
 
     const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
@@ -592,6 +596,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         setCowork(id: string) {
           setLastSession("cowork", { id })
         },
+        clearCowork() {
+          setLastSession("cowork", undefined)
+        },
         make: (dir: string) => lastSessionPerTab.make[dir],
         setMake(dir: string, id: string) {
           setLastSession("make", dir, id)
@@ -600,17 +607,23 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         setPattern(id: string) {
           setLastSession("pattern", { id })
         },
-        threed: createMemo(() => lastSessionPerTab.threed),
-        setThreeD(id: string) {
-          setLastSession("threed", { id })
+        threedimension: createMemo(() => lastSessionPerTab.threedimension),
+        setThreedimension(id: string) {
+          setLastSession("threedimension", { id })
         },
         chat: (dir: string) => lastSessionPerTab.chat[dir],
         setChat(dir: string, id: string) {
           setLastSession("chat", dir, id)
+          setLastSession("lastChatDir", dir)
         },
+        lastChatDir: () => lastSessionPerTab.lastChatDir,
         studio: (dir: string) => lastSessionPerTab.studio[dir],
         setStudio(dir: string, id: string) {
           setLastSession("studio", dir, id)
+        },
+        newConversation: (tab: string) => lastSessionPerTab.newConversation[tab] ?? false,
+        setNewConversation(tab: string, value: boolean) {
+          setLastSession("newConversation", tab, value)
         },
       },
       sidebarSource: {

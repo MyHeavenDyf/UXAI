@@ -12,6 +12,7 @@ interface Props {
 
 export function QuickBriefFormView(props: Props) {
   const [answers, setAnswers] = createSignal<Record<string, string | string[]>>(buildInitialState(props.form))
+  const [customInputs, setCustomInputs] = createSignal<Record<string, string>>({})
   const [locallySubmitted, setLocallySubmitted] = createSignal(false)
 
   const isLocked = () => props.submitted || locallySubmitted() || props.interactive === false || !props.onSubmit
@@ -45,13 +46,30 @@ export function QuickBriefFormView(props: Props) {
     })
   }
 
+  /** 自定义输入:radio 模式与选项互斥(输入即覆盖);checkbox 模式与选项并存(提交时追加) */
+  const updateCustom = (id: string, value: string, type: FormQuestion['type']) => {
+    if (isLocked()) return
+    setCustomInputs(prev => ({ ...prev, [id]: value }))
+    if (type === 'radio' && value.trim() !== '') {
+      setAnswers(prev => ({ ...prev, [id]: '' }))
+    }
+  }
+
+  const isQuestionAnswered = (q: FormQuestion) => {
+    const v = currentAnswers()[q.id]
+    const hasPreset = Array.isArray(v) ? v.length > 0 : (typeof v === 'string' && v.trim().length > 0)
+    if (hasPreset) return true
+    if (q.allowCustom) {
+      const custom = customInputs()[q.id]?.trim()
+      return !!custom
+    }
+    return false
+  }
+
   const missingRequired = () => {
     for (const q of props.form.questions) {
       if (!q.required) continue
-      const v = currentAnswers()[q.id]
-      if (Array.isArray(v) ? v.length === 0 : !(typeof v === 'string' && v.trim().length > 0)) {
-        return q.label
-      }
+      if (!isQuestionAnswered(q)) return q.label
     }
     return null
   }
@@ -66,10 +84,25 @@ export function QuickBriefFormView(props: Props) {
 
   const ready = () => {
     if (!withinSelectionLimits()) return false
-    return props.form.questions.filter(q => q.required).every(q => {
-      const v = currentAnswers()[q.id]
-      return Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim().length > 0
-    })
+    return props.form.questions.filter(q => q.required).every(q => isQuestionAnswered(q))
+  }
+
+  /** 提交前合并 customInputs:radio 覆盖,checkbox 追加 */
+  const mergeCustomInputs = (raw: Record<string, string | string[]>): Record<string, string | string[]> => {
+    const merged = { ...raw }
+    for (const q of props.form.questions) {
+      if (!q.allowCustom) continue
+      const custom = customInputs()[q.id]?.trim()
+      if (!custom) continue
+      if (q.type === 'radio') {
+        merged[q.id] = custom
+      } else if (q.type === 'checkbox') {
+        const arr = Array.isArray(merged[q.id]) ? [...(merged[q.id] as string[])] : []
+        if (!arr.includes(custom)) arr.push(custom)
+        merged[q.id] = arr
+      }
+    }
+    return merged
   }
 
   const handleSubmit = () => {
@@ -78,8 +111,9 @@ export function QuickBriefFormView(props: Props) {
     const missing = missingRequired()
     if (missing) return
 
-    const formatted = formatFormAnswers(props.form, currentAnswers())
-    props.onSubmit(formatted, currentAnswers())
+    const merged = mergeCustomInputs(currentAnswers())
+    const formatted = formatFormAnswers(props.form, merged)
+    props.onSubmit(formatted, merged)
     setLocallySubmitted(true)
   }
 
@@ -135,6 +169,18 @@ export function QuickBriefFormView(props: Props) {
               }}
             </For>
           </div>
+        </Show>
+
+        {/* 自定义输入:radio/checkbox 后追加"其他"输入框。allowCustom 默认 true(undefined 视为允许) */}
+        <Show when={q.allowCustom && (q.type === 'radio' || q.type === 'checkbox')}>
+          <input
+            type="text"
+            class="qf-input qf-custom-input"
+            value={customInputs()[q.id] ?? ''}
+            onInput={(e) => updateCustom(q.id, e.currentTarget.value, q.type)}
+            placeholder="其他(自定义输入)…"
+            disabled={isLocked()}
+          />
         </Show>
 
         <Show when={q.type === 'text'}>

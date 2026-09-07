@@ -32,7 +32,6 @@ import { checksum } from "@opencode-ai/core/util/encode"
 import { useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
-import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -495,6 +494,10 @@ export default function Page() {
         const msg = lastUserMessage()
         if (!msg) return
         syncSessionModel(local, msg)
+        // Sync tab key so new conversations inherit this session's model.
+        if (msg.model?.providerID && msg.model?.modelID) {
+          local.model.set(msg.model, { recent: true })
+        }
       },
     ),
   )
@@ -764,14 +767,23 @@ export default function Page() {
       refreshTimer = undefined
       if (!id) return
 
-      const cached = untrack(() => sync.data.message[id] !== undefined)
-      const stale = !cached
-        ? false
-        : (() => {
-            const info = getSessionPrefetch(directory, id)
-            if (!info) return true
-            return Date.now() - info.at > SESSION_PREFETCH_TTL
-          })()
+      const stale = untrack(() => {
+        const messages = sync.data.message[id]
+        if (!messages) return false
+
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+        if (!lastAssistant) return false
+
+        // assistant 已完成 → 数据完整，无需兜底
+        if (typeof lastAssistant.time.completed === "number") return false
+
+        // assistant 未完成 + session 状态为 idle → 丢失了 SSE completion 事件，需要兜底
+        const status = sync.data.session_status[id]
+        if (!status || status.type === "idle") return true
+
+        // assistant 未完成 + session 仍在 busy → SSE 正在推送，不覆盖
+        return false
+      })
 
       refreshFrame = requestAnimationFrame(() => {
         refreshFrame = undefined
@@ -1503,6 +1515,13 @@ export default function Page() {
     )
   }
 
+  // 响应式 busy：显式追踪 session busy 状态，用于 busy→idle 监听
+  const isBusy = createMemo(() => {
+    const id = params.id
+    if (!id) return false
+    return busy(id)
+  })
+
   const queuedFollowups = createMemo(() => {
     const id = params.id
     if (!id) return emptyFollowups
@@ -1554,7 +1573,7 @@ export default function Page() {
   const queueEnabled = createMemo(() => {
     const id = params.id
     if (!id) return false
-    return settings.general.followup() === "queue" && busy(id) && !composer.blocked() && !isChildSession()
+    return busy(id) && !composer.blocked() && !isChildSession()
   })
 
   const followupText = (item: FollowupDraft) => {
@@ -1615,6 +1634,12 @@ export default function Page() {
     const id = params.id
     if (!id) return
     setFollowup("edit", id, undefined)
+  }
+
+  const removeQueued = (index: number) => {
+    const sessionID = params.id
+    if (!sessionID) return
+    setFollowup("items", sessionID, (items) => (items ?? []).filter((_, i) => i !== index))
   }
 
   const halt = (sessionID: string) =>
@@ -1708,10 +1733,11 @@ export default function Page() {
 
   const actions = { revert }
 
-  createEffect(() => {
+  // flush 队首：检查所有条件后发送下一条
+  const flushQueueHead = () => {
     const sessionID = params.id
     if (!sessionID) return
-
+    if (isBusy()) return
     const item = queuedFollowups()[0]
     if (!item) return
     if (followupBusy(sessionID)) return
@@ -1719,10 +1745,19 @@ export default function Page() {
     if (followup.paused[sessionID]) return
     if (isChildSession()) return
     if (composer.blocked()) return
-    if (busy(sessionID)) return
-
     void sendFollowup(sessionID, item.id)
-  })
+  }
+
+  // busy → idle 那一刻自动 flush 队首（与 insight 一致）
+  createEffect(on(isBusy, (busy, prev) => {
+    if (!prev || busy) return
+    flushQueueHead()
+  }, { defer: true }))
+
+  // 切回某 session 时,若它已 idle 且仍有排队,补一次 flush
+  createEffect(on(() => params.id, () => {
+    flushQueueHead()
+  }, { defer: true }))
 
   createResizeObserver(
     () => promptDock,
@@ -1846,7 +1881,7 @@ export default function Page() {
               style={{ background: "#fff" }}
             >
               <div classList={{ "w-full": true, "md:max-w-[848px]": centered() }}>
-                <NewSessionView worktree={newSessionWorktree()} />
+                <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
                 <SessionComposerRegion
                   state={composer}
                   ready={!store.deferRender && messagesReady()}
@@ -1911,7 +1946,7 @@ export default function Page() {
                 </Show>
               </Match>
               <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
+                <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
               </Match>
             </Switch>
               </div>
@@ -1941,11 +1976,15 @@ export default function Page() {
                         onAbort: () => {
                           const id = params.id
                           if (!id) return
+                          // 清空整个队列，避免 abort 完成后 idle 触发器自动 flush
+                          setFollowup("items", id, [])
+                          setFollowup("failed", id, undefined)
                           setFollowup("paused", id, true)
                         },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
+                        onRemove: removeQueued,
+                        onSend: (id) => {
+                          void sendFollowup(params.id!, id, { manual: true })
+                        },
                         onEdit: editFollowup,
                         onEditLoaded: clearFollowupEdit,
                       }
