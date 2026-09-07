@@ -6,7 +6,7 @@ export const TEXT_ELEMENTS = [
 export const LABEL_MAP: Record<string, string> = {
   value: '文本内容', color: '颜色', types: '类型', size: '尺寸', shape: '形状',
   icon: '图标', iconPlacement: '图标位置', variant: '样式', status: '状态',
-  name: '图标名', orientation: '方向', titlePlacement: '文字位置',
+  name: '图标', orientation: '方向', titlePlacement: '文字位置',
   closable: '可关闭', closeIcon: '关闭图标', count: '数值', dot: '圆点模式',
   showZero: '显示零', overflowCount: '溢出数', placeholder: '占位符',
   disabled: '禁用', readonly: '只读', required: '必填', maxLength: '最大长度',
