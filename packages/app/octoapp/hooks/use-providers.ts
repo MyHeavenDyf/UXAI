@@ -17,6 +17,7 @@ export const popularProviders = [
   "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)
+export const hiddenSettingsProviderIDs = new Set(["opencode", "bpit"])
 
 export function useProviders() {
   const globalSync = useGlobalSync()
