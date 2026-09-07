@@ -6,8 +6,8 @@
 - 文档用途：记录 `studio-style-template-card` 点击选择模板后的 UI 状态、模型切换、提示词拼接、发送链路和涉及文件。
 - 最后更新：2026-09-01。
 - 关联前置：
-  - `docs/studio-style-template-list-implementation-plan.md`：模板列表查询、分页和卡片展示。
-  - `docs/studio-template-submit-implementation-plan.md`：模板发布接口和模板字段结构。
+  - `packages/app/octoapp/pages/studio/docs/studio-style-template-list-implementation-plan.md`：模板列表查询、分页和卡片展示。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-submit-implementation-plan.md`：模板发布接口和模板字段结构。
 
 ## 2. 视觉参考
 

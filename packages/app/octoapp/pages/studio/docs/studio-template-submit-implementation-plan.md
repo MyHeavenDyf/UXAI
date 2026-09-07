@@ -6,10 +6,10 @@
 - 文档用途：记录 Studio 创建模板第三步点击“发布”后的接口调用链路、提交参数结构、字段映射、校验规则、状态处理和涉及文件。
 - 最后更新：2026-08-31。
 - 关联前置：
-  - `docs/studio-template-creator-content-implementation-plan.md`：第 1 步“制作模板”表单。
-  - `docs/studio-template-publish-implementation-plan.md`：第 2 步“发布模板”表单。
-  - `docs/studio-template-examples-implementation-plan.md`：第 3 步“添加示例”表单。
-  - `docs/studio-template-style-description-generation-implementation-plan.md`：第 1 步“生成风格描述”流式接口。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-creator-content-implementation-plan.md`：第 1 步“制作模板”表单。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-publish-implementation-plan.md`：第 2 步“发布模板”表单。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-examples-implementation-plan.md`：第 3 步“添加示例”表单。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-style-description-generation-implementation-plan.md`：第 1 步“生成风格描述”流式接口。
 
 ## 2. 核心结论
 

@@ -5,9 +5,9 @@
 - 当前阶段：需求分析完成，尚未进入代码实现。
 - 文档用途：记录选择了风格模板/配方模板的 Studio 生成任务，在点击“重新编辑”时如何恢复模板输入态。
 - 关联文档：
-  - `docs/studio-style-template-usage-implementation-plan.md`
-  - `docs/studio-style-template-list-implementation-plan.md`
-  - `docs/studio-template-submit-implementation-plan.md`
+  - `packages/app/octoapp/pages/studio/docs/studio-style-template-usage-implementation-plan.md`
+  - `packages/app/octoapp/pages/studio/docs/studio-style-template-list-implementation-plan.md`
+  - `packages/app/octoapp/pages/studio/docs/studio-template-submit-implementation-plan.md`
 
 ## 2. 需求目标
 

@@ -6,8 +6,8 @@
 - 文档用途：记录 `studio-style-template-menu` 中“创意广场 / 我的模板”的模板列表查询、分页加载、滚动触底触发、前后端接口链路和涉及文件。
 - 最后更新：2026-09-01。
 - 关联前置：
-  - `docs/studio-image-template-implementation-plan.md`：风格模板入口和浮窗。
-  - `docs/studio-template-submit-implementation-plan.md`：模板发布接口。
+  - `packages/app/octoapp/pages/studio/docs/studio-image-template-implementation-plan.md`：风格模板入口和浮窗。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-submit-implementation-plan.md`：模板发布接口。
 - 视觉参考：
   - Pixso 链接：`https://pixso.cn/app/design/27L8ZYe3wLXH3yaWPaAe8Q?item-id=1081:497678`
   - 已通过 Pixso MCP 读取节点 `1081:497678`（`容器 72114`）并完成截图核对。

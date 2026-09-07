@@ -6,9 +6,9 @@
 - 文档用途：记录 Studio“创建模板”第一步中“生成风格描述”按钮的启用规则、统一字段设计、SSE 流式协议、阶段提示、思考过程展示、增量回填、状态处理和文件改动范围。
 - 最后更新：2026-08-29。
 - 关联前置：
-  - `docs/studio-template-creator-content-implementation-plan.md` 已覆盖第 1 步“制作模板”主体表单。
-  - `docs/studio-template-publish-implementation-plan.md` 已覆盖第 2 步“发布模板”。
-  - `docs/studio-template-examples-implementation-plan.md` 已覆盖第 3 步“添加示例”。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-creator-content-implementation-plan.md` 已覆盖第 1 步“制作模板”主体表单。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-publish-implementation-plan.md` 已覆盖第 2 步“发布模板”。
+  - `packages/app/octoapp/pages/studio/docs/studio-template-examples-implementation-plan.md` 已覆盖第 3 步“添加示例”。
 - 本方案新建独立文档，不修改前置方案文档。
 
 ## 2. 核心结论
