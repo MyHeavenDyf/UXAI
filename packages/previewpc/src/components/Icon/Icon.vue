@@ -21,6 +21,8 @@ const { resolveValue } = useA2UIComponent(node, surfaceId)
 const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
 const name = computed(() => (resolveValue(properties.name) as string) || "")
+// 自定义图标：图片路径字符串，存在时优先用 <img> 渲染，并跳过 hui/lucide 相关逻辑与接口请求
+const imgSrc = computed(() => (resolveValue(properties.src) as string) || "")
 const shape = computed(() => (resolveValue(properties.shape) as string | undefined) || "outline")
 const color = computed(() => {
   let res = resolveValue(properties.color) as string | undefined
@@ -40,6 +42,7 @@ const color = computed(() => {
 // 也能确保 SVG 请求被触发并写入 svgCache
 watchEffect(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时重新检查
+  if (imgSrc.value) return  // 自定义图片：跳过一切 hui 请求
   if (name.value && hasHuiIcons.value) {
     // 用 resolved shape 请求 SVG（主题感知：outline→lined/filled, two-tone→lined-twotone/filled-twotone）
     const resolvedShape = resolveApiShape(shape.value, isDark.value)
@@ -55,6 +58,7 @@ watchEffect(() => {
 // 响应式判断：SVG 是否已缓存（依赖 svgCacheVersion，SVG 写入后触发重算）
 const isHuiIcon = computed(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时触发重算
+  if (imgSrc.value) return false  // 自定义图片：不走 hui
   if (!name.value || !hasHuiIcons.value) return false
   const entry = iconInfoMap.value[name.value]
   if (!entry?.url) return false
@@ -66,6 +70,7 @@ const isHuiIcon = computed(() => {
 // 统一图标解析（hui 或 lucide 或 null），依赖 svgCacheVersion 确保 SVG 到达后重算
 const resolved = computed(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时触发重算
+  if (imgSrc.value) return null  // 自定义图片：不走 hui/lucide，避免触发 requestSvg
   if (!name.value) return null
   return getIconComponentRef(name.value, { shape: shape.value, color: color.value, isDark: isDark.value })
 })
@@ -146,8 +151,15 @@ const wrapperStyle = computed(() => {
 </script>
 
 <template>
+  <img
+    v-if="imgSrc"
+    :id="id"
+    class="icon-base icon-img"
+    :class="className"
+    :src="imgSrc"
+  />
   <component
-    v-if="isHuiIcon"
+    v-else-if="isHuiIcon"
     :id="id" 
     :style="wrapperStyle" 
     class="icon-base" 
