@@ -203,7 +203,7 @@ function MakeContent() {
   const currentModel = () => local.model.current()
 
   function findMultimodalModel() {
-    const recent = local.model.recent()
+    const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
     for (const m of recent) {
       if (m?.capabilities?.input?.image === true) return m
     }
