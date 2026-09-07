@@ -4,6 +4,7 @@ import shadcnHandler from "../subtype-handlers/shadcn"
 import prototypeHandler from "../subtype-handlers/prototype"
 import demoHandler from "../subtype-handlers/demo"
 import componentsHandler from "../subtype-handlers/components"
+import urlHandler from "../subtype-handlers/url"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -22,3 +23,4 @@ registerSubtypeHandler(shadcnHandler)
 registerSubtypeHandler(prototypeHandler)
 registerSubtypeHandler(demoHandler)
 registerSubtypeHandler(componentsHandler)
+registerSubtypeHandler(urlHandler)

@@ -23,6 +23,7 @@ import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-arch
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { dirname, joinPath } from "../../utils/references"
+import { isLocalPreviewUrl } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
@@ -884,8 +885,68 @@ createEffect(() => {
     return /^https?:\/\//i.test(props.filePath || "")
   })
 
+  // ── 本地 dev server 预览的就绪门禁(SPEC-DES-001 §8.6.5)─────────────
+  // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
+  // 拿到 ERR_CONNECTION_REFUSED 之后**不会自己重试**,就一直白着。
+  // 修法是端口没通就先别挂 src —— 跨源 iframe 的加载失败未必触发 onerror,拿不到可靠信号,
+  // 主动探测端口才是确定的判据。只管 127.0.0.1/localhost,其他外链行为完全不变。
+  const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreviewUrl(props.filePath))
+  const [previewReady, setPreviewReady] = createSignal(false)
+  const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
+  const [probeNonce, setProbeNonce] = createSignal(0)
+
+  // 首次编译 1–3 分钟(§8.6.1),上限取同量级
+  const PROBE_INTERVAL_MS = 1000
+  const PROBE_TIMEOUT_MS = 3 * 60 * 1000
+  const PROBE_ATTEMPT_TIMEOUT_MS = 5000
+
+  createEffect(on([needsReadyGate, () => props.filePath, probeNonce], ([gate, url]) => {
+    if (!gate || !url) {
+      setPreviewReady(true)
+      setPreviewTimedOut(false)
+      return
+    }
+    setPreviewReady(false)
+    setPreviewTimedOut(false)
+
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = Date.now() + PROBE_TIMEOUT_MS
+
+    const probe = async () => {
+      if (disposed) return
+      const controller = new AbortController()
+      // 端口开着但不回应时 fetch 会一直挂,不设上限就再也不会重试
+      const abortTimer = setTimeout(() => controller.abort(), PROBE_ATTEMPT_TIMEOUT_MS)
+      try {
+        // no-cors 拿到的是 opaque response,读不了内容 —— 但"连上了"这件事已经确定
+        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: controller.signal })
+        if (!disposed) setPreviewReady(true)
+        return
+      } catch {
+        /* 还没 listen(或本次探测超时),继续等 */
+      } finally {
+        clearTimeout(abortTimer)
+      }
+      if (disposed) return
+      if (Date.now() >= deadline) {
+        setPreviewTimedOut(true)
+        return
+      }
+      timer = setTimeout(probe, PROBE_INTERVAL_MS)
+    }
+    void probe()
+
+    onCleanup(() => {
+      disposed = true
+      if (timer) clearTimeout(timer)
+    })
+  }))
+
   const externalUrl = createMemo(() => {
     if (!shouldUseExternalUrl()) return undefined
+    // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED
+    if (needsReadyGate() && !previewReady()) return undefined
     const key = props.refreshKey ?? 0
     if (key === 0) return props.filePath
     try {
@@ -1519,6 +1580,41 @@ return (
       class="h-full w-full"
       style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: pendingModelEditClose() ? 'wait' : undefined }}
     >
+      {/* dev server 还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5) */}
+      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "8px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>
+            {previewTimedOut() ? "预览环境尚未就绪" : "正在准备预览环境…"}
+          </div>
+          <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+            {previewTimedOut()
+              ? "工程可能仍在编译，或本次会话的服务未能启动。可以稍后重试。"
+              : "工程首次编译需要 1–3 分钟，完成后会自动加载。"}
+          </div>
+          <Show when={previewTimedOut()}>
+            <button
+              type="button"
+              class="octo-action-btn"
+              style={{ "margin-top": "4px" }}
+              onClick={() => setProbeNonce((n) => n + 1)}
+            >
+              <span>重试</span>
+            </button>
+          </Show>
+        </div>
+      </Show>
       {props.mode === "preview" ? (
         <DrawOverlay
           active={props.drawing ?? false}

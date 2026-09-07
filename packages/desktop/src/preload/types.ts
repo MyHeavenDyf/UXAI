@@ -93,6 +93,10 @@ export type ElectronAPI = {
   fastuiDevServerStop: (sessionDir: string) => Promise<boolean>
   /** 建会话时调:挂着等 skill 写出会话状态文件,出现即起 dev server;非 fastui 会话超时静默放弃 */
   fastuiDevServerArm: (sessionDir: string) => Promise<boolean>
+  /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
+  fastuiExportZip: (
+    sessionDir: string,
+  ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>

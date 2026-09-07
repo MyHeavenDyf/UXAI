@@ -677,6 +677,10 @@ export function ActionBar(props: {
       observedUrlsGetter: props.observedResourceUrls,
       usePixsoTransport,
       postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
+      // 会话上下文:自定义按钮要定位会话目录时用(如 fastui 导出代码包)。
+      // 与 handleDownload 的 ctx 取法一致 —— sessionId 走路由参数。
+      sessionId: props.sessionId ?? params.id,
+      sdkDirectory: props.sdkDirectory,
     }
     
     const isVisible = typeof button.visible === 'function' 
