@@ -2274,6 +2274,9 @@ const layer: Layer.Layer<
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
+      const configured = provider?.source === "config" ? provider.models[modelID] : undefined
+      if (configured) return configured
+
       const catalog = yield* Effect.promise(modelsApiCatalog)
       if (catalog) {
         const remote = Option.getOrUndefined(decodeModelsApiProvider(catalog[providerID]))
