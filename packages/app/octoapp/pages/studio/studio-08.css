@@ -98,7 +98,10 @@
 .studio-style-template-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+}
+
+.studio-style-template-content .scroll-view__viewport {
+  overflow-x: hidden;
   padding: 24px 16px 16px;
 }
 
@@ -593,7 +596,10 @@
 .studio-template-creator-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+}
+
+.studio-template-creator-scroll .scroll-view__viewport {
+  overflow-x: hidden;
   padding: 0 40px;
 }
 
@@ -1493,7 +1499,7 @@
 }
 
 @media (max-width: 800px) {
-  .studio-template-creator-scroll {
+  .studio-template-creator-scroll .scroll-view__viewport {
     padding: 0 24px;
   }
 

@@ -1,3 +1,4 @@
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import {
   STUDIO_STYLE_TEMPLATE_DIMENSIONS,
@@ -1427,7 +1428,7 @@ export function StudioTemplateCreator(props: {
 
   return (
     <div class="studio-template-creator">
-      <div class="studio-template-creator-scroll">
+      <ScrollView class="studio-template-creator-scroll">
         <div class="studio-template-creator-form">
           <Show
             when={currentStep() === "make"}
@@ -1508,7 +1509,7 @@ export function StudioTemplateCreator(props: {
             />
           </Show>
         </div>
-      </div>
+      </ScrollView>
       <TemplateCreatorFooter
         currentStep={currentStep()}
         canNext={canNext()}

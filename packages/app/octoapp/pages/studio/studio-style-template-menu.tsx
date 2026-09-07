@@ -1,3 +1,4 @@
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import type { StudioTemplatePublishInput } from "./studio-template-creator"
 
@@ -117,7 +118,7 @@ export function StudioStyleTemplateMenu(props: {
           <span>创建模板</span>
         </button>
       </div>
-      <div class="studio-style-template-content" role="tabpanel" onScroll={handleScroll}>
+      <ScrollView class="studio-style-template-content" role="tabpanel" onScroll={handleScroll}>
         <Show
           when={items().length > 0}
           fallback={
@@ -163,7 +164,7 @@ export function StudioStyleTemplateMenu(props: {
             {(message) => <div class="studio-style-template-loading-more error">{message()}</div>}
           </Show>
         </Show>
-      </div>
+      </ScrollView>
     </div>
   )
 }
