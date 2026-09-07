@@ -1,48 +1,53 @@
 /**
- * scene_3d_codegen —— 3D codegen 3-agent 之「生成」
- * 读 plan JSON（[PLAN_JSON]）+ 用户请求（[USER_REQUEST]），modify 时附 [CURRENT_HANDLERS] /
- * [CURRENT_LIVE_DATA]，产 Markdown 代码块（## file: <path> + fenced code）：
- *   - handlers/<type>/<type>.ts（每 type 一份 ComponentHandler）
- *   - handlers/index.ts（全量，模板 5 + 本轮新增）
- *   - public/live-data.json（全量分组 TreeScene + camera/lights/scene）
- * 输出非 JSON，故 schema=undefined 跳过 validateSchema。host 用 parseCodeFiles 解析。
+ * scene_3d_codegen_direct —— 3D codegen Direct 单次直出（无 plan 无自愈）
+ *
+ * 读 [TYPE_LIST]（纯 type 名数组，无 build_detail——尺寸/坐标/结构全由 LLM 自己设计）
+ * + [USER_REQUEST] + [ASSET_CATALOG] + [CURRENT_HANDLERS]/[CURRENT_GROUPS]（modify 时照抄布局），
+ * 产 Markdown 代码块（## file: <path> + fenced code）：
+ *   - handlers/<type>/<type>.ts（每个 type 一份 ComponentHandler）
+ *   - <type>.group.json（每个 type 的根节点清单）
+ *   - scene-config.json（camera/lights/scene，host 提取填进 DirectPlan）
+ * host 用 parseCodeFiles 解析 + buildHandlersIndex/buildLiveData 确定性合并
+ * index.ts / live-data.json（不再由 LLM 写全量，根治 index 合并竞态）。
+ * 输出非 JSON，故 schema=undefined 跳过 validateSchema。
+ *
+ * 旧 3-agent 流水线 plan + pertype/full + 自愈循环已随 direct 落地全清删除
+ * （单次 codegen 30-60s 替代 plan+并行/全量+自愈 32-50min）。
  */
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { SceneCreateInput } from "../../workflow/scene-create-input"
-import type { PlanResult } from "../scene-plan"
 import { formatGateFindingsForCodegen, type GateFinding } from "../../utils/scene-gate"
 import { formatSyntaxErrorsForCodegen, type SyntaxError } from "../../utils/parse-check"
 
-const AGENT_NAME = "scene_3d_codegen"
+const DIRECT_AGENT_NAME = "scene_3d_codegen_direct"
 
-export type SceneCodegenInput = SceneCreateInput & {
-  /** plan 产物（types 选型 + camera/lights/scene） */
-  plan: PlanResult
-  /** 是否 modify（注入 [CURRENT_HANDLERS] / [CURRENT_LIVE_DATA]） */
+export type SceneCodegenDirectInput = SceneCreateInput & {
+  /** 本轮要写的 type 名数组（create + modify 合并，LLM 各自处理） */
+  types: string[]
+  /** 是否 modify（注入各 type 的 [CURRENT_HANDLERS]/[CURRENT_GROUPS]） */
   isModify: boolean
-  /** modify 时当前全部 handler 源码（含 index.ts），create 时空字符串 */
-  currentHandlers?: string
-  /** modify 时当前 live-data.json 内容，create 时空字符串 */
-  currentLiveData?: string
-  /** 上一轮 9a 门控失败清单（host 喂回），buildHumanMessage 拼 `## 上一轮门控失败清单` 段 */
-  priorGateFindings?: GateFinding[]
-  /** 上一轮语法检查错误清单（P0.4 自愈循环喂回），拼 `## 上一轮代码错误清单` 段（file:line:col:reason） */
+  /** modify 时本轮要写 type 的当前 handler 源码（type -> 源码，照抄布局参数） */
+  currentHandlers?: Record<string, string>
+  /** modify 时本轮要写 type 的当前分组片段（type -> group JSON） */
+  currentGroups?: Record<string, string>
+  /** 上一轮语法错（本轮出错 type 的，file:line:col:reason） */
   priorSyntaxErrors?: SyntaxError[]
-  /** scoped 重试范围（P0.5）：本轮只需重输出的文件名清单，拼 `## 本轮输出范围` 段；undefined=全量输出 */
-  retryScopeFiles?: string[]
-  /** 上一轮 live-data.json 未输出/不可解析（P0.8 截断自愈喂回），拼 `## 上一轮问题` 段 */
-  liveDataMissing?: boolean
+  /** 上一轮门控失败清单（本轮出错 type 的运行时错） */
+  priorGateFindings?: GateFinding[]
+  /** 可用资产清单（workspace assetCatalog.ts 源码，注入 [ASSET_CATALOG]） */
+  assetCatalog?: string
 }
 
-export interface SceneCodegenResult {
-  /** codegen agent 的原始 Markdown 输出（## file: + fenced code），host 用 parseCodeFiles 解析 */
+export interface SceneCodegenDirectResult {
   text: string
   childSessionId: string
   error?: string
 }
 
-export default async function scene_3d_codegen(input: SceneCodegenInput): Promise<SceneCodegenResult> {
+export async function scene_3d_codegen_direct(
+  input: SceneCodegenDirectInput,
+): Promise<SceneCodegenDirectResult> {
   const {
     sdk,
     sync,
@@ -50,89 +55,115 @@ export default async function scene_3d_codegen(input: SceneCodegenInput): Promis
     rootSession,
     onSessionCreated,
     userInput,
-    plan,
+    types,
     isModify,
     currentHandlers,
-    currentLiveData,
-    priorGateFindings,
+    currentGroups,
     priorSyntaxErrors,
-    retryScopeFiles,
-    liveDataMissing,
+    priorGateFindings,
+    assetCatalog,
   } = input
-  const humanMessage = buildHumanMessage(
+  const humanMessage = buildDirectHumanMessage(
     userInput,
-    plan,
+    types,
     isModify,
     currentHandlers,
-    currentLiveData,
-    priorGateFindings,
+    currentGroups,
     priorSyntaxErrors,
-    retryScopeFiles,
-    liveDataMissing,
+    priorGateFindings,
+    assetCatalog,
   )
-  console.log("----- 3D 代码生成Agent开始执行 ----- ")
   const startTime = Date.now()
   const codegenRes = await runChildSession({
     sync,
     modelKey,
-    agent: AGENT_NAME,
+    agent: DIRECT_AGENT_NAME,
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
-    // codegen 输出 Markdown 代码块（非 JSON），不传 schema 跳过 validateSchema
+    // direct 输出 Markdown 代码块（每个 type 一对 handler + group.json + 1 个 scene-config.json），不传 schema
     schema: undefined,
+    // reasoning 模型（GLM-5.2）复杂场景（13-type 上海地图）reasoning 阶段可达 6min+，
+    // reasoning 收完到 text 输出之间有组织间隙——默认 180s idle 会在此间隙误杀会话
+    // （ses_f85efc69：6min reasoning 89K chars 收完后 text=0 超 180s → idle abort）。
+    // 420s 给 reasoning→text 转换留足余量；reasoning 期间靠 resync 周期续命不触发 idle。
+    idleTimeoutMs: 420_000,
     onSessionCreated,
     extra: input.extra,
     fileParts: input.fileParts,
   })
-  console.log("----- 3D 代码生成Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
-  logAgentParsed(codegenRes.childSessionId, { summary: `codegen 产出 ${codegenRes.text.length} 字符` })
+  console.log(`[direct] ${types.join(",")} codegen 耗时 ${((Date.now() - startTime) / 1000).toFixed(1)}s`)
+  logAgentParsed(codegenRes.childSessionId, {
+    summary: `direct codegen ${types.length} types 产出 ${codegenRes.text.length} 字符`,
+  })
   return { text: codegenRes.text, childSessionId: codegenRes.childSessionId, error: codegenRes.error }
 }
 
-function buildHumanMessage(
+function buildDirectHumanMessage(
   userInput: string,
-  plan: PlanResult,
+  types: string[],
   isModify: boolean,
-  currentHandlers?: string,
-  currentLiveData?: string,
-  priorGateFindings?: GateFinding[],
+  currentHandlers?: Record<string, string>,
+  currentGroups?: Record<string, string>,
   priorSyntaxErrors?: SyntaxError[],
-  retryScopeFiles?: string[],
-  liveDataMissing?: boolean,
+  priorGateFindings?: GateFinding[],
+  assetCatalog?: string,
 ): string {
-  const lines = [`[PLAN_JSON]:`, JSON.stringify(plan, null, 2), ``, `[USER_REQUEST]: ${userInput}`, ``]
-  if (isModify) {
-    lines.push(`[CURRENT_HANDLERS]:`, currentHandlers?.trim() || `（无）`, ``)
-    lines.push(`[CURRENT_LIVE_DATA]:`, currentLiveData?.trim() || `（无）`, ``)
-  }
-  // P0.8 live-data 截断自愈：上一轮输出超长被截断（finish=length），handler 代码块已产出部分
-  // 文件但 live-data.json / index.ts 排队尾没轮到，或 live-data 本身截断不可解析。
-  if (liveDataMissing) {
+  const lines = [
+    `[TYPE_LIST]:`,
+    JSON.stringify(types, null, 2),
+    ``,
+    `[USER_REQUEST]: ${userInput}`,
+    ``,
+  ]
+  if (assetCatalog) {
     lines.push(
-      `## 上一轮问题：public/live-data.json 未输出或不可解析`,
-      `上一轮已产出部分 handler .ts 文件（系统将校验后直接复用，勿重复输出），但 public/live-data.json 没有输出或被截断无法解析——最常见原因是上一轮输出超长被截断。`,
-      `本轮严格按「## 本轮输出范围」只输出列出的文件；live-data.json 必须完整收尾（以 [PLAN_JSON] 为准：全部 type 分组 + camera / lights / scene），代码块必须闭合。`,
+      `[ASSET_CATALOG]（下方 assetCatalog.ts 源码；model 路线 src 用 asset:<id>，id 取自清单真实条目，勿臆造）:`,
+      "```ts",
+      assetCatalog,
+      "```",
       ``,
     )
   }
-  // P0.4 语法自愈：TS 编译器抓的语法错清单（file:line:col:reason），让 LLM 照着精确修
+  if (isModify) {
+    // [CURRENT_HANDLERS]：按 ## file 分节，只含本轮要写的 type（照抄布局参数）
+    const handlerSections = types
+      .map((type) => {
+        const src = currentHandlers?.[type]
+        if (src == null) return null
+        return `## file: src/3d/managers/component/handlers/${type}/${type}.ts\n${src.trim()}`
+      })
+      .filter((s): s is string => s != null)
+      .join("\n\n")
+    if (handlerSections) {
+      lines.push(
+        `[CURRENT_HANDLERS]（本轮要写 type 的当前 handler，按 ## file 分节，照抄布局参数，勿擅改）:`,
+        handlerSections,
+        ``,
+      )
+    }
+    // [CURRENT_GROUPS]：按 type 分节（根节点 id 照抄勿换）
+    const groupSections = types
+      .map((type) => {
+        const g = currentGroups?.[type]
+        if (g == null) return null
+        return `<type>.group.json（type=${type}）:\n${g.trim()}`
+      })
+      .filter((s): s is string => s != null)
+      .join("\n\n")
+    if (groupSections) {
+      lines.push(
+        `[CURRENT_GROUPS]（本轮要写 type 的当前分组片段，根节点 id 照抄勿换）:`,
+        groupSections,
+        ``,
+      )
+    }
+  }
+  // 语法错 / 门控错喂回（本轮出错 type 的，host 侧已按 type 过滤）
   const syntaxSection = formatSyntaxErrorsForCodegen(priorSyntaxErrors ?? [])
   if (syntaxSection) lines.push(syntaxSection, ``)
-  // 9a 门控失败清单喂回（仅重试时非空）：让 codegen 照着修 vue-tsc 错 / 完整性缺 type / 运行时错
   const gateSection = formatGateFindingsForCodegen(priorGateFindings ?? [])
   if (gateSection) lines.push(gateSection, ``)
-  // P0.5 scoped 重试：只重输出出错文件，其余 host 端 overlay 复用上一轮（砍 retry 耗时 + 防全量重写引入新错）
-  if (retryScopeFiles && retryScopeFiles.length > 0) {
-    lines.push(
-      `## 本轮输出范围（只改有错的文件）`,
-      `上一轮其余文件已校验通过、将由系统直接复用。本轮**只需重新输出以下文件**，不要重复输出未列出的文件：`,
-      ...retryScopeFiles.map((f) => `- ${f}`),
-      ``,
-      `（仅当你判断修复必须连带修改其他文件时，才可将其一并输出，系统按新输出覆盖。）`,
-      ``,
-    )
-  }
   return lines.join("\n")
 }

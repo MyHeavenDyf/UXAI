@@ -8,7 +8,7 @@
  *   - 去掉 design-system/picker/reorder/quick-modify（2D+DOM 专属）
  *
  * 对话触发链（Step 7 3-agent codegen 流，详见 3D_CODEGEN_DESIGN.md）：
- *   codegen_scene：triage（routing/patchOps）→ patch 短路 或 plan → codegen → 物化+预览
+ *   codegen_scene：triage（routing/patchOps）→ patch 短路 或 direct codegen → 物化+预览
  *
  * 通信协议（与 3d-templete embed.vue）：
  *   父→子 SCENE_UPDATE { payload: SceneConfig }
@@ -36,6 +36,7 @@ import {
   appendSceneVersion,
   updateSceneVersion,
   loadCurrentSceneState,
+  readCodeDirFiles,
   listSceneVersions,
   rollbackToVersion,
   codeDirPath,
@@ -52,13 +53,12 @@ import {
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
 import { runSceneGate, type GateFinding, type ConsoleEntry } from "./utils/scene-gate"
-import type { PlanResult } from "./agents/scene-plan"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
 import type { SceneConfig } from "./utils/scene-config"
 import { createSplitDrag } from "./utils/drag-split"
 import type { ScenePlanner, SceneModuleResult } from "./agents/merge"
-import { PreviewPage3D, type PreviewPageAPI } from "./modules/preview/index"
+import { PreviewPage3D, type PreviewPageAPI, type SceneEnvSlice } from "./modules/preview/index"
 import { SceneGenerating } from "./modules/preview/SceneGenerating"
 import type { SceneCreateInput } from "./workflow/scene-create-input"
 import { codegen_scene } from "./workflow/codegen-scene"
@@ -401,6 +401,18 @@ function Scene3DContent() {
     for (const childID of childSessionIDs()) {
       const childMsgs = (sync.data.message[childID] ?? []) as Message[]
       const lastChildAssistant = childMsgs.findLast((m) => m.role === "assistant")
+      // 空壳 child：assistant 有记录但 tokens 全 0，且 session_status 不是 busy
+      // （LLM 已结束但 0 产出=provider 限流返回空，偶发）。视为完成，否则永卡「执行中」。
+      // 注意：codegen 正在跑时 assistant 也是 tokens=0（还没拿到第一个 part），必须靠
+      // session_status 区分——正在跑的 child status=busy，不是空壳。
+      const childStatus = sync.data.session_status[childID]
+      const childTokens = lastChildAssistant?.role === "assistant" ? (lastChildAssistant as any).tokens : undefined
+      const isShell =
+        !!lastChildAssistant &&
+        (childTokens?.input ?? 0) === 0 &&
+        (childTokens?.output ?? 0) === 0 &&
+        childStatus?.type !== "busy"
+      if (isShell) continue
       if (lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") {
         childrenDone = false
         break
@@ -568,7 +580,7 @@ function Scene3DContent() {
   /** P0.4 自愈循环的 9a 门控执行器（传给 codegen_scene，物化后循环内跑）。
    *  P0.10：删 awaitSceneSettled（SCENE_READY 握手 15s 超时竞态误报），改固定延迟 settleMs
    *  等 iframe 渲染 + console buffer 收集，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件。 */
-  const codegenGateRunner = async (plan: PlanResult, sceneData: Record<string, unknown> | null) => {
+  const codegenGateRunner = async (plan: unknown, sceneData: Record<string, unknown> | null) => {
     setConsoleBuffer([])
     return runSceneGate({
       plan,
@@ -637,10 +649,10 @@ function Scene3DContent() {
         priorGateFindings,
         gateRunner: codegenGateRunner,
         onCodeReady: async (files, sceneData, summary) => {
-          await onCodeVersionReady(files, summary, sceneData)
+          await onCodeVersionReady(files, summary, sceneData, sid)
         },
-        onMaterialize: materializePatch,
-        onEnvMaterialize: materializeEnvPatch,
+        onMaterialize: (files, summary, sceneData) => materializePatch(files, summary, sceneData, sid),
+        onEnvMaterialize: (files, summary, sceneData) => materializeEnvPatch(files, summary, sceneData, sid),
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -725,9 +737,9 @@ function Scene3DContent() {
       setAttachments([])
       logStartSession(sid, text)
 
-      // 3-agent codegen 流（Step 7）：triage→plan→codegen→onCodeVersionReady 物化+预览。
-      // 替换旧 8-agent JSON 流水线（intent_confirm / 线框审查 暂停点全砍，代码先行）。
-      // chat 路由在 codegen_scene 内判定（triage），返回 reply 由此处 toast 展示，不进 plan/codegen。
+      // direct codegen 流：triage→direct codegen→onCodeVersionReady 物化+预览（无 plan 无自愈，30-60s）。
+      // 替换旧 3-agent 流水线（plan+pertype/full+自愈 32-50min）+ 8-agent JSON 流水线。
+      // chat 路由在 codegen_scene 内判定（triage），返回 reply 由此处 toast 展示，不进 codegen。
       const hasScene = (sid ? (lastSceneObjects()[sid] ?? []).length : 0) > 0
       if (!sendingSids().has(sid!)) return
       if (hasScene) sessionMap.set(setIsModifying, sid, true)
@@ -771,10 +783,10 @@ function Scene3DContent() {
         sdkDir: sdk.directory,
         gateRunner: codegenGateRunner,
         onCodeReady: async (files, sceneData, summary) => {
-          await onCodeVersionReady(files, summary, sceneData)
+          await onCodeVersionReady(files, summary, sceneData, sid)
         },
-        onMaterialize: materializePatch,
-        onEnvMaterialize: materializeEnvPatch,
+        onMaterialize: (files, summary, sceneData) => materializePatch(files, summary, sceneData, sid),
+        onEnvMaterialize: (files, summary, sceneData) => materializeEnvPatch(files, summary, sceneData, sid),
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -924,6 +936,15 @@ function Scene3DContent() {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length > 0) addAttachments(files)
   }
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    addAttachments(files)
+  }
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -941,6 +962,7 @@ function Scene3DContent() {
     value: prompt(),
     onValueChange: setPrompt,
     onKeyDown: handleKeyDown,
+    onPaste: handlePaste,
     disabled: inputDisabled(),
     busy: isBusy(),
     onSubmit: () => void handleSubmit(),
@@ -995,8 +1017,9 @@ function Scene3DContent() {
     codeFiles: { path: string; content: string }[],
     summary: string,
     sceneData?: Record<string, unknown> | null,
+    ownerSid?: string,
   ): Promise<void> {
-    const sid = params.id
+    const sid = ownerSid ?? params.id
     if (!sid) return
     const dir = sceneHistoryDir()
     const cur = await loadCurrentSceneState(dir, sid)
@@ -1034,13 +1057,15 @@ function Scene3DContent() {
       sessionMap.set(setVersions, sid, versionEntries)
       sessionMap.set(setCurrentVersionId, sid, current)
     }
+    // B1：后台会话完成（params.id !== sid）只归档 + 落 pendingData + 版本菜单，不抢渲染舞台——
+    // switchVersion 会杀前台会话的 dev。切回该会话时由 session 切换分支自动 switchVersion 渲染。
+    if (params.id !== sid) return
     // workspace re-materialize + 铺该版本 code delta + 启 dev（await ready 后再 bump nonce，否则 iframe 加载死链）
     acquireWorkspaceWithToast(sid)
     const devUrl = await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
     console.log(
       `[onCodeVersionReady] switchVersion ok devUrl=${devUrl} pendingData keys=${sceneData ? Object.keys(sceneData).join(",") : "无"} → 即将 workspaceActive+wsNonce++ 触发 iframe 重载`,
     )
-    if (params.id !== sid) return
     setWorkspaceActive(true)
     setWsNonce((n) => n + 1)
   }
@@ -1059,8 +1084,9 @@ function Scene3DContent() {
     codeFiles: { path: string; content: string }[],
     summary: string,
     sceneData?: Record<string, unknown> | null,
+    ownerSid?: string,
   ): Promise<void> {
-    const sid = params.id
+    const sid = ownerSid ?? params.id
     if (!sid) return
     const dir = sceneHistoryDir()
     if (!dir) return
@@ -1092,9 +1118,11 @@ function Scene3DContent() {
       sessionMap.set(setVersions, sid, versionEntries)
       sessionMap.set(setCurrentVersionId, sid, current)
     }
+    // B1：后台完成只归档，不 overlay/touch/switchVersion（不杀前台 dev）。
+    if (params.id !== sid) return
     // 冷启动 / dev 没跑 → 降级全量 switchVersion（materialize + overlay + startDev）
     if (!workspaceActive()) {
-      await onCodeVersionReady(codeFiles, summary, sceneData ?? null)
+      await onCodeVersionReady(codeFiles, summary, sceneData ?? null, sid)
       return
     }
     // 轻量：只 overlay 改动文件（不 materialize、不重启 dev → 不卡 startDev）
@@ -1126,8 +1154,9 @@ function Scene3DContent() {
     codeFiles: { path: string; content: string }[],
     summary: string,
     sceneData?: Record<string, unknown> | null,
+    ownerSid?: string,
   ): Promise<void> {
-    const sid = params.id
+    const sid = ownerSid ?? params.id
     if (!sid) return
     const dir = sceneHistoryDir()
     if (!dir) return
@@ -1157,6 +1186,8 @@ function Scene3DContent() {
       sessionMap.set(setCurrentVersionId, sid, current)
     }
     if (!sceneData) return
+    // B1：后台完成只归档，不 post SCENE_PATCH_ENV / SCENE_UPDATE（不干扰前台预览）。
+    if (params.id !== sid) return
     // dev 跑着 → SCENE_PATCH_ENV 增量 mutate；冷启动 → 降级 SCENE_UPDATE 全量重建（落盘已兜底，重建读新 live-data）
     if (workspaceActive()) {
       previewApi.sendPatchEnv?.({
@@ -1167,6 +1198,58 @@ function Scene3DContent() {
     } else {
       sendToPreview(sceneData as unknown as SceneConfig)
     }
+  }
+
+  /**
+   * 场景设置面板提交（10.5 第一批）：把面板 workEnv（camera/lights/scene）落盘进 live-data.json，
+   * 调 materializeEnvPatch 走 M-3 ① 增量 mutate + 版本历史 + 切走切回保留。
+   *
+   * - 读当前 codeDir 的 live-data.json，覆盖 camera/lights/scene 键（其余 type 分组不动）
+   * - sceneData = 当前 mergedSceneConfig 合并面板 env（供 SCENE_PATCH_ENV 下发 + 落盘 mergedSceneConfig）
+   */
+  async function handleSceneEnvCommit(env: SceneEnvSlice): Promise<void> {
+    const sid = params.id
+    if (!sid) return
+    const dir = sceneHistoryDir()
+    if (!dir) return
+    const cur = await loadCurrentSceneState(dir, sid)
+    if (!cur?.codeDir) {
+      throw new Error("无 codeDir（需先生成场景）")
+    }
+    const base = cur.mergedSceneConfig ?? {}
+    const merged: Record<string, unknown> = { ...base }
+    if (env.camera) merged.camera = env.camera
+    if (env.lights) merged.lights = env.lights
+    if (env.scene) merged.scene = env.scene
+    // 落盘 live-data.json：读 codeDir 全量，替换 live-data.json 内容（覆盖 env 键，保留 type 分组）
+    const files = await readCodeDirFiles(cur.codeDir)
+    if (!files) throw new Error(`读 codeDir 失败：${cur.codeDir}`)
+    const liveFile = files.find((f) => f.path.replace(/\\/g, "/").endsWith("live-data.json"))
+    if (liveFile) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(liveFile.content)
+      } catch {
+        parsed = {}
+      }
+      const live = (parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {}) as Record<string, unknown>
+      if (env.camera) live.camera = env.camera
+      if (env.lights) live.lights = env.lights
+      if (env.scene) live.scene = env.scene
+      liveFile.content = JSON.stringify(live, null, 2)
+    } else {
+      // 无 live-data.json（冷启动兜底）：构造一个仅含 env 键的最小 live-data
+      const live: Record<string, unknown> = {}
+      if (env.camera) live.camera = env.camera
+      if (env.lights) live.lights = env.lights
+      if (env.scene) live.scene = env.scene
+      live.version = "1.0"
+      live.angleUnit = "deg"
+      files.push({ path: "live-data.json", content: JSON.stringify(live, null, 2) })
+    }
+    await materializeEnvPatch(files, "场景设置", merged)
   }
 
   /**
@@ -1356,6 +1439,7 @@ function Scene3DContent() {
                     setEmbedReady(true)
                   }}
                   onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
+                  onEnvCommit={handleSceneEnvCommit}
                   versions={versions()[params.id!] ?? []}
                   currentVersionId={currentVersionId()[params.id!] ?? null}
                   onSelectVersion={handleSelectVersion}

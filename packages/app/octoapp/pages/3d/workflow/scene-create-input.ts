@@ -1,7 +1,7 @@
 /**
  * SceneCreateInput —— LLM 子会话调用的公共输入（原 create-scene.ts 导出；Step 7 后
  * 旧 8-agent JSON 流水线（create-scene.ts / modify-scene-ai.ts）整体废弃删除，
- * 类型挪此独立文件供 codegen-scene / scene-plan / scene-codegen / index.tsx 共用）。
+ * 类型挪此独立文件供 codegen-scene / scene-codegen / index.tsx 共用）。
  */
 export type SceneCreateInput = {
   // 公共sdk

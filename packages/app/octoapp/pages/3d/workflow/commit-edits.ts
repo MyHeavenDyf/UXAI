@@ -17,6 +17,8 @@ import {
   handlerFilePathForType,
   isFallbackPartId,
   patchHandlerMaterialColor,
+  patchHandlerSkip,
+  hasSkipSkeleton,
 } from "../utils/patch-handler"
 import type { CodeFile } from "../utils/parse-code-files"
 import type { EditDeltaEntry } from "../utils/scene-config"
@@ -113,6 +115,16 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
     let src = target.content
     for (const { __id, entry } of entries) {
       try {
+        // 删除：往 handler 源码 SUB_SKIP 数组加 cid（重载后 `if (SUB_SKIP.includes(cid)) return` 跳过创建）。
+        // 仅对循环创建点（rack-${i} 等语义 cid）有效；group 根（__id===node.id）无 SUB_SKIP 检查点 → 跳过回报。
+        if (entry.deleted) {
+          if (!hasSkipSkeleton(src)) {
+            skipped.push({ __id, reason: "handler 无 SUB_SKIP 骨架，无法删除（需重新生成带 SUB_SKIP 契约的 handler）" })
+            continue
+          }
+          src = patchHandlerSkip(src, __id, "add")
+          continue
+        }
         // P0.1-4：group 根（__id === node.id，整体选中）transform → live-data params（绕过 SUB_OVERRIDES 死项）。
         // 该项 continue 不进 skipped，committedCount=delta.size-skipped.length 自然计为成功。
         if (entry.transform) {

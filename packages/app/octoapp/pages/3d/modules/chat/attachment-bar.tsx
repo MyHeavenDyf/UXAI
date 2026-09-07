@@ -10,11 +10,15 @@ export type Attachment = {
 }
 
 function getMimeIcon(mime: string): string {
-  if (mime.startsWith("image/")) return "📄"
+  if (mime.startsWith("image/")) return "🖼️"
   if (mime === "application/pdf") return "📕"
   if (mime.includes("word") || mime.includes("docx")) return "📝"
   if (mime.includes("excel") || mime.includes("xlsx") || mime.includes("spreadsheet")) return "📊"
   return "📄"
+}
+
+function isImage(mime: string): boolean {
+  return mime.startsWith("image/")
 }
 
 function truncateFilename(name: string, max = 18): string {
@@ -43,7 +47,16 @@ export function AttachmentBar(props: {
             <div
               class="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs attachment-bar-item"
             >
-              <span class="mime">{getMimeIcon(att.mime)}</span>
+              <Show
+                when={isImage(att.mime) && att.dataUrl}
+                fallback={<span class="mime">{getMimeIcon(att.mime)}</span>}
+              >
+                <img
+                  src={att.dataUrl}
+                  alt={att.filename}
+                  class="w-5 h-5 rounded-full object-cover shrink-0"
+                />
+              </Show>
               <span class="max-w-[110px] truncate" title={att.filename}>
                 {truncateFilename(att.filename)}
               </span>

@@ -11,14 +11,19 @@
  *
  * 父组件以 keyed <Show> 挂载（按 obj.id 切换 remount）。
  */
-import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
+import { createSignal, For, Show, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { SceneConfigObject3D, SceneConfigMaterial, ScenePatch } from "../../../utils/scene-config"
 import "../../../../pattern/assets/style/preview/PropertyEditorPopup.css"
+import "../../../assets/style/preview/titleBar.css"
+import { NumberField, Vec3Row, Section, SliderRow, ColorRow, formatNum, clone } from "../ui-primitives"
 
 export interface PropertyEditor3DPopupProps {
   obj: SceneConfigObject3D
   onPatch: (patch: ScenePatch) => void
   onClose: () => void
+  /** 删除当前选中物体（运行时移除 + editDelta 标 deleted，提交时落盘） */
+  onRemove?: (id: string) => void
 }
 
 /** 各几何体类型可编辑的参数（对齐 3d-templete createLiveGeometry 支持集） */
@@ -130,118 +135,27 @@ const MATERIAL_PROPS: Record<string, PropDef[]> = {
   ],
 }
 
-function clone<T>(x: T): T {
-  return JSON.parse(JSON.stringify(x)) as T
-}
+export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.Element {
+  const [workDef, setWorkDef] = createSignal<SceneConfigObject3D>(clone(props.obj))
+  /** 删除 inline 确认（对齐 make，不用 window.confirm 弹框） */
+  const [confirmDelete, setConfirmDelete] = createSignal(false)
+  /** 拖拽偏移（对齐 pattern popup-header 可拖动） */
+  const [dragOffset, setDragOffset] = createStore({ x: 0, y: 0 })
 
-function formatNum(n: number): string {
-  if (!isFinite(n)) return "0"
-  return String(Math.round(n * 1000) / 1000)
-}
-
-/**
- * 数值输入：拖动调整 + 直接输入（浮点）。
- * 视觉对齐 Pattern 的 DragInput：bg #F4F4F5、slate 文字、#3D99FF 聚焦环。
- */
-function NumberField(props: {
-  value: number
-  onChange: (v: number) => void
-  step?: number
-  min?: number
-  max?: number
-  int?: boolean
-  placeholder?: string
-}): JSX.Element {
-  const step = () => props.step ?? 0.1
-  const [text, setText] = createSignal(formatNum(props.value))
-  createEffect(() => setText(formatNum(props.value)))
-
-  const clamp = (v: number): number => {
-    let val = props.int ? Math.round(v) : v
-    if (props.min != null) val = Math.max(props.min, val)
-    if (props.max != null) val = Math.min(props.max, val)
-    return val
-  }
-  const commit = (raw: string): void => {
-    const v = parseFloat(raw)
-    if (!isNaN(v)) props.onChange(clamp(v))
-  }
-  const startDrag = (e: MouseEvent): void => {
+  function startDrag(e: MouseEvent): void {
     e.preventDefault()
-    e.stopPropagation()
-    const startX = e.clientX
-    const startVal = props.value
-    const overlay = document.createElement("div")
-    overlay.style.cssText = "position:fixed;inset:0;z-index:99999;cursor:ew-resize"
-    document.body.appendChild(overlay)
+    const sx = e.clientX, sy = e.clientY
+    const ox = dragOffset.x, oy = dragOffset.y
     const onMove = (me: MouseEvent): void => {
-      const d = (me.clientX - startX) * step()
-      props.onChange(clamp(startVal + d))
+      setDragOffset({ x: ox + (me.clientX - sx), y: oy + (me.clientY - sy) })
     }
     const onUp = (): void => {
       window.removeEventListener("mousemove", onMove)
       window.removeEventListener("mouseup", onUp)
-      overlay.remove()
     }
     window.addEventListener("mousemove", onMove)
     window.addEventListener("mouseup", onUp)
   }
-
-  return (
-    <div class="flex items-center rounded-sm border border-slate-200 focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 bg-[#F4F4F5] min-w-0 flex-1">
-      <span
-        onMouseDown={startDrag}
-        class="select-none cursor-ew-resize text-slate-400 text-[10px] font-medium px-1.5 h-full flex items-center shrink-0"
-        title="拖动调整"
-      >
-        ⇆
-      </span>
-      <input
-        type="text"
-        inputmode="decimal"
-        placeholder={props.placeholder}
-        value={text()}
-        onInput={(e) => {
-          setText(e.currentTarget.value)
-          commit(e.currentTarget.value)
-        }}
-        onBlur={() => setText(formatNum(props.value))}
-        class="placeholder:text-slate-300 flex-1 min-w-0 bg-transparent outline-none text-[11px] text-slate-700 pr-1 h-full border-0 shadow-none"
-      />
-    </div>
-  )
-}
-
-/** 三元组行（位置/旋转/缩放）。label + X/Y/Z 三个 NumberField。 */
-function Vec3Row(props: {
-  label: string
-  values: number[]
-  step?: number
-  onChange: (i: number, v: number) => void
-}): JSX.Element {
-  return (
-    <div class="flex items-center gap-2">
-      <span class="text-[11px] text-slate-500 w-10 shrink-0">{props.label}</span>
-      <div class="grid grid-cols-3 gap-1 flex-1 min-w-0">
-        <For each={props.values}>
-          {(val, i) => <NumberField value={val} step={props.step} onChange={(v) => props.onChange(i(), v)} />}
-        </For>
-      </div>
-    </div>
-  )
-}
-
-function Section(props: { title: string; children: JSX.Element }): JSX.Element {
-  return (
-    <div class="border-t border-[#e5e7eb] py-2 -mx-4 px-4 first:border-t-0 first:pt-0">
-      <div class="text-[12px] font-semibold text-slate-500 mb-1.5">{props.title}</div>
-      <div class="flex flex-col gap-1.5">{props.children}</div>
-    </div>
-  )
-}
-
-export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.Element {
-  const [workDef, setWorkDef] = createSignal<SceneConfigObject3D>(clone(props.obj))
 
   /** 深拷贝当前 workDef → 应用变更 → set + emit patch */
   function mutate(fn: (d: SceneConfigObject3D) => void): void {
@@ -301,10 +215,17 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
   return (
     <div
       class="property-editor-popup"
-      style={{ position: "absolute", top: "50px", right: "5px", width: "240px", "max-height": "calc(100% - 64px)" }}
+      style={{
+        position: "absolute",
+        top: "50px",
+        right: "5px",
+        width: "240px",
+        "max-height": "calc(100% - 64px)",
+        transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+      }}
     >
-      {/* 头部（对齐 Pattern：类型 + id + 关闭） */}
-      <div class="popup-header">
+      {/* 头部（对齐 Pattern：类型 + id + 关闭；可拖动） */}
+      <div class="popup-header" onMouseDown={startDrag}>
         <span class="text-sm font-semibold text-slate-700">{d().type}</span>
         <span class="text-xs text-slate-400 ml-2 truncate">{d().id}</span>
         <button
@@ -337,21 +258,11 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
                 const val = () => d().material![p.key]
                 if (p.kind === "color") {
                   return (
-                    <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-slate-500 w-10 shrink-0">{p.label}</span>
-                      <input
-                        type="color"
-                        value={normalizeHex(val() as string | undefined)}
-                        onInput={(e) => setMat(p.key, e.currentTarget.value)}
-                        class="h-6 w-8 rounded border border-slate-200 bg-transparent cursor-pointer shrink-0"
-                      />
-                      <input
-                        type="text"
-                        value={(val() as string | undefined) ?? "#ffffff"}
-                        onInput={(e) => setMat(p.key, e.currentTarget.value)}
-                        class="property-input flex-1 min-w-0 h-6"
-                      />
-                    </div>
+                    <ColorRow
+                      label={p.label}
+                      value={val() as string | undefined}
+                      onChange={(v) => setMat(p.key, v)}
+                    />
                   )
                 }
                 if (p.kind === "slider") {
@@ -469,44 +380,45 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
             该几何类型（{geoType()}）暂无可编辑参数
           </div>
         </Show>
+
+        {/* 删除物体（运行时移除 + editDelta 标 deleted，提交时 patchHandlerSkip 落盘）。
+            inline 确认（对齐 make manual-edit-panel，不用 window.confirm 弹框）。 */}
+        <Show when={props.onRemove}>
+          <div class="border-t border-[#e5e7eb] -mx-4 px-4 pt-2">
+            <Show
+              when={confirmDelete()}
+              fallback={
+                <button
+                  type="button"
+                  class="edit-btn subtle w-full"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  删除物体
+                </button>
+              }
+            >
+              <div class="flex items-center gap-1.5">
+                <span class="text-[11px] text-slate-500 truncate flex-1 min-w-0">删除「{d().id}」?</span>
+                <button
+                  type="button"
+                  class="edit-btn primary"
+                  onClick={() => { props.onRemove!(d().id); setConfirmDelete(false) }}
+                >
+                  删除
+                </button>
+                <button
+                  type="button"
+                  class="edit-btn subtle"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  取消
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
       </div>
     </div>
   )
 }
 
-/** 滑块行（材质粗糙/金属/不透明度） */
-function SliderRow(props: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  onChange: (v: number) => void
-}): JSX.Element {
-  return (
-    <div class="flex items-center gap-2">
-      <span class="text-[11px] text-slate-500 w-10 shrink-0">{props.label}</span>
-      <input
-        type="range"
-        min={props.min}
-        max={props.max}
-        step={props.step}
-        value={props.value}
-        onInput={(e) => props.onChange(parseFloat(e.currentTarget.value))}
-        class="flex-1 accent-[#3D99FF] h-1"
-      />
-      <span class="text-[10px] text-slate-400 w-8 text-right tabular-nums">{formatNum(props.value)}</span>
-    </div>
-  )
-}
-
-/** color 输入要求 #rrggbb 7 位；补全 3 位简写/非法值 */
-function normalizeHex(c: string | undefined): string {
-  if (!c) return "#ffffff"
-  const s = c.trim()
-  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s
-  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
-    return "#" + s.slice(1).split("").map((ch) => ch + ch).join("")
-  }
-  return "#ffffff"
-}

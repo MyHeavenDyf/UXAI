@@ -8,10 +8,12 @@
  * 编辑态浮层（仅在编辑模式时显示）：
  *   部件/整体粒度切换 + 聚焦选中物 + 属性编辑弹窗
  */
-import { createEffect, createSignal, on, onCleanup, Show } from "solid-js"
-import type { SceneConfig, SceneConfigMaterial, SceneConfigObject3D, ScenePatch, EditDeltaEntry } from "../../utils/scene-config"
+import { createEffect, createSignal, on, onCleanup, Show, createMemo } from "solid-js"
+import type { SceneConfig, SceneConfigMaterial, SceneConfigObject3D, SceneConfigLight, ScenePatch, EditDeltaEntry } from "../../utils/scene-config"
 import type { ConsoleEntry } from "../../utils/scene-gate"
 import { PropertyEditor3DPopup } from "./property-editor-popup"
+import { SceneSettingsPanel, type SceneEnvSlice } from "./scene-settings-panel"
+export type { SceneEnvSlice }
 import { TitleBar3D } from "./title-bar"
 import type { VersionEntry } from "../../utils/version-history"
 import { commitEdits } from "../../workflow/commit-edits"
@@ -29,7 +31,12 @@ export type PreviewPageAPI = {
   sendTheme?: (mode: "light" | "dark") => void
   /** 场景级增量更新（SCENE_PATCH_ENV，M-3 ①）：mutate 灯/相机/背景·雾，不 reload 不 dispose */
   sendPatchEnv?: (env: { camera?: unknown; lights?: unknown; scene?: unknown }) => void
+  /** 即时移除物体（SCENE_REMOVE_OBJECT）：运行时 parent.remove + dispose，不碰 data 层 */
+  sendRemoveObject?: (id: string) => void
 }
+
+/** 场景级提交落盘（10.5 面板「提交」→ materializeEnvPatch：落盘 live-data + 版本历史） */
+export type EnvCommitFn = (env: SceneEnvSlice) => Promise<void>
 
 export function PreviewPage3D(props: {
   api?: PreviewPageAPI
@@ -54,6 +61,8 @@ export function PreviewPage3D(props: {
   onReady?: () => void
   /** iframe 运行时错误（SCENE_CONSOLE_ERROR / SCENE_ERROR）回调父组件，供 9a 门控 buffer 收集 + 持久化（不走消失 toast） */
   onConsoleError?: (entry: ConsoleEntry) => void
+  /** 场景级提交落盘（10.5 面板「提交」→ materializeEnvPatch） */
+  onEnvCommit?: EnvCommitFn
   /** 以下 TitleBar 回调由 pages/3d/index.tsx 传入 */
   versions?: VersionEntry[]
   currentVersionId?: string | null
@@ -79,6 +88,19 @@ export function PreviewPage3D(props: {
   const [commitBanner, setCommitBanner] = createSignal<{ text: string; kind: "ok" | "warn" | "err" } | null>(null)
   let bannerTimer: number | undefined
 
+  /** 场景设置面板开关（10.5） */
+  const [scenePanelOpen, setScenePanelOpen] = createSignal(false)
+  /** 当前场景 env 切片（从 pendingData 派生；面板据此初始化，切会话/切版本时自动同步） */
+  const sceneEnv = createMemo<SceneEnvSlice | null>(() => {
+    const d = props.pendingData
+    if (!d) return null
+    return {
+      camera: d.camera,
+      lights: (d.lights ?? []) as SceneConfigLight[],
+      scene: d.scene,
+    }
+  })
+
   function post(msg: Record<string, unknown>): void {
     iframeRef?.contentWindow?.postMessage(msg, "*")
   }
@@ -96,6 +118,26 @@ export function PreviewPage3D(props: {
     transform: { position?: number[]; rotation?: number[]; scale?: number[] } | undefined,
   ): void {
     post({ type: "SCENE_EDIT_OBJECT", id, material, transform })
+  }
+  /** 即时移除物体：post SCENE_REMOVE_OBJECT → iframe removeObject（parent.remove + dispose），不碰 data 层 */
+  function sendRemoveObject(id: string): void {
+    post({ type: "SCENE_REMOVE_OBJECT", id })
+  }
+  /**
+   * 删除选中物体：① 即时移除（sendRemoveObject → iframe removeObject）② 标 editDelta deleted:true
+   * （提交时 commitEdits 路由到 patchHandlerSkip，往 handler 源码 SUB_SKIP 数组加 cid，重载后跳过创建）。
+   * 删除后清选中 + 关弹窗（物体已不在场景，弹窗无意义）。
+   */
+  function handleRemoveObject(id: string): void {
+    sendRemoveObject(id)
+    setEditDelta((m) => {
+      const next = new Map(m)
+      const prev = next.get(id) ?? {}
+      // 纯删除：清掉残留的 material/transform（避免提交时既 skip 又 override 同一 cid 矛盾）
+      next.set(id, { deleted: true, material: undefined, transform: undefined })
+      return next
+    })
+    setPickedObj(null)
   }
   /**
    * 属性弹窗编辑统一走 SCENE_EDIT_OBJECT 直改运行时 Object3D（即时生效）+ 累积进 editDelta
@@ -161,6 +203,7 @@ export function PreviewPage3D(props: {
     props.api.sendResetCamera = sendResetCamera
     props.api.sendTheme = sendTheme
     props.api.sendPatchEnv = sendPatchEnv
+    props.api.sendRemoveObject = sendRemoveObject
   }
 
   // pendingData 变化（新生成/切会话/恢复）→ 重建本地物体表 + 关弹窗
@@ -189,6 +232,19 @@ export function PreviewPage3D(props: {
     if (!next) {
       setPickedObj(null)
       setEditDelta(new Map())
+    }
+    // 互斥：进编辑态关场景面板（两个面板都浮在右上，同显会重叠）
+    if (next) setScenePanelOpen(false)
+  }
+
+  /** 切换场景设置面板（与编辑态互斥：开场景面板退出编辑态，避免重叠） */
+  function toggleScenePanel(): void {
+    const next = !scenePanelOpen()
+    setScenePanelOpen(next)
+    if (next && editMode()) {
+      setEditMode(false)
+      sendPickMode(false)
+      setPickedObj(null)
     }
   }
 
@@ -333,6 +389,8 @@ export function PreviewPage3D(props: {
         onPreview={() => props.onPreview?.()}
         onReset={() => sendResetCamera()}
         onToggleEditing={() => toggleEditMode()}
+        onScene={() => toggleScenePanel()}
+        sceneActive={scenePanelOpen()}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={(vid) => props.onSelectVersion?.(vid)}
@@ -363,15 +421,7 @@ export function PreviewPage3D(props: {
           <div class="absolute top-2 right-2 flex items-center gap-1.5 z-10" style={{ "pointer-events": "auto" }}>
             <Show when={pickedObj()}>
               <button
-                class="rounded-md text-[12px] leading-none"
-                style={{
-                  height: "26px",
-                  padding: "0 10px",
-                  background: "var(--octo-surface, #ffffff)",
-                  color: "var(--octo-text-primary, #1f2937)",
-                  border: "1px solid var(--octo-border, #e5e7eb)",
-                  "box-shadow": "0 1px 3px rgba(0,0,0,0.15)",
-                }}
+                class="edit-btn subtle"
                 onClick={() => pickedObj() && sendFlyTo(pickedObj()!.id)}
                 title="聚焦到选中物体"
               >
@@ -379,30 +429,29 @@ export function PreviewPage3D(props: {
               </button>
             </Show>
             <div
-              class="flex items-center rounded-md overflow-hidden"
+              class="flex items-center rounded-[6px] p-[1px]"
               style={{
-                background: "var(--octo-surface, #ffffff)",
-                border: "1px solid var(--octo-border, #e5e7eb)",
+                background: "#E4E4E7",
                 "box-shadow": "0 1px 3px rgba(0,0,0,0.15)",
               }}
             >
               <button
-                class="px-2 h-[26px] text-[11px] leading-none transition-colors"
-                style={{
-                  background: pickGranularity() === "part" ? "var(--octo-brand, #3d99ff)" : "transparent",
-                  color: pickGranularity() === "part" ? "#fff" : "var(--octo-text-primary, #1f2937)",
+                classList={{
+                  "prop-chip-active": pickGranularity() === "part",
+                  "prop-chip": pickGranularity() !== "part",
                 }}
+                class="h-6 flex-1 flex items-center justify-center"
                 onClick={() => switchGranularity("part")}
                 title="选中单个部件（树干/树冠）"
               >
                 部件
               </button>
               <button
-                class="px-2 h-[26px] text-[11px] leading-none transition-colors"
-                style={{
-                  background: pickGranularity() === "whole" ? "var(--octo-brand, #3d99ff)" : "transparent",
-                  color: pickGranularity() === "whole" ? "#fff" : "var(--octo-text-primary, #1f2937)",
+                classList={{
+                  "prop-chip-active": pickGranularity() === "whole",
+                  "prop-chip": pickGranularity() !== "whole",
                 }}
+                class="h-6 flex-1 flex items-center justify-center"
                 onClick={() => switchGranularity("whole")}
                 title="选中一个整体（整棵树/整张桌），整体变换"
               >
@@ -410,15 +459,10 @@ export function PreviewPage3D(props: {
               </button>
             </div>
             <button
-              class="rounded-md text-[12px] leading-none flex items-center gap-1"
-              style={{
-                height: "26px",
-                padding: "0 10px",
-                background: editDelta().size > 0 ? "var(--octo-brand, #3d99ff)" : "var(--octo-surface, #ffffff)",
-                color: editDelta().size > 0 ? "#fff" : "var(--octo-text-primary, #1f2937)",
-                border: "1px solid var(--octo-border, #e5e7eb)",
-                "box-shadow": "0 1px 3px rgba(0,0,0,0.15)",
-                opacity: committing() ? "0.6" : "1",
+              classList={{
+                "edit-btn": true,
+                "primary": editDelta().size > 0 && !committing(),
+                "subtle": editDelta().size === 0 || committing(),
               }}
               onClick={() => handleCommit()}
               disabled={committing() || editDelta().size === 0}
@@ -456,8 +500,21 @@ export function PreviewPage3D(props: {
               obj={obj}
               onPatch={(patch) => applyEdit(patch)}
               onClose={() => setPickedObj(null)}
+              onRemove={(id) => handleRemoveObject(id)}
             />
           )}
+        </Show>
+
+        {/* 场景设置面板（10.5：scene/camera/lights 全局配置；与属性弹窗并存不串——一个改全局、一个改单物体） */}
+        <Show when={scenePanelOpen() && sceneEnv()}>
+          <SceneSettingsPanel
+            env={sceneEnv as () => SceneEnvSlice}
+            onLiveChange={(e) => sendPatchEnv(e)}
+            onCommit={async (e) => {
+              if (props.onEnvCommit) await props.onEnvCommit(e)
+            }}
+            onClose={() => setScenePanelOpen(false)}
+          />
         </Show>
 
         <Show when={!props.pendingData}>

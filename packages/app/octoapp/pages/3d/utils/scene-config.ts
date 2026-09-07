@@ -120,6 +120,8 @@ export type EditDeltaEntry = {
   material?: SceneConfigMaterial
   /** rotation 存弧度（Three 原生；applyEdit 从 popup 度转弧度写入，patchHandlerOverride 原样落盘 SUB_OVERRIDES） */
   transform?: { position?: number[]; rotation?: number[]; scale?: number[] }
+  /** 删除标记：提交时 commitEdits 路由到 patchHandlerSkip（往 handler 源码 SUB_SKIP 数组加 cid） */
+  deleted?: boolean
 }
 
 /**

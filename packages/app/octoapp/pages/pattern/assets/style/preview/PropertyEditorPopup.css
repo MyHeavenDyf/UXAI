@@ -84,6 +84,11 @@
   box-shadow: none !important;
   background: #f4f4f5;
   outline: none;
+  font-size: 12px !important;
+  padding: 0 8px !important;
+  height: 26px !important;
+  line-height: 26px;
+  box-sizing: border-box;
 }
 
 .property-editor-popup select:focus {
@@ -93,10 +98,10 @@
 }
 
 .property-editor-popup select option {
-  padding: 6px 12px;
+  padding: 4px 8px;
   background: #fff;
   color: #191919;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .property-number-input {

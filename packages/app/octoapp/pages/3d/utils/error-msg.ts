@@ -1,11 +1,10 @@
 import { getDesktopApi } from "./desktop-api"
 
 // agent 名称 → 中文标签映射，用于错误展示时标识出错的 agent 步骤
-// （Step 7 后活 agent 仅 triage/plan/codegen 三员；旧 8-agent 流水线条目已随 2026-09-04 全清删除）
+// （direct 落地后活 agent 仅 triage + codegen_direct 两员；旧 plan/pertype/full + 8-agent 流水线条目已全清删除）
 export const AGENT_LABELS: Record<string, string> = {
   scene_3d_triage: "需求分析",
-  scene_3d_plan: "选型规划",
-  scene_3d_codegen: "代码生成",
+  scene_3d_codegen_direct: "代码生成",
 }
 
 /**
