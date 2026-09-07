@@ -26,6 +26,7 @@ import A2UiPagination from "./Pagination/Pagination.vue"
 import A2UiBadge from "./Badge/Badge.vue"
 import A2UiRate from "./Rate/Rate.vue"
 import A2UiBreadcrumb from "./Breadcrumb/Breadcrumb.vue"
+import A2UiAnchor from "./Anchor/Anchor.vue"
 import A2UiDropdown from "./Dropdown/Dropdown.vue"
 import A2UiPopover from "./Popover/Popover.vue"
 import A2UiMenu from "./Menu/Menu.vue"
@@ -36,6 +37,7 @@ import A2UiModal from "./Modal/Modal.vue"
 import A2UiDrawer from "./Drawer/Drawer.vue"
 import A2UiCategoryInput from "./CategoryInput/CategoryInput.vue"
 import A2UiCategorySearch from "./CategorySearch/CategorySearch.vue"
+import A2UiSearchInput from "./SearchInput/SearchInput.vue"
 
 // import A2UiImage from "./Image/Image.vue"
 
@@ -94,6 +96,7 @@ const catelog = {
   Badge: A2UiBadge,
   Rate: A2UiRate,
   Breadcrumb: A2UiBreadcrumb,
+  Anchor: A2UiAnchor,
   Dropdown: A2UiDropdown,
   Popover: A2UiPopover,
   Menu: A2UiMenu,
@@ -105,6 +108,7 @@ const catelog = {
   Drawer: A2UiDrawer,
   CategoryInput: A2UiCategoryInput,
   CategorySearch: A2UiCategorySearch,
+  SearchInput: A2UiSearchInput,
 
   // Image: A2UiImage,
   Stream: A2UiStream,

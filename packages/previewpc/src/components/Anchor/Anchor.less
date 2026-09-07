@@ -1,0 +1,32 @@
+.el-anchor__link {
+  color: var(--el-text-color-secondary);
+  font-weight: var(--font-weight-normal);
+
+  &:hover {
+    color: var(--brand-50);
+  }
+
+  &.is-active {
+    color: var(--brand-50);
+    font-weight: var(--font-weight-medium);
+  }
+}
+
+.el-anchor__marker {
+  background-color: var(--brand-50);
+}
+
+.theme-dark {
+  .el-anchor__link {
+    color: var(--el-text-color-secondary);
+
+    &:hover,
+    &.is-active {
+      color: var(--brand-30);
+    }
+  }
+
+  .el-anchor__marker {
+    background-color: var(--brand-30);
+  }
+}

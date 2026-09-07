@@ -186,6 +186,7 @@ interface ResolvedIcon {
   shape?: "outline" | "two-tone" | "square" | "circle" | "lined" | "filled";
   color?: string;
   className?: string;
+  src?: DynamicString;
 }
 interface IconNode extends AnyComponentNode<ResolvedIcon> {
   type: "Icon";
@@ -452,6 +453,23 @@ interface BreadcrumbNode extends AnyComponentNode<ResolvedBreadcrumb> {
   type: "Breadcrumb";
 }
 
+interface AnchorItem {
+  key: string;
+  href: string;
+  title: string | AnyComponentNode;
+  target?: string;
+  children?: AnchorItem[];
+}
+interface ResolvedAnchor {
+  offsetTop?: number;
+  container?: string;
+  items: AnchorItem[] | DataBinding;
+  className?: string;
+}
+interface AnchorNode extends AnyComponentNode<ResolvedAnchor> {
+  type: "Anchor";
+}
+
 interface DropdownItem {
   label: string;
   key: string | number;
@@ -620,6 +638,17 @@ interface CategoryInputNode extends AnyComponentNode<ResolvedCategoryInput> {
   type: "CategoryInput";
 }
 
+interface ResolvedSearchInput {
+  value: DynamicString;
+  popItems?: any[] | DataBinding;
+  placeholder?: DynamicString;
+  disabled?: DynamicBoolean;
+  className?: string;
+}
+interface SearchInputNode extends AnyComponentNode<ResolvedSearchInput> {
+  type: "SearchInput";
+}
+
 interface StreamNode extends AnyComponentNode<AnyComponentNode> {
   type: 'Stream',
   isCommon: boolean;
@@ -661,6 +690,8 @@ export type {
   PaginationNode,
   RateNode,
   BreadcrumbNode,
+  AnchorNode,
+  AnchorItem,
   DropdownNode,
   DropdownItem,
   PopoverNode,
@@ -675,5 +706,6 @@ export type {
   HexFieldNode,
   IpInputNode,
   CategoryInputNode,
-  CategorySearchNode
+  CategorySearchNode,
+  SearchInputNode
 }
