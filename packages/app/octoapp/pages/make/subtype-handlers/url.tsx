@@ -4,6 +4,7 @@ import { IconDownloadNew } from '../icons'
 import {
   exportFastuiZip,
   isExporting,
+  isExportingAny,
   isFastuiSession,
   isLocalPreviewUrl,
   sessionDirOf,
@@ -42,7 +43,8 @@ const urlHandler: SubtypeHandler = {
             const dir = targetSessionDir(ctx)
             return !!dir && isFastuiSession(dir)
           },
-          disabled: (ctx) => isExporting(targetSessionDir(ctx)),
+          // 锁是全局的,按全局禁用 —— 否则在另一个会话的 tab 上点会静默无反应
+          disabled: () => isExportingAny(),
           onClick: async (ctx) => {
             const dir = targetSessionDir(ctx)
             if (!dir) return

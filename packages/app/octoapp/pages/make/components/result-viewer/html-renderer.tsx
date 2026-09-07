@@ -885,22 +885,30 @@ createEffect(() => {
     return /^https?:\/\//i.test(props.filePath || "")
   })
 
-  // ── 本地 dev server 预览的就绪门禁(SPEC-DES-001 §8.6.5)─────────────
+  // ── 本地预览服务的就绪门禁(SPEC-DES-001 §8.6.5)─────────────────────
   // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
   // 拿到 ERR_CONNECTION_REFUSED 之后**不会自己重试**,就一直白着。
   // 修法是端口没通就先别挂 src —— 跨源 iframe 的加载失败未必触发 onerror,拿不到可靠信号,
   // 主动探测端口才是确定的判据。只管 127.0.0.1/localhost,其他外链行为完全不变。
+  //
+  // **门禁必须是"尽力而为的等待",不能是"通不过就锁死"**:渲染进程的 origin 是自定义
+  // scheme,向 loopback 发跨源子资源请求还要过 Chromium 的 Private Network Access
+  // 那一关(no-cors 不豁免)。万一探测在真机上根本不可用,恒不放行就把"白屏但切 tab
+  // 能恢复"变成了"永远打不开",比改动前更糟。所以超时后降级为直接挂 src,让 iframe
+  // 自己去撞 —— 最坏等价于改动前的行为。
+  //
+  // 门禁范围比 fastui 宽(任意 loopback URL 都走),因为"等本地服务起来再挂 iframe"
+  // 对任何本地预览都成立;所以覆盖层文案保持中性,不写 fastui 专属的说法。
   const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreviewUrl(props.filePath))
   const [previewReady, setPreviewReady] = createSignal(false)
   const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
-  const [probeNonce, setProbeNonce] = createSignal(0)
 
   // 首次编译 1–3 分钟(§8.6.1),上限取同量级
   const PROBE_INTERVAL_MS = 1000
   const PROBE_TIMEOUT_MS = 3 * 60 * 1000
   const PROBE_ATTEMPT_TIMEOUT_MS = 5000
 
-  createEffect(on([needsReadyGate, () => props.filePath, probeNonce], ([gate, url]) => {
+  createEffect(on([needsReadyGate, () => props.filePath], ([gate, url]) => {
     if (!gate || !url) {
       setPreviewReady(true)
       setPreviewTimedOut(false)
@@ -911,11 +919,13 @@ createEffect(() => {
 
     let disposed = false
     let timer: ReturnType<typeof setTimeout> | undefined
+    let inflight: AbortController | undefined
     const deadline = Date.now() + PROBE_TIMEOUT_MS
 
     const probe = async () => {
       if (disposed) return
       const controller = new AbortController()
+      inflight = controller
       // 端口开着但不回应时 fetch 会一直挂,不设上限就再也不会重试
       const abortTimer = setTimeout(() => controller.abort(), PROBE_ATTEMPT_TIMEOUT_MS)
       try {
@@ -927,9 +937,15 @@ createEffect(() => {
         /* 还没 listen(或本次探测超时),继续等 */
       } finally {
         clearTimeout(abortTimer)
+        if (inflight === controller) inflight = undefined
       }
       if (disposed) return
       if (Date.now() >= deadline) {
+        // 降级:放行 src、撤掉覆盖层。之后要么正常渲染(探测机制不可用但服务其实是通的),
+        // 要么显示浏览器自己的错误页 —— 后者就是改动前的行为,不是回归。
+        // 重试入口用 action bar 现成的刷新按钮:它 bump refreshKey,externalUrl 会重算出
+        // 带新 _octo_v 的地址,iframe 重新加载。
+        console.warn("[fastui] 本地预览端口探测超时,降级为直接加载", url)
         setPreviewTimedOut(true)
         return
       }
@@ -940,13 +956,15 @@ createEffect(() => {
     onCleanup(() => {
       disposed = true
       if (timer) clearTimeout(timer)
+      inflight?.abort()
     })
   }))
 
   const externalUrl = createMemo(() => {
     if (!shouldUseExternalUrl()) return undefined
-    // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED
-    if (needsReadyGate() && !previewReady()) return undefined
+    // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
+    // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
+    if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
     const key = props.refreshKey ?? 0
     if (key === 0) return props.filePath
     try {
@@ -1580,8 +1598,9 @@ return (
       class="h-full w-full"
       style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: pendingModelEditClose() ? 'wait' : undefined }}
     >
-      {/* dev server 还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5) */}
-      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady()}>
+      {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
+          超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
+      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>
         <div
           style={{
             position: "absolute",
@@ -1595,24 +1614,10 @@ return (
             "z-index": "20",
           }}
         >
-          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>
-            {previewTimedOut() ? "预览环境尚未就绪" : "正在准备预览环境…"}
-          </div>
+          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在等待本地预览服务…</div>
           <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
-            {previewTimedOut()
-              ? "工程可能仍在编译，或本次会话的服务未能启动。可以稍后重试。"
-              : "工程首次编译需要 1–3 分钟，完成后会自动加载。"}
+            服务就绪后会自动加载，首次启动可能需要几分钟。
           </div>
-          <Show when={previewTimedOut()}>
-            <button
-              type="button"
-              class="octo-action-btn"
-              style={{ "margin-top": "4px" }}
-              onClick={() => setProbeNonce((n) => n + 1)}
-            >
-              <span>重试</span>
-            </button>
-          </Show>
         </div>
       </Show>
       {props.mode === "preview" ? (

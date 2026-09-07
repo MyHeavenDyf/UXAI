@@ -144,8 +144,10 @@ export function exportZip(sessionDir: string): Promise<ExportResult> {
       if (result !== "OK") {
         // FAIL 行本身就是「英文错误码: 中文说明」,直接展示;脚本连契约行都没输出时退回 stderr 末尾
         const detail = result?.replace(/^FAIL\s*\|\s*/, "") || stderr.trim().split(/\r?\n/).slice(-3).join(" ")
-        log.warn("[fastui] 导出失败", { sessionDir, result, stderr: stderr.slice(-2000) })
-        finish({ ok: false, error: detail || "导出脚本未返回结果" })
+        // HINT 是契约里定义的「可直接执行的下一步」(§5.1.1),带上比只报错有用
+        const hint = fields.HINT ? `${detail}（${fields.HINT}）` : detail
+        log.warn("[fastui] 导出失败", { sessionDir, result, hint: fields.HINT, stderr: stderr.slice(-2000) })
+        finish({ ok: false, error: hint || "导出脚本未返回结果" })
         return
       }
       const zipPath = fields.ZIP_PATH

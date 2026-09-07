@@ -34,34 +34,67 @@ export function sessionDirOf(sdkDirectory?: string, sessionId?: string): string 
 // 所以不能只看 tab 形态就挂导出按钮。判据取「会话目录下有没有 .octo-fastui.json」——
 // 只有 fastui skill 的 new-session 会写出那个文件,是确定的存在性判断,不是猜。
 const [fastuiSessions, setFastuiSessions] = createSignal<Record<string, boolean>>({})
-const lastProbedAt = new Map<string, number>()
-/** 否定结果不永久缓存:会话可能先建、稍后才跑 skill,隔一会儿要能自愈 */
+/** 已探测过的次数;肯定结果直接从 signal 走,不再进这里 */
+const probeCount = new Map<string, number>()
+
+/**
+ * 否定结果重探几次再放弃。
+ *
+ * 正常时序下一次就够 —— URL tab 是 skill 输出 artifact 之后才创建的,而
+ * `new-session` 远早于此,那时 `.octo-fastui.json` 必然已经在磁盘上。留几次重探是
+ * 防时序变化,**必须靠 setTimeout 自己驱动**:只把结果写回 signal 不会再触发探测
+ * (重渲染时读到的仍是同一个否定值),那样"自愈"只是注释里的说法。
+ */
 const RENEGATIVE_PROBE_MS = 3000
+const MAX_NEGATIVE_PROBES = 3
 
 export function isFastuiSession(sessionDir: string): boolean {
   const known = fastuiSessions()[sessionDir]
   if (known) return true
 
-  const last = lastProbedAt.get(sessionDir) ?? 0
-  if (Date.now() - last > RENEGATIVE_PROBE_MS) {
-    lastProbedAt.set(sessionDir, Date.now())
-    const api = getDesktopApi()
-    const sep = sessionDir.includes("\\") ? "\\" : "/"
-    const statePath = [sessionDir, ".octo-fastui.json"].join(sep)
-    void Promise.resolve(api?.fileExists?.(statePath))
-      .then((exists) => setFastuiSessions((prev) => (prev[sessionDir] === !!exists ? prev : { ...prev, [sessionDir]: !!exists })))
-      .catch(() => {
-        /* 读不到就当不是 fastui 会话,按钮不出现 */
-      })
+  const tried = probeCount.get(sessionDir) ?? 0
+  if (tried === 0) {
+    probeCount.set(sessionDir, 1)
+    void probeFastuiSession(sessionDir)
   }
   return false
+}
+
+async function probeFastuiSession(sessionDir: string): Promise<void> {
+  const api = getDesktopApi()
+  const sep = sessionDir.includes("\\") ? "\\" : "/"
+  const statePath = [sessionDir, ".octo-fastui.json"].join(sep)
+
+  let exists = false
+  try {
+    exists = !!(await api?.fileExists?.(statePath))
+  } catch {
+    /* 读不到就当不是 fastui 会话,按钮不出现 */
+  }
+
+  setFastuiSessions((prev) => (prev[sessionDir] === exists ? prev : { ...prev, [sessionDir]: exists }))
+  if (exists) return
+
+  const tried = probeCount.get(sessionDir) ?? 1
+  if (tried >= MAX_NEGATIVE_PROBES) return
+  probeCount.set(sessionDir, tried + 1)
+  setTimeout(() => void probeFastuiSession(sessionDir), RENEGATIVE_PROBE_MS)
 }
 
 // ── 导出 ─────────────────────────────────────────────────────────
 const [exportingDir, setExportingDir] = createSignal<string | null>(null)
 
+/** 这个会话正在导出(按钮显示「导出中…」) */
 export function isExporting(sessionDir: string | null): boolean {
   return !!sessionDir && exportingDir() === sessionDir
+}
+
+/**
+ * 有任何会话正在导出。锁是全局的(一次只跑一个打包脚本),所以按钮的 disabled 也要按
+ * 全局判 —— 只按自己那个会话判的话,在另一个会话的 tab 上点导出会静默什么都不发生。
+ */
+export function isExportingAny(): boolean {
+  return exportingDir() !== null
 }
 
 function formatBytes(bytes: number): string {
