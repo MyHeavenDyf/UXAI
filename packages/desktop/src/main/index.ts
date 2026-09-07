@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
-import type { Event } from "electron"
+import type { DownloadItem, Event, WebContents } from "electron"
 import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
 import {shellPath} from "shell-path"
@@ -56,7 +56,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { startPreviewServer } from "./preview-server"
+import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,
@@ -66,6 +66,13 @@ import {
   spawnLocalServer,
   type SidecarListener,
 } from "./server"
+import {
+  createAppDataFallbackStorage,
+  persistAppDataFallback,
+  resolveDesktopStorage,
+  shouldRetryWithAppDataFallback,
+  type DesktopStorage,
+} from "./storage"
 import {
   createLoadingWindow,
   createMainWindow,
@@ -113,6 +120,24 @@ logger.log("app starting", {
 
 setupApp()
 
+// 监听 defaultSession 的 will-download:仅观察(不 setSavePath / 不 cancel),
+// 让 Electron 走默认保存对话框;下载 done 后把保存路径经 IPC 推给触发它的渲染进程。
+// 渲染层可凭 payload.url 自行判断是否为「SDK 触发」的下载。
+function setupDownloadInterceptor() {
+  session.defaultSession.on("will-download", (_event: Event, item: DownloadItem, webContents: WebContents) => {
+    const url = item.getURL()
+    const filename = item.getFilename()
+    logger.log("download started", { url, filename })
+
+    item.once("done", (_e: Event, state: "completed" | "cancelled" | "interrupted") => {
+      const path = state === "completed" ? item.getSavePath() : null
+      logger.log("download done", { url, filename, state, path })
+      if (webContents.isDestroyed()) return
+      webContents.send("download-save-path", { url, filename, path, state })
+    })
+  })
+}
+
 function setupApp() {
   ensureLoopbackNoProxy()
   useEnvProxy()
@@ -159,6 +184,7 @@ function setupApp() {
     await session.defaultSession.setProxy({
       mode: "direct"
     });
+    setupDownloadInterceptor()
     if (!TEST_ONBOARDING) {
       migrateAppId()
       migrate()
@@ -213,7 +239,9 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
-  const needsMigration = !sqliteFileExists()
+  const userDataPath = app.getPath("userData")
+  const initialStorage = resolveDesktopStorage(userDataPath)
+  const needsMigration = !sqliteFileExists(initialStorage)
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
@@ -230,24 +258,38 @@ async function initialize() {
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
     })
 
-    logger.log("spawning sidecar", { url })
-    const { listener, health } = await spawnLocalServer(
-      hostname,
-      port,
-      password,
-      () => {
-        ensureLoopbackNoProxy()
-        useEnvProxy()
-      },
-      {
-        needsMigration,
-        userDataPath: app.getPath("userData"),
-        onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
-        onStdout: (message) => logger.log("sidecar stdout", { message }),
-        onStderr: (message) => logger.warn("sidecar stderr", { message }),
-        onExit: (code) => logger.warn("sidecar exited", { code }),
-      },
-    )
+    logger.log("spawning sidecar", { url, storageMode: initialStorage.mode, storageReason: initialStorage.reason })
+    const startSidecar = (storage: DesktopStorage) =>
+      spawnLocalServer(
+        hostname,
+        port,
+        password,
+        () => {
+          ensureLoopbackNoProxy()
+          useEnvProxy()
+        },
+        {
+          needsMigration: !sqliteFileExists(storage),
+          storage,
+          userDataPath,
+          onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
+          onStdout: (message) => logger.log("sidecar stdout", { message }),
+          onStderr: (message) => logger.warn("sidecar stderr", { message }),
+          onExit: (code) => logger.warn("sidecar exited", { code }),
+        },
+      )
+
+    const { listener, health } = await startSidecar(initialStorage).catch((error) => {
+      if (!shouldRetryWithAppDataFallback(error, initialStorage)) throw error
+
+      persistAppDataFallback()
+      const fallbackStorage = createAppDataFallbackStorage(userDataPath, serializeError(error).message)
+      logger.warn("retrying sidecar with app data storage", {
+        storageMode: fallbackStorage.mode,
+        storageReason: fallbackStorage.reason,
+      })
+      return startSidecar(fallbackStorage)
+    })
     server = listener
     serverReady.resolve({
       url,
@@ -303,6 +345,8 @@ async function initialize() {
 
   mainWindow = createMainWindow()
   wireMenu()
+  // jk-j60099994-replace-with-index-3-start
+  // jk-j60099994-replace-with-index-3-end
 
   overlay?.close()
 }
@@ -358,6 +402,8 @@ registerIpcHandlers({
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
   // jk-j60099994-replace-with-index-2-end
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-end
 })
 
 async function killSidecar() {
@@ -410,12 +456,15 @@ async function getSidecarPort() {
   })
 }
 
-function sqliteFileExists() {
+function sqliteFileExists(storage: DesktopStorage) {
   if (process.env.OCTO_DB === ":memory:") return true
+  if (storage.databasePath === ":memory:") return true
+  return existsSync(storage.databasePath)
+}
 
-  const xdg = process.env.XDG_DATA_HOME
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", "opencode.db"))
+function serializeError(error: unknown) {
+  if (error instanceof Error) return { message: error.message, stack: error.stack }
+  return { message: String(error) }
 }
 
 function setupAutoUpdater() {

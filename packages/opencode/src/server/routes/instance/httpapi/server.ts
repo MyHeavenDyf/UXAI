@@ -7,6 +7,7 @@ import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Auth } from "@/auth"
 import { Bus } from "@/bus"
+import { Comment } from "@/comment"
 import { Config } from "@/config/config"
 import { Command } from "@/command"
 import * as Observability from "@opencode-ai/core/effect/observability"
@@ -51,7 +52,9 @@ import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
 import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/authorization"
 import { EventApi, eventHandlers } from "./event"
+import { artifactHandlers } from "./handlers/artifact"
 import { configHandlers } from "./handlers/config"
+import { commentHandlers } from "./handlers/comment"
 import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
@@ -69,6 +72,7 @@ import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
+import { insightHandlers } from "./handlers/insight"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -92,6 +96,10 @@ const cors = (corsOptions?: CorsOptions) =>
   HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => isAllowedCorsOrigin(origin, corsOptions),
+      allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+      allowedHeaders: ["Content-Type", "Authorization", "x-opencode-directory", "Accept", "Origin"],
+      exposedHeaders: ["Content-Length", "X-Request-Id"],
+      credentials: true,
       maxAge: 86_400,
     }),
     { global: true },
@@ -108,6 +116,8 @@ const eventApiRoutes = HttpApiBuilder.layer(EventApi).pipe(
 )
 const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   Layer.provide([
+    artifactHandlers,
+    commentHandlers,
     configHandlers,
     experimentalHandlers,
     fileHandlers,
@@ -124,6 +134,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     tuiHandlers,
     workspaceHandlers,
     studioHandlers,
+    insightHandlers,
   ]),
 )
 
@@ -184,6 +195,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       SyncEvent.defaultLayer,
       Skill.defaultLayer,
       Todo.defaultLayer,
+      Comment.defaultLayer,
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
       Workspace.defaultLayer,

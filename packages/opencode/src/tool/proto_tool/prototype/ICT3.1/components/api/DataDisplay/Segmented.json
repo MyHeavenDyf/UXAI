@@ -1,0 +1,98 @@
+{
+  "name": "Segmented",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Segmented"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+						{ "type": "number" },
+						{ "$ref":"#/$defs/DataBinding" }
+					],
+          "description": "Currently selected value"
+        },
+        "options": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": ["string", "number"]
+                    },
+                    "icon": {
+                      "type": "string",
+                      "description": "Valid kebab-case Lucide icon matching the context (e.g., 'chevron-right')."
+                    }
+                  },
+                  "required": ["value"]
+                }
+              ]}
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The segmented options list."
+        },
+        "block": {
+          "type": "boolean"
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"]
+        },
+        "size": {
+          "type": "string",
+          "enum": ["large", "medium", "small"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["options"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

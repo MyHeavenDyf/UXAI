@@ -1,0 +1,91 @@
+{
+  "name": "Dropdown",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Dropdown"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "placement": {
+          "type": "string",
+          "enum": ["bottom", "bottomLeft", "bottomRight", "top", "topLeft", "topRight"]
+        },
+        "trigger": {
+          "type": "array",
+          "items": { 
+            "type": "string", 
+            "enum": ["click", "hover", "contextMenu"] 
+          },
+          "description": "The trigger mode for opening the dropdown."
+        },
+        "menu": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": ["string", "number"]
+                },
+                "icon": {
+                  "type": "string",
+                  "description": "Dropdown item icon (Lucide icon name in kebab-case, e.g., 'chevron-right')"
+                }
+              },
+              "required": ["label", "key"]
+            }
+          },
+          {
+            "$ref": "#/$defs/DataBinding"
+          }],
+          "description": "The dropdown menu list."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["menu"]
+    },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "The unique identifier for a component"
+      },
+      "description": "The element to be wrapped by the Dropdown. A static list of child component IDs. Note: The node ID count must be exactly 1;"
+    }
+  },
+  "required": ["id", "component", "props", "children"]
+}

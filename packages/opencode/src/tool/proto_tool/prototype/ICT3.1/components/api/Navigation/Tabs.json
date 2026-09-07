@@ -1,0 +1,100 @@
+{
+  "name": "Tabs",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    },
+    "StaticChildren": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"description": "The unique identifier for a component"
+			},
+			"description": "A static list of child component IDs."
+		},
+		"TemplateChildren": {
+			"type": "object",
+			"description": "A template for generating a dynamic list of children from a data model list. The `componentId` is the component to use as a template.",
+			"properties": {
+				"componentId": {
+					"type": "string",
+					"description": "The unique identifier for a component"
+				},
+				"path": {
+					"type": "string",
+					"description": "The path to the list of component property objects in the data model."
+				}
+			},
+			"required": [
+				"componentId",
+				"path"
+			]
+		}
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Tabs"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "activeKey": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref":"#/$defs/DataBinding" }
+          ],
+          "description": "Current TabPane's key."
+        },
+        "types": {
+          "type": "string",
+          "enum": ["line", "card", "editable-card"],
+          "default": "line",
+          "description": "Selection of Tabs Type."
+        },
+        "tabPlacement": {
+          "type": "string",
+          "enum": ["top", "end", "bottom", "start"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        },
+        "size": {
+          "type": "string",
+          "enum": ["large", "medium", "small"]
+        }
+      },
+      "required": ["activeKey"]
+    },
+    "children": {
+      "oneOf": [
+        { "$ref":"#/$defs/StaticChildren" },
+        { "$ref":"#/$defs/TemplateChildren" }
+      ],
+      "description": "Child nodes must be TabItem components. If using template loop format, the path must point to a tabItems data array." 
+    }
+  },
+  "required": ["id", "component", "props", "children"]
+}

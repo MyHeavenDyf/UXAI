@@ -4,6 +4,15 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
+import {
+  injectSandboxShim,
+  injectEditBridgeStyle,
+  injectEditBridge,
+  injectInspectStyleBridge,
+  injectPickerBridge,
+  injectCommentBridge,
+} from "@opencode-ai/core/bridge-scripts"
+import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -13,6 +22,8 @@ const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
+const apiBaseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+const webRequestAuthUrlPatterns = getWebRequestAuthUrlPatterns()
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -107,7 +118,7 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    minWidth: 1024,
+    minWidth: 600,
     minHeight: 576,
     show: false,
     title: "Octo AI",
@@ -131,6 +142,8 @@ export function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
@@ -146,14 +159,37 @@ export function createMainWindow() {
     return { action: "deny" }
   })
 
-  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders } = details
+  win.webContents.session.webRequest.onBeforeSendHeaders({ urls: webRequestAuthUrlPatterns }, (details, callback) => {
+    const requestHeaders = details.requestHeaders
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    callback({ requestHeaders })
+    if (details.webContentsId !== win.webContents.id || !shouldInjectWebRequestAuth(details.resourceType)) {
+      callback({ requestHeaders })
+      return
+    }
+    upsertKeyValue(requestHeaders, "X-OCTO-AGENT", "1")
+    void localStorageAuth(win).then(
+      (auth) => {
+        if (auth.uiplusToken) {
+          upsertKeyValue(requestHeaders, "uiplustoken", auth.uiplusToken)
+        } else {
+          deleteKey(requestHeaders, "uiplustoken")
+        }
+        if (auth.uiplusCookie) {
+          upsertKeyValue(requestHeaders, "Cookie", auth.uiplusCookie)
+        } else {
+          deleteKey(requestHeaders, "Cookie")
+        }
+        callback({ requestHeaders })
+      },
+      () => callback({ requestHeaders }),
+    )
   })
 
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const { responseHeaders = {} } = details
+    const responseHeaders = details.responseHeaders ?? {}
+    if (details.webContentsId === win.webContents.id && shouldInjectWebRequestAuth(details.resourceType)) {
+      void writeLocalStorageAuth(win, responseAuth(responseHeaders)).then(undefined, () => {})
+    }
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Origin", ["*"])
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Headers", ["*"])
     callback({ responseHeaders })
@@ -210,6 +246,8 @@ export function createLoadingWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
@@ -241,7 +279,8 @@ export function registerRendererProtocol() {
         const mockResponse = handleMockApi(url.pathname, url.search)
         if (mockResponse) return mockResponse
       }
-      const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
+      // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
+      const realUrl = `${apiBaseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
@@ -308,11 +347,38 @@ export function registerLocalProtocol() {
       woff2: "font/woff2",
       ttf: "font/ttf",
       eot: "application/vnd.ms-fontobject",
+      pdf: "application/pdf",
+      mp4: "video/mp4",
+      webm: "video/webm",
+      mp3: "audio/mpeg",
+      wav: "audio/wav",
     }
     const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
 
     try {
       const content = await readFile(absolutePath)
+      
+      // Inject bridge scripts for HTML files
+      if (mimeType === "text/html" || mimeType === "text/htm") {
+        let htmlStr = new TextDecoder().decode(content)
+        
+        // Inject bridge scripts in order (same as srcdoc-builder.ts)
+        htmlStr = injectSandboxShim(htmlStr)
+        htmlStr = annotateElementsWithIds(htmlStr)
+        htmlStr = injectEditBridgeStyle(htmlStr)
+        htmlStr = injectEditBridge(htmlStr)
+        htmlStr = injectInspectStyleBridge(htmlStr)
+        htmlStr = injectPickerBridge(htmlStr)
+        htmlStr = injectCommentBridge(htmlStr)
+        
+        return new Response(new TextEncoder().encode(htmlStr), {
+          headers: {
+            "Content-Type": mimeType,
+            "Access-Control-Allow-Origin": "*",
+          },
+        })
+      }
+      
       return new Response(content, {
         headers: {
           "Content-Type": mimeType,
@@ -368,6 +434,93 @@ function wireZoom(win: BrowserWindow) {
   })
 }
 
+function getWebRequestAuthUrlPatterns() {
+  const configured = String(process.env.OCTO_AUTH_INJECT_URLS || import.meta.env.VITE_OCTO_AUTH_INJECT_URLS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+  if (configured.length > 0) return configured
+  if (!URL.canParse(apiBaseUrl)) return ["http://*/*", "https://*/*"]
+  return [`http://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`, `https://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`]
+}
+
+function shouldInjectWebRequestAuth(resourceType: string) {
+  return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
+}
+
+async function localStorageAuth(win: BrowserWindow) {
+  const value = await win.webContents.executeJavaScript(
+    `({
+      uiplusToken: localStorage.getItem("uiplusToken"),
+      uiplusCookie: localStorage.getItem("uiplusCookie"),
+    })`,
+    true,
+  )
+  if (!isLocalStorageAuth(value)) return { uiplusToken: null, uiplusCookie: null }
+  return {
+    uiplusToken: value.uiplusToken?.trim() || null,
+    uiplusCookie: value.uiplusCookie?.trim() || null,
+  }
+}
+
+function isLocalStorageAuth(value: unknown): value is { uiplusToken?: string | null; uiplusCookie?: string | null } {
+  if (!value || typeof value !== "object") return false
+  const auth = value as Record<string, unknown>
+  return (
+    (typeof auth.uiplusToken === "string" || auth.uiplusToken === null || auth.uiplusToken === undefined) &&
+    (typeof auth.uiplusCookie === "string" || auth.uiplusCookie === null || auth.uiplusCookie === undefined)
+  )
+}
+
+function responseAuth(headers: Record<string, string | string[]>) {
+  return {
+    uiplusToken: firstHeaderValue(headers, "uiplusToken")?.trim() || null,
+    uiplusCookie: cookieHeaderValue(headers, "set-cookie"),
+  }
+}
+
+async function writeLocalStorageAuth(win: BrowserWindow, auth: { uiplusToken: string | null; uiplusCookie: string | null }) {
+  if (!auth.uiplusToken && !auth.uiplusCookie) return
+  await win.webContents.executeJavaScript(
+    `{
+      ${auth.uiplusToken ? `localStorage.setItem("uiplusToken", ${JSON.stringify(auth.uiplusToken)});` : ""}
+      ${(auth.uiplusCookie && auth.uiplusCookie.indexOf("ucd.designcloud") !== -1) ? `localStorage.setItem("uiplusCookie", ${JSON.stringify(auth.uiplusCookie)});` : ""}
+    }`,
+    true,
+  )
+}
+
+function firstHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)[0] ?? null
+}
+
+function cookieHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)
+    .flatMap((item) => item.split(/,(?=\s*[^;,\s]+=)/))
+    .map((item) => item.split(";")[0]?.trim())
+    .filter((item) => item)
+    .join("; ")
+}
+
+function headerValues(headers: Record<string, string | string[]>, name: string) {
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name.toLowerCase())
+  if (!key) return []
+  return (Array.isArray(headers[key]) ? headers[key] : [headers[key]])
+    .flatMap((item) => expandHeaderValue(item))
+}
+
+function expandHeaderValue(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [value]
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!Array.isArray(parsed)) return [value]
+    return parsed.filter((item): item is string => typeof item === "string")
+  } catch {
+    return [value]
+  }
+}
+
 function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: any) {
   const keyToChangeLower = keyToChange.toLowerCase()
   for (const key of Object.keys(obj)) {
@@ -380,4 +533,11 @@ function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: an
   }
   // Insert at end instead
   obj[keyToChange] = value
+}
+
+function deleteKey(obj: Record<string, any>, keyToDelete: string) {
+  const keyToDeleteLower = keyToDelete.toLowerCase()
+  Object.keys(obj)
+    .filter((key) => key.toLowerCase() === keyToDeleteLower)
+    .forEach((key) => delete obj[key])
 }

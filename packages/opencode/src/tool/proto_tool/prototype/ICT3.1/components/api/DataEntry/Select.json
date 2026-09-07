@@ -1,0 +1,91 @@
+{
+  "name": "Select",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Select"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": ["string", "number", "array"] },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The current selected value(s)."
+        },
+        "options": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": ["string", "number", "boolean"]
+                }
+              },
+              "required": ["label", "value"]
+              }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The dropdown options list."
+        },
+        "size": {
+          "type": "string",
+          "enum": ["large", "medium", "small"]
+        },
+        "placeholder": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Placeholder text."
+        },
+        "showSearch": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["multiple"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component." 
+        }
+      },
+      "required": ["value", "options"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

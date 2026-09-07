@@ -1,7 +1,13 @@
+declare module "*?raw" {
+  const content: string
+  export default content
+}
+
 interface ImportMetaEnv {
   readonly OCTO_CHANNEL: string
   readonly OCTO_KB_BASE_URL: string
   readonly OCTO_UXR_MCP_URL: string
+  readonly OCTO_UPLOAD_ENDPOINT: string
 }
 
 interface ImportMeta {

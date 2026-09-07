@@ -82,16 +82,14 @@ if (fs.existsSync(skillsDir)) {
   console.log(`Copied built-in skills to ${distSkillDir}`)
 }
 
-// Copy proto_tool components/ and design/ to dist/node/ for load_components_docs
+// 将设计系统原型复制到 dist/node/prototype/，供 electron-builder 打包和 deployProtoTools 部署
 const protoToolDir = path.join(dir, "src", "tool", "proto_tool")
 const distNodeDir = path.join(dir, "dist", "node")
-for (const sub of ["components", "design"]) {
-  const srcDir = path.join(protoToolDir, sub)
-  const destDir = path.join(distNodeDir, sub)
-  if (fs.existsSync(srcDir)) {
-    fs.cpSync(srcDir, destDir, { recursive: true })
-    console.log(`Copied ${sub}/ to ${destDir}`)
-  }
+const prototypeSrc = path.join(protoToolDir, "prototype")
+if (fs.existsSync(prototypeSrc)) {
+  const prototypeDest = path.join(distNodeDir, "prototype")
+  fs.cpSync(prototypeSrc, prototypeDest, { recursive: true })
+  console.log(`Copied prototype/ to ${prototypeDest}`)
 }
 
 await Bun.build({

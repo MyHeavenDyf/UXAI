@@ -1,0 +1,96 @@
+{
+  "name": "Breadcrumb",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    },
+    "SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Breadcrumb"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "description": "Raw text content to render directly (e.g., 'Submit', 'Hello World')."
+                    },
+                    { "$ref": "#/$defs/DataBinding" },
+                    { "$ref": "#/$defs/SlotNode" }
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["reference", ""],
+                  "description": "Setting this to 'reference' replaces the current item with the separator. It is not recommended unless item replacement is explicitly required."
+                },
+                "separator": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "$ref": "#/$defs/DataBinding"
+          }
+        ],
+          "description": "The Breadcrumb item list."
+        },
+        "separator": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["items"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

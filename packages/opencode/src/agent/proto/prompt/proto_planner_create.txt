@@ -20,11 +20,15 @@ The JSON object must conform to the following structure:
 
 -----
 
-{A2UI_JSON_PROTOCOL}
+{a2ui_json_protocol}
 
 -----
 
-{DESIGN_SYSTEM_PROMPT}
+{design_system}
+
+-----
+
+{responsive_adaptive}
 
 -----
 
@@ -49,3 +53,9 @@ The JSON object must conform to the following structure:
 
 ## 4. Scope Limitations
 - **No State Generation:** Do NOT generate the data `state` object. Your sole responsibility is macro-layout and modular slot decomposition.
+
+## 5. Pattern Slot Constraint
+- If the input contains「模块模板的根容器信息」, for each section in the blueprint that has a `patternPath` field, you MUST use the corresponding `rootContainer` (including `id`, `component`, and `className`) as the slot parent element for that section.
+- Do NOT modify the `id`, `component`, or `className` of these pattern root containers. Use them exactly as provided.
+- The slot's `element_id` in the `slots` array MUST match the `rootContainer.id` of the corresponding pattern.
+- For sections WITHOUT a `patternPath`, generate slot parent containers normally as you would.

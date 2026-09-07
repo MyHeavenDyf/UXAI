@@ -29,6 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
+import { modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -38,17 +39,359 @@ function shouldUseCopilotResponsesApi(modelID: string): boolean {
   return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
 }
 
-function wrapSSE(res: Response, ms: number, ctl: AbortController) {
+// 临时调试：捕获 LLM fetch 全生命周期，定位 AbortError / UND_ERR_ABORTED 真凶
+// 移除方法：删除本块（fetch-debug logger + helpers），并把下方 options["fetch"] 包装器改回原样
+const fetchDebug = Log.create({ service: "fetch-debug" })
+let fetchDebugSeq = 0
+
+function describeAbortReason(sig: any): string {
+  if (!sig?.reason) return "<none>"
+  const r = sig.reason
+  if (r instanceof Error) {
+    const causeStr = r.cause instanceof Error ? ` (cause: ${r.cause.name}: ${r.cause.message})` : ""
+    return `${r.name}: ${r.message}${causeStr}`
+  }
+  try {
+    return JSON.stringify(r).slice(0, 500)
+  } catch {
+    return String(r).slice(0, 500)
+  }
+}
+
+function describeError(e: any): Record<string, any> {
+  if (e == null) return { value: String(e) }
+  const out: Record<string, any> = {}
+  if (e instanceof Error) {
+    out.name = e.name
+    out.message = e.message
+    out.stack = (e.stack ?? "").slice(0, 4000)
+    if (e.cause != null) {
+      out.cause =
+        e.cause instanceof Error
+          ? { name: e.cause.name, message: e.cause.message, code: (e.cause as any).code }
+          : String(e.cause).slice(0, 500)
+    }
+  } else {
+    out.value = String(e).slice(0, 500)
+  }
+  // Node / undici / Bun 系统错误字段
+  for (const k of [
+    "code",
+    "errno",
+    "syscall",
+    "systemCall",
+    "address",
+    "port",
+    "dest",
+    "source",
+    "path",
+    "hostname",
+    "type",
+    "url",
+    "method",
+    "aborted",
+    "name",
+  ]) {
+    if (typeof (e as any)?.[k] !== "undefined") out[k] = (e as any)[k]
+  }
+  // 兜底：所有自身可枚举属性
+  try {
+    for (const [k, v] of Object.entries(e as object)) {
+      if (k in out) continue
+      if (typeof v === "function") continue
+      try {
+        out[k] = JSON.parse(JSON.stringify(v))
+      } catch {
+        out[k] = String(v).slice(0, 200)
+      }
+    }
+  } catch {}
+  return out
+}
+
+const SENSITIVE_HEADER_KEYS = new Set([
+  "authorization",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "cookie",
+  "set-cookie",
+  "x-auth-token",
+  "proxy-authorization",
+])
+
+function sanitizeHeaders(input: Headers | Record<string, string> | undefined | null): Record<string, string> {
+  if (!input) return {}
+  const out: Record<string, string> = {}
+  const entries: Iterable<[string, string]> =
+    input instanceof Headers ? input.entries() : Object.entries(input)
+  for (const [k, v] of entries) {
+    if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase())) {
+      const s = String(v)
+      out[k] = s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)} (${s.length} chars)` : `<${s.length} chars>`
+    } else {
+      out[k] = String(v)
+    }
+  }
+  return out
+}
+
+function describeInit(init: any): Record<string, any> {
+  if (!init) return {}
+  const out: Record<string, any> = {}
+  for (const k of Object.keys(init)) {
+    const v = (init as any)[k]
+    if (k.toLowerCase() === "headers") {
+      out.headers = sanitizeHeaders(v as Headers)
+    } else if (k === "body") {
+      if (typeof v === "string") {
+        out.body_summary = { kind: "string", length: v.length }
+        try {
+          const parsed = JSON.parse(v)
+          if (parsed && typeof parsed === "object") {
+            const safe: Record<string, any> = {}
+            for (const [bk, bv] of Object.entries(parsed)) {
+              if (/key|token|secret|password|auth/i.test(bk)) {
+                safe[bk] = "<redacted>"
+              } else {
+                safe[bk] = bv
+              }
+            }
+            out.body_keys = Object.keys(parsed)
+            out.body_preview = safe
+          }
+        } catch {
+          out.body_preview = v.slice(0, 200)
+        }
+      } else if (v == null) {
+        out.body_summary = { kind: "null" }
+      } else {
+        out.body_summary = { kind: typeof v, ctor: v?.constructor?.name }
+      }
+    } else if (k === "signal") {
+      out.signal = {
+        present: true,
+        aborted: v?.aborted === true,
+        reason: v?.aborted === true ? describeAbortReason(v) : null,
+      }
+    } else if (typeof v === "function") {
+      out[k] = `<function ${v.name || "anonymous"}>`
+    } else if (typeof v === "object" && v !== null) {
+      out[k] = `<${v.constructor?.name ?? "object"}>`
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
+function describeRequest(req: any): Record<string, any> {
+  if (!req || typeof req !== "object") return { kind: "non-object", value: String(req).slice(0, 200) }
+  if (typeof req.url !== "string") return { kind: "no-url", ctor: req.constructor?.name }
+  return {
+    kind: "Request",
+    url: req.url,
+    method: req.method,
+    mode: req.mode,
+    credentials: req.credentials,
+    cache: req.cache,
+    redirect: req.redirect,
+    referrer: req.referrer,
+    integrity: req.integrity,
+    keepalive: req.keepalive,
+    signal_present: !!req.signal,
+    signal_aborted: req.signal?.aborted === true,
+    signal_reason: req.signal?.aborted === true ? describeAbortReason(req.signal) : null,
+    headers: sanitizeHeaders(req.headers),
+  }
+}
+
+function attachSourceListener(
+  sig: AbortSignal | undefined | null,
+  source: string,
+  fire: (source: string, sig: AbortSignal) => void,
+): () => void {
+  if (!sig) return () => {}
+  if (sig.aborted) {
+    fire(source + "(pre-aborted)", sig)
+    return () => {}
+  }
+  const listener = () => fire(source, sig)
+  sig.addEventListener("abort", listener, { once: true })
+  return () => sig.removeEventListener("abort", listener)
+}
+
+function wrapBodyForDebug(res: Response, seq: number, startMs: number): Response {
+  if (!res.body) return res
+  try {
+    // 用 tee() 复制流：debug 分支异步消费，passthrough 分支返回给消费者。
+    // 比手写 ReadableStream pull 稳定得多：不会改 backpressure、cancel 行为，
+    // 也不会因为 pull 抛错破坏消费者读取。
+    const [debugBody, passthroughBody] = res.body.tee()
+    void consumeForDebug(debugBody, seq, startMs)
+    return new Response(passthroughBody, {
+      headers: new Headers(res.headers),
+      status: res.status,
+      statusText: res.statusText,
+    })
+  } catch (e) {
+    try {
+      fetchDebug.error(`fetch #${seq} wrapBodyForDebug init threw`, {
+        seq,
+        error: describeError(e),
+      })
+    } catch {}
+    return res
+  }
+}
+
+async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, startMs: number) {
+  const reader = stream.getReader()
+  let chunkCount = 0
+  let totalBytes = 0
+  let firstChunkMs: number | null = null
+  let lastChunkMs: number | null = null
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) {
+        fetchDebug.info(`fetch #${seq} body done`, {
+          seq,
+          chunk_count: chunkCount,
+          total_bytes: totalBytes,
+          first_chunk_ms: firstChunkMs,
+          last_chunk_ms: lastChunkMs,
+          total_ms: Date.now() - startMs,
+        })
+        return
+      }
+      chunkCount++
+      totalBytes += value.byteLength
+      const now = Date.now() - startMs
+      const delta = lastChunkMs !== null ? now - lastChunkMs : null
+      lastChunkMs = now
+      if (chunkCount === 1) {
+        firstChunkMs = now
+        const previewBytes = value.slice(0, 512)
+        let preview: string
+        try {
+          preview = new TextDecoder().decode(previewBytes)
+        } catch {
+          preview = `<${previewBytes.byteLength} bytes, decode failed>`
+        }
+        fetchDebug.info(`fetch #${seq} body first chunk`, {
+          seq,
+          size: value.byteLength,
+          at_ms: now,
+          preview,
+        })
+      } else if (chunkCount <= 5 || chunkCount % 50 === 0) {
+        fetchDebug.info(`fetch #${seq} body chunk #${chunkCount}`, {
+          seq,
+          size: value.byteLength,
+          at_ms: now,
+          delta_ms: delta,
+        })
+      }
+    }
+  } catch (e) {
+    try {
+      fetchDebug.error(`fetch #${seq} body read threw`, {
+        seq,
+        chunk_count: chunkCount,
+        total_bytes: totalBytes,
+        at_ms: Date.now() - startMs,
+        error: describeError(e),
+      })
+    } catch {}
+  }
+}
+
+// 正式业务代码：本地 provider 直连 dispatcher
+// 背景：octo AI 等本地预配 provider 走华为内网域名（octoai-llm.ucd.huawei.com 等），
+// 在某些用户机器上（系统代理 / ClashX 增强模式 / Surge / TUN 模式 / 公司网关）会出现
+// 6 秒规律 fetch failed with "Request was cancelled." code: 0（signal 全程未 abort），
+// 参见 https://github.com/nodejs/undici/issues/2161。
+// 解决方案：针对本地 provider 强制使用无代理 dispatcher，禁用所有 timeout，绕过系统代理。
+//
+// 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
+
+// 本地 provider 总墙钟（请求总时长上限）。原 5min 误杀 3D plan/codegen 长生成
+// （GLM-V5_1 实测 300s 时仍在持续吐字、已收 696KB/3237 chunk 被墙钟掐断）。
+// 调大到 10min：给长生成足够时间。不会放任真死锁——chunkTimeout（默认 90s，
+// 无新 SSE chunk 即 abort）才是死锁防线，模型只要还在吐字就不会被误杀。
+const LOCAL_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000
+
+const LOCAL_PROVIDER_IDS = new Set(["opencode", "bpit", "bpit-beta"])
+const LOCAL_PROVIDER_HOST_PATTERNS = [
+  /\.huawei\.com$/i,
+  /^localhost$/i,
+  /^127\.0\.0\.\d+$/,
+  /^::1$/,
+]
+
+let _bypassDispatcher: any = null
+let _bypassDispatcherInited = false
+async function getBypassDispatcher(): Promise<any | null> {
+  if (_bypassDispatcherInited) return _bypassDispatcher
+  _bypassDispatcherInited = true
+  // Bun.fetch 不读 HTTP_PROXY，无需修复
+  if (typeof process === "undefined" || !process.versions?.node) return null
+  if (process.env.OPENCODE_DISABLE_BYPASS_DISPATCHER === "1") return null
+  try {
+    const mod = await import("undici")
+    _bypassDispatcher = new mod.Agent({
+      // 本地 provider 总墙钟：覆盖 6 秒问题（远高于），同时防止服务端死锁导致 fetch 假死。
+      // 与 LOCAL_PROVIDER_TIMEOUT_MS 一致——dispatcher 层和 fetch options 层同值，
+      // 真死锁由 chunkTimeout（90s 无新 chunk）兜底，总墙钟只管请求总时长。
+      headersTimeout: LOCAL_PROVIDER_TIMEOUT_MS,
+      bodyTimeout: LOCAL_PROVIDER_TIMEOUT_MS,
+      // 连接建立仍给 30s 兜底
+      connectTimeout: 30_000,
+      // 短 keepalive，避免连接池里的陈旧连接被服务端 RST
+      keepAliveTimeout: 1_000,
+      keepAliveMaxTimeout: 5_000,
+    })
+    return _bypassDispatcher
+  } catch {
+    return null
+  }
+}
+
+function shouldUseBypassDispatcher(providerID: string, url: string): boolean {
+  if (LOCAL_PROVIDER_IDS.has(providerID)) return true
+  try {
+    const u = new URL(url)
+    for (const pattern of LOCAL_PROVIDER_HOST_PATTERNS) {
+      if (pattern.test(u.hostname)) return true
+    }
+  } catch {}
+  return false
+}
+
+function wrapSSE(res: Response, ms: number, ctl: AbortController, seq?: number) {
   if (typeof ms !== "number" || ms <= 0) return res
   if (!res.body) return res
   if (!res.headers.get("content-type")?.includes("text/event-stream")) return res
 
   const reader = res.body.getReader()
+  let pullCount = 0
+  const pullStartMs = Date.now()
   const body = new ReadableStream<Uint8Array>({
     async pull(ctrl) {
+      pullCount++
       const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
         const id = setTimeout(() => {
           const err = new Error("SSE read timed out")
+          if (seq !== undefined) {
+            fetchDebug.error(`fetch #${seq} SSE chunk timeout fired`, {
+              seq,
+              pull_count: pullCount,
+              chunk_timeout_ms: ms,
+              at_ms: Date.now() - pullStartMs,
+              message: err.message,
+            })
+          }
           ctl.abort(err)
           void reader.cancel(err)
           reject(err)
@@ -67,6 +410,13 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
       })
 
       if (part.done) {
+        if (seq !== undefined) {
+          fetchDebug.info(`fetch #${seq} SSE stream ended`, {
+            seq,
+            pull_count: pullCount,
+            total_ms: Date.now() - pullStartMs,
+          })
+        }
         ctrl.close()
         return
       }
@@ -74,6 +424,14 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
       ctrl.enqueue(part.value)
     },
     async cancel(reason) {
+      if (seq !== undefined) {
+        fetchDebug.warn(`fetch #${seq} SSE consumer cancelled`, {
+          seq,
+          pull_count: pullCount,
+          reason: describeAbortReason({ reason } as any),
+          at_ms: Date.now() - pullStartMs,
+        })
+      }
       ctl.abort(reason)
       await reader.cancel(reason)
     },
@@ -269,6 +627,27 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         const models: Record<string, Model> = {}
         for (const [key, model] of Object.entries(bpitBetaProvider.models)) {
           models[key] = fromModelsDevModel(bpitBetaProvider, model)
+        }
+        input.models = models
+      }
+
+      return {
+        autoload: true,
+        options: {},
+      }
+    }),
+    w3: Effect.fnUntraced(function* (input: Info) {
+      const snapshot = yield* Effect.tryPromise({
+        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+      const w3Provider = snapshot?.["w3"]
+      if (w3Provider) {
+        input.name = w3Provider.name
+        const models: Record<string, Model> = {}
+        for (const [key, model] of Object.entries(w3Provider.models)) {
+          models[key] = fromModelsDevModel(w3Provider, model)
         }
         input.models = models
       }
@@ -1238,6 +1617,7 @@ const layer: Layer.Layer<
         const disabled = new Set(cfg.disabled_providers ?? [])
 
         function isProviderAllowed(providerID: ProviderID): boolean {
+          if (providerID === "w3") return true
           if (disabled.has(providerID)) return false
           return true
         }
@@ -1412,7 +1792,7 @@ const layer: Layer.Layer<
 
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderID.make(id)
-          if (disabled.has(providerID)) continue
+          if (disabled.has(providerID) && providerID !== "w3") continue
           const data = database[providerID]
 
           // Special case: opencode/bpit custom loader can run without database entry
@@ -1540,7 +1920,12 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
-    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+    async function resolveSDK(
+      model: Model,
+      s: State,
+      envs: Record<string, string | undefined>,
+      remoteApi?: string,
+    ) {
       try {
         using _ = log.time("getSDK", {
           providerID: model.providerID,
@@ -1556,9 +1941,11 @@ const layer: Layer.Layer<
           options["includeUsage"] = true
         }
 
+        const configuredBaseURL =
+          typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : undefined
+        remoteApi ??= model.providerID === "w3" ? await modelsApiProviderUrl("w3") : undefined
         const baseURL = iife(() => {
-          let url =
-            typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
+          let url = remoteApi ?? configuredBaseURL ?? model.api.url
           if (!url) return
 
           const loader = s.varsLoaders[model.providerID]
@@ -1602,21 +1989,72 @@ const layer: Layer.Layer<
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
+        // 默认 180s 无新 chunk 即 abort：远程 provider（GLM/DeepSeek）不走 bypass 兜底，
+        // 而调用方从没传 chunkTimeout → wrapSSE 的间隔超时是死代码 → SSE 静默断时无限假死。
+        // 注入默认值让其生效；正常长生成持续来 token 会 reset timer，不会误杀。
+        // 180s（非 90s）：差模型（reasoning 模型 GLM/DeepSeek）在「思考→输出代码」切换时
+        // 可能 90s+ 不出 token（非死锁，是正常推理停顿，338.9s codegen 实证误杀）。
+        // 真死锁时多等 90s 才发现，但有 P1.1 渐进提示（120s 灰/300s 橙）+ P1.2 15min 超时卡片兜底。
+        const chunkTimeout =
+          typeof options["chunkTimeout"] === "number" && options["chunkTimeout"] > 0
+            ? options["chunkTimeout"]
+            : 180_000
         delete options["chunkTimeout"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
           const fetchFn = customFetch ?? fetch
           const opts = init ?? {}
           const chunkAbortCtl = typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined
+
+          // ===== fetch-debug: capture LLM fetch lifecycle =====
+          // 所有诊断代码包 try/catch，确保诊断崩了不影响 fetch 本身
+          const seq = ++fetchDebugSeq
+          const startMs = Date.now()
+          let callerStack = ""
+          let url = "<unknown>"
+          let method = "GET"
+          let userSignal: AbortSignal | null = null
+          let chunkSignal: AbortSignal | null = null
+          let optionsTimeoutSignal: AbortSignal | null = null
+          let combined: AbortSignal | null = null
+          let firstAbortSource: { source: string; at_ms: number; reason: string } | undefined
+          const sourcesSeen = new Set<string>()
+          const detachFns: Array<() => void> = []
+          const detachAll = () => {
+            for (const fn of detachFns) {
+              try {
+                fn()
+              } catch {}
+            }
+          }
+          try {
+            callerStack = (new Error().stack ?? "").slice(0, 2000)
+            url = typeof input === "string" ? input : input?.url ?? String(input)
+            method = opts.method ?? (typeof input === "object" && input?.method) ?? "GET"
+
+            userSignal = (opts.signal as AbortSignal | undefined) ?? null
+            chunkSignal = chunkAbortCtl?.signal ?? null
+            // 本地 provider 兜底：用户没配 timeout 时注入默认总墙钟，
+            // 防止 dispatcher headersTimeout/bodyTimeout 之外没有上层超时，
+            // 避免服务端死锁导致 fetch 永远挂起。真死锁由 chunkTimeout（90s 无新 chunk）兜底。
+            const effectiveTimeout =
+              options["timeout"] === undefined && shouldUseBypassDispatcher(model.providerID, url)
+                ? LOCAL_PROVIDER_TIMEOUT_MS
+                : options["timeout"]
+            if (effectiveTimeout !== undefined && effectiveTimeout !== null && effectiveTimeout !== false) {
+              optionsTimeoutSignal = AbortSignal.timeout(effectiveTimeout as number)
+            }
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-prep threw`, { seq, error: describeError(e) })
+            } catch {}
+          }
+
           const signals: AbortSignal[] = []
-
-          if (opts.signal) signals.push(opts.signal)
-          if (chunkAbortCtl) signals.push(chunkAbortCtl.signal)
-          if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false)
-            signals.push(AbortSignal.timeout(options["timeout"]))
-
-          const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
+          if (userSignal) signals.push(userSignal)
+          if (chunkSignal) signals.push(chunkSignal)
+          if (optionsTimeoutSignal) signals.push(optionsTimeoutSignal)
+          combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
 
           // Strip openai itemId metadata following what codex does
@@ -1637,14 +2075,158 @@ const layer: Layer.Layer<
             }
           }
 
-          const res = await fetchFn(input, {
-            ...opts,
-            // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-            timeout: false,
-          })
+          try {
+            const onSourceAbort = (source: string, sig: AbortSignal) => {
+              try {
+                if (firstAbortSource === undefined) {
+                  firstAbortSource = {
+                    source,
+                    at_ms: Date.now() - startMs,
+                    reason: describeAbortReason(sig),
+                  }
+                }
+                if (!sourcesSeen.has(source)) {
+                  sourcesSeen.add(source)
+                }
+                fetchDebug.error(`fetch #${seq} source-signal aborted`, {
+                  seq,
+                  provider_id: model.providerID,
+                  url,
+                  source,
+                  at_ms: Date.now() - startMs,
+                  reason: describeAbortReason(sig),
+                  combined_aborted: combined?.aborted === true,
+                  sources_seen: Array.from(sourcesSeen),
+                })
+              } catch {}
+            }
+            detachFns.push(attachSourceListener(userSignal, "user", onSourceAbort))
+            detachFns.push(attachSourceListener(chunkSignal, "chunk", onSourceAbort))
+            detachFns.push(attachSourceListener(optionsTimeoutSignal, "options-timeout", onSourceAbort))
+            detachFns.push(attachSourceListener(combined, "combined", onSourceAbort))
 
-          if (!chunkAbortCtl) return res
-          return wrapSSE(res, chunkTimeout, chunkAbortCtl)
+            // start 事件：把所有可用信息一次打全（每个字段独立 try/catch，单个失败不阻塞）
+            const safeDescribe = <T>(fn: () => T, label: string): T | { __error: string } => {
+              try {
+                return fn()
+              } catch (e) {
+                return { __error: `${label}: ${e instanceof Error ? e.message : String(e)}` }
+              }
+            }
+            fetchDebug.info(`fetch #${seq} start`, {
+              seq,
+              provider_id: model.providerID,
+              npm: model.api.npm,
+              base_url: options["baseURL"] ?? null,
+              method,
+              url,
+              options_timeout_ms: options["timeout"] ?? null,
+              chunk_timeout_ms: chunkTimeout ?? null,
+              combined_signal_present: !!combined,
+              user_signal_present: !!userSignal,
+              user_signal_pre_aborted: userSignal?.aborted === true,
+              chunk_signal_present: !!chunkSignal,
+              options_timeout_signal_present: !!optionsTimeoutSignal,
+              init: safeDescribe(() => describeInit(opts), "describeInit"),
+              request:
+                typeof input !== "string"
+                  ? safeDescribe(() => describeRequest(input), "describeRequest")
+                  : { kind: "string-url" },
+              caller_stack: callerStack,
+            })
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-start threw`, { seq, error: describeError(e) })
+            } catch {}
+          }
+
+          let res: Response
+          // 本地 provider 直连：用自定义 undici dispatcher 绕过系统代理
+          let dispatcherOpt: Record<string, unknown> = {}
+          if (shouldUseBypassDispatcher(model.providerID, url)) {
+            const dispatcher = await getBypassDispatcher()
+            if (dispatcher) {
+              dispatcherOpt = { dispatcher }
+              try {
+                fetchDebug.info(`fetch #${seq} using bypass dispatcher`, {
+                  seq,
+                  provider_id: model.providerID,
+                  url,
+                })
+              } catch {}
+            }
+          }
+          try {
+            res = await fetchFn(input, {
+              ...opts,
+              ...dispatcherOpt,
+              // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+              timeout: false,
+            })
+          } catch (e: any) {
+            try {
+              const errAtMs = Date.now() - startMs
+              fetchDebug.error(`fetch #${seq} fetchFn threw`, {
+                seq,
+                provider_id: model.providerID,
+                url,
+                method,
+                at_ms: errAtMs,
+                error: describeError(e),
+                combined_aborted_at_error: combined?.aborted === true,
+                user_signal_aborted_at_error: userSignal?.aborted === true,
+                chunk_signal_aborted_at_error: chunkSignal?.aborted === true,
+                options_timeout_signal_aborted_at_error: optionsTimeoutSignal?.aborted === true,
+                first_abort_source: firstAbortSource ?? null,
+                sources_seen: Array.from(sourcesSeen),
+              })
+            } catch {}
+            detachAll()
+            throw e
+          }
+
+          try {
+            const headersMs = Date.now() - startMs
+            fetchDebug.info(`fetch #${seq} response headers`, {
+              seq,
+              provider_id: model.providerID,
+              url,
+              status: res.status,
+              status_text: res.statusText,
+              ok: res.ok,
+              type: res.type,
+              headers: sanitizeHeaders(res.headers),
+              duration_ms: headersMs,
+            })
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-headers threw`, { seq, error: describeError(e) })
+            } catch {}
+          }
+
+          // body 包装用 tee() 实现，不会破坏消费者读取链路
+          const resOrWrapped = wrapBodyForDebug(res, seq, startMs)
+
+          if (!chunkAbortCtl) {
+            try {
+              fetchDebug.info(`fetch #${seq} done (no chunk wrap)`, {
+                seq,
+                duration_ms: Date.now() - startMs,
+              })
+            } catch {}
+            detachAll()
+            return resOrWrapped
+          }
+
+          const wrapped = wrapSSE(resOrWrapped, chunkTimeout, chunkAbortCtl, seq)
+          try {
+            fetchDebug.info(`fetch #${seq} wrapped SSE`, {
+              seq,
+              chunk_timeout_ms: chunkTimeout,
+            })
+          } catch {}
+          return wrapped
+          // ===== /fetch-debug =====
         }
 
         const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
@@ -1715,12 +2297,18 @@ const layer: Layer.Layer<
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
-      const key = `${model.providerID}/${model.id}`
+      const provider = s.providers[model.providerID]
+      const configuredBaseURL =
+        typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
+          ? provider.options["baseURL"]
+          : undefined
+      const remoteApi =
+        model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
+      const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {
-        const provider = s.providers[model.providerID]
-        const sdk = await resolveSDK(model, s, envs)
+        const sdk = await resolveSDK(model, s, envs, remoteApi)
 
         try {
           const language = s.modelLoaders[model.providerID]

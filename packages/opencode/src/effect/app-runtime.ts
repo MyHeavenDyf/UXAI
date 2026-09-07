@@ -51,6 +51,7 @@ import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { SyncEvent } from "@/sync"
+import { Comment } from "@/comment"
 import { Npm } from "@opencode-ai/core/npm"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 
@@ -94,6 +95,7 @@ export const AppLayer = Layer.mergeAll(
   Truncate.defaultLayer,
   ToolRegistry.defaultLayer,
   Format.defaultLayer,
+  Comment.defaultLayer,
   Project.defaultLayer,
   Vcs.defaultLayer,
   Workspace.defaultLayer,

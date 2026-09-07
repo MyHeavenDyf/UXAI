@@ -16,12 +16,18 @@ type StartCommand = {
   hostname: string
   port: number
   password: string
+  storage: SidecarStorage
   userDataPath: string
   needsMigration: boolean
 }
 
 type StopCommand = { type: "stop" }
 type SidecarCommand = StartCommand | StopCommand
+
+type SidecarStorage = {
+  mode: "legacy" | "app-data-fallback"
+  env: Record<string, string>
+}
 
 type SidecarMessage =
   | { type: "sqlite"; progress: { type: "InProgress"; value: number } | { type: "Done" } }
@@ -53,7 +59,7 @@ parentPort.on("message", (event) => {
 
 async function start(command: StartCommand) {
   try {
-    prepareSidecarEnv(command.password, command.userDataPath)
+    prepareSidecarEnv(command.password, command.userDataPath, command.storage)
     ensureLoopbackNoProxy()
     useSystemCertificates()
     const { Database, JsonMigration, Log, Server } = await import("virtual:opencode-server")
@@ -99,11 +105,12 @@ async function stop() {
   }
 }
 
-function prepareSidecarEnv(password: string, userDataPath: string) {
+function prepareSidecarEnv(password: string, userDataPath: string, storage: SidecarStorage) {
   Object.assign(process.env, {
     OCTO_SERVER_USERNAME: "opencode",
     OCTO_SERVER_PASSWORD: password,
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
+    ...storage.env,
   })
 }
 
@@ -154,6 +161,7 @@ function parseCommand(value: unknown): SidecarCommand | undefined {
   if (typeof command.hostname !== "string") return
   if (typeof command.port !== "number") return
   if (typeof command.password !== "string") return
+  if (!isSidecarStorage(command.storage)) return
   if (typeof command.userDataPath !== "string") return
   if (typeof command.needsMigration !== "boolean") return
   return {
@@ -161,9 +169,18 @@ function parseCommand(value: unknown): SidecarCommand | undefined {
     hostname: command.hostname,
     port: command.port,
     password: command.password,
+    storage: command.storage,
     userDataPath: command.userDataPath,
     needsMigration: command.needsMigration,
   }
+}
+
+function isSidecarStorage(value: unknown): value is SidecarStorage {
+  if (!value || typeof value !== "object") return false
+  const storage = value as Partial<SidecarStorage>
+  if (storage.mode !== "legacy" && storage.mode !== "app-data-fallback") return false
+  if (!storage.env || typeof storage.env !== "object") return false
+  return Object.values(storage.env).every((item) => typeof item === "string")
 }
 
 function serializeError(error: unknown) {

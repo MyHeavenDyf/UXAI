@@ -3,11 +3,12 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import * as Log from "@opencode-ai/core/util/log"
 import type { EffectBridge } from "@/effect/bridge"
 import type { ConfigMCP } from "../config/mcp"
+import { TuiEvent } from "@/cli/cmd/tui/event"
 
 const log = Log.create({ service: "mcp.reconnect" })
 
 // === 常量 ===
-const MAX_RECONNECT_ATTEMPTS = 5
+const MAX_RECONNECT_ATTEMPTS = 3
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
 const MAX_ERRORS_BEFORE_RECONNECT = 2
@@ -46,6 +47,16 @@ function isTerminalConnectionError(msg: string): boolean {
 /** SDK 放弃重连信号（StreamableHTTPClientTransport._scheduleReconnection 末尾抛出） */
 function isSdkGiveUpSignal(msg: string): boolean {
   return /Maximum reconnection attempts.*exceeded/.test(msg)
+}
+
+/**
+ * 是否为 AbortError（Node Web Streams 内部清理 / SDK transport-level abort）。
+ * 这种错误 ambiguous：可能是 SDK 正常的 stream 清理（client 还活着），
+ * 也可能是 transport 实际已死（client 不能用）。需要 ping 验证才能区分。
+ */
+function isAbortError(msg: string): boolean {
+  const lower = msg.toLowerCase()
+  return lower.includes("aborted") || lower.includes("aborterror")
 }
 
 function backoffMs(attempt: number): number {
@@ -117,10 +128,18 @@ export function verifyAndReconnectIfNeeded(
   bridge: EffectBridge.Shape,
   ctx: ReconnectContext,
   timeoutMs: number = PREFLIGHT_PING_TIMEOUT_MS,
+  serverNames?: string[],
 ) {
   return Effect.gen(function* () {
     const s = yield* ctx.state.get()
-    const remoteNames = Object.keys(s.clients).filter((n) => remoteConfigs.has(n))
+    // 如果传入了 serverNames，只检查指定的 server（toolsForAgent scope 优化）；
+    // 没传时保持原行为：检查所有有 remote 配置的 server。
+    // 这样 5 次重连全失败（clients/defs 已删、status=failed）的 server 也能在
+    // 下次对话触发 tools() 时被重新拉起。disabled 的 server 由 intentionalDisconnects 拦住。
+    const allRemoteNames = Array.from(remoteConfigs.keys())
+    const remoteNames = serverNames
+      ? serverNames.filter((n) => allRemoteNames.includes(n))
+      : allRemoteNames
 
     if (remoteNames.length === 0) return
 
@@ -144,7 +163,27 @@ export function verifyAndReconnectIfNeeded(
           }
 
           const client = s.clients[name]
-          if (!client) return
+          const currentStatus = s.status[name]?.status
+
+          // 方案 B 核心：failed 或 missing client（5 次重连全失败 / 首次 create 失败）
+          // 无 client 可 ping，直接触发重连，让 reconnectWithBackoff 再走一轮 5 次。
+          if (!client || currentStatus === "failed") {
+            log.warn("[reconnect] preflight found dead client - triggering reconnect directly", {
+              name,
+              currentStatus: currentStatus ?? "missing",
+              hasClient: !!client,
+            })
+            triggerReconnect(
+              s,
+              name,
+              client,
+              bridge,
+              ctx,
+              "tools-preflight",
+              `client dead (status: ${currentStatus ?? "missing"}, hasClient: ${!!client})`,
+            )
+            return
+          }
 
           // 用 Promise 内部 catch 把失败转成 boolean，避免 Effect 错误通道类型复杂化
           let pingOk = false
@@ -191,6 +230,28 @@ export function verifyAndReconnectIfNeeded(
   )
 }
 
+/**
+ * toolsForAgent 专用版本：只对当前 agent 相关的 remote server 做 preflight 健康检查。
+ * 避免每次 tools() 都检查所有 remote server 导致频繁握手压垮服务器。
+ */
+export function verifyAndReconnectForAgent(
+  bridge: EffectBridge.Shape,
+  ctx: ReconnectContext,
+  agentMcp: string[] | undefined,
+  customServerNames: string[],
+) {
+  const relevantServerNames =
+    agentMcp && agentMcp.length > 0
+      ? [...agentMcp, ...customServerNames]
+      : customServerNames
+  return verifyAndReconnectIfNeeded(
+    bridge,
+    ctx,
+    PREFLIGHT_PING_TIMEOUT_MS,
+    relevantServerNames.length > 0 ? relevantServerNames : undefined,
+  )
+}
+
 // === 工具调用失败兜底（方案 B：execute 内 catch 触发重连） ===
 
 /**
@@ -234,6 +295,88 @@ export function triggerReconnectFromToolFailure(
       log.warn("[reconnect] tool-failure trigger aborted", {
         name,
         toolName,
+        error: String(e),
+      })
+      return Effect.void
+    }),
+  )
+}
+
+/**
+ * 方案 B（abort 兜底）：onerror 收到 AbortError 后异步 ping 验证 client 是否真死。
+ *
+ * 设计原因：Node Web Streams 内部 stream 清理时会触发 AbortController.abort()，
+ * 这种 abort 是 SDK 正常行为（client 还活着）；但 transport 实际死亡时也会抛
+ * AbortError（client 不能用）。两者单从 error message 区分不开，必须 ping 一次。
+ *
+ * 流程：
+ *   ping OK  → SDK 正常清理，忽略
+ *   ping 失败 → client 已死，triggerReconnect(source="onerror-aborted")
+ *
+ * 幂等保障：triggerReconnect 内部有 triggeredReconnectFlags + stale 检查，
+ * 即便 ping 期间 client 已被替换或别的路径已触发重连，也不会重复。
+ */
+function verifyClientAfterAbortedError(
+  name: string,
+  client: Client,
+  bridge: EffectBridge.Shape,
+  ctx: ReconnectContext,
+  originalError: string,
+) {
+  return Effect.gen(function* () {
+    log.info("[reconnect] aborted error - pinging to verify", {
+      name,
+      originalError,
+    })
+
+    let pingOk = false
+    let pingErr: unknown
+    yield* Effect.tryPromise({
+      try: () =>
+        withClientTimeout(client.ping(), PREFLIGHT_PING_TIMEOUT_MS).then(
+          () => {
+            pingOk = true
+          },
+          (e) => {
+            pingErr = e
+          },
+        ),
+      catch: (e) => {
+        pingErr = e
+        return e instanceof Error ? e : new Error(String(e))
+      },
+    })
+
+    if (pingOk) {
+      log.info("[reconnect] aborted error - ping ok, treating as SDK internal cleanup", {
+        name,
+        originalError,
+      })
+      return
+    }
+
+    const s = yield* ctx.state.get()
+    const pingMsg = pingErr instanceof Error ? pingErr.message : String(pingErr)
+    log.warn("[reconnect] aborted error - ping failed, triggering reconnect", {
+      name,
+      originalError,
+      pingError: pingMsg,
+    })
+    triggerReconnect(
+      s,
+      name,
+      client,
+      bridge,
+      ctx,
+      "onerror-aborted",
+      `abort detected + ping failed (orig=${originalError}, ping=${pingMsg})`,
+    )
+  }).pipe(
+    // 兜底：验证流程永远不应让 onerror 失败
+    Effect.catch((e) => {
+      log.warn("[reconnect] aborted verify aborted with error", {
+        name,
+        originalError,
         error: String(e),
       })
       return Effect.void
@@ -296,6 +439,7 @@ export interface ReconnectContext {
 export type TriggerSource =
   | "onerror-giveup"
   | "onerror-counter"
+  | "onerror-aborted"
   | "onclose-fallback"
   | "tools-preflight"
   | "tool-execute"
@@ -316,7 +460,7 @@ export type TriggerSource =
 function triggerReconnect(
   s: InternalState,
   name: string,
-  client: Client,
+  client: Client | undefined,
   bridge: EffectBridge.Shape,
   ctx: ReconnectContext,
   source: TriggerSource,
@@ -343,6 +487,8 @@ function triggerReconnect(
   }
 
   // stale client 检查：state 中的 client 已经被替换（storeClient / connect 等场景）
+  // 注意：方案 B 的 failed 分支会传 client=undefined，此时若 s.clients[name] 也为 undefined，
+  // undefined === undefined 不算 stale；若 state 中已有别的 client，说明被别的路径接管，跳过。
   const currentClient = s.clients[name]
   if (currentClient !== client) {
     log.info("[reconnect] trigger suppressed - stale handler", {
@@ -358,6 +504,11 @@ function triggerReconnect(
   triggeredReconnectFlags.add(name)
   terminalErrorCounts.set(name, 0)
 
+  // 立即更新 status 为 reconnecting，防止 tools() 在重连期间继续返回旧 client 给 agent 使用。
+  // 之前不更新此状态时，tools() 读到 status === "connected" 会把旧 client 暴露出去，
+  // 导致 agent 用断连的 client 调工具 → onerror → 想触发重连 → 被 triggeredReconnectFlags 拦下。
+  s.status[name] = { status: "reconnecting", error: `reconnecting (source: ${source}): ${reason}` }
+
   log.warn("[reconnect] trigger fired - starting reconnect loop", {
     name,
     source,
@@ -369,9 +520,9 @@ function triggerReconnect(
   })
 
   // 异步清理旧 client（不依赖其 onclose 触发）
-  // 用 .catch 兜底，避免 close 抛错影响重连流程
+  // 用 ?. + .catch 双兜底，避免 close 抛错影响重连流程；client 可能是 undefined（failed 分支）
   try {
-    client.close().catch((e) => {
+    client?.close().catch((e) => {
       log.debug("[reconnect] old client close error (safe to ignore)", {
         name,
         error: String(e),
@@ -408,6 +559,10 @@ export function setupConnectionHandlers(
   // 装新 handler 前清理该 server 的模块级状态（避免标志残留导致新 client 永远不触发重连）
   terminalErrorCounts.delete(name)
   triggeredReconnectFlags.delete(name)
+  // 防御性清理：connect 成功（storeClient → setupConnectionHandlers）后，
+  // 清掉可能残留的 intentionalDisconnects 标志。disconnect 时设的标志在 connect 后应该失效。
+  // 历史背景：closeClient 曾误设此标志导致重连被永久拦下，已修复（移到 disconnect 显式调）。
+  intentionalDisconnects.delete(name)
   handlerInstalledAt.set(name, installedAt)
 
   log.info("[reconnect] connection handlers installed", {
@@ -475,6 +630,21 @@ export function setupConnectionHandlers(
       return
     }
 
+    // 优先级 3：AbortError — 异步 ping 验证 client 是否真死（方案 B）
+    // Node Web Streams 内部清理会触发 abort（client 还活着），transport 死也会抛 abort，
+    // 单从 msg 区分不开，ping 一次区分。fire-and-forget，不阻塞 onerror。
+    if (isAbortError(msg)) {
+      bridge
+        .promise(verifyClientAfterAbortedError(name, client, bridge, ctx, msg))
+        .catch((e) => {
+          log.error("[reconnect] aborted verify promise rejected", {
+            name,
+            error: String(e),
+          })
+        })
+      return
+    }
+
     // 非终端错误：不清零（保留累积值），SDK 内部重连过程中可能反复抛 fetch failed 等非终端错误
     log.debug("[reconnect] non-terminal error ignored", {
       name,
@@ -512,7 +682,300 @@ export function setupConnectionHandlers(
   }
 }
 
-// === 重连核心逻辑 ===
+// === 阻塞重连（对话开始时按需重连） ===
+
+/** 重连完成信号（用于阻塞等待） */
+interface ReconnectCompletion {
+  resolve: (success: boolean) => void
+  reject: (error: Error) => void
+}
+
+/** 正在等待完成的阻塞请求 */
+const reconnectCompletions = new Map<string, ReconnectCompletion>()
+
+/** 创建完成信号 */
+function createCompletion(name: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    reconnectCompletions.set(name, { resolve, reject })
+  })
+}
+
+/**
+ * 阻塞等待 agent 相关 MCP 进入终态（connected 或 failed）。
+ * 只在 toolsForAgent 中调用，确保对话开始时 MCP 就绪。
+ *
+ * 设计原则：
+ *  - 按需重连：只在对话开始时检查，其他时刻不主动重连
+ *  - 作用域限制：只处理 agent.mcp 配置的服务器
+ *  - 阻塞等待：等待重连完成后再返回工具列表
+ *  - Toast 通知：断开/成功/失败时通知前端
+ */
+export function waitForAgentMcpReady(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  agentMcp: string[] | undefined,
+  customServerNames: string[],
+  timeoutMs: number = 60_000,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const s = yield* ctx.state.get()
+
+    // 计算需要检查的服务器列表
+    const allRemoteNames = Array.from(remoteConfigs.keys())
+    const relevantNames =
+      agentMcp && agentMcp.length > 0
+        ? [...agentMcp, ...customServerNames]
+        : customServerNames
+
+    // 过滤出需要处理的 remote server
+    const serverNames = relevantNames.filter((n) => allRemoteNames.includes(n))
+    if (serverNames.length === 0) return
+
+    log.debug("[reconnect] waitForAgentMcpReady starting", {
+      agentMcp,
+      customServerNames,
+      serverNames,
+    })
+
+    for (const name of serverNames) {
+      // 跳过主动断开的服务器
+      if (intentionalDisconnects.has(name)) {
+        log.debug("[reconnect] waitForAgentMcpReady skipped - intentional disconnect", { name })
+        continue
+      }
+
+      const currentStatus = s.status[name]?.status
+      const client = s.clients[name]
+
+      // 已连接且健康 → 跳过
+      if (currentStatus === "connected" && client) {
+        log.debug("[reconnect] waitForAgentMcpReady already connected", { name })
+        continue
+      }
+
+      // 正在重连 → 等待完成
+      if (currentStatus === "reconnecting" || activeReconnects.has(name)) {
+        log.info("[reconnect] waitForAgentMcpReady waiting for existing reconnect", { name })
+        yield* waitForCompletion(ctx, name, timeoutMs)
+        continue
+      }
+
+      // 已失败或无 client → 触发阻塞重连
+      if (currentStatus === "failed" || !client) {
+        log.info("[reconnect] waitForAgentMcpReady triggering blocking reconnect", {
+          name,
+          currentStatus: currentStatus ?? "missing",
+          hasClient: !!client,
+        })
+        yield* blockingReconnect(ctx, bridge, name, timeoutMs)
+        continue
+      }
+
+      // 其他状态（如 disabled）→ 跳过
+      log.debug("[reconnect] waitForAgentMcpReady skipped - other status", {
+        name,
+        currentStatus,
+      })
+    }
+
+    log.debug("[reconnect] waitForAgentMcpReady completed", { serverNames })
+  }).pipe(
+    // 兜底：永不阻塞对话流程
+    Effect.catch((error) => {
+      log.warn("[reconnect] waitForAgentMcpReady error (continuing anyway)", {
+        error: String(error),
+      })
+      return Effect.void
+    }),
+  )
+}
+
+/** 等待正在进行的重连完成 */
+function waitForCompletion(
+  ctx: ReconnectContext,
+  name: string,
+  timeoutMs: number,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    // 如果没有正在进行的重连，直接返回
+    if (!activeReconnects.has(name)) {
+      log.debug("[reconnect] waitForCompletion - no active reconnect", { name })
+      return
+    }
+
+    log.info("[reconnect] waitForCompletion - waiting", { name, timeoutMs })
+
+    // 使用 Effect.promise 等待完成信号或超时
+    yield* Effect.promise(() => {
+      const completion = createCompletion(name)
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          reconnectCompletions.delete(name)
+          resolve()
+        }, timeoutMs)
+      })
+
+      return Promise.race([
+        completion.then(() => {}),
+        timeoutPromise,
+      ])
+    })
+
+    log.info("[reconnect] waitForCompletion - done", { name })
+  })
+}
+
+/** 阻塞重连：发送 Toast + 等待完成 */
+function blockingReconnect(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  name: string,
+  timeoutMs: number,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const mcp = remoteConfigs.get(name)
+    if (!mcp) {
+      log.warn("[reconnect] blockingReconnect skipped - no config", { name })
+      return
+    }
+
+    // 发送 Toast：开始重连
+    yield* ctx.bus.publish(TuiEvent.ToastShow, {
+      message: `MCP "${name}" 断开，正在重连...`,
+      variant: "warning",
+      duration: 5000,
+    }).pipe(Effect.ignore)
+
+    const completion = createCompletion(name)
+
+    // 启动重连
+    bridge
+      .promise(reconnectWithBackoffWithToast(ctx, bridge, name, mcp))
+      .then(() => {
+        const comp = reconnectCompletions.get(name)
+        if (comp) {
+          comp.resolve(true)
+          reconnectCompletions.delete(name)
+        }
+      })
+      .catch((err) => {
+        const comp = reconnectCompletions.get(name)
+        if (comp) {
+          comp.reject(err)
+          reconnectCompletions.delete(name)
+        }
+      })
+
+    // 阻塞等待
+    yield* Effect.promise(() => {
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          reconnectCompletions.delete(name)
+          resolve()
+        }, timeoutMs)
+      })
+
+      return Promise.race([
+        completion.then(() => {}),
+        timeoutPromise,
+      ])
+    })
+  })
+}
+
+/** 带 Toast 的重连循环 */
+function reconnectWithBackoffWithToast(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  name: string,
+  mcp: ConfigMCP.Info & { type: "remote" },
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    // 防重入
+    if (activeReconnects.has(name)) {
+      log.info("[reconnect] blocking reconnect skipped - already active", { name })
+      return
+    }
+    activeReconnects.add(name)
+
+    // 立即更新状态
+    const s = yield* ctx.state.get()
+    s.status[name] = { status: "reconnecting", error: `Reconnecting on dialog start` }
+
+    let lastError: string | undefined
+
+    try {
+      for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
+        if (intentionalDisconnects.has(name)) {
+          log.info("[reconnect] blocking reconnect cancelled - intentional disconnect", { name })
+          return
+        }
+
+        const result = yield* ctx.createFn(name, mcp).pipe(
+          Effect.catchCause((cause) => {
+            const error = Cause.squash(cause)
+            const msg = error instanceof Error ? error.message : String(error)
+            return Effect.succeed<CreateResult>({
+              status: { status: "failed" as const, error: msg },
+            })
+          }),
+        )
+
+        // 成功
+        if (result.mcpClient && result.status.status === "connected") {
+          const state = yield* ctx.state.get()
+          yield* ctx.storeClientFn(state, name, result.mcpClient, result.defs!, mcp.timeout)
+
+          // 发送 Toast：重连成功
+          yield* ctx.bus.publish(TuiEvent.ToastShow, {
+            message: `MCP "${name}" 已重连成功`,
+            variant: "success",
+            duration: 3000,
+          }).pipe(Effect.ignore)
+
+          log.info("[reconnect] blocking reconnect succeeded", { name, attempt })
+          yield* ctx.bus.publish(ctx.toolsChanged, { server: name }).pipe(Effect.ignore)
+          return
+        }
+
+        lastError = (result.status as any).error
+        log.warn("[reconnect] blocking reconnect attempt failed", {
+          name,
+          attempt,
+          error: lastError,
+        })
+
+        if (attempt < MAX_RECONNECT_ATTEMPTS) {
+          yield* Effect.sleep(backoffMs(attempt))
+        }
+      }
+
+      // 全部失败
+      const state = yield* ctx.state.get()
+      delete state.clients[name]
+      delete state.defs[name]
+      state.status[name] = {
+        status: "failed",
+        error: `Reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts: ${lastError ?? "unknown"}`,
+      }
+      triggeredReconnectFlags.delete(name)
+
+      // 发送 Toast：重连失败
+      yield* ctx.bus.publish(TuiEvent.ToastShow, {
+        message: `MCP "${name}" 重连失败`,
+        variant: "error",
+        duration: 5000,
+      }).pipe(Effect.ignore)
+
+      log.error("[reconnect] blocking reconnect failed - max attempts", { name, lastError })
+      yield* ctx.bus.publish(ctx.toolsChanged, { server: name }).pipe(Effect.ignore)
+    } finally {
+      activeReconnects.delete(name)
+    }
+  })
+}
+
+// === 重连核心逻辑（原 fire-and-forget 版本） ===
 
 function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effect<void> {
   return Effect.gen(function* () {
@@ -626,6 +1089,11 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
         status: "failed",
         error: `Reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts: ${lastError ?? "unknown"}`,
       }
+      // 关键：清掉已触发标志，否则下次 tools() 的 preflight 会因为标志残留而跳过，
+      // server 进入"永久死"状态，只能靠用户手动 disconnect→connect 恢复。
+      // 清掉后，下次用户发消息触发 tools() 时，preflight 会发现 status=failed + 无 client，
+      // 重新触发一轮 5 次重连。
+      triggeredReconnectFlags.delete(name)
       log.error("[reconnect] failed - max attempts reached", {
         name,
         totalDurationMs: Date.now() - reconnectStartAt,

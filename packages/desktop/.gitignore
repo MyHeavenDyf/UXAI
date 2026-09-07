@@ -26,3 +26,6 @@ out/
 
 resources/opencode-cli*
 resources/icons
+
+# 3D packaging resource staging (copy-3d-resources.ts output, packaging artifacts)
+.3d-dist/

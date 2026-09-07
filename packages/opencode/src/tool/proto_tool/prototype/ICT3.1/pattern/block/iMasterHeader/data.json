@@ -1,0 +1,273 @@
+{
+    "state": {
+        "logoImage": "./assets/logo-master.svg",
+        "platformName": "IMaster NCE-Campus",
+        "selectedMenuKeys": [
+            "layout-dashboard"
+        ],
+        "navItems": [
+            {
+                "title": "工作台",
+                "key": "layout-dashboard",
+                "icon": "house"
+            },
+            {
+                "title": "大屏",
+                "key": "monitor",
+                "icon": "monitor"
+            }
+        ],
+        "quickLinks": [
+            "开局",
+            "资源中心",
+            "任务中心",
+            "系统"
+        ],
+        "userName": "Admin",
+        "avatarImage": "./assets/icon-circle.svg"
+    },
+    "rootId": "headerZone",
+    "elements": [
+       
+        {
+            "id": "headerZone",
+            "component": "div",
+            "props": {
+                "className": "h-12 flex items-center bg-surface-container-highest shadow-sm px-4"
+            },
+            "children": [
+                "hdrLeftSection",
+                "hdrSpacer",
+                "hdrRightSection"
+            ]
+        },
+        {
+            "id": "hdrLeftSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center"
+            },
+            "children": [
+                "hdrMenuIcon",
+                "hdrLogoImg",
+                "hdrPlatformName",
+                "hdrVerticalDivider",
+                "hdrNavMenu"
+            ]
+        },
+        {
+            "id": "hdrMenuIcon",
+            "component": "Icon",
+            "props": {
+                "name": "menu",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrLogoImg",
+            "component": "img",
+            "props": {
+                "src": {
+                    "path": "/logoImage"
+                },
+                "alt": "NCE-Campus Logo",
+                "className": "w-[19px] h-auto object-contain ml-[12px] mr-[6px]"
+            }
+        },
+        {
+            "id": "hdrPlatformName",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/platformName"
+                },
+                "className": "text-md text-on-surface whitespace-nowrap"
+            }
+        },
+        {
+            "id": "hdrVerticalDivider",
+            "component": "div",
+            "props": {
+                "className": "w-px h-4 bg-divider ml-[16px]"
+            }
+        },
+        {
+            "id": "hdrNavMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "horizontal",
+                "selectedKeys": {
+                    "path": "/selectedMenuKeys"
+                },
+                "items": {
+                    "path": "/navItems"
+                },
+                "className": "border-0 bg-transparent"
+            }
+        },
+        {
+            "id": "hdrSpacer",
+            "component": "div",
+            "props": {
+                "className": "flex-1"
+            }
+        },
+        {
+            "id": "hdrRightSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-5"
+            },
+            "children": [
+                "hdrQuickLinksGroup",
+                "hdrIconsGroup",
+                "hdrUserInfoGroup"
+            ]
+        },
+        {
+            "id": "hdrQuickLinksGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-5"
+            },
+            "children": [
+                "hdrQuickLink1",
+                "hdrQuickLink2",
+                "hdrQuickLink3",
+                "hdrQuickLink4"
+            ]
+        },
+        {
+            "id": "hdrQuickLink1",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/quickLinks/0"
+                },
+                "className": "text-md cursor-pointer hover:text-primary transition-colors"
+            }
+        },
+        {
+            "id": "hdrQuickLink2",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/quickLinks/1"
+                },
+                "className": "text-md cursor-pointer hover:text-primary transition-colors"
+            }
+        },
+        {
+            "id": "hdrQuickLink3",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/quickLinks/2"
+                },
+                "className": "text-md cursor-pointer hover:text-primary transition-colors"
+            }
+        },
+        {
+            "id": "hdrQuickLink4",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/quickLinks/3"
+                },
+                "className": "text-md cursor-pointer hover:text-primary transition-colors"
+            }
+        },
+        {
+            "id": "hdrIconsGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-5"
+            },
+            "children": [
+                "hdrThemeIcon",
+                "hdrLangIcon",
+                "hdrHistoryIcon",
+                "hdrHelpIcon",
+                "hdrUserIcon"
+            ]
+        },
+        {
+            "id": "hdrThemeIcon",
+            "component": "Icon",
+            "props": {
+                "name": "sun",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrLangIcon",
+            "component": "Icon",
+            "props": {
+                "name": "languages",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrHistoryIcon",
+            "component": "Icon",
+            "props": {
+                "name": "wallpaper",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrHelpIcon",
+            "component": "Icon",
+            "props": {
+                "name": "help-circle",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrUserIcon",
+            "component": "Icon",
+            "props": {
+                "name": "user",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+            }
+        },
+        {
+            "id": "hdrUserInfoGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center -ml-3"
+            },
+            "children": [
+                "hdrUserName",
+                "hdrAvatarImg"
+            ]
+        },
+        {
+            "id": "hdrUserName",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/userName"
+                },
+                "className": "text-md text-on-surface font-medium"
+            }
+        },
+        {
+            "id": "hdrAvatarImg",
+            "component": "img",
+            "props": {
+                "src": {
+                    "path": "/avatarImage"
+                },
+                "alt": "用户头像",
+                "className": "w-6 h-6 rounded-full object-cover ml-5"
+            }
+        }
+    ]
+}

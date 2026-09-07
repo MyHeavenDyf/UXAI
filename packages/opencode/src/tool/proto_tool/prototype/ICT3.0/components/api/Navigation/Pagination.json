@@ -1,0 +1,75 @@
+{
+  "name": "Pagination",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Pagination"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "oneOf": [
+            { "type": "number" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Current page number."
+        },
+        "total": {
+          "oneOf": [
+            { "type": "number" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Total number of data items."
+        },
+        "showTotal": {
+          "oneOf": [
+            { "type": "boolean" },
+						{ "$ref": "#/$defs/DataBinding" }
+					],
+          "description": "Used to display the total data volume."
+        },
+        "simple": {
+          "oneOf": [
+            { "type": "boolean" },
+						{ "$ref": "#/$defs/DataBinding" }
+					],
+          "description": "Used to display a simplified pagination style."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      
+      },
+      "required": ["current", "total"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

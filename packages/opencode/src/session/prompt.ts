@@ -29,6 +29,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { Command } from "../command"
+import { SkillUsed } from "../skill/events"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import * as BuiltinMCP from "@/config/builtin-mcp"
@@ -90,6 +91,9 @@ export interface Interface {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
+
+// 按 sessionID 存储前端透传的 extra 数据，供工具 ctx.extra 读取
+const sessionExtras = new Map<string, Record<string, unknown>>()
 
 export const layer = Layer.effect(
   Service,
@@ -400,7 +404,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
         callID: options.toolCallId,
-        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps },
+        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, ...sessionExtras.get(input.session.id) },
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
@@ -1398,6 +1402,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     const prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.prompt")(
       function* (input: PromptInput) {
+        if (input.extra) sessionExtras.set(input.sessionID, input.extra)
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
@@ -1805,6 +1810,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         arguments: input.arguments,
         messageID: result.info.id,
       })
+
+      // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
+      if (cmd.source === "skill") {
+        yield* bus.publish(SkillUsed, { skillName: input.command })
+      }
+
       return result
     })
 
@@ -1868,6 +1879,7 @@ export const PromptInput = Schema.Struct({
   format: Schema.optional(MessageV2.Format),
   system: Schema.optional(Schema.String),
   variant: Schema.optional(Schema.String),
+  extra: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parts: Schema.Array(
     Schema.Union([
       MessageV2.TextPartInput,

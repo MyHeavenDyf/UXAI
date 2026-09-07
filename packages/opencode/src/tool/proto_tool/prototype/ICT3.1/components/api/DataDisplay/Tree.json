@@ -1,0 +1,93 @@
+{
+  "name": "Tree",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Tree"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "checkable": {
+          "type": "boolean"
+        },
+        "defaultExpandedKeys": {
+          "type": "array",
+          "oneOf": [
+            { "type": "string" },
+						{ "$ref":"#/$defs/DataBinding" }
+					],
+          "description": "array of keys of initially expanded nodes"
+        },
+        "defaultSelectedKeys": {
+          "type": "array",
+          "oneOf": [
+            { "type": "string" },
+						{ "$ref":"#/$defs/DataBinding" }
+					],
+          "description": "array of keys of initially selected nodes"
+        },
+        "options": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "icon": {
+                  "type": "string",
+                  "description": "Valid kebab-case Lucide icon matching the context (e.g., 'chevron-right')."
+                },
+                "children": {
+                  "type": "object",
+                  "description": "Sub-nodes array inheriting identical treeNode layout configurations via recursion."
+                }
+              },
+              "required": ["key", "title"]
+              }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The Tree options list."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["options"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

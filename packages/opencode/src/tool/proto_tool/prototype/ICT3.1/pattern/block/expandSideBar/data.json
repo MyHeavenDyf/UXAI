@@ -1,0 +1,255 @@
+{
+    "state": {
+        "menuItems": [
+            {
+                "title": "数据分析",
+                "key": "dashboard",
+                "icon": "layout-dashboard",
+                "children": [
+                    {
+                        "title": "概览",
+                        "key": "overview"
+                    },
+                    {
+                        "title": "分析",
+                        "key": "analytics"
+                    },
+                    {
+                        "title": "报告",
+                        "key": "reports"
+                    }
+                ]
+            },
+            {
+                "title": "用户管理",
+                "key": "user",
+                "icon": "users",
+                "children": [
+                    {
+                        "title": "用户列表",
+                        "key": "list"
+                    },
+                    {
+                        "title": "角色管理",
+                        "key": "roles"
+                    },
+                    {
+                        "title": "权限设置",
+                        "key": "permissions"
+                    }
+                ]
+            },
+            {
+                "title": "订单管理",
+                "key": "order",
+                "icon": "shopping-cart",
+                "children": [
+                    {
+                        "title": "全部订单",
+                        "key": "all"
+                    },
+                    {
+                        "title": "待处理",
+                        "key": "pending"
+                    },
+                    {
+                        "title": "历史订单",
+                        "key": "history"
+                    }
+                ]
+            },
+            {
+                "title": "商品管理",
+                "key": "product",
+                "icon": "package",
+                "children": [
+                    {
+                        "title": "商品目录",
+                        "key": "catalog"
+                    },
+                    {
+                        "title": "分类管理",
+                        "key": "categories"
+                    },
+                    {
+                        "title": "品牌管理",
+                        "key": "brands"
+                    }
+                ]
+            },
+            {
+                "title": "财务管理",
+                "key": "finance",
+                "icon": "dollar-sign",
+                "children": [
+                    {
+                        "title": "交易记录",
+                        "key": "transactions"
+                    },
+                    {
+                        "title": "发票管理",
+                        "key": "invoices"
+                    },
+                    {
+                        "title": "预算管理",
+                        "key": "budget"
+                    }
+                ]
+            },
+            {
+                "title": "内容管理",
+                "key": "content",
+                "icon": "file-text",
+                "children": [
+                    {
+                        "title": "文章管理",
+                        "key": "articles"
+                    },
+                    {
+                        "title": "页面管理",
+                        "key": "pages"
+                    },
+                    {
+                        "title": "评论管理",
+                        "key": "comments"
+                    }
+                ]
+            },
+            {
+                "title": "营销推广",
+                "key": "marketing",
+                "icon": "megaphone",
+                "children": [
+                    {
+                        "title": "活动管理",
+                        "key": "campaigns"
+                    },
+                    {
+                        "title": "优惠券",
+                        "key": "coupons"
+                    },
+                    {
+                        "title": "SEO设置",
+                        "key": "seo"
+                    }
+                ]
+            },
+            {
+                "title": "系统设置",
+                "key": "system",
+                "icon": "settings",
+                "children": [
+                    {
+                        "title": "基本设置",
+                        "key": "general"
+                    },
+                    {
+                        "title": "安全设置",
+                        "key": "security"
+                    },
+                    {
+                        "title": "操作日志",
+                        "key": "logs"
+                    }
+                ]
+            },
+            {
+                "title": "工具",
+                "key": "tools",
+                "icon": "wrench",
+                "children": [
+                    {
+                        "title": "数据库管理",
+                        "key": "database"
+                    },
+                    {
+                        "title": "缓存管理",
+                        "key": "cache"
+                    },
+                    {
+                        "title": "任务调度",
+                        "key": "scheduler"
+                    }
+                ]
+            },
+            {
+                "title": "帮助中心",
+                "key": "help",
+                "icon": "life-buoy",
+                "children": [
+                    {
+                        "title": "常见问题",
+                        "key": "faq"
+                    },
+                    {
+                        "title": "文档",
+                        "key": "docs"
+                    },
+                    {
+                        "title": "技术支持",
+                        "key": "support"
+                    }
+                ]
+            }
+        ]
+    },
+    "rootId": "sidebarContainer",
+    "elements": [
+        {
+            "id": "sidebarContainer",
+            "component": "aside",
+            "props": {
+                "className": "w-[216px] h-full bg-surface-container-highest border-r border-divider flex flex-col"
+            },
+            "children": [
+                "sidebarMenuWrapper",
+                "sidebarFooter"
+            ]
+        },
+        {
+            "id": "sidebarMenuWrapper",
+            "component": "div",
+            "props": {
+                "className": "flex-1 overflow-y-auto"
+            },
+            "children": [
+                "sidebarMenu"
+            ]
+        },
+        {
+            "id": "sidebarMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "vertical",
+                "selectedKeys": {
+                    "path": "/selectedMenuKeys"
+                },
+                "openKeys": {
+                    "path": "/openMenuKeys"
+                },
+                "items": {
+                    "path": "/menuItems"
+                },
+                "className": "w-full border-0"
+            }
+        },
+        {
+            "id": "sidebarFooter",
+            "component": "div",
+            "props": {
+                "className": "ml-[14px] mb-[16px]"
+            },
+            "children": [
+                "sidebarRecycleBtn"
+            ]
+        },
+        {
+            "id": "sidebarRecycleBtn",
+            "component": "Button",
+            "props": {
+                "icon": "list-Chevrons-down-up",
+                "className": "w-5 h-5 hover:text-primary"
+            }
+        }
+    ]
+}

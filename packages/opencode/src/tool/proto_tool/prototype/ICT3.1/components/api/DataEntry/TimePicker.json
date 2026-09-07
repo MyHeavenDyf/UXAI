@@ -1,0 +1,85 @@
+{
+  "name": "TimePicker",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "TimePicker"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "current value of the TimePicker. when setting range to true, the value is of array type"
+        },
+        "placeholder": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "placeholder of the TimePicker. when setting range to true, the placeholder is of array type"
+        },
+        "secondStep": {
+          "type": "number"
+        },
+        "minuteStep": {
+          "type": "number"
+        },
+        "hourStep": {
+          "type": "number"
+        },
+        "range": {
+          "oneOf": [
+            { "type": "boolean"  },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "setting the time range of the TimePicker"
+        },
+        "size": {
+          "type": "string",
+          "enum": ["large", "medium", "small"]
+        },
+        "format": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

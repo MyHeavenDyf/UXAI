@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider", (handlers) =>
   Effect.gen(function* () {
@@ -12,9 +13,14 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     const svc = yield* ProviderAuth.Service
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
+      configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       const connected = yield* provider.list()
       const hasAuth = (p: Provider.Info) =>
-        Boolean(p.key) || p.source === "env" || p.source === "api" || Boolean((p.options as Record<string, unknown>)?.apiKey)
+        p.id === "w3" ||
+        Boolean(p.key) ||
+        p.source === "env" ||
+        p.source === "api" ||
+        Boolean((p.options as Record<string, unknown>)?.apiKey)
       // 诊断日志: opencode/bpit/bpit-beta 的 hasAuth 各分支分解
       for (const p of Object.values(connected)) {
         if (p.id === "opencode" || p.id === "bpit" || p.id === "bpit-beta") {

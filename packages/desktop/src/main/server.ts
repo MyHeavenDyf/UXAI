@@ -5,6 +5,7 @@ import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
 import { getStore } from "./store"
+import type { DesktopStorage } from "./storage"
 import type { SqliteMigrationProgress } from "../preload/types"
 
 export type WslConfig = { enabled: boolean }
@@ -25,6 +26,7 @@ const SIDECAR_STOP_TIMEOUT = 6_000
 
 type SpawnLocalServerOptions = {
   needsMigration: boolean
+  storage: DesktopStorage
   userDataPath: string
   onSqliteProgress?: (progress: SqliteMigrationProgress) => void
   onStdout?: (message: string) => void
@@ -165,6 +167,7 @@ export async function spawnLocalServer(
       hostname,
       port,
       password,
+      storage: options.storage,
       userDataPath: options.userDataPath,
       needsMigration: options.needsMigration,
     })
@@ -258,6 +261,11 @@ function createSidecarEnv(): Record<string, string> {
   // 已通过 shell/cross-env 显式设置时不覆盖;留空则 builtin-mcp 回落代码内默认 beta IP。
   if (!env.OCTO_UXR_MCP_URL && import.meta.env.OCTO_UXR_MCP_URL) {
     env.OCTO_UXR_MCP_URL = import.meta.env.OCTO_UXR_MCP_URL
+  }
+  // 把 Insight 文件上传服务地址注入 sidecar 供 octo-upload-inject 插件按需上传 S3(SPEC-INS-015)。
+  // 同 OCTO_UXR_MCP_URL:sidecar 读不到 .env / VITE_,从 main 编译期常量透传;显式设置时不覆盖。
+  if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
+    env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
   return env
 }

@@ -1,0 +1,2335 @@
+{
+  "lastIntent": {
+    "pageDescription": "这是一个面向数据中心运维管理人员的存储资源监控与概览界面。用户的核心痛点是需要在单一视图中快速掌握所有存储设备的健康状态、容量水位和性能指标，以便及时识别风险设备并采取扩容或优化措施。界面通过左侧导航提供全局功能入口，右侧主内容区聚焦于存储资产的详细监控，卡片网格布局让用户能够一目了然地对比多台设备的运行状况。",
+    "layoutDescription": "顶部导航栏（右上角功能区）+ 左侧垂直手风琴式侧边栏 + 右侧主内容区域。主内容区采用自上而下的流式布局：标题 -> 选项卡导航 -> 工具栏 -> 卡片网格。",
+    "sections": [
+      {
+        "id": "topBar",
+        "name": "Top Bar",
+        "intent": "提供全局性的语言切换、系统通知查看和用户身份展示，方便用户快速访问个人设置或接收重要告警。",
+        "function": "1. 显示语言切换文本'EN'；2. 显示通知图标（带未读红点）；3. 显示用户头像和用户名'Jasper'。"
+      },
+      {
+        "id": "sideNav",
+        "name": "Side Navigation",
+        "intent": "作为系统的全局导航中枢，让用户能够快速切换至资产管理、分析、规划、消息、支持、管理及报告等核心功能模块。",
+        "function": "1. 展示DME IQ品牌Logo；2. 提供8个功能组的垂直手风琴菜单，支持展开/折叠；3. 当前Assets > Storage子项高亮激活；4. Messages > Alerts子项显示红色数字徽章。"
+      },
+      {
+        "id": "mainContent",
+        "name": "Main Content Area",
+        "intent": "作为存储资产监控的核心工作区，让运维人员能够快速筛选、排序并直观对比所有存储设备的健康评分、容量和性能指标，从而快速定位异常设备。",
+        "function": "1. 显示'Storage'页面标题；2. 提供'Enterprise Storage'和'Distributed Storage'选项卡切换；3. 提供搜索框、总数统计、排序下拉和视图切换按钮；4. 以4行4列卡片网格展示每台存储设备的健康状态、容量和性能详情。"
+      }
+    ]
+  },
+  "lastPlanner": {
+    "state": {},
+    "rootId": "rootContainer",
+    "elements": [
+      {
+        "id": "rootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex h-screen w-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "sideNavContainer",
+          "mainContentWrapper"
+        ]
+      },
+      {
+        "id": "sideNavContainer",
+        "component": "aside",
+        "props": {
+          "className": "w-[15.5rem] shrink-0 bg-surface-container-highest flex flex-col overflow-y-auto"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContentWrapper",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col min-w-0"
+        },
+        "children": [
+          "topBarContainer",
+          "mainContentArea"
+        ]
+      },
+      {
+        "id": "topBarContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center justify-end px-6 bg-surface-container-highest shrink-0"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 p-page overflow-y-auto"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "topBar",
+        "element_id": "topBarContainer",
+        "id_prefix": "topBar"
+      },
+      {
+        "section_id": "sideNav",
+        "element_id": "sideNavContainer",
+        "id_prefix": "sideNav"
+      },
+      {
+        "section_id": "mainContent",
+        "element_id": "mainContentArea",
+        "id_prefix": "mainContent"
+      }
+    ]
+  },
+  "lastModules": [
+    {
+      "state": {
+        "languageText": "EN",
+        "notificationIcon": "Bell",
+        "notificationBadge": 3,
+        "userAvatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+        "userName": "Jasper"
+      },
+      "rootId": "topBarContainer",
+      "elements": [
+        {
+          "id": "topBarContainer",
+          "component": "header",
+          "props": {
+            "className": "h-12 flex items-center justify-end px-6 bg-surface-container-highest shrink-0"
+          },
+          "children": [
+            "topBarLangText",
+            "topBarNotificationWrapper",
+            "topBarUserSection"
+          ]
+        },
+        {
+          "id": "topBarLangText",
+          "component": "span",
+          "props": {
+            "className": "text-sm font-medium text-on-surface mr-4 cursor-pointer",
+            "value": {
+              "path": "/languageText"
+            }
+          }
+        },
+        {
+          "id": "topBarNotificationWrapper",
+          "component": "Badge",
+          "props": {
+            "count": {
+              "path": "/notificationBadge"
+            },
+            "color": "error",
+            "offset": [
+              4,
+              -4
+            ]
+          },
+          "children": [
+            "topBarNotificationIcon"
+          ]
+        },
+        {
+          "id": "topBarNotificationIcon",
+          "component": "Icon",
+          "props": {
+            "name": {
+              "path": "/notificationIcon"
+            },
+            "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+          }
+        },
+        {
+          "id": "topBarUserSection",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2 ml-5 cursor-pointer"
+          },
+          "children": [
+            "topBarUserAvatar",
+            "topBarUserName"
+          ]
+        },
+        {
+          "id": "topBarUserAvatar",
+          "component": "img",
+          "props": {
+            "src": {
+              "path": "/userAvatarImage"
+            },
+            "className": "w-8 h-8 rounded-full object-cover"
+          }
+        },
+        {
+          "id": "topBarUserName",
+          "component": "span",
+          "props": {
+            "className": "text-sm font-medium text-on-surface",
+            "value": {
+              "path": "/userName"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "selectedKeys": [
+          "sideNav_assets_storage"
+        ],
+        "openKeys": [
+          "sideNav_assets",
+          "sideNav_analytics",
+          "sideNav_planning",
+          "sideNav_messages",
+          "sideNav_support",
+          "sideNav_admin"
+        ]
+      },
+      "rootId": "sideNavContainer",
+      "elements": [
+        {
+          "id": "sideNavContainer",
+          "component": "aside",
+          "props": {
+            "className": "w-[15.5rem] shrink-0 bg-surface-container-highest flex flex-col overflow-y-auto"
+          },
+          "children": [
+            "sideNavLogo",
+            "sideNavMenu"
+          ]
+        },
+        {
+          "id": "sideNavLogo",
+          "component": "div",
+          "props": {
+            "className": "flex items-center h-12 px-4 border-b border-divider"
+          },
+          "children": [
+            "sideNavLogoText"
+          ]
+        },
+        {
+          "id": "sideNavLogoText",
+          "component": "span",
+          "props": {
+            "className": "text-lg font-bold text-on-surface",
+            "value": "DME IQ"
+          }
+        },
+        {
+          "id": "sideNavMenu",
+          "component": "Menu",
+          "props": {
+            "mode": "vertical",
+            "inlineCollapsed": false,
+            "selectedKeys": {
+              "path": "/selectedKeys"
+            },
+            "openKeys": {
+              "path": "/openKeys"
+            },
+            "items": [
+              {
+                "title": "Home",
+                "key": "sideNav_home",
+                "icon": "home"
+              },
+              {
+                "title": "Assets",
+                "key": "sideNav_assets",
+                "icon": "hard-drive",
+                "children": [
+                  {
+                    "title": "Storage (21)",
+                    "key": "sideNav_assets_storage"
+                  },
+                  {
+                    "title": "Servers (25)",
+                    "key": "sideNav_assets_servers"
+                  }
+                ]
+              },
+              {
+                "title": "Analytics",
+                "key": "sideNav_analytics",
+                "icon": "bar-chart-3",
+                "children": [
+                  {
+                    "title": "Applications",
+                    "key": "sideNav_analytics_applications"
+                  },
+                  {
+                    "title": "VMs",
+                    "key": "sideNav_analytics_vms"
+                  },
+                  {
+                    "title": "Storage Performance",
+                    "key": "sideNav_analytics_storage_performance"
+                  },
+                  {
+                    "title": "Disk Risk",
+                    "key": "sideNav_analytics_disk_risk"
+                  }
+                ]
+              },
+              {
+                "title": "Planning",
+                "key": "sideNav_planning",
+                "icon": "clipboard-list",
+                "children": [
+                  {
+                    "title": "Workload",
+                    "key": "sideNav_planning_workload"
+                  },
+                  {
+                    "title": "Capacity",
+                    "key": "sideNav_planning_capacity"
+                  }
+                ]
+              },
+              {
+                "title": "Messages",
+                "key": "sideNav_messages",
+                "icon": "message-square",
+                "children": [
+                  {
+                    "title": "Alerts  2",
+                    "key": "sideNav_messages_alerts"
+                  }
+                ]
+              },
+              {
+                "title": "Support",
+                "key": "sideNav_support",
+                "icon": "life-buoy",
+                "children": [
+                  {
+                    "title": "Service Requests",
+                    "key": "sideNav_support_service_requests"
+                  },
+                  {
+                    "title": "Warranty Contracts",
+                    "key": "sideNav_support_warranty_contracts"
+                  }
+                ]
+              },
+              {
+                "title": "Admin",
+                "key": "sideNav_admin",
+                "icon": "shield",
+                "children": [
+                  {
+                    "title": "Multi-tenant",
+                    "key": "sideNav_admin_multi_tenant"
+                  },
+                  {
+                    "title": "Authorization",
+                    "key": "sideNav_admin_authorization"
+                  },
+                  {
+                    "title": "Notification",
+                    "key": "sideNav_admin_notification"
+                  },
+                  {
+                    "title": "Operation Logs",
+                    "key": "sideNav_admin_operation_logs"
+                  }
+                ]
+              },
+              {
+                "title": "Report",
+                "key": "sideNav_report",
+                "icon": "file-text"
+              }
+            ],
+            "className": "flex-1"
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "activeTab": "enterprise",
+        "searchValue": "",
+        "sortValue": "Sort by Health Score",
+        "tabs": [
+          {
+            "key": "enterprise",
+            "label": "Enterprise Storage"
+          },
+          {
+            "key": "distributed",
+            "label": "Distributed Storage"
+          }
+        ],
+        "sortOptions": [
+          {
+            "label": "Sort by Health Score",
+            "value": "Sort by Health Score"
+          },
+          {
+            "label": "Sort by Name",
+            "value": "Sort by Name"
+          },
+          {
+            "label": "Sort by Capacity",
+            "value": "Sort by Capacity"
+          }
+        ],
+        "storageCards": [
+          {
+            "cardTitle": "Huawei_Dorado79",
+            "trendIcon": "arrow-up",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Chengdu, Sichuan  Model: Dorado5000 V3",
+            "healthScore": 45,
+            "capacity": {
+              "usedPercent": "72%",
+              "freeTB": 14.2,
+              "dataReduction": "2.8:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "2.3ms",
+              "iops": 12500,
+              "bandwidth": "1.2GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado80",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Beijing, China  Model: Dorado8000 V6",
+            "healthScore": 68,
+            "capacity": {
+              "usedPercent": "55%",
+              "freeTB": 22.5,
+              "dataReduction": "3.1:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.8ms",
+              "iops": 18200,
+              "bandwidth": "2.1GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado81",
+            "trendIcon": "arrow-down",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Shanghai, China  Model: Dorado5000 V3",
+            "healthScore": 32,
+            "capacity": {
+              "usedPercent": "91%",
+              "freeTB": 4.1,
+              "dataReduction": "1.9:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "4.7ms",
+              "iops": 7800,
+              "bandwidth": "0.6GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado82",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Guangzhou, China  Model: Dorado6000 V5",
+            "healthScore": 72,
+            "capacity": {
+              "usedPercent": "48%",
+              "freeTB": 31,
+              "dataReduction": "4.2:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.5ms",
+              "iops": 21500,
+              "bandwidth": "2.8GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado83",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Shenzhen, China  Model: Dorado5000 V3",
+            "healthScore": 65,
+            "capacity": {
+              "usedPercent": "63%",
+              "freeTB": 18.7,
+              "dataReduction": "2.5:1",
+              "hasDataReduction": false
+            },
+            "performance": {
+              "latency": "2.1ms",
+              "iops": 14300,
+              "bandwidth": "1.5GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado84",
+            "trendIcon": "arrow-down",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Chengdu, Sichuan  Model: Dorado8000 V6",
+            "healthScore": 28,
+            "capacity": {
+              "usedPercent": "95%",
+              "freeTB": 2.3,
+              "dataReduction": "1.6:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "5.2ms",
+              "iops": 5400,
+              "bandwidth": "0.4GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado85",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Nanjing, China  Model: Dorado6000 V5",
+            "healthScore": 78,
+            "capacity": {
+              "usedPercent": "41%",
+              "freeTB": 35.6,
+              "dataReduction": "3.8:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.3ms",
+              "iops": 23800,
+              "bandwidth": "3.2GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado86",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Hangzhou, China  Model: Dorado5000 V3",
+            "healthScore": 70,
+            "capacity": {
+              "usedPercent": "58%",
+              "freeTB": 20.4,
+              "dataReduction": "2.9:1",
+              "hasDataReduction": false
+            },
+            "performance": {
+              "latency": "1.9ms",
+              "iops": 16100,
+              "bandwidth": "1.8GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado87",
+            "trendIcon": "arrow-down",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Wuhan, China  Model: Dorado8000 V6",
+            "healthScore": 35,
+            "capacity": {
+              "usedPercent": "87%",
+              "freeTB": 6.8,
+              "dataReduction": "2.0:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "4.1ms",
+              "iops": 9200,
+              "bandwidth": "0.8GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado88",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Xi'an, China  Model: Dorado6000 V5",
+            "healthScore": 74,
+            "capacity": {
+              "usedPercent": "52%",
+              "freeTB": 26.3,
+              "dataReduction": "3.5:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.6ms",
+              "iops": 20400,
+              "bandwidth": "2.5GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado89",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Changsha, China  Model: Dorado5000 V3",
+            "healthScore": 62,
+            "capacity": {
+              "usedPercent": "67%",
+              "freeTB": 16.5,
+              "dataReduction": "2.6:1",
+              "hasDataReduction": false
+            },
+            "performance": {
+              "latency": "2.2ms",
+              "iops": 13800,
+              "bandwidth": "1.4GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado90",
+            "trendIcon": "arrow-down",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Tianjin, China  Model: Dorado8000 V6",
+            "healthScore": 30,
+            "capacity": {
+              "usedPercent": "93%",
+              "freeTB": 3.5,
+              "dataReduction": "1.7:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "4.9ms",
+              "iops": 6100,
+              "bandwidth": "0.5GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado91",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Suzhou, China  Model: Dorado6000 V5",
+            "healthScore": 76,
+            "capacity": {
+              "usedPercent": "45%",
+              "freeTB": 33.2,
+              "dataReduction": "4.0:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.4ms",
+              "iops": 22600,
+              "bandwidth": "3.0GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado92",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Qingdao, China  Model: Dorado5000 V3",
+            "healthScore": 69,
+            "capacity": {
+              "usedPercent": "60%",
+              "freeTB": 19.8,
+              "dataReduction": "2.7:1",
+              "hasDataReduction": false
+            },
+            "performance": {
+              "latency": "2.0ms",
+              "iops": 15500,
+              "bandwidth": "1.7GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado93",
+            "trendIcon": "arrow-down",
+            "statusTag": "Critical",
+            "statusColor": "error",
+            "siteModel": "Site: Zhengzhou, China  Model: Dorado8000 V6",
+            "healthScore": 33,
+            "capacity": {
+              "usedPercent": "89%",
+              "freeTB": 5.6,
+              "dataReduction": "1.8:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "4.4ms",
+              "iops": 8500,
+              "bandwidth": "0.7GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado94",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Fuzhou, China  Model: Dorado6000 V5",
+            "healthScore": 71,
+            "capacity": {
+              "usedPercent": "50%",
+              "freeTB": 28.7,
+              "dataReduction": "3.3:1",
+              "hasDataReduction": true
+            },
+            "performance": {
+              "latency": "1.7ms",
+              "iops": 19800,
+              "bandwidth": "2.4GB/s"
+            }
+          },
+          {
+            "cardTitle": "Huawei_Dorado95",
+            "trendIcon": "arrow-up",
+            "statusTag": "Major",
+            "statusColor": "warning",
+            "siteModel": "Site: Kunming, China  Model: Dorado5000 V3",
+            "healthScore": 66,
+            "capacity": {
+              "usedPercent": "64%",
+              "freeTB": 17.9,
+              "dataReduction": "2.4:1",
+              "hasDataReduction": false
+            },
+            "performance": {
+              "latency": "2.1ms",
+              "iops": 14600,
+              "bandwidth": "1.5GB/s"
+            }
+          }
+        ]
+      },
+      "rootId": "mainContentArea",
+      "elements": [
+        {
+          "id": "mainContentArea",
+          "component": "main",
+          "props": {
+            "className": "flex-1 p-page overflow-y-auto"
+          },
+          "children": [
+            "mainContentTitle",
+            "mainContentTabsWrapper",
+            "mainContentToolbar",
+            "mainContentCardGrid"
+          ]
+        },
+        {
+          "id": "mainContentTitle",
+          "component": "h1",
+          "props": {
+            "className": "text-3xl font-bold text-on-surface mb-4",
+            "value": "Storage"
+          }
+        },
+        {
+          "id": "mainContentTabsWrapper",
+          "component": "div",
+          "props": {
+            "className": "border-b border-divider mb-4"
+          },
+          "children": [
+            "mainContentTabs"
+          ]
+        },
+        {
+          "id": "mainContentTabs",
+          "component": "Tabs",
+          "props": {
+            "activeKey": {
+              "path": "/activeTab"
+            },
+            "types": "line",
+            "className": "mb-0"
+          },
+          "children": [
+            "mainContentTabEnterprise",
+            "mainContentTabDistributed"
+          ]
+        },
+        {
+          "id": "mainContentTabEnterprise",
+          "component": "TabItem",
+          "props": {
+            "key": "enterprise",
+            "label": "Enterprise Storage",
+            "content": {
+              "componentId": "mainContentTabEnterpriseContent"
+            }
+          }
+        },
+        {
+          "id": "mainContentTabDistributed",
+          "component": "TabItem",
+          "props": {
+            "key": "distributed",
+            "label": "Distributed Storage",
+            "content": {
+              "componentId": "mainContentTabDistributedContent"
+            }
+          }
+        },
+        {
+          "id": "mainContentTabEnterpriseContent",
+          "component": "div",
+          "props": {
+            "className": "hidden"
+          }
+        },
+        {
+          "id": "mainContentTabDistributedContent",
+          "component": "div",
+          "props": {
+            "className": "hidden"
+          }
+        },
+        {
+          "id": "mainContentToolbar",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between mb-4"
+          },
+          "children": [
+            "mainContentToolbarLeft",
+            "mainContentToolbarRight"
+          ]
+        },
+        {
+          "id": "mainContentToolbarLeft",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2"
+          },
+          "children": [
+            "mainContentSearchInput"
+          ]
+        },
+        {
+          "id": "mainContentSearchInput",
+          "component": "Input",
+          "props": {
+            "value": {
+              "path": "/searchValue"
+            },
+            "placeholder": "Filter",
+            "prefix": "search",
+            "className": "w-64"
+          }
+        },
+        {
+          "id": "mainContentToolbarRight",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-3"
+          },
+          "children": [
+            "mainContentTotalText",
+            "mainContentSortSelect",
+            "mainContentViewBtn"
+          ]
+        },
+        {
+          "id": "mainContentTotalText",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": "Total: 18/18"
+          }
+        },
+        {
+          "id": "mainContentSortSelect",
+          "component": "Select",
+          "props": {
+            "value": {
+              "path": "/sortValue"
+            },
+            "options": {
+              "path": "/sortOptions"
+            },
+            "className": "w-48"
+          }
+        },
+        {
+          "id": "mainContentViewBtn",
+          "component": "Button",
+          "props": {
+            "icon": "layout-grid",
+            "color": "default",
+            "className": "flex items-center justify-center"
+          }
+        },
+        {
+          "id": "mainContentCardGrid",
+          "component": "div",
+          "props": {
+            "className": "grid grid-cols-4 gap-section"
+          },
+          "children": {
+            "path": "/storageCards",
+            "componentId": "mainContentCard"
+          }
+        },
+        {
+          "id": "mainContentCard",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-xl shadow-card p-4 flex flex-col gap-3"
+          },
+          "children": [
+            "mainContentCardHeader",
+            "mainContentCardSite",
+            "mainContentCardBody"
+          ]
+        },
+        {
+          "id": "mainContentCardHeader",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mainContentCardTitleRow",
+            "mainContentCardStatusTag"
+          ]
+        },
+        {
+          "id": "mainContentCardTitleRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-1"
+          },
+          "children": [
+            "mainContentCardTitleText",
+            "mainContentCardTrendIcon"
+          ]
+        },
+        {
+          "id": "mainContentCardTitleText",
+          "component": "span",
+          "props": {
+            "className": "text-md font-semibold text-on-surface",
+            "value": {
+              "path": "cardTitle"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardTrendIcon",
+          "component": "Icon",
+          "props": {
+            "name": {
+              "path": "trendIcon"
+            },
+            "color": "default",
+            "shape": "outline",
+            "className": "w-4 h-4"
+          }
+        },
+        {
+          "id": "mainContentCardStatusTag",
+          "component": "Tag",
+          "props": {
+            "value": {
+              "path": "statusTag"
+            },
+            "color": {
+              "path": "statusColor"
+            },
+            "size": "small"
+          }
+        },
+        {
+          "id": "mainContentCardSite",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": {
+              "path": "siteModel"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardBody",
+          "component": "div",
+          "props": {
+            "className": "flex gap-2"
+          },
+          "children": [
+            "mainContentCardChart",
+            "mainContentCardInfo"
+          ]
+        },
+        {
+          "id": "mainContentCardChart",
+          "component": "div",
+          "props": {
+            "className": "w-40 h-40 shrink-0"
+          },
+          "children": [
+            "mainContentCardProcessChart"
+          ]
+        },
+        {
+          "id": "mainContentCardProcessChart",
+          "component": "ProcessChart",
+          "props": {
+            "option": {
+              "name": "ProcessBarChart",
+              "data": [
+                {
+                  "name": "Health",
+                  "value": {
+                    "path": "healthScore"
+                  }
+                }
+              ],
+              "unit": "%"
+            },
+            "className": "w-full h-full"
+          }
+        },
+        {
+          "id": "mainContentCardInfo",
+          "component": "div",
+          "props": {
+            "className": "flex-1 flex flex-col gap-1 min-w-0"
+          },
+          "children": [
+            "mainContentCardCapacitySection",
+            "mainContentCardPerformanceSection"
+          ]
+        },
+        {
+          "id": "mainContentCardCapacitySection",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-0.5"
+          },
+          "children": [
+            "mainContentCardCapacityTitle",
+            "mainContentCardCapacityRow",
+            "mainContentCardDataReductionRow"
+          ]
+        },
+        {
+          "id": "mainContentCardCapacityTitle",
+          "component": "span",
+          "props": {
+            "className": "text-sm font-semibold text-on-surface",
+            "value": "Capacity"
+          }
+        },
+        {
+          "id": "mainContentCardCapacityRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mainContentCardUsedPercent",
+            "mainContentCardFreeTB"
+          ]
+        },
+        {
+          "id": "mainContentCardUsedPercent",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": {
+              "path": "capacity/usedPercent"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardFreeTB",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": {
+              "path": "capacity/freeTB"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardDataReductionRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-1"
+          },
+          "children": [
+            "mainContentCardDataReductionIcon",
+            "mainContentCardDataReductionText"
+          ]
+        },
+        {
+          "id": "mainContentCardDataReductionIcon",
+          "component": "Icon",
+          "props": {
+            "name": "file-text",
+            "color": "default",
+            "shape": "outline",
+            "className": "w-3.5 h-3.5"
+          }
+        },
+        {
+          "id": "mainContentCardDataReductionText",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": {
+              "path": "capacity/dataReduction"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardPerformanceSection",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-0.5 mt-1"
+          },
+          "children": [
+            "mainContentCardPerformanceTitle",
+            "mainContentCardLatencyRow",
+            "mainContentCardIOPSRow",
+            "mainContentCardBandwidthRow"
+          ]
+        },
+        {
+          "id": "mainContentCardPerformanceTitle",
+          "component": "span",
+          "props": {
+            "className": "text-sm font-semibold text-on-surface",
+            "value": "Performance"
+          }
+        },
+        {
+          "id": "mainContentCardLatencyRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mainContentCardLatencyLabel",
+            "mainContentCardLatencyValue"
+          ]
+        },
+        {
+          "id": "mainContentCardLatencyLabel",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "Latency"
+          }
+        },
+        {
+          "id": "mainContentCardLatencyValue",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface font-medium",
+            "value": {
+              "path": "performance/latency"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardIOPSRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mainContentCardIOPSLabel",
+            "mainContentCardIOPSValue"
+          ]
+        },
+        {
+          "id": "mainContentCardIOPSLabel",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "IOPS"
+          }
+        },
+        {
+          "id": "mainContentCardIOPSValue",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface font-medium",
+            "value": {
+              "path": "performance/iops"
+            }
+          }
+        },
+        {
+          "id": "mainContentCardBandwidthRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mainContentCardBandwidthLabel",
+            "mainContentCardBandwidthValue"
+          ]
+        },
+        {
+          "id": "mainContentCardBandwidthLabel",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "Bandwidth"
+          }
+        },
+        {
+          "id": "mainContentCardBandwidthValue",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface font-medium",
+            "value": {
+              "path": "performance/bandwidth"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "mergedA2UI": {
+    "rootId": "rootContainer",
+    "elements": [
+      {
+        "id": "rootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex h-screen w-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "sideNavContainer",
+          "mainContentWrapper"
+        ]
+      },
+      {
+        "id": "sideNavContainer",
+        "component": "aside",
+        "props": {
+          "className": "w-[15.5rem] shrink-0 bg-surface-container-highest flex flex-col overflow-y-auto"
+        },
+        "children": [
+          "sideNavLogo",
+          "sideNavMenu"
+        ]
+      },
+      {
+        "id": "mainContentWrapper",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col min-w-0"
+        },
+        "children": [
+          "topBarContainer",
+          "mainContentArea"
+        ]
+      },
+      {
+        "id": "topBarContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center justify-end px-6 bg-surface-container-highest shrink-0"
+        },
+        "children": [
+          "topBarLangText",
+          "topBarNotificationWrapper",
+          "topBarUserSection"
+        ]
+      },
+      {
+        "id": "mainContentArea",
+        "component": "main",
+        "props": {
+          "className": "flex-1 p-page overflow-y-auto"
+        },
+        "children": [
+          "mainContentTitle",
+          "mainContentTabsWrapper",
+          "mainContentToolbar",
+          "mainContentCardGrid"
+        ]
+      },
+      {
+        "id": "topBarLangText",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface mr-4 cursor-pointer",
+          "value": {
+            "path": "/languageText"
+          }
+        }
+      },
+      {
+        "id": "topBarNotificationWrapper",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notificationBadge"
+          },
+          "color": "error",
+          "offset": [
+            4,
+            -4
+          ]
+        },
+        "children": [
+          "topBarNotificationIcon"
+        ]
+      },
+      {
+        "id": "topBarNotificationIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/notificationIcon"
+          },
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "topBarUserSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 ml-5 cursor-pointer"
+        },
+        "children": [
+          "topBarUserAvatar",
+          "topBarUserName"
+        ]
+      },
+      {
+        "id": "topBarUserAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatarImage"
+          },
+          "className": "w-8 h-8 rounded-full object-cover"
+        }
+      },
+      {
+        "id": "topBarUserName",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface",
+          "value": {
+            "path": "/userName"
+          }
+        }
+      },
+      {
+        "id": "sideNavLogo",
+        "component": "div",
+        "props": {
+          "className": "flex items-center h-12 px-4 border-b border-divider"
+        },
+        "children": [
+          "sideNavLogoText"
+        ]
+      },
+      {
+        "id": "sideNavLogoText",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "DME IQ"
+        }
+      },
+      {
+        "id": "sideNavMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "vertical",
+          "inlineCollapsed": false,
+          "selectedKeys": {
+            "path": "/selectedKeys"
+          },
+          "openKeys": {
+            "path": "/openKeys"
+          },
+          "items": [
+            {
+              "title": "Home",
+              "key": "sideNav_home",
+              "icon": "home"
+            },
+            {
+              "title": "Assets",
+              "key": "sideNav_assets",
+              "icon": "hard-drive",
+              "children": [
+                {
+                  "title": "Storage (21)",
+                  "key": "sideNav_assets_storage"
+                },
+                {
+                  "title": "Servers (25)",
+                  "key": "sideNav_assets_servers"
+                }
+              ]
+            },
+            {
+              "title": "Analytics",
+              "key": "sideNav_analytics",
+              "icon": "bar-chart-3",
+              "children": [
+                {
+                  "title": "Applications",
+                  "key": "sideNav_analytics_applications"
+                },
+                {
+                  "title": "VMs",
+                  "key": "sideNav_analytics_vms"
+                },
+                {
+                  "title": "Storage Performance",
+                  "key": "sideNav_analytics_storage_performance"
+                },
+                {
+                  "title": "Disk Risk",
+                  "key": "sideNav_analytics_disk_risk"
+                }
+              ]
+            },
+            {
+              "title": "Planning",
+              "key": "sideNav_planning",
+              "icon": "clipboard-list",
+              "children": [
+                {
+                  "title": "Workload",
+                  "key": "sideNav_planning_workload"
+                },
+                {
+                  "title": "Capacity",
+                  "key": "sideNav_planning_capacity"
+                }
+              ]
+            },
+            {
+              "title": "Messages",
+              "key": "sideNav_messages",
+              "icon": "message-square",
+              "children": [
+                {
+                  "title": "Alerts  2",
+                  "key": "sideNav_messages_alerts"
+                }
+              ]
+            },
+            {
+              "title": "Support",
+              "key": "sideNav_support",
+              "icon": "life-buoy",
+              "children": [
+                {
+                  "title": "Service Requests",
+                  "key": "sideNav_support_service_requests"
+                },
+                {
+                  "title": "Warranty Contracts",
+                  "key": "sideNav_support_warranty_contracts"
+                }
+              ]
+            },
+            {
+              "title": "Admin",
+              "key": "sideNav_admin",
+              "icon": "shield",
+              "children": [
+                {
+                  "title": "Multi-tenant",
+                  "key": "sideNav_admin_multi_tenant"
+                },
+                {
+                  "title": "Authorization",
+                  "key": "sideNav_admin_authorization"
+                },
+                {
+                  "title": "Notification",
+                  "key": "sideNav_admin_notification"
+                },
+                {
+                  "title": "Operation Logs",
+                  "key": "sideNav_admin_operation_logs"
+                }
+              ]
+            },
+            {
+              "title": "Report",
+              "key": "sideNav_report",
+              "icon": "file-text"
+            }
+          ],
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "mainContentTitle",
+        "component": "h1",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface mb-4",
+          "value": "Storage"
+        }
+      },
+      {
+        "id": "mainContentTabsWrapper",
+        "component": "div",
+        "props": {
+          "className": "border-b border-divider mb-4"
+        },
+        "children": [
+          "mainContentTabs"
+        ]
+      },
+      {
+        "id": "mainContentTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTab"
+          },
+          "types": "line",
+          "className": "mb-0"
+        },
+        "children": [
+          "mainContentTabEnterprise",
+          "mainContentTabDistributed"
+        ]
+      },
+      {
+        "id": "mainContentTabEnterprise",
+        "component": "TabItem",
+        "props": {
+          "key": "enterprise",
+          "label": "Enterprise Storage",
+          "content": {
+            "componentId": "mainContentTabEnterpriseContent"
+          }
+        }
+      },
+      {
+        "id": "mainContentTabDistributed",
+        "component": "TabItem",
+        "props": {
+          "key": "distributed",
+          "label": "Distributed Storage",
+          "content": {
+            "componentId": "mainContentTabDistributedContent"
+          }
+        }
+      },
+      {
+        "id": "mainContentTabEnterpriseContent",
+        "component": "div",
+        "props": {
+          "className": "hidden"
+        }
+      },
+      {
+        "id": "mainContentTabDistributedContent",
+        "component": "div",
+        "props": {
+          "className": "hidden"
+        }
+      },
+      {
+        "id": "mainContentToolbar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between mb-4"
+        },
+        "children": [
+          "mainContentToolbarLeft",
+          "mainContentToolbarRight"
+        ]
+      },
+      {
+        "id": "mainContentToolbarLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mainContentSearchInput"
+        ]
+      },
+      {
+        "id": "mainContentSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchValue"
+          },
+          "placeholder": "Filter",
+          "prefix": "search",
+          "className": "w-64"
+        }
+      },
+      {
+        "id": "mainContentToolbarRight",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mainContentTotalText",
+          "mainContentSortSelect",
+          "mainContentViewBtn"
+        ]
+      },
+      {
+        "id": "mainContentTotalText",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": "Total: 18/18"
+        }
+      },
+      {
+        "id": "mainContentSortSelect",
+        "component": "Select",
+        "props": {
+          "value": {
+            "path": "/sortValue"
+          },
+          "options": {
+            "path": "/sortOptions"
+          },
+          "className": "w-48"
+        }
+      },
+      {
+        "id": "mainContentViewBtn",
+        "component": "Button",
+        "props": {
+          "icon": "layout-grid",
+          "color": "default",
+          "className": "flex items-center justify-center"
+        }
+      },
+      {
+        "id": "mainContentCardGrid",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-4 gap-section"
+        },
+        "children": {
+          "path": "/storageCards",
+          "componentId": "mainContentCard"
+        }
+      },
+      {
+        "id": "mainContentCard",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-xl shadow-card p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mainContentCardHeader",
+          "mainContentCardSite",
+          "mainContentCardBody"
+        ]
+      },
+      {
+        "id": "mainContentCardHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mainContentCardTitleRow",
+          "mainContentCardStatusTag"
+        ]
+      },
+      {
+        "id": "mainContentCardTitleRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mainContentCardTitleText",
+          "mainContentCardTrendIcon"
+        ]
+      },
+      {
+        "id": "mainContentCardTitleText",
+        "component": "span",
+        "props": {
+          "className": "text-md font-semibold text-on-surface",
+          "value": {
+            "path": "cardTitle"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardTrendIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "trendIcon"
+          },
+          "color": "default",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "mainContentCardStatusTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusTag"
+          },
+          "color": {
+            "path": "statusColor"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "mainContentCardSite",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "siteModel"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardBody",
+        "component": "div",
+        "props": {
+          "className": "flex gap-2"
+        },
+        "children": [
+          "mainContentCardChart",
+          "mainContentCardInfo"
+        ]
+      },
+      {
+        "id": "mainContentCardChart",
+        "component": "div",
+        "props": {
+          "className": "w-40 h-40 shrink-0"
+        },
+        "children": [
+          "mainContentCardProcessChart"
+        ]
+      },
+      {
+        "id": "mainContentCardProcessChart",
+        "component": "ProcessChart",
+        "props": {
+          "option": {
+            "name": "ProcessBarChart",
+            "data": [
+              {
+                "name": "Health",
+                "value": {
+                  "path": "healthScore"
+                }
+              }
+            ],
+            "unit": "%"
+          },
+          "className": "w-full h-full"
+        }
+      },
+      {
+        "id": "mainContentCardInfo",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col gap-1 min-w-0"
+        },
+        "children": [
+          "mainContentCardCapacitySection",
+          "mainContentCardPerformanceSection"
+        ]
+      },
+      {
+        "id": "mainContentCardCapacitySection",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-0.5"
+        },
+        "children": [
+          "mainContentCardCapacityTitle",
+          "mainContentCardCapacityRow",
+          "mainContentCardDataReductionRow"
+        ]
+      },
+      {
+        "id": "mainContentCardCapacityTitle",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface",
+          "value": "Capacity"
+        }
+      },
+      {
+        "id": "mainContentCardCapacityRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mainContentCardUsedPercent",
+          "mainContentCardFreeTB"
+        ]
+      },
+      {
+        "id": "mainContentCardUsedPercent",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "capacity/usedPercent"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardFreeTB",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "capacity/freeTB"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardDataReductionRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mainContentCardDataReductionIcon",
+          "mainContentCardDataReductionText"
+        ]
+      },
+      {
+        "id": "mainContentCardDataReductionIcon",
+        "component": "Icon",
+        "props": {
+          "name": "file-text",
+          "color": "default",
+          "shape": "outline",
+          "className": "w-3.5 h-3.5"
+        }
+      },
+      {
+        "id": "mainContentCardDataReductionText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "capacity/dataReduction"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardPerformanceSection",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-0.5 mt-1"
+        },
+        "children": [
+          "mainContentCardPerformanceTitle",
+          "mainContentCardLatencyRow",
+          "mainContentCardIOPSRow",
+          "mainContentCardBandwidthRow"
+        ]
+      },
+      {
+        "id": "mainContentCardPerformanceTitle",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface",
+          "value": "Performance"
+        }
+      },
+      {
+        "id": "mainContentCardLatencyRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mainContentCardLatencyLabel",
+          "mainContentCardLatencyValue"
+        ]
+      },
+      {
+        "id": "mainContentCardLatencyLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "Latency"
+        }
+      },
+      {
+        "id": "mainContentCardLatencyValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface font-medium",
+          "value": {
+            "path": "performance/latency"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardIOPSRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mainContentCardIOPSLabel",
+          "mainContentCardIOPSValue"
+        ]
+      },
+      {
+        "id": "mainContentCardIOPSLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "IOPS"
+        }
+      },
+      {
+        "id": "mainContentCardIOPSValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface font-medium",
+          "value": {
+            "path": "performance/iops"
+          }
+        }
+      },
+      {
+        "id": "mainContentCardBandwidthRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mainContentCardBandwidthLabel",
+          "mainContentCardBandwidthValue"
+        ]
+      },
+      {
+        "id": "mainContentCardBandwidthLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "Bandwidth"
+        }
+      },
+      {
+        "id": "mainContentCardBandwidthValue",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface font-medium",
+          "value": {
+            "path": "performance/bandwidth"
+          }
+        }
+      }
+    ],
+    "state": {
+      "languageText": "EN",
+      "notificationIcon": "Bell",
+      "notificationBadge": 3,
+      "userAvatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+      "userName": "Jasper",
+      "selectedKeys": [
+        "sideNav_assets_storage"
+      ],
+      "openKeys": [
+        "sideNav_assets",
+        "sideNav_analytics",
+        "sideNav_planning",
+        "sideNav_messages",
+        "sideNav_support",
+        "sideNav_admin"
+      ],
+      "activeTab": "enterprise",
+      "searchValue": "",
+      "sortValue": "Sort by Health Score",
+      "tabs": [
+        {
+          "key": "enterprise",
+          "label": "Enterprise Storage"
+        },
+        {
+          "key": "distributed",
+          "label": "Distributed Storage"
+        }
+      ],
+      "sortOptions": [
+        {
+          "label": "Sort by Health Score",
+          "value": "Sort by Health Score"
+        },
+        {
+          "label": "Sort by Name",
+          "value": "Sort by Name"
+        },
+        {
+          "label": "Sort by Capacity",
+          "value": "Sort by Capacity"
+        }
+      ],
+      "storageCards": [
+        {
+          "cardTitle": "Huawei_Dorado79",
+          "trendIcon": "arrow-up",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Chengdu, Sichuan  Model: Dorado5000 V3",
+          "healthScore": 45,
+          "capacity": {
+            "usedPercent": "72%",
+            "freeTB": 14.2,
+            "dataReduction": "2.8:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "2.3ms",
+            "iops": 12500,
+            "bandwidth": "1.2GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado80",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Beijing, China  Model: Dorado8000 V6",
+          "healthScore": 68,
+          "capacity": {
+            "usedPercent": "55%",
+            "freeTB": 22.5,
+            "dataReduction": "3.1:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.8ms",
+            "iops": 18200,
+            "bandwidth": "2.1GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado81",
+          "trendIcon": "arrow-down",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Shanghai, China  Model: Dorado5000 V3",
+          "healthScore": 32,
+          "capacity": {
+            "usedPercent": "91%",
+            "freeTB": 4.1,
+            "dataReduction": "1.9:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "4.7ms",
+            "iops": 7800,
+            "bandwidth": "0.6GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado82",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Guangzhou, China  Model: Dorado6000 V5",
+          "healthScore": 72,
+          "capacity": {
+            "usedPercent": "48%",
+            "freeTB": 31,
+            "dataReduction": "4.2:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.5ms",
+            "iops": 21500,
+            "bandwidth": "2.8GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado83",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Shenzhen, China  Model: Dorado5000 V3",
+          "healthScore": 65,
+          "capacity": {
+            "usedPercent": "63%",
+            "freeTB": 18.7,
+            "dataReduction": "2.5:1",
+            "hasDataReduction": false
+          },
+          "performance": {
+            "latency": "2.1ms",
+            "iops": 14300,
+            "bandwidth": "1.5GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado84",
+          "trendIcon": "arrow-down",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Chengdu, Sichuan  Model: Dorado8000 V6",
+          "healthScore": 28,
+          "capacity": {
+            "usedPercent": "95%",
+            "freeTB": 2.3,
+            "dataReduction": "1.6:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "5.2ms",
+            "iops": 5400,
+            "bandwidth": "0.4GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado85",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Nanjing, China  Model: Dorado6000 V5",
+          "healthScore": 78,
+          "capacity": {
+            "usedPercent": "41%",
+            "freeTB": 35.6,
+            "dataReduction": "3.8:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.3ms",
+            "iops": 23800,
+            "bandwidth": "3.2GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado86",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Hangzhou, China  Model: Dorado5000 V3",
+          "healthScore": 70,
+          "capacity": {
+            "usedPercent": "58%",
+            "freeTB": 20.4,
+            "dataReduction": "2.9:1",
+            "hasDataReduction": false
+          },
+          "performance": {
+            "latency": "1.9ms",
+            "iops": 16100,
+            "bandwidth": "1.8GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado87",
+          "trendIcon": "arrow-down",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Wuhan, China  Model: Dorado8000 V6",
+          "healthScore": 35,
+          "capacity": {
+            "usedPercent": "87%",
+            "freeTB": 6.8,
+            "dataReduction": "2.0:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "4.1ms",
+            "iops": 9200,
+            "bandwidth": "0.8GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado88",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Xi'an, China  Model: Dorado6000 V5",
+          "healthScore": 74,
+          "capacity": {
+            "usedPercent": "52%",
+            "freeTB": 26.3,
+            "dataReduction": "3.5:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.6ms",
+            "iops": 20400,
+            "bandwidth": "2.5GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado89",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Changsha, China  Model: Dorado5000 V3",
+          "healthScore": 62,
+          "capacity": {
+            "usedPercent": "67%",
+            "freeTB": 16.5,
+            "dataReduction": "2.6:1",
+            "hasDataReduction": false
+          },
+          "performance": {
+            "latency": "2.2ms",
+            "iops": 13800,
+            "bandwidth": "1.4GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado90",
+          "trendIcon": "arrow-down",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Tianjin, China  Model: Dorado8000 V6",
+          "healthScore": 30,
+          "capacity": {
+            "usedPercent": "93%",
+            "freeTB": 3.5,
+            "dataReduction": "1.7:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "4.9ms",
+            "iops": 6100,
+            "bandwidth": "0.5GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado91",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Suzhou, China  Model: Dorado6000 V5",
+          "healthScore": 76,
+          "capacity": {
+            "usedPercent": "45%",
+            "freeTB": 33.2,
+            "dataReduction": "4.0:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.4ms",
+            "iops": 22600,
+            "bandwidth": "3.0GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado92",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Qingdao, China  Model: Dorado5000 V3",
+          "healthScore": 69,
+          "capacity": {
+            "usedPercent": "60%",
+            "freeTB": 19.8,
+            "dataReduction": "2.7:1",
+            "hasDataReduction": false
+          },
+          "performance": {
+            "latency": "2.0ms",
+            "iops": 15500,
+            "bandwidth": "1.7GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado93",
+          "trendIcon": "arrow-down",
+          "statusTag": "Critical",
+          "statusColor": "error",
+          "siteModel": "Site: Zhengzhou, China  Model: Dorado8000 V6",
+          "healthScore": 33,
+          "capacity": {
+            "usedPercent": "89%",
+            "freeTB": 5.6,
+            "dataReduction": "1.8:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "4.4ms",
+            "iops": 8500,
+            "bandwidth": "0.7GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado94",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Fuzhou, China  Model: Dorado6000 V5",
+          "healthScore": 71,
+          "capacity": {
+            "usedPercent": "50%",
+            "freeTB": 28.7,
+            "dataReduction": "3.3:1",
+            "hasDataReduction": true
+          },
+          "performance": {
+            "latency": "1.7ms",
+            "iops": 19800,
+            "bandwidth": "2.4GB/s"
+          }
+        },
+        {
+          "cardTitle": "Huawei_Dorado95",
+          "trendIcon": "arrow-up",
+          "statusTag": "Major",
+          "statusColor": "warning",
+          "siteModel": "Site: Kunming, China  Model: Dorado5000 V3",
+          "healthScore": 66,
+          "capacity": {
+            "usedPercent": "64%",
+            "freeTB": 17.9,
+            "dataReduction": "2.4:1",
+            "hasDataReduction": false
+          },
+          "performance": {
+            "latency": "2.1ms",
+            "iops": 14600,
+            "bandwidth": "1.5GB/s"
+          }
+        }
+      ]
+    }
+  }
+}

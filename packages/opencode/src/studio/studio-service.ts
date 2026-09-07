@@ -2,10 +2,12 @@ import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng
 import {
   cancelInternalGeneration,
   createInternalGeneration,
+  generatePromptFromImage,
   queryInternalGeneration,
+  rebootInternalGeneration,
   summarizeInternalOutput,
+  type PromptGenResponse,
 } from "@/tool/internel_image_generate"
-import { generateObject } from "ai"
 import z from "zod"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
@@ -14,12 +16,15 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Provider } from "@/provider/provider"
+import { Config } from "@/config/config"
+import { LLM } from "@/session/llm"
+import { Agent } from "@/agent/agent"
 import { SyncEvent } from "@/sync"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 
@@ -27,6 +32,10 @@ type StudioProvider = "jimeng" | "internel"
 type StudioPersistedTurn = {
   assistantInfo: MessageV2.Assistant
   toolPart: MessageV2.ToolPart & { state: MessageV2.ToolStateRunning }
+}
+type StudioAnyPersistedTurn = {
+  assistantInfo: MessageV2.Assistant
+  toolPart: MessageV2.ToolPart
 }
 
 type StudioGenerationRecord = typeof StudioGenerationTable.$inferSelect
@@ -37,10 +46,17 @@ type StudioPromptRefineResult = {
   fallback?: boolean
   raw?: unknown
 }
+type StudioPromptRefineModelCandidate = {
+  providerID: ProviderID
+  modelID: ModelID
+  source: "session" | "connected" | "default"
+}
 
 type StudioGenerationPromptInput = StudioGenerationRequest & {
   refinedPrompt?: string
   effectivePrompt?: string
+  displayPrompt?: string
+  detailPrompt?: string
   promptRefineFallback?: boolean
 }
 
@@ -48,6 +64,14 @@ export type StudioGenerationRequest = {
   sessionID?: string
   capability: StudioCapability
   prompt: string
+  displayPrompt?: string
+  detailPrompt?: string
+  refinedPrompt?: string
+  effectivePrompt?: string
+  promptRefineModels?: Array<{
+    providerID: string
+    modelID: string
+  }>
   styleModel?: string
   aspectRatio?: string
   count?: number
@@ -75,11 +99,17 @@ export type StudioEditorEntryResult = {
   assistantMessageID: string
 }
 
+export type StudioPromptGenRequest = {
+  base64img: string
+}
+
 export type StudioGenerationResult = {
   id: string
   status: StudioGenerationStatus
   capability: StudioCapability
   prompt: string
+  displayPrompt?: string
+  detailPrompt?: string
   provider: StudioProvider
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
@@ -103,9 +133,20 @@ export type StudioGenerationResult = {
   completedAt?: number
 }
 
+export async function createPromptGen(input: StudioPromptGenRequest): Promise<PromptGenResponse> {
+  const result = await generatePromptFromImage(input)
+  if (result.resp_code !== 200) {
+    throw new Error(result.resp_msg?.trim() || "提示词生成失败")
+  }
+  if (!result.result?.zh?.trim()) {
+    throw new Error("提示词生成结果为空")
+  }
+  return result
+}
+
 export type StudioGenerationAccepted = Pick<
   StudioGenerationResult,
-  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
+  "id" | "status" | "capability" | "prompt" | "displayPrompt" | "detailPrompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
 > & {
   sessionID: string
 }
@@ -177,6 +218,26 @@ function buildAssistantText(input: StudioGenerationRequest) {
     .join("")
 }
 
+function buildSubmittingAssistantText(input: StudioGenerationRequest) {
+  if (input.displayPrompt?.trim() === "再次生成") return "好的，我会按当前结果的配置重新生成。"
+  if (input.capability === "image.upscale") return "好的，我将提升当前图片的清晰度和细节。"
+  if (input.capability === "image.cutout") return "好的，我将对当前图片进行抠图。"
+  if (input.capability === "image.inpaint") return "好的，我将根据涂抹区域局部重绘当前图片。"
+  if (input.capability === "image.outpaint") return "好的，我将扩展当前图片。"
+  if (input.capability === "video.generate") return "好的，我将为您生成一段视频。"
+  if (input.sourceImage) return "好的，我会基于当前画面继续创作。"
+  return "好的，我将为您生成图片。"
+}
+
+function submittingPromptRefine(input: StudioGenerationRequest): StudioPromptRefineResult {
+  const prompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim() || buildEffectivePrompt(input)
+  return {
+    assistantText: buildSubmittingAssistantText(input),
+    refinedPrompt: prompt,
+    effectivePrompt: prompt,
+  }
+}
+
 function resultSummary(input: { provider: StudioProvider; raw: unknown; rawBody?: string }) {
   return input.provider === "internel"
     ? summarizeInternalOutput(input.raw, input.rawBody)
@@ -232,23 +293,167 @@ function displayInput(input: StudioGenerationRequest, task?: ImageGenerationTask
 }
 
 function shouldRefineWithLLM(input: StudioGenerationRequest) {
-  if (input.capability !== "image.generate") return false
+  if (input.capability !== "image.generate" && input.capability !== "video.generate") return false
   return input.extra?.skipPromptRefine !== true
 }
 
-function promptRefineFallback(input: StudioGenerationRequest): StudioPromptRefineResult {
-  const effectivePrompt = buildEffectivePrompt(input)
+function shouldPassthroughReferenceImagePrompt(input: StudioGenerationRequest) {
+  if (input.capability === "image.generate") return (input.referenceImages?.length ?? 0) > 0
+  if (input.capability !== "video.generate") return false
+  return Boolean(
+    input.extra?.firstFrame ||
+      input.extra?.lastFrame ||
+      (input.referenceImages?.length ?? 0) > 0,
+  )
+}
+
+function shouldPassthroughEditorPrompt(input: StudioGenerationRequest) {
+  return isEditorGenerationCapability(input.capability)
+}
+
+function previousEffectivePrompt(previous?: StudioGenerationRecord) {
+  const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  return previousRequest?.effectivePrompt?.trim() ||
+    previousRequest?.refinedPrompt?.trim() ||
+    previousRequest?.prompt?.trim()
+}
+
+function buildEffectivePromptFromPrevious(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
+  const previousPrompt = previousEffectivePrompt(previous)
+  if (!previousPrompt) return buildEffectivePrompt(input)
+  return `延续上一轮画面：${previousPrompt}。${input.prompt}`
+}
+
+function promptPassthroughRefine(input: StudioGenerationRequest): StudioPromptRefineResult {
+  const prompt = input.prompt.trim()
   return {
-    assistantText: shouldRefineWithLLM(input)
-      ? input.sourceImage
-        ? "好的，我会基于当前画面继续创作。"
-        : "好的，我会根据你的描述创作画面。"
+    assistantText: buildSubmittingAssistantText(input),
+    refinedPrompt: prompt,
+    effectivePrompt: prompt,
+    fallback: true,
+  }
+}
+
+function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioGenerationRecord): StudioPromptRefineResult {
+  const regenerateText = input.displayPrompt?.trim() === "再次生成"
+  const restoredPrompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim()
+  const effectivePrompt = restoredPrompt || (regenerateText ? input.prompt : buildEffectivePromptFromPrevious(input, previous))
+  return {
+    assistantText: regenerateText
+      ? "好的，我会按当前结果的配置重新生成。"
+      : shouldRefineWithLLM(input)
+      ? input.capability === "video.generate"
+        ? "好的，我会根据你的描述创作视频。"
+        : input.sourceImage
+          ? "好的，我会基于当前画面继续创作。"
+          : "好的，我会根据你的描述创作画面。"
       : buildAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
     fallback: true,
   }
 }
+
+function isStudioPromptConnectedProvider(provider: Provider.Info, disabledProviders: Set<string>) {
+  if (provider.id !== "w3" && disabledProviders.has(provider.id)) return false
+  return provider.id === "w3" ||
+    Boolean(provider.key) ||
+    provider.source === "env" ||
+    provider.source === "api" ||
+    Boolean((provider.options as Record<string, unknown>)?.apiKey)
+}
+
+function studioPromptRefineModelKey(input: { providerID: string; modelID: string }) {
+  return `${input.providerID}:${input.modelID}`
+}
+
+function studioPromptRefineEnabledModels(input: StudioGenerationRequest) {
+  if (!input.promptRefineModels) return
+  return new Set(input.promptRefineModels.map(studioPromptRefineModelKey))
+}
+
+function isStudioPromptRefineModelEnabled(providerID: string, modelID: string, enabledModels?: Set<string>) {
+  if (!enabledModels) return true
+  return enabledModels.has(studioPromptRefineModelKey({ providerID, modelID }))
+}
+
+function firstStudioPromptConnectedModel(
+  providers: Record<string, Provider.Info>,
+  disabledProviders: Set<string>,
+  enabledModels?: Set<string>,
+) {
+  const defaults = Provider.defaultModelIDs(providers)
+  for (const provider of Object.values(providers).filter((item) =>
+    isStudioPromptConnectedProvider(item, disabledProviders),
+  )) {
+    const configured = defaults[provider.id]
+    if (
+      configured &&
+      provider.models[configured] &&
+      isStudioPromptRefineModelEnabled(provider.id, provider.models[configured].id, enabledModels)
+    ) {
+      return {
+        providerID: ProviderID.make(provider.id),
+        modelID: provider.models[configured].id,
+      }
+    }
+
+    const model = Object.values(provider.models)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .find((item) => isStudioPromptRefineModelEnabled(provider.id, item.id, enabledModels))
+    if (!model) continue
+    return {
+      providerID: ProviderID.make(provider.id),
+      modelID: model.id,
+    }
+  }
+}
+
+function sessionPromptRefineModel(
+  session: typeof SessionTable.$inferSelect,
+  enabledModels?: Set<string>,
+): StudioPromptRefineModelCandidate | undefined {
+  if (!session.model) return
+  if (!isStudioPromptRefineModelEnabled(session.model.providerID, session.model.id, enabledModels)) return
+  return {
+    providerID: ProviderID.make(session.model.providerID),
+    modelID: ModelID.make(session.model.id),
+    source: "session",
+  }
+}
+
+const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel")(function* (
+  provider: Provider.Interface,
+  session: typeof SessionTable.$inferSelect,
+  disabledProviders: Set<string>,
+  enabledModels?: Set<string>,
+) {
+  const sessionModel = sessionPromptRefineModel(session, enabledModels)
+  if (sessionModel) {
+    const resolved = yield* provider.getModel(sessionModel.providerID, sessionModel.modelID).pipe(Effect.option)
+    if (resolved._tag === "Some") return sessionModel
+  }
+
+  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list(), disabledProviders, enabledModels)
+  if (connectedModel) {
+    const resolved = yield* provider.getModel(connectedModel.providerID, connectedModel.modelID).pipe(Effect.option)
+    if (resolved._tag === "Some") {
+      return {
+        ...connectedModel,
+        source: "connected",
+      }
+    }
+  }
+
+  if (enabledModels) {
+    return yield* Effect.fail(new Error("No Studio prompt refine model is enabled."))
+  }
+
+  return {
+    ...(yield* provider.defaultModel()),
+    source: "default",
+  }
+})
 
 function imageUrls(result: unknown) {
   if (!result || typeof result !== "object") return []
@@ -283,13 +488,27 @@ function lastSuccessfulGeneration(sessionID: SessionID) {
 
 function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
   const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  const previousPrompt = previousEffectivePrompt(previous)
   return {
+    capability: input.capability,
     userPrompt: input.prompt,
     hasReferenceImages: (input.referenceImages?.length ?? 0) > 0,
+    ...(input.capability === "video.generate"
+      ? {
+          video: {
+            mode: videoMode(input),
+            duration: videoDuration(input),
+            qualityMode: videoQualityMode(input),
+            hasFirstFrame: Boolean(input.extra?.firstFrame) || (input.referenceImages?.length ?? 0) > 0,
+            hasLastFrame: Boolean(input.extra?.lastFrame),
+          },
+        }
+      : {}),
     previousTurn: previous && previousRequest
       ? {
+          capability: previous.capability,
           userText: previousRequest.prompt,
-          refinedPrompt: previousRequest.refinedPrompt ?? previousRequest.effectivePrompt,
+          refinedPrompt: previousPrompt,
           imageUrls: imageUrls(previous.result),
         }
       : undefined,
@@ -301,10 +520,145 @@ const promptRefineSchema = z.object({
   refinedPrompt: z.string().min(1),
 })
 
-const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
+function parsePromptRefineText(text: string) {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]
+  const objectStart = trimmed.indexOf("{")
+  const objectEnd = trimmed.lastIndexOf("}")
+  const candidates = [
+    trimmed,
+    fenced,
+    objectStart >= 0 && objectEnd > objectStart ? trimmed.slice(objectStart, objectEnd + 1) : undefined,
+  ].filter((item): item is string => Boolean(item))
+  for (const item of candidates) {
+    try {
+      const parsed = promptRefineSchema.safeParse(JSON.parse(item))
+      if (parsed.success) return parsed.data
+    } catch {
+      continue
+    }
+  }
+}
 
-const PROMPT_REFINE_SYSTEM = [
-  "你是 Octo Studio 的创意提示词润色助手。",
+function completePromptRefineResult(parsed: z.infer<typeof promptRefineSchema>): StudioPromptRefineResult {
+  return {
+    ...parsed,
+    effectivePrompt: parsed.refinedPrompt,
+  }
+}
+
+function promptRefineTextPreview(text: string) {
+  return text.trim().replace(/\s+/g, " ").slice(0, 500)
+}
+
+const PROMPT_REFINE_TIMEOUT_MS = 45_000
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError" ||
+    error instanceof Error && /abort|cancel/i.test(error.message)
+}
+
+const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
+const studioPromptConfigRuntime = makeRuntime(Config.Service, Config.defaultLayer)
+const studioPromptLLMRuntime = makeRuntime(LLM.Service, LLM.defaultLayer)
+const studioPromptAgentRuntime = makeRuntime(Agent.Service, Agent.defaultLayer)
+
+const STUDIO_PROMPT_REFINE_AGENT_PROMPT =
+  "You are a Studio prompt refinement assistant. Follow the task instructions exactly."
+
+class StudioPromptRefineParsed {
+  constructor(readonly result: StudioPromptRefineResult) {}
+}
+
+function studioPromptRefineAgent(agent: Agent.Info | undefined): Agent.Info {
+  return {
+    ...(agent ?? {
+      name: "octo_studio",
+      description: "Studio prompt refine assistant.",
+      mode: "primary" as const,
+      native: false,
+      permission: [],
+      options: {},
+    }),
+    prompt: STUDIO_PROMPT_REFINE_AGENT_PROMPT,
+    options: {},
+    temperature: 0.4,
+    topP: undefined,
+    skills: undefined,
+    mcp: undefined,
+  }
+}
+
+async function getStudioPromptRefineAgent() {
+  const agent = await studioPromptAgentRuntime.runPromise((service) => service.get("octo_studio"))
+  return studioPromptRefineAgent(agent)
+}
+
+function readPromptRefineLLMStream(stream: Stream.Stream<LLM.Event, unknown>, startedAt: number) {
+  return Effect.gen(function* () {
+    let text = ""
+    let abortReason: string | undefined
+    let finishReason: string | undefined
+    const result = yield* stream.pipe(
+      Stream.runForEach((part) => {
+        if (part.type === "error") return Effect.fail(part.error)
+        if (part.type === "abort") {
+          return Effect.sync(() => {
+            abortReason = typeof part.reason === "string" ? part.reason : undefined
+          })
+        }
+        if (part.type === "finish") {
+          return Effect.sync(() => {
+            finishReason = part.finishReason
+          })
+        }
+        if (part.type !== "text-delta") return Effect.void
+        return Effect.sync(() => {
+          text += part.text
+          return parsePromptRefineText(text)
+        }).pipe(
+          Effect.flatMap((parsed) =>
+            parsed ? Effect.fail(new StudioPromptRefineParsed(completePromptRefineResult(parsed))) : Effect.void,
+          ),
+        )
+      }),
+      Effect.as(undefined as StudioPromptRefineResult | undefined),
+      Effect.catchIf(
+        (error) => error instanceof StudioPromptRefineParsed,
+        (error) => Effect.succeed(error.result),
+      ),
+    )
+    if (result) return result
+    const parsed = parsePromptRefineText(text)
+    if (parsed) return completePromptRefineResult(parsed)
+    return yield* Effect.fail(
+      new Error(
+        `Studio prompt refine did not return valid JSON. timedOut=false elapsed=${Date.now() - startedAt} finishReason=${finishReason ?? "unknown"} abortReason=${abortReason ?? "unknown"} raw=${promptRefineTextPreview(text)}`,
+      ),
+    )
+  })
+}
+
+function studioToolInput(request: StudioGenerationPromptInput, promptRefine: StudioPromptRefineResult) {
+  return {
+    capability: request.capability,
+    prompt: request.prompt,
+    displayPrompt: request.displayPrompt,
+    detailPrompt: request.detailPrompt,
+    styleModel: isEditorGenerationCapability(request.capability) ? undefined : request.styleModel,
+    aspectRatio: isEditorGenerationCapability(request.capability) ? undefined : request.aspectRatio,
+    count: isEditorGenerationCapability(request.capability) ? undefined : request.count,
+    referenceImages: request.referenceImages,
+    sourceImage: request.sourceImage,
+    refinedPrompt: promptRefine.refinedPrompt,
+    effectivePrompt: promptRefine.effectivePrompt,
+    promptRefineFallback: promptRefine.fallback,
+    extra: request.extra,
+  }
+}
+
+const IMAGE_PROMPT_REFINE_SYSTEM = [
+  "你是 Octo Studio 的图片提示词润色助手。",
   "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
   "严格规则：",
   "- 只负责画面内容描述，不决定能力、模型、风格配置、工具、比例、数量。",
@@ -313,40 +667,129 @@ const PROMPT_REFINE_SYSTEM = [
   "- 如果用户当前输入是延续上一轮，请保留上一轮主体、构图、氛围、风格中仍相关的部分。",
   "- 如果用户当前输入明确是全新主题，请以当前输入为主。",
   "- assistantText 使用中文，简短、自然、友好，不要暴露内部参数。",
+  "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的画面内容。",
+  "- refinedPrompt 不超过 300 个中文字。",
+  "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
 
-async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
-  if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
+const VIDEO_PROMPT_REFINE_SYSTEM = [
+  "你是 Octo Studio 的视频提示词润色助手。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
+  "严格规则：",
+  "- 只负责视频内容、动作、镜头、节奏、氛围描述。",
+  "- 不决定能力、模型、比例、数量、时长、质量模式、工具。",
+  "- 不要在 refinedPrompt 中写模型名称、画幅比例、生成数量、视频时长、质量模式或工具名称。",
+  "- 如果是文生视频，refinedPrompt 应描述主体、动作、镜头运动、场景、节奏和氛围。",
+  "- 如果是图生视频或有参考图/首帧/尾帧，请保留图中主体与画面关系，只补充合理运动和镜头变化。",
+  "- 如果用户当前输入是延续上一轮，请保留上一轮主体、动作、场景、风格中仍相关的部分。",
+  "- 如果用户当前输入明确是全新主题，请以当前输入为主。",
+  "- assistantText 使用中文，简短、自然、友好，不要暴露内部参数。",
+  "- assistantText 不超过 40 个中文字。",
+  "- refinedPrompt 只描述要生成的视频内容。",
+  "- refinedPrompt 不超过 300 个中文字。",
+  "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
+  "- 只输出 JSON。",
+].join("\n")
+
+function promptRefineSystem(input: StudioGenerationRequest) {
+  if (input.capability === "video.generate") return VIDEO_PROMPT_REFINE_SYSTEM
+  return IMAGE_PROMPT_REFINE_SYSTEM
+}
+
+async function refineStudioPrompt(
+  input: StudioGenerationRequest,
+  session: typeof SessionTable.$inferSelect,
+  options?: { signal?: AbortSignal },
+): Promise<StudioPromptRefineResult> {
+  if (shouldPassthroughEditorPrompt(input)) return promptPassthroughRefine(input)
+  if (shouldPassthroughReferenceImagePrompt(input)) return promptPassthroughRefine(input)
+  const sessionID = SessionID.zod.parse(session.id)
+  const previous = lastSuccessfulGeneration(sessionID)
+  if (!shouldRefineWithLLM(input)) return promptRefineFallback(input, previous)
+  let timedOut = false
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort(new Error("Studio prompt refine timed out."))
+  }, PROMPT_REFINE_TIMEOUT_MS)
+  const abortSignal = options?.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
   try {
-    const model = session.model
-      ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
-      : undefined
-    const result = await Promise.race([
-      studioPromptProviderRuntime.runPromise((provider) =>
+    const result = await studioPromptProviderRuntime.runPromise(
+      (provider) =>
         Effect.gen(function* () {
-          const selected = model ?? (yield* provider.defaultModel())
+          const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
+          const enabledModels = studioPromptRefineEnabledModels(input)
+          const selected = yield* selectStudioPromptRefineModel(
+            provider,
+            session,
+            new Set(config.disabled_providers ?? []),
+            enabledModels,
+          )
           const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
-          const language = yield* provider.getLanguage(resolved)
+          const agent = yield* Effect.promise(() => getStudioPromptRefineAgent())
+          const system = [promptRefineSystem(input)]
+          const userContent = JSON.stringify(promptRefineInput(input, previous), null, 2)
+          const pluginMessage: MessageV2.User = {
+            id: MessageID.ascending(),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "octo_studio",
+            model: {
+              providerID: selected.providerID,
+              modelID: selected.modelID,
+            },
+          }
+          const streamInput: LLM.StreamInput = {
+            user: pluginMessage,
+            sessionID: session.id,
+            model: resolved,
+            agent,
+            system,
+            messages: [
+              {
+                role: "user",
+                content: userContent,
+              },
+            ],
+            tools: {},
+            toolChoice: "none",
+            retries: 0,
+          }
+          console.log("[studio.service] prompt refine model", {
+            sessionID: session.id,
+            selectionSource: selected.source,
+            selectedProviderID: selected.providerID,
+            selectedModelID: selected.modelID,
+            resolvedProviderID: resolved.providerID,
+            resolvedModelID: resolved.id,
+            apiID: resolved.api.id,
+            apiNpm: resolved.api.npm,
+            enabledModelCount: enabledModels?.size,
+          })
+          console.log("[studio.service] prompt refine llm stream", {
+            sessionID: session.id,
+            providerID: resolved.providerID,
+            modelID: resolved.id,
+            apiID: resolved.api.id,
+            apiNpm: resolved.api.npm,
+            agent: agent.name,
+            messageRoles: streamInput.messages.map((item) => item.role),
+            messageContentLengths: streamInput.messages.map((item) =>
+              typeof item.content === "string" ? item.content.length : JSON.stringify(item.content).length,
+            ),
+          })
           return yield* Effect.promise(() =>
-            generateObject({
-              model: language,
-              temperature: 0.4,
-              schema: promptRefineSchema,
-              messages: [
-                { role: "system", content: PROMPT_REFINE_SYSTEM },
-                {
-                  role: "user",
-                  content: JSON.stringify(promptRefineInput(input, lastSuccessfulGeneration(SessionID.zod.parse(session.id))), null, 2),
-                },
-              ],
-            }),
+            studioPromptLLMRuntime.runPromise(
+              (llm) => readPromptRefineLLMStream(llm.stream(streamInput), Date.now()),
+              { signal: abortSignal },
+            ),
           )
         }),
-      ).then((item) => item.object),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Studio prompt refine timed out.")), 12_000)),
-    ])
+      { signal: abortSignal },
+    )
     return {
       assistantText: result.assistantText.trim(),
       refinedPrompt: result.refinedPrompt.trim(),
@@ -354,8 +797,15 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
       raw: result,
     }
   } catch (error) {
-    console.warn("[studio.service] prompt refine failed", error)
-    return promptRefineFallback(input)
+    if (options?.signal?.aborted || (isAbortError(error) && !timedOut)) throw error
+    console.warn("[studio.service] prompt refine failed", {
+      sessionID: session.id,
+      capability: input.capability,
+      error,
+    })
+    return promptRefineFallback(input, previous)
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -378,6 +828,7 @@ function persistStudioSession(input: {
   const assistantTextPartID = PartID.ascending()
   const toolPartID = PartID.ascending()
   const assistantText = input.promptRefine.assistantText
+  const displayPrompt = input.request.displayPrompt?.trim() || input.request.prompt
   const providerID = session.model ? ProviderID.make(session.model.providerID) : ProviderID.make("octo_studio")
   const modelID = session.model ? ModelID.make(session.model.id) : ModelID.make("octo_studio")
   const modelVariant = session.model?.variant
@@ -422,7 +873,7 @@ function persistStudioSession(input: {
     sessionID: input.sessionID,
     messageID: userID,
     type: "text",
-    text: input.request.prompt,
+    text: displayPrompt,
   }
   const assistantTextPart: MessageV2.TextPart = {
     id: assistantTextPartID,
@@ -440,19 +891,7 @@ function persistStudioSession(input: {
     tool: toolName(input.provider),
     state: {
       status: "running",
-      input: {
-        capability: input.request.capability,
-        prompt: input.request.prompt,
-        styleModel: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.styleModel,
-        aspectRatio: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.aspectRatio,
-        count: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.count,
-        referenceImages: input.request.referenceImages,
-        sourceImage: input.request.sourceImage,
-        refinedPrompt: input.promptRefine.refinedPrompt,
-        effectivePrompt: input.promptRefine.effectivePrompt,
-        promptRefineFallback: input.promptRefine.fallback,
-        extra: input.request.extra,
-      },
+      input: studioToolInput(input.request, input.promptRefine),
       title: "图片生成",
       metadata: {
         studio: {
@@ -698,6 +1137,7 @@ function failStudioSession(input: {
   turn: StudioPersistedTurn
   error: unknown
   rawStatus?: number | string
+  taskId?: string
   studioStatus?: Extract<StudioGenerationStatus, "create_failed" | "failed">
 }) {
   const completedAt = Date.now()
@@ -722,6 +1162,7 @@ function failStudioSession(input: {
         studio: {
           ...((input.turn.toolPart.state.metadata?.studio as Record<string, unknown> | undefined) ?? {}),
           status: input.studioStatus ?? "failed",
+          ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
           ...(input.rawStatus === undefined ? {} : { rawStatus: input.rawStatus }),
         },
       },
@@ -735,6 +1176,57 @@ function failStudioSession(input: {
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: completedAt })
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
+  )
+}
+
+function restoreStudioSession(input: {
+  record: StudioGenerationRecord
+  task: ImageGenerationTask
+}) {
+  const updatedAt = Date.now()
+  const turn = loadAnyPersistedTurn(input.record)
+  const state = turn.toolPart.state
+  const metadata = state.status === "pending" ? undefined : state.metadata
+  const studioMetadata = metadata?.studio
+  const assistantInfo = stripUndefined({
+    ...turn.assistantInfo,
+    finish: "tool-calls",
+    error: undefined,
+    time: {
+      ...turn.assistantInfo.time,
+      completed: undefined,
+    },
+  }) as MessageV2.Assistant
+  const toolPart = stripUndefined({
+    ...turn.toolPart,
+    state: {
+      status: "running",
+      input: state.input,
+      title: "图片生成",
+      metadata: {
+        ...metadata,
+        statusCode: undefined,
+        studio: {
+          ...(studioMetadata && typeof studioMetadata === "object" && !Array.isArray(studioMetadata)
+            ? (studioMetadata as Record<string, unknown>)
+            : {}),
+          generationID: input.record.id,
+          status: "running",
+          rawStatus: undefined,
+          progress: 0,
+          order: undefined,
+          taskId: input.task.taskId,
+        },
+      },
+      time: {
+        start: "time" in state ? state.time.start : updatedAt,
+      },
+    },
+  }) as MessageV2.ToolPart
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.record.session_id, info: assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.record.session_id, part: toolPart, time: updatedAt })
+  Database.use((db) =>
+    db.update(SessionTable).set({ time_updated: updatedAt }).where(eq(SessionTable.id, input.record.session_id)).run(),
   )
 }
 
@@ -773,7 +1265,7 @@ function generationRequest(record: StudioGenerationRecord) {
   return data as { input: StudioGenerationRequest; task?: ImageGenerationTask }
 }
 
-function loadPersistedTurn(record: StudioGenerationRecord): StudioPersistedTurn {
+function loadAnyPersistedTurn(record: StudioGenerationRecord): StudioAnyPersistedTurn {
   const assistant = Database.use((db) =>
     db.select({ data: MessageTable.data }).from(MessageTable).where(eq(MessageTable.id, record.assistant_message_id)).get(),
   )
@@ -788,11 +1280,110 @@ function loadPersistedTurn(record: StudioGenerationRecord): StudioPersistedTurn 
     sessionID: record.session_id,
     messageID: record.assistant_message_id,
   } as MessageV2.ToolPart
-  if (toolPart.state.status !== "running") throw new Error(`Studio generation ${record.id} tool part is not running.`)
   return {
     assistantInfo,
-    toolPart: toolPart as MessageV2.ToolPart & { state: MessageV2.ToolStateRunning },
+    toolPart,
   }
+}
+
+function loadPersistedTurn(record: StudioGenerationRecord): StudioPersistedTurn {
+  const turn = loadAnyPersistedTurn(record)
+  if (turn.toolPart.state.status !== "running") throw new Error(`Studio generation ${record.id} tool part is not running.`)
+  return {
+    assistantInfo: turn.assistantInfo,
+    toolPart: turn.toolPart as MessageV2.ToolPart & { state: MessageV2.ToolStateRunning },
+  }
+}
+
+function assistantTextPart(record: StudioGenerationRecord) {
+  return Database.use((db) =>
+    db
+      .select()
+      .from(PartTable)
+      .where(and(eq(PartTable.session_id, record.session_id), eq(PartTable.message_id, record.assistant_message_id)))
+      .all(),
+  ).find((part) => part.data.type === "text")
+}
+
+function updateSubmittingTurn(input: {
+  record: StudioGenerationRecord
+  request: StudioGenerationPromptInput
+  promptRefine: StudioPromptRefineResult
+}) {
+  const updatedAt = Date.now()
+  const turn = loadPersistedTurn(input.record)
+  const textPart = assistantTextPart(input.record)
+  if (textPart) {
+    SyncEvent.run(MessageV2.Event.PartUpdated, {
+      sessionID: input.record.session_id,
+      part: {
+        ...textPart.data,
+        id: textPart.id,
+        sessionID: textPart.session_id,
+        messageID: textPart.message_id,
+        text: input.promptRefine.assistantText,
+      } as MessageV2.TextPart,
+      time: updatedAt,
+    })
+  }
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: input.record.session_id,
+    part: {
+      ...turn.toolPart,
+      state: {
+        ...turn.toolPart.state,
+        input: studioToolInput(input.request, input.promptRefine),
+      },
+    },
+    time: updatedAt,
+  })
+}
+
+function markGenerationCancelled(input: {
+  record: StudioGenerationRecord
+  status: Extract<StudioGenerationStatus, "create_failed" | "failed">
+}) {
+  const completedAt = Date.now()
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({ status: StudioGenerationTable.status, raw_status: StudioGenerationTable.raw_status })
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, input.record.id))
+        .get()
+      if (!current) return "missing" as const
+      if (current.status === "failed" && current.raw_status === "4") return "cancelled" as const
+      if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed") return "cancelled" as const
+      if (current.status !== "queued" && current.status !== "running" && !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")) return "terminal" as const
+      const updateTurn = current.status === "queued" || current.status === "running"
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: input.status,
+          raw_status: "4",
+          error: "用户取消生成",
+          queue_order: null,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          completed_at: completedAt,
+          time_updated: completedAt,
+        })
+        .where(eq(StudioGenerationTable.id, input.record.id))
+        .run()
+      return updateTurn ? "claimed" as const : "claimed_without_turn" as const
+    },
+    { behavior: "immediate" },
+  )
+  if (claimed === "claimed") {
+    failStudioSession({
+      sessionID: input.record.session_id,
+      turn: loadPersistedTurn(input.record),
+      error: "用户取消生成",
+      rawStatus: 4,
+      taskId: input.record.provider_task_id ?? undefined,
+      studioStatus: input.status,
+    })
+  }
+  return claimed
 }
 
 function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAccepted {
@@ -803,7 +1394,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     sessionID: record.session_id,
     status: record.status,
     capability: record.capability,
-    prompt: data.input.prompt,
+    prompt: generationPrompt(data.input),
+    displayPrompt: data.input.displayPrompt,
+    detailPrompt: data.input.detailPrompt,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
@@ -885,7 +1478,8 @@ function buildGenerationResult(
     id: record.id,
     status: "succeeded",
     capability: input.capability,
-    prompt: input.prompt,
+    prompt: generationPrompt(input),
+    displayPrompt: input.displayPrompt,
     provider: output.provider,
     toolAction: output.toolAction ?? toolActionForCapability(input.capability),
     taskId: output.taskId,
@@ -951,6 +1545,7 @@ async function failGeneration(record: StudioGenerationRecord, error: unknown, ra
     turn: loadPersistedTurn(record),
     error,
     rawStatus,
+    taskId: record.provider_task_id ?? undefined,
   })
 }
 
@@ -1094,6 +1689,109 @@ async function createProviderTask(input: StudioGenerationPromptInput, provider: 
 
 const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
 const activeGenerations = new Set<string>()
+const activeGenerationControllers = new Map<string, AbortController>()
+const rebootingGenerations = new Set<string>()
+
+function loadGenerationRecord(id: string) {
+  return Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+      .get(),
+  )
+}
+
+function isGenerationCancelled(record?: Pick<StudioGenerationRecord, "status" | "raw_status">) {
+  return Boolean(record && (record.status === "failed" || record.status === "create_failed") && record.raw_status === "4")
+}
+
+function failGenerationCreationByID(id: string, error: unknown) {
+  const record = loadGenerationRecord(id)
+  if (!record || isGenerationCancelled(record)) return
+  failGenerationCreation({
+    id,
+    sessionID: record.session_id,
+    turn: loadPersistedTurn(record),
+    error,
+  })
+}
+
+async function runGenerationCreatePipeline(id: string) {
+  const record = loadGenerationRecord(id)
+  if (!record || isGenerationCancelled(record)) return
+  const session = Database.use((db) =>
+    db.select().from(SessionTable).where(eq(SessionTable.id, record.session_id)).get(),
+  )
+  if (!session) throw new Error(`Studio session not found: ${record.session_id}`)
+  const input = generationRequest(record).input
+  const controller = new AbortController()
+  activeGenerationControllers.set(id, controller)
+  try {
+    const promptRefine = await refineStudioPrompt(input, session, { signal: controller.signal })
+    if (isGenerationCancelled(loadGenerationRecord(id))) return
+    const generationInput: StudioGenerationPromptInput = {
+      ...input,
+      displayPrompt: input.displayPrompt,
+      refinedPrompt: promptRefine.refinedPrompt,
+      effectivePrompt: promptRefine.effectivePrompt,
+      promptRefineFallback: promptRefine.fallback,
+    }
+    const current = loadGenerationRecord(id)
+    if (!current || isGenerationCancelled(current)) return
+    updateSubmittingTurn({ record: current, request: generationInput, promptRefine })
+    Database.use((db) =>
+      db
+        .update(StudioGenerationTable)
+        .set({
+          request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
+          time_updated: Date.now(),
+        })
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .run(),
+    )
+    if (isGenerationCancelled(loadGenerationRecord(id))) return
+    const created = await createProviderTask(generationInput, record.provider).then(
+      (task) => ({ task } as const),
+      (error) => ({ error } as const),
+    )
+    if ("error" in created) {
+      if (isGenerationCancelled(loadGenerationRecord(id))) return
+      failGenerationCreationByID(id, created.error)
+      return
+    }
+    if (isGenerationCancelled(loadGenerationRecord(id))) {
+      if (created.task?.taskId && record.provider === "internel") {
+        await cancelInternalGeneration(created.task.taskId).catch((error) => {
+          console.error("[studio.service] cancel provider task after pre-provider cancellation failed", error)
+        })
+        const cancelled = loadGenerationRecord(id)
+        if (cancelled) markGenerationCancelled({ record: cancelled, status: "failed" })
+      }
+      return
+    }
+    const task = created.task
+    Database.use((db) =>
+      db
+        .update(StudioGenerationTable)
+        .set({
+          provider_task_id: task?.taskId,
+          status: task ? "running" : "queued",
+          request: stripUndefined({ input: displayInput(generationInput, task), task }) as Record<string, unknown>,
+          next_poll_at: Date.now(),
+          time_updated: Date.now(),
+        })
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .run(),
+    )
+    startStudioGenerationWorker()
+  } catch (error) {
+    if (isGenerationCancelled(loadGenerationRecord(id))) return
+    failGenerationCreationByID(id, error)
+  } finally {
+    activeGenerationControllers.delete(id)
+  }
+}
 
 async function tickStudioGenerationWorker(directory: string) {
   const now = Date.now()
@@ -1172,9 +1870,10 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
-  const promptRefine = await refineStudioPrompt(input, session)
+  const promptRefine = submittingPromptRefine(input)
   const generationInput: StudioGenerationPromptInput = {
     ...input,
+    displayPrompt: input.displayPrompt,
     refinedPrompt: promptRefine.refinedPrompt,
     effectivePrompt: promptRefine.effectivePrompt,
     promptRefineFallback: promptRefine.fallback,
@@ -1197,7 +1896,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       tool_part_id: turn.toolPart.id,
       provider,
       capability: input.capability,
-      status: "queued",
+      status: "running",
       progress: 0,
       request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
       next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -1205,38 +1904,80 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       time_updated: createdAt,
     }).run(),
   )
-  const created = await createProviderTask(generationInput, provider).then(
-    (task) => ({ task } as const),
-    (error) => ({ error } as const),
-  )
-  if ("error" in created) {
-    failGenerationCreation({ id, sessionID, turn, error: created.error })
-    return getGeneration(id)
-  }
-  const task = created.task
-  Database.use((db) =>
-    db
-      .update(StudioGenerationTable)
-      .set({
-        provider_task_id: task?.taskId,
-        status: task ? "running" : "queued",
-        request: stripUndefined({ input: displayInput(generationInput, task), task }) as Record<string, unknown>,
-        next_poll_at: Date.now(),
-        time_updated: Date.now(),
-      })
-      .where(eq(StudioGenerationTable.id, id))
-      .run(),
-  )
-  startStudioGenerationWorker()
-  const record = Database.use((db) =>
-    db
-      .select()
-      .from(StudioGenerationTable)
-      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
-      .get(),
-  )
+  const run = Instance.bind(() => runGenerationCreatePipeline(id).catch((error) => failGenerationCreationByID(id, error)))
+  void run()
+  const record = loadGenerationRecord(id)
   if (!record) throw new Error(`Unable to load Studio generation: ${id}`)
   return generationSnapshot(record)
+}
+
+export async function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  if (rebootingGenerations.has(id)) throw new Error("该任务正在重新生成")
+  rebootingGenerations.add(id)
+  try {
+    const record = loadGenerationRecord(id)
+    if (!record) throw new Error(`Studio generation not found: ${id}`)
+    if (record.status === "create_failed") throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
+    if (record.status !== "failed") throw new Error(`Only failed Studio generations can be rebooted: ${id}`)
+    if (record.provider !== "internel") throw new Error(`Studio generation provider does not support reboot: ${record.provider}`)
+    if (!record.provider_task_id) throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
+
+    const data = generationRequest(record)
+    const reboot = await rebootInternalGeneration({
+      taskId: record.provider_task_id,
+      userIdx: data.input.extra && typeof data.input.extra.userIdx === "string" ? data.input.extra.userIdx : undefined,
+    })
+    const task: ImageGenerationTask = {
+      provider: "internel",
+      model: data.task?.model ?? data.input.styleModel ?? "internel",
+      capability: data.task?.capability ?? data.input.capability,
+      toolAction: data.task?.toolAction ?? toolActionForCapability(data.input.capability),
+      taskId: reboot.taskId,
+      input: data.task?.input ?? data.input,
+      request: data.task?.request ?? {},
+    }
+    const updatedAt = Date.now()
+    const claimed = Database.transaction(
+      (db) => {
+        const current = db
+          .select({ status: StudioGenerationTable.status, provider_task_id: StudioGenerationTable.provider_task_id })
+          .from(StudioGenerationTable)
+          .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+          .get()
+        if (!current) return "missing" as const
+        if (current.status !== "failed") return "terminal" as const
+        if (!current.provider_task_id) return "missing_task" as const
+        db
+          .update(StudioGenerationTable)
+          .set({
+            provider_task_id: task.taskId,
+            status: "running",
+            progress: 0,
+            queue_order: null,
+            raw_status: null,
+            error: null,
+            result: null,
+            request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
+            poll_attempts: 0,
+            completed_at: null,
+            next_poll_at: updatedAt,
+            time_updated: updatedAt,
+          })
+          .where(eq(StudioGenerationTable.id, id))
+          .run()
+        return "claimed" as const
+      },
+      { behavior: "immediate" },
+    )
+    if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
+    if (claimed === "missing_task") throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
+    if (claimed === "terminal") return getGeneration(id)
+    restoreStudioSession({ record, task })
+    startStudioGenerationWorker()
+    return getGeneration(id)
+  } finally {
+    rebootingGenerations.delete(id)
+  }
 }
 
 export async function getGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
@@ -1264,60 +2005,25 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
 }
 
 export async function cancelGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
-  const record = Database.use((db) =>
-    db
-      .select()
-      .from(StudioGenerationTable)
-      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
-      .get(),
-  )
+  const record = loadGenerationRecord(id)
   if (!record) throw new Error(`Studio generation not found: ${id}`)
   if (record.status === "failed" && record.raw_status === "4") return getGeneration(id)
+  if (record.status === "create_failed" && record.raw_status === "4") return getGeneration(id)
   if (record.status === "succeeded") throw new Error(`Studio generation is already completed and cannot be cancelled: ${id}`)
+  if (record.status === "create_failed") throw new Error(`Studio generation creation has already failed and cannot be cancelled: ${id}`)
   if (record.status === "failed") throw new Error(`Studio generation has already failed and cannot be cancelled: ${id}`)
+  activeGenerationControllers.get(id)?.abort(new Error("Studio generation cancelled."))
+  if (!record.provider_task_id) {
+    const claimed = markGenerationCancelled({ record, status: "create_failed" })
+    if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
+    return getGeneration(id)
+  }
   if (record.provider !== "internel") throw new Error(`Studio generation provider does not support cancellation: ${record.provider}`)
-  if (!record.provider_task_id) throw new Error(`Studio generation has no provider task id and cannot be cancelled: ${id}`)
 
   await cancelInternalGeneration(record.provider_task_id)
 
-  const completedAt = Date.now()
-  const claimed = Database.transaction(
-    (db) => {
-      const current = db
-        .select({ status: StudioGenerationTable.status, raw_status: StudioGenerationTable.raw_status })
-        .from(StudioGenerationTable)
-        .where(eq(StudioGenerationTable.id, id))
-        .get()
-      if (!current) return "missing" as const
-      if (current.status !== "queued" && current.status !== "running") {
-        return current.status === "failed" && current.raw_status === "4" ? "cancelled" as const : "terminal" as const
-      }
-      db
-        .update(StudioGenerationTable)
-        .set({
-          status: "failed",
-          raw_status: "4",
-          error: "用户取消生成",
-          queue_order: null,
-          next_poll_at: Number.MAX_SAFE_INTEGER,
-          completed_at: completedAt,
-          time_updated: completedAt,
-        })
-        .where(eq(StudioGenerationTable.id, id))
-        .run()
-      return "claimed" as const
-    },
-    { behavior: "immediate" },
-  )
+  const claimed = markGenerationCancelled({ record, status: "failed" })
   if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
   if (claimed === "terminal") return getGeneration(id)
-  if (claimed === "claimed") {
-    failStudioSession({
-      sessionID: record.session_id,
-      turn: loadPersistedTurn(record),
-      error: "用户取消生成",
-      rawStatus: 4,
-    })
-  }
   return getGeneration(id)
 }

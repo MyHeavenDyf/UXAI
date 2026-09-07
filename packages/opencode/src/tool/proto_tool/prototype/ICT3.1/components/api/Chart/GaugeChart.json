@@ -1,0 +1,105 @@
+{
+  "name": "GaugeChart",
+  "description": "Gauge chart component for displaying values on a circular dial.",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique component cross-reference ID."
+    },
+    "component": {
+      "type": "string",
+      "const": "GaugeChart"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "option": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Core data source (required)"
+            },
+            "color":{
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "description": "Item color in hex format (e.g., '#F0F0F0')."
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Stick to default color groups. Override only upon explicit user request."
+            },
+            "text": {
+              "type": "object",
+              "properties": {
+                "offset": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "formatter": {
+                  "type": "string"
+                }
+              },
+              "description": "Center text configuration"
+            },
+            "splitColor": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {"type": ["number", "string"]}
+              },
+              "description": "Color ranges as array of [threshold, color] pairs, e.g., [[0.25, '#0d9458'], [0.5, '#eeba18']]"
+            }
+          },
+          "required": ["data"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component. Mandatory: width (w-) and height (h-) classes must be explicitly defined."
+        }
+      },
+      "required": ["option", "className"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

@@ -36,6 +36,11 @@ export const SkillTool = Tool.define(
             metadata: {},
           })
 
+          // Fire-and-forget: publish skill.used event to GlobalBus for frontend consumption
+          import("@/bus").then((Bus) => {
+            Bus.publish(Skill.SkillUsed, { skillName: info.name })
+          })
+
           const dir = path.dirname(info.location)
           const base = pathToFileURL(dir).href
           const limit = 10

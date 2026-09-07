@@ -20,6 +20,7 @@ import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
+import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import {
   PROMPT_PROTO_INTENT,
   PROMPT_PROTO_INTENT_AUDIT,
@@ -28,10 +29,15 @@ import {
   PROMPT_PROTO_PLANNER_CREATE,
   PROMPT_PROTO_PLANNER_MODIFY,
   PROMPT_PROTO_TRIAGE,
-  PROMPT_PROTO_3D_INTENT,
-  PROMPT_PROTO_3D_PLANNER,
-  PROMPT_PROTO_3D_OBJECT,
-  PROMPT_PROTO_3D_TRIAGE,
+  PROMPT_PROTO_PATTERN_PAGE,
+  PROMPT_PROTO_PATTERN_BLOCK,
+  PROMPT_PROTO_INTENT_CONFIRM,
+  PROMPT_PROTO_WFRAMES,
+  PROMPT_PROTO_MODIFY,
+  PROMPT_PROTO_REPLANNER,
+  PROMPT_SCENE_3D_TRIAGE,
+  PROMPT_SCENE_3D_PLAN,
+  PROMPT_SCENE_3D_CODEGEN,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -89,7 +95,7 @@ export interface Interface {
 
 type State = Omit<Interface, "generate">
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") { }
+export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
 
 export const layer = Layer.effect(
   Service,
@@ -245,7 +251,26 @@ export const layer = Layer.effect(
             description:
               "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
             prompt: PROMPT_OCTO_INSIGHT,
-            permission: Permission.merge(defaults, user),
+            // SPEC-INS-021 §1 工具白名单:deny 即"从模型工具列表隐藏 + 阻断执行"。
+            // 常驻可见集收敛为 extract_document/read/grep/glob/write/task/skill/webfetch/websearch
+            // (+ MCP 查询/终止)。
+            //   - bash/task 是弱模型在 MCP 断连时模拟调用的逃生口(2026-07-07 内网事故),bash 常驻关死;
+            //     task 保留给多文档分治,chip turn 由 buildToolGate 再临时关 task/bash/webfetch
+            //     (双保险,互不替代)。
+            //   - edit/apply_patch 的摘除**不在这里**:Permission.disabled 把 edit/write/apply_patch
+            //     都映射到 "edit" 权限键(EDIT_TOOLS),在权限层 deny edit 会连带隐藏要保留的 write,
+            //     故改在 registry.ts tools() 按 agent 裁剪(与 extract_document 只给 insight 同款模式)。
+            // merge 顺序 defaults → 本 deny → user:用户配置仍可覆盖。
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                bash: "deny",
+                todowrite: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+              }),
+              user,
+            ),
             options: {},
             mode: "primary",
             native: false,
@@ -278,6 +303,25 @@ export const layer = Layer.effect(
             native: false,
             skills: ["html-prototype"],
             mcp: ["prototype-dev"],
+          },
+          octo_make_plan: {
+            name: "octo_make_plan",
+            description:
+              "设计规划专家。根据用户需求产出一份结构化设计策略文档，包含设计需求、洞察研究、设计资产等模块。",
+            prompt: PROMPT_OCTO_MAKE_PLAN,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "ask",
+                websearch: "allow",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: true,
+            hidden: true,
           },
           octo_design: {
             name: "octo_design",
@@ -445,45 +489,106 @@ export const layer = Layer.effect(
             native: false,
             temperature: 0.1,
           },
-          proto_3d_intent: {
-            name: "proto_3d_intent",
-            description: "3D scene intent expansion agent. Expands a natural-language request into a structured 3D scene intent blueprint.",
-            prompt: PROMPT_PROTO_3D_INTENT,
-            permission: Permission.fromConfig({ "*": "deny" }),
-            options: {},
-            mode: "primary",
-            native: false,
-            temperature: 0.3,
-          },
-          proto_3d_planner: {
-            name: "proto_3d_planner",
-            description: "3D scene stage planner agent. Builds the scene stage (environment/camera/lights) and the group skeleton with slots.",
-            prompt: PROMPT_PROTO_3D_PLANNER,
+          proto_pattern_page: {
+            name: "proto_pattern_page",
+            description: "Proto page pattern agent.",
+            prompt: PROMPT_PROTO_PATTERN_PAGE,
             permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
             temperature: 0.1,
           },
-          proto_3d_object: {
-            name: "proto_3d_object",
-            description: "3D scene object generator agent. Generates the objects[] for one slot, following the ThreeD Scene JSON Protocol.",
-            prompt: PROMPT_PROTO_3D_OBJECT,
+          proto_pattern_block: {
+            name: "proto_pattern_block",
+            description: "Proto block pattern agent.",
+            prompt: PROMPT_PROTO_PATTERN_BLOCK,
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_intent_confirm: {
+            name: "proto_intent_confirm",
+            description: "Proto intent confirm agent.",
+            prompt: PROMPT_PROTO_INTENT_CONFIRM,
+            permission: Permission.fromConfig({ "*": "deny", skill: "allow" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_wireframes: {
+            name: "proto_wireframes",
+            description: "Proto wireframes agent.",
+            prompt: PROMPT_PROTO_WFRAMES,
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          // ── 3D 场景 agent（Step 7 3-agent codegen 流：triage→plan→codegen；
+          // 旧 8-agent 流水线注册（intent/intent_confirm/intent_audit/planner_*/module_*）已随 2026-09-04 全清删除）──
+          scene_3d_triage: {
+            name: "scene_3d_triage",
+            description: "3D scene triage agent.",
+            prompt: PROMPT_SCENE_3D_TRIAGE,
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          // ── 3D codegen 3-agent（Step 7）：plan 选型 + codegen 写 handler 代码 ──
+          scene_3d_plan: {
+            name: "scene_3d_plan",
+            description:
+              "3D scene plan agent — picks type / component / resource（组件目录已静态注入 prompt，不调工具）.",
+            prompt: PROMPT_SCENE_3D_PLAN,
+            // 组件目录（name + 构造 + Options + DataTypes）已静态注入 prompt（{COMPONENT_CATALOG}），无需运行时工具。
+            // 删 list_3d_components / get_3d_component_doc / read 权限省 3-7 轮 LLM 往返（Step 8 加速①）。
             permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
             temperature: 0.0,
           },
-          proto_3d_triage: {
-            name: "proto_3d_triage",
-            description: "3D scene modification triage agent. Decides regenerate-vs-modify and emits a precise edit instruction list.",
-            prompt: PROMPT_PROTO_3D_TRIAGE,
+          scene_3d_codegen: {
+            name: "scene_3d_codegen",
+            description: "3D scene codegen agent — writes ComponentHandler .ts + full index.ts + live-data.json.",
+            prompt: PROMPT_SCENE_3D_CODEGEN,
+            // codegen 只输出代码 text（## file: 代码块），不调任何工具——
+            // plan 已选型，组件按 createComponentObject('名') 黑盒创建，无需查文档。
+            // 允许工具会让 LLM 陷工具调用回路（assistant#1 只有 tool_use 无 text）→ getResultFromMessages 取到空 → "模型未返回有效内容"。
             permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.0,
+          },
+          proto_modify: {
+            name: "proto_modify",
+            description: "Proto modify agent.",
+            prompt: PROMPT_PROTO_MODIFY,
+            permission: Permission.fromConfig({ "*": "deny", load_components_docs: "allow" }),
+            options: {},
+            mode: "primary",
+            native: false,
             temperature: 0.1,
+          },
+          proto_replanner: {
+            name: "proto_replanner",
+            description: "Proto replanner agent — reverse-engineers macro-layout from final A2UI JSON.",
+            prompt: PROMPT_PROTO_REPLANNER,
+            permission: Permission.fromConfig({
+              "*": "deny",
+            }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
           },
         }
 
@@ -620,11 +725,11 @@ export const layer = Layer.effect(
             ...(isOpenaiOauth
               ? []
               : system.map(
-                (item): ModelMessage => ({
-                  role: "system",
-                  content: item,
-                }),
-              )),
+                  (item): ModelMessage => ({
+                    role: "system",
+                    content: item,
+                  }),
+                )),
             {
               role: "user",
               content: `Create an agent configuration based on this request: "${input.description}".\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existing.map((i) => i.name).join(", ")}\n  Return ONLY the JSON object, no other text, do not wrap in backticks`,
@@ -646,7 +751,7 @@ export const layer = Layer.effect(
                 instructions: system.join("\n"),
                 store: false,
               }),
-              onError: () => { },
+              onError: () => {},
             })
             for await (const part of result.fullStream) {
               if (part.type === "error") throw part.error

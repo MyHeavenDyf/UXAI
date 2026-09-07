@@ -706,7 +706,9 @@ export const layer = Layer.effect(
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
-      Reconnect.markIntentionalDisconnect(name)
+      // 不在此处调 markIntentionalDisconnect：closeClient 被 storeClient（重连成功后替换旧 client）
+      // 和 createAndStore 失败分支复用，只有 disconnect 才是真正的"用户主动断开"。
+      // 误设标志会让后续所有 triggerReconnect 被第一道检查拦下（用户反馈 MCP 重连失败的根因）。
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 
@@ -790,12 +792,15 @@ export const layer = Layer.effect(
 
     const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
       const s = yield* InstanceState.get(state)
+      // 显式标记：只有 disconnect 是真正的"用户主动断开"。
+      // closeClient 本身不再设此标志（避免被 storeClient/createAndStore 复用时误设）。
+      Reconnect.markIntentionalDisconnect(name)
       yield* closeClient(s, name)
       delete s.clients[name]
       s.status[name] = { status: "disabled" }
     })
 
-    const tools = Effect.fn("MCP.tools")(function* () {
+    const tools = Effect.fn("MCP.tools")(function* (skipPreflight?: boolean) {
       const result: Record<string, Tool> = {}
       let s = yield* InstanceState.get(state)
 
@@ -813,11 +818,15 @@ export const layer = Layer.effect(
       }
 
       // 方案 D2: agent 启动前对 remote client 做 ping 健康检查
-      // 静默 TCP 丢包时 SDK 不会触发 onerror/onclose，主动 ping 兜底
-      const preflightBridge = yield* EffectBridge.make()
-      yield* Reconnect.verifyAndReconnectIfNeeded(preflightBridge, reconnectCtx)
-      // preflight 可能触发重连导致 s.clients 变化，重新拿一次
-      s = yield* InstanceState.get(state)
+      // 静默 TCP 丢包时 SDK 不会触发 onerror/onclose，主动 ping 兜底。
+      // toolsForAgent 会用自己的 scope preflight（verifyAndReconnectForAgent），
+      // 通过 skipPreflight=true 跳过这里的全量检查避免重复。
+      if (!skipPreflight) {
+        const preflightBridge = yield* EffectBridge.make()
+        yield* Reconnect.verifyAndReconnectIfNeeded(preflightBridge, reconnectCtx)
+        // preflight 可能触发重连导致 s.clients 变化，重新拿一次
+        s = yield* InstanceState.get(state)
+      }
 
       const connectedClients = Object.entries(s.clients).filter(
         ([clientName]) => s.status[clientName]?.status === "connected",
@@ -891,7 +900,12 @@ export const layer = Layer.effect(
 
     const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
       function* (agentMcp: string[] | undefined, customServerNames: string[]) {
-        const allTools = yield* tools()
+        const preflightBridge = yield* EffectBridge.make()
+        // 阻塞等待 agent 相关 MCP 就绪
+        // 只检查和重连 agent.mcp 配置的服务器，其他时刻不主动重连
+        yield* Reconnect.waitForAgentMcpReady(reconnectCtx, preflightBridge, agentMcp, customServerNames)
+        // preflight 可能触发重连导致 s.clients 变化，tools() 内部会重新拿 state
+        const allTools = yield* tools(true)
         const allToolCount = Object.keys(allTools).length
         // Only agents with explicit mcp field see builtin MCP tools
         if (!agentMcp || agentMcp.length === 0) {
