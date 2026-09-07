@@ -2832,6 +2832,26 @@ export default function StudioPage() {
     return Math.min(referenceImageLimit(targetModel), template.reference_image_count)
   }
 
+  function templateFixedReferenceImageUrls(template: StudioStyleTemplateListItem) {
+    if (template.template_type !== "preset_recipe") return []
+    return (template.fixed_reference_images ?? []).map((item) => item.url).filter((url): url is string => Boolean(url))
+  }
+
+  function templateRestorableUserReferences(template: StudioStyleTemplateListItem, draft: ReturnType<typeof restoreGenerationEditDraft>) {
+    const fixedCount = templateFixedReferenceImageUrls(template).length
+    if (!fixedCount) {
+      return {
+        images: draft.referenceImages,
+        names: draft.referenceImageNames,
+      }
+    }
+    const userReferenceCount = Math.max(0, draft.referenceImages.length - fixedCount)
+    return {
+      images: draft.referenceImages.slice(0, userReferenceCount),
+      names: draft.referenceImageNames.slice(0, userReferenceCount),
+    }
+  }
+
   async function editTemplateGenerationDraft(
     result: StudioGenerationResult,
     draft: ReturnType<typeof restoreGenerationEditDraft>,
@@ -2846,9 +2866,10 @@ export default function StudioPage() {
 
     const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
     const templatePrompt = templateUsagePromptRecord(result)
+    const restorableReferences = templateRestorableUserReferences(template, draft)
     const restoredAssets = await restoredImageAssets(
-      draft.referenceImages,
-      draft.referenceImageNames,
+      restorableReferences.images,
+      restorableReferences.names,
       templateReferenceRestoreLimit(template, targetModel),
     )
 
@@ -3737,6 +3758,10 @@ export default function StudioPage() {
     const displayPrompt = template.template_type === "preset_recipe"
       ? `${templateInput.mainPrompt}${templateInput.extraPrompt}`.trim() || template.title
       : templateInput.custom || template.title
+    const templateReferenceImages = templateFixedReferenceImageUrls(template)
+    const referenceImages = templateReferenceImages.length
+      ? [...assets().map((item) => item.dataUrl), ...templateReferenceImages]
+      : undefined
     void runGeneration({
       capability: "image.generate",
       prompt: finalPrompt,
@@ -3746,8 +3771,15 @@ export default function StudioPage() {
       refinedPrompt: finalPrompt,
       effectivePrompt: finalPrompt,
       styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      ...(referenceImages ? { referenceImages } : {}),
       extra: {
         skipPromptRefine: true,
+        ...(referenceImages ? {
+          referenceImageNames: [
+            ...assets().map((item) => item.name),
+            ...templateReferenceImages.map((_, index) => `template-fixed-reference-${index + 1}.png`),
+          ],
+        } : {}),
         template: {
           id: template.idx,
           prompt: styleTemplatePromptPayload(effectiveTemplate, templateInput),

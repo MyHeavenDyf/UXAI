@@ -496,6 +496,18 @@ function TemplateCreatorTextarea(props: {
   rows?: number
 }): JSX.Element {
   const maxLength = () => props.maxLength ?? DESCRIPTION_ITEM_MAX_LENGTH
+  let textareaRef: HTMLTextAreaElement | undefined
+  const resizeTextarea = (textarea: HTMLTextAreaElement | undefined) => {
+    if (!textarea) return
+    textarea.style.height = "auto"
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }
+
+  createEffect(() => {
+    props.value
+    queueMicrotask(() => resizeTextarea(textareaRef))
+  })
+
   return (
     <div class="studio-template-creator-textarea-block">
       <Show when={props.label}>
@@ -505,12 +517,19 @@ function TemplateCreatorTextarea(props: {
         </div>
       </Show>
       <textarea
+        ref={(element) => {
+          textareaRef = element
+          resizeTextarea(element)
+        }}
         class="studio-template-creator-textarea"
         value={props.value}
-        rows={props.rows ?? 4}
+        rows={props.rows ?? 2}
         maxLength={maxLength()}
         placeholder={props.placeholder}
-        onInput={(event) => props.onInput(truncateValue(event.currentTarget.value, maxLength()))}
+        onInput={(event) => {
+          props.onInput(truncateValue(event.currentTarget.value, maxLength()))
+          resizeTextarea(event.currentTarget)
+        }}
       />
     </div>
   )
@@ -947,10 +966,13 @@ function referenceCountFromValue(value: `${ReferenceCount}`): ReferenceCount {
 function ReferenceSettingFields(props: {
   referenceMode: ReferenceMode
   referenceCount: ReferenceCount
+  maxReferenceCount: number
   onReferenceMode: (value: ReferenceMode) => void
   onReferenceCount: (value: ReferenceCount) => void
 }): JSX.Element {
   const countLabel = createMemo(() => (props.referenceMode === "fixed" ? "固定张数" : "最多上传数"))
+  const referenceModeOptions = createMemo(() => (props.maxReferenceCount <= 0 ? REFERENCE_MODE_OPTIONS.filter((option) => option.value === "not_supported") : REFERENCE_MODE_OPTIONS))
+  const referenceCountOptions = createMemo(() => REFERENCE_COUNT_OPTIONS.filter((option) => Number(option.value) <= props.maxReferenceCount))
 
   return (
     <TemplateCreatorField title="参考图设置" required>
@@ -959,17 +981,17 @@ function ReferenceSettingFields(props: {
           <div class="studio-template-creator-setting-label">参考模式</div>
           <TemplateCreatorSelect
             value={props.referenceMode}
-            options={REFERENCE_MODE_OPTIONS}
+            options={referenceModeOptions()}
             onChange={props.onReferenceMode}
             ariaLabel="参考模式"
           />
         </div>
-        <Show when={props.referenceMode !== "not_supported"}>
+        <Show when={props.referenceMode !== "not_supported" && props.maxReferenceCount > 0}>
           <div class="studio-template-creator-setting-column">
             <div class="studio-template-creator-setting-label">{countLabel()}</div>
             <TemplateCreatorSelect
               value={referenceCountValue(props.referenceCount)}
-              options={REFERENCE_COUNT_OPTIONS}
+              options={referenceCountOptions()}
               onChange={(value) => props.onReferenceCount(referenceCountFromValue(value))}
               ariaLabel={countLabel()}
               suffix="张"
@@ -1033,6 +1055,7 @@ function PublishTemplateForm(props: {
   promptSetting: PromptSetting
   referenceMode: ReferenceMode
   referenceCount: ReferenceCount
+  maxReferenceCount: number
   visibility: TemplateVisibility
   specifiedUsers: StudioTemplateVisibleUser[]
   onTitle: (value: string) => void
@@ -1069,6 +1092,7 @@ function PublishTemplateForm(props: {
       <ReferenceSettingFields
         referenceMode={props.referenceMode}
         referenceCount={props.referenceCount}
+        maxReferenceCount={props.maxReferenceCount}
         onReferenceMode={props.onReferenceMode}
         onReferenceCount={props.onReferenceCount}
       />
@@ -1189,6 +1213,7 @@ export function StudioTemplateCreator(props: {
   )
   const canGenerateStyleDescription = createMemo(() => styleImages().length >= 3 && Boolean(props.onGenerateStyleDescription))
   const showStyleDescriptionThinking = createMemo(() => styleDescriptionStreamPhase() === "extracting" && styleDescriptionThinking().length > 0)
+  const maxReferenceCount = createMemo(() => (category() === "preset_recipe" ? Math.max(0, 3 - recipeImages().length) : 3))
   const styleDescriptionGenerateTip = createMemo(() => {
     if (styleDescriptionGenerateMessage()) return styleDescriptionGenerateMessage()
     if (styleDescriptionStreamPhase() === "extracting") return "正在提取图片风格特征"
@@ -1213,7 +1238,7 @@ export function StudioTemplateCreator(props: {
     usageDescription().trim().length > 0 &&
     Boolean(promptSetting()) &&
     Boolean(referenceMode()) &&
-    (referenceMode() === "not_supported" || [1, 2, 3].includes(referenceCount())) &&
+    (referenceMode() === "not_supported" || referenceCount() <= maxReferenceCount()) &&
     Boolean(visibility()) &&
     (visibility() === "all_users" || specifiedUsers().length > 0),
   )
@@ -1233,6 +1258,16 @@ export function StudioTemplateCreator(props: {
 
   onCleanup(() => {
     styleDescriptionGenerateController?.abort()
+  })
+
+  createEffect(() => {
+    const maxCount = maxReferenceCount()
+    if (maxCount <= 0) {
+      setReferenceMode("not_supported")
+      return
+    }
+    if (referenceMode() === "not_supported") return
+    if (referenceCount() > maxCount) setReferenceCount(maxCount as ReferenceCount)
   })
 
   const mergeSizes = (sizes: Record<string, number>) => {
@@ -1421,6 +1456,7 @@ export function StudioTemplateCreator(props: {
                   promptSetting={promptSetting()}
                   referenceMode={referenceMode()}
                   referenceCount={referenceCount()}
+                  maxReferenceCount={maxReferenceCount()}
                   visibility={visibility()}
                   specifiedUsers={specifiedUsers()}
                   onTitle={setTitle}

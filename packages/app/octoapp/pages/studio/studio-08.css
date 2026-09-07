@@ -594,7 +594,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 52px;
+  padding: 0 40px;
 }
 
 .studio-template-creator-form {
@@ -602,27 +602,27 @@
   width: 640px;
   max-width: 100%;
   margin: 0 auto;
-  padding: 44px 0 96px;
+  padding: 24px 0 96px;
 }
 
 .studio-template-creator-steps {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 12px;
-  margin-bottom: 46px;
+  gap: 0;
+  margin-bottom: 32px;
 }
 
 .studio-template-creator-step {
-  width: 80px;
+  width: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: #858587;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 20px;
+  line-height: 12px;
   white-space: nowrap;
 }
 
@@ -635,16 +635,16 @@
 }
 
 .studio-template-creator-step-dot {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #d0d0d2;
   border-radius: 999px;
   color: #a6a6a8;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 12px;
   background: #fff;
 }
 
@@ -661,45 +661,45 @@
 }
 
 .studio-template-creator-step-line {
-  width: 94px;
+  width: 112px;
   height: 1px;
-  margin-top: 11px;
+  margin-top: 8px;
   background: #d9d9db;
 }
 
 .studio-template-creator-field {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .studio-template-creator-field-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   color: #191919;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 26px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 14px;
 }
 
 .studio-template-creator-required {
   color: #f04438;
-  font-size: 18px;
+  font-size: 14px;
   line-height: 1;
 }
 
 .studio-template-creator-field-description {
-  margin-top: -4px;
-  margin-bottom: 14px;
+  margin-top: -2px;
+  margin-bottom: 12px;
   color: #747476;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: 12px;
+  line-height: 12px;
 }
 
 .studio-template-creator-field-description.multi-line {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .studio-template-creator-title-input-wrap {
@@ -709,15 +709,15 @@
 .studio-template-creator-title-input {
   box-sizing: border-box;
   width: 100%;
-  height: 52px;
-  padding: 0 72px 0 16px;
+  height: 32px;
+  padding: 0 56px 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   outline: none;
   background: #f3f3f3;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .studio-template-creator-title-input::placeholder,
@@ -728,7 +728,7 @@
 .studio-template-creator-title-count {
   position: absolute;
   top: 50%;
-  right: 16px;
+  right: 12px;
   transform: translateY(-50%);
   color: #a6a6a8;
   font-size: 14px;
@@ -739,13 +739,13 @@
 .studio-template-creator-category-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 24px;
 }
 
 .studio-template-creator-category-card {
   box-sizing: border-box;
-  min-height: 132px;
-  padding: 24px 22px;
+  min-height: 104px;
+  padding: 20px;
   border: 1px solid #d0d0d2;
   border-radius: 8px;
   background: #fff;
@@ -756,55 +756,54 @@
 
 .studio-template-creator-category-card.active {
   border-color: #1263ff;
-  box-shadow: inset 0 0 0 1px #1263ff;
 }
 
 .studio-template-creator-category-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .studio-template-creator-category-title-wrap {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .studio-template-creator-category-icon {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   color: #1263ff;
 }
 
 .studio-template-creator-category-title {
   color: #191919;
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 24px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
 }
 
 .studio-template-creator-category-radio {
   box-sizing: border-box;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border: 2px solid #d0d0d2;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 1px solid #d0d0d2;
   border-radius: 999px;
 }
 
 .studio-template-creator-category-card.active .studio-template-creator-category-radio {
-  border: 6px solid #1263ff;
+  border: 5px solid #1263ff;
 }
 
 .studio-template-creator-category-description {
   color: #747476;
-  font-size: 14px;
-  line-height: 23px;
+  font-size: 12px;
+  line-height: 17px;
 }
 
 .studio-template-creator-textarea {
@@ -817,23 +816,23 @@
   resize: none;
   background: transparent;
   color: #191919;
-  font-size: 16px;
-  line-height: 28px;
+  font-size: 12px;
+  line-height: 20px;
 }
 
 .studio-template-creator-textarea.standalone {
-  min-height: 128px;
-  padding: 16px;
+  min-height: 100px;
+  padding: 12px;
   border-radius: 8px;
   background: #f3f3f3;
 }
 
 .studio-template-creator-textarea.standalone.large {
-  min-height: 208px;
+  min-height: 160px;
 }
 
 .studio-template-creator-textarea.standalone.usage {
-  min-height: 180px;
+  min-height: 160px;
 }
 
 .studio-template-creator-select {
@@ -844,17 +843,17 @@
 .studio-template-creator-select-trigger {
   box-sizing: border-box;
   width: 100%;
-  height: 52px;
+  height: 32px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px 0 16px;
+  gap: 10px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: #f3f3f3;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
   text-align: left;
   cursor: pointer;
 }
@@ -889,11 +888,11 @@
 .studio-template-creator-select-menu {
   position: absolute;
   z-index: 80;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   box-sizing: border-box;
   width: 100%;
-  padding: 8px;
+  padding: 4px;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
@@ -901,16 +900,16 @@
 
 .studio-template-creator-select-option {
   width: 100%;
-  height: 52px;
+  height: 40px;
   display: flex;
   align-items: center;
   padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
   text-align: left;
   cursor: pointer;
 }
@@ -923,7 +922,7 @@
 .studio-template-creator-reference-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 72px;
+  gap: 24px;
 }
 
 .studio-template-creator-setting-column {
@@ -931,29 +930,29 @@
 }
 
 .studio-template-creator-setting-label {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   color: #747476;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 12px;
 }
 
 .studio-template-creator-radio-list {
   display: flex;
   align-items: center;
-  gap: 24px;
-  margin-top: 10px;
+  gap: 16px;
+  margin-top: 8px;
 }
 
 .studio-template-creator-radio {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #191919;
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 20px;
   cursor: pointer;
 }
 
@@ -961,7 +960,7 @@
   box-sizing: border-box;
   width: 16px;
   height: 16px;
-  border: 1.5px solid #b6b6b8;
+  border: 1px solid #b6b6b8;
   border-radius: 999px;
   background: #fff;
 }
@@ -971,7 +970,7 @@
 }
 
 .studio-template-creator-user-field {
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .studio-template-creator-user-select {
@@ -982,14 +981,14 @@
 .studio-template-creator-user-select-control {
   box-sizing: border-box;
   width: 100%;
-  min-height: 52px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 2px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   outline: none;
   background: #f3f3f3;
   color: #191919;
@@ -1054,7 +1053,7 @@
 }
 
 .studio-template-creator-user-search-input {
-  min-width: 180px;
+  min-width: 120px;
   flex: 1;
   height: 32px;
   padding: 0 4px;
@@ -1062,8 +1061,8 @@
   outline: none;
   background: transparent;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .studio-template-creator-user-search-input::placeholder {
@@ -1142,9 +1141,9 @@
 }
 
 .studio-template-creator-examples-title {
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 26px;
+  line-height: 14px;
 }
 
 .studio-template-creator-upload-input {
@@ -1155,7 +1154,7 @@
 .studio-template-creator-upload-grid {
   box-sizing: border-box;
   width: 100%;
-  min-height: 182px;
+  min-height: 120px;
   border-radius: 8px;
   background: #f3f3f3;
 }
@@ -1165,31 +1164,31 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .studio-template-creator-upload-button {
-  height: 40px;
-  padding: 0 22px;
+  height: 32px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: #1263ff;
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 22px;
+  line-height: 20px;
   cursor: pointer;
 }
 
 .studio-template-creator-upload-format {
   color: #9c9c9e;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 12px;
 }
 
 .studio-template-creator-upload-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   align-content: flex-start;
   gap: 12px;
   padding: 24px;
@@ -1209,19 +1208,19 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   border: 1px dashed #d0d0d2;
   background: #fff;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
   cursor: pointer;
 }
 
 .studio-template-creator-upload-plus {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   color: #747476;
 }
 
@@ -1229,9 +1228,9 @@
 .studio-template-creator-upload-plus::after {
   content: "";
   position: absolute;
-  top: 13px;
+  top: 11px;
   left: 3px;
-  width: 22px;
+  width: 18px;
   height: 2px;
   border-radius: 999px;
   background: currentColor;
@@ -1293,28 +1292,28 @@
 }
 
 .studio-template-creator-upload-message {
-  margin-top: 10px;
+  margin-top: 8px;
   color: #f04438;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .studio-template-creator-chip-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 18px;
+  gap: 12px 10px;
+  margin-top: 10px;
 }
 
 .studio-template-creator-chip {
-  height: 36px;
-  padding: 0 14px;
+  height: 28px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 6px;
-  background: #f0f0f0;
+  border-radius: 4px;
+  background: #f3f3f3;
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
   cursor: pointer;
 }
 
@@ -1328,23 +1327,23 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  margin: 28px 0 22px;
+  gap: 10px;
+  margin: 24px 0 16px;
 }
 
 .studio-template-creator-generate-button {
-  height: 44px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 24px;
+  gap: 6px;
+  padding: 0 18px;
   border: 0;
   border-radius: 6px;
   background: #1263ff;
   color: #fff;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 24px;
+  line-height: 20px;
   cursor: pointer;
 }
 
@@ -1355,8 +1354,8 @@
 
 .studio-template-creator-generate-tip {
   color: #747476;
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 12px;
+  line-height: 18px;
   text-align: center;
 }
 
@@ -1365,12 +1364,16 @@
 }
 
 .studio-template-creator-thinking {
+  box-sizing: border-box;
   width: 100%;
-  max-height: 66px;
+  max-height: 54px;
   overflow-y: auto;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f7f7f7;
   color: #747476;
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 12px;
+  line-height: 18px;
   text-align: left;
   white-space: pre-wrap;
 }
@@ -1378,14 +1381,14 @@
 .studio-template-creator-description-panel {
   box-sizing: border-box;
   width: 100%;
-  min-height: 300px;
-  padding: 20px 26px 18px;
+  min-height: 360px;
+  padding: 20px 24px;
   border-radius: 8px;
   background: #f3f3f3;
 }
 
 .studio-template-creator-textarea-block {
-  margin-bottom: 26px;
+  margin-bottom: 20px;
 }
 
 .studio-template-creator-textarea-head {
@@ -1393,27 +1396,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .studio-template-creator-textarea-label {
   color: #747476;
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .studio-template-creator-textarea-count {
   color: #a6a6a8;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .studio-template-creator-description-total {
   display: flex;
   justify-content: flex-end;
+  margin-top: -2px;
   color: #858587;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.studio-template-creator-description-panel .studio-template-creator-textarea {
+  min-height: 44px;
+  overflow: hidden;
+  color: #191919;
+  font-size: 14px;
+  line-height: 22px;
 }
 
 .studio-template-creator-description-total.over {
@@ -1435,7 +1447,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .studio-template-creator-footer-message {
@@ -1456,16 +1468,16 @@
 
 .studio-template-creator-prev,
 .studio-template-creator-next {
-  height: 44px;
-  min-width: 112px;
-  padding: 0 28px;
+  height: 32px;
+  min-width: 80px;
+  padding: 0 20px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #1263ff;
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 22px;
+  line-height: 20px;
   cursor: pointer;
 }
 
