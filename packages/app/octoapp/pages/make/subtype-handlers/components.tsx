@@ -1,4 +1,5 @@
-import type { SubtypeHandler, CanvasEditResult } from './types'
+import type { SubtypeHandler, CanvasEditResult, LocalEditSavePayload, SubtypeHandlerContext } from './types'
+import { sendTextToAgent } from '../utils/agent-events'
 import type { JSX } from 'solid-js'
 import type { DesktopApi } from '../lib/electron-api'
 import { createSignal } from 'solid-js'
@@ -74,8 +75,72 @@ async function packDirZip(api: DesktopApi, dir: string): Promise<Blob> {
   return await zip.generateAsync({ type: 'blob' })
 }
 
+export function localEditPromptBuilder(payload: LocalEditSavePayload, ctx: SubtypeHandlerContext): string {
+  const { target, changes } = payload
+  const previewRoot = (ctx.tab.filePath ?? '').replace(/[/\\][^/\\]+$/, '')
+  const lines: string[] = []
+
+  lines.push(`预览页面源码根目录：${previewRoot}`)
+  lines.push('该预览由 ict-component-creator skill 的 build.mjs 编译生成，index.components.html 是编译产物，不可直接编辑。')
+  lines.push('真正的源码在 components/{组件名}/index.jsx、index.css 以及 demo.jsx 中。')
+  lines.push('请按下方信息定位源码、应用变更，然后重新编译并验证。')
+  lines.push('')
+
+  lines.push('用户在预览页面选中的元素：')
+  lines.push(`- 标签：<${target.tagName}>`)
+  if (target.className) lines.push(`- 类名：${target.className}`)
+  if (target.selector) lines.push(`- 选择器：${target.selector}`)
+  if (target.text) lines.push(`- 当前文本：${target.text}`)
+  if (target.htmlHint) lines.push(`- 元素片段：${target.htmlHint}`)
+  lines.push('')
+
+  lines.push('需要做的变更：')
+  for (const c of changes) {
+    if (c.kind === 'text') {
+      lines.push(`- 修改文本："${c.before}" → "${c.after}"`)
+    } else if (c.kind === 'href') {
+      lines.push(`- 修改链接地址：${c.before || '(空)'} → ${c.after || '(空)'}`)
+    } else if (c.kind === 'image') {
+      lines.push(`- 修改图片：src → ${c.src}${c.alt ? `，alt → ${c.alt}` : ''}`)
+    } else if (c.kind === 'remove-element') {
+      lines.push('- 删除该元素')
+    } else if (c.kind === 'styles') {
+      lines.push('- 修改样式：')
+      for (const s of c.changes) {
+        const prop = s.prop.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+        lines.push(`    ${prop}：${s.before || '(未设置)'} → ${s.after || '(清除)'}`)
+      }
+    }
+  }
+  lines.push('')
+
+  lines.push('操作要求：')
+  lines.push('1. 按类名在 components/*/index.jsx（结构、文本）和 index.css（样式）中定位对应代码；展示区布局改 demo.jsx')
+  lines.push('2. 只改源码文件，不要改 index.components.html')
+  lines.push(`3. 重新编译：node scripts/build.mjs --dir "${previewRoot}"`)
+  lines.push(`4. 验证：node scripts/verify-build.mjs --dir "${previewRoot}"`)
+  lines.push('5. build 产物 index.components.html 更新后预览会自动刷新')
+
+  return lines.join('\n')
+}
+
 export default {
   name: 'components',
+
+  async handleLocalEditSave(ctx) {
+    const prompt = localEditPromptBuilder(ctx.edit, ctx)
+    if (!prompt) {
+      ctx.showOctoToast({ title: '请配置 localEditPromptBuilder 提示词' })
+      return false
+    }
+    const result = await sendTextToAgent(prompt, { source: 'local-edit' })
+    if (result.ok) {
+      ctx.showOctoToast({ title: '已提交修改请求' })
+    } else {
+      ctx.showOctoToast({ title: '提交失败', description: result.message ?? '请重试' })
+    }
+    return result.ok
+  },
 
   async handleDownload(ctx) {
     const { tab, showOctoToast, getDesktopApi } = ctx
