@@ -37,3 +37,19 @@ export function sendTextToAgent(
     window.dispatchEvent(new CustomEvent(SEND_TEXT_EVENT, { detail }))
   })
 }
+
+export const APPEND_TO_COMPOSER_EVENT = 'octo:append-to-composer'
+
+export interface AppendToComposerEventDetail {
+  text: string
+}
+
+export function appendToMainComposer(text: string): void {
+  window.dispatchEvent(new CustomEvent(APPEND_TO_COMPOSER_EVENT, { detail: { text } }))
+}
+
+export const SUBMIT_COMPOSER_EVENT = 'octo:submit-composer'
+
+export function submitMainComposer(): void {
+  window.dispatchEvent(new CustomEvent(SUBMIT_COMPOSER_EVENT))
+}

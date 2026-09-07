@@ -31,6 +31,7 @@ import type {
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import * as FastuiDevServer from "./fastui-devserver"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
@@ -217,6 +218,22 @@ function readZipComment(zipPath: string): string {
 
 export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
+
+  // fastui dev server 由主进程持有(SPEC-DES-001 §8.6.1):
+  // skill 脚本是短命的,它起的进程在 Windows 下活不过本次调用 —— 整条链在同一个
+  // Job Object 里,shell 工具收尾时被连坐。约定为「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-devserver-ensure", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiDevServer.ensure(sessionDir),
+  )
+  // 建会话时调这个:会话状态文件还没写出来,挂着等它出现。
+  // 等不到就是普通(非 fastui)会话,超时静默放弃 —— 对其他 Design 用法零影响。
+  ipcMain.handle("fastui-devserver-arm", (_event: IpcMainInvokeEvent, sessionDir: string) => {
+    FastuiDevServer.ensureWhenReady(sessionDir)
+    return true
+  })
+  ipcMain.handle("fastui-devserver-stop", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiDevServer.stop(sessionDir),
+  )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
     return deps.awaitInitialization(send)

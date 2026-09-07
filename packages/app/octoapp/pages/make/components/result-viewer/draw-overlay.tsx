@@ -478,6 +478,14 @@ export function DrawOverlay(props: Props): JSX.Element {
     const iframe = activePreviewIframe()
     if (!iframe) return null
     const rect = iframe.getBoundingClientRect()
+    const canvasRect = canvasRef?.getBoundingClientRect() ?? rect
+    const toIframe = (nx: number, ny: number): Point => {
+      if (rect.width <= 0 || rect.height <= 0) return { x: nx, y: ny }
+      return {
+        x: (nx * canvasRect.width + (canvasRect.left - rect.left)) / rect.width,
+        y: (ny * canvasRect.height + (canvasRect.top - rect.top)) / rect.height,
+      }
+    }
     const out = document.createElement('canvas')
     out.width = snap.w
     out.height = snap.h
@@ -502,7 +510,11 @@ export function DrawOverlay(props: Props): JSX.Element {
 
     const sx = snap.w / Math.max(1, rect.width)
     const sy = snap.h / Math.max(1, rect.height)
-    if (selectionBoxRef) drawNormalizedBox(ctx, selectionBoxRef, snap.w, snap.h, sx, true)
+    if (selectionBoxRef) {
+      const a = toIframe(selectionBoxRef.x, selectionBoxRef.y)
+      const b = toIframe(selectionBoxRef.x + selectionBoxRef.width, selectionBoxRef.y + selectionBoxRef.height)
+      drawNormalizedBox(ctx, normalizedRectFromPoints(a, b), snap.w, snap.h, sx, true)
+    }
 
     ctx.strokeStyle = STROKE_COLOR
     ctx.lineWidth = STROKE_WIDTH * Math.max(sx, sy)
@@ -512,11 +524,14 @@ export function DrawOverlay(props: Props): JSX.Element {
     for (const s of strokesRef) {
       const first = s.points[0]
       if (!first) continue
+      const p0 = toIframe(first.x, first.y)
       ctx.beginPath()
-      ctx.moveTo(first.x * snap.w, first.y * snap.h)
+      ctx.moveTo(p0.x * snap.w, p0.y * snap.h)
       for (let i = 1; i < s.points.length; i++) {
         const p = s.points[i]
-        if (p) ctx.lineTo(p.x * snap.w, p.y * snap.h)
+        if (!p) continue
+        const pi = toIframe(p.x, p.y)
+        ctx.lineTo(pi.x * snap.w, pi.y * snap.h)
       }
       ctx.stroke()
     }
