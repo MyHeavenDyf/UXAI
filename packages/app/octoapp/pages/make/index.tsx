@@ -4943,7 +4943,7 @@ if (dsId) {
                       <div class="make-plan-capsule-row">
                         <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
                           <span class="make-plan-capsule-icon">✦</span>
-                          <span>PatternPage 模式</span>
+                          <span>Pattern 模式</span>
                           <span class="make-plan-capsule-close">×</span>
                         </button>
                       </div>
@@ -5359,7 +5359,7 @@ onPreview={(url) => {
                     <div class="make-plan-capsule-row">
                       <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
                         <span class="make-plan-capsule-icon">✦</span>
-                        <span>PatternPage 模式</span>
+                        <span>Pattern 模式</span>
                         <span class="make-plan-capsule-close">×</span>
                       </button>
                     </div>
