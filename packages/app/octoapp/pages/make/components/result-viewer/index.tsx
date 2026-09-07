@@ -36,6 +36,8 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { LocalEditSavePayload } from "../../subtype-handlers/types"
+import { sendTextToAgent } from "../../utils/agent-events"
+import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
 import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -129,6 +131,12 @@ export function ResultViewer(props: {
   planEnded?: boolean
   /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
   planActive?: boolean
+  disabled?: boolean
+  skillConfig?: import("../skill-config-types").SkillConfig
+  artifactFiles?: { generated: import("../../utils/artifact-file-api").ArtifactFile[]; uploaded: import("../../utils/artifact-file-api").ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -282,6 +290,40 @@ export function ResultViewer(props: {
 
     const handled = await handler.handleLocalEditSave(ctx)
     return handled === true
+  }
+
+  const handleModelEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (!handler?.modelEditConfig) return
+    const nextModelEditing = !featureMutex.state.modelEditing
+    featureMutex.toggleFeature('modelEditing')
+    tracker.interaction({ module: "design", name: "toggle-model-edit-mode", extend: JSON.stringify({ action: nextModelEditing ? "open" : "close" }) })
+  }
+
+  const handleModelEditSave = async (element: ModelEditElement, prev: Record<string, string>, current: Record<string, string>) => {
+    const tab = activeTab()
+    if (!tab) return
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.modelEditConfig) return
+    const type = element.componentType || element.htmlType || 'default'
+    const prompt = handler.modelEditConfig.saveCallback({
+      type, prev, current, dom: element, filePath: tab.filePath || '',
+    })
+    if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
+  }
+
+  const handleModelEditDelete = async (element: ModelEditElement) => {
+    const tab = activeTab()
+    if (!tab) return
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.modelEditConfig) return
+    const type = element.componentType || element.htmlType || 'default'
+    const prompt = handler.modelEditConfig.deleteCallback({
+      type, dom: element, filePath: tab.filePath || '',
+    })
+    if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -605,6 +647,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onPaletteChange={setPalette}
                     editing={featureMutex.state.editing}
                     onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
+                    modelEditing={featureMutex.state.modelEditing}
+                    onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
                     drawing={featureMutex.state.drawing}
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
@@ -660,6 +704,10 @@ archiving={featureMutex.state.archiving}
                            palette={palette()}
                            inspecting={featureMutex.state.inspecting}
                            editing={featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
+                           modelEditing={featureMutex.state.modelEditing}
+                           modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
+                           onModelEditSave={handleModelEditSave}
+                           onModelEditDelete={handleModelEditDelete}
                            drawing={featureMutex.state.drawing}
                            commenting={featureMutex.state.commenting}
                            archiving={featureMutex.state.archiving}
@@ -688,7 +736,13 @@ archiving={featureMutex.state.archiving}
                              iframeElementGetter={(g) => { iframeElementGetter = g }}
                              subtype={tab.subtype}
                              tabId={tab.id}
-                           />
+                             disabled={props.disabled}
+                             skillConfig={props.skillConfig}
+                             artifactFiles={props.artifactFiles}
+                             productId={props.productId}
+                             onDownloadProductAsset={props.onDownloadProductAsset}
+                             onUpdateMentionPath={props.onUpdateMentionPath}
+                            />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />

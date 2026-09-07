@@ -50,7 +50,7 @@ export function CustomSelect(props: {
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
-          <div ref={listRef} class="fixed z-[2147483646] py-1 rounded-lg border border-[#e5e7eb]"
+          <div ref={listRef} data-custom-select-list class="fixed z-[2147483646] py-1 rounded-lg border border-[#e5e7eb]"
             style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}
             onClick={() => setOpen(false)}>
             <For each={props.options}>

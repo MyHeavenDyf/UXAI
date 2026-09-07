@@ -1133,7 +1133,7 @@ function PatternContent() {
       showToast({ title: error.title || "重新生成失败" })
       return
     } finally {
-      if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+      if (replannerSessionId) await sdk.client.session.update({ sessionID: replannerSessionId, body: { time: { archived: Date.now() } } } as any).catch(() => {})
     }
 
     await download({ planner, mergedA2UI, sessionId: sid })

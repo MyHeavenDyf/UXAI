@@ -758,6 +758,21 @@ export function InsightTurn(props: {
     assistantMsgs().some((m) => (m as Record<string, unknown>).agent === "ict_pattern"),
   )
 
+  const isLatestTurn = createMemo(() => {
+    const messages = msgStore?.[props.sessionID] ?? []
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
+    return lastUser?.id === props.messageID
+  })
+
   // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
   // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
   const isCompactionTurn = createMemo(() => {
@@ -848,21 +863,6 @@ export function InsightTurn(props: {
       }
     }
     return texts
-  })
-
-  const isLatestTurn = createMemo(() => {
-    const messages = msgStore?.[props.sessionID] ?? []
-    let lastUser: Message | undefined
-    let lastUserTime = -1
-    for (const m of messages) {
-      if (m.role !== "user") continue
-      const t = (m as { time?: { created?: number } }).time?.created ?? 0
-      if (t >= lastUserTime) {
-        lastUserTime = t
-        lastUser = m
-      }
-    }
-    return lastUser?.id === props.messageID
   })
 
   const showGenerating = createMemo(() => props.active && isLatestTurn())

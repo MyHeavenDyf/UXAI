@@ -105,6 +105,7 @@ import { ComplianceNotice } from "@/components/compliance-notice"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -672,7 +673,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       try {
-        await sendMessage(sessionId, detail.text, modelKey)
+        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
         tracker.interaction({
           module: 'design',
           name: 'send-text-event',
@@ -961,7 +962,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
-      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
+      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived && (s.agent === "octo_make_plan" || s.agent === "ict_pattern"))
       const planChild = children.find((s: any) => s.agent === "octo_make_plan")
 
       for (const child of children) {
@@ -1037,7 +1038,12 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
+      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      const children = (res.data ?? []).filter((s: any) =>
+        s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
+      )
       const discovered = new Set<string>()
       const discoveredPlans = new Set<string>()
       for (const child of children) {
@@ -1655,6 +1661,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
 
+  createEffect(on(() => resultViewMode(), (mode) => {
+    if (mode !== "tabs") layout.focusMode.set(false)
+  }, { defer: true }))
+
   const historyController = createHistoryController({
     setVersionList: (updater) => setVersionList(updater),
     setCurrentVersionId: (updater) => setCurrentVersionId(updater),
@@ -2108,7 +2118,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPatternMatches(null)
     setPatternBlockMatches([])
     setPatternBlockMatching(false)
-    if (!mainSid) return
+    if (!mainSid) { handleEndPatternPage(); return }
     let blocksToSend: BlockModuleItem[] = []
     if (selectedBlocks && selectedBlocks.length > 0) {
       try { blocksToSend = (await getBlockContent({ results: selectedBlocks }, mainSid)).results } catch (err) { console.error("[MakePage] getBlockContent failed", err) }
@@ -2131,13 +2141,11 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
-    // 关闭匹配弹窗，但保持 pattern 模式：用户可继续在输入框输入需求，
-    // 后续消息仍路由到 ict_pattern agent，直到点击 banner 退出按钮才退出
-    setPatternMatches(null)
-    setPatternBlockMatches([])
-    setPatternBlockMatching(false)
-    setPatternSubPhase("match")
-    setOptimisticPatternIntent(false)
+    // 保存完成后刷新右侧文件管理页面，显示新生成的 pattern.json
+    setFilesRefreshKey(k => k + 1)
+    void historyController.onFileRefresh(tabStore.tabs())
+    // 结束 pattern 模式流程并退出
+    handleEndPatternPage()
   }
 
   /** 用户点击 [退出] → 中止子 session + 退出 */
@@ -2829,27 +2837,35 @@ const sessionMessagesLoaded = createMemo(() => {
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
+      const skillCommands: string[] = []
+      const skillDisplays: string[] = []
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
           if (inPlanSession) {
             planSkillStash.push({ name: sel.name, label: sel.label })
           } else {
-            processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+            processedText = processedText.replace(`@${sel.name}`, ' ')
+            skillCommands.push(`/${sel.name}`)
           }
-          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
-          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
-          if (sel.label && sel.label !== sel.name) {
-            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
-          }
+          const display = sel.label && sel.label !== sel.name ? `@${sel.label}` : `@${sel.name}`
+          displayText = displayText.replace(`@${sel.name}`, ' ')
+          skillDisplays.push(display)
         } else {
           const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
         }
       }
+
+      if (skillCommands.length > 0) {
+        processedText = skillCommands.join(' ') + ' ' + processedText
+        displayText = skillDisplays.join(' ') + ' ' + displayText
+      }
+
       // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
       // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
       processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
+      displayText = displayText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2932,74 +2948,92 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       // ── Multi-slash-command detection ──
-      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
-      // execute each via session.command(). Each command gets the text between itself
-      // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
+      // If skills are matched, extract the entire remaining prompt (excluding all /cmd patterns)
+      // and supply it as arguments to each skill command.
       console.log("[MakePage] slash-detect input:", {
         processedText,
         cmdCount: sync.data?.command?.length ?? 0,
         cmdNames: sync.data?.command?.map((c) => `${c.name}(${c.source})`) ?? [],
       })
-      const segments = processedText.split(/(?=\/\S)/)
-      const cmdSegments: { cmd: string; args: string }[] = []
-      let hasCommand = false
+
       // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
-      // 不能用 \S+ 切边界 (会在第一个空格处停)。
       // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
       const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
-      for (const seg of segments) {
-        const trimmed = seg.trim()
-        if (!trimmed) continue
-        if (!trimmed.startsWith('/')) {
-          // Non-command segment: only keep if no commands found (for prompt fallback)
-          if (!hasCommand) {
-            cmdSegments.push({ cmd: "", args: trimmed })
-          }
-          continue
-        }
-        // 尝试匹配 sync.data.command 里的命令名 (支持含空格的命令名)
-        let matched: typeof sortedCommands[number] | undefined
-        let args = ''
-        for (const c of sortedCommands) {
-          const fullCmd = `/${c.name}`
-          if (trimmed.startsWith(fullCmd)) {
-            // 边界检查:命令名后必须是空白或字符串结束,避免 "foo" 错配到 "foobar"
-            const nextChar = trimmed[fullCmd.length]
-            if (nextChar === undefined || /\s/.test(nextChar)) {
-              matched = c
-              args = trimmed.slice(fullCmd.length).trim()
-              break
+
+      // 扫描 processedText 中所有合法命令的起始与结束位置
+      interface CommandMatch {
+        cmd: typeof sortedCommands[number]
+        start: number
+        end: number
+      }
+
+      const matches: CommandMatch[] = []
+      for (let i = 0; i < processedText.length; i++) {
+        if (processedText[i] === '/') {
+          // 边界检查：必须是字符串开头或者前一个字符是空白字符，避免误判 URL 路径等
+          if (i === 0 || /\s/.test(processedText[i - 1])) {
+            let matched: typeof sortedCommands[number] | undefined
+            let matchedLen = 0
+            for (const c of sortedCommands) {
+              const fullCmd = `/${c.name}`
+              if (processedText.startsWith(fullCmd, i)) {
+                const nextChar = processedText[i + fullCmd.length]
+                if (nextChar === undefined || /\s/.test(nextChar)) {
+                  matched = c
+                  matchedLen = fullCmd.length
+                  break
+                }
+              }
+            }
+            if (matched) {
+              matches.push({ cmd: matched, start: i, end: i + matchedLen })
+              i += matchedLen - 1
             }
           }
         }
-        if (matched) {
-          // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
-          if (inPlanSession && matched.source === "skill") {
-            console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: matched.name, args })
-            planSkillStash.push({ name: matched.name, label: matched.name })
-            if (!hasCommand) cmdSegments.push({ cmd: "", args: trimmed })
-            continue
-          }
-          console.log("[MakePage] slash-detect matched command:", {
-            cmdName: matched.name,
-            source: matched.source,
-            args,
-          })
-          cmdSegments.push({ cmd: matched.name, args })
-          hasCommand = true
+      }
+
+      // 提取“除了所有识别到的命令以外的全部完整提示词”作为参数
+      let cleanPrompt = ""
+      let lastIndex = 0
+      for (const m of matches) {
+        cleanPrompt += processedText.slice(lastIndex, m.start)
+        let nextIndex = m.end
+        // 如果命令后紧跟空格，跳过一个空格，避免残留多余空格
+        if (processedText[nextIndex] === ' ') {
+          nextIndex++
+        }
+        lastIndex = nextIndex
+      }
+      cleanPrompt += processedText.slice(lastIndex)
+      cleanPrompt = cleanPrompt.replace(/​/g, '').replace(/  +/g, ' ').trim()
+
+      const cmdSegments: { cmd: string; args: string }[] = []
+      let hasCommand = false
+
+      for (const m of matches) {
+        // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
+        if (inPlanSession && m.cmd.source === "skill") {
+          console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: m.cmd.name, args: cleanPrompt })
+          planSkillStash.push({ name: m.cmd.name, label: m.cmd.name })
           continue
         }
-        // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-        console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-          trimmed,
-          fallbackToPrompt: !hasCommand,
+        console.log("[MakePage] slash-detect matched command:", {
+          cmdName: m.cmd.name,
+          source: m.cmd.source,
+          args: cleanPrompt,
         })
-        // Non-command segment: only keep if no commands found (for prompt fallback)
-        if (!hasCommand) {
-          cmdSegments.push({ cmd: "", args: trimmed })
-        }
+        cmdSegments.push({ cmd: m.cmd.name, args: cleanPrompt })
+        hasCommand = true
       }
-      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
+
+      // 如果有识别到命令但在规划模式下全部被拦截（或没有可执行命令），则将 processedText 规整为 cleanPrompt 走 prompt 兜底
+      if (matches.length > 0 && !hasCommand) {
+        processedText = cleanPrompt
+      }
+
+      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments, cleanPrompt })
 
       // 规划模式:@选择 或 手输 /skill 的技能都不进规划子会话,统一暂存 handoff
       // (与初始页进入规划时的 savePlanSkillHandoff 同源),由 handleConfirmPlan
@@ -5507,6 +5541,12 @@ onPreview={(url) => {
                 childBusy={childBusy()}
                 planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                disabled={effectiveBusy()}
+                skillConfig={skillConfig() ?? {}}
+                artifactFiles={artifactFilesMirror()}
+                productId={projectSelection()?.product?.id}
+                onDownloadProductAsset={downloadProductAsset}
+                onUpdateMentionPath={handleAddonUpdateMentionPath}
               />
             </div>
             <Show when={showVersionPanel()}>

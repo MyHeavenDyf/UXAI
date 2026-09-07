@@ -1,0 +1,87 @@
+.model-edit-area-dialog {
+  position: absolute;
+  width: 400px;
+  max-width: 90vw;
+  box-sizing: border-box;
+  background: #F9F9F9;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  z-index: 210;
+  pointer-events: auto;
+}
+
+.model-edit-area-header {
+  padding: 16px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  cursor: grab;
+  user-select: none;
+}
+
+.model-edit-area-header:active {
+  cursor: grabbing;
+}
+
+.model-edit-area-body {
+  padding: 0 16px 16px;
+  height: 110px;
+  overflow: hidden;
+}
+
+.model-edit-area-body .pm-editor-wrapper {
+  background: #FFF;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  height: 110px;
+  box-sizing: border-box;
+}
+
+.model-edit-area-body .pm-editor {
+  min-height: unset;
+  max-height: 108px;
+  height: 108px;
+}
+
+.model-edit-area-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 16px;
+  margin-top: 12px;
+}
+
+.model-edit-area-btn {
+  height: 32px;
+  width: 98px;
+  border: none;
+  border-radius: 9999px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.model-edit-area-btn.subtle {
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.model-edit-area-btn.subtle:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.model-edit-area-btn.primary {
+  background: #0a59f7;
+  color: #fff;
+}
+
+.model-edit-area-btn.primary:hover:not(:disabled) {
+  background: #0950de;
+}
+
+.model-edit-area-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

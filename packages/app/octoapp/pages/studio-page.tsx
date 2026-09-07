@@ -408,7 +408,7 @@ export default function StudioPage() {
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(true)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
@@ -2013,8 +2013,12 @@ export default function StudioPage() {
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
     if (prevIsSeedream && !nextIsSeedream && !currentTemplate) {
-      seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
-      setPrompt("")
+      const hasMentions = Object.keys(seedreamInputApi.serializeMentionImages()).length > 0
+      if (!hasMentions) seedreamAtSnapshot = undefined
+      if (hasMentions) {
+        seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
+        setPrompt("")
+      }
     }
     setStyleModel(value)
     if (shouldClearStyleTemplate) {
@@ -2376,7 +2380,8 @@ export default function StudioPage() {
     const prevCapability = capability()
     const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
     const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    if (prevSeedreamImage && !nextSeedreamImage) {
+    if (selectedStyleTemplate()) seedreamAtSnapshot = undefined
+    if (prevSeedreamImage && !nextSeedreamImage && !selectedStyleTemplate()) {
       seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
     }
     if (value === "video.generate" && prevCapability !== "video.generate") {
