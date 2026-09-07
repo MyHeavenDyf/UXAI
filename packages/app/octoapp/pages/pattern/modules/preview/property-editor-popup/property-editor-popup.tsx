@@ -15,6 +15,7 @@ import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
+import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
@@ -1814,7 +1815,9 @@ export function PropertyEditorPopup(props: {
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
               <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
-                  <div class="flex items-center gap-2">
+                  <div class={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)
+                    ? 'flex w-full flex-col items-start gap-2'
+                    : 'flex items-center gap-2'}>
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
                       {LABEL_MAP[key] || key}
                       <Show when={isBinding(key)}>
@@ -1824,20 +1827,35 @@ export function PropertyEditorPopup(props: {
                     <Show
                       when={getEnumOptions(key).length > 0}
                       fallback={
-                        <div class="flex items-center gap-1 flex-1 min-w-0">
-                          <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            readOnly={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
-                            classList={{ 'cursor-pointer': ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`) }}
-                            onInput={(e) => updateEditProp(key, e.currentTarget.value)}
-                            onClick={(e) => {
-                              if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) return
-                              e.stopPropagation()
-                              setIconPickerKey(key)
-                              setIconPickerAnchor(e.currentTarget)
-                              setIconPickerOpen(true)
-                            }}
-                            type="text" placeholder={key}
-                  class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                          <div class="flex items-center gap-1 flex-1 min-w-0 w-full">
+                          <Show
+                            when={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
+                            fallback={
+                              <input value={(editProps as Record<string, string>)[key] ?? ''}
+                                onInput={(e) => updateEditProp(key, e.currentTarget.value)}
+                                type="text" placeholder={key}
+                                class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                            }>
+                            {/* 图标属性：下拉样式触发器（图标16px + 名称 + 下拉箭头），点击打开图标弹窗 */}
+                            <button type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setIconPickerKey(key)
+                                setIconPickerAnchor(e.currentTarget)
+                                setIconPickerOpen(true)
+                              }}
+                              class="flex h-9 w-full cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] px-2 text-[12px] outline-none shadow-none min-w-0 hover:border-[#3D99FF]">
+                              {(() => {
+                                const d = LUCIDE_ICONS.find(i => i.name === (editProps as Record<string, string>)[key])
+                                const iconColor = (editProps as Record<string, string>)[`${key}Color`]
+                                return d
+                                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: iconColor ?? '#191919' }} />
+                                  : null
+                              })()}
+                              <span class="ml-[16px] flex-1 truncate text-left text-slate-600">{(editProps as Record<string, string>)[key] || '选择图标'}</span>
+                              <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            </button>
+                          </Show>
                           <Show when={key === 'src'}>
                             <button onClick={() => pickAndUploadImage((url) => updateEditProp('src', url))}
                               class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">

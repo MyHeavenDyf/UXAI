@@ -191,7 +191,7 @@ export function IconPickerPopup(props: {
     if (!props.anchor) return
     const rect = props.anchor.getBoundingClientRect()
     setState('pos', {
-      x: Math.max(4, rect.left - PANEL_W - 81),
+      x: Math.max(4, rect.left - PANEL_W - 20),
       y: Math.max(4, Math.min(rect.top - 8, window.innerHeight - PANEL_H - 4)),
     })
   }
