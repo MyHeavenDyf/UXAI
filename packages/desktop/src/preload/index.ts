@@ -60,6 +60,7 @@ const api: ElectronAPI = {
   fastuiDevServerEnsure: (sessionDir) => ipcRenderer.invoke("fastui-devserver-ensure", sessionDir),
   fastuiDevServerStop: (sessionDir) => ipcRenderer.invoke("fastui-devserver-stop", sessionDir),
   fastuiDevServerArm: (sessionDir) => ipcRenderer.invoke("fastui-devserver-arm", sessionDir),
+  fastuiExportZip: (sessionDir) => ipcRenderer.invoke("fastui-export-zip", sessionDir),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。

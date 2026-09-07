@@ -32,6 +32,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as FastuiExport from "./fastui-export"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
@@ -233,6 +234,12 @@ export function registerIpcHandlers(deps: Deps) {
   })
   ipcMain.handle("fastui-devserver-stop", (_event: IpcMainInvokeEvent, sessionDir: string) =>
     FastuiDevServer.stop(sessionDir),
+  )
+  // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
+  // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
+  // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiExport.exportZip(sessionDir),
   )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
