@@ -15,6 +15,7 @@ import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
 import type { ModelEditElement, ModelEditConfig, ConfigGroup } from "../model-edit-items/types"
 import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
+import { HUI_COLOR_TOKENS } from "../../../pattern/modules/preview/property-editor-popup/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
@@ -1872,6 +1873,7 @@ onFloatingPositionChange={setEditPanelPosition}
               panelInfo={modelEditPanelInfo()}
               filePath={props.filePath || ''}
               disabled={props.disabled}
+              colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {

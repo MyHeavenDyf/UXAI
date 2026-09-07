@@ -1,6 +1,7 @@
 import { createSignal, createEffect, Show, For, onCleanup, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import type { ConfigGroup, ModelEditElement } from '../model-edit-items/types'
+import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import { renderConfigItem, checkKeyConflicts } from '../model-edit-items/registry'
 import './manual-edit-panel.css'
 import './model-edit-panel.css'
@@ -14,6 +15,7 @@ export function ModelEditPanel(props: {
   filePath: string
   disabled?: boolean
   onSubmitStart?: () => void
+  colors?: ColorToken[]
   onSave: (current: Record<string, string>) => Promise<void> | void
   onDelete: () => Promise<void> | void
   onExit: () => void
@@ -226,7 +228,7 @@ export function ModelEditPanel(props: {
                 </Show>
                 <div class="model-edit-group-body">
                   <For each={group.items}>
-                    {(item) => renderConfigItem(item, itemValue(item.key), itemOnChange(item.key))}
+                    {(item) => renderConfigItem(item, itemValue(item.key), itemOnChange(item.key), props.colors ?? [])}
                   </For>
                 </div>
               </div>
