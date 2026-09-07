@@ -1,22 +1,24 @@
 /**
- * codegen_scene —— 3-agent handler 代码生成编排（Step 7）
+ * codegen_scene —— Direct 单次直出 codegen 编排（无 plan 无自愈）
  *
- *   triage（routing=create/modify/chat + types）
- *     → plan（选型 / 选资源 + camera/lights/scene）
- *     → codegen（写 handler .ts + 全量 index.ts + 全量 live-data.json，Markdown 代码块）
- *     → parseCodeFiles + extractSceneData
- *     → onCodeReady（onCodeVersionReady 物化 workspace + 启 51857 + iframe 重载 + SCENE_UPDATE 推分组）
+ *   triage（routing=create/modify/patch/chat + types + patchOps）
+ *     → direct codegen（1 次调用，吃 type 名 + 用户 prompt + currentHandlers[modify] + assetCatalog，
+ *       LLM 自己想坐标/尺寸/结构，输出 handler + group + scene-config.json）
+ *     → parseCodeFiles + parseDirectResult
+ *     → host 确定性合并 index.ts + live-data.json
+ *     → 物化 + 预览（onCodeVersionReady / materializePatch）
+ *     → 门控（失败只提示不重跑不重试）
  *
- * 旧 8-agent JSON 流水线（create-scene.ts / modify-scene-ai.ts + 7 个 intent/planner/module agent）已全删（2026-09-04）。
- * 全砍暂停点（intent_confirm / 线框审查）：NL→triage→plan→codegen→预览，代码先行。
+ * 旧 3-agent 流水线 plan + pertype/full + 自愈循环已随 direct 落地全清删除
+ * （单次 codegen 30-60s 替代 plan+并行/全量+自愈 32-50min）。
+ * modify/patch/edit_code/编辑器链路完全不动（它们吃 handler 文件，和生成方式无关）。
  *
  * 发送层渐进迁移：pendingPreviewData 存分组 TreeScene（onCodeVersionReady 回填），不碰 14 个平铺 SceneConfig 文件。
  */
 import scene_3d_triage from "../agents/scene-triage"
-import scene_3d_plan, { type PlanResult } from "../agents/scene-plan"
-import scene_3d_codegen from "../agents/scene-codegen"
-import { parseCodeFiles, extractSceneData, type CodeFile } from "../utils/parse-code-files"
-import { checkHandlerSyntax, type SyntaxError } from "../utils/parse-check"
+import { scene_3d_codegen_direct } from "../agents/scene-codegen"
+import { parseCodeFiles, type CodeFile } from "../utils/parse-code-files"
+import { checkHandlerSyntax } from "../utils/parse-check"
 import { loadCurrentSceneState, readCodeDirFiles } from "../utils/version-history"
 import { getDesktopApi } from "../utils/desktop-api"
 import { workspaceDir, materialize } from "../utils/workspace"
@@ -26,6 +28,25 @@ import type { SceneCreateInput } from "./scene-create-input"
 import type { GateFinding, GateResult } from "../utils/scene-gate"
 
 const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
+
+/** direct codegen 产出的 type 元数据（build_detail 空——LLM 自己想，不需要 plan 预设） */
+export interface DirectType {
+  type: string
+  purpose: string
+  implementation: "native" | "component" | "model"
+  build_detail: string
+  components: string[]
+  resources: string[]
+}
+
+/** synthetic plan：host 合并 live-data 时需要 camera/lights/scene + types 清单，direct 模式由 LLM 的 scene-config.json 填充 */
+export interface DirectPlan {
+  scene_description: string
+  types: DirectType[]
+  camera: Record<string, unknown>
+  lights: unknown[]
+  scene: Record<string, unknown>
+}
 
 export type CodegenSceneInput = SceneCreateInput & {
   /** 是否已有场景（host 据 lastSceneObjects.length 预判；triage 做最终 routing） */
@@ -43,18 +64,18 @@ export type CodegenSceneInput = SceneCreateInput & {
   /** 上一轮 9a 门控失败清单（来自 handleRetry 喂回），注入 codegen 让其照着修 */
   priorGateFindings?: GateFinding[]
   /**
-   * 9a 门控执行器（P0.4 自愈循环用，物化后跑）。host 提供（闭包 settleMs 延迟 + 读
-   * consoleBuffer）；返回 GateResult 供循环判定——运行时错喂回 codegen 重试（同循环，
-   * 最多 3 次）。不传则循环内不跑门控（host 自行跑，旧行为）。
+   * 9a 门控执行器（物化后跑）。host 提供（闭包 settleMs 延迟 + 读
+   * consoleBuffer）；返回 GateResult 供提示——运行时错只提示不重跑（direct 无自愈）。
+   * 不传则 host 自行跑门控（旧行为）。
    */
-  gateRunner?: (plan: PlanResult, sceneData: Record<string, unknown> | null) => Promise<GateResult>
+  gateRunner?: (plan: DirectPlan, sceneData: Record<string, unknown> | null) => Promise<GateResult>
 }
 
 export interface CodegenSceneResult {
   routing: "create" | "modify" | "patch" | "chat"
   reply?: string
   summary?: string
-  plan?: PlanResult
+  plan?: DirectPlan
   /** triage 输出的 patchOps（routing=patch 时；供 host 跳过 9a 门控等） */
   patchOps?: PatchOp[]
   /** codegen 产出的分组 sceneData（供 host 跑 9a 完整性门控） */
@@ -107,16 +128,16 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     return { routing: "chat", reply: triage.reply }
   }
 
-  // 2.5. patch 短路：基于原场景局部改材质/transform，不进 plan/codegen（不重生成、不丢物体）。
+  // 2.5. patch 短路：基于原场景局部改材质/transform，不进 codegen（不重生成、不丢物体）。
   //      1B：只要 triage 吐了 patchOps（哪怕 routing=modify 也吐了——prompt 要求标量改动必出 patchOps）
   //      → 优先 patchScene（host 决定，不依赖 triage routing 判断的可靠性）。
-  //      校验失败（__id 不在候选 / handler 无骨架）→ 不物化，fallback 进下面 plan/codegen。
+  //      校验失败（__id 不在候选 / handler 无骨架）→ 不物化，fallback 进下面 codegen。
   //      1C 兜底：triage 把标量改动误判 modify（没吐 patchOps）但请求像标量改动 + 有候选
-  //      → 约束再问 triage force-patch（从候选选 __id 出 patchOps）；再问仍无 patchOps / patch 失败 → 落 plan/codegen。
+  //      → 约束再问 triage force-patch（从候选选 __id 出 patchOps）；再问仍无 patchOps / patch 失败 → 落 codegen。
   const patchSummary = userInput.trim().slice(0, 60) || "patch"
   if (triage.patchOps.length > 0) {
     console.log(
-      `[codegen_scene] ① patch 短路（${triage.patchOps.length} ops，routing=${triage.routing}，不进 plan/codegen）…`,
+      `[codegen_scene] ① patch 短路（${triage.patchOps.length} ops，routing=${triage.routing}，不进 codegen）…`,
     )
     const patchRes = await patchScene({
       sceneDir,
@@ -129,8 +150,8 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     if (patchRes.ok) {
       return { routing: "patch", summary: patchSummary, patchOps: triage.patchOps }
     }
-    console.warn(`[codegen_scene] patch 失败，fallback 进 plan/codegen：${patchRes.error}`, patchRes.skipped)
-    // 落到下面 plan/codegen（isModify=true，用 triage.types.modify 作 fallback hint）
+    console.warn(`[codegen_scene] patch 失败，fallback 进 codegen：${patchRes.error}`, patchRes.skipped)
+    // 落到下面 codegen（isModify=true，用 triage.types.modify 作 fallback hint）
   } else if (patchCandidates.length > 0 && looksLikeScalarChange(userInput)) {
     console.log(
       `[codegen_scene] ① patch 兜底再问（triage routing=${triage.routing} 未吐 patchOps，请求疑似标量改动，force-patch）…`,
@@ -165,7 +186,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
       if (patchRes.ok) {
         return { routing: "patch", summary: patchSummary, patchOps: reTriage.patchOps }
       }
-      console.warn(`[codegen_scene] 兜底再问 patch 失败，fallback plan/codegen：${patchRes.error}`, patchRes.skipped)
+      console.warn(`[codegen_scene] 兜底再问 patch 失败，fallback codegen：${patchRes.error}`, patchRes.skipped)
     } else if (reTriage.routing === "chat") {
       // 兜底再问判为闲聊（极少见）：透传，不进 codegen
       return { routing: "chat", reply: reTriage.reply }
@@ -174,356 +195,320 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
 
   // patch 失败 fallback 时也走 modify 路径（codegen 注入 [CURRENT_HANDLERS] 保留未受影响 type）
   const isModify = triage.routing === "modify" || triage.routing === "patch"
-  // attachment_description 注入用户输入（供 plan / codegen 参考）
+  // attachment_description 注入用户输入（供 codegen 参考）
   const effectiveUserInput = triage.attachment_description
     ? `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${userInput}`
     : userInput
 
-  // 2.5. 读 workspace 资产清单（注入 plan 的 [可用资产清单]，让 LLM 选 asset:<id>，如机房选 asset:rack）
+  // 2.6. 读 workspace 资产清单（注入 codegen 的 [ASSET_CATALOG]，让 LLM 选 asset:<id>，如机房选 asset:rack）
   const assetCatalog = await loadAssetCatalog(sdkDir)
 
-  // 3. plan：选型 + 选资源 + camera/lights/scene
-  console.log("[codegen_scene] ② plan 选型中…")
-  const plan = await scene_3d_plan({
+  // 3. direct codegen：1 次调用，create+modify 都走它，LLM 自己想坐标/尺寸/结构
+  const targetTypes = [...triage.types.create, ...triage.types.modify].filter((t) => t && t.trim())
+  const summary = userInput.trim().slice(0, 80) || "scene"
+  console.log(`[codegen_scene] ② direct codegen ${targetTypes.length} 个 type…（create=${triage.types.create.length} modify=${triage.types.modify.length}）`)
+
+  // modify 时当前 handler 文件 + live-data（复用 1.7 读的 currentCode；create 时空）
+  const currentFiles = isModify && currentCode ? currentCode.currentFiles : []
+  const currentLiveData = isModify && currentCode ? currentCode.currentLiveData : ""
+  const prevLiveData = parseLiveData(currentLiveData)
+
+  const directRes = await scene_3d_codegen_direct({
     sdk,
     sync,
     modelKey,
     rootSession,
-    userInput: effectiveUserInput,
     onSessionCreated,
     fileParts,
-    types: triage.types,
+    userInput: effectiveUserInput,
+    types: targetTypes,
     isModify,
-    currentTypes,
+    currentHandlers: isModify ? buildCurrentHandlersMap(currentFiles, targetTypes) : undefined,
+    currentGroups: isModify ? buildCurrentGroupsMap(prevLiveData, targetTypes) : undefined,
+    priorGateFindings,
     assetCatalog,
   })
+  if (directRes.error) {
+    return { routing: triage.routing, error: `direct codegen 失败：${directRes.error}（请重试）` }
+  }
 
-  // 4. codegen：写 handler .ts + 全量 index + 全量 live-data
-  //    modify 时从 codeDir 读当前 handler 源码 + live-data 注入 [CURRENT_HANDLERS]/[CURRENT_LIVE_DATA]（create 时不走此路）
-  // 复用 1.7 读的 currentCode（modify/patch-fallback 路径；patch 成功短路不至此，currentCode 非空）
-  const currentLiveData = isModify && currentCode ? currentCode.currentLiveData : ""
+  // 4. 解析 direct 输出 → handler/group/scene-config
+  const parsed = parseDirectResult(directRes.text)
+  const handlerByType = parsed.handler
+  const groupByType = parsed.group
+  const sceneConfig = parsed.sceneConfig
+  if (handlerByType.size === 0) {
+    return { routing: triage.routing, error: `codegen 未产出任何 handler（输出可能被截断或格式错），请重试` }
+  }
 
-  // 4~7. codegen → parse → 语法检查 → merge → 物化 → 门控 自愈循环（P0.4，最多 3 次）：
-  //   - 代码错（语法 PARSE_ERROR + 语义 continue/break/return outside）：物化前
-  //     ts.createProgram(noLib) 抓（~240ms），file:line:col:reason 喂回 codegen 重写，
-  //     不进 materialize→startDev→iframe→门控兜底慢链。语义错（transpileModule 抓不到的）
-  //     是高频根因（continue outside loop 实证频发），升级 createProgram 后物化前拦截。
-  //   - 运行时错（continue outside loop 等语义错，transpile 不报）：物化后 gateRunner 跑 9a 门控
-  //     抓 SCENE_CONSOLE_ERROR，findings 喂回 codegen 重写（重新物化）。
-  //   - 两类错共用同一循环：重跑的只是 codegen 步（triage/plan 不重跑），每轮 priorSyntaxErrors /
-  //     priorGateFindings 喂回让 LLM 照着修。语法错重试有效（确定性错误+精确行号）；墙钟超时/API 错
-  //     不在此重试（P1.2 不变——同模型同 prompt 重试无效）。
-  //   - P0.10：scene-not-ready（SCENE_READY 握手超时）已删——握手竞态致误报，失败改靠
-  //     SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件（runtime-error/scene-build-error 才重试）。
-  //   - scoped 重试（P0.5）：重试轮只让 LLM 重输出出错文件（`## 本轮输出范围`），未出错文件 host 端
-  //     overlay 复用上一轮（LLM 忽略范围全量输出也兼容——按新输出覆盖同路径，结果一致）。
-  //     重试输出 token 随出错文件数收敛，砍 retry 墙钟 + 减少全量重写引入新错。
-  const MAX_SELF_HEAL_RETRIES = 3
-  const summary = plan.scene_description?.slice(0, 80) || userInput.slice(0, 80)
-  let files: CodeFile[] = []
-  let sceneData: Record<string, unknown> | null = null
-  let priorSyntaxErrors: SyntaxError[] | undefined
-  let feedbackGateFindings: GateFinding[] | undefined
-  let lastGatePassed: boolean | undefined
-  let lastGateFindings: GateFinding[] | undefined
-  // scoped 重试（P0.5）：上一轮产物（复用基底）+ 本轮只需重输出的文件名清单（undefined=全量输出）
-  let prevRoundFiles: CodeFile[] | undefined
-  let retryScopeFiles: string[] | undefined
-  // live-data.json 缺失轮的反馈标志（P0.8：6b 截断自愈，见下）
-  let liveDataMissing: boolean | undefined
+  // 5. synthetic plan：types 只有 type 名（build_detail 空），env 来自 LLM 的 scene-config.json
+  const plan: DirectPlan = {
+    scene_description: summary,
+    types: targetTypes.map((t) => ({ type: t, purpose: "", implementation: "native", build_detail: "", components: [], resources: [] })),
+    camera: (sceneConfig.camera as Record<string, unknown>) ?? {},
+    lights: Array.isArray(sceneConfig.lights) ? sceneConfig.lights : [],
+    scene: (sceneConfig.scene as Record<string, unknown>) ?? {},
+  }
 
-  for (let attempt = 1; attempt <= MAX_SELF_HEAL_RETRIES; attempt++) {
-    const retryReason = priorSyntaxErrors
-      ? "，喂回语法错误清单自愈"
-      : feedbackGateFindings
-        ? "，喂回门控失败清单自愈"
-        : liveDataMissing
-          ? "，补 live-data.json（scoped）"
-          : ""
-    console.log(`[codegen_scene] ③ codegen 生成代码中…（第 ${attempt}/${MAX_SELF_HEAL_RETRIES} 次${retryReason}）`)
-    const codegenRes = await scene_3d_codegen({
-      sdk,
-      sync,
-      modelKey,
-      rootSession,
-      userInput: effectiveUserInput,
-      onSessionCreated,
-      fileParts,
-      plan,
-      isModify,
-      currentHandlers,
-      currentLiveData,
-      priorGateFindings: attempt === 1 ? priorGateFindings : feedbackGateFindings,
-      priorSyntaxErrors,
-      retryScopeFiles,
-      liveDataMissing,
-    })
+  // 6. modify 时补回未受影响 type 的 handler/group（不在 targetTypes 里的 type 从 currentCode 继承）
+  if (isModify) seedUnchangedTypes(handlerByType, groupByType, targetTypes, currentFiles, prevLiveData)
 
-    // 5+6. 先解析 Markdown → files + sceneData，再判 codegen 失败（API 错误 / 限流 / 超上下文 /
-    //       墙钟掐断）——P1.4③ 部分输出抢救需要 parse 结果才能判可恢复性。失败且不可抢救 →
-    //       透传 error 给 host，由 handleSubmit 写进 sessionErrors → GenerationCard 持久显示
-    //       失败卡片（不靠会消失的 toast）。
-    files = parseCodeFiles(codegenRes.text)
-    // ⑥0. scoped 重试 overlay（P0.5）：上一轮已校验通过的文件直接复用，LLM 本轮只重输出出错文件
-    //     （`## 本轮输出范围` 指定）。LLM 忽略范围全量输出也兼容——按新输出覆盖同路径，结果一致。
-    //     live-data.json 未重输出时沿用上一轮（sceneData 从 merged files 抽取，不因 scoped 误报「未输出」）。
-    if (retryScopeFiles && prevRoundFiles && files.length > 0) {
-      const rawPaths = new Set(files.map((f) => f.path.replace(/\\/g, "/")))
-      const merged = overlayCodeFiles(prevRoundFiles, files)
-      const reused = merged.filter((f) => !rawPaths.has(f.path.replace(/\\/g, "/"))).length
-      files = merged
-      console.log(
-        `[codegen_scene] ⑥0 scoped 重试 merge：LLM 重输出 ${rawPaths.size} 个文件，复用上一轮 ${reused} 个未出错文件`,
-      )
-    }
-    sceneData = extractSceneData(files)
-    if (codegenRes.error) {
-      // 部分输出抢救：墙钟掐断时已收代码块仍可物化。modify 靠 6c host merge 补全 LLM 漏输出
-      // 的 handler；create 无上一轮可 merge，要求 plan.types 全部有 handler 文件
-      // （缺 = index.ts 注册不存在的文件 → vite import 崩，[[3d-gate-handler-mismatch]]）。
-      // live-data.json 截断（sceneData null）不可抢救——它是 SCENE_UPDATE payload 必需。
-      const recoverable =
-        files.length > 0 &&
-        sceneData !== null &&
-        (isModify ? (currentCode?.currentFiles?.length ?? 0) > 0 : hasAllTypeHandlers(files, plan.types))
-      if (recoverable) {
-        console.warn(
-          `[codegen_scene] ③ codegen 报错（${codegenRes.error}）但部分输出可抢救：${files.length} 个文件 → 继续物化（modify 靠 6c merge / create 已核 handler 齐全）`,
-        )
-      } else {
-        console.error("[codegen_scene] ③ codegen 失败:", codegenRes.error)
-        return { routing: triage.routing, error: codegenRes.error }
-      }
-    }
-    if (files.length === 0) {
-      // 打印原始输出便于诊断（LLM 是否产了代码块 / 是否落在 reasoning / 是否只产自然语言 / 是否 token 截断）
-      console.error(
-        `[codegen_scene] parseCodeFiles 返回 0 个文件。text.length=${codegenRes.text.length}（若很大且无 ## file: → 疑似 LLM reasoning 占满 output token，代码块未产出）`,
-      )
-      console.error(`[codegen_scene] 输出前 2000 字符:\n`, codegenRes.text.slice(0, 2000))
-      console.error(`[codegen_scene] 输出后 2000 字符（看有无 ## file: 或截断断点）:\n`, codegenRes.text.slice(-2000))
-      return { routing: triage.routing, error: "LLM 未输出有效的 ## file: 代码块" }
-    }
+  // 7. host 确定性合并 files + sceneData（index.ts + live-data.json 由 host 生成，不靠 LLM）
+  const assembled = assembleScene(plan, handlerByType, groupByType, isModify, prevLiveData)
 
-    // 6b. live-data.json 缺失/不可解析：进 scoped 自愈（P0.8），不再灾难性短路。高发诱因=输出
-    //     超长截断（finish=length，实证 ses_f9a31aa61：14 type 场景 reasoning 烧 43K + 正文 20K
-    //     打满 output 上限，正文在最后一个 handler 中途掐断，live-data.json/index.ts 排队尾没
-    //     轮到）。已写好的 handler 直接复用（prevRoundFiles），scoped 只重输出 live-data.json
-    //     （+index.ts 若缺）+ 截断文件——重输出预算只需零头，不再撞上限。
-    if (!sceneData) {
-      const truncatedErrors = checkHandlerSyntax(files)
-      const truncated = [...new Set(truncatedErrors.map((e) => e.file))] // 语法错=截断铁证
-      if (attempt < MAX_SELF_HEAL_RETRIES) {
-        prevRoundFiles = files
-        retryScopeFiles = buildLiveDataScope(files, truncated)
-        liveDataMissing = true
-        // 截断文件的语法错一并喂回（file:line:col 告诉 LLM 断点），LLM 按清单 + 范围重输出
-        priorSyntaxErrors = truncatedErrors.length > 0 ? truncatedErrors : undefined
-        console.warn(
-          `[codegen_scene] ⑥b live-data.json 未输出/不可解析（第 ${attempt}/${MAX_SELF_HEAL_RETRIES} 次，疑似输出超长截断，截断文件: ${truncated.join(", ") || "无"}）→ scoped 自愈：只重输出 ${retryScopeFiles.join(" + ")}`,
-        )
-        continue
-      }
-      console.error("[codegen_scene] extractSceneData 返回 null：LLM 未产 live-data.json 或不可解析")
-      return { routing: triage.routing, error: "LLM 未输出 live-data.json 或不可解析" }
+  // 8. 物化前静态代码检查：语法错（失败只报错不重试，direct 无自愈）
+  const syntaxErrors = checkHandlerSyntax(assembled.files)
+  if (syntaxErrors.length > 0) {
+    const detail = syntaxErrors
+      .slice(0, 5)
+      .map((e) => `${e.file}:${e.line}:${e.column}: ${e.message} (code ${e.code})`)
+      .join("；")
+    console.error(`[codegen_scene] ⑥a 代码检查 ${syntaxErrors.length} 个错（direct 无自愈，放弃）：`, detail)
+    return {
+      routing: triage.routing,
+      error: `生成的 handler .ts 存在代码错误（${syntaxErrors.length} 处，请重试）：${detail}`,
     }
-    if (liveDataMissing) {
-      console.log("[codegen_scene] ⑥b live-data 自愈成功（本轮补齐）")
-      liveDataMissing = undefined
-    }
+  }
 
-    // 6a. 物化前静态代码检查：语法错 + 语义错（continue/break/return outside 等）立即拦截 + 喂回自愈
-    const syntaxErrors = checkHandlerSyntax(files)
-    if (syntaxErrors.length > 0) {
-      if (attempt < MAX_SELF_HEAL_RETRIES) {
-        console.warn(
-          `[codegen_scene] ⑥a 代码检查 ${syntaxErrors.length} 个错（第 ${attempt}/${MAX_SELF_HEAL_RETRIES} 次），喂回 codegen 自愈重试：`,
-          syntaxErrors.map((e) => `${e.file}:${e.line}:${e.column} ${e.message} (code ${e.code})`),
-        )
-        priorSyntaxErrors = syntaxErrors
-        prevRoundFiles = files
-        retryScopeFiles = computeSyntaxScope(syntaxErrors, files)
-        continue
-      }
-      const detail = syntaxErrors.map((e) => `${e.file}:${e.line}:${e.column}: ${e.message} (code ${e.code})`).join("；")
-      console.error(`[codegen_scene] ⑥a 代码检查 ${MAX_SELF_HEAL_RETRIES} 次仍失败，放弃自愈：`, detail)
-      return {
-        routing: triage.routing,
-        error: `生成的 handler .ts 存在代码错误（已自动重试 ${MAX_SELF_HEAL_RETRIES} 次未修复）：${detail}`,
-      }
-    }
-    if (priorSyntaxErrors) {
-      console.log(`[codegen_scene] ⑥a 代码自愈成功（第 ${attempt} 次修复了 ${priorSyntaxErrors.length} 个代码错）`)
-      priorSyntaxErrors = undefined // 已修干净，不带陈旧清单进下一轮（gate 重试轮）
-    }
-    console.log(
-      `[codegen_scene] parseCodeFiles 解析到 ${files.length} 个文件:`,
-      files.map((f) => f.path),
-    )
-    console.log(`[codegen_scene] extractSceneData:`, sceneData ? `非空 (keys=${Object.keys(sceneData).join(",")})` : "空")
+  console.log(
+    `[codegen_scene] parseCodeFiles 解析到 ${assembled.files.length} 个文件:`,
+    assembled.files.map((f) => f.path),
+  )
+  console.log(`[codegen_scene] extractSceneData:`, assembled.sceneData ? `非空 (keys=${Object.keys(assembled.sceneData).join(",")})` : "空")
 
-    // 6c. modify 时 host 端 merge 保全量：LLM 常只输出受影响 type handler + index + live-data，
-    //     漏未受影响 type 的 handler .ts（但 index.ts 全量注册它们）→ switchVersion materialize 重建
-    //     workspace 清空 + overlay 只铺 LLM 输出 → 缺 floor/walls/ceiling.ts → vite import 崩
-    //     （[[3d-gate-handler-mismatch]]）。补回 LLM 没输出的上一轮 handler 文件（以 LLM 输出为准，
-    //     只补缺失不覆盖 LLM 重写的；多余 handler 文件 index 不 import 则不加载，无害）。read+merge
-    //     保全量同 patch 路线（readCodeDirFiles 全量 → patch → 重组全量）模式，确定性不靠 LLM。
-    if (isModify && currentCode?.currentFiles && currentCode.currentFiles.length > 0) {
-      const llmPaths = new Set(files.map((f) => f.path.replace(/\\/g, "/")))
-      let added = 0
-      for (const f of currentCode.currentFiles) {
-        const p = f.path.replace(/\\/g, "/")
-        if (!llmPaths.has(p)) {
-          files.push(f)
-          added += 1
-        }
-      }
-      if (added > 0) {
-        console.log(
-          `[codegen_scene] ⑥c merge 补回 ${added} 个未受影响 type handler（LLM 漏输出，host 保全量防 vite import 崩）`,
-        )
-      }
-    }
+  // 9. 物化 + 预览（modify 走 materializePatch 轻量 overlay；create 走 onCodeVersionReady 全量）
+  if (isModify) {
+    await onMaterialize(assembled.files, summary, assembled.sceneData)
+  } else {
+    await onCodeReady(assembled.files, assembled.sceneData, summary)
+  }
 
-    // 6d. modify 时 host 端 merge 场景级保留键（camera/lights/scene，G2 修复）
-    //     LLM 重写 live-data 时常顺手改 camera/lights/scene（加小车不该动相机灯光 → 场景级漂移）。
-    //     modify 语义=改物体不动场景级 env；合法 env 改动走 patch 路径 set_light/set_camera/set_scene op（M-3①），
-    //     不经 codegen modify。故 modify 物化前把上一轮 mergedSceneConfig 的三保留键完整覆盖回 LLM 输出
-    //     —— sceneData（SCENE_UPDATE payload，iframe 消费）+ live-data.json 文件（overlay/版本恢复重读）两处都改。
-    //     完整覆盖非字段级 merge：LLM 改的场景级值全是误改，整体用旧值替换（字段级 merge 会残留误改）。
-    //     镜像 6c handler merge 范式（host 端确定性 merge，不靠 LLM 自觉），同 [[3d-gate-handler-mismatch]] 思路。
-    if (isModify && sceneData && currentCode?.currentLiveData) {
-      let prevMerged: Record<string, unknown> | null = null
-      try {
-        const parsed = JSON.parse(currentCode.currentLiveData)
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          prevMerged = parsed as Record<string, unknown>
-        }
-      } catch {
-        // currentLiveData 不可解析（旧版本边界）→ 跳过 merge 不崩
-      }
-      if (prevMerged) {
-        const envKeys = ["camera", "lights", "scene"] as const
-        const allPresent = envKeys.every((k) => prevMerged![k] !== undefined)
-        if (allPresent) {
-          // 覆盖回 sceneData（SCENE_UPDATE payload）
-          for (const k of envKeys) sceneData[k] = prevMerged[k]
-          // 同步覆盖回 live-data.json 文件内容（overlay/版本恢复路径）
-          const ldFile = files.find(
-            (f) => f.path === "public/live-data.json" || f.path.replace(/\\/g, "/").endsWith("/live-data.json"),
-          )
-          if (ldFile) {
-            try {
-              const ldParsed = JSON.parse(ldFile.content) as Record<string, unknown>
-              for (const k of envKeys) ldParsed[k] = prevMerged[k]
-              ldFile.content = JSON.stringify(ldParsed, null, 2)
-            } catch {
-              // live-data.json 文件不可解析（LLM 输出异常）→ sceneData 已改，文件留 LLM 原值（reload 时 iframe 仍优先 SCENE_UPDATE）
-            }
-          }
-          console.log(
-            `[codegen_scene] ⑥d merge 场景级保留键 camera/lights/scene（modify 不该改 env，覆盖回上一轮值防漂移）`,
-          )
-        }
-      }
-    }
-
-    // 7. 物化 + 预览
-    // modify 走轻量物化（materializePatch：只 overlay 变动文件，不 materialize 重建 workspace 清空，
-    //   保留上一轮未受影响 type handler——「只改变动的地方其他不变」，非全清空重写；也避开 switchVersion
-    //   的 stopDev+materialize+startDev 慢路径/240s 卡顿，见 [[3d-commit-hang-startdev]]）。
-    //   冷启动（dev 没跑）时 materializePatch 内部降级 onCodeVersionReady（switchVersion materialize 重建），
-    //   此时 6c merge 补的全量 files 防缺文件（也保版本恢复时 codeDir 归档全量）。
-    //   create 仍走 onCodeVersionReady（需 materialize 建模板基底 buildings/roads/water/example/model + startDev）。
-    if (isModify) {
-      await onMaterialize(files, summary, sceneData)
-    } else {
-      await onCodeReady(files, sceneData, summary)
-    }
-
-    // 8. 9a 门控（gateRunner 由 host 提供：固定延迟 settleMs + 读 consoleBuffer）。
-    //    运行时错（continue outside loop / undefined 访问）喂回 codegen 自愈重试（重新物化）；
-    //    无运行时错则通过（P0.10：删 scene-not-ready 握手超时误报，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件）。
-    if (gateRunner) {
-      const gate = await gateRunner(plan, sceneData)
-      lastGatePassed = gate.passed
-      lastGateFindings = gate.findings
-      console.log(`[codegen_scene] ⑧ 9a 门控（第 ${attempt} 次）:`, gate.passed ? "PASS" : "FAIL", gate.findings)
-      if (!gate.passed) {
-        const retryable = gate.findings.some(
-          (f) => f.level === "error" && (f.code === "runtime-error" || f.code === "scene-build-error"),
-        )
-        if (retryable && attempt < MAX_SELF_HEAL_RETRIES) {
-          console.warn(`[codegen_scene] ⑧ 门控失败（运行时错可自愈），第 ${attempt} 次喂回 codegen 重试`)
-          feedbackGateFindings = gate.findings
-          prevRoundFiles = files
-          retryScopeFiles = extractGateScope(gate.findings)
-          continue
-        }
-      }
-    }
-    break
+  // 10. 9a 门控：运行时错只提示不重跑（direct 无自愈）
+  let gatePassed: boolean | undefined
+  let gateFindings: GateFinding[] | undefined
+  if (gateRunner) {
+    const gate = await gateRunner(plan, assembled.sceneData)
+    gatePassed = gate.passed
+    gateFindings = gate.findings
+    console.log(`[codegen_scene] ⑩ 9a 门控:`, gate.passed ? "PASS" : "FAIL", gate.findings)
   }
 
   return {
     routing: triage.routing,
     summary,
     plan,
-    sceneData,
-    gatePassed: lastGatePassed,
-    gateFindings: lastGateFindings,
+    sceneData: assembled.sceneData,
+    gatePassed,
+    gateFindings,
   }
 }
 
-/** create 路径部分输出抢救门槛：plan.types 每个 type 都有对应 handler 文件（缺 = index.ts 注册不存在的文件 → vite import 崩）。 */
-function hasAllTypeHandlers(files: CodeFile[], types: PlanResult["types"]): boolean {
-  const got = new Set(files.map((f) => f.path.replace(/\\/g, "/").split("/").pop()?.replace(/\.ts$/, "") ?? ""))
-  const missing = types.filter((t) => !got.has(t.type))
-  if (missing.length > 0) {
-    console.warn(`[codegen_scene] 部分输出缺 handler 文件: ${missing.map((t) => t.type).join(",")} → create 放弃抢救`)
-    return false
+/** 解析 live-data.json 字符串 → 对象（失败返回 null；空串 → null）。 */
+function parseLiveData(content: string): Record<string, unknown> | null {
+  if (!content) return null
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    // 不可解析（旧版本边界）→ null
   }
-  return true
+  return null
 }
 
-/** scoped 重试 overlay（P0.5）：上一轮产物为基底，新输出按路径覆盖；未重输出的文件沿用上一轮版本。 */
-function overlayCodeFiles(base: CodeFile[], overlay: CodeFile[]): CodeFile[] {
-  const byPath = new Map<string, CodeFile>()
-  for (const f of base) byPath.set(f.path.replace(/\\/g, "/"), f)
-  for (const f of overlay) byPath.set(f.path.replace(/\\/g, "/"), f)
-  return [...byPath.values()]
-}
-
-/** 语法错 scoped 范围：出错文件名去重。全部 .ts 都出错时 scoped 无收益（等于全量）→ 返 undefined。 */
-function computeSyntaxScope(syntaxErrors: SyntaxError[], files: CodeFile[]): string[] | undefined {
-  const scope = [...new Set(syntaxErrors.map((e) => e.file))]
-  const tsBasenames = new Set(
-    files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path.replace(/\\/g, "/").split("/").pop() ?? ""),
-  )
-  if (scope.length >= tsBasenames.size) return undefined
-  return scope
-}
-
-/** live-data 缺失轮 scoped 范围（P0.8）：live-data.json + index.ts（缺时）+ 截断文件（语法错铁证）。 */
-function buildLiveDataScope(files: CodeFile[], truncatedFiles: string[]): string[] {
-  const scope = ["public/live-data.json"]
-  const hasIndex = files.some((f) => f.path.replace(/\\/g, "/").endsWith("handlers/index.ts"))
-  if (!hasIndex) scope.push("src/3d/managers/component/handlers/index.ts")
-  return [...scope, ...truncatedFiles]
-}
-
-/** 门控运行时错 scoped 范围：从 findings message 抽 `.ts` 文件名（console 报错带 vite URL/栈定位）。
- *  抽不到（如纯完整性缺 type，不指向文件）→ 返 undefined 走全量输出。 */
-function extractGateScope(findings: GateFinding[]): string[] | undefined {
-  const names = new Set<string>()
-  for (const f of findings) {
-    if (f.level !== "error" || (f.code !== "runtime-error" && f.code !== "scene-build-error")) continue
-    for (const m of f.message.matchAll(/([\w./\\-]+\.ts)\b/g)) {
-      const name = m[1].split(/[\\/]/).pop()
-      if (name) names.add(name)
+/** modify 时把「未受影响 type」（不在 targetTypes 里）的 handler + 分组从 currentCode 基线填入。 */
+function seedUnchangedTypes(
+  handlerByType: Map<string, CodeFile>,
+  groupByType: Map<string, unknown[]>,
+  targetTypes: string[],
+  currentFiles: CodeFile[],
+  prevLiveData: Record<string, unknown> | null,
+): void {
+  const targetSet = new Set(targetTypes)
+  for (const f of currentFiles) {
+    const type = typeFromHandlerPath(f.path)
+    if (type && !targetSet.has(type)) handlerByType.set(type, f)
+  }
+  if (prevLiveData) {
+    for (const [key, val] of Object.entries(prevLiveData)) {
+      if (RESERVED_TYPES.has(key) || targetSet.has(key) || !Array.isArray(val)) continue
+      groupByType.set(key, val as unknown[])
     }
   }
-  return names.size > 0 ? [...names] : undefined
+}
+
+/** 从 handler path 提 type 名（`.../handlers/<type>/<type>.ts` → `<type>`；非 handler → null）。 */
+function typeFromHandlerPath(path: string): string | null {
+  const p = path.replace(/\\/g, "/")
+  const m = p.match(/handlers\/([^/]+)\/[^/]+\.ts$/)
+  return m ? m[1] : null
+}
+
+/** modify 时找该 type 当前 handler 源码（照抄布局参数）；create/无 → undefined。 */
+function findCurrentHandler(currentFiles: CodeFile[], type: string): CodeFile | undefined {
+  return currentFiles.find((f) => f.path.replace(/\\/g, "/").endsWith(`handlers/${type}/${type}.ts`))
+}
+
+/** modify 时找该 type 当前分组片段（JSON 字符串）；create/无分组 → undefined。 */
+function findCurrentGroup(prevLiveData: Record<string, unknown> | null, type: string): string | undefined {
+  const group = prevLiveData?.[type]
+  if (!Array.isArray(group)) return undefined
+  return JSON.stringify(group, null, 2)
+}
+
+/** 从 handler 源码提导出名（`export const xxx: ComponentHandler` → `xxx`；不合法 → null）。 */
+function extractHandlerExportName(content: string): string | null {
+  const m = content.match(/export\s+const\s+(\w+)\s*:\s*ComponentHandler\b/)
+  return m ? m[1] : null
+}
+
+/** 解析单 agent 全量输出（2N 个 ## file 块）→ handler / group 两个 Map（type → 产物）。 */
+function parseFullResult(text: string): { handler: Map<string, CodeFile>; group: Map<string, unknown[]> } {
+  const handler = new Map<string, CodeFile>()
+  const group = new Map<string, unknown[]>()
+  for (const f of parseCodeFiles(text)) {
+    const p = f.path.replace(/\\/g, "/")
+    if (p.endsWith(".group.json")) {
+      const type = p.replace(/^.*\//, "").replace(/\.group\.json$/, "")
+      const g = parseGroupFragment(f.content)
+      if (type && g) group.set(type, g)
+    } else if (p.endsWith(".ts") && !p.endsWith("index.ts")) {
+      const type = typeFromHandlerPath(p)
+      const exportName = extractHandlerExportName(f.content)
+      if (type && exportName) {
+        // host 归一 path（与 parsePerTypeResult 一致：约定 handlers/<type>/<type>.ts）
+        handler.set(type, { path: `src/3d/managers/component/handlers/${type}/${type}.ts`, content: f.content })
+      }
+    }
+  }
+  return { handler, group }
+}
+
+/** 解析 direct 输出：handler + group + scene-config.json（camera/lights/scene）。 */
+function parseDirectResult(text: string): {
+  handler: Map<string, CodeFile>
+  group: Map<string, unknown[]>
+  sceneConfig: { camera?: unknown; lights?: unknown; scene?: unknown }
+} {
+  const { handler, group } = parseFullResult(text)
+  // 找 scene-config.json 块
+  let sceneConfig: { camera?: unknown; lights?: unknown; scene?: unknown } = {}
+  for (const f of parseCodeFiles(text)) {
+    const p = f.path.replace(/\\/g, "/")
+    if (p === "scene-config.json" || p.endsWith("/scene-config.json")) {
+      try {
+        const parsed = JSON.parse(stripFence(f.content)) as Record<string, unknown>
+        sceneConfig = { camera: parsed.camera, lights: parsed.lights, scene: parsed.scene }
+      } catch {
+        console.warn("[parseDirectResult] scene-config.json 解析失败，env 用空默认值")
+      }
+      break
+    }
+  }
+  return { handler, group, sceneConfig }
+}
+
+/** 剥 fenced code block 围栏 → 纯内容（parseGroupFragment/scene-config 用）。 */
+function stripFence(content: string): string {
+  return content
+    .trim()
+    .replace(/^```[a-z]*\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim()
+}
+
+/** modify 时把本轮要写 type 的当前 handler 源码按 type 收录（照抄布局参数）。 */
+function buildCurrentHandlersMap(currentFiles: CodeFile[], pendingTypes: string[]): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const type of pendingTypes) {
+    const f = findCurrentHandler(currentFiles, type)
+    if (f) map[type] = f.content
+  }
+  return map
+}
+
+/** modify 时把本轮要写 type 的当前分组片段按 type 收录（根节点 id 照抄勿换）。 */
+function buildCurrentGroupsMap(
+  prevLiveData: Record<string, unknown> | null,
+  pendingTypes: string[],
+): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const type of pendingTypes) {
+    const g = findCurrentGroup(prevLiveData, type)
+    if (g) map[type] = g
+  }
+  return map
+}
+
+/** 解析 group.json 片段 → TreeNode[]。片段短（几个 root node）几乎不截断；剥围栏直接 parse，失败 → null（该 type 缺失）。 */
+function parseGroupFragment(content: string): unknown[] | null {
+  const cleaned = stripFence(content)
+  try {
+    const parsed = JSON.parse(cleaned)
+    return Array.isArray(parsed) ? (parsed as unknown[]) : null
+  } catch {
+    return null
+  }
+}
+
+/** host 生成 handlers/index.ts：每个 type 一行 import + 一行注册（导出名从 handler 源码提取，零猜测）。 */
+function buildHandlersIndex(entries: { type: string; exportName: string }[]): string {
+  const importLines = entries.map((e) => `import { ${e.exportName} } from './${e.type}/${e.type}';`)
+  const regLines = entries.map((e) => `  { type: '${e.type}', handler: ${e.exportName} },`)
+  return [
+    `import { componentManager, type ComponentHandler } from '../ComponentManager';`,
+    `import { sharedState } from './base/shared';`,
+    ...importLines,
+    ``,
+    `export { sharedState, ComponentSharedState } from './base/shared';`,
+    ``,
+    `const typeHandlers: Array<{ type: string; handler: ComponentHandler }> = [`,
+    ...regLines,
+    `];`,
+    ``,
+    `export const registerComponentHandlers = (): void => {`,
+    `  componentManager.registerHandlers(typeHandlers);`,
+    `};`,
+    ``,
+    `export const disposeComponentHandlers = (): void => {`,
+    `  sharedState.dispose();`,
+    `};`,
+    ``,
+  ].join("\n")
+}
+
+/** host 确定性合并：handler files + index.ts + live-data.json → { files, sceneData }。 */
+function assembleScene(
+  plan: DirectPlan,
+  handlerByType: Map<string, CodeFile>,
+  groupByType: Map<string, unknown[]>,
+  isModify: boolean,
+  prevLiveData: Record<string, unknown> | null,
+): { files: CodeFile[]; sceneData: Record<string, unknown> } {
+  const files: CodeFile[] = [...handlerByType.values()]
+
+  // index.ts：每 type 的导出名从 handler 源码提取（LLM camelCase 转换不一致也零风险）
+  const entries: { type: string; exportName: string }[] = []
+  for (const [type, handler] of handlerByType) {
+    const exportName = extractHandlerExportName(handler.content)
+    if (exportName) entries.push({ type, exportName })
+  }
+  files.push({ path: "src/3d/managers/component/handlers/index.ts", content: buildHandlersIndex(entries) })
+
+  // live-data.json：camera/lights/scene 取 plan（create）或上一轮旧值（modify，6d 语义内联）+ 各 type 分组
+  const pickEnv = isModify && prevLiveData ? prevLiveData : null
+  const env: Record<string, unknown> = {}
+  if (pickEnv && pickEnv.scene !== undefined) env.scene = pickEnv.scene
+  else if (plan.scene !== undefined) env.scene = plan.scene
+  if (pickEnv && pickEnv.camera !== undefined) env.camera = pickEnv.camera
+  else if (plan.camera !== undefined) env.camera = plan.camera
+  if (pickEnv && pickEnv.lights !== undefined) env.lights = pickEnv.lights
+  else if (plan.lights !== undefined) env.lights = plan.lights
+
+  const liveData: Record<string, unknown> = { version: "1.0", ...env }
+  for (const [type, group] of groupByType) liveData[type] = group
+  files.push({ path: "public/live-data.json", content: JSON.stringify(liveData, null, 2) })
+
+  return { files, sceneData: liveData }
 }
 
 /** 从当前 SceneSessionState.mergedSceneConfig 取 type 清单（剔除保留 key） */
@@ -579,7 +564,7 @@ async function loadCurrentSceneEnv(
 
 /**
  * modify 时从当前版本 codeDir 读全部 handler .ts 源码 + live-data，
- * 注入 codegen 的 [CURRENT_HANDLERS] / [CURRENT_LIVE_DATA]（供保留未受影响 type）。
+ * 注入 codegen 的 [CURRENT_HANDLERS] / [CURRENT_GROUPS]（供保留未受影响 type）。
  * - currentLiveData：优先取 state.mergedSceneConfig（内存状态，落盘时 = sceneData）。
  * - currentHandlers：读 codeDir 全部 .ts 文件，按 `## file: <path>\n<content>` 拼接（与 codegen 输出格式一致）。
  * 无 codeDir / 非 Electron / 读失败 → 返回空（codegen 盲生成 plan types，可能丢未受影响 type，边界可接受）。
@@ -623,13 +608,13 @@ async function loadCurrentCode(
 }
 
 /**
- * 读 workspace 的 assetCatalog.ts（纯数据资产目录）注入 plan prompt 的 [可用资产清单]。
+ * 读 workspace 的 assetCatalog.ts（纯数据资产目录）注入 codegen prompt 的 [ASSET_CATALOG]。
  * 整文件源码注入（不解析）——assetCatalog.ts 是纯数据 .ts（无 ?url/无注释模板），LLM 读
  * 源码即知可用 asset:<id> + 名称 + tags + 描述，机房场景便能自动选 asset:rack。
  *
  * - workspace 未物化（首次生成边界）：readFileBuffer 返 null → materialize 后重读（此时 dev
  *   未跑，安全；materialize 仅在 workspace 缺失时触发，不与 switchVersion 抢占）。
- * - 非 Electron / 读失败 / materialize 抛错 → 返 ""（plan 仍可跑，仅无清单，LLM 走 hunyuan/原生）。
+ * - 非 Electron / 读失败 / materialize 抛错 → 返 ""（codegen 仍可跑，仅无清单，LLM 走 hunyuan/原生）。
  */
 async function loadAssetCatalog(sdkDir: string): Promise<string> {
   try {

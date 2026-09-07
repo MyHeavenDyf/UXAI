@@ -36,8 +36,7 @@ import {
   PROMPT_PROTO_MODIFY,
   PROMPT_PROTO_REPLANNER,
   PROMPT_SCENE_3D_TRIAGE,
-  PROMPT_SCENE_3D_PLAN,
-  PROMPT_SCENE_3D_CODEGEN,
+  PROMPT_SCENE_3D_CODEGEN_DIRECT,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -529,8 +528,8 @@ export const layer = Layer.effect(
             native: false,
             temperature: 0.1,
           },
-          // ── 3D 场景 agent（Step 7 3-agent codegen 流：triage→plan→codegen；
-          // 旧 8-agent 流水线注册（intent/intent_confirm/intent_audit/planner_*/module_*）已随 2026-09-04 全清删除）──
+          // ── 3D 场景 agent（Direct 单次直出 codegen 流：triage→codegen；
+          // 旧 plan/pertype/full 3-agent 已随 direct 落地全清删除——单次 codegen 30-60s 替代 plan+并行/全量+自愈 32-50min）──
           scene_3d_triage: {
             name: "scene_3d_triage",
             description: "3D scene triage agent.",
@@ -541,27 +540,11 @@ export const layer = Layer.effect(
             native: false,
             temperature: 0.1,
           },
-          // ── 3D codegen 3-agent（Step 7）：plan 选型 + codegen 写 handler 代码 ──
-          scene_3d_plan: {
-            name: "scene_3d_plan",
-            description:
-              "3D scene plan agent — picks type / component / resource（组件目录已静态注入 prompt，不调工具）.",
-            prompt: PROMPT_SCENE_3D_PLAN,
-            // 组件目录（name + 构造 + Options + DataTypes）已静态注入 prompt（{COMPONENT_CATALOG}），无需运行时工具。
-            // 删 list_3d_components / get_3d_component_doc / read 权限省 3-7 轮 LLM 往返（Step 8 加速①）。
-            permission: Permission.fromConfig({ "*": "deny" }),
-            options: {},
-            mode: "primary",
-            native: false,
-            temperature: 0.0,
-          },
-          scene_3d_codegen: {
-            name: "scene_3d_codegen",
-            description: "3D scene codegen agent — writes ComponentHandler .ts + full index.ts + live-data.json.",
-            prompt: PROMPT_SCENE_3D_CODEGEN,
-            // codegen 只输出代码 text（## file: 代码块），不调任何工具——
-            // plan 已选型，组件按 createComponentObject('名') 黑盒创建，无需查文档。
-            // 允许工具会让 LLM 陷工具调用回路（assistant#1 只有 tool_use 无 text）→ getResultFromMessages 取到空 → "模型未返回有效内容"。
+          // Direct 单次直出 codegen：1 个 child 一次性写全部 type 的 handler + group 片段 + scene-config.json（host 合并 index/live-data，无 plan 无自愈）
+          scene_3d_codegen_direct: {
+            name: "scene_3d_codegen_direct",
+            description: "3D scene codegen direct agent — one child writes ALL types' ComponentHandlers + group fragments + scene-config in a single call (no plan, no self-heal).",
+            prompt: PROMPT_SCENE_3D_CODEGEN_DIRECT,
             permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",

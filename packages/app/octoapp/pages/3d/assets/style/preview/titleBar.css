@@ -357,3 +357,50 @@
   background-color: rgba(59, 130, 246, 0.08); /* 淡蓝色悬浮背景 */
   color: #2563eb !important;
 }
+
+/* ── 编辑态统一按钮系统（聚焦/提交/删除/取消 共用） ── */
+.edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+/* 默认（subtle）：白底浅边，hover 浅灰 */
+.edit-btn.subtle {
+  background: #ffffff;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+.edit-btn.subtle:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+/* 主操作（primary）：品牌色底白字，hover 深一档 */
+.edit-btn.primary {
+  background: var(--octo-brand, #3d99ff);
+  color: #ffffff;
+  border: 1px solid var(--octo-brand, #3d99ff);
+}
+.edit-btn.primary:hover {
+  background: #2b7eff;
+  border-color: #2b7eff;
+}
+
+.edit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.edit-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}

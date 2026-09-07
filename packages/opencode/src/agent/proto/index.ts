@@ -26,21 +26,19 @@ import _RAW_WFRAMES from "./prompt/proto_wireframes.txt"
 import _RAW_MODIFY from "./prompt/proto_modify.txt"
 import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 
-// 3D codegen 静态契约片段（handler 契约 / 分组场景格式 / 注册模板，注入 scene_3d_codegen prompt）。
+// 3D codegen 静态契约片段（handler 契约，注入 scene_3d_codegen_pertype prompt）。
 // 3D 片段统一放 scene_3d/stastics/（与 3D 模板同目录自包含）；stastics/ 只剩 2D 片段。
 // 旧 planner/module 流的 SCENE_CONFIG_SCHEMA / MESH_GEOMETRY_CATALOG 片段已随 2026-09-04 全清删除。
+// 旧全量 scene_3d_codegen 用的 TREE_SCENE_FORMAT / REGISTRATION_PATTERN 片段已随 2026-09-04 删除（pertype + host 确定性合并接管）。
 import HANDLER_CONTRACT from "./prompt/scene_3d/stastics/HANDLER_CONTRACT.txt"
-import TREE_SCENE_FORMAT from "./prompt/scene_3d/stastics/TREE_SCENE_FORMAT.txt"
-import REGISTRATION_PATTERN from "./prompt/scene_3d/stastics/REGISTRATION_PATTERN.txt"
 // 3D 组件精简目录（预烘 .txt，npm run gen:component-catalog 从 @a3d/a3d-components/docs 生成；
 // 预烘而非运行时烘：避免 proto/index.ts → 3d_components_docs 的循环依赖 TDZ）
 import COMPONENT_CATALOG from "./prompt/scene_3d/stastics/COMPONENT_CATALOG.txt"
 
-// 3D 场景 agent prompts（Step 7 3-agent codegen 流：triage→plan→codegen；
-// 旧 8-agent 流水线模板（intent/intent_confirm/intent_audit/planner_*/module_*）已随 2026-09-04 全清删除）
+// 3D 场景 agent prompts（Direct 单次直出 codegen 流：triage→codegen；
+// 旧 3-agent 流水线 plan/pertype/full 已随 direct 落地全清删除——单次 codegen 30-60s 替代 plan+并行/全量+自愈 32-50min）
 import _RAW_SCENE_3D_TRIAGE from "./prompt/scene_3d/scene_3d_triage.txt"
-import _RAW_SCENE_3D_PLAN from "./prompt/scene_3d/scene_3d_plan.txt"
-import _RAW_SCENE_3D_CODEGEN from "./prompt/scene_3d/scene_3d_codegen.txt"
+import _RAW_SCENE_3D_CODEGEN_DIRECT from "./prompt/scene_3d/scene_3d_codegen_direct.txt"
 
 const _staticData: Record<string, string> = {
   component_usage,
@@ -56,8 +54,6 @@ const _staticData: Record<string, string> = {
   responsive_adaptive,
   design_system,
   HANDLER_CONTRACT,
-  TREE_SCENE_FORMAT,
-  REGISTRATION_PATTERN,
   COMPONENT_CATALOG,
 }
 
@@ -84,11 +80,10 @@ export const PROMPT_PROTO_WFRAMES = formatPrompt(_RAW_WFRAMES)
 export const PROMPT_PROTO_MODIFY = formatPrompt(_RAW_MODIFY)
 export const PROMPT_PROTO_REPLANNER = formatPrompt(_RAW_REPLANNER)
 
-// 3D 场景 agent prompts（Step 7 3-agent codegen 流）
+// 3D 场景 agent prompts（Direct 单次直出 codegen 流）
 export const PROMPT_SCENE_3D_TRIAGE = formatPrompt(_RAW_SCENE_3D_TRIAGE)
-// 3D codegen agent prompts（formatPrompt 插值 {HANDLER_CONTRACT} / {TREE_SCENE_FORMAT} / {REGISTRATION_PATTERN}）
-export const PROMPT_SCENE_3D_PLAN = formatPrompt(_RAW_SCENE_3D_PLAN)
-export const PROMPT_SCENE_3D_CODEGEN = formatPrompt(_RAW_SCENE_3D_CODEGEN)
+// Direct codegen prompt（单次直出全部 type 的 handler + group + scene-config，插值 {HANDLER_CONTRACT}）
+export const PROMPT_SCENE_3D_CODEGEN_DIRECT = formatPrompt(_RAW_SCENE_3D_CODEGEN_DIRECT)
 
 export const RAW_TEMPLATES: Record<string, string> = {
   proto_intent: _RAW_INTENT,
@@ -105,8 +100,7 @@ export const RAW_TEMPLATES: Record<string, string> = {
   proto_modify: _RAW_MODIFY,
   proto_replanner: _RAW_REPLANNER,
   scene_3d_triage: _RAW_SCENE_3D_TRIAGE,
-  scene_3d_plan: _RAW_SCENE_3D_PLAN,
-  scene_3d_codegen: _RAW_SCENE_3D_CODEGEN,
+  scene_3d_codegen_direct: _RAW_SCENE_3D_CODEGEN_DIRECT,
 }
 
 export const DEFAULT_DESIGN_SYSTEM = design_system

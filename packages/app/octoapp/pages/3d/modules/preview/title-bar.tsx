@@ -17,6 +17,7 @@ import {
   IconSun,
   IconMoon,
   IconActionPreview,
+  IconSettings,
 } from "../icons"
 import type { VersionEntry } from "../../utils/version-history"
 import "../../assets/style/preview/titleBar.css"
@@ -26,6 +27,7 @@ interface TitleBar3DProps {
   onPreview: () => void
   onReset: () => void
   onToggleEditing: () => void
+  onScene?: () => void
   onShare?: () => void
   onDownload?: () => void
   versions?: VersionEntry[]
@@ -33,6 +35,7 @@ interface TitleBar3DProps {
   onSelectVersion?: (versionId: string) => void
   onThemeChange: (mode: "light" | "dark") => void
   editing?: boolean
+  sceneActive?: boolean
 }
 
 export function TitleBar3D(props: TitleBar3DProps) {
@@ -79,6 +82,16 @@ export function TitleBar3D(props: TitleBar3DProps) {
           <button class="pattern-action-btn" title="复位视角" onClick={() => props.onReset()}>
             <IconCenterReset size={16} />
             <span>复位</span>
+          </button>
+
+          <button
+            class="pattern-action-btn"
+            classList={{ "edit-active": !!props.sceneActive }}
+            title="场景设置"
+            onClick={() => props.onScene?.()}
+          >
+            <IconSettings size={16} />
+            <span>场景</span>
           </button>
 
           <button

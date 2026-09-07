@@ -16,8 +16,10 @@
  *   （warn 不挡、plan 与 live-data 同一 LLM 产少漏）。门控只留 checkRuntime（唯一能抓
  *   运行时错的层——语法检查 transpileModule 抓不到语义错如 continue outside loop，
  *   只有跑到 iframe 才暴露）。simple & accurate.
+ *
+ * direct 落地（2026-09-07）：plan agent 删除，plan 字段保留为透传对象（门控不再读它，
+ * 仅供 host stash 场景元数据）。host 传 DirectPlan。
  */
-import type { PlanResult } from "../agents/scene-plan"
 
 /** 单条门控发现 */
 export interface GateFinding {
@@ -42,7 +44,8 @@ export interface GateResult {
 }
 
 export interface RunSceneGateInput {
-  plan: PlanResult
+  /** 透传场景元数据（direct 落地后门控不再读 plan，仅供 host stash；host 传 DirectPlan） */
+  plan: unknown
   sceneData: Record<string, unknown> | null
   /** 等 iframe 渲染 + console buffer 收集的固定延迟（ms，默认 3000）。不靠 SCENE_READY 握手。 */
   settleMs?: number

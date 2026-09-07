@@ -1,0 +1,21 @@
+/* ==========================================================================
+   场景设置面板样式覆盖（10.5 第一批）
+   - 复用 .property-editor-popup 容器；覆盖 overflow 让 <select> 下拉不被裁剪
+   - max-height 提高 + body 仍可滚动（灯光多时）
+   ========================================================================== */
+
+.scene-settings-panel {
+  /* 允许 select 下拉溢出面板边界（原生 select 弹层在浏览器层，但 overflow:hidden 会裁剪其定位） */
+  overflow: visible;
+  max-height: calc(100% - 64px);
+}
+
+.scene-settings-panel .popup-body {
+  /* body 不裁剪：select 下拉能伸出 body；灯光多时仍可滚（max-height 在容器层兜底） */
+  overflow: visible;
+}
+
+.scene-settings-panel .property-input {
+  /* select 高度足够显示中文选项，不被行高截断 */
+  min-height: 26px;
+}

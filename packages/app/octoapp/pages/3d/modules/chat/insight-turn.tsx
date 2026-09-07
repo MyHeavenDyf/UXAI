@@ -201,7 +201,7 @@ export function InsightTurn(props: {
     if (msgs.length === 0) return props.pipelineBusy
     // 该 session 自己的 assistant 有未完成 → 在生成。
     // 该 session 的 assistant 都完成了，但 pipeline 整体仍在跑（后续 codegen 等阶段）→
-    // 仍算 generating（不显示「完成」badge），避免 plan 完成后 codegen 还在跑却显示「生成完成」。
+    // 仍算 generating（不显示「完成」badge），避免 triage 完成后 codegen 还在跑却显示「生成完成」。
     // pipeline 真正结束（pipelineBusy=false）时各 session 才各自按自身完成态显示「完成」。
     return msgs.some((m) => typeof m.time.completed !== "number") || props.pipelineBusy
   })
@@ -229,18 +229,18 @@ export function InsightTurn(props: {
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
     if (text.startsWith("[用户修改请求]: ")) return "思考分析"
     if (text.includes("[分诊操作列表]:")) return "修改"
-    // 3D 分步流（分诊→规划→生成代码）兜底
-    if (text.includes("[PLAN_JSON]")) return "3D 代码生成"
-    if (text.includes("[分诊 type 清单]")) return "3D 规划"
+    // 3D 分步流（分诊→生成代码）兜底
+    // direct codegen 标记：[TYPE_LIST]（direct 单次直出，无 plan 无自愈）
+    if (text.includes("[TYPE_LIST]")) return "3D 代码生成"
     if (text.startsWith("[用户请求]")) return "3D 分诊"
     return null
   })
 
   // 3D triage 用户消息前缀是 [用户请求]:（make 是 [用户修改请求]:）。
   // 对齐 make 行为：有此前缀就显示用户输入气泡（创建+修改流都显示），提取干净用户原文。
-  // 但 plan 消息也以 [用户请求]: 开头（后面跟 [分诊 type 清单]），只显示一次——排除 plan。
+  // direct codegen 消息以 [TYPE_LIST]: 开头（不是 [用户请求]:），不触发用户输入气泡。
   const showUserInput = createMemo(() =>
-    userText().startsWith("[用户请求]:") && !userText().includes("[分诊 type 清单]"),
+    userText().startsWith("[用户请求]:"),
   )
 
   // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分

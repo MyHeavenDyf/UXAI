@@ -25,6 +25,8 @@ export type ChartInputProps = {
   onValueChange: (v: string) => void
   /** 键盘事件（Enter 发送） */
   onKeyDown: (e: KeyboardEvent) => void
+  /** 粘贴事件（从剪贴板提图片文件 → 父级 addAttachments） */
+  onPaste?: (e: ClipboardEvent) => void
   /** 是否禁用输入 */
   disabled: boolean
   /** 是否正在生成中 */
@@ -65,6 +67,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
         value={props.value}
         onInput={(e) => props.onValueChange(e.currentTarget.value)}
         onKeyDown={props.onKeyDown}
+        onPaste={props.onPaste}
         placeholder="描述你想要的 3D 场景，按 Enter 生成（如：生成一个操场）"
         rows={props.rows}
         disabled={props.disabled}

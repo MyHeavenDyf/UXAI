@@ -6,47 +6,58 @@
 >
 > 完整全流程回归用例（开发完成后**交付测试团队**用）：[3D_E2E_TESTCASES.md](3D_E2E_TESTCASES.md)
 > 已修项的根因取证归档：[3D_CODEGEN_DESIGN.md §十四](3D_CODEGEN_DESIGN.md)
-> 最后更新：2026-09-04。
+> 最后更新：2026-09-07（P8 direct codegen 落地 + idle 误杀修 180s→420s；新增 P0.13 门控漏判运行时报错[handler 报错仍显生成完成] + P0.14 modify 加实例漏加[LLM 照抄 CURRENT_GROUPS]）。
 
 ---
 
-## 🔴 第一梯队 — e2e 收尾（现在就能跑）
+## 🔴 第一梯队 — P8 direct codegen 落地（现在就验证）
 
-### ⚡ plan JSON 截断抢救（已修，并入第 1 项 e2e 一起验证）⬜
-**是什么**：GLM-V5_1 偶发 finish=stop 但正文 plan JSON 写到 camera 之后停（reasoning 占比大挤压输出），`scene_3d_plan` 正常分支只用 `extractJson`——绝地求生只认「完整闭合对象」，截断时返回最后一个闭合的相机内层碎片（key=[type,position,lookAt,perspective]，丢 types）→ 失败卡片「types 未覆盖分诊清单」。（旧代码只有 error 分支有 `extractJsonFromTruncated` 抢救，正常分支漏。）已修：正常分支 extractJson 出 null/碎片时追加截断抢救（补未闭合括号救外层壳 + safeEnd 回退掉不完整尾部），types 完整则继续；camera/lights/scene 残缺由 assemblePlan/merge 默认值兜底。prompt 加约束 6：types 优先完整输出、camera/lights/scene 放最后写。
-**测试用例**：生成含 4+ type 的场景（仓库/操场同类），plan 阶段若输出中断**不再弹「types 未覆盖」失败卡片**——场景正常物化（types 完整，camera 缺省走默认）。日志见 `[scene_3d_plan] 正文 JSON 截断…继续流水线`。
+### ⚡ P8 direct codegen 单次直出 ⬜
+**是什么**：砍掉 plan agent + pertype/full + 自愈循环，改为 triage → direct codegen 单次 API 调用（LLM 自己想坐标/尺寸/结构，输出 handler+group+scene-config.json），host 确定性合并 index/live-data。目标 30-60s 出场景（vs 现在 32-50min）。modify 也走 direct（吃 currentHandlers 照抄布局，不需要 plan 的 build_detail）。patch/edit_code/编辑器链路完全不动。
+**为什么改**：用户实测 Claude 单轮对话写 shanghai-city.html ~30s/52.5K tokens；同仓库 make 页（octo_make）也是单 agent 单 prompt 直出。pipeline 为「物体级编辑器/数据驱动 modify」设计的 plan+handler 拆分+自愈，在首次生成付出 80-100 倍时间成本。plan(19min)+自愈重跑(8min)+并行脑补 reasoning 放大是慢主因。
+**改动**（已落代码，待 e2e）：新 prompt `scene_3d_codegen_direct.txt`（吃 `[TYPE_LIST]`+`[USER_REQUEST]`+`[ASSET_CATALOG]`+`[CURRENT_HANDLERS]`[modify]，输出 handler+group+scene-config.json）；proto/index.ts+agent.ts 注册 `scene_3d_codegen_direct`；scene-codegen/index.ts 加 direct 函数；codegen-scene.ts 重写——删 CODEGEN_MODE/plan step/自愈循环/parseFullResult/parsePerTypeResult+6 辅助函数，加 direct 流程+parseDirectResult+synthetic DirectPlan；删 plan agent 目录+pertype/full prompt。
+**首要验证点**：GLM-5.2 单次输出 13 handler 是否截断（finish=length）。input 从 31K 降到 ~2K，但 output 量（13 handler ≈ 2.5 万 token）不变。若截断 → fallback P7-3 骨架预置（重启该项）。
+**测试用例**：
+1. 重启 opencode → tsgo+oxlint 双包 0 error
+2. 跑上海地图（13-type）首次生成 → 墙钟 30-60s（vs 32-50min）｜finish=stop（不截断）｜场景渲染完整 13 type 全出｜tokens 50-80K（vs 400K+）
+3. modify 不回退：「加几台显示器」→ 走 direct codegen 吃 currentHandlers 照抄布局只重写受影响 type，其他 type 不丢
+4. patch 不回退：「墙改蓝」→ edit_code 改一行
+5. 切历史/导出 zip 正常
 
-### 1. 全清回归 + P1.5 组件 new 验证（合并跑一次）✅
-**是什么**：孤儿 8-agent 全清后唯一收口；P1.5 组件统一（barrel import + 直接 new）只差这组 e2e。须**重启 opencode**（模板/注册变更要进程重启生效）。
-**测试用例**（五步 + 组件专项）：
-1. 新会话「一个大型物流仓库内部场景」→ 三卡片（需求分析→选型规划→代码生成）顺序出现、场景渲染；无 agent not found 报错、无 {占位符} 裸露
-2. 同会话「加几台显示器」（modify）→ 只重写受影响 type、其他物体不丢、相机灯光背景不漂移
-3. 「把墙改成蓝色」（patch）→ 走 edit_code 改 color 字面量，不整场景重写
-4. 切别的会话再切回 → 场景恢复、卡片正常；旧 8-agent 时代 session 切回不弹暂停确认 UI、不崩
-5. 组件专项（P1.5）：生成场景用库组件（墙/形状）直接 `new` 渲染正常；含纹理组件（HeatMap）和材质组件（MeshReflector）不白屏；`InstancedMesh2` 位置参数正确；带 update() 的组件动画跑起来
-**验证结论（09-04，ses_f9563390）**：五步 + 组件专项全跑通（create 仓库 / modify 加叉车·删天花板·加热力图 / patch 墙色·背景 / 切走切回 / GLB 改色确认）。第 3 步「墙改蓝」暴露 Wall 组件 `hole` 漏 `segment` → 构造抛异常走 fallback 灰墙致改色失效，已在 3d-components `Wall.ts` 治本（`segment` 非法仅跳过挖洞、不再整墙 fallback）。⚡ plan 截断抢救未压到（本次 create 未截断），留待多 type 场景。
-**绿了才能**：commit（第 2 项）。
+### 1. 三仓 commit ⬜（P8 验证绿后）
+**是什么**：dev_cyc1 堆着 P8 direct + 之前 P1.5+全清+P0.4~P0.10 约 40+ 文件未提交，e2e 绿后一次提交。
+**测试用例**：无（git 层操作；提交前跑 tsgo/oxlint 双包 0 error）。
 
-### 2. 三仓 commit ✅
-**是什么**：dev_cyc1 堆着 P1.5 + 全清 + P0.4~P0.10 约 40+ 文件未提交，e2e 绿后一次提交（含 3d-templete / 3d-components）。
-**测试用例**：无（git 层操作；提交前跑 tsgo/oxlint 双包 0 error 即可）。
-**结论（09-04）**：已提交并 push（3d-components `e287dfb` / 3d-templete `23dd6f7` / UXAI `f89cb51c6`）。UXAI push 前 turbo typecheck 12/12 通过（tsgo 0 error）；3d-components / 3d-templete lint-staged eslint 通过。
-
-### 3. 打包 exe 内 3D 全链路 ⬜
+### 2. 打包 exe 内 3D 全链路 ⬜
 **是什么**：`release.ts --win --channel dev` 打 exe，验 3D 全链路。exe 是最终分发形态，这条不绿都是 dev 自嗨。
 **测试用例**：exe 里新会话生成场景 → 渲染 → modify 一版 → patch 一版 → 切历史 → 导出工程 zip，全链路与 dev 环境一致。白屏查 extraResources .3d-dist 是否进包。
-**建议**：等 P6-1 完一起打包，一次覆盖两个节点。
 
-## 🟠 第二梯队 — 性能（体感最强）
+## 🟠 第二梯队 — 报错体验（direct 失败后用户要能定位+修一行）
 
-### 4. P6-1 codegen 并行 per-type 拆分 ⬜
-**是什么**：plan 后按 type 拆 N 个并行 child 各写自己的 handler，host 合并 index.ts。实测 codegen 250-793s 是最大瓶颈，预期 **7-13min → ~2min**。
-**风险**：index 合并竞态（D3 兜底已有）；type 间依赖（rack 依赖 room 尺寸 → plan JSON 全量注入每路）。
-**测试用例**：
-1. 生成 7-type 场景（如园区）→ 会话列表可见 N 个并行 child，墙钟 ≈ 最慢一路 + plan（目标 ~2min）
-2. 回归：加小车（modify 单 type 重写，其他 type 不丢）；构造语法错 → scoped 自愈（只重输出出错文件）在并行路下仍成立
+### P0.13 门控漏判运行时报错（handler 报错仍显示「生成完成」）⬜
+**是什么**：direct 生成的 handler 在 iframe 运行时报错（如 `inner.rect is not a function`——THREE.Path 无 rect 方法，LLM 误用 API），但左侧仍显示「生成完成」。门控 `settleMs: 3000`（固定 3s）太短：vite 首次加载模块 + iframe 初始化 + ComponentManager 遍历调 handler.create 这套链路常超 3s，报错落在窗口外，门控已判 PASS。
+**根因**：固定延迟 settleMs 抓不到慢加载场景的运行时报错（P0.10 删了 SCENE_READY 握手改固定延迟，握手有竞态但固定延迟有覆盖盲区）。
+**修法方向**：① 延长 settleMs（如 8-10s，但拖慢通过态）；② 等一个确定性「渲染就绪」事件（createScene3D 完成信号，非 SCENE_READY 握手）再读 buffer；③ ComponentManager.create 加 try/catch，handler 抛错即时发 SCENE_ERROR（不等 buffer 窗口）；④ 延长窗口 + 渐进读 buffer（报错秒回、无错延后判 PASS）。
+**测试用例**：造一个 handler 调 `THREE.Path().rect()` 报错 → 门控判 FAIL → 左侧显示「场景渲染失败: inner.rect is not a function」+ 回复修复入口（依赖 P7-1/P7-2）。
+
+### 3. P7-1 报错定位层（5 类 bug → file:line）⬜
+**是什么**：direct 无自愈，handler 报错时用户需能定位。补三层定位：③ 类型/语义 → 物化后在**真实 3d-templete 工程**跑 `tsc --noEmit` 抓 TS2304/2339/2322/2554/2307 精确 line:col（真 tsconfig+@types/three+components，**无 noLib 假阳性**）；② 结构约束 continue/break/return 在循环外/函数外 → 新增**轻量 AST visitor**（`ts.createSourceFile` + 循环/函数深度计数器，物化前、毫秒级、零误报）；④ 运行时异常 sourcemap（可最后做）。
+**测试用例**：故意写 continue outside loop + 未定义变量 + 属性拼错，各拿到精确 file:line:col。
+**关键边界**：第 5 类「不报错但视觉错」零信号，定位层救不了，靠 modify/patch 修。
+
+### 4. P7-2 改 bug 闭环（报错 → 用户一句话修那一行）⬜
+**是什么**：把门控报错**结构化到 UI**（`xxx.ts:302 continue outside loop（TS1107）` + 回复修复入口）。用户输「修这个 continue」→ triage → patch → 复用已有 **edit_code（search→replace）** 精准改那一行 → 重跑 tsc/runtime 验证。优于现在「直接报错让用户重试」（同模型同 prompt 重试无效）。
+**测试用例**：造一个 continue 错 → 用户一句话 → edit_code 改那一行生效，整个 handler 不重生成；修复带出新错只做 2-3 次有界循环。
+**依赖**：3（定位层）。
 
 ## 🟡 第三梯队 — 遗留 bug（低频，只差验证/收尾）
+
+### P0.14 modify 加实例漏加（LLM 照抄 CURRENT_GROUPS 不加新节点）⬜
+**是什么**：modify 时「加一辆 forklift」请求，LLM 收到 `[CURRENT_GROUPS]`（含 forklift-1）后，倾向原样照抄现有 group 节点，不主动加新实例。实测三次：child3 漏加（输入1→输出1）、child5 漏加（输入2→输出2，没加第3辆），仅 child4 加对（输入1→输出2）。概率性失败 >50%，同 prompt 不稳定。
+**根因**：prompt Constraint 6「逐字照抄布局参数，根节点 id 照抄勿换」**强化了照抄行为**，没明确要求「在现有节点基础上新增节点」。LLM 理解成原样保留现有节点即完成任务。这是 modify 加实例的保真问题，属 [[3d-modify-crud-not-regen]] / M-4 范畴的轻量分支。
+**修法方向**：① prompt 加固——modify 加实例时显式约束「输出必须包含现有全部节点 + 至少一个新节点，新节点 id = `<type>-<现有最大序号+1>`」（降低发生率，不根治）；② add_instance 走数据 patch——triage 识别「加一个完整实例」时，往 group 数组追加一个节点（host 确定性，不重写 handler/group），根治但需 triage 分流 + handler 支持纯数据驱动建实例（M-4 大工程子集）。
+**测试用例**：场景已有1辆forklift → 「加一辆forklift」→ 场景出现2辆（forklift-2）；已有2辆 → 「再加一辆」→ 出现3辆（forklift-3）。连测5次不漏加。
+**注意**：方向①快但概率性；方向②根治但属 M-4 数据驱动 handler 的子集，和第 11 项关联。
 
 ### 5. P0-12 墙色提交回退（M-1a）⬜
 **是什么**：编辑态改墙色提交后回退（roof 生效 / lights part-43 不生效）。A+B 修法已落地，差 e2e 确认。
@@ -86,34 +97,47 @@
 2. 「鼠标改成左键旋转」→ 控制映射生效，切走切回保留
 3. 「把所有树删掉」→ 树分组消失、index.ts 注销、无残留空 Group
 
+### 10.5 场景级编辑面板（renderer/scene/environment/camera/light/controls 六块 UI 化）⬜
+**是什么**：现在场景级只有「选中物体 → property-editor-popup」的物体级编辑 +「NL 一句话改灯/相机/背景」的后端 mutate（M-3，无 UI）。缺可视化「场景设置面板」改六块全局配置。拆两批：
+- **第一批（快，纯 UI）**：scene（背景/雾）、camera（fov/位置/注视/正交切）、lights（现有 ambient/hemisphere/directional 的列表增删 + 颜色/强度/位置/阴影）——这三块 live-data + 运行时 mutate 已通（environment.ts `updateEnvironment` / `EnvUpdate`），只差面板 + title-bar「场景」入口 + 转发 SCENE_PATCH_ENV。
+- **第二批（慢，补后端）**：renderer（阴影/toneMapping/曝光/pixelRatio；antialias 构造期只读）、controls（min/maxDistance/maxPolarAngle/damping/target）、environment 换 HDR（applyPMREM 固定 RoomEnvironment，`preset` 字段死值）——这三块 live-data 无键、无协议、参数硬编码，要补 loader.ts `TreeScene.renderer/controls` 键 + `App3D.applyRenderer` + `handle.applyControls` + SCENE_PATCH_RENDERER/CONTROLS + assembleScene 落盘。
+**测试用例**：
+1. 生成场景 → 工具栏点「场景」→ 面板改背景色/雾/相机 fov/灯光强度 → 立刻生效、不重建物体树、切走切回保留
+2. 面板改「阴影开关/色调映射/曝光」→ 渲染立刻变化、切走切回保留
+3. 面板改「相机 min/maxDistance/maxPolarAngle」→ 拖拽受新限位约束
+4. 面板加一盏灯/删一盏灯 → 灯增删生效（point/spot 类型属 P3，本项先只编现有三型）
+5. 编辑态选中物体弹窗与场景设置面板并存不串
+
 ## ⚪ 第五梯队 — 大工程/外部依赖（推后）
 
 ### 11. M-4 数据驱动 handler ⬜
 **是什么**：数量/尺寸进 params、handler 不重写——**根治** modify 保真 G1/G2 + 加删实例丢物体。大工程。
 **测试用例**：「货架从 3 排加到 5 排」「集装箱数量翻倍」→ 只改 live-data params，handler 源码不变、无场景级漂移、无物体丢失。
 
-### 12. P6-5 plan→codegen 流式衔接 ⬜
-**是什么**：plan 流式吐 types[] 即启动 codegen，衔接 gap 归零，再省 1-7min；流式 JSON 解析复杂。
-**测试用例**：生成场景观察 plan 未结束 codegen 已启动；最终产物完整性与串行版一致。
+### 12. 混元真实密钥验证 ⬜（等密钥）
+**是什么**：.env.local 配真实密钥验 Step5 GLB 生成；顺带定 adm-zip 去留（返回 zip 还是 GLB）。
+**测试用例**：生成含「用混元生成一个风机模型」的场景 → GLB 真实下载渲染成功。
 
-### 13. P6-4 triage→plan 合并（Step8②）⬜
-**是什么**：单 agent 完成 routing+选型，省 12-39s，收益最小；plan prompt 膨胀风险。
-**测试用例**：create/modify/patch 三路由行为与现 triage 一致（同第 1 项用例步骤 1-3）。
+### 13. P1.6 静默 typo 评估 ⬜（可选，大概率不做）
+**是什么**：观察生成 handler 静默 typo（拼错属性不报错）发生率，低则不落地 tsgo 检查。
+**测试用例**：统计近 10 次生成 handler 中 typo 出现次数；≥2 次才考虑落地检查。
 
 ### 14. 9b VLM 审美评审 ⬜
 **是什么**：生成后截图送 VLM 评布局/配色，低分喂回重试一轮；不阻塞物化（建议性）。
 **测试用例**：构造一个明显配色失衡的场景 → VLM 低分 → 触发一轮重试 → 产物改善或至少不劣化。
 
-### 15. 混元真实密钥验证 ⬜（等密钥）
-**是什么**：.env.local 配真实密钥验 Step5 GLB 生成；顺带定 adm-zip 去留（返回 zip 还是 GLB）。
-**测试用例**：生成含「用混元生成一个风机模型」的场景 → GLB 真实下载渲染成功。
-
-### 16. P1.6 静默 typo 评估 ⬜（可选，大概率不做）
-**是什么**：观察生成 handler 静默 typo（拼错属性不报错）发生率，低则不落地 tsgo 检查。
-**测试用例**：统计近 10 次生成 handler 中 typo 出现次数；≥2 次才考虑落地检查。
-
 ---
 
 ## 建议节奏
 
-跑 **1**（一次 e2e）→ 绿了 **2**（commit）→ 开工 **4**（P6-1，唯一值得马上投的性能项）→ **3**（exe）等 P6-1 完一起打包验。5/6/7 顺手穿插。
+跑 **P8**（direct codegen e2e）→ 绿了 **1**（commit）→ **3/4**（报错定位+修一行闭环，direct 失败时用户能自救）→ **2**（exe）打包验全链路。5/6/7 顺手穿插。
+
+### 已删除项（2026-09-07 direct 落地，冗余清理）
+
+- ~~P7-0（17）单 agent vs 并行 A/B 对照~~：single/pertype 都删了，A/B 无意义。
+- ~~P7-3（20）骨架预置~~：direct 若不截断就不需要；若截断再重启该项。
+- ~~P7-4（21）渐进物化~~：direct 单次调用无「每路完成」概念。
+- ~~P7-5（22）拆细 type~~：direct 单次调用，type 数不影响墙钟（只影响 output 量）。
+- ~~P6-1（4）并行 per-type 拆分~~：pertype 删了，该项作废。
+- ~~P6-4（13）triage→plan 合并~~ / ~~P6-5（12）plan→codegen 流式衔接~~：plan 删了，无合并/衔接对象。
+- ~~⚡ plan JSON 截断抢救~~：plan 删了，无 plan JSON 截断问题。
