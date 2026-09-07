@@ -576,7 +576,9 @@ function InsightContent() {
   const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
   const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const [contextCommandPending, setContextCommandPending] = createSignal(false)
-  const contextCompactionDisabled = createMemo(() => isWorking() || contextCommandPending() || !local.model.current())
+  const [abortPending, setAbortPending] = createSignal(false)
+  const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
+  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
   const contextWarningVisible = createMemo(
     () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), isWorking()),
   )
@@ -1701,6 +1703,11 @@ function InsightContent() {
     // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
     if (!text || hasUploadingAttachments()) return
 
+    if (sessionSettling()) {
+      showToast({ title: "上下文压缩正在处理中", description: "请等待压缩或终止完成后再发送。" })
+      return
+    }
+
     const contextCommand = insightContextCommandName(text)
     if (contextCommand) {
       if (!params.id) {
@@ -1858,14 +1865,17 @@ function InsightContent() {
 
   async function handleAbort() {
     const sid = params.id
-    if (!sid) return
+    if (!sid || abortPending()) return
     tracker.interaction({ module: "insight", name: "message-abort" })
     // 先清空整个队列，避免 abort 完成后 idle 触发器自动 flush(abort = 全部停下，不回填)
     if (queue().length) clearQueue()
+    setAbortPending(true)
     try {
       await sdk.client.session.abort({ sessionID: sid })
     } catch {
       // session_status 事件自动同步状态，忽略网络错误
+    } finally {
+      setAbortPending(false)
     }
   }
 
@@ -1876,6 +1886,7 @@ function InsightContent() {
   const sendDisabled = createMemo(() =>
     isInsightSendDisabled({
       stopping: stopping(),
+      settling: sessionSettling(),
       contextBlocked: contextSendBlocked(),
       text: prompt(),
       uploading: hasUploadingAttachments(),

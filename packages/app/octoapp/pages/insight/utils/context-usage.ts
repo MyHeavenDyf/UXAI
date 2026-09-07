@@ -35,11 +35,13 @@ export function insightContextCommandName(text: string) {
 
 export function isInsightSendDisabled(input: {
   stopping: boolean
+  settling: boolean
   contextBlocked: boolean
   text: string
   uploading: boolean
 }) {
   if (input.stopping) return false
+  if (input.settling) return true
   if (!input.text.trim() || input.uploading) return true
   return input.contextBlocked && !insightContextCommandName(input.text)
 }

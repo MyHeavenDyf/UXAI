@@ -721,6 +721,7 @@ export const layer: Layer.Layer<
           })
         }
         ctx.assistantMessage.error = error
+        if (ctx.assistantMessage.summary) ctx.assistantMessage.finish = "error"
         yield* bus.publish(Session.Event.Error, {
           sessionID: ctx.assistantMessage.sessionID,
           error: ctx.assistantMessage.error,

@@ -32,7 +32,14 @@ describe("insight context usage", () => {
   test("keeps context commands sendable at the hard limit", () => {
     expect(insightContextCommandName(" /compact ")).toBe("compact")
     expect(insightContextCommandName("/summarize")).toBe("summarize")
-    expect(isInsightSendDisabled({ stopping: false, contextBlocked: true, text: "/compact", uploading: false })).toBe(false)
-    expect(isInsightSendDisabled({ stopping: false, contextBlocked: true, text: "继续", uploading: false })).toBe(true)
+    expect(isInsightSendDisabled({ stopping: false, settling: false, contextBlocked: true, text: "/compact", uploading: false })).toBe(false)
+    expect(isInsightSendDisabled({ stopping: false, settling: false, contextBlocked: true, text: "继续", uploading: false })).toBe(true)
   })
+
+  test("blocks new sends while compaction cancellation is settling", () => {
+    expect(isInsightSendDisabled({ stopping: false, settling: true, contextBlocked: false, text: "你好", uploading: false })).toBe(true)
+    expect(isInsightSendDisabled({ stopping: false, settling: true, contextBlocked: true, text: "/compact", uploading: false })).toBe(true)
+    expect(isInsightSendDisabled({ stopping: true, settling: true, contextBlocked: false, text: "", uploading: false })).toBe(false)
+  })
+
 })
