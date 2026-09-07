@@ -1,14 +1,17 @@
-import { createMemo, createResource, createSignal, onCleanup } from "solid-js"
+import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useProviders } from "@/hooks/use-providers"
-import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
+  hasApiModels,
   modelsApiListForProviders,
-  modelsApiSource,
+  modelsApiProviders,
+  modelsApiUrl,
   modelsLocalListForProviders,
   refreshModelsApi as requestModelsApiRefresh,
   registerModelsApiRefresh,
@@ -35,17 +38,41 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   name: "Models",
   init: () => {
     const providers = useProviders()
-    const globalSDK = useGlobalSDK()
+    const globalSync = useGlobalSync()
+    const mergeApiModels = (models: Awaited<ReturnType<typeof fetchModelsApi>>) => {
+      const remoteProviders = modelsApiProviders(models)
+      globalSync.mergeProviders(remoteProviders)
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: "Model catalog updated",
+        description: `${remoteProviders.length} providers, ${remoteProviders.reduce(
+          (total, provider) => total + Object.keys(provider.models).length,
+          0,
+        )} models`,
+      })
+    }
     const loadApiModels = async () => {
       const models = await fetchModelsApi()
-      await globalSDK.client.provider.list()
+      mergeApiModels(models)
       return models
     }
-    const [apiModels, { mutate: setApiModels }] = createResource(loadApiModels)
+    const [loadRemoteModels, setLoadRemoteModels] = createSignal(false)
+    const [apiModels, { mutate: setApiModels }] = createResource(
+      () => loadRemoteModels() || undefined,
+      loadApiModels,
+    )
     const [refreshing, setRefreshing] = createSignal(false)
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
+    onMount(() => {
+      if (!modelsApiUrl()) return
+      const timer = setTimeout(() => setLoadRemoteModels(true), 10_000)
+      onCleanup(() => clearTimeout(timer))
+    })
+
     const refreshApiModels = async () => {
+      if (!modelsApiUrl()) return
       if (refreshing()) return
       setRefreshing(true)
       setRefreshError(undefined)
@@ -59,7 +86,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
     onCleanup(
       registerModelsApiRefresh(async (models) => {
-        await globalSDK.client.provider.list()
+        mergeApiModels(models)
         setApiModels(models)
       }),
     )
@@ -74,9 +101,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     )
 
     const available = createMemo(() => {
-      if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
       const api = apiModels()
-      if (!api) return []
+      if (!hasApiModels(api)) return modelsLocalListForProviders(providers.connected())
       const remoteProviderIDs = new Set(
         Object.entries(api).map(([key, provider]) =>
           typeof provider?.id === "string" && provider.id ? provider.id : key,
