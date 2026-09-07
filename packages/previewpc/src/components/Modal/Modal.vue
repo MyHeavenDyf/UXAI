@@ -106,7 +106,7 @@ function handleClose() {
   height: 24px;
 }
 .el-icon.el-dialog__close {
-  font-size: 23px;
+  font-size: 23.4px;
 }
 .el-dialog__title {
   font-size:20px;

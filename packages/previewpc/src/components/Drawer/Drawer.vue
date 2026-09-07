@@ -108,7 +108,7 @@ function handleClose() {
   margin-bottom: 16px;
   font-size: 20px;
   .el-icon.el-drawer__close {
-    font-size: 23px;
+    font-size: 23.4px;
   }
 }
 .el-drawer__body {
