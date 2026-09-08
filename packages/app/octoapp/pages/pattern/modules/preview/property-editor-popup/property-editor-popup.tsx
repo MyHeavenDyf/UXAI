@@ -17,6 +17,38 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
+import { fetchIconContent } from "./icon-plus-fetch"
+
+/** 云端图标 svg 缓存（url → svg 文本），供属性面板触发器预览复用 */
+const triggerSvgCache = new Map<string, string>()
+
+/** 图标触发器预览：优先按云端 url 取 svg（16px），无 url 时回退本地 lucide 按名渲染 */
+function IconFieldPreview(props: { name?: string; url?: string; color?: string }) {
+  const [svg, setSvg] = createSignal('')
+  createEffect(() => {
+    const u = props.url
+    if (!u) { setSvg(''); return }
+    const cached = triggerSvgCache.get(u)
+    if (cached) { setSvg(cached); return }
+    void fetchIconContent({ size: "16", style: "", color: "", urls: [u] }).then(res => {
+      const s = res.success ? (res.data[u] ?? '') : ''
+      if (s) triggerSvgCache.set(u, s)
+      setSvg(s)
+    })
+  })
+  return (
+    <Show when={props.url && svg()} fallback={
+      (() => {
+        const d = LUCIDE_ICONS.find(i => i.name === props.name)
+        return d
+          ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+          : null
+      })()
+    }>
+      <div class="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4" innerHTML={svg()} />
+    </Show>
+  )
+}
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -192,11 +224,12 @@ export function PropertyEditorPopup(props: {
   /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
   const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(pick: { name: string; id?: string; size: string; style: string; color: string }) {
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
     updateEditProp(key, pick.name)
     if (pick.id) updateEditProp(`${key}Id`, pick.id)
+    if (pick.url) updateEditProp(`${key}Url`, pick.url)
     updateEditProp(`${key}Size`, pick.size)
     updateEditProp(`${key}Style`, pick.style)
     updateEditProp(`${key}Color`, pick.color)
@@ -1845,13 +1878,10 @@ export function PropertyEditorPopup(props: {
                                 setIconPickerOpen(true)
                               }}
                               class="flex h-9 w-full cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] px-2 text-[12px] outline-none shadow-none min-w-0 hover:border-[#3D99FF]">
-                              {(() => {
-                                const d = LUCIDE_ICONS.find(i => i.name === (editProps as Record<string, string>)[key])
-                                const iconColor = (editProps as Record<string, string>)[`${key}Color`]
-                                return d
-                                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: iconColor ?? '#191919' }} />
-                                  : null
-                              })()}
+                              <IconFieldPreview
+                                name={(editProps as Record<string, string>)[key]}
+                                url={(editProps as Record<string, string>)[`${key}Url`]}
+                                color={(editProps as Record<string, string>)[`${key}Color`]} />
                               <span class="ml-[16px] flex-1 truncate text-left text-slate-600">{(editProps as Record<string, string>)[key] || '选择图标'}</span>
                               <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                             </button>

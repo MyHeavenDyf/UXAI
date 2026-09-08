@@ -140,7 +140,7 @@ export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
   anchor: HTMLElement | undefined
-  onPick: (pick: { name: string; id?: string; size: string; style: string; color: string }) => void
+  onPick: (pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) => void
   onClose: () => void
   /** 点击确认按钮（事件预留） */
   onConfirm?: () => void
@@ -300,6 +300,7 @@ export function IconPickerPopup(props: {
     if (state.selected) props.onPick({
       name: state.selected,
       id: state.selectedId || undefined,
+      url: iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
       size: iconStore.state.iconSize,
       style: state.shapeKey,
       color: iconStore.state.iconColor,
