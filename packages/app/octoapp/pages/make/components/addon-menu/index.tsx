@@ -11,8 +11,9 @@ import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
-import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon, FolderIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
-import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, inferKindFromUrl, assetFileId, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
+import { assetFileId, type AssetFile } from "./asset-library"
+import { AssetDialog } from "./asset-dialog"
 import { tracker } from "@/utils/tracker"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
@@ -58,13 +59,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const [assetDownloadOpen, setAssetDownloadOpen] = createSignal(false)
   const [assetDownloadCancelled, setAssetDownloadCancelled] = createSignal(false)
   let assetDownloadAbortController: AbortController | undefined
-  const [assetPreview, setAssetPreview] = createSignal<AssetFile | null>(null)
-  const [assetPreviewLevel, setAssetPreviewLevel] = createSignal<number | null>(null)
-  // Position of the preview popup relative to secondary panel; computed on hover with viewport collision.
-  const [assetPreviewLeft, setAssetPreviewLeft] = createSignal<number>(0)
-  const [assetPreviewBottom, setAssetPreviewBottom] = createSignal<number | null>(null)
-  const [assetPreviewTop, setAssetPreviewTop] = createSignal<number | null>(null)
-  let assetPreviewEl: HTMLDivElement | undefined
   // 设计文件项 hover 预览(图片用 img,html 用 iframe,其它不显示)
   const [designFilePreview, setDesignFilePreview] = createSignal<ArtifactFile | null>(null)
   const [designPreviewLeft, setDesignPreviewLeft] = createSignal<number>(0)
@@ -126,16 +120,15 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
-  // 产品资源库:导航栈,每项是 { folder, children, files, loadingFiles }
-  const [assetStack, setAssetStack] = createSignal<{ folder: AssetFolder | null; children: AssetFolder[]; files: AssetFile[]; loadingFiles: boolean; selectedFolderId?: number | null }[]>([])
-  const [assetLoading, setAssetLoading] = createSignal(false)
-  const [assetError, setAssetError] = createSignal<string | null>(null)
+  // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
+  const [assetDialogOpen, setAssetDialogOpen] = createSignal(false)
+  // 打开弹窗时的 chip id 快照;取消/关闭时移除快照之外(本次新增)的 chip
+  let assetChipSnapshot = new Set<string>()
 
   let triggerRef: HTMLButtonElement | undefined
   let menuRef: HTMLDivElement | undefined
   let skillsSecondaryRef: HTMLDivElement | undefined
   let filesSecondaryRef: HTMLDivElement | undefined
-  let assetSecondaryRef: HTMLDivElement | undefined
 
   const platformSkills = createMemo(() => {
     const panel = props.skillConfig.panel
@@ -161,15 +154,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     )
   }
 
-  // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 id 匹配
-  // chip id = assetFileId(file)(唯一标识,下载后不变,即使 path 被改成本地路径)
-  const isAssetFileSelected = (file: AssetFile) => {
-    const id = assetFileId(file)
-    return props.selections.some(s =>
-      s.type === 'file' && (s as any).id === id
-    )
-  }
-
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
     if (!open()) {
@@ -188,18 +172,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const closeMenu = () => {
-    // Collect selected asset files BEFORE clearing the stack (findAssetFileInStack needs the stack)
-    const selectedFiles = collectSelectedAssetFiles()
     setOpen(false)
     setActiveSecondary(null)
     setSkillsCategory('platform')
     setLocalFileSelections([])
-    setAssetStack([])
-    setAssetError(null)
-    // Trigger batch download of product-asset files whose chips have empty path (not yet downloaded)
-    if (selectedFiles.length > 0) {
-      void downloadSelectedAssetFiles(selectedFiles)
-    }
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
@@ -225,27 +201,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // 产品资源库文件点击:只插入 chip(path = assetFileId(file) 作唯一标识,
-  // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip),不立即下载
-  // zip 资产下载后解压为文件夹,chip 标记 isFolder,发送时文案用"这个文件夹"
-  const handleAssetFileClick = (file: AssetFile) => {
-    const id = assetFileId(file)
-    const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
-    const selection: MentionSelection = {
-      type: 'file',
-      filename: file.fileName,
-      path: id,
-      isFolder: isZip || undefined,
-    }
-    if (isAssetFileSelected(file)) {
-      props.onDeselect(selection)
-    } else {
-      props.onSelect(selection)
-      tracker.interaction({ module: "design", name: "addon-select-product-asset", extend: JSON.stringify({ fileName: file.fileName }) })
-    }
-  }
-
-  // 批量下载所有选中的产品资源库文件(关闭面板时触发)
+  // 批量下载所有选中的产品资源库文件(弹窗确认时触发)
   const downloadSelectedAssetFiles = async (selected: AssetFile[]) => {
     if (selected.length === 0) return
     setAssetDownloadCancelled(false)
@@ -267,40 +223,31 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         setAssetDownloadOpen(false)
         return
       }
-      setAssetError(err instanceof Error ? err.message : "下载失败")
+      console.warn("[addon-menu] asset download failed", err)
       setAssetDownloadOpen(false)
     } finally {
       assetDownloadAbortController = undefined
     }
   }
 
-  // Collect all AssetFile objects currently selected (chip id is the asset URL = not yet downloaded).
-  // After download, path changes to local path, but id stays the same — we still need to skip downloaded ones.
-  // Detect "not yet downloaded" by path being a URL (http://...) rather than a local filesystem path.
-  const collectSelectedAssetFiles = (): AssetFile[] => {
-    const result: AssetFile[] = []
-    const seen = new Set<string>()
-    for (const sel of props.selections) {
-      if (sel.type !== 'file') continue
-      const id = (sel as any).id as string | undefined
-      const path = (sel as any).path as string
-      if (!id || !path) continue
-      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
-      if (!/^https?:\/\//.test(path)) continue
-      if (seen.has(id)) continue
-      seen.add(id)
-      const found = findAssetFileInStackByUrl(id)
-      if (found) result.push(found)
+  // 弹窗确认:关闭弹窗 + 批量下载选中的文件(行为同原"触发附件面板关闭")
+  const handleAssetDialogConfirm = (selectedFiles: AssetFile[]) => {
+    setAssetDialogOpen(false)
+    if (selectedFiles.length > 0) {
+      void downloadSelectedAssetFiles(selectedFiles)
     }
-    return result
   }
 
-  const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
-    for (const level of assetStack()) {
-      const f = level.files.find(file => assetFileId(file) === url)
-      if (f) return f
+  // 弹窗取消/关闭:移除本次新增的 chip(id 不在快照中)并关闭弹窗
+  const handleAssetDialogCancel = () => {
+    for (const sel of props.selections) {
+      if (sel.type !== "file") continue
+      const id = (sel as any).id as string | undefined
+      if (id && !assetChipSnapshot.has(id)) {
+        props.onDeselect(sel)
+      }
     }
-    return undefined
+    setAssetDialogOpen(false)
   }
 
   const closeAssetDownload = () => {
@@ -342,11 +289,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   createEffect(() => {
     if (!open() || !activeSecondary() || !menuRef) return
     const cls = activeSecondary() === 'skills' ? '.addon-menu-item--skills'
-      : activeSecondary() === 'assets' ? '.addon-menu-item--assets'
       : '.addon-menu-item--files'
     const itemEl = menuRef.querySelector(cls) as HTMLElement | null
     const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef
-      : activeSecondary() === 'assets' ? assetSecondaryRef
       : filesSecondaryRef
     if (!itemEl || !secondaryRef) return
     const containerRect = menuRef.getBoundingClientRect()
@@ -370,54 +315,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     tertiaryEl.style.bottom = `${containerRect.bottom - itemRect.bottom}px`
   })
 
-  // 产品资源库:每个后续 level(index>0)定位
-  // 逐级判断:level N 默认在前一级 N-1 右侧;若右边缘溢出视口,该 level 翻到前一级左侧。
-  // 每个 level 独立判断,不强制全局方向一致。
-  createEffect(() => {
-    if (!open() || activeSecondary() !== 'assets' || !assetSecondaryRef) return
-    const stack = assetStack()
-    if (stack.length <= 1) return
-    const containerRect = assetSecondaryRef.getBoundingClientRect()
-    const levelEls = assetSecondaryRef.querySelectorAll(':scope > div')
-    let prevRightEdge = containerRect.right // x-coordinate of previous level's right edge
-    let prevLeftEdge = containerRect.left // x-coordinate of previous level's left edge (for flip reference)
-    for (let i = 1; i < stack.length; i++) {
-      const prevLevelEl = levelEls[i - 1] as HTMLElement | null
-      const curLevelEl = levelEls[i] as HTMLElement | null
-      if (!prevLevelEl || !curLevelEl) continue
-      const activeItem = prevLevelEl.querySelector('.addon-menu-item--active') as HTMLElement | null
-      if (!activeItem) continue
-      const itemRect = activeItem.getBoundingClientRect()
-      const bottomOffset = containerRect.bottom - itemRect.bottom
-      // Vertical: default bottom-align (panel bottom = item bottom).
-      // Panel top y in viewport = itemRect.bottom - 420. If that overflows top (< 8), use top-align instead.
-      const panelMaxHeight = 420
-      const panelTopIfBottom = itemRect.bottom - panelMaxHeight
-      if (panelTopIfBottom < 8) {
-        // Overflow top → align panel top to item top
-        curLevelEl.style.top = `${itemRect.top - containerRect.top}px`
-        curLevelEl.style.bottom = 'auto'
-      } else {
-        curLevelEl.style.bottom = `${bottomOffset}px`
-        curLevelEl.style.top = 'auto'
-      }
-      // Horizontal: prefer right of prev level; if overflows viewport, flip to left
-      const rightPos = prevRightEdge + 4 // left edge of current if placed to the right
-      const rightEdgeIfRight = rightPos + 200
-      if (rightEdgeIfRight > window.innerWidth - 16) {
-        // Flip to left of prev level
-        const leftPos = prevLeftEdge - 4 - 200 // right edge = prevLeftEdge - 4
-        curLevelEl.style.left = `${leftPos - containerRect.left}px`
-        prevLeftEdge = leftPos // next level's left reference
-        prevRightEdge = leftPos + 200 // next level's right reference
-      } else {
-        curLevelEl.style.left = `${rightPos - containerRect.left}px`
-        prevLeftEdge = rightPos
-        prevRightEdge = rightPos + 200
-      }
-    }
-  })
-
   // Check viewport collision for secondary panel (flip to left if overflow)
   createEffect(() => {
     if (!open() || !activeSecondary() || !menuRef) return
@@ -426,7 +323,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     const panelWidth = 200
     const spaceRight = window.innerWidth - rect.right
     const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef
-      : activeSecondary() === 'assets' ? assetSecondaryRef
       : filesSecondaryRef
     if (!secondaryRef) return
     if (spaceRight < panelWidth + 16) {
@@ -553,27 +449,15 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             {/* 产品资源库 */}
             <button
               type="button"
-              class={`addon-menu-item addon-menu-item--assets ${activeSecondary() === 'assets' ? 'addon-menu-item--active' : ''}`}
+              class="addon-menu-item"
               onClick={() => {
                 request(() => {
-                  if (activeSecondary() === 'assets') {
-                    setActiveSecondary(null)
-                    return
-                  }
-                  setActiveSecondary('assets')
-                  setAssetStack([])
-                  setAssetError(null)
-                  setAssetLoading(true)
-                  void (async () => {
-                    try {
-                      const folders = await fetchTeamTree(props.productId)
-                      setAssetStack([{ folder: null, children: folders, files: [], loadingFiles: false }])
-                    } catch (err) {
-                      setAssetError(err instanceof Error ? err.message : "加载失败")
-                    } finally {
-                      setAssetLoading(false)
-                    }
-                  })()
+                  // 快照当前 chip id,取消/关闭时移除本次新增的
+                  assetChipSnapshot = new Set(
+                    props.selections.map(s => (s as any).id as string).filter(Boolean),
+                  )
+                  closeMenu()
+                  setAssetDialogOpen(true)
                 })
               }}
             >
@@ -735,198 +619,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                           )
                         }}
                       </For>
-                    </div>
-                  </div>
-                </Show>
-              </div>
-            </Show>
-
-            {/* Secondary panel for 产品资源库 — multi-level folder navigation */}
-            <Show when={activeSecondary() === 'assets'}>
-              <div class="addon-menu-secondary addon-menu-secondary--assets" ref={assetSecondaryRef} style={{ width: '200px' }}>
-                <Show when={assetLoading()}>
-                  <div class="addon-menu-empty-state">
-                    <div class="octo-spinner" />
-                    <span class="addon-menu-empty-state-text">加载中...</span>
-                  </div>
-                </Show>
-                <Show when={assetError()}>
-                  <div class="addon-menu-empty-state">
-                    <span class="addon-menu-empty-state-text">{assetError()}</span>
-                  </div>
-                </Show>
-                <For each={assetStack()}>
-                  {(level, index) => (
-                    <div
-                      classList={{
-                        "addon-menu-asset-root": index() === 0,
-                        "addon-menu-secondary": index() !== 0,
-                      }}
-                      style={{
-                        width: index() === 0 ? '100%' : '200px',
-                        'max-width': '200px',
-                        'max-height': '420px',
-                        'overflow-x': 'hidden',
-                        'overflow-y': 'auto',
-                        position: index() === 0 ? 'static' : 'absolute',
-                        // top/bottom set by positioning effect (bottom-aligned to selected folder item in prev level)
-                        left: index() === 0 ? undefined : `${index() * 204}px`,
-                      }}
-                    >
-                      <Show when={level.files.length === 0 && level.children.length === 0 && !level.loadingFiles}>
-                        <div class="addon-menu-empty-state">
-                          <span class="addon-menu-empty-state-text">暂无内容</span>
-                        </div>
-                      </Show>
-                      {/* Folders first */}
-                      <For each={level.children}>
-                        {(folder) => (
-                          <button
-                            type="button"
-                            class={`addon-menu-item addon-menu-asset-folder ${level.selectedFolderId === folder.id ? 'addon-menu-item--active' : ''}`}
-                            onClick={async () => {
-                              const curIdx = index()
-                              // Already selected → no effect (matches 技能库 behavior)
-                              if (level.selectedFolderId === folder.id) return
-                              // Expand: mark selected on current level (closes sibling expansions implicitly
-                              // because only one selectedFolderId per level), truncate deeper levels, push next
-                              setAssetStack(prev => {
-                                if (curIdx >= prev.length) return prev
-                                const next = prev.slice(0, curIdx + 1)
-                                next[curIdx] = { ...next[curIdx], selectedFolderId: folder.id }
-                                return next
-                              })
-                              setAssetStack(prev => [...prev, {
-                                folder,
-                                children: folder.children ?? [],
-                                files: [],
-                                loadingFiles: true,
-                                selectedFolderId: null,
-                              }])
-                              try {
-                                const files = await fetchAssetFiles(folder.id)
-                                setAssetStack(prev => {
-                                  const next = [...prev]
-                                  if (next.length > 0) {
-                                    next[next.length - 1] = { ...next[next.length - 1], files, loadingFiles: false }
-                                  }
-                                  return next
-                                })
-                              } catch (err) {
-                                setAssetError(err instanceof Error ? err.message : "加载文件失败")
-                              }
-                            }}
-                          >
-                            <span class="addon-menu-item-icon"><FolderIcon /></span>
-                            <span class="addon-menu-item-text">{folder.name}</span>
-                            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-                          </button>
-                        )}
-                      </For>
-                      {/* Files after folders */}
-                      <For each={level.files}>
-                        {(file) => {
-                          const selected = () => isAssetFileSelected(file)
-                          return (
-                            <button
-                              type="button"
-                              class={`addon-menu-tertiary-item ${selected() ? 'addon-menu-tertiary-item--selected' : ''}`}
-                              onClick={() => handleAssetFileClick(file)}
-                              onMouseEnter={(e) => {
-                                if (assetPreviewTimer) { clearTimeout(assetPreviewTimer); assetPreviewTimer = undefined }
-                                const itemRect = e.currentTarget.getBoundingClientRect()
-                                const containerRect = assetSecondaryRef!.getBoundingClientRect()
-                                setAssetPreview(file)
-                                setAssetPreviewLevel(index())
-                                const previewWidth = 256
-                                // Preview goes to the right of the hovered item's level panel.
-                                // itemRect.right is inside the level (level has 8px padding), so add padding + gap.
-                                const defaultLeft = itemRect.right - containerRect.left + 12
-                                const rightEdge = containerRect.left + defaultLeft + previewWidth
-                                let left: number
-                                if (rightEdge > window.innerWidth - 16) {
-                                  // Overflow right → place to the left of the item's level panel
-                                  left = itemRect.left - containerRect.left - previewWidth - 12
-                                  if (containerRect.left + left < 16) {
-                                    left = 16 - containerRect.left
-                                  }
-                                } else {
-                                  left = defaultLeft
-                                }
-                                setAssetPreviewLeft(left)
-                                // Vertical: default bottom-align (popup bottom = item bottom)
-                                const previewHeight = 330
-                                const bottomOffset = containerRect.bottom - itemRect.bottom
-                                // Popup top edge in viewport coords = containerRect.top + (itemTop - containerTop) - ... actually:
-                                // With bottom: X, popup top = containerRect.bottom - X - previewHeight
-                                const popupTopInViewport = containerRect.bottom - bottomOffset - previewHeight
-                                if (popupTopInViewport < 16) {
-                                  // Overflow top → use top alignment (popup top = item top)
-                                  setAssetPreviewTop(itemRect.top - containerRect.top)
-                                  setAssetPreviewBottom(null)
-                                } else {
-                                  setAssetPreviewBottom(bottomOffset)
-                                  setAssetPreviewTop(null)
-                                }
-                              }}
-                              onMouseLeave={() => {
-                                // Delay close so the pointer can cross the 4px gap to the preview popup
-                                assetPreviewTimer = setTimeout(() => {
-                                  setAssetPreview(null)
-                                  setAssetPreviewLevel(null)
-                                  setAssetPreviewBottom(null)
-                                }, 100)
-                              }}
-                            >
-                              <div class={`mention-checkbox ${selected() ? 'mention-checkbox--checked' : ''}`}>
-                                <Show when={selected()}>
-                                  <Icon name="check" size="small" style="color: white" />
-                                </Show>
-                              </div>
-                              {(() => {
-                                const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
-                                return <FileIcon size={20} />
-                              })()}
-                              <span class="addon-menu-tertiary-item-text" title={file.fileName}>{file.fileName}</span>
-                            </button>
-                          )
-                        }}
-                      </For>
-                    </div>
-                  )}
-                </For>
-                {/* Hover preview popup — positioned at next-level location (right of the hovered file's level) */}
-                <Show when={assetPreview() && assetPreviewLevel() !== null}>
-                  <div
-                    ref={assetPreviewEl}
-                    class="addon-menu-asset-preview"
-                    style={{
-                      left: `${assetPreviewLeft()}px`,
-                      bottom: assetPreviewBottom() !== null ? `${assetPreviewBottom()}px` : undefined,
-                      top: assetPreviewTop() !== null ? `${assetPreviewTop()}px` : undefined,
-                    }}
-                    onMouseEnter={() => {
-                      if (assetPreviewTimer) { clearTimeout(assetPreviewTimer); assetPreviewTimer = undefined }
-                    }}
-                    onMouseLeave={() => {
-                      setAssetPreview(null)
-                      setAssetPreviewLevel(null)
-                      setAssetPreviewBottom(null)
-                    }}
-                  >
-                    <div class="addon-menu-asset-preview-name">{assetPreview()!.fileName}</div>
-                    <div class="addon-menu-asset-preview-stage">
-                      <Show
-                        when={assetPreview()!.snapshot}
-                        fallback={<span class="addon-menu-empty-state-text">无预览</span>}
-                      >
-                        <img
-                          src={encodeAssetUrl(joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot))}
-                          alt=""
-                          class="addon-menu-asset-preview-img"
-                          draggable={false}
-                        />
-                      </Show>
                     </div>
                   </div>
                 </Show>
@@ -1157,6 +849,17 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           </div>
         </Portal>
       </Show>
+
+      {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}
+      <AssetDialog
+        open={assetDialogOpen()}
+        productId={props.productId}
+        selections={props.selections}
+        onSelect={props.onSelect}
+        onDeselect={props.onDeselect}
+        onConfirm={handleAssetDialogConfirm}
+        onCancel={handleAssetDialogCancel}
+      />
 
       {gate}
     </>
