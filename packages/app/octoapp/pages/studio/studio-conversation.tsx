@@ -15,6 +15,7 @@ import {
   type StudioStyleDescriptionGenerateHandlers,
   type StudioStyleDescriptionGenerateInput,
   type StudioTemplatePublishInput,
+  type StudioTemplateWorkspace,
   type StudioTemplateUserSearchInput,
   type StudioTemplateVisibleUser,
 } from "./studio-template-creator"
@@ -305,11 +306,13 @@ export function StudioResultCanvas(props: {
   fileManagerGenPending?: boolean
   canvasView: StudioCanvasView
   templateCreatorTabOpen: boolean
+  templateWorkspace?: StudioTemplateWorkspace
   onGenerateStyleDescription?: (
     input: StudioStyleDescriptionGenerateInput,
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
+  onSaveTemplate?: (templateID: string, input: StudioTemplatePublishInput) => Promise<void>
   onSearchTemplateUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
   onTemplateCreatorClick: () => void
   onTemplateCreatorClose: () => void
@@ -441,15 +444,15 @@ export function StudioResultCanvas(props: {
                   classList={{ active: props.canvasView === "template-creator" }}
                   onClick={props.onTemplateCreatorClick}
                 >
-                  <span class="studio-canvas-label-text">创建模板</span>
+                  <span class="studio-canvas-label-text">{props.templateWorkspace?.mode === "edit" ? "制作模板" : "创建模板"}</span>
                   <span
                     class="studio-canvas-tab-close"
                     onClick={(event) => {
                       event.stopPropagation()
                       props.onTemplateCreatorClose()
                     }}
-                    aria-label="关闭创建模板"
-                    title="关闭创建模板"
+                    aria-label={props.templateWorkspace?.mode === "edit" ? "关闭制作模板" : "关闭创建模板"}
+                    title={props.templateWorkspace?.mode === "edit" ? "关闭制作模板" : "关闭创建模板"}
                   />
                 </span>
               </Show>
@@ -672,11 +675,35 @@ export function StudioResultCanvas(props: {
               </Show>
                 </>
               }>
-                <StudioTemplateCreator
-                  onGenerateStyleDescription={props.onGenerateStyleDescription}
-                  onPublishTemplate={props.onPublishTemplate}
-                  onSearchUsers={props.onSearchTemplateUsers}
-                />
+                <Show when={props.templateWorkspace} keyed>
+                  {(workspace) => (
+                    <Show
+                      when={workspace.mode === "create" || !workspace.loading}
+                      fallback={<div class="studio-template-creator-state">模板加载中...</div>}
+                    >
+                      <Show
+                        when={workspace.mode === "create" || !workspace.error}
+                        fallback={
+                          <div class="studio-template-creator-state error">
+                            <span>{workspace.mode === "edit" ? workspace.error : "模板加载失败"}</span>
+                            <button type="button" onClick={props.onTemplateCreatorClose}>取消</button>
+                          </div>
+                        }
+                      >
+                        <StudioTemplateCreator
+                          mode={workspace.mode}
+                          templateID={workspace.mode === "edit" ? workspace.templateID : undefined}
+                          initialValue={workspace.mode === "edit" ? workspace.initialValue : undefined}
+                          onGenerateStyleDescription={props.onGenerateStyleDescription}
+                          onPublishTemplate={props.onPublishTemplate}
+                          onSaveTemplate={props.onSaveTemplate}
+                          onSearchUsers={props.onSearchTemplateUsers}
+                          onCancel={props.onTemplateCreatorClose}
+                        />
+                      </Show>
+                    </Show>
+                  )}
+                </Show>
               </Show>
             </div>
           </>

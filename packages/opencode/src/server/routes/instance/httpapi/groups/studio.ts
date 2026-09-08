@@ -27,6 +27,8 @@ export const StudioPaths = {
   promptGen: `${root}/prompt-gen`,
   styleDescriptionGen: `${root}/style-description-gen`,
   templatePublish: `${root}/template-publish`,
+  templateUpdate: `${root}/template-update/:templateID`,
+  templateDelete: `${root}/template-delete/:templateID`,
   templateList: `${root}/template-list`,
   templateDetail: `${root}/template-detail/:templateID`,
   templateUserSearch: `${root}/template-user-search`,
@@ -112,6 +114,24 @@ const StudioRecipeTemplatePublishPayload = Schema.Struct({
 export const StudioTemplatePublishPayload = Schema.Union([
   StudioStyleTemplatePublishPayload,
   StudioRecipeTemplatePublishPayload,
+])
+
+export const StudioTemplateUpdatePayload = Schema.Union([
+  Schema.Struct({
+    ...StudioTemplatePublishBaseFields,
+    idx: Schema.String,
+    template_type: Schema.Literal("extract_style"),
+    style_description: StudioStyleDescriptionPayload,
+    style_images: Schema.Array(StudioTemplateImagePayload),
+    style_keywords: Schema.String,
+  }),
+  Schema.Struct({
+    ...StudioTemplatePublishBaseFields,
+    idx: Schema.String,
+    template_type: Schema.Literal("preset_recipe"),
+    fixed_reference_images: Schema.Array(StudioTemplateImagePayload),
+    play_description: Schema.String,
+  }),
 ])
 
 export const StudioTemplateListQuery = Schema.Struct({
@@ -295,6 +315,31 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.template-publish.create",
             summary: "Publish Studio template",
             description: "Publishes a Studio style template or preset recipe using the internal Studio style template API.",
+          }),
+        ),
+        HttpApiEndpoint.put("updateTemplate", StudioPaths.templateUpdate, {
+          params: { templateID: Schema.String },
+          query: StudioTemplateDetailQuery,
+          payload: StudioTemplateUpdatePayload,
+          success: described(Schema.Unknown, "Studio template update result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.template-update.update",
+            summary: "Update Studio template",
+            description: "Updates a Studio style template or preset recipe using the internal Studio style template API.",
+          }),
+        ),
+        HttpApiEndpoint.delete("deleteTemplate", StudioPaths.templateDelete, {
+          params: { templateID: Schema.String },
+          query: StudioTemplateDetailQuery,
+          success: described(Schema.Unknown, "Studio template delete result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.template-delete.delete",
+            summary: "Delete Studio template",
+            description: "Deletes a Studio template using the internal Studio style template API.",
           }),
         ),
         HttpApiEndpoint.get("listTemplates", StudioPaths.templateList, {

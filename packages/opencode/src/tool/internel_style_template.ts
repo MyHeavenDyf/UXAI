@@ -103,6 +103,20 @@ export type StyleTemplatePublishRequest =
     play_description: string
   })
 
+export type StyleTemplateUpdatePayload = StyleTemplatePublishRequest & {
+  idx: string
+}
+
+export type StyleTemplateUpdateRequest = {
+  user_id: string
+  template: StyleTemplateUpdatePayload
+}
+
+export type StyleTemplateDeleteRequest = {
+  template_id: string
+  user_id: string
+}
+
 export type StyleTemplateListRequest = {
   user_id: string
   only_public: 0 | 1
@@ -372,6 +386,81 @@ export async function publishInternalStyleTemplate(input: StyleTemplatePublishRe
   }
   if (!text.trim()) throw new Error("style_template_publish returned empty response.")
   return parseBusinessResponse(text, "style_template_publish")
+}
+
+function styleTemplateMutationUrl(templateID: string, userID: string) {
+  const endpoint = env("IMAGE_STYLE_TEMPLATE_PUBLISH_URL") ?? DEFAULT_STYLE_TEMPLATE_PUBLISH
+  if (!endpoint || endpoint === "xx") throw new Error("style_template url is not configured.")
+  const url = new URL(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(templateID)}`)
+  url.searchParams.set("user_id", userID || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX)
+  return url
+}
+
+export async function updateInternalStyleTemplate(input: StyleTemplateUpdateRequest): Promise<unknown> {
+  const url = styleTemplateMutationUrl(input.template.idx, input.user_id)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: internalStyleTemplateHeaders(),
+    body: JSON.stringify(input.template),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "style_template_update network failed.",
+        `url=${url.href}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "style_template_update failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  if (!text.trim()) return {}
+  return parseBusinessResponse(text, "style_template_update")
+}
+
+export async function deleteInternalStyleTemplate(input: StyleTemplateDeleteRequest): Promise<unknown> {
+  const url = styleTemplateMutationUrl(input.template_id, input.user_id)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: internalStyleTemplateHeaders(),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "style_template_delete network failed.",
+        `url=${url.href}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "style_template_delete failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  if (!text.trim()) return {}
+  return parseBusinessResponse(text, "style_template_delete")
 }
 
 function styleTemplateListUrl(input: StyleTemplateListRequest) {

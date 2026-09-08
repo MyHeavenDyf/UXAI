@@ -7671,6 +7671,115 @@ export type StudioTemplatePublishCreateResponses = {
   200: unknown
 }
 
+export type StudioTemplateUpdateUpdateData = {
+  body?:
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        idx: string
+        template_type: "extract_style"
+        style_description: {
+          overview: string
+          tonal?: string
+          composition?: string
+          volume?: string
+          surface?: string
+          color?: string
+          linework?: string
+          shape_structure?: string
+          role_design?: string
+          lettering?: string
+          post_processing?: string
+        }
+        style_images: Array<{
+          url: string
+        }>
+        style_keywords: string
+      }
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        idx: string
+        template_type: "preset_recipe"
+        fixed_reference_images: Array<{
+          url: string
+        }>
+        play_description: string
+      }
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-update/{templateID}"
+}
+
+export type StudioTemplateUpdateUpdateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateUpdateUpdateError = StudioTemplateUpdateUpdateErrors[keyof StudioTemplateUpdateUpdateErrors]
+
+export type StudioTemplateUpdateUpdateResponses = {
+  /**
+   * Studio template update result
+   */
+  200: unknown
+}
+
+export type StudioTemplateDeleteDeleteData = {
+  body?: never
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-delete/{templateID}"
+}
+
+export type StudioTemplateDeleteDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateDeleteDeleteError = StudioTemplateDeleteDeleteErrors[keyof StudioTemplateDeleteDeleteErrors]
+
+export type StudioTemplateDeleteDeleteResponses = {
+  /**
+   * Studio template delete result
+   */
+  200: unknown
+}
+
 export type StudioTemplateListListData = {
   body?: never
   path?: never
@@ -7839,7 +7948,7 @@ export type StudioGenerationsCreateResponses = {
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
     duration?: string
-    videoQualityMode?: "std" | "pro"
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -7952,7 +8061,7 @@ export type StudioGenerationsCancelResponses = {
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
     duration?: string
-    videoQualityMode?: "std" | "pro"
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -8028,7 +8137,7 @@ export type StudioGenerationsRebootResponses = {
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
     duration?: string
-    videoQualityMode?: "std" | "pro"
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -8104,7 +8213,7 @@ export type StudioGenerationsGetResponses = {
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
     duration?: string
-    videoQualityMode?: "std" | "pro"
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"

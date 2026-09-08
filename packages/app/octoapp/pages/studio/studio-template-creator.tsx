@@ -71,8 +71,22 @@ export type StudioTemplatePublishInput =
   | (StudioTemplatePublishBaseInput & {
     template_type: "preset_recipe"
     fixed_reference_images: TemplateUploadImage[]
-    play_description: string
-  })
+      play_description: string
+    })
+
+export type StudioTemplateEditableValue = StudioTemplatePublishInput & {
+  idx: string
+}
+
+export type StudioTemplateWorkspace =
+  | { mode: "create" }
+  | {
+      mode: "edit"
+      templateID: string
+      initialValue?: StudioTemplateEditableValue
+      loading: boolean
+      error?: string
+    }
 
 const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"])
 const ACCEPTED_IMAGE_EXTENSIONS = /\.(png|jpe?g|webp)$/i
@@ -133,7 +147,7 @@ function fileToDataUrl(file: File) {
 }
 
 function imageTotalSize(images: TemplateUploadImage[], sizeByUrl: Record<string, number>) {
-  return images.reduce((sum, image) => sum + (sizeByUrl[image.url] ?? estimateBase64Size(image.url)), 0)
+  return images.reduce((sum, image) => sum + (sizeByUrl[image.url] ?? (image.url.startsWith("data:") ? estimateBase64Size(image.url) : 0)), 0)
 }
 
 function truncateValue(value: string, maxLength: number) {
@@ -232,6 +246,14 @@ function TemplateCreatorField(props: { title: string; required?: boolean; descri
       </Show>
       {props.children}
     </section>
+  )
+}
+
+function TemplateCreatorSectionHeading(props: { children: JSX.Element; first?: boolean }): JSX.Element {
+  return (
+    <h2 class="studio-template-creator-section-heading" classList={{ first: props.first }}>
+      {props.children}
+    </h2>
   )
 }
 
@@ -1143,6 +1165,7 @@ function TemplateCreatorExamplesForm(props: {
 }
 
 function TemplateCreatorFooter(props: {
+  mode: "create" | "edit"
   currentStep: TemplateCreatorStep
   canNext: boolean
   primaryLabel: string
@@ -1150,13 +1173,20 @@ function TemplateCreatorFooter(props: {
   messageTone: "default" | "success" | "error"
   onPrev: () => void
   onNext: () => void
+  onCancel?: () => void
 }): JSX.Element {
   return (
     <div class="studio-template-creator-footer">
       <div class="studio-template-creator-footer-actions">
-        <Show when={props.currentStep !== "make"}>
-          <button type="button" class="studio-template-creator-prev" onClick={props.onPrev}>
-            上一步
+        <Show when={props.mode === "edit"} fallback={
+          <Show when={props.currentStep !== "make"}>
+            <button type="button" class="studio-template-creator-prev" onClick={props.onPrev}>
+              上一步
+            </button>
+          </Show>
+        }>
+          <button type="button" class="studio-template-creator-prev" onClick={props.onCancel}>
+            取消
           </button>
         </Show>
         <button type="button" class="studio-template-creator-next" disabled={!props.canNext} onClick={props.onNext}>
@@ -1173,21 +1203,35 @@ function TemplateCreatorFooter(props: {
 }
 
 export function StudioTemplateCreator(props: {
+  mode?: "create" | "edit"
+  templateID?: string
+  initialValue?: StudioTemplateEditableValue
   onGenerateStyleDescription?: (
     input: StudioStyleDescriptionGenerateInput,
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
+  onSaveTemplate?: (templateID: string, input: StudioTemplatePublishInput) => Promise<void>
   onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
+  onCancel?: () => void
 }): JSX.Element {
+  const initial = props.mode === "edit" ? props.initialValue : undefined
+  const initialStyle = initial?.template_type === "extract_style" ? initial : undefined
+  const initialRecipe = initial?.template_type === "preset_recipe" ? initial : undefined
   const [currentStep, setCurrentStep] = createSignal<TemplateCreatorStep>("make")
-  const [title, setTitle] = createSignal("")
-  const [category, setCategory] = createSignal<TemplateCreatorCategory>("extract_style")
-  const [styleKeywords, setStyleKeywords] = createSignal("")
-  const [styleImages, setStyleImages] = createSignal<TemplateUploadImage[]>([])
-  const [selectedDimensions, setSelectedDimensions] = createSignal<StudioStyleDimensionId[]>([...DEFAULT_STYLE_DIMENSIONS])
-  const [styleDescriptionOverview, setStyleDescriptionOverview] = createSignal("")
-  const [styleDescriptionDetails, setStyleDescriptionDetails] = createSignal<Partial<Record<StudioStyleDimensionId, string>>>({})
+  const [title, setTitle] = createSignal(initial?.title ?? "")
+  const [category, setCategory] = createSignal<TemplateCreatorCategory>(initial?.template_type ?? "extract_style")
+  const [styleKeywords, setStyleKeywords] = createSignal(initialStyle?.style_keywords ?? "")
+  const [styleImages, setStyleImages] = createSignal<TemplateUploadImage[]>(initialStyle?.style_images ?? [])
+  const [selectedDimensions, setSelectedDimensions] = createSignal<StudioStyleDimensionId[]>(
+    initialStyle
+      ? STYLE_DIMENSIONS.map((item) => item.id).filter((id) => Object.prototype.hasOwnProperty.call(initialStyle.style_description, id))
+      : [...DEFAULT_STYLE_DIMENSIONS],
+  )
+  const [styleDescriptionOverview, setStyleDescriptionOverview] = createSignal(initialStyle?.style_description.overview ?? "")
+  const [styleDescriptionDetails, setStyleDescriptionDetails] = createSignal<Partial<Record<StudioStyleDimensionId, string>>>(
+    initialStyle?.style_description ?? {},
+  )
   const [styleDescriptionGenerating, setStyleDescriptionGenerating] = createSignal(false)
   const [styleDescriptionGenerateMessage, setStyleDescriptionGenerateMessage] = createSignal("")
   const [styleDescriptionStreamPhase, setStyleDescriptionStreamPhase] = createSignal<StyleDescriptionStreamPhase>("idle")
@@ -1196,18 +1240,22 @@ export function StudioTemplateCreator(props: {
   const [templatePublishing, setTemplatePublishing] = createSignal(false)
   const [templatePublishMessage, setTemplatePublishMessage] = createSignal("")
   const [templatePublishMessageTone, setTemplatePublishMessageTone] = createSignal<"default" | "success" | "error">("default")
-  const [recipeDescription, setRecipeDescription] = createSignal("")
-  const [recipeImages, setRecipeImages] = createSignal<TemplateUploadImage[]>([])
+  const [recipeDescription, setRecipeDescription] = createSignal(initialRecipe?.play_description ?? "")
+  const [recipeImages, setRecipeImages] = createSignal<TemplateUploadImage[]>(initialRecipe?.fixed_reference_images ?? [])
   const [sizeByUrl, setSizeByUrl] = createSignal<Record<string, number>>({})
   const [styleUploadMessage, setStyleUploadMessage] = createSignal("")
   const [recipeUploadMessage, setRecipeUploadMessage] = createSignal("")
-  const [usageDescription, setUsageDescription] = createSignal("")
-  const [promptSetting, setPromptSetting] = createSignal<PromptSetting>("required")
-  const [referenceMode, setReferenceMode] = createSignal<ReferenceMode>("fixed")
-  const [referenceCount, setReferenceCount] = createSignal<ReferenceCount>(1)
-  const [visibility, setVisibility] = createSignal<TemplateVisibility>("all_users")
-  const [specifiedUsers, setSpecifiedUsers] = createSignal<StudioTemplateVisibleUser[]>([])
-  const [exampleImages, setExampleImages] = createSignal<TemplateUploadImage[]>([])
+  const [usageDescription, setUsageDescription] = createSignal(initial?.usage_instructions ?? "")
+  const [promptSetting, setPromptSetting] = createSignal<PromptSetting>(initial?.prompt_setting ?? "required")
+  const [referenceMode, setReferenceMode] = createSignal<ReferenceMode>(initial?.reference_image_setting ?? "fixed")
+  const [referenceCount, setReferenceCount] = createSignal<ReferenceCount>(
+    initial?.reference_image_count && initial.reference_image_count > 0 ? initial.reference_image_count : 1,
+  )
+  const [visibility, setVisibility] = createSignal<TemplateVisibility>(initial?.permission_type ?? "all_users")
+  const [specifiedUsers, setSpecifiedUsers] = createSignal<StudioTemplateVisibleUser[]>(
+    initial?.allowed_user_ids?.split(",").map((account) => account.trim()).filter(Boolean).map((account) => ({ user_id: account, account })) ?? [],
+  )
+  const [exampleImages, setExampleImages] = createSignal<TemplateUploadImage[]>(initial?.example_images ?? [])
   const [exampleUploadMessage, setExampleUploadMessage] = createSignal("")
   const styleDescriptionTotalCount = createMemo(() =>
     styleDescriptionOverview().length + Object.values(styleDescriptionDetails()).reduce((sum, value) => sum + (value?.length ?? 0), 0),
@@ -1250,11 +1298,16 @@ export function StudioTemplateCreator(props: {
       imageTotalSize(exampleImages(), sizeByUrl()) <= 30 * BYTES_IN_MB,
   )
   const canNext = createMemo(() => {
+    if (props.mode === "edit") return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onSaveTemplate) && Boolean(props.templateID) && !templatePublishing()
     if (currentStep() === "make") return canMakeNext()
     if (currentStep() === "publish") return canPublishNext()
     return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onPublishTemplate) && !templatePublishing()
   })
-  const primaryLabel = createMemo(() => (currentStep() === "examples" && templatePublishing() ? "发布中..." : currentStep() === "examples" ? "发布" : "下一步"))
+  const primaryLabel = createMemo(() => {
+    if (props.mode === "edit") return templatePublishing() ? "保存中..." : "保存"
+    if (currentStep() === "examples" && templatePublishing()) return "发布中..."
+    return currentStep() === "examples" ? "发布" : "下一步"
+  })
   let styleDescriptionGenerateController: AbortController | undefined
 
   onCleanup(() => {
@@ -1393,12 +1446,23 @@ export function StudioTemplateCreator(props: {
     }
   }
   const publishCurrentTemplate = async () => {
-    if (!props.onPublishTemplate || templatePublishing() || !canMakeNext() || !canPublishNext() || !canPublish()) return
+    if (templatePublishing() || !canMakeNext() || !canPublishNext() || !canPublish()) return
+    if (props.mode === "edit" && (!props.onSaveTemplate || !props.templateID)) return
+    if (props.mode !== "edit" && !props.onPublishTemplate) return
     setTemplatePublishing(true)
     setTemplatePublishMessage("")
     setTemplatePublishMessageTone("default")
     try {
-      await props.onPublishTemplate(templatePublishInput())
+      if (props.mode === "edit") {
+        const saveTemplate = props.onSaveTemplate
+        const templateID = props.templateID
+        if (!saveTemplate || !templateID) return
+        await saveTemplate(templateID, templatePublishInput())
+        return
+      }
+      const publishTemplate = props.onPublishTemplate
+      if (!publishTemplate) return
+      await publishTemplate(templatePublishInput())
     } catch (error) {
       setTemplatePublishMessage(error instanceof Error ? error.message : String(error))
       setTemplatePublishMessageTone("error")
@@ -1415,6 +1479,10 @@ export function StudioTemplateCreator(props: {
   }
   const goNext = () => {
     if (!canNext()) return
+    if (props.mode === "edit") {
+      void publishCurrentTemplate()
+      return
+    }
     if (currentStep() === "examples") {
       void publishCurrentTemplate()
       return
@@ -1426,91 +1494,105 @@ export function StudioTemplateCreator(props: {
     })
   }
 
+  const makeForm = () => (
+    <MakeTemplateForm
+      title={title()}
+      category={category()}
+      styleKeywords={styleKeywords()}
+      styleImages={styleImages()}
+      recipeDescription={recipeDescription()}
+      recipeImages={recipeImages()}
+      sizeByUrl={sizeByUrl()}
+      styleUploadMessage={styleUploadMessage()}
+      recipeUploadMessage={recipeUploadMessage()}
+      selectedDimensions={selectedDimensions()}
+      styleDescriptionOverview={styleDescriptionOverview()}
+      styleDescriptionDetails={styleDescriptionDetails()}
+      styleDescriptionTotalCount={styleDescriptionTotalCount()}
+      canGenerateStyleDescription={canGenerateStyleDescription()}
+      styleDescriptionGenerating={styleDescriptionGenerating()}
+      styleDescriptionGenerateTip={styleDescriptionGenerateTip()}
+      styleDescriptionGenerateError={styleDescriptionStreamPhase() === "error"}
+      styleDescriptionThinking={styleDescriptionThinking()}
+      showStyleDescriptionThinking={showStyleDescriptionThinking()}
+      onTitle={setTitle}
+      onCategory={setCategory}
+      onStyleKeywords={setStyleKeywords}
+      onStyleImages={setStyleImages}
+      onRecipeDescription={setRecipeDescription}
+      onRecipeImages={setRecipeImages}
+      onSizes={mergeSizes}
+      onStyleUploadMessage={setStyleUploadMessage}
+      onRecipeUploadMessage={setRecipeUploadMessage}
+      onToggleDimension={toggleDimension}
+      onStyleDescriptionOverview={setStyleDescriptionOverview}
+      onStyleDescriptionDetail={updateStyleDescriptionDetail}
+      onGenerateStyleDescription={() => void generateStyleDescription()}
+    />
+  )
+  const publishForm = () => (
+    <PublishTemplateForm
+      title={title()}
+      usageDescription={usageDescription()}
+      promptSetting={promptSetting()}
+      referenceMode={referenceMode()}
+      referenceCount={referenceCount()}
+      maxReferenceCount={maxReferenceCount()}
+      visibility={visibility()}
+      specifiedUsers={specifiedUsers()}
+      onTitle={setTitle}
+      onUsageDescription={setUsageDescription}
+      onPromptSetting={setPromptSetting}
+      onReferenceMode={setReferenceMode}
+      onReferenceCount={setReferenceCount}
+      onVisibility={setVisibility}
+      onSpecifiedUsers={setSpecifiedUsers}
+      onSearchUsers={props.onSearchUsers}
+    />
+  )
+  const examplesForm = () => (
+    <TemplateCreatorExamplesForm
+      category={category()}
+      exampleImages={exampleImages()}
+      sizeByUrl={sizeByUrl()}
+      uploadMessage={exampleUploadMessage()}
+      onExampleImages={setExampleImages}
+      onSizes={mergeSizes}
+      onUploadMessage={setExampleUploadMessage}
+    />
+  )
+
   return (
     <div class="studio-template-creator">
       <ScrollView class="studio-template-creator-scroll">
         <div class="studio-template-creator-form">
-          <Show
-            when={currentStep() === "make"}
-            fallback={
-              <Show
-                when={currentStep() === "publish"}
-                fallback={
-                  <>
-                    <TemplateCreatorSteps currentStep={currentStep()} />
-                    <TemplateCreatorExamplesForm
-                      category={category()}
-                      exampleImages={exampleImages()}
-                      sizeByUrl={sizeByUrl()}
-                      uploadMessage={exampleUploadMessage()}
-                      onExampleImages={setExampleImages}
-                      onSizes={mergeSizes}
-                      onUploadMessage={setExampleUploadMessage}
-                    />
-                  </>
-                }
-              >
+          <Show when={props.mode === "edit"} fallback={
+            <Show when={currentStep() === "make"} fallback={
+              <Show when={currentStep() === "publish"} fallback={
+                <>
+                  <TemplateCreatorSteps currentStep={currentStep()} />
+                  {examplesForm()}
+                </>
+              }>
                 <TemplateCreatorSteps currentStep={currentStep()} />
-                <PublishTemplateForm
-                  title={title()}
-                  usageDescription={usageDescription()}
-                  promptSetting={promptSetting()}
-                  referenceMode={referenceMode()}
-                  referenceCount={referenceCount()}
-                  maxReferenceCount={maxReferenceCount()}
-                  visibility={visibility()}
-                  specifiedUsers={specifiedUsers()}
-                  onTitle={setTitle}
-                  onUsageDescription={setUsageDescription}
-                  onPromptSetting={setPromptSetting}
-                  onReferenceMode={setReferenceMode}
-                  onReferenceCount={setReferenceCount}
-                  onVisibility={setVisibility}
-                  onSpecifiedUsers={setSpecifiedUsers}
-                  onSearchUsers={props.onSearchUsers}
-                />
+                {publishForm()}
               </Show>
-            }
-          >
-            <TemplateCreatorSteps currentStep={currentStep()} />
-            <MakeTemplateForm
-              title={title()}
-              category={category()}
-              styleKeywords={styleKeywords()}
-              styleImages={styleImages()}
-              recipeDescription={recipeDescription()}
-              recipeImages={recipeImages()}
-              sizeByUrl={sizeByUrl()}
-              styleUploadMessage={styleUploadMessage()}
-              recipeUploadMessage={recipeUploadMessage()}
-              selectedDimensions={selectedDimensions()}
-              styleDescriptionOverview={styleDescriptionOverview()}
-              styleDescriptionDetails={styleDescriptionDetails()}
-              styleDescriptionTotalCount={styleDescriptionTotalCount()}
-              canGenerateStyleDescription={canGenerateStyleDescription()}
-              styleDescriptionGenerating={styleDescriptionGenerating()}
-              styleDescriptionGenerateTip={styleDescriptionGenerateTip()}
-              styleDescriptionGenerateError={styleDescriptionStreamPhase() === "error"}
-              styleDescriptionThinking={styleDescriptionThinking()}
-              showStyleDescriptionThinking={showStyleDescriptionThinking()}
-              onTitle={setTitle}
-              onCategory={setCategory}
-              onStyleKeywords={setStyleKeywords}
-              onStyleImages={setStyleImages}
-              onRecipeDescription={setRecipeDescription}
-              onRecipeImages={setRecipeImages}
-              onSizes={mergeSizes}
-              onStyleUploadMessage={setStyleUploadMessage}
-              onRecipeUploadMessage={setRecipeUploadMessage}
-              onToggleDimension={toggleDimension}
-              onStyleDescriptionOverview={setStyleDescriptionOverview}
-              onStyleDescriptionDetail={updateStyleDescriptionDetail}
-              onGenerateStyleDescription={() => void generateStyleDescription()}
-            />
+            }>
+              <TemplateCreatorSteps currentStep={currentStep()} />
+              {makeForm()}
+            </Show>
+          }>
+            <TemplateCreatorSectionHeading first>制作模板</TemplateCreatorSectionHeading>
+            {makeForm()}
+            <TemplateCreatorSectionHeading>发布模板</TemplateCreatorSectionHeading>
+            {publishForm()}
+            <TemplateCreatorSectionHeading>添加示例图</TemplateCreatorSectionHeading>
+            {examplesForm()}
           </Show>
         </div>
       </ScrollView>
       <TemplateCreatorFooter
+        mode={props.mode ?? "create"}
         currentStep={currentStep()}
         canNext={canNext()}
         primaryLabel={primaryLabel()}
@@ -1518,6 +1600,7 @@ export function StudioTemplateCreator(props: {
         messageTone={templatePublishMessageTone()}
         onPrev={goPrev}
         onNext={goNext}
+        onCancel={props.onCancel}
       />
     </div>
   )

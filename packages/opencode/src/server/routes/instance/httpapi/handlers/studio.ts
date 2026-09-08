@@ -4,12 +4,14 @@ import {
   createGeneration,
   createPromptGen,
   createStyleDescriptionGenStream,
+  deleteTemplate,
   getGeneration,
   getTemplateDetail,
   listTemplates,
   publishTemplate,
   rebootGeneration,
   searchTemplateUsers,
+  updateTemplate,
   type StudioStyleDescriptionGenStreamEvent,
 } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
@@ -21,7 +23,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUserSearchPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
@@ -250,6 +252,48 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const update = Effect.fn("StudioHttpApi.updateTemplate")(function* (ctx: {
+      params: { templateID: string }
+      query: typeof StudioTemplateDetailQuery.Type
+      payload: typeof StudioTemplateUpdatePayload.Type
+    }) {
+      if (ctx.params.templateID !== ctx.payload.idx) return yield* new HttpApiError.BadRequest({})
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => updateTemplate({
+          user_id: ctx.query.user_id,
+          template: ctx.payload,
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
+    const removeTemplate = Effect.fn("StudioHttpApi.deleteTemplate")(function* (ctx: {
+      params: { templateID: string }
+      query: typeof StudioTemplateDetailQuery.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => deleteTemplate({
+          template_id: ctx.params.templateID,
+          user_id: ctx.query.user_id,
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     const list = Effect.fn("StudioHttpApi.listTemplates")(function* (ctx: {
       query: typeof StudioTemplateListQuery.Type
     }) {
@@ -319,6 +363,8 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)
+      .handle("updateTemplate", update)
+      .handle("deleteTemplate", removeTemplate)
       .handle("listTemplates", list)
       .handle("getTemplateDetail", detail)
       .handle("searchTemplateUsers", searchUsers)
