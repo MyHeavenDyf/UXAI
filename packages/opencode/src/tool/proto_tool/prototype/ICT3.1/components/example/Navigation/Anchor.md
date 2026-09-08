@@ -1,17 +1,17 @@
 # Anchor | 锚点 示例
 
-## Example: Anchor basic
+## Example: Anchor fixed to the right side
 
 ```json
 {
-  "id": "anchorBasic",
+  "id": "anchorFixedRight",
   "component": "Anchor",
   "props": {
-    "offsetTop": 0,
+    "className": "fixed top-20 right-4 z-50 w-48",
     "items": [
-      { "key": "1", "href": "#anchor-1", "title": "基础用法" },
-      { "key": "2", "href": "#anchor-2", "title": "高级用法" },
-      { "key": "3", "href": "#anchor-3", "title": "API 说明" }
+      { "key": "1", "href": "#overview", "title": "总览" },
+      { "key": "2", "href": "#config", "title": "配置" },
+      { "key": "3", "href": "#api", "title": "API 说明" }
     ]
   }
 }
@@ -24,7 +24,7 @@
   "id": "anchorNested",
   "component": "Anchor",
   "props": {
-    "offsetTop": 0,
+    "className": "fixed top-20 right-4 z-50 w-56",
     "items": [
       {
         "key": "1",
@@ -59,7 +59,7 @@
       "id": "anchorBound",
       "component": "Anchor",
       "props": {
-        "offsetTop": 0,
+        "className": "fixed top-20 right-4 z-50 w-48",
         "items": { "path": "/anchorItems" }
       }
     }
