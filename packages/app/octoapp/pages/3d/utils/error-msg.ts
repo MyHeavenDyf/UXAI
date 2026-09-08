@@ -13,8 +13,29 @@ export const AGENT_LABELS: Record<string, string> = {
  * - description: 错误原因（如 vite 超时原文），由 classifyAIError 生成；GenerationCard 渲染为可见原因行
  * - agentLabel:  agent 中文标签（如"物体生成 · Hero"），用于 UI 展示
  * - agentCallId:  报错 agent 的 childSessionId，用于匹配 InsightTurn 步骤卡片
+ * - findings:    结构化报错清单（P7-2：file/line/code/message），供修复入口预填 + triage 注入
  */
-export type ProtoError = { title: string; description?: string; agentLabel?: string; agentCallId?: string }
+export type ProtoError = { title: string; description?: string; agentLabel?: string; agentCallId?: string; findings?: ErrorFinding[] }
+
+/** 结构化报错条目（P7-2）：物化前 tsc 类型错 / 门控运行时错 都产此结构，供修复入口定位 + triage 注入 */
+export type ErrorFinding = {
+  /** 文件 basename（如 stadium.ts）；运行时错从 console message 正则提取，可能为空 */
+  file?: string
+  /** 行号；运行时错可能为空 */
+  line?: number
+  /** TS diagnostic code（如 2339）或 gate code（如 runtime-error）；可能为空 */
+  code?: string
+  /** 人类可读原因 */
+  message: string
+}
+
+/** 把 `file:line:col: message (code N)` 形式的错误串解析回 ErrorFinding（修复入口预填的反向操作）。 */
+export function parseErrorFindingString(s: string): ErrorFinding | null {
+  // 形如 `stadium.ts:72:10: Property 'rect' does not exist (code 2339)` 或 `stadium.ts:72: ...`
+  const m = s.match(/^([\w./-]+\.ts):(\d+)(?::\d+)?:\s*(.+?)(?:\s*\(code\s*(\w+)\))?\s*$/i)
+  if (!m) return null
+  return { file: m[1].split("/").pop(), line: Number(m[2]), code: m[4], message: m[3] }
+}
 
 /**
  * 带 agent 标识的错误类型，在标准 Error 上扩展三个字段：
@@ -112,7 +133,7 @@ function errorFilePath(dir: string, sessionId: string) {
 export async function saveProtoError(dir: string, sessionId: string, error: ProtoError): Promise<void> {
   const api = getDesktopApi()
   const path = errorFilePath(dir, sessionId)
-  const payload = JSON.stringify({ error: error.title, description: error.description, agent: error.agentLabel, callId: error.agentCallId, createdAt: Date.now() })
+  const payload = JSON.stringify({ error: error.title, description: error.description, agent: error.agentLabel, callId: error.agentCallId, findings: error.findings, createdAt: Date.now() })
   if (api?.writeFileBuffer) {
     const encoder = new TextEncoder()
     await api.writeFileBuffer(path, encoder.encode(payload).buffer)
@@ -133,7 +154,7 @@ export async function loadProtoError(dir: string, sessionId: string): Promise<Pr
       if (!buf) return null
       const data = JSON.parse(new TextDecoder().decode(buf))
       if (typeof data === "string") return { title: data }
-      return { title: data.error ?? "", description: data.description, agentLabel: data.agent, agentCallId: data.callId }
+      return { title: data.error ?? "", description: data.description, agentLabel: data.agent, agentCallId: data.callId, findings: Array.isArray(data.findings) ? data.findings : undefined }
     } catch {
       return null
     }

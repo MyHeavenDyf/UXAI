@@ -19,6 +19,8 @@ export interface Round {
   errorAgent?: string
   errorCallId?: string
   errorDescription?: string
+  /** P7-2：结构化报错清单（file/line/code/message），供失败卡片「修复」入口预填 */
+  errorFindings?: { file?: string; line?: number; code?: string; message: string }[]
 }
 
 /**

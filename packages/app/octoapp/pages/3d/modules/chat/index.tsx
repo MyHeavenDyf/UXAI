@@ -38,7 +38,9 @@ function RoundCard(props: {
   errorAgent?: string
   errorCallId?: string
   errorDescription?: string
+  errorFindings?: { file?: string; line?: number; code?: string; message: string }[]
   onRetry?: () => void
+  onFix?: (findings: { file?: string; line?: number; code?: string; message: string }[]) => void
   elapsedText?: string
   blockTime?: number
   onAbort?: () => void
@@ -65,7 +67,9 @@ function RoundCard(props: {
         errorAgent={props.errorAgent}
         errorCallId={props.errorCallId}
         errorDescription={props.errorDescription}
+        errorFindings={props.errorFindings}
         onRetry={props.onRetry}
+        onFix={props.onFix}
       />
       {/* 执行计时 —— 仅最新轮生成中显示（镜像 make insight-turn.tsx:1366） */}
       <Show when={generating() && props.elapsedText}>
@@ -179,6 +183,8 @@ export function ChatPanel(props: {
   onTitleChanged: (title: string) => void
   /** 重试失败的 pipeline */
   onRetry?: () => void
+  /** P7-2：修复入口（点击失败卡片「修复」→ 把结构化报错预填进输入框） */
+  onFix?: (findings: { file?: string; line?: number; code?: string; message: string }[]) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -402,7 +408,9 @@ export function ChatPanel(props: {
                           errorAgent={round().errorAgent}
                           errorCallId={round().errorCallId}
                           errorDescription={round().errorDescription}
+                          errorFindings={round().errorFindings}
                           onRetry={props.onRetry}
+                          onFix={props.onFix}
                           elapsedText={props.elapsedText}
                           blockTime={props.blockTime}
                           onAbort={props.onAbort}

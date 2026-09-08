@@ -84,3 +84,4 @@ export function formatSyntaxErrorsForCodegen(errors: SyntaxError[]): string {
   )
   return lines.join("\n")
 }
+

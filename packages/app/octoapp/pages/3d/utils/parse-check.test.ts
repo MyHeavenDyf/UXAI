@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { checkHandlerSyntax, formatSyntaxErrorsForCodegen, type SyntaxError } from "./parse-check"
+import {
+  checkHandlerSyntax,
+  formatSyntaxErrorsForCodegen,
+  type SyntaxError,
+} from "./parse-check"
 import type { CodeFile } from "./parse-code-files"
 
 // ── checkHandlerSyntax：物化前 ts.transpileModule 抓语法 parse 错（code 1xxx）──
@@ -109,3 +113,4 @@ describe("formatSyntaxErrorsForCodegen", () => {
     expect(out).toContain("本轮输出范围")
   })
 })
+

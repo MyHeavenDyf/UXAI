@@ -39,6 +39,12 @@ export type TriageInputContext = {
    * 若确实无法 patch（无匹配候选 / 结构性）则 routing=modify（不硬 patch，不崩）。
    */
   forcePatch?: boolean
+  /**
+   * P7-2 修复场景：上一轮 codegen/gate 报的结构化错误清单（file/line/code/message）。
+   * 注入 triage 让其据报错路由 patch + edit_code 精准改那一行（而非同 prompt 重跑复现同样的错）。
+   * 非修复场景不传（首次生成 / 普通修改）。
+   */
+  priorErrors?: { file?: string; line?: number; code?: string; message: string }[]
 }
 
 export interface TriageTypes {
@@ -191,6 +197,18 @@ function parsePatchOps(v: unknown): PatchOp[] {
 
 function buildHumanMessage(ctx: TriageInputContext): string {
   const lines = [`[用户请求]: ${ctx.userInput}`, ``]
+  // P7-2 修复场景：注入上一轮结构化报错清单，让 triage 路由 patch + edit_code 精准改那一行
+  if (ctx.priorErrors && ctx.priorErrors.length > 0) {
+    lines.push(`[上一轮报错清单]（上一轮生成的 handler .ts 存在报错，请用 edit_code 精准修复那一行，勿重写整个 handler 勿重生成）：`)
+    for (const e of ctx.priorErrors) {
+      const loc = e.file ? `${e.file}${e.line ? `:${e.line}` : ""}` : ""
+      const code = e.code ? ` (code ${e.code})` : ""
+      lines.push(`- ${loc ? loc + ": " : ""}${e.message}${code}`)
+    }
+    lines.push(``)
+    lines.push(`[修复约束]：优先 routing=patch + edit_code（search 取报错行附近代码 verbatim，replace 修正该行）；仅当报错无法靠改一行修复（如缺整块逻辑）才 routing=modify。`)
+    lines.push(``)
+  }
   if (ctx.forcePatch) {
     // 兜底再问：host 已判定此请求疑似标量改动（改颜色/材质标量/transform）且候选非空，
     // 强制要求 routing=patch 并从候选清单挑 __id 出 patchOps；若确实无法 patch 则 routing=modify。

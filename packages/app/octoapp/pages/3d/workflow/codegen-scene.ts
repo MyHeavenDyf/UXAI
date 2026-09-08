@@ -18,7 +18,7 @@
 import scene_3d_triage from "../agents/scene-triage"
 import { scene_3d_codegen_direct } from "../agents/scene-codegen"
 import { parseCodeFiles, type CodeFile } from "../utils/parse-code-files"
-import { checkHandlerSyntax } from "../utils/parse-check"
+import { checkHandlerSyntax, type SyntaxError } from "../utils/parse-check"
 import { loadCurrentSceneState, readCodeDirFiles } from "../utils/version-history"
 import { getDesktopApi } from "../utils/desktop-api"
 import { workspaceDir, materialize } from "../utils/workspace"
@@ -26,6 +26,7 @@ import { extractPatchCandidates, looksLikeScalarChange, type PatchCandidate } fr
 import { patchScene, type PatchOp } from "./patch-scene"
 import type { SceneCreateInput } from "./scene-create-input"
 import type { GateFinding, GateResult } from "../utils/scene-gate"
+import type { ErrorFinding } from "../utils/error-msg"
 
 const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
 
@@ -64,11 +65,16 @@ export type CodegenSceneInput = SceneCreateInput & {
   /** 上一轮 9a 门控失败清单（来自 handleRetry 喂回），注入 codegen 让其照着修 */
   priorGateFindings?: GateFinding[]
   /**
+   * P7-2 修复场景：上一轮结构化报错清单（file/line/code/message，来自 ProtoError.findings）。
+   * 注入 triage 让其路由 patch + edit_code 精准改那一行。非修复场景不传。
+   */
+  priorErrors?: ErrorFinding[]
+  /**
    * 9a 门控执行器（物化后跑）。host 提供（闭包 settleMs 延迟 + 读
    * consoleBuffer）；返回 GateResult 供提示——运行时错只提示不重跑（direct 无自愈）。
    * 不传则 host 自行跑门控（旧行为）。
    */
-  gateRunner?: (plan: DirectPlan, sceneData: Record<string, unknown> | null) => Promise<GateResult>
+  gateRunner?: (plan: DirectPlan | null, sceneData: Record<string, unknown> | null) => Promise<GateResult>
 }
 
 export interface CodegenSceneResult {
@@ -84,11 +90,18 @@ export interface CodegenSceneResult {
   gatePassed?: boolean
   /** 末轮 9a 门控 findings（失败时 error 级清单，供 host 落失败卡片 + stash 手动重试） */
   gateFindings?: GateFinding[]
+  /** P7-2：结构化报错清单（物化前 syntax/type 错转 ErrorFinding[]），供 host 落失败卡片「修复」入口 */
+  findings?: ErrorFinding[]
   error?: string
 }
 
+/** 把 SyntaxError[]/TypeError[] 转成 ErrorFinding[]（供 host 落失败卡片修复入口） */
+function toErrorFindings(errs: SyntaxError[]): ErrorFinding[] {
+  return errs.map((e) => ({ file: e.file, line: e.line, code: String(e.code), message: e.message }))
+}
+
 export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSceneResult> {
-  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, sdkDir, onCodeReady, onMaterialize, onEnvMaterialize, priorGateFindings, gateRunner } =
+  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, sdkDir, onCodeReady, onMaterialize, onEnvMaterialize, priorGateFindings, priorErrors, gateRunner } =
     input
 
   // 1. 取当前场景 type 清单（modify 时供 triage 判哪些 type 可改 / 继承）
@@ -123,6 +136,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     patchCandidates,
     currentHandlers,
     currentSceneEnv,
+    priorErrors,
   })
   if (triage.routing === "chat") {
     return { routing: "chat", reply: triage.reply }
@@ -148,10 +162,22 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
       onEnvMaterialize,
     })
     if (patchRes.ok) {
+      // P7-2 修复闭环：priorErrors 非空 = 用户在修上一轮 bug，patch 物化后跑门控验证修复是否生效。
+      //   失败 → 回带新 findings 让 host 落失败卡片（用户可再点「修复」），不自动重试（direct 无自愈）。
+      //   非 fix 场景（priorErrors 空）→ 仍只 toast 不跑门控（普通 patch 改材质/transform 不需验证）。
+      if (priorErrors && priorErrors.length > 0 && gateRunner) {
+        const gate = await gateRunner(null, null)
+        console.log(`[codegen_scene] ① patch 修复门控验证:`, gate.passed ? "PASS" : "FAIL", gate.findings)
+        return {
+          routing: "patch",
+          summary: patchSummary,
+          patchOps: triage.patchOps,
+          gatePassed: gate.passed,
+          gateFindings: gate.findings,
+        }
+      }
       return { routing: "patch", summary: patchSummary, patchOps: triage.patchOps }
     }
-    console.warn(`[codegen_scene] patch 失败，fallback 进 codegen：${patchRes.error}`, patchRes.skipped)
-    // 落到下面 codegen（isModify=true，用 triage.types.modify 作 fallback hint）
   } else if (patchCandidates.length > 0 && looksLikeScalarChange(userInput)) {
     console.log(
       `[codegen_scene] ① patch 兜底再问（triage routing=${triage.routing} 未吐 patchOps，请求疑似标量改动，force-patch）…`,
@@ -173,6 +199,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
       currentHandlers,
       currentSceneEnv,
       forcePatch: true,
+      priorErrors,
     })
     if (reTriage.patchOps.length > 0) {
       const patchRes = await patchScene({
@@ -184,6 +211,18 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
         onEnvMaterialize,
       })
       if (patchRes.ok) {
+        // P7-2 修复闭环：同主 patch 短路，fix 场景跑门控验证修复
+        if (priorErrors && priorErrors.length > 0 && gateRunner) {
+          const gate = await gateRunner(null, null)
+          console.log(`[codegen_scene] ① 兜底 patch 修复门控验证:`, gate.passed ? "PASS" : "FAIL", gate.findings)
+          return {
+            routing: "patch",
+            summary: patchSummary,
+            patchOps: reTriage.patchOps,
+            gatePassed: gate.passed,
+            gateFindings: gate.findings,
+          }
+        }
         return { routing: "patch", summary: patchSummary, patchOps: reTriage.patchOps }
       }
       console.warn(`[codegen_scene] 兜底再问 patch 失败，fallback codegen：${patchRes.error}`, patchRes.skipped)
@@ -256,17 +295,18 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
   // 7. host 确定性合并 files + sceneData（index.ts + live-data.json 由 host 生成，不靠 LLM）
   const assembled = assembleScene(plan, handlerByType, groupByType, isModify, prevLiveData)
 
-  // 8. 物化前静态代码检查：语法错（失败只报错不重试，direct 无自愈）
+  // 8. 物化前静态语法检查：transpileModule 抓 1xxx 语法错（失败只报错不重试，direct 无自愈）
   const syntaxErrors = checkHandlerSyntax(assembled.files)
   if (syntaxErrors.length > 0) {
     const detail = syntaxErrors
       .slice(0, 5)
       .map((e) => `${e.file}:${e.line}:${e.column}: ${e.message} (code ${e.code})`)
       .join("；")
-    console.error(`[codegen_scene] ⑥a 代码检查 ${syntaxErrors.length} 个错（direct 无自愈，放弃）：`, detail)
+    console.error(`[codegen_scene] ⑥ 语法检查 ${syntaxErrors.length} 个错（direct 无自愈，放弃）：`, detail)
     return {
       routing: triage.routing,
       error: `生成的 handler .ts 存在代码错误（${syntaxErrors.length} 处，请重试）：${detail}`,
+      findings: toErrorFindings(syntaxErrors),
     }
   }
 

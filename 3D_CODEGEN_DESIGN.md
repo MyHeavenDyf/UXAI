@@ -736,7 +736,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] P0.4-3. ✅ 自愈循环（2026-09-03，**语法+门控统一单循环**）：`codegen_scene` 把 4~7 步包进 `for attempt 1..3`——语法错（6a，物化前 ~10ms 拦截）或门控运行时错（新 `gateRunner` 回调，物化后跑）→ 喂回 `scene_3d_codegen` 重跑（**只重跑 codegen 步，triage/plan 不重跑**）；3 次仍错→返回 error 落失败卡片。`gateRunner` 由 host 提供（`codegenGateRunner` 闭包 awaitSceneSettled+consoleBuffer 跑 runSceneGate），门控从 index.tsx 后置移进循环；index.tsx `runGateAndPersist` 拆成 `codegenGateRunner`（执行）+ `persistGateOutcome`（落盘：PASS 清错误+检查点 / FAIL 卡片+stash findings 供手动重试兜底）。**重试边界**：`runtime-error`/`scene-build-error` 才重试（代码问题可自愈）；`scene-not-ready`（dev 未起/iframe 空基建问题）不重试；墙钟超时/API 错不重试（P1.2 不变）；语法自愈成功后 `priorSyntaxErrors=undefined` 防陈旧清单带进 gate 重试轮
 - [x] P0.4-4. ✅ `scene-codegen/index.ts` 加 `priorSyntaxErrors?: SyntaxError[]` 参数，`buildHumanMessage` 拼 `## 上一轮代码错误清单` 段（在 `[CURRENT_*]` 后、门控清单前）
 - [x] P0.4-5. ✅ `scene_3d_codegen.txt` Provided Context 补 `## 上一轮代码错误清单` 条目：按 file:line:col 定位修、只修错不换方案
-- [x] P0.4-6. e2e：TC-27~31 ✅ 已验证（2026-09-03，createProgram 升级经实测误报回退 transpileModule，门控兜底自愈链路正常）
+- [x] P0.4-6. e2e：TC-25~27 ✅ 已验证（2026-09-03，createProgram 升级经实测误报回退 transpileModule，门控兜底自愈链路正常）
 
 ### P0.5 — scoped 自愈重试（只重输出出错文件，好文件 host 复用，2026-09-03 落地）
 
@@ -745,7 +745,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] P0.5-1. ✅ `codegen-scene.ts`：循环加 `prevRoundFiles`（上一轮产物，重试点更新）+ `retryScopeFiles`（本轮范围）；parse 后 ⑥0 overlay merge（`overlayCodeFiles`：上一轮为基底、新输出按路径覆盖；live-data.json 未重输出沿用上一轮，`sceneData` 从 merged files 抽取不误报）。范围计算：语法错轮 `computeSyntaxScope`（出错文件名去重；全部 .ts 都错→无收益返 undefined 走全量）；门控轮 `extractGateScope`（从 findings message 抽 `.ts:行:列` 文件名，vite URL/栈两种实证形态 bun 验证通过；抽不到→全量）。正则 `([\w./\\-]+\.ts)\b` 取 basename
 - [x] P0.5-2. ✅ `scene-codegen/index.ts` 加 `retryScopeFiles?: string[]`，`buildHumanMessage` 拼 `## 本轮输出范围` 段（置于错误清单/门控清单之后，明确「只需重输出列出文件，连带改动可一并输出」）
 - [x] P0.5-3. ✅ `parse-check.ts` 错误清单尾行改「输出范围以『## 本轮输出范围』为准，无该节则全部文件」（消除与 scoped 指令的冲突）；`scene_3d_codegen.txt` 补 `## 本轮输出范围` 条目。UXAI tsgo EXIT=0 + oxlint 0 error
-- [x] P0.5-4. e2e：TC-28 补 scoped 断言 ✅ 已验证（2026-09-03）
+- [x] P0.5-4. e2e：TC-26 验证门控抓运行时错 ✅ 已验证（2026-09-03）
 
 ### P1.6 — Layer 1.5 语义检查（workspace 内 tsgo --noEmit，**降级为可选**——P0.4 升级 createProgram 已覆盖高频语义错）
 
@@ -826,7 +826,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] P0.10-1. ✅ scene-gate.ts runSceneGate 砍 awaitSceneSettled → 固定延迟 settleMs + 直接读 buffer；删 scene-not-ready finding
 - [x] P0.10-2. ✅ index.tsx 删 awaitSceneSettled/sceneReadyResolver/sceneReadyPending + codegenGateRunner 改传 settleMs + onReady 精简
 - [x] P0.10-3. ✅ codegen-scene.ts 注释更新（retryable 逻辑不变）
-- [x] P0.10-4. e2e：生成场景不报 scene-not-ready；切走切回不报；运行时错/语法错自愈回归（TC-32~34） ✅ 已验证（2026-09-03）
+- [x] P0.10-4. e2e：生成场景不报 scene-not-ready；切走切回不报（TC-28/29） ✅ 已验证（2026-09-03）
 
 ### P1.5 — 组件消费统一重构（barrel import + 直接 new，删 libraryBridge 工厂，2026-09-02 定案）
 
@@ -853,7 +853,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 **风险验证**
 - [x] U11. ✅ vue-tsc `export *` 拉 @a3d 类型进检查面 → EXIT=0 无冲突（不需退显式列名）
 - [x] U12. ✅ 存量版本扫描：20 个历史 handler 含 `createComponentObject` 调用——用户定调「不管旧版」，删工厂后旧版回切 vite 崩但不影响新生成
-- [ ] U13. e2e：TC-24 组（3D_E2E_TESTCASES.md Phase 9 / §十五 TC-H）— 重启 opencode 后生成场景验证组件直接 new 正常
+- [ ] U13. e2e：TC-22 组（3D_E2E_TESTCASES.md Phase 9 / §十五 TC-H）— 重启 opencode 后生成场景验证组件直接 new 正常
 
 ### P2 — Phase R 代码结构重构（e2e 绿后，纯结构，S/L 前提，§13.14）
 - [ ] R1-R7 拆 7 个 app 级单例 Manager（renderer/scene/environment/camera/light/controls/renderLoop）
@@ -932,7 +932,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 
 ### 贯穿
 - [ ] 三仓改动 commit（e2e 绿后，dev_cyc1；当前堆着：P1.5 + 全清 + P0.4~P0.10 已验项）
-- [ ] 打包 exe e2e（`release.ts --win --channel dev` → exe 内 3D 全链路，TC-36；2026-09-04 漏账补录，memory [[3d-package-exe]] 落地后一直未验）
+- [ ] 打包 exe e2e（`release.ts --win --channel dev` → exe 内 3D 全链路，TC-31；2026-09-04 漏账补录，memory [[3d-package-exe]] 落地后一直未验）
 
 ### 不数据驱动边界（设计决策，非待办）
 - 构造期 only 参数（antialias/precision）→ 重生成
@@ -992,10 +992,8 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
   - **TC-D5b 整体 transform ✅ e2e 验证通过（P0.1-4，2026-08-31）** 编辑态→选整台叉车 group 根 `wh-forklift-1`→拖动→提交 → **✅ 验证生效**（提交后叉车移到新位置，切走切回保留）。根因（已修）：forklift.ts 只在 spawnForklift 内对实例 cid 调 applyOverride，**从不对 group 根调**→SUB_OVERRIDES[group 根]死项。**修法（commit-edits.ts）**：group 根（`__id===node.id`）transform 改写 live-data `node.params`（同 set_type_transform），不走 SUB_OVERRIDES 死项；merged 经 onCodeVersionReady 落盘 + reload，handler 重读 opts.position 生效。oxlint 0 + tsgo 0。
 
 ### TC-E 9a 门控（对应 P0-13~16）
-- **TC-E1 缺 type 失败→P0-13** 构造 modify 漏一个 type handler（index.ts import 缺文件）→ 门控完整性失败、不物化、失败卡片可重试
-- **TC-E2 tsc 错失败→P0-14** handler 有 TS 类型错 → tsc 检查失败、不物化
-- **TC-E3 console 错失败→P0-15** handler 运行时抛错 → runtime console 错捕获（SCENE_CONSOLE_ERROR）、失败卡片
-- **TC-E4 重试喂回→P0-16** 先失败→修正→重试 → 成功
+- **TC-E1 console 错失败→P0-15** handler 运行时抛错 → runtime console 错捕获（SCENE_CONSOLE_ERROR）、失败卡片
+- **TC-E2 重试/修复→P0-16** 失败后点「重试」或「修复」→ 成功物化（「修复」走 P7-2 edit_code 闭环）
 
 ### TC-F 历史 bug 回归
 - **TC-F1 改名重复** modify 改物体名不重复。防 [[3d-modify-objects-lost]]
@@ -1008,7 +1006,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - **TC-G1 plan 加速** 机房场景 plan 静态注入 ~7s（历史 11:35→7s）。[[3d-codegen-plan]] Step8①
 - **TC-G2 不 stall** codegen 3min idle 超时兜底→失败卡片可重试。[[3d-codegen-stall-timeout]]
 
-### TC-H 组件消费统一（对应 P1.5 U13，barrel import + 直接 new；线性版 Phase 9 = TC-24 组）
+### TC-H 组件消费统一（对应 P1.5 U13，barrel import + 直接 new；线性版 Phase 9 = TC-22 组）
 - **TC-H1 单 options 组件直接 new** 生成含 Wall/Grid/Rack 场景 → handler 为 `import { Wall } from '../../../../components'` + `new Wall({...})` 形态（非 createComponentObject）、渲染正常、循环子物 __id/applyOverride 契约不破（U3/U6/U8）
 - **TC-H2 位置参数组件** 「6 万实例森林/人群」触发 InstancedMesh2 → 照 catalog constructor 签名 `new InstancedMesh2(geo, mat, params)` 直接写（POSITIONAL_CTORS 已删、无适配表）（U4/U8）
 - **TC-H3 非 Object3D 组件** 「热力图铺地面」（HeatMap：new + `.setData()` + `.texture` 接 material.map）/「地面镜面反射」（MeshReflectorMaterial：`mesh.material =`）→ plan catalog 可见（U1/U2/U10 extends 行）+ handler 照 examples 多步用法

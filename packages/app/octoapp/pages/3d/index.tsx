@@ -51,7 +51,7 @@ import {
   type SceneCheckpoint,
 } from "./utils/scene-checkpoint"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
-import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError, type ErrorFinding } from "./utils/error-msg"
 import { runSceneGate, type GateFinding, type ConsoleEntry } from "./utils/scene-gate"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
@@ -375,6 +375,7 @@ function Scene3DContent() {
         errorDescription: protoErr.description,
         errorAgent: protoErr.agentLabel,
         errorCallId: protoErr.agentCallId,
+        errorFindings: protoErr.findings,
       }
     }
     return rounds
@@ -579,13 +580,16 @@ function Scene3DContent() {
   // ── 9a 门控：确定性结构健全性检查的 host 编排 ──
   /** P0.4 自愈循环的 9a 门控执行器（传给 codegen_scene，物化后循环内跑）。
    *  P0.10：删 awaitSceneSettled（SCENE_READY 握手 15s 超时竞态误报），改固定延迟 settleMs
-   *  等 iframe 渲染 + console buffer 收集，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件。 */
+   *  等 iframe 渲染 + console buffer 收集，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件。
+   *  P0.13：settleMs 固定 3s 抓不到慢加载场景的运行时报错 → 改渐进读 buffer（报错秒回、无错
+   *  settleMs 内判 PASS、timeoutMs 12s 上限兜底）。 */
   const codegenGateRunner = async (plan: unknown, sceneData: Record<string, unknown> | null) => {
     setConsoleBuffer([])
     return runSceneGate({
       plan,
       sceneData,
       settleMs: 3000,
+      timeoutMs: 12000,
       readConsoleBuffer: () => consoleBuffer(),
     })
   }
@@ -607,9 +611,11 @@ function Scene3DContent() {
       const errs = findings.filter((f) => f.level === "error")
       // title 直接用根因 message（去「9a 门控」内部代号 + code 代号，让用户看懂「为什么渲染不出来」）
       const title = errs.length > 0 ? errs.map((f) => f.message).join("；") : "场景渲染未通过"
-      setSessionErrors((prev) => ({ ...prev, [sid]: { title, agentLabel: "场景渲染失败" } }))
+      // P7-2：结构化 findings 透传给卡片「修复」入口（file/line/code/message）
+      const errorFindings: ErrorFinding[] = errs.map((f) => ({ file: f.file, line: f.line, code: f.code, message: f.message }))
+      setSessionErrors((prev) => ({ ...prev, [sid]: { title, agentLabel: "场景渲染失败", findings: errorFindings } }))
       setLastGateFindings((prev) => ({ ...prev, [sid]: findings }))
-      await saveProtoError(dir, sid, { title, agentLabel: "场景渲染失败" })
+      await saveProtoError(dir, sid, { title, agentLabel: "场景渲染失败", findings: errorFindings })
     }
   }
 
@@ -647,6 +653,7 @@ function Scene3DContent() {
         sceneDir: sceneHistoryDir(),
         sdkDir: sdk.directory,
         priorGateFindings,
+        priorErrors: sessionErrors()[sid]?.findings,
         gateRunner: codegenGateRunner,
         onCodeReady: async (files, sceneData, summary) => {
           await onCodeVersionReady(files, summary, sceneData, sid)
@@ -658,17 +665,24 @@ function Scene3DContent() {
       if (sid) sessionMap.set(setIsModifying, sid, false)
       if (codegenResult.error) {
         const cls = classifyAIError(codegenResult.error)
+        // P7-2：物化前 syntax/type 错的结构化 findings 透传给卡片「修复」入口
+        const findings = codegenResult.findings
         setSessionErrors((prev) => ({
           ...prev,
-          [sid]: { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成" },
+          [sid]: { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings },
         }))
         const errDir = sceneHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成" })
+        if (errDir) void saveProtoError(errDir, sid, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings })
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
       } else if (codegenResult.routing === "patch") {
-        // patch 已在 codegen_scene 内轻量物化（无 plan / 无 9a 门控）
-        showToast({ title: codegenResult.summary ?? "已应用 patch" })
+        // patch 已在 codegen_scene 内轻量物化。修复场景（priorErrors 非空）会带 gatePassed/gateFindings
+        // → 走 persistGateOutcome 落结果（PASS 清错 / FAIL 落失败卡片供再修复）；普通 patch 仍 toast。
+        if (codegenResult.gatePassed !== undefined) {
+          await persistGateOutcome(sid, codegenResult.gatePassed, codegenResult.gateFindings ?? [])
+        } else {
+          showToast({ title: codegenResult.summary ?? "已应用 patch" })
+        }
       } else if (codegenResult.plan) {
         // 9a 门控已在 codegen_scene 自愈循环内跑完（gateRunner），此处只落结果
         await persistGateOutcome(sid, codegenResult.gatePassed ?? true, codegenResult.gateFindings ?? [])
@@ -781,6 +795,7 @@ function Scene3DContent() {
         hasScene,
         sceneDir: sceneHistoryDir(),
         sdkDir: sdk.directory,
+        priorErrors: sid ? sessionErrors()[sid]?.findings : undefined,
         gateRunner: codegenGateRunner,
         onCodeReady: async (files, sceneData, summary) => {
           await onCodeVersionReady(files, summary, sceneData, sid)
@@ -795,17 +810,23 @@ function Scene3DContent() {
       // （带重试），扛 reload，不靠会消失的 toast。
       if (codegenResult.error) {
         const cls = classifyAIError(codegenResult.error)
+        const findings = codegenResult.findings
         setSessionErrors((prev) => ({
           ...prev,
-          [sid!]: { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成" },
+          [sid!]: { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings },
         }))
         const errDir = sceneHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid!, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成" })
+        if (errDir) void saveProtoError(errDir, sid!, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings })
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
       } else if (codegenResult.routing === "patch") {
-        // patch 已在 codegen_scene 内轻量物化（无 plan / 无 9a 门控）
-        showToast({ title: codegenResult.summary ?? "已应用 patch" })
+        // patch 已在 codegen_scene 内轻量物化。修复场景（priorErrors 非空）会带 gatePassed/gateFindings
+        // → 走 persistGateOutcome 落结果（PASS 清错 / FAIL 落失败卡片供再修复）；普通 patch 仍 toast。
+        if (codegenResult.gatePassed !== undefined) {
+          await persistGateOutcome(sid!, codegenResult.gatePassed, codegenResult.gateFindings ?? [])
+        } else {
+          showToast({ title: codegenResult.summary ?? "已应用 patch" })
+        }
       } else if (codegenResult.plan) {
         // 9a 门控已在 codegen_scene 自愈循环内跑完（gateRunner），此处只落结果
         await persistGateOutcome(sid!, codegenResult.gatePassed ?? true, codegenResult.gateFindings ?? [])
@@ -1412,6 +1433,15 @@ function Scene3DContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession((prev) => (prev ? { ...prev, title } : prev))}
             onRetry={handleRetry}
+            onFix={(findings) => {
+              // P7-2：把结构化报错预填进输入框（file:line: message (code N) 形式），用户可直接发或改自然语言
+              const lines = findings.map((f) => {
+                const loc = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : ""
+                const code = f.code ? ` (code ${f.code})` : ""
+                return loc ? `${loc}: ${f.message}${code}` : `${f.message}${code}`
+              })
+              setPrompt(`修这个报错：\n${lines.join("\n")}`)
+            }}
           />
 
         {/* 拖拽分隔条 */}

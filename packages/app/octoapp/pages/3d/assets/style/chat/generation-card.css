@@ -129,3 +129,21 @@
 .gc-retry-btn:hover {
   background: var(--octo-brand-hover);
 }
+
+/* P7-2 修复入口：与「重试」并列，视觉上为次级（描边）按钮，引导用户精准修一行而非同 prompt 重跑 */
+.gc-fix-btn {
+  padding: 3px 12px;
+  border: 1px solid var(--octo-brand);
+  background: transparent;
+  color: var(--octo-brand);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gc-fix-btn:hover {
+  background: var(--octo-brand);
+  color: var(--octo-surface-result);
+}

@@ -27,6 +27,10 @@ export interface GateFinding {
   level: "error" | "warn"
   code: string
   message: string
+  /** 从 console message 正则提取的文件名（如 stadium.ts）；P7-2 修复入口定位用 */
+  file?: string
+  /** 从 console message 正则提取的行号；P7-2 修复入口定位用 */
+  line?: number
 }
 
 /** 运行时 console 条目（iframe 经 SCENE_CONSOLE_ERROR / SCENE_ERROR 转发） */
@@ -43,12 +47,27 @@ export interface GateResult {
   findings: GateFinding[]
 }
 
+/** 从 console message / stack 提取 `file.ts:line` 定位（P7-2 修复入口用）。
+ *  匹配 ComponentManager 转发的 `handler "type" (node.id) create 抛错` 形式取 type 作 file hint，
+ *  以及通用 `(\w+\.ts):(\d+)` 模式。提不到则 file/line 为 undefined（修复入口退化为纯 message）。 */
+function extractFileLine(message: string, stack?: string): { file?: string; line?: number } {
+  const text = `${message}\n${stack ?? ""}`
+  // 通用 `path/file.ts:line` 模式（TS 报错 / vite 报错都含此形式）
+  const m = text.match(/([\w./-]+\.ts):(\d+)/)
+  if (m) {
+    return { file: m[1].split("/").pop(), line: Number(m[2]) }
+  }
+  return {}
+}
+
 export interface RunSceneGateInput {
   /** 透传场景元数据（direct 落地后门控不再读 plan，仅供 host stash；host 传 DirectPlan） */
   plan: unknown
   sceneData: Record<string, unknown> | null
-  /** 等 iframe 渲染 + console buffer 收集的固定延迟（ms，默认 3000）。不靠 SCENE_READY 握手。 */
+  /** 等 iframe 渲染 + console buffer 收集的基准延迟（ms，默认 3000）。无错延后判 PASS 的窗口。 */
   settleMs?: number
+  /** 总轮询上限（ms，默认 12000）。慢加载场景报错落在 settleMs 外也能抓到。 */
+  timeoutMs?: number
   /** 读 gate 期间收集的 console buffer（host 侧 signal 快照） */
   readConsoleBuffer: () => ConsoleEntry[]
 }
@@ -57,12 +76,14 @@ export interface RunSceneGateInput {
 function checkRuntime(entries: ConsoleEntry[]): GateFinding[] {
   const findings: GateFinding[] = []
   for (const e of entries) {
+    const loc = extractFileLine(e.message, e.stack)
     if (e.fatal) {
       findings.push({
         check: "runtime",
         level: "error",
         code: "scene-build-error",
         message: e.message,
+        ...loc,
       })
     } else if (e.level === "error") {
       findings.push({
@@ -70,6 +91,7 @@ function checkRuntime(entries: ConsoleEntry[]): GateFinding[] {
         level: "error",
         code: "runtime-error",
         message: e.message,
+        ...loc,
       })
     } else if (e.level === "warn") {
       findings.push({
@@ -77,6 +99,7 @@ function checkRuntime(entries: ConsoleEntry[]): GateFinding[] {
         level: "warn",
         code: "runtime-warn",
         message: e.message,
+        ...loc,
       })
     }
   }
@@ -84,16 +107,34 @@ function checkRuntime(entries: ConsoleEntry[]): GateFinding[] {
 }
 
 /**
- * 跑运行时检查。等 iframe 渲染 settle（固定延迟）+ 读 console buffer。
+ * 跑运行时检查。渐进读 console buffer：报错秒回 FAIL，无错 settleMs 内判 PASS，timeoutMs 兜底。
  *
- * 运行时错（SCENE_ERROR/SCENE_CONSOLE_ERROR）是确定性事件——有就是渲染崩了/哪步错了，
- * 喂回 codegen 自愈；没有就通过。
+ * P0.13（2026-09-07）：固定 3s 抓不到慢加载场景的运行时报错（vite 编译 + iframe 加载 +
+ * ComponentManager 遍历常超 3s）。改渐进轮询：每 500ms 读一次 buffer，error 级立即判 FAIL；
+ * settleMs 内仍无 error 级 entry → 判 PASS（不拖到 timeoutMs）；timeoutMs 内报错都抓到。
+ *
+ * 与 P7-1（物化前 tsc 类型检查）互补：tsc 抓 API 误用（TS2339 rect）/未定义变量（TS2304）在物化前拦截；
+ * gate 兜 tsc 抓不到的运行时动态错（异步链、动态属性访问）。ComponentManager.create try/catch
+ * 把 handler 抛错即时转发为 console.error → 即时进 buffer → 轮询秒捕，不必等满 settleMs。
  */
 export async function runSceneGate(input: RunSceneGateInput): Promise<GateResult> {
-  const findings: GateFinding[] = []
-  await new Promise((r) => setTimeout(r, input.settleMs ?? 3000))
-  findings.push(...checkRuntime(input.readConsoleBuffer()))
-  return { passed: !findings.some((f) => f.level === "error"), findings }
+  const settleMs = input.settleMs ?? 3000
+  const timeoutMs = input.timeoutMs ?? 12000
+  const start = Date.now()
+  const POLL_MS = 500
+  let lastFindings: GateFinding[] = []
+  while (Date.now() - start < timeoutMs) {
+    const findings = checkRuntime(input.readConsoleBuffer())
+    lastFindings = findings
+    if (findings.some((f) => f.level === "error")) {
+      return { passed: false, findings }
+    }
+    if (Date.now() - start >= settleMs) {
+      return { passed: true, findings }
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS))
+  }
+  return { passed: !lastFindings.some((f) => f.level === "error"), findings: lastFindings }
 }
 
 /** 把 findings 格式化成喂回 codegen 的 `## 上一轮门控失败清单` 段（仅 error 级 + warn 概要） */

@@ -210,31 +210,23 @@
 
 ## Phase 7 — 9a 门控（构造失败，独立不依赖主线）
 
-### TC-18 缺 type 失败 → P0-13
-- **构造**：让 modify 输出漏一个 type handler（index.ts import 缺文件）。
-- **预期**：门控完整性检查失败，**不物化**，失败卡片可重试。
-
-### TC-19 tsc 错失败 → P0-14
-- **构造**：handler 有 TS 类型错（如拼错类型名）。
-- **预期**：tsc 检查失败、不物化。
-
-### TC-20 console 错失败 → P0-15
+### TC-18 console 错失败 → P0-15
 - **构造**：handler 运行时抛错（如访问 undefined）。
 - **预期**：SCENE_CONSOLE_ERROR 捕获、失败卡片。
 
-### TC-21 重试喂回 → P0-16
-- **操作**：TC-18~20 任一失败后修正重试。
-- **预期**：重试成功物化。
+### TC-19 重试 → P0-16
+- **操作**：TC-18 失败后用户点「重试」或「修复」。
+- **预期**：重试成功物化；「修复」走 P7-2 edit_code 闭环。
 
 ---
 
 ## Phase 8 — 性能（可选）
 
-### TC-22 plan 加速
+### TC-20 plan 加速
 - **指令**：生成「机房」场景（[[3d-codegen-plan]] Step8① 静态注入）。
 - **预期**：plan 阶段 ~7s（历史 11:35→7s）。
 
-### TC-23 不 stall
+### TC-21 不 stall
 - **构造**：LLM 流式 stall（断网/慢模型）。
 - **预期**：3min idle 超时兜底→失败卡片可重试（[[3d-codegen-stall-timeout]]）。
 
@@ -244,7 +236,7 @@
 
 > 前置：P1.5 U1~U12 已落地（3d-components gen 去 CREATABLE_DOMAINS + 文档页补 tag / 3d-templete 删 libraryBridge 工厂 + barrel 全域导出 / UXAI prompt 改写 + formatCatalog 加 extends），**opencode 已重启**（docCache 进程级缓存）。矩阵版对应 §十五 TC-H。本组验证「新组件零适配 + 全类型组件可用」。
 
-### TC-24 库组件直接 new（单 options Object3D）
+### TC-22 库组件直接 new（单 options Object3D）
 - **起始状态**：P1.5 后新会话（不依赖前序场景）。
 - **指令**：「生成一个带围墙的庭院，墙用 Wall 组件」（或任意明确点名 Wall/Grid/Rack 的场景）。
 - **预期**：生成 handler 源码为 `import { Wall } from '../../../../components'` + `const wall = new Wall({...})` 形态（**非** `createComponentObject`）；场景渲染正常；循环子物仍盖 `__id` + `applyOverride`（HANDLER_CONTRACT 契约不破）。
@@ -254,31 +246,31 @@
   - 生成的 handler 仍写 createComponentObject → prompt 5 处没改全（U8），查行 10/25/130/133/138。
   - 渲染空 → handler create 返回根未 group.add（extends 判挂载没吃到，查 U10 formatCatalog extends 行）。
 
-### TC-24a 位置参数组件（InstancedMesh2）
+### TC-22a 位置参数组件（InstancedMesh2）
 - **指令**：「生成一片 6 万棵树的森林」（触发 InstancedMesh2 选型，≥5万阈值见 [[3d-instanced-mesh2-threshold]]）。
 - **预期**：handler 照 catalog constructor 签名直接 `new InstancedMesh2(geometry, material, params)`（**无 POSITIONAL_CTORS 适配表**，工厂已删）；实例渲染正常、性能可接受。
 - **验证点**：方案核心——签名即适配器。
 - **失败排查**：`material is mandatory` 类构造错 = codegen 没照 constructor 字段抄签名（查 U8 prompt 是否强调照 catalog 签名）。
 
-### TC-24b 非 Object3D 组件（HeatMap 纹理 / MeshReflectorMaterial 材质）
+### TC-22b 非 Object3D 组件（HeatMap 纹理 / MeshReflectorMaterial 材质）
 - **指令**：「生成一个机房，地面铺设备热力图」；再试「地板加镜面反射」。
 - **预期**：plan 阶段 catalog 可见这两类（U2 补 import tag 后进 components.json + U10 extends 行让 plan 知道非 Object3D）；handler `import { HeatMap } from '../../../../components'` + `new HeatMap(opts)` + `.setData(...)` + `material.map = heatMap.texture`（照 examples 多步用法）；或 `mesh.material = new MeshReflectorMaterial(...)`。
 - **验证点**：非 Object3D 组件**首次**对 LLM 可用且用法正确（此前 catalog 只进 11 个 core Object3D）。
 - **失败排查**：plan 选不出/不认识 → components.json 未含（gen 没重跑 / 文档页没补 tag / opencode 没重启，三查）；用法错（如把 HeatMap 当 Object3D add）→ formatCatalog 缺 extends 行（U10）。
 
-### TC-24c IUpdatable traverse 探测
+### TC-22c IUpdatable traverse 探测
 - **指令**：生成含动画/自更新组件的场景（如 Html 或任何带 `update()` 的组件）。
 - **预期**：`setupUpdatables` traverse 探测 `typeof obj.update === 'function'` 收进渲染循环（U7，不再依赖工厂 `__updatable` 标记）；动画/自更新持续运行不静止。
 - **验证点**：直接 new 的 IUpdatable 组件也自动被收集。
 
-### TC-25 存量版本回切不崩（U12）
+### TC-23 存量版本回切不崩（U12）
 - **操作**：P1.5 落地前已有历史版本的会话，版本来回切。
 - **预期**：旧 handler 无工厂调用则照常渲染；若存量有 `createComponentObject` 调用（U12 扫描应提前发现）则按评估的迁移/过渡方案兜底，回切不白屏不 import 崩。
 - **验证点**：删工厂无存量破坏。
 - **失败排查**：白屏 + vite 报 import 错 → 存量 handler 有工厂调用且无过渡（回到 U12 评估）。
 
-### TC-26 NL patch 兼容（new 形态 handler）
-- **起始状态**：TC-24 生成的场景。
+### TC-24 NL patch 兼容（new 形态 handler）
+- **起始状态**：TC-22 生成的场景。
 - **指令**：「把墙改成蓝色」；「删掉第一段墙」。
 - **预期**：edit_code 改 color 字面量 / 删 group.add 行照常生效（host `ensureApplyOverride` 手术匹配 `objVar.userData.__id` **变量赋值形态**，与创建方式无关——`const wall = new Wall(...)` 照常命中）。
 - **验证点**：host 业务逻辑零改动判断成立（P1.5 定案依据）。
@@ -286,34 +278,23 @@
 
 ---
 
-## Phase 10 — codegen 语法错自愈（对应 §十四 P0.4，parse 检查 + 自动重试喂回；独立不依赖主线）
+## Phase 10 — codegen 语法错检查 + 运行时错门控抓取（对应 §十四 P0.4/P0.13）
 
-### TC-27 语法错 parse 拦截 → P0.4-1/2
+### TC-25 语法错 parse 拦截 → P0.4-1/2
 - **构造**：让 codegen 输出含 `wheel.rotation. = Math.PI/2`（PARSE_ERROR，`ses_f9e9d7b7` vehicles.ts:139 同类）。
-- **预期**：物化前 `checkHandlerSyntax`（`ts.transpileModule` reportDiagnostics）抓到 Error 级 diagnostic → **不进 onCodeReady/materialize**（不触发 materialize→startDev→15s 超时慢链），~10ms 拦截；自动进入重试（不报「场景未就绪」误导）。
+- **预期**：物化前 `checkHandlerSyntax`（`ts.transpileModule` reportDiagnostics）抓到 Error 级 diagnostic → **不进 onCodeReady/materialize**（不触发 materialize→startDev→15s 超时慢链），~10ms 拦截；落失败卡片（用户点「修复」或重试）。
 - **验证点**：语法错在物化前被拦（非等到 vite transform 15s 超时）。
 - **失败排查**：仍 15s 超时报「场景未就绪」→ `checkHandlerSyntax` 没在 onCodeReady 前跑/没抓到该 diagnostic。
 
-### TC-28 自动重试自愈（scoped：只重输出出错文件）→ P0.4-3 / P0.5
-- **操作**：TC-27 触发后，自动重跑 codegen（同 session，不要求用户点重试）。
-- **预期**：LLM 收到 `## 上一轮代码错误清单`（`vehicles.ts:139:25 Identifier expected (code 1003)`）+ `## 本轮输出范围（只改有错的文件）`（仅列 vehicles.ts）→ 只重输出该文件 → 修对 → 正常物化渲染。
-- **验证点**：不需要手动重试 9 次（用户痛点核心）；语法错喂回让 LLM 照 `file:line:reason` 修有效；**scoped 生效**——console 出现 `⑥0 scoped 重试 merge：LLM 重输出 N 个文件，复用上一轮 M 个未出错文件`，且 N < 全量文件数（其余文件 host 复用上一轮）；重试轮墙钟明显短于首轮（输出 token 收敛）。LLM 全量输出也兼容（overlay 覆盖同路径，结果一致）。
-- **失败排查**：LLM 重跑仍错→看喂回格式是否含具体行号+原因（非泛泛「有语法错」）；scoped 没生效→看 `computeSyntaxScope` 是否因「全部 .ts 都错」返 undefined（等于全量，属预期）。
+### TC-26 运行时错门控抓取 + 修复闭环（continue outside loop）→ P0.13 / P7-2
+- **构造**：让 codegen 输出 `continue` outside loop（`facilities.ts:240` 同类；语法合法 transpile 过、运行时 SyntaxError）。
+- **预期**：transpileModule 不报（语义错）→ 物化→iframe 运行时抛 `SyntaxError: Illegal continue statement` → ComponentManager try/catch 抓住 → console.error 转发 → 门控（P0.13）渐进读 buffer 秒判 FAIL → 失败卡片显示 `[handler] xxx create failed: SyntaxError: Illegal continue statement` → 用户点「修复」（P7-2）→ triage 路由 edit_code 改那一行 → 重跑门控通过。
+- **验证点**：运行时错靠门控抓到秒判 FAIL（非「生成完成」误判）；失败卡片显示错误供用户点「修复」。
+- **失败排查**：运行时错没抓到→查 consoleBuffer 是否收集到 SCENE_CONSOLE_ERROR；门控是否渐进读到 error 级秒判 FAIL。
 
-### TC-29 运行时错自愈（continue outside loop）→ P0.4-3
-- **构造**：`continue` outside loop（`facilities.ts:240` 同类；语法合法 transpile 过、运行时 SyntaxError）。
-- **预期**：transpileModule 不报（语义错非语法错）→ 物化→iframe 加载→运行时抛 `SyntaxError: Illegal continue statement` → SCENE_CONSOLE_ERROR（index.html inline script 转发）→ 门控 runtime-error → 自动重试喂回 `## 上一轮门控失败清单`（`facilities.ts:240:32 Illegal continue statement`）→ 修对。
-- **验证点**：语义错走 Layer 2（运行时门控）不漏；两类错各有抓法。
-- **失败排查**：运行时错没喂回→gate findings 是否进 priorGateFindings 重试循环。
-
-### TC-30 三次仍错落卡片 → P0.4-3
-- **构造**：持续语法错（同 session 重跑 3 次都错，如 LLM 反复写同一类错）。
-- **预期**：3 次后停止重试 → 落失败卡片（带完整错误清单 `file:line:reason` 供用户判断，非「场景未就绪」误导）。
-- **验证点**：不无限重试烧 token；失败信息可读（指到行+原因）。
-
-### TC-31 正常代码不受影响 → P0.4-1
+### TC-27 正常代码不受影响 → P0.4-1
 - **操作**：正常生成场景（无语法错）。
-- **预期**：parse 检查 0 error → 直接物化渲染（不重试不卡不误拦截）。
+- **预期**：parse 检查 0 error → 直接物化渲染（不卡不误拦截）。
 - **验证点**：无回归（正常流程 parse 检查透明无感）。
 - **失败排查**：正常代码被误拦截→transpileModule 误报 Error（应为 0，检查 compilerOptions 是否引出语义误报）。
 
@@ -321,31 +302,25 @@
 
 ## Phase 11 — SCENE_READY 握手砍除回归（对应 §十四 P0.10，方向 A 治本；独立不依赖主线）
 
-> **背景**：P0.10 砍掉 9a 门控的 `awaitSceneSettled`（15s SCENE_READY 握手超时）——握手与 resolver 时序竞态致误报「场景未就绪」（ses_f9a1462a1 仓库 / ses_f99eec1c 园区实证：codegen 成功且场景已渲染，仍报超时不重试）。改固定延迟 `settleMs`(3s) 等 console buffer 收集，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件。本组验砍握手后正常生成不再误报 + 运行时错自愈不受影响。
+> **背景**：P0.10 砍掉 9a 门控的 `awaitSceneSettled`（15s SCENE_READY 握手超时）——握手与 resolver 时序竞态致误报「场景未就绪」（ses_f9a1462a1 仓库 / ses_f99eec1c 园区实证：codegen 成功且场景已渲染，仍报超时不重试）。改固定延迟 `settleMs`(3s) 等 console buffer 收集，失败靠 SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件。本组验砍握手后正常生成不再误报 + 运行时错门控抓到（P0.13 渐进读 buffer）。
 
-### TC-32 正常生成不报 scene-not-ready（P0.10）→ P0.10-4
+### TC-28 正常生成不报 scene-not-ready（P0.10）→ P0.10-4
 - **起始状态**：空白新会话。
 - **指令**：「一个大型物流仓库内部场景」（或任意 create 指令）。
 - **预期**：codegen 完成后场景正常渲染，**不弹失败卡片**，console 无「场景就绪超时（15s 未收到 SCENE_READY）」。gate console 日志 `⑧ 9a 门控: PASS`（完整性 + 0 运行时错）。
 - **验证点**：SCENE_READY 握手已删，正常生成不再因握手竞态误报。
 - **失败排查**：仍报 scene-not-ready → runSceneGate 仍调 awaitSceneSettled（改动未生效，查 scene-gate.ts runSceneGate 是否还引用 awaitSceneSettled）。
 
-### TC-33 切走切回不报 scene-not-ready（P0.10）→ P0.10-4
-- **操作**：TC-32 生成中（codegen 跑着）切到别的会话再切回。
+### TC-29 切走切回不报 scene-not-ready（P0.10）→ P0.10-4
+- **操作**：TC-28 生成中（codegen 跑着）切到别的会话再切回。
 - **预期**：切回后卡片正常显示，**不报 scene-not-ready**，场景最终渲染（pendingData 在 SCENE_READY 到时推送）。
 - **验证点**：切走切回不再触发握手超时（握手已删，不存在 15s 超时窗口）。
 
-### TC-34 运行时错自愈回归（P0.10）→ P0.10-4
-- **构造**：让 codegen 输出 `continue` outside loop（TC-29 同类）。
-- **预期**：物化→iframe 运行时抛 SyntaxError → SCENE_CONSOLE_ERROR → checkRuntime 抓 runtime-error → 自愈重试喂回。**不报 scene-not-ready**（已删）。
-- **验证点**：砍握手后运行时错自愈链路不受影响（checkRuntime 仍有效，runtime-error/scene-build-error 仍喂回 codegen 重试）。
-- **失败排查**：运行时错没喂回→查 consoleBuffer 是否收集到 SCENE_CONSOLE_ERROR（onConsoleError → setConsoleBuffer）；gate findings 是否进 priorGateFindings 重试循环。
-
 ---
 
-## Phase 12 — 收尾与后续阶段用例（对应 §十四 剩余待办；TC-35/36 现在可跑，TC-37+ 对应项落地后跑）
+## Phase 12 — 收尾与后续阶段用例（对应 §十四 剩余待办；TC-30/31 现在可跑，TC-32+ 对应项落地后跑）
 
-### TC-35 8-agent 全清回归（P5 孤儿清理 + checkpoint 统一，2026-09-04 落地）
+### TC-30 8-agent 全清回归（P5 孤儿清理 + checkpoint 统一，2026-09-04 落地）
 - **前置**：重启 opencode（模板/agent 注册变更须进程重启生效）。
 - **步骤**：
   1. 新会话「一个大型物流仓库内部场景」→ 三卡片（需求分析→选型规划→代码生成）顺序出现、场景渲染
@@ -356,46 +331,41 @@
 - **预期**：无 agent not found / 模板 undefined 报错；checkpoint 只认 stage=codegen；无 {占位符} 裸露。
 - **失败排查**：报 agent 不存在 → agent.ts 注册残引；prompt 裸露 {XXX} → proto/index.ts _staticData 键缺失。
 
-### TC-36 打包 exe 内 3D 全链路（§十四 贯穿漏账补录）
+### TC-31 打包 exe 内 3D 全链路（§十四 贯穿漏账补录）
 - **前置**：`release.ts --win --channel dev` 打包并运行 exe（非 dev 环境）。
 - **步骤**：新会话生成场景 → 渲染 → modify 一版 → patch 一版 → 切历史 → 导出工程 zip。
 - **预期**：get-3d-src-dirs 运行时解析 staging .3d-dist 成功，51857 起得来，全链路与 dev 一致。
 - **失败排查**：白屏 → extraResources .3d-dist 是否进包；dev 起不来 → 打包环境路径解析。
 
-### TC-37 codegen 并行 per-type 拆分（P6-1，落地后）
-- **指令**：生成 7-type 场景（如园区）。
-- **预期**：plan 后 N 个 type child 并行（会话列表可见），墙钟 ≈ 最慢一路 + plan（目标 ~2min vs 现 7-13min）；index.ts host 合并全注册；门控/自愈不变（D3 兜底）。
-- **回归点**：TC-11 加小车（modify 单 type 不丢他人）；TC-28 scoped 自愈在并行路下仍成立。
-
-### TC-38 Phase L 灯增删（L1-L4，落地后）
+### TC-32 Phase L 灯增删（L1-L4，落地后）
 - **指令**：①「加一盏暖色射灯在门口」②「删掉那排吊灯」③「环境光换成点光源」。
 - **预期**：add/remove 走 set_light 增量 mutate（不 reload 不闪不丢编辑态）；point/spot 正确渲染。
 
-### TC-39 Phase S renderer/controls 数据驱动 + remove_type（S1-S6+D1，落地后）
+### TC-33 Phase S renderer/controls 数据驱动 + remove_type（S1-S6+D1，落地后）
 - **指令**：①「把渲染器阴影关了」②「鼠标改成左键旋转」③「把所有树删掉」。
 - **预期**：①② set_renderer/set_controls 落 live-data、切走切回保留；③ remove_type 分组消失、index.ts 注销、无残留空 Group。
 
-### TC-40 Phase R 重构回归（R1-R9，落地后）
-- **说明**：纯结构重构，行为零变化是验收标准。跑核心子集：TC-35 全链路 + TC-02/03/04 场景级 + TC-14a/14b 编辑态 + TC-05b 切历史。
+### TC-34 Phase R 重构回归（R1-R9，落地后）
+- **说明**：纯结构重构，行为零变化是验收标准。跑核心子集：TC-30 全链路 + TC-02/03/04 场景级 + TC-14a/14b 编辑态 + TC-05b 切历史。
 
-### TC-41 M-4 数据驱动 handler（落地后）
+### TC-35 M-4 数据驱动 handler（落地后）
 - **指令**：①「货架从 3 排加到 5 排」②「集装箱数量翻倍」。
 - **预期**：改 live-data params（数量/尺寸），handler 不重写、无场景级漂移、无物体丢失——根治 G1/G2。
 
-### TC-42 triage→plan 合并（P6-4/Step8②，落地后）
-- **预期**：单 agent 完成 routing+选型；create/modify/patch 分流与现 triage 一致（TC-35 步骤 1-3 回归）；墙钟省 ~15-40s。
+### TC-36 triage→plan 合并（P6-4/Step8②，落地后）
+- **预期**：单 agent 完成 routing+选型；create/modify/patch 分流与现 triage 一致（TC-30 步骤 1-3 回归）；墙钟省 ~15-40s。
 
-### TC-43 plan→codegen 流式衔接（P6-5/Step8③，落地后）
+### TC-37 plan→codegen 流式衔接（P6-5/Step8③，落地后）
 - **预期**：plan 流式吐 types[] 后 codegen 即启动，gap 归零；plan 后补 type 由 host 端处理；正常生成再省 1-7min。
 
-### TC-44 9b VLM 审美评审（落地后）
+### TC-38 9b VLM 审美评审（落地后）
 - **预期**：生成后截图送 VLM 评布局/配色，低分喂回重试一轮；不阻塞物化（建议性）。
 
-### TC-45 混元真实密钥验证（外部依赖）
+### TC-39 混元真实密钥验证（外部依赖）
 - **前置**：.env.local 配真实密钥。
 - **预期**：Step5 GLB 真实返回；确认 zip 还是 GLB，决定 adm-zip 去留（§十.9）。
 
-### TC-46 P1.6 静默 typo 评估（可选，大概率不做）
+### TC-40 P1.6 静默 typo 评估（可选，大概率不做）
 - **方法**：e2e 观察生成 handler 静默 typo（拼错属性不 throw）发生率；低则不落地 tsgo --noEmit 检查。
 
 ---
@@ -426,18 +396,17 @@
 | TC-15 | 改名/删物 | ⬜ | — | 未测 |
 | TC-16 | 不重建门控 | ⬜ | — | 未测 |
 | TC-17 | workspace 互踩 | ⬜ | — | 未测 |
-| TC-18/19 | 9a 门控（缺type/tsc） | 作废 | P0-13/14 | 作废（checkCompleteness 冗余已删 / tsc 已下线） |
-| TC-20/21 | 9a 门控（console错/重试喂回） | ✅✅ | P0-15/16 | 2026-09-03 验证（checkRuntime 抓 SCENE_CONSOLE_ERROR 自愈 + 门控 PASS 喂回） |
-| TC-22/23 | 性能（plan 加速/不 stall） | ✅✅ | P6-2/P6-3 | 2026-09-03 验证（plan idle 60s 未误杀 + 模板瘦身 19K→13K 无回退） |
-| TC-24~24c | 组件直接 new | ⬜⬜⬜⬜ | P1.5 U13 | P1.5 已落地(2026-09-03)，e2e 待跑（可与 TC-35 合并跑） |
-| TC-25 | 存量回切 | ⬜ | P1.5 U12 | 用户定调「不管旧版」，降为可选 |
-| TC-26 | NL patch 兼容 | ⬜ | P1.5 | e2e 待跑（可与 TC-24 组合并） |
-| TC-27~31 | 语法错自愈组 | ✅✅✅✅✅ | P0.4-6/P0.5-4 | 2026-09-03 验证（transpileModule 回退版 + scoped 自愈） |
+| TC-18/19 | 9a 门控（console错/失败卡片） | ✅✅ | P0-15/16 | 2026-09-03 验证（checkRuntime 抓 SCENE_CONSOLE_ERROR + 门控 PASS）；运行时错落失败卡片供 P7-2 修复 |
+| TC-20/21 | 性能（plan 加速/不 stall） | ✅✅ | P6-2/P6-3 | 2026-09-03 验证（plan idle 60s 未误杀 + 模板瘦身 19K→13K 无回退） |
+| TC-22~22c | 组件直接 new | ⬜⬜⬜⬜ | P1.5 U13 | P1.5 已落地(2026-09-03)，e2e 待跑（可与 TC-30 合并跑） |
+| TC-23 | 存量回切 | ⬜ | P1.5 U12 | 用户定调「不管旧版」，降为可选 |
+| TC-24 | NL patch 兼容 | ⬜ | P1.5 | e2e 待跑（可与 TC-22 组合并） |
+| TC-25/26/27 | 语法错拦截 / 运行时错门控抓取 / 正常不受影响 | ⬜⬜⬜ | P0.4/P0.13/P7-2 | TC-25/27 ✅ 单测覆盖；e2e 待跑（含 P7-2 修复闭环） |
 
 
 
-| TC-32~34 | SCENE_READY 砍除回归 | ✅✅✅ | P0.10-4 | 2026-09-03 验证（settleMs 3s + 确定性事件判失败） |
-| TC-35 | 8-agent 全清回归 | ⬜ | P5 孤儿清理 | 2026-09-04 落地，e2e 待跑（可并 TC-24 组一次跑完） |
-| TC-36 | 打包 exe 3D 链路 | ⬜ | §十四 贯穿 | 待跑 |
+| TC-28/29 | SCENE_READY 砍除回归 | ✅✅ | P0.10 | 2026-09-03 验证（settleMs 3s + 确定性事件判失败） |
+| TC-30 | 8-agent 全清回归 | ⬜ | P5 孤儿清理 | 2026-09-04 落地，e2e 待跑（可并 TC-22 组一次跑完） |
+| TC-31 | 打包 exe 3D 链路 | ⬜ | §十四 贯穿 | 待跑 |
 
-> **2026-08-31 首跑小结**（跑的是 §十五 矩阵版，本线性表按 session 映射回填）：通过 7（TC-01/02/03/04/09 + TC-12b/14a）⚠️ 部分 4（~~TC-06/07/10 闪~~ ✅已修+e2e验证 2026-09-01 / ~~TC-11 G2~~ ✅已修+e2e验证 2026-09-02）❌ 失败 3（~~TC-08 集装箱重写~~ ✅已修+e2e验证 2026-09-01 / ~~TC-12c 灯改色~~ ✅已修+验证 2026-08-31 / ~~TC-14b 整体 transform~~ ✅已修+验证 2026-08-31）。根因全取证见 §十四 P0.1。修复优先级：~~P0.1-4（group 根死项）~~ ✅ → ~~P0.1-5（多同色改色）~~ ✅已修+e2e验证 → ~~**P0.2 stop 无响应**（TC-01b 新增，abortWait 强制 reject）~~ ✅已修+e2e验证 2026-08-31 → ~~**P0.1-2（切历史）**~~ ✅已修+e2e验证 2026-08-31（TC-05b）→ ~~**P0.1-1（闪烁根治）**~~ ✅已修+e2e验证 2026-09-01（单一重载源，TC-06/10/14a 各只闪 1 次）→ ~~**P0.1-3（非一等实例）**~~ ✅已修+e2e验证通过 2026-09-01（正则 `(\w+)`→`(\w+\+*\??)` 认 xi++ + resolveCounterLoopCount 嵌套 for-of 上界 + triage 语义映射 集装箱=box + searchHandlerForSynonymCid 同义词兜底；TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移）。**P0.1 全系修完+e2e验证通过**。~~P1-G2（modify 场景级 merge，TC-11 锚点）~~ → **✅ P1-G2 已修+e2e验证通过 2026-09-02**（6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，完整覆盖非字段级 merge；镜像 6c handler merge 范式；TC-11 加小车后 bg/env/cam/lights 不漂移）。**P0+P1 全系修完+e2e验证通过**。下一步 P1.5 组件消费统一（barrel import + 直接 new，U1~U13 落地后跑 Phase 9 TC-24 组）→ P2 Phase R（代码结构重构）。
+> **2026-08-31 首跑小结**（跑的是 §十五 矩阵版，本线性表按 session 映射回填）：通过 7（TC-01/02/03/04/09 + TC-12b/14a）⚠️ 部分 4（~~TC-06/07/10 闪~~ ✅已修+e2e验证 2026-09-01 / ~~TC-11 G2~~ ✅已修+e2e验证 2026-09-02）❌ 失败 3（~~TC-08 集装箱重写~~ ✅已修+e2e验证 2026-09-01 / ~~TC-12c 灯改色~~ ✅已修+验证 2026-08-31 / ~~TC-14b 整体 transform~~ ✅已修+验证 2026-08-31）。根因全取证见 §十四 P0.1。修复优先级：~~P0.1-4（group 根死项）~~ ✅ → ~~P0.1-5（多同色改色）~~ ✅已修+e2e验证 → ~~**P0.2 stop 无响应**（TC-01b 新增，abortWait 强制 reject）~~ ✅已修+e2e验证 2026-08-31 → ~~**P0.1-2（切历史）**~~ ✅已修+e2e验证 2026-08-31（TC-05b）→ ~~**P0.1-1（闪烁根治）**~~ ✅已修+e2e验证 2026-09-01（单一重载源，TC-06/10/14a 各只闪 1 次）→ ~~**P0.1-3（非一等实例）**~~ ✅已修+e2e验证通过 2026-09-01（正则 `(\w+)`→`(\w+\+*\??)` 认 xi++ + resolveCounterLoopCount 嵌套 for-of 上界 + triage 语义映射 集装箱=box + searchHandlerForSynonymCid 同义词兜底；TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移）。**P0.1 全系修完+e2e验证通过**。~~P1-G2（modify 场景级 merge，TC-11 锚点）~~ → **✅ P1-G2 已修+e2e验证通过 2026-09-02**（6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，完整覆盖非字段级 merge；镜像 6c handler merge 范式；TC-11 加小车后 bg/env/cam/lights 不漂移）。**P0+P1 全系修完+e2e验证通过**。下一步 P1.5 组件消费统一（barrel import + 直接 new，U1~U13 落地后跑 Phase 9 TC-22 组）→ P2 Phase R（代码结构重构）。

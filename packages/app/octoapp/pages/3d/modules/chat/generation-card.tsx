@@ -9,7 +9,11 @@ export function GenerationCard(props: {
   errorAgent?: string
   errorCallId?: string
   errorDescription?: string
+  /** P7-2：结构化报错清单（file/line/code/message），「修复」入口预填输入框用 */
+  errorFindings?: { file?: string; line?: number; code?: string; message: string }[]
   onRetry?: () => void
+  /** P7-2：点击「修复」→ 把结构化报错预填进输入框 */
+  onFix?: (findings: { file?: string; line?: number; code?: string; message: string }[]) => void
 }): JSX.Element {
   const cardState = () => {
     if (props.error) {
@@ -20,6 +24,8 @@ export function GenerationCard(props: {
     if (props.cancelled) return { title: "已取消", subtitle: "生成已中断", badge: "gc-cancel-badge", badgeText: "取消" } as const
     return { title: "生成完成", subtitle: "请在右侧查看", badge: "gc-done-badge", badgeText: "完成" } as const
   }
+
+  const hasFix = () => !!props.error && !!props.onFix && !!props.errorFindings && props.errorFindings.length > 0
 
   return (
     <Show when={props.generating || props.canPreview || props.cancelled || props.error}>
@@ -41,10 +47,17 @@ export function GenerationCard(props: {
             </Show>
           </div>
           <Show when={props.generating && !props.error} fallback={
-            <Show when={props.error && props.onRetry} fallback={
+            <Show when={props.error && (props.onRetry || hasFix())} fallback={
               <span class={cardState().badge}>{cardState().badgeText}</span>
             }>
-              <button class="gc-retry-btn" onClick={() => props.onRetry!()}>重试</button>
+              <div class="flex items-center gap-2">
+                <Show when={hasFix()}>
+                  <button class="gc-fix-btn" onClick={() => props.onFix!(props.errorFindings!)}>修复</button>
+                </Show>
+                <Show when={props.onRetry}>
+                  <button class="gc-retry-btn" onClick={() => props.onRetry!()}>重试</button>
+                </Show>
+              </div>
             </Show>
           }>
             <span class="gc-gen-badge">
