@@ -189,8 +189,8 @@ export function PropertyEditorPopup(props: {
   const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
 
-  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
-  const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
+  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整）。仅 Icon 组件类型本身适用；Button/Tag 等带 icon 属性的组件不算图标类组件 */
+  const isIconComponent = () => props.componentType === 'Icon'
 
   /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
   function handleIconPick(pick: { name: string; id?: string; size: string; style: string; color: string }) {
