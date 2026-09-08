@@ -1981,10 +1981,17 @@ const sessionMessagesLoaded = createMemo(() => {
       : cmd
     const handoff = readPlanSkillHandoff(mainSid)
 
+    // 确认后的首轮生成消息直发主会话，绕过了 sendMessage 的每轮注入；
+    // 补上 [Artifact Folder]，主 agent 生成 HTML 时不再依赖历史消息里碰巧存在的目录上下文。
+    const artifactFolderPrefix = await buildArtifactFolderPrefix(mainSid)
+
     try {
       if (handoff && handoff.childSessionId === planSid && handoff.skills.length > 0) {
         const model = `${modelKey.providerID}/${modelKey.modelID}`
         const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
+        // 与 sendMessage 命令路径同款：前缀作为 synthetic part，服务端排在模板 parts 之后，
+        // 渲染端只取第一个 text part（skill 模板文本），前缀不会显示。
+        let prefixInjected = false
         for (const skill of handoff.skills) {
           // 记录发送开始时间（每次 skill 命令前重新设置，支持多 skill 逐条追踪）
           messageTimingMap.set(mainSid, {
@@ -1997,16 +2004,22 @@ const sessionMessagesLoaded = createMemo(() => {
             arguments: skillPrompt,
             agent: "octo_make",
             model,
+            parts: !prefixInjected && artifactFolderPrefix
+              ? [{ type: "text" as const, text: artifactFolderPrefix, synthetic: true }]
+              : undefined,
           })
+          prefixInjected = true
         }
       } else {
         // 无 Skill 时走普通 prompt；避免确认消息被 command 分支误拆。
-        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取。
+        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取——
+        // 产物目录前缀拼进 text 与方案内容走同一条隐藏通道，气泡仍只显示 [confirm-plan xxx]。
+        const promptText = artifactFolderPrefix ? artifactFolderPrefix + "\n" + message : message
         await sdk.client.session.prompt({
           sessionID: mainSid,
           agent: "octo_make",
           model: modelKey,
-          parts: [{ type: "text", text: message, metadata: { displayText: cmd } }],
+          parts: [{ type: "text", text: promptText, metadata: { displayText: cmd } }],
         })
       }
     } catch (err) {
@@ -2846,6 +2859,42 @@ const sessionMessagesLoaded = createMemo(() => {
     return undefined
   }
 
+  /**
+   * 构建 [Artifact Folder] 上下文前缀：目标会话产物目录绝对路径 + 当前会话已有产物文件列表（供 edit 工具使用）。
+   * 文件列表每次调用都重新扫盘，保证新鲜。
+   * sendMessage 每轮注入；handleConfirmPlan 直发 prompt/command 绕过 sendMessage，同样用此函数补注入。
+   */
+  async function buildArtifactFolderPrefix(sessionId: string): Promise<string> {
+    const folderProjDir = projectDir()
+    if (!folderProjDir || !sessionId) return ""
+    const sep = folderProjDir.includes("\\") ? "\\" : "/"
+    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    let existingList = ""
+    try {
+      const relPath = `.octo/${sessionId}/outputs`
+      const result = await sdk.client.file.list({ path: relPath })
+      const files = (result.data ?? []).filter((n) => n.type === "file")
+      if (files.length > 0) {
+        const lines = files.map((n) => `- ${n.absolute}`)
+        existingList = [
+          ``,
+          `[Existing artifacts in this session]`,
+          ...lines,
+          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+        ].join("\n")
+      }
+    } catch {
+      // 目录可能还没创建(还没生成过产物),忽略
+    }
+    return [
+      `[Artifact Folder]: ${artifactFolder}`,
+      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      existingList,
+      `---`,
+      ``,
+    ].filter(Boolean).join("\n")
+  }
+
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
@@ -2970,38 +3019,7 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
 
       // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
-      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
-      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
-      let artifactFolderPrefix = ""
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-        artifactFolderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-      }
+      const artifactFolderPrefix = await buildArtifactFolderPrefix(sessionId)
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
