@@ -254,9 +254,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
-    // Remove chips whose path is still the asset URL (= not yet downloaded this session)
+    // Remove chips not yet downloaded (path === id means the local path hasn't been filled in)
     for (const sel of props.selections) {
-      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (sel.type === 'file' && id && path && path === id) {
         props.onDeselect(sel)
       }
     }

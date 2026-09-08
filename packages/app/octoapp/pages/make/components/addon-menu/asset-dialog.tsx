@@ -232,6 +232,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
   }
 
   // 收集当前选中的 AssetFile(确认时交给父组件批量下载)
+  // "未下载"判据:path === id(插入时 path 即 assetFileId;下载后 path 被补成本地路径 ≠ id)
   const collectSelected = (): AssetFile[] => {
     const result: AssetFile[] = []
     const seen = new Set<string>()
@@ -240,7 +241,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
       const id = (sel as any).id as string | undefined
       const path = (sel as any).path as string
       if (!id || !path) continue
-      if (!/^https?:\/\//.test(path)) continue // 已下载(本地路径)的跳过
+      if (path !== id) continue // 已下载(本地路径)的跳过
       if (seen.has(id)) continue
       seen.add(id)
       const found = files().find(f => assetFileId(f) === id)
