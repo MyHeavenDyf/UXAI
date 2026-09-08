@@ -1752,7 +1752,7 @@ test("model limit defaults to zero when not specified", async () => {
   })
 })
 
-test("custom provider model context defaults to 128k when not specified", async () => {
+test("custom provider model context defaults to 1000 when not specified", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -1784,7 +1784,7 @@ test("custom provider model context defaults to 128k when not specified", async 
     directory: tmp.path,
     fn: async () => {
       const providers = await list()
-      expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
+      expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(1_000)
       expect(providers[ProviderID.make("custom")].models["limited"].limit.context).toBe(64_000)
     },
   })
