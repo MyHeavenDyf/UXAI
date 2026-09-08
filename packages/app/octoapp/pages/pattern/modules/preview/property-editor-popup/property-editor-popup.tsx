@@ -17,27 +17,13 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
-import { fetchIconContent } from "./icon-plus-fetch"
 
-/** 云端图标 svg 缓存（url → svg 文本），供属性面板触发器预览复用 */
-const triggerSvgCache = new Map<string, string>()
-
-/** 图标触发器预览：优先按云端 url 取 svg（16px），无 url 时回退本地 lucide 按名渲染 */
+/** 图标触发器预览：url 即云端图片实际地址，直接 img 渲染（懒加载，失败回退本地 lucide 按名渲染） */
 function IconFieldPreview(props: { name?: string; url?: string; color?: string }) {
-  const [svg, setSvg] = createSignal('')
-  createEffect(() => {
-    const u = props.url
-    if (!u) { setSvg(''); return }
-    const cached = triggerSvgCache.get(u)
-    if (cached) { setSvg(cached); return }
-    void fetchIconContent({ size: "16", style: "", color: "", urls: [u] }).then(res => {
-      const s = res.success ? (res.data[u] ?? '') : ''
-      if (s) triggerSvgCache.set(u, s)
-      setSvg(s)
-    })
-  })
+  const [failed, setFailed] = createSignal(false)
+  createEffect(() => { props.url; setFailed(false) })
   return (
-    <Show when={props.url && svg()} fallback={
+    <Show when={props.url && !failed()} fallback={
       (() => {
         const d = LUCIDE_ICONS.find(i => i.name === props.name)
         return d
@@ -45,7 +31,8 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string }
           : null
       })()
     }>
-      <div class="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4" innerHTML={svg()} />
+      <img src={props.url} alt="" loading="lazy" decoding="async"
+        class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
     </Show>
   )
 }
