@@ -181,7 +181,10 @@ export async function fetchIconInfo(params: IconSearchParams): Promise<Result<Ic
     `${ICON_PLUS_BASE}/assetRepository/iconPlus/getIconInfo${q}`,
   )
   if (!r.success) return r
-  const icons = (r.data ?? []).flatMap(g => g?.icons ?? [])
+  // 拍平分组并归一化 id：优先 id，其次 icon_id，最后以 name 兜底（保证唯一索引始终存在）
+  const icons = (r.data ?? [])
+    .flatMap(g => g?.icons ?? [])
+    .map(i => ({ ...i, icon_id: (i as { id?: string }).id ?? i.icon_id ?? i.name }))
   return { success: true, data: icons }
 }
 

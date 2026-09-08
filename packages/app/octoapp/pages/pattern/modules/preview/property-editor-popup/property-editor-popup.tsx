@@ -192,23 +192,23 @@ export function PropertyEditorPopup(props: {
   /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
   const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(name: string, extra?: { size: string; style: string; color: string }) {
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(pick: { name: string; id?: string; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
-    updateEditProp(key, name)
-    if (!extra) return
-    updateEditProp(`${key}Size`, extra.size)
-    updateEditProp(`${key}Style`, extra.style)
-    updateEditProp(`${key}Color`, extra.color)
-    const px = Number(extra.size)
+    updateEditProp(key, pick.name)
+    if (pick.id) updateEditProp(`${key}Id`, pick.id)
+    updateEditProp(`${key}Size`, pick.size)
+    updateEditProp(`${key}Style`, pick.style)
+    updateEditProp(`${key}Color`, pick.color)
+    const px = Number(pick.size)
     if (px > 0) {
       setFillWidth(false); setHugWidth(false)
       setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
       setFillHeight(false); setHugHeight(false)
       setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
     }
-    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === extra.style)) updateEditProp('shape', extra.style)
-    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === extra.color)
+    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === pick.style)) updateEditProp('shape', pick.style)
+    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color)
     if (colorKey && COMPONENT_ENUMS[`${props.componentType}.color`]?.some(o => o.value === colorKey)) updateEditProp('color', colorKey)
   }
 
@@ -2736,6 +2736,7 @@ export function PropertyEditorPopup(props: {
           <Show when={iconPickerOpen() && iconPickerKey()}>
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
+              currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
                 ?? (editHeightPx() || editWidthPx() ? String(editHeightPx() || editWidthPx()) : undefined)
                 ?? (editProps as Record<string, string>)['size']
