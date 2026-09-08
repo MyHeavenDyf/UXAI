@@ -82,7 +82,7 @@ describe("声明层:Working directory 改写", () => {
   })
 
   test("非 insight 会话:声明原样不动", async () => {
-    const s = sid("octo_design")
+    const s = sid("octo_make")
     const { system } = await hooks(s)
     const out = { system: [envPrompt()] }
     await system({ sessionID: s.id, model: {} }, out)
@@ -127,7 +127,7 @@ describe("声明层:声明即兑现(预建产物目录)", () => {
   })
 
   test("非 insight 会话:不建目录(隔离,不波及其它模块)", async () => {
-    const s = sid("octo_design")
+    const s = sid("octo_make")
     const { system } = await hooks(s)
     const out = { system: [envPrompt()] }
     await system({ sessionID: s.id, model: {} }, out)

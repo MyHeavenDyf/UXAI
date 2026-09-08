@@ -3004,7 +3004,7 @@ Chat、Cowork (OctoSidebar)、Studio 三处侧边栏已统一视觉规范：
 
 功能特性:
 - 管理各 Agent 的技能（按配置文件的 `type` 字段动态分组）
-- 分组类型：`octo_insight`、`octo_make`、`octo_design`、`octo_studio`、`common`（公共技能）
+- 分组类型：`octo_insight`、`octo_make`、`octo_studio`、`common`（公共技能）
 - 包含开关切换功能
 - **添加技能按钮**: 点击打开技能文件夹，将包含 `SKILL.md` 的文件夹放入即可
 - **visibilitychange 监听**: 页面返回时自动刷新配置（从文件管理器返回后）
