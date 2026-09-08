@@ -17,6 +17,39 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
+
+/** 图标触发器预览：url 即云端图片实际地址。有颜色时用 mask 技法把 svg 染成所选色；无颜色直接 img；失败回退本地 lucide 按名渲染 */
+function IconFieldPreview(props: { name?: string; url?: string; color?: string }) {
+  const [failed, setFailed] = createSignal(false)
+  createEffect(() => { props.url; setFailed(false) })
+  return (
+    <Show when={props.url && !failed()} fallback={
+      (() => {
+        const d = LUCIDE_ICONS.find(i => i.name === props.name)
+        return d
+          ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+          : null
+      })()
+    }>
+      <Show when={props.color} fallback={
+        <img src={props.url} alt="" loading="lazy" decoding="async"
+          class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+      }>
+        <div class="h-4 w-4 shrink-0" style={{
+          'background-color': props.color,
+          '-webkit-mask-image': `url("${props.url}")`,
+          'mask-image': `url("${props.url}")`,
+          '-webkit-mask-repeat': 'no-repeat',
+          'mask-repeat': 'no-repeat',
+          '-webkit-mask-position': 'center',
+          'mask-position': 'center',
+          '-webkit-mask-size': 'contain',
+          'mask-size': 'contain',
+        }} />
+      </Show>
+    </Show>
+  )
+}
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -192,11 +225,12 @@ export function PropertyEditorPopup(props: {
   /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
   const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(pick: { name: string; id?: string; size: string; style: string; color: string }) {
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
     updateEditProp(key, pick.name)
     if (pick.id) updateEditProp(`${key}Id`, pick.id)
+    if (pick.url) updateEditProp(`${key}Url`, pick.url)
     updateEditProp(`${key}Size`, pick.size)
     updateEditProp(`${key}Style`, pick.style)
     updateEditProp(`${key}Color`, pick.color)
@@ -1836,7 +1870,8 @@ export function PropertyEditorPopup(props: {
                                 type="text" placeholder={key}
                                 class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
                             }>
-                            {/* 图标属性：下拉样式触发器（图标16px + 名称 + 下拉箭头），点击打开图标弹窗 */}
+                            {/* 图标属性：下拉样式触发器（图标16px + 名称 + 下拉箭头），点击打开图标弹窗。
+                                文本用绝对定位脱离文档流，超长必然截断为省略号，不会顶开容器 */}
                             <button type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -1844,16 +1879,17 @@ export function PropertyEditorPopup(props: {
                                 setIconPickerAnchor(e.currentTarget)
                                 setIconPickerOpen(true)
                               }}
-                              class="flex h-9 w-full cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] px-2 text-[12px] outline-none shadow-none min-w-0 hover:border-[#3D99FF]">
-                              {(() => {
-                                const d = LUCIDE_ICONS.find(i => i.name === (editProps as Record<string, string>)[key])
-                                const iconColor = (editProps as Record<string, string>)[`${key}Color`]
-                                return d
-                                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: iconColor ?? '#191919' }} />
-                                  : null
-                              })()}
-                              <span class="ml-[16px] flex-1 truncate text-left text-slate-600">{(editProps as Record<string, string>)[key] || '选择图标'}</span>
-                              <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                              class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              style={{ position: 'relative', overflow: 'hidden' }}>
+                              <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
+                                <IconFieldPreview
+                                  name={(editProps as Record<string, string>)[key]}
+                                  url={(editProps as Record<string, string>)[`${key}Url`]}
+                                  color={(editProps as Record<string, string>)[`${key}Color`]} />
+                              </div>
+                              <div class="text-left text-slate-600"
+                                style={{ position: 'absolute', left: '40px', right: '26px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{(editProps as Record<string, string>)[key] || '选择图标'}</div>
+                              <svg style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                             </button>
                           </Show>
                           <Show when={key === 'src'}>
