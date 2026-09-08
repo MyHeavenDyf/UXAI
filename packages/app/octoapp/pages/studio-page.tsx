@@ -62,12 +62,30 @@ import {
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
-import { StudioComposer, StudioIntro } from "./studio/studio-composer"
+import { StudioComposer, StudioIntro, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import type { StudioStyleTemplateListInput, StudioStyleTemplateListItem, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
+import {
+  STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS,
+  styleTemplateFinalPrompt,
+  styleTemplatePromptPayload,
+  styleTemplateTargetModel,
+  type StudioStyleDescriptionFieldId,
+  type StudioTemplateStyleDescription,
+} from "./studio/studio-style-template-utils"
+import type {
+  StudioCanvasView,
+  StudioStyleDescriptionGenerateHandlers,
+  StudioStyleDescriptionGenerateInput,
+  StudioStyleDescriptionStreamEvent,
+  StudioTemplatePublishInput,
+  StudioTemplateUserSearchInput,
+  StudioTemplateVisibleUser,
+} from "./studio/studio-template-creator"
 import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
@@ -142,6 +160,62 @@ type StudioPromptGenResponse = {
     en?: string
     zh?: string
   }
+}
+
+function studioStyleDescriptionStreamEvent(data: string): StudioStyleDescriptionStreamEvent | undefined {
+  try {
+    const event = JSON.parse(data) as { type?: unknown; content?: unknown }
+    if (typeof event.type !== "string") return undefined
+    return {
+      type: event.type,
+      content: typeof event.content === "string" ? event.content : "",
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function studioSseDataBlocks(buffer: string) {
+  const parts = buffer.replace(/\r\n/g, "\n").split("\n\n")
+  return {
+    blocks: parts.slice(0, -1),
+    rest: parts.at(-1) ?? "",
+  }
+}
+
+function studioSseData(block: string) {
+  const data = block
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n")
+  return data.trim() ? data : undefined
+}
+
+async function readStudioStyleDescriptionStream(body: ReadableStream<Uint8Array>, handlers: StudioStyleDescriptionGenerateHandlers) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+
+  while (!handlers.signal?.aborted) {
+    const result = await reader.read()
+    if (result.done) break
+    buffer += decoder.decode(result.value, { stream: true })
+    const parsed = studioSseDataBlocks(buffer)
+    buffer = parsed.rest
+    await Promise.all(
+      parsed.blocks
+        .map(studioSseData)
+        .filter((data): data is string => Boolean(data))
+        .map(studioStyleDescriptionStreamEvent)
+        .filter((event): event is StudioStyleDescriptionStreamEvent => Boolean(event))
+        .map((event) => handlers.onEvent(event)),
+    )
+  }
+
+  const rest = studioSseData(buffer + decoder.decode())
+  const event = rest ? studioStyleDescriptionStreamEvent(rest) : undefined
+  if (event && !handlers.signal?.aborted) handlers.onEvent(event)
 }
 
 type StudioGenerationOverrides = {
@@ -308,7 +382,13 @@ export default function StudioPage() {
   )
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
-  const [showFileManager, setShowFileManager] = createSignal(true)
+  const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
+  const [templateCreatorTabOpen, setTemplateCreatorTabOpen] = createSignal(false)
+  const showFileManager = () => canvasView() === "file-manager"
+  function setShowFileManager(value: boolean | ((current: boolean) => boolean)) {
+    const next = typeof value === "function" ? value(showFileManager()) : value
+    setCanvasView(next ? "file-manager" : "canvas")
+  }
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
   // 记录上一次 session id，切换 session 时重置视图偏好
   let lastStudioSessionId: string | undefined
@@ -321,7 +401,12 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
-  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
+  const [openMenu, setOpenMenu] = createSignal<StudioComposerMenu>(null)
+  const [selectedStyleTemplate, setSelectedStyleTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [styleTemplateEditorOpen, setStyleTemplateEditorOpen] = createSignal(false)
+  const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
+  const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
+  const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
@@ -981,7 +1066,14 @@ export default function StudioPage() {
     // 服务端 turn 尚未带回本次 generation ID 时才按内容兜底；历史中相同 prompt 的任务不能被误认作当前任务。
     if (!turn || turn.createdAt < pending.createdAt) return false
     if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
-    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
+    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) {
+      return Boolean(
+        turn?.result &&
+          (turn.userText === pending.displayPrompt || turn.result.displayPrompt === pending.displayPrompt) &&
+          turn.result.prompt === pending.prompt &&
+          turn.result.capability === pending.capability,
+      )
+    }
     return Boolean(
       turn?.result &&
         (turn.userText === STUDIO_REGENERATE_DISPLAY_PROMPT || turn.result.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT) &&
@@ -1026,6 +1118,10 @@ export default function StudioPage() {
   // When the current session has no data, hide canvas/file-manager and show StudioIntro.
   // When switching sessions, default to the latest image tab (canvas).
   createEffect(() => {
+    if (templateCreatorTabOpen()) {
+      setShowStudioCanvas(true)
+      return
+    }
     // 生成中时保持不变，避免文件管理覆盖 canvas 的 loading 状态
     if (isBusy()) return
     // 切换 session 时重置为默认显示图片/视频 tab
@@ -1131,6 +1227,40 @@ export default function StudioPage() {
     if (result.toolAction === "cutout") return "抠图"
     return result.detailTitle ?? extractKeywords(result.prompt)
   }
+
+  function openTemplateCreator() {
+    batch(() => {
+      setOpenMenu(null)
+      setTemplateCreatorTabOpen(true)
+      setCanvasView("template-creator")
+      setShowStudioCanvas(true)
+      setMode("preview")
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
+    })
+  }
+
+  function closeTemplateCreator() {
+    const active = canvasView() === "template-creator"
+    setTemplateCreatorTabOpen(false)
+    if (!active) return
+    batch(() => {
+      if (canvasTabImages().length > 0) {
+        setCanvasView("canvas")
+        setShowStudioCanvas(true)
+        setStudioViewPref("mode", "canvas")
+        return
+      }
+      if (displayTurns().length > 0 || pendingResult() || sending() || isEditingWorkspaceMode()) {
+        setCanvasView("file-manager")
+        setShowStudioCanvas(true)
+        setStudioViewPref("mode", "file-manager")
+        return
+      }
+      setCanvasView("canvas")
+      setShowStudioCanvas(false)
+    })
+  }
+
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
@@ -1321,6 +1451,8 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
+        setOpenMenu(null)
+        setTemplateCreatorTabOpen(false)
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -1411,6 +1543,42 @@ export default function StudioPage() {
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   // 首尾帧同时存在时强制 720p，但不写入持久化 store，保留用户手动选择的质量
   const effectiveVideoQualityMode = createMemo(() => videoQualityLocked() ? "720" as StudioVideoQualityMode : videoQualityMode())
+  const effectiveMaxReferenceImages = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template || capability() !== "image.generate") return maxReferenceImages()
+    if (template.reference_image_setting === "not_supported") return 0
+    return Math.min(maxReferenceImages(), template.reference_image_count)
+  })
+  const templateUserPrompt = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template) return prompt().trim()
+    if (template.prompt_setting === "not_supported") return ""
+    if (template.template_type === "preset_recipe") return `${recipeMainPrompt()}${recipeExtraPrompt()}`.trim()
+    return prompt().trim()
+  })
+  const styleTemplateSubmitError = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template || capability() !== "image.generate") return
+    if (template.prompt_setting === "required" && !templateUserPrompt()) return "请输入提示词。"
+    if (template.reference_image_setting === "fixed" && assets().length !== template.reference_image_count) return `请上传 ${template.reference_image_count} 张参考图。`
+    if (template.reference_image_setting === "optional" && assets().length > template.reference_image_count) return `最多上传 ${template.reference_image_count} 张参考图。`
+  })
+  function updateStyleTemplateDescriptionDraft(field: StudioStyleDescriptionFieldId, value: string) {
+    setStyleTemplateDescriptionDraft((current) => ({
+      overview: current?.overview ?? "",
+      ...(current ?? {}),
+      [field]: value,
+    }))
+  }
+  function restoreStyleTemplateDescriptionDraft(field: StudioStyleDescriptionFieldId) {
+    const template = selectedStyleTemplate()
+    if (template?.template_type !== "extract_style") return
+    setStyleTemplateDescriptionDraft((current) => ({
+      overview: current?.overview ?? template.style_description.overview ?? "",
+      ...(current ?? {}),
+      [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
+    }))
+  }
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -1419,7 +1587,9 @@ export default function StudioPage() {
     (
       capability() === "video.generate"
         ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
-        : prompt().trim().length > 0
+        : selectedStyleTemplate() && capability() === "image.generate"
+          ? !styleTemplateSubmitError()
+          : prompt().trim().length > 0
     ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
@@ -1814,7 +1984,16 @@ export default function StudioPage() {
     })
   }
 
-  function selectStyleModel(value: string) {
+  function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
+    const currentTemplate = selectedStyleTemplate()
+    const nextStyleModelID = styleModelId(value)
+    const shouldClearStyleTemplate = Boolean(
+      currentTemplate &&
+        !options?.preserveStyleTemplate &&
+        value !== styleModel() &&
+        nextStyleModelID !== "seedream-5-lite" &&
+        nextStyleModelID !== "qwen",
+    )
     // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
@@ -1832,26 +2011,83 @@ export default function StudioPage() {
         setCustomHeight(Math.min(customHeight(), 1664))
       }
     }
-    if (prevIsSeedream && !nextIsSeedream) {
+    if (currentTemplate) seedreamAtSnapshot = undefined
+    if (prevIsSeedream && !nextIsSeedream && !currentTemplate) {
       const hasMentions = Object.keys(seedreamInputApi.serializeMentionImages()).length > 0
+      if (!hasMentions) seedreamAtSnapshot = undefined
       if (hasMentions) {
         seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
         setPrompt("")
       }
     }
     setStyleModel(value)
-    if (!prevIsSeedream && nextIsSeedream && seedreamAtSnapshot) {
+    if (shouldClearStyleTemplate) {
+      setSelectedStyleTemplate(undefined)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(undefined)
+      setPrompt("")
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    }
+    const template = shouldClearStyleTemplate ? undefined : currentTemplate
+    if (!template && !prevIsSeedream && nextIsSeedream && seedreamAtSnapshot) {
       const snap = seedreamAtSnapshot
       seedreamAtSnapshot = undefined
       setAssets(snap.assets.slice(0, referenceImageLimit(value)))
       seedreamInputApi.restore(snap.html)
-    } else {
-      setAssets((items) => items.slice(0, referenceImageLimit(value)))
+      return
     }
+    setAssets((items) => shouldClearStyleTemplate ? [] : items.slice(0, template && template.reference_image_setting !== "not_supported" ? Math.min(referenceImageLimit(value), template.reference_image_count) : template ? 0 : referenceImageLimit(value)))
+  }
+
+  function applyStyleTemplate(template: StudioStyleTemplateListItem) {
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    seedreamAtSnapshot = undefined
+    batch(() => {
+      setSelectedStyleTemplate(template)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(styleTemplateDescriptionFromTemplate(template))
+      setCapability("image.generate")
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+      if (template.template_type === "preset_recipe" || template.prompt_setting === "not_supported") setPrompt("")
+      if (styleModel() !== targetModel) selectStyleModel(targetModel, { preserveStyleTemplate: true })
+      setAssets((items) => items.slice(0, template.reference_image_setting === "not_supported" ? 0 : Math.min(referenceImageLimit(targetModel), template.reference_image_count)))
+    })
+  }
+
+  function clearStyleTemplate() {
+    batch(() => {
+      setSelectedStyleTemplate(undefined)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(undefined)
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    })
+  }
+
+  function templateReferenceUploadDisabled() {
+    return capability() === "image.generate" && selectedStyleTemplate()?.reference_image_setting === "not_supported"
+  }
+
+  function showUnsupportedTemplateReferenceNotice() {
+    showFloatingNotice("info", "该风格模版不支持上传参考图")
+  }
+
+  function pickReferenceFile() {
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
+    fileInputRef.click()
   }
 
   async function addReferenceAsset(asset: StudioAsset) {
-    const limit = maxReferenceImages()
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
+    const limit = effectiveMaxReferenceImages()
     if (limit !== 1 && assets().length >= limit) {
       showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
       return
@@ -1899,9 +2135,13 @@ export default function StudioPage() {
   }
 
   function addAssets(files: File[]) {
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
     const imageFiles = files.filter((item) => item.type.startsWith("image/"))
     if (!imageFiles.length) return
-    const limit = maxReferenceImages()
+    const limit = effectiveMaxReferenceImages()
     const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
     if (!selectedFiles.length) {
       showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
@@ -2140,7 +2380,8 @@ export default function StudioPage() {
     const prevCapability = capability()
     const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
     const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    if (prevSeedreamImage && !nextSeedreamImage) {
+    if (selectedStyleTemplate()) seedreamAtSnapshot = undefined
+    if (prevSeedreamImage && !nextSeedreamImage && !selectedStyleTemplate()) {
       seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
     }
     if (value === "video.generate" && prevCapability !== "video.generate") {
@@ -2269,6 +2510,14 @@ export default function StudioPage() {
     setPendingEditorEntries([])
     setMode("preview")
     setCapability("image.generate")
+    setSelectedStyleTemplate(undefined)
+    setStyleTemplateEditorOpen(false)
+    setStyleTemplateDescriptionDraft(undefined)
+    setRecipeMainPrompt("")
+    setRecipeExtraPrompt("")
+    setPrompt("")
+    setAssets([])
+    clearVideoFrames()
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
@@ -2291,6 +2540,7 @@ export default function StudioPage() {
     if (input.capability === "image.outpaint") return "好的，我将扩展当前图片。"
     if (input.capability === "video.generate") return "好的，我将为您生成一段视频。"
     if (input.sourceImage) return "好的，我会基于当前画面继续创作。"
+    if (input.capability === "image.generate") return "好的，我将为您生成图片。"
     return `好的，我将为您生成${capabilityLabel(input.capability)}。`
   }
 
@@ -2366,6 +2616,40 @@ export default function StudioPage() {
     const value = recordValue(inputRecord(result), "extra")
     if (!value || typeof value !== "object" || Array.isArray(value)) return
     return value as Record<string, unknown>
+  }
+
+  function templateUsageRecord(result: StudioGenerationResult) {
+    const value = recordValue(inputExtraRecord(result), "template")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function templateUsageID(result: StudioGenerationResult) {
+    const value = recordValue(templateUsageRecord(result), "id")
+    if (typeof value === "string" && value.trim()) return value.trim()
+    if (typeof value === "number") return String(value)
+  }
+
+  function templateUsagePromptRecord(result: StudioGenerationResult) {
+    const value = recordValue(templateUsageRecord(result), "prompt")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return value as Record<string, unknown>
+  }
+
+  function styleTemplateDescriptionFromTemplate(template: StudioStyleTemplateListItem, promptRecord?: Record<string, unknown>) {
+    if (template.template_type !== "extract_style") return undefined
+    const originalDescription = template.style_description as Record<string, string | undefined>
+    return {
+      overview: stringValue(promptRecord, "overview") ?? originalDescription.overview ?? "",
+      ...Object.fromEntries(
+        STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS
+          .filter((field) => field.id !== "overview" && Object.prototype.hasOwnProperty.call(originalDescription, field.id))
+          .map((field) => [
+            field.id,
+            stringValue(promptRecord, field.id) ?? originalDescription[field.id] ?? "",
+          ]),
+      ),
+    } as StudioTemplateStyleDescription
   }
 
   function taskRequestRecord(result: StudioGenerationResult) {
@@ -2543,11 +2827,106 @@ export default function StudioPage() {
     return { first, last }
   }
 
+  function templateReferenceRestoreLimit(template: StudioStyleTemplateListItem, targetModel: string) {
+    if (template.reference_image_setting === "not_supported") return 0
+    return Math.min(referenceImageLimit(targetModel), template.reference_image_count)
+  }
+
+  function templateFixedReferenceImageUrls(template: StudioStyleTemplateListItem) {
+    if (template.template_type !== "preset_recipe") return []
+    return (template.fixed_reference_images ?? []).map((item) => item.url).filter((url): url is string => Boolean(url))
+  }
+
+  function templateRestorableUserReferences(template: StudioStyleTemplateListItem, draft: ReturnType<typeof restoreGenerationEditDraft>) {
+    const fixedCount = templateFixedReferenceImageUrls(template).length
+    if (!fixedCount) {
+      return {
+        images: draft.referenceImages,
+        names: draft.referenceImageNames,
+      }
+    }
+    const userReferenceCount = Math.max(0, draft.referenceImages.length - fixedCount)
+    return {
+      images: draft.referenceImages.slice(0, userReferenceCount),
+      names: draft.referenceImageNames.slice(0, userReferenceCount),
+    }
+  }
+
+  async function editTemplateGenerationDraft(
+    result: StudioGenerationResult,
+    draft: ReturnType<typeof restoreGenerationEditDraft>,
+    templateID: string,
+  ) {
+    const template = await getStudioStyleTemplate(templateID).catch((error) => {
+      console.warn("[StudioPage] restore template generation draft failed", error)
+      showFloatingNotice("info", "模板不存在或已不可用，无法重新编辑该模板任务。")
+      return undefined
+    })
+    if (!template) return
+
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
+    const templatePrompt = templateUsagePromptRecord(result)
+    const restorableReferences = templateRestorableUserReferences(template, draft)
+    const restoredAssets = await restoredImageAssets(
+      restorableReferences.images,
+      restorableReferences.names,
+      templateReferenceRestoreLimit(template, targetModel),
+    )
+
+    batch(() => {
+      setOpenMenu(null)
+      setMode("preview")
+      setStudioWorkspaceOverlayOpen(false)
+      setCapability("image.generate")
+      setSelectedStyleTemplate(template)
+      setStyleTemplateEditorOpen(false)
+      setStyleTemplateDescriptionDraft(styleTemplateDescriptionFromTemplate(template, templatePrompt))
+      setStyleModel(targetModel)
+      setAspectRatio(draft.aspectRatio)
+      if (draft.count) setCount(draft.count)
+      if (draft.width) setCustomWidth(draft.width)
+      if (draft.height) setCustomHeight(draft.height)
+      setIsCustomStore(Boolean(draft.width && draft.height))
+      clearVideoFrames()
+      setAssets(restoredAssets)
+      if (template.prompt_setting === "not_supported") {
+        setPrompt("")
+        setRecipeMainPrompt("")
+        setRecipeExtraPrompt("")
+      } else if (template.template_type === "preset_recipe") {
+        setPrompt("")
+        setRecipeMainPrompt(stringValue(templatePrompt, "mainPrompt") ?? "")
+        setRecipeExtraPrompt(stringValue(templatePrompt, "extraPrompt") ?? "")
+      } else {
+        setPrompt(stringValue(templatePrompt, "custom") ?? "")
+        setRecipeMainPrompt("")
+        setRecipeExtraPrompt("")
+      }
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "edit-generation-template-draft",
+      extend: JSON.stringify({
+        templateID,
+        templateType: template.template_type,
+        aspectRatio: result.aspectRatio,
+        count: result.images.length,
+        hasReferenceImage: draft.referenceImages.length > 0,
+      }),
+    })
+    showEditDraftSyncedToast()
+  }
+
   async function editGenerationDraft(result: StudioGenerationResult) {
     if (isActionBusy()) return
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
     const draft = restoreGenerationEditDraft(result)
     if (!canEditGenerationDraft(draft)) return
+    const templateID = result.capability === "image.generate" ? templateUsageID(result) : undefined
+    if (templateID) {
+      await editTemplateGenerationDraft(result, draft, templateID)
+      return
+    }
     batch(() => {
       setOpenMenu(null)
       setMode("preview")
@@ -2699,6 +3078,138 @@ export default function StudioPage() {
     const zh = result.result?.zh?.trim()
     if (!zh) throw new Error("提示词生成结果为空")
     return zh
+  }
+
+  async function generateStyleDescription(
+    input: StudioStyleDescriptionGenerateInput,
+    handlers: StudioStyleDescriptionGenerateHandlers,
+  ) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/style-description-gen", current.http.url), {
+      method: "POST",
+      headers,
+      signal: handlers.signal,
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, await response.text()))
+    if (!response.body) throw new Error("风格描述生成结果为空")
+    await readStudioStyleDescriptionStream(response.body, handlers)
+  }
+
+  async function publishStudioTemplate(input: StudioTemplatePublishInput) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/template-publish", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ...input,
+        creator_user_id: input.creator_user_id || uiplusUserAccount(),
+      }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    if (bodyText.trim()) JSON.parse(bodyText) as unknown
+    showFloatingNotice("success", "图片模版创建成功")
+    closeTemplateCreator()
+  }
+
+  async function listStudioStyleTemplates(input: StudioStyleTemplateListInput): Promise<StudioStyleTemplateListResult> {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const url = new URL("/studio/template-list", current.http.url)
+    url.searchParams.set("user_id", uiplusUserAccount() ?? "")
+    url.searchParams.set("only_public", String(input.only_public))
+    url.searchParams.set("page", String(input.page))
+    url.searchParams.set("page_size", String(input.page_size))
+    const headers: Record<string, string> = {
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioStyleTemplateListResult
+  }
+
+  async function getStudioStyleTemplate(templateID: string): Promise<StudioStyleTemplateListItem> {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const url = new URL(`/studio/template-detail/${encodeURIComponent(templateID)}`, current.http.url)
+    url.searchParams.set("user_id", uiplusUserAccount() ?? "")
+    const headers: Record<string, string> = {
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioStyleTemplateListItem
+  }
+
+  async function searchStudioTemplateUsers(input: StudioTemplateUserSearchInput): Promise<StudioTemplateVisibleUser[]> {
+    if (!input.query.trim()) return []
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/template-user-search", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: input.query.trim(),
+        size: input.size,
+      }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioTemplateVisibleUser[]
   }
 
   async function handleReversePrompt() {
@@ -3228,6 +3739,59 @@ export default function StudioPage() {
     }
   }
 
+  function runStyleTemplateGeneration(template: StudioStyleTemplateListItem) {
+    const error = styleTemplateSubmitError()
+    if (error) {
+      showFloatingNotice("info", error)
+      return
+    }
+    const templateInput = {
+      custom: prompt().trim(),
+      extraPrompt: recipeExtraPrompt().trim(),
+      mainPrompt: recipeMainPrompt().trim(),
+    }
+    const effectiveTemplate = template.template_type === "extract_style"
+      ? { ...template, style_description: styleTemplateDescriptionDraft() ?? template.style_description }
+      : template
+    const finalPrompt = styleTemplateFinalPrompt(effectiveTemplate, templateInput).trim()
+    if (!finalPrompt) return
+    const displayPrompt = template.template_type === "preset_recipe"
+      ? `${templateInput.mainPrompt}${templateInput.extraPrompt}`.trim() || template.title
+      : templateInput.custom || template.title
+    const templateReferenceImages = templateFixedReferenceImageUrls(template)
+    const referenceImages = templateReferenceImages.length
+      ? [...assets().map((item) => item.dataUrl), ...templateReferenceImages]
+      : undefined
+    void runGeneration({
+      capability: "image.generate",
+      prompt: finalPrompt,
+      displayPrompt,
+      detailPrompt: displayPrompt,
+      detailTitle: buildStudioDisplayPrompt(displayPrompt),
+      refinedPrompt: finalPrompt,
+      effectivePrompt: finalPrompt,
+      styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      ...(referenceImages ? { referenceImages } : {}),
+      extra: {
+        skipPromptRefine: true,
+        ...(referenceImages ? {
+          referenceImageNames: [
+            ...assets().map((item) => item.name),
+            ...templateReferenceImages.map((_, index) => `template-fixed-reference-${index + 1}.png`),
+          ],
+        } : {}),
+        template: {
+          id: template.idx,
+          prompt: styleTemplatePromptPayload(effectiveTemplate, templateInput),
+        },
+      },
+    })
+    if (template.template_type === "preset_recipe") {
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    }
+  }
+
   // 文件管理详情页触发生成后：
   // - 成功：退出文件管理视图 + 创建 tab 并选中（与点击 studio-result-thumb 逻辑完全一致）
   // - 失败/取消：回到文件管理网格视图
@@ -3390,6 +3954,11 @@ export default function StudioPage() {
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
+    const template = selectedStyleTemplate()
+    if (template && capability() === "image.generate") {
+      runStyleTemplateGeneration(template)
+      return
+    }
     if (capability() === "image.upscale") {
       setMode("hd")
       return
@@ -3706,6 +4275,7 @@ export default function StudioPage() {
       pendingEditorEntries().length > 0 ||
       Boolean(pendingResult()) ||
       sending() ||
+      templateCreatorTabOpen() ||
       isEditingWorkspaceMode() ||
       Boolean(workspaceModeForCapability(capability()))
   })
@@ -3819,7 +4389,7 @@ export default function StudioPage() {
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
-                  maxReferenceImages={maxReferenceImages()}
+                  maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
                   customWidth={customWidth()}
@@ -3835,6 +4405,11 @@ export default function StudioPage() {
                   busy={isBusy()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
+                  selectedStyleTemplate={selectedStyleTemplate()}
+                  styleTemplateEditorOpen={styleTemplateEditorOpen()}
+                  styleTemplateDescription={styleTemplateDescriptionDraft()}
+                  recipeMainPrompt={recipeMainPrompt()}
+                  recipeExtraPrompt={recipeExtraPrompt()}
                   wordBook={wordBook}
                   onPrompt={setStudioPrompt}
                   inputApi={seedreamInputApi}
@@ -3849,10 +4424,20 @@ export default function StudioPage() {
                   onVideoQualityMode={setVideoQualityMode}
                   onVideoMode={setVideoMode}
                   onOpenMenu={setOpenMenu}
+                  onCreateTemplate={openTemplateCreator}
+                  onListStyleTemplates={listStudioStyleTemplates}
+                  onSelectStyleTemplate={applyStyleTemplate}
+                  onClearStyleTemplate={clearStyleTemplate}
+                  onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
+                  onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
+                  onRestoreStyleTemplateDescription={restoreStyleTemplateDescriptionDraft}
+                  onRecipeMainPrompt={setRecipeMainPrompt}
+                  onRecipeExtraPrompt={setRecipeExtraPrompt}
+                  onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
                   onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
-                  onPickFile={() => fileInputRef.click()}
+                  onPickFile={pickReferenceFile}
                   onPickVideoFrame={(slot) => {
                     pendingVideoFrameSlot = slot
                     videoFrameInputRef.click()
@@ -4030,7 +4615,7 @@ if (!headerTitle.pendingRename) return
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
-            maxReferenceImages={maxReferenceImages()}
+            maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
             customWidth={customWidth()}
@@ -4046,6 +4631,11 @@ if (!headerTitle.pendingRename) return
             busy={isBusy()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
+            selectedStyleTemplate={selectedStyleTemplate()}
+            styleTemplateEditorOpen={styleTemplateEditorOpen()}
+            styleTemplateDescription={styleTemplateDescriptionDraft()}
+            recipeMainPrompt={recipeMainPrompt()}
+            recipeExtraPrompt={recipeExtraPrompt()}
             wordBook={wordBook}
             onPrompt={setStudioPrompt}
             inputApi={seedreamInputApi}
@@ -4060,10 +4650,20 @@ if (!headerTitle.pendingRename) return
             onVideoQualityMode={setVideoQualityMode}
             onVideoMode={setVideoMode}
             onOpenMenu={setOpenMenu}
+            onCreateTemplate={openTemplateCreator}
+            onListStyleTemplates={listStudioStyleTemplates}
+            onSelectStyleTemplate={applyStyleTemplate}
+            onClearStyleTemplate={clearStyleTemplate}
+            onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
+            onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
+            onRestoreStyleTemplateDescription={restoreStyleTemplateDescriptionDraft}
+            onRecipeMainPrompt={setRecipeMainPrompt}
+            onRecipeExtraPrompt={setRecipeExtraPrompt}
+            onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
             onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
-            onPickFile={() => fileInputRef.click()}
+            onPickFile={pickReferenceFile}
             onPickVideoFrame={(slot) => {
               pendingVideoFrameSlot = slot
               videoFrameInputRef.click()
@@ -4106,7 +4706,7 @@ if (!headerTitle.pendingRename) return
         class="studio-workspace"
         classList={{ "studio-workspace-overlay": !showStudioWorkspace() && studioWorkspaceOverlayOpen() }}
       >
-        <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
+        <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy() || templateCreatorTabOpen()} fallback={
           params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : (
             <div class="studio-empty-workspace">
               <StudioIntro />
@@ -4114,7 +4714,7 @@ if (!headerTitle.pendingRename) return
           )
         }>
         <section ref={setStudioCanvasEl} class="studio-canvas">
-          <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
+          <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0 || templateCreatorTabOpen()}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               videoPlayerMount={() => studioPageRef}
@@ -4167,7 +4767,9 @@ if (!headerTitle.pendingRename) return
                     setStudioViewPref("mode", "file-manager")
                   }
                 } else if (canvasTabImages().length === 0) {
-                  // 无图片 tab，保持在文件管理，不切换
+                  // 无图片 tab 时也允许从创建模板等一级视图切回文件管理
+                  setShowFileManager(true)
+                  setStudioViewPref("mode", "file-manager")
                 } else {
                   setShowFileManager((v) => {
                     const next = !v
@@ -4192,8 +4794,15 @@ if (!headerTitle.pendingRename) return
               canGenerateVideo={canGenerateVideo()}
               sessionID={params.id}
               fileManagerGenPending={fileManagerGenPending()}
+              canvasView={canvasView()}
+              templateCreatorTabOpen={templateCreatorTabOpen()}
+              onGenerateStyleDescription={generateStyleDescription}
+              onPublishTemplate={publishStudioTemplate}
+              onSearchTemplateUsers={searchStudioTemplateUsers}
+              onTemplateCreatorClick={openTemplateCreator}
+              onTemplateCreatorClose={closeTemplateCreator}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
+              <Show when={canvasView() === "canvas" && showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"

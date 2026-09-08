@@ -19,6 +19,13 @@ export type DesktopApi = {
    */
   fastuiDevServerArm?: (sessionDir: string) => Promise<boolean>
   fastuiDevServerStop?: (sessionDir: string) => Promise<boolean>
+  /**
+   * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
+   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。
+   */
+  fastuiExportZip?: (
+    sessionDir: string,
+  ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>

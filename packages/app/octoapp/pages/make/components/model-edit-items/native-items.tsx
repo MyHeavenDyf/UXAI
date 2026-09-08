@@ -1,6 +1,7 @@
 import type { JSX } from 'solid-js'
 import { Show, For, createSignal } from 'solid-js'
 import type { ModelEditElement, ManualEditKind } from './types'
+import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import {
   ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect,
   HAlignIcon, VAlignIcon,
@@ -16,11 +17,17 @@ import { parseEffects } from '../../edit-mode/source-patches'
 
 export type { ManualEditKind }
 
+export type NativeItemRenderProps = {
+  value: () => string
+  onChange: (v: string) => void
+  colors: ColorToken[]
+}
+
 export type NativeItemDef = {
   type: string
   defaultKey: string
   readValue: (element: ModelEditElement) => string
-  render: (props: { value: () => string; onChange: (v: string) => void }) => JSX.Element
+  render: (props: NativeItemRenderProps) => JSX.Element
 }
 
 function rgbToHex(rgb: string): string {
@@ -157,7 +164,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_color',
     readValue: (el) => normalizeStyle('color', el.styles.color || ''),
     render: (props) => (
-      <ColorPicker label="文字色" value={props.value()} tokens={HUI_COLOR_TOKENS} onChange={props.onChange} />
+      <ColorPicker label="文字色" value={props.value()} tokens={props.colors} onChange={props.onChange} />
     ),
   },
   {
@@ -397,7 +404,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
 
       return (
         <Section title="外观">
-          <ColorPicker label="Fill" value={bg()} tokens={HUI_COLOR_TOKENS} onChange={(v) => update({ backgroundColor: v })} />
+          <ColorPicker label="Fill" value={bg()} tokens={props.colors} onChange={(v) => update({ backgroundColor: v })} />
           <div class="cc-stroke-row">
             <DragInput
               value={() => Math.round(numFromString(op()) * 100)}
@@ -453,7 +460,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
 
       return (
         <Section title="描边">
-          <ColorPicker label="Color" value={bc()} tokens={HUI_COLOR_TOKENS} onChange={(v) => update({ borderColor: v })} />
+          <ColorPicker label="Color" value={bc()} tokens={props.colors} onChange={(v) => update({ borderColor: v })} />
           <div class="cc-stroke-row">
             <DragInput
               value={() => numFromString(btw())}
@@ -494,7 +501,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       const onChange = (next: EffectEntry[]) => {
         props.onChange(JSON.stringify(next))
       }
-      return <EffectsSection effects={data()} onChange={onChange} showSectionWrapper={false} />
+      return <EffectsSection effects={data()} onChange={onChange} showSectionWrapper={false} colors={props.colors} />
     },
   },
   {

@@ -1,8 +1,9 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
+import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -13,6 +14,87 @@ const StudioPermissionInput = z.object({
 
 const StudioPromptGenInput = z.object({
   base64img: z.string().min(1),
+})
+
+const StudioStyleDimensionId = z.enum([
+  "tonal",
+  "composition",
+  "volume",
+  "surface",
+  "color",
+  "linework",
+  "shape_structure",
+  "role_design",
+  "lettering",
+  "post_processing",
+])
+
+const StudioStyleDescriptionGenInput = z.object({
+  style_keywords: z.string(),
+  style_images: z.array(z.object({ url: z.string().min(1) })).min(3),
+  style_dimensions: z.array(StudioStyleDimensionId),
+})
+
+const StudioTemplateImageInput = z.object({
+  url: z.string().min(1),
+})
+
+const StudioTemplatePublishBaseInput = z.object({
+  allowed_user_ids: z.string().nullable(),
+  creator_user_id: z.string(),
+  example_images: z.array(StudioTemplateImageInput).min(1).max(20),
+  permission_type: z.enum(["all_users", "specified_users"]),
+  prompt_setting: z.enum(["required", "optional", "not_supported"]),
+  reference_image_count: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+  reference_image_setting: z.enum(["fixed", "optional", "not_supported"]),
+  title: z.string().min(1),
+  usage_instructions: z.string().min(1),
+})
+
+const StudioStyleTemplatePublishInput = StudioTemplatePublishBaseInput.extend({
+  template_type: z.literal("extract_style"),
+  style_description: z.object({
+    overview: z.string(),
+    tonal: z.string().optional(),
+    composition: z.string().optional(),
+    volume: z.string().optional(),
+    surface: z.string().optional(),
+    color: z.string().optional(),
+    linework: z.string().optional(),
+    shape_structure: z.string().optional(),
+    role_design: z.string().optional(),
+    lettering: z.string().optional(),
+    post_processing: z.string().optional(),
+  }),
+  style_images: z.array(StudioTemplateImageInput).min(3).max(30),
+  style_keywords: z.string(),
+})
+
+const StudioRecipeTemplatePublishInput = StudioTemplatePublishBaseInput.extend({
+  template_type: z.literal("preset_recipe"),
+  fixed_reference_images: z.array(StudioTemplateImageInput).max(3),
+  play_description: z.string().min(1),
+})
+
+const StudioTemplatePublishInput = z.discriminatedUnion("template_type", [
+  StudioStyleTemplatePublishInput,
+  StudioRecipeTemplatePublishInput,
+])
+
+const StudioTemplateListQuery = z.object({
+  user_id: z.string(),
+  only_public: z.coerce.number().int().pipe(z.union([z.literal(0), z.literal(1)])),
+  page: z.coerce.number().int().min(1),
+  page_size: z.coerce.number().int().pipe(z.literal(20)),
+})
+
+const StudioTemplateDetailQuery = z.object({
+  user_id: z.string(),
+})
+
+const StudioTemplateUserSearchInput = z.object({
+  query: z.string(),
+  size: z.literal(3),
 })
 
 const StudioGenerationInput = z.object({
@@ -101,6 +183,52 @@ export const StudioRoutes = lazy(() =>
       async (c) => c.json(await createPromptGen(c.req.valid("json"))),
     )
     .post(
+      "/style-description-gen",
+      describeRoute({
+        summary: "Generate style description",
+        description: "Streams style description fields from the internal Studio style template API.",
+        operationId: "studio.style-description-gen.create",
+        responses: {
+          200: {
+            description: "Style description generation stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(z.unknown()),
+              },
+            },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioStyleDescriptionGenInput),
+      async (c) => {
+        c.header("Cache-Control", "no-cache, no-transform")
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        const input = c.req.valid("json")
+        return streamSSE(c, async (stream) => {
+          const controller = new AbortController()
+          stream.onAbort(() => controller.abort())
+
+          try {
+            await createStyleDescriptionGenStream(input, {
+              signal: controller.signal,
+              onEvent: (event) => stream.writeSSE({ data: JSON.stringify(event) }),
+            })
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  type: "error",
+                  content: error instanceof Error ? error.message : String(error),
+                }),
+              })
+            }
+          }
+        })
+      },
+    )
+    .post(
       "/permissions/check",
       describeRoute({
         summary: "Check Studio permission",
@@ -116,6 +244,78 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioPermissionInput),
       async (c) => c.json(await checkStudioPermission(c.req.valid("json").uid)),
+    )
+    .post(
+      "/template-publish",
+      describeRoute({
+        summary: "Publish Studio template",
+        description: "Publishes a Studio style template or preset recipe using the internal Studio style template API.",
+        operationId: "studio.template-publish.create",
+        responses: {
+          200: {
+            description: "Studio template publish result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioTemplatePublishInput),
+      async (c) => c.json(await publishTemplate(c.req.valid("json"))),
+    )
+    .get(
+      "/template-list",
+      describeRoute({
+        summary: "List Studio templates",
+        description: "Returns paged Studio style templates from the internal Studio style template API.",
+        operationId: "studio.template-list.list",
+        responses: {
+          200: {
+            description: "Studio template list result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateListQuery),
+      async (c) => c.json(await listTemplates(c.req.valid("query"))),
+    )
+    .get(
+      "/template-detail/:templateID",
+      describeRoute({
+        summary: "Get Studio template detail",
+        description: "Returns a Studio template by id from the internal Studio style template API.",
+        operationId: "studio.template-detail.get",
+        responses: {
+          200: {
+            description: "Studio template detail result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateDetailQuery),
+      async (c) =>
+        c.json(await getTemplateDetail({
+          template_id: c.req.param("templateID"),
+          user_id: c.req.valid("query").user_id,
+        })),
+    )
+    .post(
+      "/template-user-search",
+      describeRoute({
+        summary: "Search Studio template visible users",
+        description: "Searches users for Studio template permission settings.",
+        operationId: "studio.template-user-search.create",
+        responses: {
+          200: {
+            description: "Studio template user search result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioTemplateUserSearchInput),
+      async (c) => c.json(await searchTemplateUsers(c.req.valid("json"))),
     )
     .post(
       "/editor-entries",

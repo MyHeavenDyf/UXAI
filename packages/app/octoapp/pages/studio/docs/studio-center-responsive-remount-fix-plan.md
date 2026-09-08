@@ -658,4 +658,3 @@ expect(resolveStudioCenterWidth({
 调整为基于编辑器工作区实际宽度的 container query。
 
 这能提高编辑器在异常嵌入尺寸下的防御能力，但属于第二阶段优化。即使实施 container query，也不能删除本方案中的中心栏安全宽度约束。
-

@@ -1,7 +1,7 @@
 import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { ColorPicker } from '../../../pattern/modules/preview/property-editor-popup/color-picker'
-import { HUI_COLOR_TOKENS } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
+import { HUI_COLOR_TOKENS, type ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import { DragInput } from '../../../pattern/modules/preview/property-editor-popup/drag-input'
 import { CustomSelect } from '../../../pattern/modules/preview/property-editor-popup/custom-select'
 import {
@@ -159,6 +159,7 @@ export function EffectsSection(props: {
   effects: EffectEntry[]
   onChange: (next: EffectEntry[]) => void
   showSectionWrapper?: boolean
+  colors?: ColorToken[]
 }) {
   const update = (id: string, patch: Partial<EffectEntry>) => {
     props.onChange(props.effects.map(e => e.id === id ? { ...e, ...patch } : e))
@@ -234,7 +235,7 @@ export function EffectsSection(props: {
             </div>
             <Show when={e.expanded && e.type === 'drop-shadow'}>
               <div class="cc-effect-row">
-                <ColorPicker label="Color" value={e.color} tokens={HUI_COLOR_TOKENS} onChange={(v) => update(e.id, { color: v })} />
+                <ColorPicker label="Color" value={e.color} tokens={props.colors ?? HUI_COLOR_TOKENS} onChange={(v) => update(e.id, { color: v })} />
               </div>
               <div class="cc-effect-row">
                 <DragInput value={() => e.opacity} setValue={(v) => update(e.id, { opacity: Math.max(0, Math.min(100, v)) })} setFound={() => {}} found={() => true} placeholder="100%" max={100} suffix="%" />
