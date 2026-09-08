@@ -1,5 +1,6 @@
 import type { JSX } from 'solid-js'
 import type { ConfigGroup, ConfigItem, NativeItemConfig, ComponentItemConfig, ModelEditElement, ManualEditKind } from './types'
+import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import { NATIVE_ITEMS, type NativeItemDef } from './native-items'
 import { renderComponentItem } from './component-items'
 
@@ -136,7 +137,8 @@ function isComponentItem(item: ConfigItem): item is ComponentItemConfig {
 export function renderConfigItem(
   item: ConfigItem,
   value: () => string,
-  onChange: (v: string) => void
+  onChange: (v: string) => void,
+  colors: ColorToken[]
 ): JSX.Element {
   if (isComponentItem(item)) {
     return renderComponentItem(item, value, onChange)
@@ -145,7 +147,7 @@ export function renderConfigItem(
   if (!def) {
     return <div class="cc-row"><span class="cc-label">Unknown: {item.type}</span></div>
   }
-  return def.render({ value, onChange })
+  return def.render({ value, onChange, colors })
 }
 
 export function checkKeyConflicts(groups: ConfigGroup[]): string[] {

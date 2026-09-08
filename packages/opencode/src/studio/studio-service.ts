@@ -8,6 +8,22 @@ import {
   summarizeInternalOutput,
   type PromptGenResponse,
 } from "@/tool/internel_image_generate"
+import {
+  generateStyleDescriptionStream,
+  getInternalStyleTemplate,
+  listInternalStyleTemplates,
+  publishInternalStyleTemplate,
+  searchInternalStyleTemplateUsers,
+  type StyleDescriptionGenRequest,
+  type StyleDescriptionGenStreamEvent,
+  type StyleTemplateDetailRequest,
+  type StyleTemplateListRequest,
+  type StyleTemplateListItem,
+  type StyleTemplateListResult,
+  type StyleTemplatePublishRequest,
+  type StyleTemplateUserSearchItem,
+  type StyleTemplateUserSearchRequest,
+} from "@/tool/internel_style_template"
 import z from "zod"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
@@ -111,6 +127,16 @@ export type StudioPromptGenRequest = {
   base64img: string
 }
 
+export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
+export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
+export type StudioTemplatePublishRequest = StyleTemplatePublishRequest
+export type StudioTemplateListRequest = StyleTemplateListRequest
+export type StudioTemplateDetailRequest = StyleTemplateDetailRequest
+export type StudioTemplateListItem = StyleTemplateListItem
+export type StudioTemplateListResult = StyleTemplateListResult
+export type StudioTemplateUserSearchItem = StyleTemplateUserSearchItem
+export type StudioTemplateUserSearchRequest = StyleTemplateUserSearchRequest
+
 export type StudioGenerationResult = {
   id: string
   status: StudioGenerationStatus
@@ -151,6 +177,32 @@ export async function createPromptGen(input: StudioPromptGenRequest): Promise<Pr
     throw new Error("提示词生成结果为空")
   }
   return result
+}
+
+export async function createStyleDescriptionGenStream(
+  input: StudioStyleDescriptionGenRequest,
+  handlers: {
+    onEvent: (event: StudioStyleDescriptionGenStreamEvent) => void | Promise<void>
+    signal?: AbortSignal
+  },
+) {
+  await generateStyleDescriptionStream(input, handlers)
+}
+
+export async function publishTemplate(input: StudioTemplatePublishRequest): Promise<unknown> {
+  return publishInternalStyleTemplate(input)
+}
+
+export async function listTemplates(input: StudioTemplateListRequest): Promise<StudioTemplateListResult> {
+  return listInternalStyleTemplates(input)
+}
+
+export async function getTemplateDetail(input: StudioTemplateDetailRequest): Promise<StudioTemplateListItem> {
+  return getInternalStyleTemplate(input)
+}
+
+export async function searchTemplateUsers(input: StudioTemplateUserSearchRequest): Promise<StudioTemplateUserSearchItem[]> {
+  return searchInternalStyleTemplateUsers(input)
 }
 
 export type StudioGenerationAccepted = Pick<
@@ -380,7 +432,7 @@ function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioG
         : input.sourceImage
           ? "好的，我会基于当前画面继续创作。"
           : "好的，我会根据你的描述创作画面。"
-      : buildAssistantText(input),
+      : buildSubmittingAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
     detailTitle: resolveDetailTitle(input),

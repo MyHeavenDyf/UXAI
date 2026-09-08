@@ -46,7 +46,8 @@ export type EnsureResult =
   | { ok: true; port: number; pid: number; logPath: string; reused: boolean }
   | { ok: false; error: string }
 
-function nodeBinOf(envDir: string) {
+/** 共享池里的 node。导出脚本(fastui-export.ts)也用它,故导出。 */
+export function nodeBinOf(envDir: string) {
   return process.platform === "win32" ? join(envDir, "node", "node.exe") : join(envDir, "node", "bin", "node")
 }
 

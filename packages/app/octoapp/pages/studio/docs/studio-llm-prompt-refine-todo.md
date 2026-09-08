@@ -456,4 +456,3 @@ octo_studio agent
 4. 将 Studio prompt refine 切到 helper。
 5. 增加多模态上一轮图片输入。
 6. 再讨论是否恢复 `image.generate` 的 agent tool-call 模式。
-

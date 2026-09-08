@@ -115,6 +115,7 @@ export function createHistoryStore() {
     const versionName = buildVersionFolderName(baseName, ts, actor)
     const versionDir = historyDir + sep + versionName
 
+    let copied = 0
     for (const rel of files) {
       const originalPath = resolveRelativePath(rel, tab.filePath!)
       const id = relativePathToId(rel)
@@ -123,10 +124,14 @@ export function createHistoryStore() {
       const versionFilePath = versionDir + sep + versionFileName
       try {
         await api.copyFileTo(originalPath, versionFilePath)
+        copied++
       } catch {
         // 源文件不存在则跳过该文件
       }
     }
+
+    // 全部复制失败（如源文件未落盘、被占用）时不产生版本，避免幽灵条目
+    if (copied === 0) return null
 
     const entry: VersionEntry = {
       id: versionName,
@@ -207,19 +212,21 @@ export function createHistoryStore() {
     if (!api?.listDirectory || !api?.deleteFile) return
     const prefix = baseName + "."
     const entries = await api.listDirectory(historyDir)
-    const versionMap = new Map<string, number>()
+    const versionMap = new Map<string, { ts: number; actor: HistoryActor }>()
     for (const e of entries) {
       if (e.type !== "file") continue
       const firstSeg = e.path.split(/[/\\]/)[0]
       if (!firstSeg.startsWith(prefix)) continue
       const parsed = parseVersionFolder(firstSeg)
       if (!parsed) continue
-      if (!versionMap.has(firstSeg) || versionMap.get(firstSeg)! < parsed.timestamp) {
-        versionMap.set(firstSeg, parsed.timestamp)
+      if (!versionMap.has(firstSeg) || versionMap.get(firstSeg)!.ts < parsed.timestamp) {
+        versionMap.set(firstSeg, { ts: parsed.timestamp, actor: parsed.actor })
       }
     }
+    // init 版本豁免清理，50 上限只作用于 user/agent 版本
     const versions = Array.from(versionMap.entries())
-      .map(([id, ts]) => ({ id, ts }))
+      .map(([id, v]) => ({ id, ts: v.ts, actor: v.actor }))
+      .filter((v) => v.actor !== "init")
       .sort((a, b) => b.ts - a.ts)
 
     if (versions.length <= MAX_VERSIONS) return
