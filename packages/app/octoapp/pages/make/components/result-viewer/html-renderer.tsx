@@ -22,6 +22,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { ComplianceError } from "@/network/pipelineRequest"
 import { dirname, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
@@ -553,7 +554,7 @@ export function HtmlRenderer(props: {
       }
       console.error("[Archive] Failed:", err)
       TaskStore.error([{ key: taskId, status: "error" }])
-      showOctoToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      if (!(err instanceof ComplianceError)) showOctoToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }
