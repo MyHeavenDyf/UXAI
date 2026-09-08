@@ -243,7 +243,7 @@
   border-radius: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   font-family: "HarmonyOS Sans SC";
-  width: 660px;
+  /* width is set inline: leftWidth + rightWidth + splitter(4 + 8*2 margins) + padding(24*2) */
   max-height: 650px;
   display: flex;
   flex-direction: column;
@@ -294,13 +294,20 @@
   margin-right: 8px;
   cursor: col-resize;
   flex-shrink: 0;
-  visibility: hidden;
-  background: rgba(0, 0, 0, 0.08);
+  background: transparent;
   border-radius: 2px;
+  position: relative;
+}
+
+/* Extend the hit area 8px into each margin so the 4px handle is hoverable */
+.asset-dialog-split::before {
+  content: "";
+  position: absolute;
+  inset: 0 -8px;
 }
 
 .asset-dialog-split:hover {
-  visibility: visible;
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .asset-dialog-right {
@@ -308,6 +315,7 @@
   max-height: 480px;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 1px;
   flex-shrink: 0;
   position: relative;
 }
@@ -319,6 +327,7 @@
   right: 0;
   width: 6px;
   cursor: col-resize;
+  z-index: 10;
 }
 
 .asset-dialog-empty {
@@ -375,8 +384,12 @@
   top: 8px;
   right: 8px;
   z-index: 2;
-  background: #fff;
   border-radius: 2px;
+}
+
+/* 白底仅用于未选中态,避免覆盖 mention-checkbox--checked 的蓝底 */
+.asset-grid-checkbox:not(.mention-checkbox--checked) {
+  background: #fff;
 }
 
 .asset-grid-name {

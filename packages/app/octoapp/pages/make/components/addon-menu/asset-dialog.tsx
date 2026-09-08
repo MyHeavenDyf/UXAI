@@ -28,8 +28,10 @@ interface AssetDialogProps {
 
 export function AssetDialog(props: AssetDialogProps): JSX.Element {
   const [tree, setTree] = createSignal<AssetFolder[]>([])
-  const [expanded, setExpanded] = createSignal<Set<number>>(new Set())
-  const [selectedFolderId, setSelectedFolderId] = createSignal<number | null>(null)
+  // 树节点用「根到节点的 id 路径」作 key:mock 数据存在父子 id 重复(如 312220),
+  // 裸 id 会让父子节点同时命中选中/展开状态
+  const [expanded, setExpanded] = createSignal<Set<string>>(new Set())
+  const [selectedKey, setSelectedKey] = createSignal<string | null>(null)
   const [files, setFiles] = createSignal<AssetFile[]>([])
   const [treeLoading, setTreeLoading] = createSignal(false)
   const [filesLoading, setFilesLoading] = createSignal(false)
@@ -55,8 +57,8 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     setTreeLoading(true)
     setTreeError(null)
     setTree([])
-    setExpanded(new Set<number>())
-    setSelectedFolderId(null)
+    setExpanded(new Set<string>())
+    setSelectedKey(null)
     setFiles([])
     setDialogPos(null)
     setLeftWidth(200)
@@ -66,41 +68,45 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
         setTree(folders)
         const first = folders[0]
         if (first) {
-          setSelectedFolderId(first.id)
-          setExpanded(prev => new Set(prev).add(first.id))
+          const key = `${first.id}`
+          setSelectedKey(key)
+          setExpanded(prev => new Set(prev).add(key))
         }
       })
       .catch((err) => setTreeError(err instanceof Error ? err.message : String(err)))
       .finally(() => setTreeLoading(false))
+    // 首帧 transform 居中后,固定为像素定位:后续拖拽改宽度时左缘/上缘不动(不保持居中)
+    requestAnimationFrame(() => {
+      if (!dialogRef) return
+      const rect = dialogRef.getBoundingClientRect()
+      setDialogPos({ left: rect.left, top: rect.top })
+    })
   })
+
+  // 按路径 key 查找节点(key = 根到节点的 id 链,如 "311100/312220")
+  const findFolderByKey = (folders: AssetFolder[], key: string): AssetFolder | undefined => {
+    const segments = key.split("/")
+    const head = Number(segments[0])
+    const node = folders.find(f => f.id === head)
+    if (!node) return undefined
+    if (segments.length === 1) return node
+    return findFolderByKey(node.children ?? [], segments.slice(1).join("/"))
+  }
 
   // 选中文件夹变化时加载文件
   createEffect(() => {
-    const folderId = selectedFolderId()
-    if (folderId === null) {
+    const key = selectedKey()
+    const folder = key === null ? undefined : findFolderByKey(tree(), key)
+    if (!folder) {
       setFiles([])
       return
     }
     setFilesLoading(true)
-    fetchAssetFiles(folderId)
+    fetchAssetFiles(folder.id)
       .then(setFiles)
       .catch(() => setFiles([]))
       .finally(() => setFilesLoading(false))
   })
-
-  const findFolder = (folders: AssetFolder[], id: number): AssetFolder | undefined => {
-    for (const f of folders) {
-      if (f.id === id) return f
-      const found = findFolder(f.children ?? [], id)
-      if (found) return found
-    }
-    return undefined
-  }
-
-  const selectedFolder = () => {
-    const id = selectedFolderId()
-    return id === null ? undefined : findFolder(tree(), id)
-  }
 
   const isFileSelected = (file: AssetFile) => {
     const id = assetFileId(file)
@@ -124,11 +130,11 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     }
   }
 
-  const toggleExpand = (id: number) => {
+  const toggleExpand = (key: string) => {
     setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -183,8 +189,8 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const startX = e.clientX
     const startWidth = rightWidth()
     const onMove = (ev: MouseEvent) => {
-      // 拖左缘向左 = 变宽
-      const next = Math.min(790, Math.max(190, startWidth - (ev.clientX - startX)))
+      // 把手在弹窗右缘:鼠标向右拖 = 右缘右移 = 变宽(左缘已固定为像素)
+      const next = Math.min(790, Math.max(190, startWidth + (ev.clientX - startX)))
       setRightWidth(next)
     }
     const onUp = () => {
@@ -218,8 +224,11 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
 
   const dialogStyle = () => {
     const pos = dialogPos()
-    if (pos) return { left: `${pos.left}px`, top: `${pos.top}px` }
-    return { left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
+    // width = leftWidth + rightWidth + splitter(4 + 8*2 margins) + padding(24*2)
+    const width = leftWidth() + rightWidth() + 68
+    const widthStyle = { width: `${width}px` }
+    if (pos) return { ...widthStyle, left: `${pos.left}px`, top: `${pos.top}px` }
+    return { ...widthStyle, left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
   }
 
   // 收集当前选中的 AssetFile(确认时交给父组件批量下载)
@@ -276,7 +285,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                 </Show>
                 <Show when={!treeLoading() && !treeError()}>
                   <For each={tree()}>
-                    {(folder) => <TreeItem folder={folder} depth={0} />}
+                    {(folder) => <TreeItem folder={folder} depth={0} parentKey="" />}
                   </For>
                 </Show>
               </div>
@@ -375,18 +384,19 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
   )
 
   // 树节点(递归):节点样式同原子菜单文件夹项,子节点内容缩进 8px
-  function TreeItem(props: { folder: AssetFolder; depth: number }): JSX.Element {
+  function TreeItem(props: { folder: AssetFolder; depth: number; parentKey: string }): JSX.Element {
+    const nodeKey = () => (props.parentKey ? `${props.parentKey}/${props.folder.id}` : `${props.folder.id}`)
     const hasChildren = () => (props.folder.children ?? []).length > 0
-    const isExpanded = () => expanded().has(props.folder.id)
-    const isSelected = () => selectedFolderId() === props.folder.id
+    const isExpanded = () => expanded().has(nodeKey())
+    const isSelected = () => selectedKey() === nodeKey()
     return (
       <>
         <div
           class={`addon-menu-item asset-tree-item ${isSelected() ? "addon-menu-item--active" : ""}`}
           style={{ "padding-left": `${8 + props.depth * 8}px` }}
           onClick={() => {
-            setSelectedFolderId(props.folder.id)
-            if (hasChildren()) toggleExpand(props.folder.id)
+            setSelectedKey(nodeKey())
+            if (hasChildren()) toggleExpand(nodeKey())
           }}
         >
           <span class="addon-menu-item-icon"><FolderIcon /></span>
@@ -402,7 +412,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
         </div>
         <Show when={hasChildren() && isExpanded()}>
           <For each={props.folder.children ?? []}>
-            {(child) => <TreeItem folder={child} depth={props.depth + 1} />}
+            {(child) => <TreeItem folder={child} depth={props.depth + 1} parentKey={nodeKey()} />}
           </For>
         </Show>
       </>
