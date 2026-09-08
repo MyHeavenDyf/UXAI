@@ -140,7 +140,7 @@ export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
   anchor: HTMLElement | undefined
-  onPick: (pick: { name: string; id?: string; size: string; style: string; color: string }) => void
+  onPick: (pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) => void
   onClose: () => void
   /** 点击确认按钮（事件预留） */
   onConfirm?: () => void
@@ -225,10 +225,10 @@ export function IconPickerPopup(props: {
     })
   }
 
-  /** 渲染后端返回的整段 svg 文本（online 时网格用）；size 仅选中图标联动底部筛选 */
-  const ApiIcon = (props: { url: string; size?: number }) => {
+  /** 渲染后端返回的整段 svg 文本（online 时网格用）；尺寸联动底部筛选，作用于全部图标 */
+  const ApiIcon = (props: { url: string }) => {
     const svg = () => iconStore.state.svgCache[props.url] ?? ''
-    const px = () => `${props.size ?? 24}px`
+    const px = () => `${iconStore.state.iconSize}px`
     return (
       <Show when={svg()} fallback={<span class="text-[10px] text-slate-400">…</span>}>
         <div class="api-icon flex items-center justify-center" style={{ width: px(), height: px() }} innerHTML={svg()} />
@@ -300,6 +300,7 @@ export function IconPickerPopup(props: {
     if (state.selected) props.onPick({
       name: state.selected,
       id: state.selectedId || undefined,
+      url: iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
       size: iconStore.state.iconSize,
       style: state.shapeKey,
       color: iconStore.state.iconColor,
@@ -438,7 +439,7 @@ export function IconPickerPopup(props: {
                         classList={{ 'ring-1 ring-inset ring-[#0A59F7]': (state.selectedId || state.selected) === icon.name }}>
                         {(state.selectedId || state.selected) === icon.name
                           ? GridIcon(icon.svg, state.shapeKey, iconStore.state.iconColor, Number(iconStore.state.iconSize))
-                          : GridIcon(icon.svg)}
+                          : GridIcon(icon.svg, 'outline', '#191919', Number(iconStore.state.iconSize))}
                       </button>
                     )}
                   </For>
@@ -461,7 +462,7 @@ export function IconPickerPopup(props: {
                         onClick={() => { setState('selectedId', String(icon.icon_id)); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
                         classList={{ 'ring-1 ring-inset ring-[#0A59F7]': !!state.selectedId && String(icon.icon_id) === state.selectedId }}>
-                        <ApiIcon url={icon.url} size={state.selectedId && String(icon.icon_id) === state.selectedId ? Number(iconStore.state.iconSize) : undefined} />
+                        <ApiIcon url={icon.url} />
                       </button>
                     )}
                   </For>

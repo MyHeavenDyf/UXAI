@@ -45,7 +45,8 @@ Icon.name / Button.icon / Tag.icon / TimelineItem.icon / Collapse.expandIcon / I
   initialStyle={string}   // 带入形状（旧枚举值 outline/two-tone/square/circle）
   initialColor={string}   // 带入颜色（hex 或语义 token）
   onPick={(pick) => ...}  // 点确认时回调，pick 为单一对象：
-                          // { name, id?, size, style, color }
+                          // { name, id?, url?, size, style, color }
+                          // url 为云端图标地址（offline 无），属性面板触发器按它渲染云端 svg 预览
   onClose={() => ...}     // 关闭回调
   onConfirm={() => ...}   // 确认事件预留（onPick 之后、onClose 之前触发）
 />
@@ -72,7 +73,7 @@ Icon.name / Button.icon / Tag.icon / TimelineItem.icon / Collapse.expandIcon / I
 写入 `editProps`：
 
 - `key` = 图标名称（展示）
-- `${key}Id` / `${key}Size` / `${key}Style` / `${key}Color` = 唯一 id / 尺寸 / 形状（枚举值）/ 颜色（hex）
+- `${key}Id` / `${key}Url` / `${key}Size` / `${key}Style` / `${key}Color` = 唯一 id / 云端地址 / 尺寸 / 形状（枚举值）/ 颜色（hex）
 - **宽高同步**：size(px) 写入 `editWidthPx/editHeightPx` 并标记 dirty，元素样式生成 `width/height: Npx`
 - **旧字段同步**（仅当组件枚举包含对应值时）：`shape` ← 形状枚举值；`color` ← hex 反查的小写语义 token
 
