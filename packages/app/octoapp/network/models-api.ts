@@ -64,6 +64,17 @@ function uiplusToken() {
   return localStorageValue("uiplusToken")
 }
 
+function w3Account() {
+  if (typeof localStorage === "undefined") return ""
+  try {
+    const user = JSON.parse(localStorage.getItem("userInfo") ?? "") as unknown
+    if (!isRecord(user) || typeof user.account !== "string") return ""
+    return user.account.trim()
+  } catch {
+    return ""
+  }
+}
+
 function modelsApiChannel() {
   const channel = (import.meta.env as Record<string, string | undefined>).VITE_OCTO_CHANNEL
   return channel === "prod" ? "prod" : "beta"
@@ -120,13 +131,15 @@ function storeW3Api(api: ApiModels, modelsApiUrl: string) {
 export function modelsApiHeaders() {
   const source = modelsApiSource()
   const token = uiplusToken()
+  const account = w3Account()
   const url = modelsApiUrl()
   const w3Api = source === "http" ? latestModelsApi?.w3?.api?.trim() || cachedW3Api(url) : undefined
   return {
     "x-opencode-models-api-source": source,
     ...(url ? { "x-opencode-models-api-url": url } : {}),
     ...(w3Api ? { "x-opencode-w3-api": w3Api } : {}),
-    ...(token ? { uiplustoken: token } : {}),
+    ...(token ? { UiplusToken: token } : {}),
+    ...(account ? { w3Account: account } : {}),
   }
 }
 
@@ -179,7 +192,7 @@ function apiModels(value: unknown): ApiModels {
   )
 }
 
-function withUiplusToken(api: ApiModels, token: string): ApiModels {
+function withModelRequestHeaders(api: ApiModels, token: string, account: string): ApiModels {
   return Object.fromEntries(
     Object.entries(api).map(([providerID, provider]) => {
       if (!isApiProvider(provider)) return [providerID, provider]
@@ -197,7 +210,9 @@ function withUiplusToken(api: ApiModels, token: string): ApiModels {
                   ...model,
                   headers: {
                     ...(isRecord(model.headers) ? model.headers : {}),
-                    uiplustoken: token,
+                    UiplusToken: token,
+                    isExternal: String(model.isExternal ?? false),
+                    ...(account ? { w3Account: account } : {}),
                   },
                 },
               ]
@@ -230,7 +245,7 @@ export async function fetchModelsApi() {
     const content = apiContent(data)
     const api = apiModels(content)
     console.log("[models-api] api.json received", api)
-    latestModelsApi = withUiplusToken(api, token)
+    latestModelsApi = withModelRequestHeaders(api, token, w3Account())
     storeW3Api(latestModelsApi, url)
     return latestModelsApi
   }
@@ -244,7 +259,7 @@ export async function fetchModelsApi() {
   const content = apiContent(data)
   const api = apiModels(content)
   console.log("[models-api] api.json received", api)
-  latestModelsApi = withUiplusToken(api, token)
+  latestModelsApi = withModelRequestHeaders(api, token, w3Account())
   storeW3Api(latestModelsApi, url)
   return latestModelsApi
 }

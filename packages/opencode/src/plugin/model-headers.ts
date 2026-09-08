@@ -1,20 +1,20 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
-let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
+let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string; account?: string } | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
 
-export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
+export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string; account?: string }) {
   const source = input.source === "local" ? "local" : "http"
   if (source === "local") {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   if (!input.url) {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   try {
@@ -22,12 +22,19 @@ export function configureModelsApi(input: { source?: string; url?: string; w3Api
     if (url.protocol !== "http:" && url.protocol !== "https:") return
     const w3Api = input.w3Api ? new URL(input.w3Api) : undefined
     if (w3Api && w3Api.protocol !== "http:" && w3Api.protocol !== "https:") return
-    const next = { source, url: url.toString(), w3Api: w3Api?.toString(), token: input.token } as const
+    const next = {
+      source,
+      url: url.toString(),
+      w3Api: w3Api?.toString(),
+      token: input.token,
+      account: input.account,
+    } as const
     if (
       modelsApi?.source !== next.source ||
       modelsApi.url !== next.url ||
       modelsApi.w3Api !== next.w3Api ||
-      modelsApi.token !== next.token
+      modelsApi.token !== next.token ||
+      modelsApi.account !== next.account
     ) {
       cache = undefined
     }
@@ -41,7 +48,8 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
     source: headers["x-opencode-models-api-source"],
     url: headers["x-opencode-models-api-url"],
     w3Api: headers["x-opencode-w3-api"],
-    token: headers.uiplustoken,
+    token: headers.uiplustoken ?? headers.UiplusToken,
+    account: headers.w3account ?? headers.w3Account,
   })
 }
 
@@ -116,14 +124,38 @@ function findApiModel(api: Record<string, unknown>, providerID: string, modelID:
   return Object.values(provider.models).find((model) => isRecord(model) && model.id === apiID)
 }
 
+export function modelRequestHeaders(
+  input: { providerID: string; modelID: string; apiID: string; isExternal?: boolean },
+  api?: Record<string, unknown>,
+) {
+  const model = api ? findApiModel(api, input.providerID, input.modelID, input.apiID) : undefined
+  const isExternal = typeof input.isExternal === "boolean" ? input.isExternal : isRecord(model) ? model.isExternal : false
+  return Object.assign(
+    {},
+    readHeaders(model),
+    { isExternal: String(typeof isExternal === "boolean" ? isExternal : false) },
+    modelsApi?.token ? { UiplusToken: modelsApi.token } : {},
+    modelsApi?.account ? { w3Account: modelsApi.account } : {},
+  )
+}
+
 export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
   return {
     "chat.headers": async (input, output) => {
-      const api = await loadApi()
       Object.assign(
         output.headers,
-        api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
-        modelsApi?.token ? { uiplustoken: modelsApi.token } : {},
+        modelRequestHeaders(
+          {
+            providerID: input.model.providerID,
+            modelID: input.model.id,
+            apiID: input.model.api.id,
+            isExternal:
+              "isExternal" in input.model && typeof input.model.isExternal === "boolean"
+                ? input.model.isExternal
+                : undefined,
+          },
+          await loadApi(),
+        ),
       )
     },
   }

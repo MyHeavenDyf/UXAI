@@ -118,6 +118,7 @@ const SENSITIVE_HEADER_KEYS = new Set([
   "set-cookie",
   "x-auth-token",
   "proxy-authorization",
+  "uiplustoken",
 ])
 
 function sanitizeHeaders(input: Headers | Record<string, string> | undefined | null): Record<string, string> {
@@ -134,6 +135,12 @@ function sanitizeHeaders(input: Headers | Record<string, string> | undefined | n
     }
   }
   return out
+}
+
+function mergeRequestHeaders(input: RequestInfo | URL, extra?: HeadersInit) {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined)
+  new Headers(extra).forEach((value, key) => headers.set(key, value))
+  return headers
 }
 
 function describeInit(init: any): Record<string, any> {
@@ -2068,6 +2075,14 @@ const layer: Layer.Layer<
               opts.body = JSON.stringify(body)
             }
           }
+
+          log.info("model request headers", {
+            providerID: model.providerID,
+            modelID: model.id,
+            method,
+            url,
+            headers: sanitizeHeaders(mergeRequestHeaders(input, opts.headers)),
+          })
 
           try {
             const onSourceAbort = (source: string, sig: AbortSignal) => {
