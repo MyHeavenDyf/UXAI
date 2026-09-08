@@ -477,6 +477,10 @@ export function HtmlRenderer(props: {
       const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
       const previewExtraDirs = props.subtype === "prototype" && htmlDir ? [joinPath(htmlDir, "assets")] : []
 
+      // prototype：抓 iframe 实时 DOM 快照，用于在 data/components.json 记录
+      // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
+      const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
+
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -488,6 +492,7 @@ export function HtmlRenderer(props: {
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
         srcFiles,
         previewExtraDirs,
+        prototypeSnapshotHtml,
       })
       
       if (isLoggedIn) {
