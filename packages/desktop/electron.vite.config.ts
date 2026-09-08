@@ -15,6 +15,7 @@ const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "")
+  const modelsApiUrl = env.VITE_OCTO_MODELS_API_URL || loadEnv("prod", process.cwd(), "").VITE_OCTO_MODELS_API_URL
   const channel = (() => {
     const raw = env.OCTO_CHANNEL ?? process.env.OCTO_CHANNEL
     if (raw === "dev" || raw === "beta" || raw === "prod") return raw
@@ -45,7 +46,9 @@ export default defineConfig(({ mode, command }) => {
     const lines = [
       "",
       `[octo:env] ┌─ effective env  mode=${mode}  channel=${channel}  command=${command}  (${declaredKeys.length} keys)`,
-      ...declaredKeys.map((k) => `[octo:env] │  ${k}=${env[k] || "(未设置)"}`),
+      ...declaredKeys.map(
+        (k) => `[octo:env] │  ${k}=${(k === "VITE_OCTO_MODELS_API_URL" ? modelsApiUrl : env[k]) || "(未设置)"}`,
+      ),
       "[octo:env] └─ 值=process.env > .env.<mode> > .env 覆盖后的最终生效;清单来自 .env.example",
       "",
     ]
@@ -86,8 +89,7 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_CHANNEL": JSON.stringify(channel),
         // 渲染进程需要 VITE_OCTO_BASE_URL 判断是否走 IPC; main 进程 mock.ts/windows.ts 也读此值
         "import.meta.env.VITE_OCTO_BASE_URL": JSON.stringify(env.VITE_OCTO_BASE_URL ?? ""),
-        "import.meta.env.VITE_OCTO_MODELS_API_SOURCE": JSON.stringify(env.VITE_OCTO_MODELS_API_SOURCE ?? ""),
-        "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(env.VITE_OCTO_MODELS_API_URL ?? ""),
+        "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(modelsApiUrl ?? ""),
         // main 进程 mock.ts mockEnabled() 检查 import.meta.env.MOCK_API 判断是否启用 mock
         "import.meta.env.MOCK_API": JSON.stringify(env.MOCK_API ?? ""),
         // 内网知识库 base:独立变量(不复用 VITE_OCTO_BASE_URL,避免与渠道默认值耦合)。
@@ -156,8 +158,7 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.VITE_OCTO_CHANNEL": JSON.stringify(channel),
         // 渲染进程 pipelineRequest.ts 读此值: 有值时走 IPC 调真实接口, 空值时走浏览器 fetch(外网 mock)
         "import.meta.env.VITE_OCTO_BASE_URL": JSON.stringify(env.VITE_OCTO_BASE_URL ?? ""),
-        "import.meta.env.VITE_OCTO_MODELS_API_SOURCE": JSON.stringify(env.VITE_OCTO_MODELS_API_SOURCE ?? ""),
-        "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(env.VITE_OCTO_MODELS_API_URL ?? ""),
+        "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(modelsApiUrl ?? ""),
         // jk-j60099994-replace-with-electron-vite-config-2-start
         // jk-j60099994-replace-with-electron-vite-config-2-end
         // jk-j60099994-replace-with-60062650-electron-vite-config-1-start
