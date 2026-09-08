@@ -98,7 +98,7 @@ export interface SubtypeHandler {
    * 返回要记录的文件相对路径数组，或 null 表示本次不记录
    * actor（init/user/agent）由调用方根据事件类型决定
    */
-  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => string[] | null
+  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => Promise<string[] | null> | string[] | null
 
   /**
    * 历史恢复

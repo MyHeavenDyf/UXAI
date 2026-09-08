@@ -572,7 +572,7 @@ const defaultHandler: SubtypeHandler = {
     }
   },
 
-  onHistoryTrigger(_event, _ctx) {
+  async onHistoryTrigger(_event, _ctx) {
     return DEFAULT_HISTORY_FILES
   },
 

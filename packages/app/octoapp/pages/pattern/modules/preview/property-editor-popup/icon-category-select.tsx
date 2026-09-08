@@ -1,13 +1,9 @@
 import { createSignal, createEffect, For, Show, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
+import type { IconGroupNode } from "./icon-plus-fetch"
 
-/** 图标库分类树（来自资源接口 resource_type=3 / source_id=6） */
-export interface IconCategoryNode {
-  id: number
-  name: string
-  resource_count?: number
-  children?: IconCategoryNode[]
-}
+/** 图标库分类树（来自资源接口 resource_type=3 / source_id=6；接口未返回前作兜底） */
+export type IconCategoryNode = IconGroupNode
 
 const ICON_CATEGORY_TREE: IconCategoryNode[] = [
   {
@@ -61,7 +57,8 @@ const toFilterNode = (n: IconCategoryNode): IconCategoryNode | null => {
   if (n.resource_count) return null
   return { ...n, children: (n.children ?? []).map(toFilterNode).filter((c): c is IconCategoryNode => !!c) }
 }
-const CATEGORY_FILTER_TREE = ICON_CATEGORY_TREE.map(toFilterNode).filter((n): n is IconCategoryNode => !!n)
+const buildFilterTree = (tree: IconCategoryNode[]): IconCategoryNode[] =>
+  tree.map(toFilterNode).filter((n): n is IconCategoryNode => !!n)
 
 /** 自身或任一后代被选中即视为选中态（父选项跟随子选项高亮） */
 const containsSelected = (n: IconCategoryNode, id: number | 'all'): boolean =>
@@ -112,10 +109,14 @@ function CategoryRow(props: {
 export function IconCategorySelect(props: {
   value: number | 'all'
   label: string
+  /** 分组树（来自 store groups 接口）；未传或空时回退硬编码 ICON_CATEGORY_TREE */
+  tree?: IconCategoryNode[]
   onChange: (id: number | 'all', name: string) => void
 }) {
+  /** 派生筛选树：剔除带 resource_count 的版本叶节点；无 prop 树时回退硬编码兜底 */
+  const filterTree = () => buildFilterTree(props.tree?.length ? props.tree : ICON_CATEGORY_TREE)
   const [open, setOpen] = createSignal(false)
-  const [expanded, setExpanded] = createSignal(new Set(CATEGORY_FILTER_TREE.filter(n => n.children?.length).map(n => n.id)))
+  const [expanded, setExpanded] = createSignal(new Set<number>(filterTree().filter(n => n.children?.length).map(n => n.id)))
   const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
   let btnRef!: HTMLButtonElement
   let listRef!: HTMLDivElement
@@ -175,7 +176,7 @@ export function IconCategorySelect(props: {
               <span class="h-[14px] w-[14px] shrink-0" />
               <span class="leading-[14px]" style={{ color: '#191919' }}>全部分类</span>
             </div>
-            <For each={CATEGORY_FILTER_TREE}>
+            <For each={filterTree()}>
               {(n) => (
                 <CategoryRow node={n} depth={0} selectedId={props.value} expanded={expanded}
                   onSelect={(nd) => select(nd.id, nd.name)} onToggle={toggleExpand} />

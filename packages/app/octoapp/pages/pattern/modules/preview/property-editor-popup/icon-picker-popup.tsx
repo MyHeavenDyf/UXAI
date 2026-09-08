@@ -10,7 +10,7 @@ import noDataEmptySvg from "../../../assets/images/noDataEmpty.svg?url"
 import deleteSvg from "../../../assets/images/delete.svg?url"
 
 const PANEL_W = 380
-const PANEL_H = 682
+const PANEL_H = 634
 const ACCENT = "#3D99FF"
 
 /** 图标来源 tab 兜底：offline 或 tags 未返回前用这份渲染，tags 返回后由 store.tabs 覆盖 */
@@ -32,41 +32,29 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
   comm: /^(mail|phone|message|bell|megaphone|at-sign|rss|wifi|bluetooth|shield|lock|key|bug|terminal|code|braces|git|globe|map-pin)/,
 }
 
-/** 底部风格筛选：value（中文标签）即 getIcon 的 style 入参 */
+/** 底部形状筛选：value 与旧组件 Icon.shape 枚举一致（CustomSelect 选中/回传用）；
+ *  key 为传给 store 的 style 入参（即后端 getIcon 所需的中文标签，与 label 一致） */
 const SHAPE_OPTIONS = [
-  {
-    key: "border",
-    value: "线性",
-    label: "线性",
-  },
-  {
-    key: "filled",
-    value: "面性",
-    label: "面性",
-  },
-  {
-    key: "two_colors1",
-    value: "线性双色",
-    label: "线性双色",
-  },
-  {
-    key: "two_colors2",
-    value: "面性双色",
-    label: "面性双色",
-  },
-  {
-    key: "round_bottom2",
-    value: "圆底托",
-    label: "圆底托",
-  },
-  {
-    key: "square_bottom2",
-    value: "方底托",
-    label: "方底托",
-  },
+  { key: '线性', label: '线性', value: 'outline' },
+  { key: '线性双色', label: '线性双色', value: 'two-tone' },
+  { key: '方底托', label: '方底托', value: 'square' },
+  { key: '圆底托', label: '圆底托', value: 'circle' },
 ]
 
+/** 按枚举 value 反查 store 所需的 style 中文标签（key） */
+const shapeKeyToStyle = (value: string) => SHAPE_OPTIONS.find(o => o.value === value)?.key ?? value
+
 const SIZE_OPTIONS = ['12', '14', '16', '20', '24', '32', '36', '40'].map(s => ({ label: `${s}px`, value: s }))
+
+/** 带入颜色归一化：兼容旧枚举 token（default/info/…）、大写形态、hex */
+const normalizeInitialColor = (v?: string) => {
+  if (!v) return iconCssColor('default')
+  if (iconColors[v]) return iconCssColor(v)
+  const lower = v.toLowerCase()
+  if (iconColors[lower]) return iconCssColor(lower)
+  if (/^#[0-9a-f]{3,8}$/i.test(v)) return v
+  return iconCssColor('default')
+}
 
 const iconClassName = (name: string) =>
   'Icon' + name.split(/[-_]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('')
@@ -122,7 +110,7 @@ function IconColorSelect(props: { value: string; onChange: (key: string) => void
       <button ref={btnRef} type="button" onClick={() => setOpen(!open())}
         class="flex h-9 w-full items-center gap-1 rounded-[36px] border border-transparent bg-[#F2F3F5] px-2 text-left text-[12px] text-[#333333] outline-none">
         <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: swatch(props.value) }} />
-        <span class="flex-1 truncate" style={{ color: '#191919' }}>{props.value}</span>
+        <span class="flex-1 truncate" style={{ color: '#191919' }}>{iconColors[props.value]?.label ?? props.value}</span>
         <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
       <Show when={open()}>
@@ -136,7 +124,7 @@ function IconColorSelect(props: { value: string; onChange: (key: string) => void
                   class="flex cursor-pointer items-center gap-1 whitespace-nowrap bg-white px-[10px] py-[6px] text-[11px] text-slate-700 hover:bg-[#f3f4f6]"
                   classList={{ 'bg-[#E6F2FD] font-medium text-primary': k === props.value }}>
                   <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: swatch(k) }} />
-                  <span style={{ color: '#191919' }}>{k}</span>
+                  <span style={{ color: '#191919' }}>{iconColors[k].label}</span>
                 </div>
               )}
             </For>
@@ -152,35 +140,65 @@ export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
   anchor: HTMLElement | undefined
-  onPick: (name: string) => void
+  onPick: (pick: { name: string; id?: string; size: string; style: string; color: string }) => void
   onClose: () => void
   /** 点击确认按钮（事件预留） */
   onConfirm?: () => void
+  /** 打开弹窗时带入的上次选择：尺寸（如 "24"）、形状（旧枚举值如 outline）、颜色（hex 或语义 token） */
+  initialSize?: string
+  initialStyle?: string
+  initialColor?: string
+  /** 当前图标的唯一 id（icon-plus 的 icon_id；offline 无 id 时以 name 充当），回显按 id 匹配 */
+  currentId?: string
 }): JSX.Element {
   const [state, setState] = createStore({
+    source: 'official' as 'official' | 'custom',
+    tabsCan: { left: false, right: false },
     category: 'all' as number | 'all',
     categoryName: '全部分类',
-    iconColorKey: 'default',
+    shapeKey: props.initialStyle ?? 'outline',
+    iconColorKey: Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === normalizeInitialColor(props.initialColor)) ?? 'default',
     customIcons: [] as string[],
     selected: props.current,
+    selectedId: props.currentId ?? '',
     tip: null as { name: string; x: number; y: number } | null,
     uploadTip: null as { x: number; y: number; cx: number } | null,
     pos: { x: 0, y: 0 },
   })
   /** icon-plus 服务：打开弹窗即拉 getConfig（联通再取 tags），用 tags 重建 tab 列表（末尾固定"自定义"）；不联通回退 lucide */
-  const iconStore = createIconPlusStore()
-  onMount(() => { void iconStore.init(); iconStore.setColor(iconCssColor('default')) })
+  const iconStore = createIconPlusStore(props.current ?? "")
+  onMount(() => {
+    if (props.initialSize && /^\d+$/.test(props.initialSize)) iconStore.setSize(props.initialSize)
+    iconStore.setShape(shapeKeyToStyle(state.shapeKey))
+    iconStore.setColor(normalizeInitialColor(props.initialColor))
+    void iconStore.init()
+  })
   onCleanup(() => iconStore.dispose())
   /** tabs：接口返回前用兜底，返回后用 store 数据 */
   const tabs = () => iconStore.state.tabs.length ? iconStore.state.tabs : FALLBACK_TABS
   let popupRef: HTMLDivElement | undefined
   let fileRef: HTMLInputElement | undefined
+  let tabsRef: HTMLDivElement | undefined
+
+  /** 二级 tab 滚动条隐藏 + 左右箭头控制 */
+  const updateTabsScroll = () => {
+    if (!tabsRef) return
+    setState('tabsCan', {
+      left: tabsRef.scrollLeft > 1,
+      right: tabsRef.scrollLeft + tabsRef.clientWidth < tabsRef.scrollWidth - 1,
+    })
+  }
+  const scrollTabs = (dir: 1 | -1) => tabsRef?.scrollBy({ left: dir * 160, behavior: 'smooth' })
+  createEffect(() => {
+    tabs()
+    requestAnimationFrame(updateTabsScroll)
+  })
 
   function updatePos() {
     if (!props.anchor) return
     const rect = props.anchor.getBoundingClientRect()
     setState('pos', {
-      x: Math.max(4, rect.left - PANEL_W - 6),
+      x: Math.max(4, rect.left - PANEL_W - 20),
       y: Math.max(4, Math.min(rect.top - 8, window.innerHeight - PANEL_H - 4)),
     })
   }
@@ -207,18 +225,20 @@ export function IconPickerPopup(props: {
     })
   }
 
-  /** 渲染后端返回的整段 svg 文本（online 时网格用）；24px 居中 */
-  const ApiIcon = (props: { url: string }) => {
+  /** 渲染后端返回的整段 svg 文本（online 时网格用）；size 仅选中图标联动底部筛选 */
+  const ApiIcon = (props: { url: string; size?: number }) => {
     const svg = () => iconStore.state.svgCache[props.url] ?? ''
+    const px = () => `${props.size ?? 24}px`
     return (
       <Show when={svg()} fallback={<span class="text-[10px] text-slate-400">…</span>}>
-        <div class="flex h-[24px] w-[24px] items-center justify-center [&>svg]:h-[24px] [&>svg]:w-[24px]" innerHTML={svg()} />
+        <div class="api-icon flex items-center justify-center" style={{ width: px(), height: px() }} innerHTML={svg()} />
       </Show>
     )
   }
 
-  /** 渲染 24px 网格图标预览（容器 60px 高，居中展示）；底部 shape/color 仅作用于当前选中的图标 */
-  const GridIcon = (svg: string, s: string = 'outline', c: string = '#191919') => {
+  /** 网格图标预览（容器 60px 高，居中展示）；shape/color/size 仅作用于当前选中的图标 */
+  const GridIcon = (svg: string, s: string = 'outline', c: string = '#191919', size: number = 24) => {
+    const m = Math.round(size * 0.72)
     const strokeEl = (w: number, style?: string) => (
       <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke={c} stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" innerHTML={svg} style={style} />
@@ -226,14 +246,11 @@ export function IconPickerPopup(props: {
     const fillEl = (w: number, fill: string, fillOpacity: number | undefined, style?: string) => (
       <svg width={w} height={w} viewBox="0 0 24 24" fill={fill} fill-opacity={fillOpacity} stroke="none" innerHTML={svg} style={style} />
     )
-    if (s === 'filled') return fillEl(24, c, undefined)
-    if (s === 'outline-two-tone' || s === 'filled-two-tone') {
+    if (s === 'two-tone') {
       return (
-        <span class="relative inline-flex h-[24px] w-[24px]">
-          {s === 'outline-two-tone'
-            ? strokeEl(24, 'position:absolute;inset:0;margin:auto')
-            : fillEl(24, c, undefined, 'position:absolute;inset:0;margin:auto')}
-          {fillEl(17, ACCENT, 0.85, 'position:absolute;inset:0;margin:auto')}
+        <span class="relative inline-flex" style={{ width: `${size}px`, height: `${size}px` }}>
+          {strokeEl(size, 'position:absolute;inset:0;margin:auto')}
+          {fillEl(m, ACCENT, 0.85, 'position:absolute;inset:0;margin:auto')}
         </span>
       )
     }
@@ -241,15 +258,15 @@ export function IconPickerPopup(props: {
       return (
         <span class="inline-flex items-center justify-center"
           style={{
-            width: '24px', height: '24px',
-            'border-radius': s === 'circle' ? '50%' : '4px',
+            width: `${size}px`, height: `${size}px`,
+            'border-radius': s === 'circle' ? '50%' : `${Math.round(size / 6)}px`,
             background: `color-mix(in srgb, ${c} 12%, transparent)`,
           }}>
-          {strokeEl(17)}
+          {strokeEl(m)}
         </span>
       )
     }
-    return strokeEl(24)
+    return strokeEl(size)
   }
 
   /** hover 图标：在图标下方弹气泡（图标名称 + 图标类名），坐标相对弹窗 */
@@ -280,7 +297,13 @@ export function IconPickerPopup(props: {
   }
 
   const handleConfirm = () => {
-    if (state.selected) props.onPick(state.selected)
+    if (state.selected) props.onPick({
+      name: state.selected,
+      id: state.selectedId || undefined,
+      size: iconStore.state.iconSize,
+      style: state.shapeKey,
+      color: iconStore.state.iconColor,
+    })
     props.onConfirm?.()
     props.onClose()
   }
@@ -293,6 +316,10 @@ export function IconPickerPopup(props: {
         .icon-picker-scroll::-webkit-scrollbar-thumb { background: #D9DDE2; border-radius: 3px }
         .icon-picker-scroll::-webkit-scrollbar-thumb:hover { background: #C4C9CF }
         .icon-picker-scroll { scrollbar-width: thin; scrollbar-color: #D9DDE2 transparent }
+        .icon-tabs::-webkit-scrollbar { display: none }
+        .icon-tabs { scrollbar-width: none; -ms-overflow-style: none }
+        .icon-tabs :focus, .icon-tabs :focus-visible { outline: none }
+        .api-icon > svg { width: 100%; height: 100% }
       `}</style>
       <div ref={popupRef} class="fixed z-[302] flex flex-col rounded-md py-4"
         style={{
@@ -319,7 +346,12 @@ export function IconPickerPopup(props: {
         <div class="mt-4 flex shrink-0 items-center gap-2 px-4">
           <div class="w-[109px] shrink-0">
             <IconCategorySelect value={state.category} label={state.categoryName}
-              onChange={(id, name) => { setState('category', id); setState('categoryName', name) }} />
+              tree={iconStore.state.groups}
+              onChange={(id, name) => {
+                setState('category', id)
+                setState('categoryName', name)
+                iconStore.setGroupId(id === 'all' ? null : id)
+              }} />
           </div>
           <input value={iconStore.state.keyword} onInput={(e) => iconStore.setKeyword(e.currentTarget.value)}
             type="search" placeholder="请搜索..."
@@ -331,25 +363,67 @@ export function IconPickerPopup(props: {
             }} />
         </div>
 
-        {/* 来源 tab：选中 #0A59F7 文字 + 10% 透明度背景，未选中 #777777 纯文字 */}
-        <div class="mt-4 flex shrink-0 items-center gap-0 overflow-x-auto px-4 icon-picker-scroll">
-          <For each={tabs()}>
-            {(t) => (
-              <button type="button" onClick={() => iconStore.setTab(t.value)}
-                class="shrink-0 px-3 py-1 text-center text-[12px] leading-5 rounded-[28px] whitespace-nowrap"
-                classList={{
-                  'bg-[#0A59F7]/10 text-[#0A59F7]': iconStore.state.activeTab === t.value,
-                  'text-[#777777]': iconStore.state.activeTab !== t.value,
-                }}>
-                {t.label}
-              </button>
-            )}
-          </For>
+        {/* 一级 tab：官方 / 自定义；选中 #0A59F7 + 下划线（距文字底部 4px），未选中 #777777 */}
+        <div class="mt-4 flex shrink-0 items-center gap-8 px-4">
+          <button type="button" onClick={() => setState('source', 'official')}
+            class="relative pb-[4px] text-[12px] leading-5"
+            style={{ color: state.source === 'official' ? '#0A59F7' : '#777777' }}>
+            官方
+            <Show when={state.source === 'official'}>
+              <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
+            </Show>
+          </button>
+          <button type="button" onClick={() => setState('source', 'custom')}
+            class="relative pb-[4px] text-[12px] leading-5"
+            style={{ color: state.source === 'custom' ? '#0A59F7' : '#777777' }}>
+            自定义
+            <Show when={state.source === 'custom'}>
+              <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
+            </Show>
+          </button>
         </div>
+
+        {/* 二级 tab（仅官方）：现有来源 tab 去掉"自定义"；不出现滚动条，超宽时左右箭头点击滚动 */}
+        <Show when={state.source === 'official'}>
+          <div class="relative mt-4 shrink-0 px-4">
+            <Show when={state.tabsCan.left}>
+              <div class="pointer-events-none absolute left-0 top-1/2 z-10 flex h-[28px] w-[90px] -translate-y-1/2 items-center justify-start pl-[18px]"
+                style={{ background: 'linear-gradient(to right, #FFFFFF 18px, rgba(255,255,255,0))' }}>
+                <button type="button" onClick={() => scrollTabs(-1)}
+                  class="pointer-events-auto flex cursor-pointer items-center justify-center outline-none">
+                  <svg class="h-3 w-3" viewBox="0 0 8 8" fill="none"><path d="M5.5 1L2.5 4L5.5 7" stroke="#777777" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </button>
+              </div>
+            </Show>
+            <div ref={tabsRef} class="icon-tabs flex items-center gap-0 overflow-x-auto" onScroll={updateTabsScroll}>
+              <For each={tabs().filter(t => t.value !== '自定义')}>
+                {(t) => (
+                  <button type="button" onClick={() => iconStore.setTab(t.value)}
+                    class="shrink-0 px-3 py-1 text-center text-[12px] leading-5 rounded-[28px] whitespace-nowrap"
+                    classList={{
+                      'bg-[#0A59F7]/10 text-[#0A59F7]': iconStore.state.activeTab === t.value,
+                      'text-[#777777]': iconStore.state.activeTab !== t.value,
+                    }}>
+                    {t.label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <Show when={state.tabsCan.right}>
+              <div class="pointer-events-none absolute right-0 top-1/2 z-10 flex h-[28px] w-[90px] -translate-y-1/2 items-center justify-end pr-[18px]"
+                style={{ background: 'linear-gradient(to left, #FFFFFF 18px, rgba(255,255,255,0))' }}>
+                <button type="button" onClick={() => scrollTabs(1)}
+                  class="pointer-events-auto flex cursor-pointer items-center justify-center outline-none">
+                  <svg class="h-3 w-3" viewBox="0 0 8 8" fill="none"><path d="M2.5 1L5.5 4L2.5 7" stroke="#777777" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
 
         {/* 主内容：随 tab 切换；可滚动，底部筛选与按钮始终固定在弹窗底部 */}
         <div class="icon-picker-scroll mt-4 min-h-0 flex-1 overflow-y-auto px-4" onScroll={() => setState('tip', null)}>
-          <Show when={iconStore.state.activeTab === '自定义'} fallback={
+          <Show when={state.source === 'custom'} fallback={
             <Show when={iconStore.state.online} fallback={
               /* offline 兜底：仅 '基础图标' tab 显示 lucide 网格，其余"暂无内容" */
               <Show when={iconStore.state.activeTab === '基础图标'} fallback={<EmptyState text="暂无内容" />}>
@@ -359,11 +433,11 @@ export function IconPickerPopup(props: {
                       <button type="button"
                         onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
                         onMouseLeave={() => setState('tip', null)}
-                        onClick={() => setState('selected', icon.name)}
+                        onClick={() => { setState('selectedId', icon.name); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selected }}>
-                        {icon.name === state.selected
-                          ? GridIcon(icon.svg, iconStore.state.shape, iconStore.state.iconColor)
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': (state.selectedId || state.selected) === icon.name }}>
+                        {(state.selectedId || state.selected) === icon.name
+                          ? GridIcon(icon.svg, state.shapeKey, iconStore.state.iconColor, Number(iconStore.state.iconSize))
                           : GridIcon(icon.svg)}
                       </button>
                     )}
@@ -384,10 +458,10 @@ export function IconPickerPopup(props: {
                       <button type="button"
                         onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
                         onMouseLeave={() => setState('tip', null)}
-                        onClick={() => setState('selected', icon.name)}
+                        onClick={() => { setState('selectedId', String(icon.icon_id)); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selected }}>
-                        <ApiIcon url={icon.url} />
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': !!state.selectedId && String(icon.icon_id) === state.selectedId }}>
+                        <ApiIcon url={icon.url} size={state.selectedId && String(icon.icon_id) === state.selectedId ? Number(iconStore.state.iconSize) : undefined} />
                       </button>
                     )}
                   </For>
@@ -444,7 +518,8 @@ export function IconPickerPopup(props: {
         <div class="mt-4 shrink-0 px-4">
           <div class="flex items-center gap-2">
             <div class="w-[96px] shrink-0">
-              <CustomSelect value={iconStore.state.shape} options={SHAPE_OPTIONS} onChange={v => iconStore.setShape(v)}
+              <CustomSelect value={state.shapeKey} options={SHAPE_OPTIONS}
+                onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
             <div class="w-[96px] shrink-0">

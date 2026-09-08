@@ -1,6 +1,6 @@
 import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
 import type { PrototypeSession } from "./types"
-import { persistA2uiData } from "./a2ui"
+import { persistA2uiDoc } from "./a2ui"
 import { dispatchPrototypeClosePanels } from "./events"
 
 const sessions = new Map<string, PrototypeSession>()
@@ -24,9 +24,7 @@ export function createSession(tabId: string, ctx: SubtypeHandlerContext): Protot
     editing: false,
     ctx,
     messageHandler: null,
-    a2ui: null,
-    persistTimer: null,
-    persistFilePath: null,
+    a2uiDocs: [],
   }
   sessions.set(tabId, session)
   return session
@@ -36,12 +34,16 @@ export function disposeSession(tabId: string | null) {
   if (!tabId) return
   const session = sessions.get(tabId)
   if (!session) return
-  if (session.persistTimer) {
-    clearTimeout(session.persistTimer)
-    session.persistTimer = null
-    const fp = session.persistFilePath
-    session.persistFilePath = null
-    if (fp) void persistA2uiData(session, fp)
+  // flush 每个 entry 的待写计时器：立即落盘未持久化的编辑
+  for (const entry of session.a2uiDocs) {
+    if (entry.persistTimer) {
+      clearTimeout(entry.persistTimer)
+      entry.persistTimer = null
+      if (entry.persistPending) {
+        entry.persistPending = false
+        void persistA2uiDoc(session, entry)
+      }
+    }
   }
   if (session.messageHandler) {
     window.removeEventListener("message", session.messageHandler)
@@ -70,7 +72,7 @@ export function disposeAllPrototypeSessions() {
 
 export function invalidatePrototypeCache(tabId: string) {
   const session = sessions.get(tabId)
-  if (session) session.a2ui = null
+  if (session) session.a2uiDocs = []
 }
 
 /** 向当前 prototype iframe 发送 postMessage（用于「选择父容器」等动作） */
