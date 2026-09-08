@@ -5132,12 +5132,6 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
-                        contextTokens={contextTokens()}
-                        contextLimit={contextLimit()}
-                        contextLocale={language.intl()}
-                        contextCompactionDisabled={contextCompactionDisabled()}
-                        contextLimitVisible={contextSendBlocked()}
-                        onCompactContext={confirmCompactContext}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -5166,12 +5160,6 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
-                            contextTokens={contextTokens()}
-                            contextLimit={contextLimit()}
-                            contextLocale={language.intl()}
-                            contextCompactionDisabled={contextCompactionDisabled()}
-                            contextLimitVisible={contextSendBlocked()}
-                            onCompactContext={confirmCompactContext}
                           />
                         )
                       }}
