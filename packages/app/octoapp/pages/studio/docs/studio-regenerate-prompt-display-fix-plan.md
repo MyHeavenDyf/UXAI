@@ -518,4 +518,3 @@ bun test octoapp/pages/studio/turns.test.ts
 - `延续上一轮` 拼接问题会被阻断
 - session 切换后气泡变 prompt 的问题会消失
 - 点击后短暂两个 `studio-result-card` 的问题会明显降低或消失
-

@@ -823,4 +823,3 @@ const [editEntryTurns, setEditEntryTurns] = createSignal<StudioTurnData[]>([])
 - Composer 选择能力会创建新入口轮次。
 - 点击历史入口只恢复编辑区，不创建新轮次。
 - 能力切换不会删除任何已经创建的历史轮次。
-
