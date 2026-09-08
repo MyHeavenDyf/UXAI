@@ -75,14 +75,14 @@ export type StudioTemplatePublishInput =
     })
 
 export type StudioTemplateEditableValue = StudioTemplatePublishInput & {
-  idx: string
+  idx: number
 }
 
 export type StudioTemplateWorkspace =
   | { mode: "create" }
   | {
       mode: "edit"
-      templateID: string
+      templateID: number
       initialValue?: StudioTemplateEditableValue
       loading: boolean
       error?: string
@@ -1204,14 +1204,14 @@ function TemplateCreatorFooter(props: {
 
 export function StudioTemplateCreator(props: {
   mode?: "create" | "edit"
-  templateID?: string
+  templateID?: number
   initialValue?: StudioTemplateEditableValue
   onGenerateStyleDescription?: (
     input: StudioStyleDescriptionGenerateInput,
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
-  onSaveTemplate?: (templateID: string, input: StudioTemplatePublishInput) => Promise<void>
+  onSaveTemplate?: (templateID: number, input: StudioTemplatePublishInput) => Promise<void>
   onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
   onCancel?: () => void
 }): JSX.Element {
@@ -1298,7 +1298,7 @@ export function StudioTemplateCreator(props: {
       imageTotalSize(exampleImages(), sizeByUrl()) <= 30 * BYTES_IN_MB,
   )
   const canNext = createMemo(() => {
-    if (props.mode === "edit") return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onSaveTemplate) && Boolean(props.templateID) && !templatePublishing()
+    if (props.mode === "edit") return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onSaveTemplate) && props.templateID !== undefined && !templatePublishing()
     if (currentStep() === "make") return canMakeNext()
     if (currentStep() === "publish") return canPublishNext()
     return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onPublishTemplate) && !templatePublishing()
@@ -1447,7 +1447,7 @@ export function StudioTemplateCreator(props: {
   }
   const publishCurrentTemplate = async () => {
     if (templatePublishing() || !canMakeNext() || !canPublishNext() || !canPublish()) return
-    if (props.mode === "edit" && (!props.onSaveTemplate || !props.templateID)) return
+    if (props.mode === "edit" && (!props.onSaveTemplate || props.templateID === undefined)) return
     if (props.mode !== "edit" && !props.onPublishTemplate) return
     setTemplatePublishing(true)
     setTemplatePublishMessage("")
@@ -1456,7 +1456,7 @@ export function StudioTemplateCreator(props: {
       if (props.mode === "edit") {
         const saveTemplate = props.onSaveTemplate
         const templateID = props.templateID
-        if (!saveTemplate || !templateID) return
+        if (!saveTemplate || templateID === undefined) return
         await saveTemplate(templateID, templatePublishInput())
         return
       }

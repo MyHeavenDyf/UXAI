@@ -119,7 +119,7 @@ export const StudioTemplatePublishPayload = Schema.Union([
 export const StudioTemplateUpdatePayload = Schema.Union([
   Schema.Struct({
     ...StudioTemplatePublishBaseFields,
-    idx: Schema.String,
+    idx: Schema.Finite,
     template_type: Schema.Literal("extract_style"),
     style_description: StudioStyleDescriptionPayload,
     style_images: Schema.Array(StudioTemplateImagePayload),
@@ -127,7 +127,7 @@ export const StudioTemplateUpdatePayload = Schema.Union([
   }),
   Schema.Struct({
     ...StudioTemplatePublishBaseFields,
-    idx: Schema.String,
+    idx: Schema.Finite,
     template_type: Schema.Literal("preset_recipe"),
     fixed_reference_images: Schema.Array(StudioTemplateImagePayload),
     play_description: Schema.String,

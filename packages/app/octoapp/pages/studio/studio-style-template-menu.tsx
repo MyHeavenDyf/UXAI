@@ -12,7 +12,7 @@ export type StudioStyleTemplateListInput = {
 }
 
 export type StudioStyleTemplateListItem = StudioTemplatePublishInput & {
-  idx: string
+  idx: number
 }
 
 export type StudioStyleTemplateListResult = {

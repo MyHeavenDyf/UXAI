@@ -82,8 +82,8 @@ const StudioTemplatePublishInput = z.discriminatedUnion("template_type", [
 ])
 
 const StudioTemplateUpdateInput = z.discriminatedUnion("template_type", [
-  StudioStyleTemplatePublishInput.extend({ idx: z.string().min(1) }),
-  StudioRecipeTemplatePublishInput.extend({ idx: z.string().min(1) }),
+  StudioStyleTemplatePublishInput.extend({ idx: z.number() }),
+  StudioRecipeTemplatePublishInput.extend({ idx: z.number() }),
 ])
 
 const StudioTemplateListQuery = z.object({
@@ -285,7 +285,7 @@ export const StudioRoutes = lazy(() =>
       validator("json", StudioTemplateUpdateInput),
       async (c) => {
         const template = c.req.valid("json")
-        if (template.idx !== c.req.param("templateID")) return c.json({ error: "Template id does not match request body." }, 400)
+        if (template.idx !== Number(c.req.param("templateID"))) return c.json({ error: "Template id does not match request body." }, 400)
         return c.json(await updateTemplate({
           user_id: c.req.valid("query").user_id,
           template,
@@ -307,10 +307,14 @@ export const StudioRoutes = lazy(() =>
         },
       }),
       validator("query", StudioTemplateDetailQuery),
-      async (c) => c.json(await deleteTemplate({
-        template_id: c.req.param("templateID"),
-        user_id: c.req.valid("query").user_id,
-      })),
+      async (c) => {
+        const templateID = Number(c.req.param("templateID"))
+        if (!Number.isFinite(templateID)) return c.json({ error: "Template id must be a number." }, 400)
+        return c.json(await deleteTemplate({
+          template_id: templateID,
+          user_id: c.req.valid("query").user_id,
+        }))
+      },
     )
     .get(
       "/template-list",

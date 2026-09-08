@@ -312,7 +312,7 @@ export function StudioResultCanvas(props: {
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
-  onSaveTemplate?: (templateID: string, input: StudioTemplatePublishInput) => Promise<void>
+  onSaveTemplate?: (templateID: number, input: StudioTemplatePublishInput) => Promise<void>
   onSearchTemplateUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
   onTemplateCreatorClick: () => void
   onTemplateCreatorClose: () => void

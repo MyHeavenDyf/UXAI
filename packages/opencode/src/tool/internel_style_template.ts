@@ -104,7 +104,7 @@ export type StyleTemplatePublishRequest =
   })
 
 export type StyleTemplateUpdatePayload = StyleTemplatePublishRequest & {
-  idx: string
+  idx: number
 }
 
 export type StyleTemplateUpdateRequest = {
@@ -113,7 +113,7 @@ export type StyleTemplateUpdateRequest = {
 }
 
 export type StyleTemplateDeleteRequest = {
-  template_id: string
+  template_id: number
   user_id: string
 }
 
@@ -125,12 +125,12 @@ export type StyleTemplateListRequest = {
 }
 
 export type StyleTemplateDetailRequest = {
-  template_id: string
+  template_id: string | number
   user_id: string
 }
 
 export type StyleTemplateListItem = StyleTemplatePublishRequest & {
-  idx: string
+  idx: number
 }
 
 export type StyleTemplateListResult = {
@@ -388,7 +388,7 @@ export async function publishInternalStyleTemplate(input: StyleTemplatePublishRe
   return parseBusinessResponse(text, "style_template_publish")
 }
 
-function styleTemplateMutationUrl(templateID: string, userID: string) {
+function styleTemplateMutationUrl(templateID: number, userID: string) {
   const endpoint = env("IMAGE_STYLE_TEMPLATE_PUBLISH_URL") ?? DEFAULT_STYLE_TEMPLATE_PUBLISH
   if (!endpoint || endpoint === "xx") throw new Error("style_template url is not configured.")
   const url = new URL(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(templateID)}`)

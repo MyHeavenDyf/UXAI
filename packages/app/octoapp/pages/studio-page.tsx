@@ -3181,7 +3181,7 @@ export default function StudioPage() {
     closeTemplateCreator()
   }
 
-  async function saveStudioStyleTemplate(templateID: string, input: StudioTemplatePublishInput) {
+  async function saveStudioStyleTemplate(templateID: number, input: StudioTemplatePublishInput) {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const userID = uiplusUserAccount() ?? ""
@@ -3286,7 +3286,7 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioStyleTemplateListResult
   }
 
-  async function getStudioStyleTemplate(templateID: string): Promise<StudioStyleTemplateListItem> {
+  async function getStudioStyleTemplate(templateID: string | number): Promise<StudioStyleTemplateListItem> {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const url = new URL(`/studio/template-detail/${encodeURIComponent(templateID)}`, current.http.url)

@@ -257,7 +257,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       query: typeof StudioTemplateDetailQuery.Type
       payload: typeof StudioTemplateUpdatePayload.Type
     }) {
-      if (ctx.params.templateID !== ctx.payload.idx) return yield* new HttpApiError.BadRequest({})
+      if (Number(ctx.params.templateID) !== ctx.payload.idx) return yield* new HttpApiError.BadRequest({})
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => updateTemplate({
@@ -278,10 +278,12 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       params: { templateID: string }
       query: typeof StudioTemplateDetailQuery.Type
     }) {
+      const templateID = Number(ctx.params.templateID)
+      if (!Number.isFinite(templateID)) return yield* new HttpApiError.BadRequest({})
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => deleteTemplate({
-          template_id: ctx.params.templateID,
+          template_id: templateID,
           user_id: ctx.query.user_id,
         })),
         catch: (error) =>

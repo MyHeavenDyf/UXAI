@@ -7685,7 +7685,7 @@ export type StudioTemplateUpdateUpdateData = {
         reference_image_setting: "fixed" | "optional" | "not_supported"
         title: string
         usage_instructions: string
-        idx: string
+        idx: number
         template_type: "extract_style"
         style_description: {
           overview: string
@@ -7717,7 +7717,7 @@ export type StudioTemplateUpdateUpdateData = {
         reference_image_setting: "fixed" | "optional" | "not_supported"
         title: string
         usage_instructions: string
-        idx: string
+        idx: number
         template_type: "preset_recipe"
         fixed_reference_images: Array<{
           url: string

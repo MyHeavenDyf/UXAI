@@ -53,7 +53,7 @@ type StudioTemplateWorkspace =
     }
   | {
       mode: "edit"
-      templateID: string
+      templateID: number
       initialValue?: StudioStyleTemplateListItem
       loading: boolean
     }
@@ -313,10 +313,10 @@ type StudioTemplateCreatorProps = {
   initialValue?: StudioStyleTemplateListItem
   onCancel?: () => void
   onSaveTemplate?: (
-    templateID: string,
+    templateID: number,
     input: StudioTemplatePublishInput,
   ) => Promise<void>
-  templateID?: string
+  templateID?: number
   // 保留现有生成风格描述、发布、用户搜索 props
 }
 ```
@@ -582,7 +582,7 @@ Content-Type: application/json
 
 ```ts
 type StudioTemplateUpdateInput = StudioTemplatePublishInput & {
-  idx: string
+  idx: number
 }
 ```
 
@@ -626,10 +626,10 @@ PUT /studio/template-update/${templateID}?user_id=${user_id}
 
 本地路由需要校验：
 
-- path 中存在非空 `templateID`。
+- path 中的 `templateID` 可转换为有效数字。
 - query 中存在 `user_id`。
 - body 满足创建模板原有联合类型校验。
-- body 中增加非空 `idx`。
+- body 中增加 number 类型的 `idx`。
 - path `templateID` 必须与 body `idx` 一致；不一致时返回参数错误，不向供应商发起请求。
 
 工具层在现有三环境模板 endpoint 基础上拼接 `/${encodeURIComponent(input.idx)}`，并写入 `user_id` query；请求 method 使用 `PUT`。供应商响应解析、超时、错误信息和鉴权 header 沿用创建模板接口。
@@ -640,7 +640,7 @@ PUT /studio/template-update/${templateID}?user_id=${user_id}
 
 ```ts
 async function saveStudioStyleTemplate(
-  templateID: string,
+  templateID: number,
   input: StudioTemplatePublishInput,
 ): Promise<void> {
   // PUT Studio 本地模板更新路由
@@ -701,7 +701,7 @@ DELETE /studio/template-delete/${templateID}?user_id=${user_id}
 
 本地路由只需要校验 path 和 query，不需要 body schema：
 
-- path 中存在非空 `templateID`。
+- path 中的 `templateID` 可转换为有效数字。
 - query 中存在非空 `user_id`。
 - 校验通过后把二者传给 Studio service。
 
@@ -709,7 +709,7 @@ DELETE /studio/template-delete/${templateID}?user_id=${user_id}
 
 ```ts
 async function deleteStudioStyleTemplate(
-  templateID: string,
+  templateID: number,
 ): Promise<void> {
   // DELETE Studio 本地模板删除路由
   // query: user_id = uiplusUserAccount()
