@@ -5,6 +5,14 @@ import type { StudioTemplatePublishInput } from "./studio-template-creator"
 
 type StyleTemplateSection = "creative-square" | "mine"
 const STYLE_TEMPLATE_PAGE_SIZE = 20
+const EDITING_TEMPLATE_TOOLTIP_STYLE = {
+  "white-space": "nowrap",
+  "max-width": "none",
+  background: "#fff",
+  color: "#191919",
+  border: "1px solid rgba(0, 0, 0, 0.08)",
+  "box-shadow": "0 4px 12px rgba(0, 0, 0, 0.12)",
+} satisfies JSX.CSSProperties
 
 export type StudioStyleTemplateListInput = {
   only_public: 0 | 1
@@ -176,7 +184,7 @@ export function StudioStyleTemplateMenu(props: {
                           placement="top"
                           value="当前模版正在编辑中，请先保存或取消编辑"
                           inactive={!editing()}
-                          contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
+                          contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
                           class="studio-style-template-card-action-tooltip"
                         >
                           <button
@@ -194,7 +202,7 @@ export function StudioStyleTemplateMenu(props: {
                           placement="top"
                           value="当前模版正在编辑中，请先保存或取消编辑"
                           inactive={!editing()}
-                          contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
+                          contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
                           class="studio-style-template-card-action-tooltip"
                         >
                           <button
