@@ -117,8 +117,23 @@ export interface InlineDecision {
 }
 
 function inlinePathKey(path: string) {
-  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
-    return path.replace(/\//g, "\\").toLowerCase()
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\") || path.startsWith("//")) {
+    const normalized = path.replace(/\//g, "\\")
+    const unc = normalized.startsWith("\\\\")
+    const root = unc ? "\\\\" : normalized.slice(0, 3)
+    const floor = unc ? 2 : 0
+    const parts = (unc ? normalized.replace(/^\\+/, "") : normalized.slice(3))
+      .split("\\")
+      .reduce<string[]>((parts, part) => {
+        if (!part || part === ".") return parts
+        if (part === "..") {
+          if (parts.length > floor) parts.pop()
+          return parts
+        }
+        parts.push(part)
+        return parts
+      }, [])
+    return `${root}${parts.join("\\")}`.toLowerCase()
   }
   if (!path.startsWith("/")) return path
   return `/${path

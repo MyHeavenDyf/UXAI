@@ -254,6 +254,22 @@ describe("decideInlineStrategy", () => {
     expect(d.docs).toHaveLength(1)
   })
 
+  test("Windows 同一路径消解点段，UNC 的正反斜杠写法等价", () => {
+    const drive = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\docs\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\.\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\sub\\..\\a.docx", bytes: 1000 },
+    ])
+    const unc = decideInlineStrategy([
+      { filename: "a.txt", path: "\\\\server\\share\\a.txt", bytes: 17 * 1024 },
+      { filename: "a.txt", path: "//server/share/a.txt", bytes: 17 * 1024 },
+    ])
+    expect(drive.docs).toHaveLength(1)
+    expect(drive.mode).toBe("inline")
+    expect(unc.files).toHaveLength(1)
+    expect(unc.mode).toBe("inline")
+  })
+
   test("macOS 同一路径按 POSIX 等价写法去重，但保留大小写差异", () => {
     const decision = decideInlineStrategy([
       { filename: "a.md", path: "/Users/test/Documents/./materials//a.md", bytes: 1000 },

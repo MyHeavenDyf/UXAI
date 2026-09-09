@@ -29,6 +29,15 @@ describe("prompt 正文中的本地文档路径", () => {
     ).toEqual([{ filename: paths[2].split("\\").pop()!, path: paths[2] }])
   })
 
+  test("Windows 点段路径解析为同一文件，只保留首次写法", async () => {
+    const first = "D:\\workspace\\download\\a.docx"
+    const files = await resolvePromptLocalDocuments(
+      `${first} D:\\workspace\\download\\.\\a.docx D:\\workspace\\download\\tmp\\..\\a.docx`,
+      { statFile: async () => ({ size: 1024 }) },
+    )
+    expect(files).toEqual([{ filename: "a.docx", path: first, bytes: 1024 }])
+  })
+
   test("macOS 绝对路径支持空格和中文，POSIX 路径保留大小写语义", () => {
     const upper = "/Users/test/Documents/项目资料/Final Report.txt"
     const lower = "/Users/test/Documents/项目资料/final report.txt"

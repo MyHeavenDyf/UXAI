@@ -61,6 +61,29 @@ describe("Insight chat.message 分治守卫", () => {
     ).toEqual(["D:\\research.md\\final.docx", "D:\\reports\\survey.md.backup.docx"])
   })
 
+  test("Windows 点段与 UNC 斜杠差异不会重复计入分治阈值", async () => {
+    const drive = await decideInsightDispatch(
+      [
+        {
+          type: "text",
+          text: "D:\\docs\\a.docx D:\\docs\\.\\a.docx D:\\docs\\sub\\..\\a.docx",
+        },
+      ],
+      async () => ({ size: 1024, isFile: true }),
+    )
+    const unc = await decideInsightDispatch(
+      [
+        { type: "text", text: "\\\\server\\share\\a.txt" },
+        { type: "file", filename: "a.txt", url: "file:////server/share/a.txt" },
+      ],
+      async () => ({ size: 17 * 1024, isFile: true }),
+    )
+    expect(drive.docs).toHaveLength(1)
+    expect(drive.mode).toBe("inline")
+    expect(unc.files).toHaveLength(1)
+    expect(unc.mode).toBe("inline")
+  })
+
   test("macOS 直接路径保留大小写，并按 POSIX 等价写法去重", () => {
     const first = "/Users/test/Documents/./materials//Final Report.txt"
     const duplicate = "/Users/test/Documents/materials/Final Report.txt"
