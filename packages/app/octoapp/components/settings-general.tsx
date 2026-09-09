@@ -6,6 +6,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
@@ -143,6 +144,7 @@ export const SettingsGeneral: Component = () => {
   const language = useLanguage()
   const permission = usePermission()
   const platform = usePlatform()
+  const dialog = useDialog()
   const params = useParams()
   const settings = useSettings()
   const server = useServer()
@@ -228,6 +230,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
+        dialog.close()
         openAvailableUpdate({ version: result.version ?? "", releaseNotes: result.releaseNotes })
       })
       .catch((err: unknown) => {
