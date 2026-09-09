@@ -1,4 +1,5 @@
 import { Plugin, PluginKey } from "prosemirror-state"
+import type { Node as PMNode } from "prosemirror-model"
 import type { MentionAttrs } from "../schema"
 import { getDocTextWithMentions } from "../schema"
 
@@ -6,7 +7,7 @@ export const syncPluginKey = new PluginKey("sync")
 
 export function createSyncPlugin(
   onChange: (mentions: MentionAttrs[], isEmpty: boolean) => void,
-  onContentChange?: (text: string) => void
+  onContentChange?: (docJSON: ReturnType<PMNode["toJSON"]>, text: string) => void
 ) {
   return new Plugin({
     key: syncPluginKey,
@@ -34,7 +35,7 @@ export function createSyncPlugin(
             onChange(mentions, isEmpty)
             
             if (onContentChange) {
-              onContentChange(text)
+              onContentChange(state.doc.toJSON(), text)
             }
           }
         },
