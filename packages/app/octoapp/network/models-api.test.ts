@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import { modelsApiProviders } from "./models-api"
+import { beforeEach, describe, expect, test } from "bun:test"
+import { modelsApiHeaders, modelsApiProviders } from "./models-api"
 
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
@@ -41,5 +41,19 @@ describe("modelsApiProviders", () => {
       },
       limit: { context: 128_000, output: 128_000 },
     })
+  })
+})
+
+describe("modelsApiHeaders", () => {
+  beforeEach(() => localStorage.clear())
+
+  test("includes the account from userInfo for the local server", () => {
+    localStorage.setItem("userInfo", JSON.stringify({ account: " j60099994 " }))
+    expect(modelsApiHeaders()["x-opencode-w3-account"]).toBe("j60099994")
+  })
+
+  test("omits the account when userInfo is invalid", () => {
+    localStorage.setItem("userInfo", "invalid JSON")
+    expect(modelsApiHeaders()).not.toHaveProperty("x-opencode-w3-account")
   })
 })

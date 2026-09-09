@@ -1,7 +1,6 @@
 import { createSignal } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createPatternArchiveZip, buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "./pattern-archive-utils"
-import { ComplianceError } from "@/network/pipelineRequest"
 import { loadAnnotations } from "./annotation-persist"
 import { getDesktopApi } from "./desktop-api"
 import type { ArchiveConfirmData } from "@/components/dialog-archive"
@@ -95,7 +94,7 @@ export function useArchive(deps: {
       }
     } catch (err) {
       console.error("[Archive] Failed:", err)
-      if (!(err instanceof ComplianceError)) showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }

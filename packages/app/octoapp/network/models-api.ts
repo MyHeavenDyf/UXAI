@@ -69,6 +69,17 @@ function uiplusToken() {
   return localStorageValue("uiplusToken")
 }
 
+function w3Account() {
+  if (typeof localStorage === "undefined") return ""
+  try {
+    const user = JSON.parse(localStorage.getItem("userInfo") ?? "") as unknown
+    if (!isRecord(user) || typeof user.account !== "string") return ""
+    return user.account.trim()
+  } catch {
+    return ""
+  }
+}
+
 export function hasModelsApiToken() {
   return !!uiplusToken()
 }
@@ -121,12 +132,14 @@ function storeW3Api(api: ApiModels, modelsApiUrl: string) {
 
 export function modelsApiHeaders() {
   const token = uiplusToken()
+  const account = w3Account()
   const url = modelsApiUrl()
   const w3Api = url ? latestModelsApi?.w3?.api?.trim() || cachedW3Api(url) : undefined
   return {
     ...(url ? { "x-opencode-models-api-source": "http", "x-opencode-models-api-url": url } : {}),
     ...(w3Api ? { "x-opencode-w3-api": w3Api } : {}),
     ...(token ? { uiplustoken: token } : {}),
+    ...(account ? { "x-opencode-w3-account": account } : {}),
   }
 }
 
