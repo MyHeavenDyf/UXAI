@@ -58,6 +58,9 @@ export type Platform = {
   /** Subscribe to desktop resume events */
   onResume?(callback: () => void): () => void
 
+  /** Subscribe to desktop window reopen events */
+  onReopen?(callback: () => void): () => void
+
   /** Fetch override */
   fetch?: typeof fetch
 

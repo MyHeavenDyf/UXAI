@@ -263,9 +263,10 @@ function emitDeepLinks(urls: string[]) {
 }
 
 function focusMainWindow() {
-  if (!mainWindow) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.show()
   mainWindow.focus()
+  mainWindow.webContents.send("app-reopen")
 }
 
 function setInitStep(step: InitStep) {
