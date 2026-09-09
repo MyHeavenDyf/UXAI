@@ -377,7 +377,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   // 收集选中的产品资产库文件:从 props.selections 反查 AssetFile
-  // 跳过 path 不是 URL 的 (即已下载到本地路径的 chip,避免重复下载)
+  // "未下载"判据:path === id(下载后 path 被补成本地路径 ≠ id,避免重复下载)
   const collectSelectedAssetFiles = (): AssetFile[] => {
     const result: AssetFile[] = []
     const seen = new Set<string>()
@@ -386,8 +386,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       const id = (sel as any).id as string | undefined
       const path = (sel as any).path as string
       if (!id || !path) continue
-      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
-      if (!/^https?:\/\//.test(path)) continue
+      if (path !== id) continue
       if (seen.has(id)) continue
       seen.add(id)
       const found = findAssetFileInStackByUrl(id)
@@ -427,13 +426,15 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭下载弹窗:移除 path 仍是 URL 的 chip (即本次未下载完成的)
+  // 关闭下载弹窗:移除未下载完成的 chip (path === id 即本地路径未补)
   const closeAssetDownload = () => {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
     for (const sel of props.selections) {
-      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (sel.type === 'file' && id && path && path === id) {
         props.onDeselect(sel)
       }
     }

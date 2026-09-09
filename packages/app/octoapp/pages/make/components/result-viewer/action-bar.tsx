@@ -268,6 +268,7 @@ function CanvasEditDropdown(props: {
   sessionId?: string
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
@@ -313,6 +314,7 @@ function CanvasEditDropdown(props: {
         observedUrlsGetter: props.observedUrlsGetter,
         usePixsoTransport,
         sdkDirectory: props.sdkDirectory,
+        onFilesRefresh: props.onFilesRefresh,
       }
       
       const result = await handler.handleCanvasEdit(ctx)
@@ -507,6 +509,7 @@ export function ActionBar(props: {
     sessionId?: string
     sdkDirectory?: string
     postMessageToIframe?: (data: unknown) => void
+    onFilesRefresh?: () => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -812,6 +815,7 @@ export function ActionBar(props: {
               sessionId={props.sessionId}
               sdkDirectory={props.sdkDirectory}
               observedUrlsGetter={props.observedResourceUrls}
+              onFilesRefresh={props.onFilesRefresh}
             />
           )}
           <Show when={shouldShowCopy()}>
