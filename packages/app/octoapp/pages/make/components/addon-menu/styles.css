@@ -281,10 +281,7 @@
 
 .asset-dialog-left {
   min-height: 275px;
-  max-height: 480px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  flex-shrink: 0;
+  /* scroll handled by ScrollView (native scrollbar hidden, floating thumb on hover) */
 }
 
 .asset-dialog-split {
@@ -312,11 +309,7 @@
 
 .asset-dialog-right {
   min-height: 275px;
-  max-height: 480px;
-  overflow-y: auto;
-  overflow-x: hidden;
   padding: 1px;
-  flex-shrink: 0;
   position: relative;
 }
 

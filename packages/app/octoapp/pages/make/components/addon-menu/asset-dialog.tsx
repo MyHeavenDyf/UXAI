@@ -1,6 +1,7 @@
 import { createSignal, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { tracker } from "@/utils/tracker"
 import type { MentionSelection } from "../mention-popover"
 import {
@@ -277,7 +278,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
 
             {/* 中间区域:左树 + 分隔条 + 右文件网格 */}
             <div class="asset-dialog-middle" ref={middleRef}>
-              <div class="asset-dialog-left" style={{ width: `${leftWidth()}px` }}>
+              <ScrollView class="asset-dialog-left" style={{ width: `${leftWidth()}px`, "max-height": "480px", "flex-shrink": "0" }}>
                 <Show when={treeLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
@@ -289,14 +290,14 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                     {(folder) => <TreeItem folder={folder} depth={0} parentKey="" />}
                   </For>
                 </Show>
-              </div>
+              </ScrollView>
 
               <div
                 class="asset-dialog-split"
                 onMouseDown={startLeftDrag}
               />
 
-              <div class="asset-dialog-right" style={{ width: `${rightWidth()}px` }}>
+              <ScrollView class="asset-dialog-right" style={{ width: `${rightWidth()}px`, "max-height": "480px", "flex-shrink": "0", padding: "1px" }}>
                 <Show when={filesLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
@@ -334,7 +335,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                     }}
                   </For>
                 </div>
-              </div>
+              </ScrollView>
             </div>
 
             {/* 下方按钮区 */}
