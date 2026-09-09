@@ -15,6 +15,11 @@ const DOCUMENT_END = new RegExp(
   `\\.(?:${[...EXTRACT_DOC_EXTENSIONS, "txt", "md"].sort((a, b) => b.length - a.length).join("|")})(?![A-Za-z0-9])`,
   "gi",
 )
+const MACOS_ROOTS = "Users|Volumes|Applications|Library|System|private|opt|tmp|var"
+const LOCAL_PATH_START = new RegExp(
+  `(?<![A-Za-z0-9:/\\\\])(?:[A-Za-z]:[\\\\/]|\\\\\\\\[^\\\\/\\r\\n]+[\\\\/]|file:\\/\\/(?:localhost)?\\/(?:${MACOS_ROOTS})\\/|\\/(?:${MACOS_ROOTS})\\/|~\\/|\\$HOME\\/|\\$\\{HOME\\}\\/)`,
+  "g",
+)
 
 function pathKey(path: string) {
   if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
@@ -36,14 +41,30 @@ function pathKey(path: string) {
     .join("/")}`
 }
 
-function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filename: string; path: string }>> {
+function decodePosixShellPath(path: string, home?: string) {
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) return path
+  const unescaped = path.replace(/\\(.)/g, "$1")
+  const fileUrl = unescaped.match(/^file:\/\/(?:localhost)?(\/.*)$/i)?.[1]
+  if (fileUrl) {
+    try {
+      return decodeURIComponent(fileUrl)
+    } catch {
+      return fileUrl
+    }
+  }
+  const homeSuffix = unescaped.match(/^(?:~|\$HOME|\$\{HOME\})(\/.*)$/)?.[1]
+  return homeSuffix && home ? `${home.replace(/\/$/, "")}${homeSuffix}` : unescaped
+}
+
+function extractPromptLocalDocumentCandidates(
+  text: string,
+  home?: string,
+): Array<Array<{ filename: string; path: string }>> {
   // 同一个盘符开头后可能有多个扩展名片段，例如目录名 `research.md` 或文件名
   // `survey.md.backup.docx`。保留所有前缀并按最长优先，resolve 阶段再以 stat 选出
   // 第一个真实文件，避免在首个 `.md` 处截断，也避免把路径后的 `输出为 report.md` 吞进去。
   const starts = Array.from(
-    text.matchAll(
-      /(?<![A-Za-z0-9:\/\\])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/]|\/(?:Users|Volumes|Applications|Library|System|private|opt|tmp|var)\/)/g,
-    ),
+    text.matchAll(LOCAL_PATH_START),
     (match) => match.index,
   )
 
@@ -53,7 +74,7 @@ function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filen
     const boundary = rawSegment.search(/[\r\n]|\bhttps?:\/\//i)
     const segment = rawSegment.slice(0, boundary < 0 ? rawSegment.length : boundary)
     const candidates = Array.from(segment.matchAll(DOCUMENT_END), (match) => {
-      const path = segment.slice(0, match.index + match[0].length)
+      const path = decodePosixShellPath(segment.slice(0, match.index + match[0].length), home)
       return { filename: path.split(/[\\/]/).pop()!, path }
     }).reverse()
     return candidates.length > 0 ? [candidates] : []
@@ -66,9 +87,9 @@ function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filen
  * 正文路径不是 ProseMirror 的附件 / @文件节点，原发送链路不会把它们交给分治判定。本函数只做
  * 语法提取；调用方还必须用主进程 stat/fileExists 校验，避免把代码片段或不存在的示例路径计成材料。
  */
-export function extractPromptLocalDocuments(text: string): Array<{ filename: string; path: string }> {
+export function extractPromptLocalDocuments(text: string, home?: string): Array<{ filename: string; path: string }> {
   const seen = new Set<string>()
-  return extractPromptLocalDocumentCandidates(text).flatMap((candidates) => {
+  return extractPromptLocalDocumentCandidates(text, home).flatMap((candidates) => {
     const file = candidates[0]!
     const key = pathKey(file.path)
     if (seen.has(key)) return []
@@ -78,12 +99,16 @@ export function extractPromptLocalDocuments(text: string): Array<{ filename: str
 }
 
 /** 只保留当前仍存在的普通文件；stat 可用时顺便带回字节数，供 doc-size 兜底判定。 */
-export async function resolvePromptLocalDocuments(text: string, probe?: FileProbe): Promise<PromptLocalDocument[]> {
+export async function resolvePromptLocalDocuments(
+  text: string,
+  probe?: FileProbe,
+  home?: string,
+): Promise<PromptLocalDocument[]> {
   if (!probe?.statFile && !probe?.fileExists) return []
 
   const resolved = (
     await Promise.all(
-      extractPromptLocalDocumentCandidates(text).map(async (candidates) => {
+      extractPromptLocalDocumentCandidates(text, home).map(async (candidates) => {
         if (probe.statFile) {
           return (
             await Promise.all(

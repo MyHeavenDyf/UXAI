@@ -66,7 +66,12 @@ export async function snapshotAttachmentsForQueue(
  * - **不含 optimistic**（optimistic 写 insight-scoped sync，页面没挂就没有——真实消息经全局 SSE 落库，
  *   切回 insight 正常显示）。
  */
-export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, item: QueuedSend): Promise<void> {
+export async function sendQueuedItem(
+  globalSDK: GlobalSDK,
+  sessionID: string,
+  item: QueuedSend,
+  home?: string,
+): Promise<void> {
   const directory = item.directory
   if (!directory) {
     // 入队时未固化 directory（理论不该发生）——无法建 scoped client，跳过本次 drain，保留队列可见。
@@ -129,7 +134,7 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
       }),
     )
   }
-  const promptLocalDocuments = await resolvePromptLocalDocuments(item.text, getDesktopApi())
+  const promptLocalDocuments = await resolvePromptLocalDocuments(item.text, getDesktopApi(), home)
   const inlineFiles = [
     ...(item.uploads ?? []),
     ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),

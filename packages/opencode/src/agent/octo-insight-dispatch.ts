@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { stat } from "node:fs/promises"
+import { homedir } from "node:os"
 import { PartID } from "@/session/schema"
 
 // Insight 多文档分治的服务端第二道守卫。前端在发送前已做同样的确定性判定；
@@ -20,6 +21,11 @@ const DOC_SINGLE_BYTES = 2 * 1024 * 1024
 const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "pdf"])
 const DIRECT_PATH_EXTENSIONS = [...EXTRACT_DOC_EXT, "txt", "md"].sort((a, b) => b.length - a.length)
 const DIRECT_PATH_END = new RegExp(`\\.(?:${DIRECT_PATH_EXTENSIONS.join("|")})(?![A-Za-z0-9])`, "gi")
+const MACOS_ROOTS = "Users|Volumes|Applications|Library|System|private|opt|tmp|var"
+const DIRECT_PATH_START = new RegExp(
+  `(?<![A-Za-z0-9:/\\\\])(?:[A-Za-z]:[\\\\/]|\\\\\\\\[^\\\\/\\r\\n]+[\\\\/]|file:\\/\\/(?:localhost)?\\/(?:${MACOS_ROOTS})\\/|\\/(?:${MACOS_ROOTS})\\/|~\\/|\\$HOME\\/|\\$\\{HOME\\}\\/)`,
+  "g",
+)
 const NON_INLINE_EXT = new Set([
   ...EXTRACT_DOC_EXT,
   // 旧版 Office 是二进制，不能当 text/plain；但 extract_document 也不支持，不计入可派发文档。
@@ -78,6 +84,21 @@ function pathKey(path: string) {
     .join("/")}`
 }
 
+function decodePosixShellPath(path: string) {
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) return path
+  const unescaped = path.replace(/\\(.)/g, "$1")
+  const fileUrl = unescaped.match(/^file:\/\/(?:localhost)?(\/.*)$/i)?.[1]
+  if (fileUrl) {
+    try {
+      return decodeURIComponent(fileUrl)
+    } catch {
+      return fileUrl
+    }
+  }
+  const homeSuffix = unescaped.match(/^(?:~|\$HOME|\$\{HOME\})(\/.*)$/)?.[1]
+  return homeSuffix ? `${homedir().replace(/\/$/, "")}${homeSuffix}` : unescaped
+}
+
 function parseManifest(text: string): Candidate[] {
   return text.split("\n").flatMap((line) => {
     const body = line.trim().startsWith("- ") ? line.trim().slice(2) : ""
@@ -104,9 +125,7 @@ function localFilePart(part: DispatchPart): Candidate[] {
 
 function promptLocalFileCandidates(text: string): Candidate[][] {
   const starts = Array.from(
-    text.matchAll(
-      /(?<![A-Za-z0-9:\/\\])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/]|\/(?:Users|Volumes|Applications|Library|System|private|opt|tmp|var)\/)/g,
-    ),
+    text.matchAll(DIRECT_PATH_START),
     (match) => match.index,
   )
 
@@ -116,7 +135,7 @@ function promptLocalFileCandidates(text: string): Candidate[][] {
     const boundary = rawSegment.search(/[\r\n]|\bhttps?:\/\//i)
     const segment = rawSegment.slice(0, boundary < 0 ? rawSegment.length : boundary)
     const candidates = Array.from(segment.matchAll(DIRECT_PATH_END), (match) => {
-      const path = segment.slice(0, match.index + match[0].length)
+      const path = decodePosixShellPath(segment.slice(0, match.index + match[0].length))
       return { filename: path.split(/[\\/]/).pop()!, path }
     }).reverse()
     return candidates.length > 0 ? [candidates] : []

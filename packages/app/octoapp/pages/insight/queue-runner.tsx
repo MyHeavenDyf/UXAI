@@ -46,7 +46,7 @@ export function InsightQueueRunner() {
       updateSessionQueue(sid, (q) => q.slice(1))
       return head
     },
-    send: (sid, item) => sendQueuedItem(globalSDK, sid, item),
+    send: (sid, item) => sendQueuedItem(globalSDK, sid, item, globalSync.data.path.home),
   })
 
   return null

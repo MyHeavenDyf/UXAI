@@ -85,6 +85,43 @@ describe("Insight chat.message 分治守卫", () => {
     expect(decision.directFiles.map((file) => file.path)).toEqual(paths)
   })
 
+  test("macOS Shell 转义路径还原后命中服务端 doc-count 兜底", async () => {
+    const paths = [
+      "/Users/jiangke/Desktop/【会议通知】12.4全天苏皖片区发展建设月度会议.docx",
+      "/Users/jiangke/Desktop/【曾来福】个人任务单反馈进度(2021-12-24).xlsx",
+      "/Users/jiangke/Desktop/【曾来福】2020-07个人任务单反馈进度(2021-12-24).xlsx",
+    ]
+    const text = paths.map((path) => path.replace(/([ ()[\]])/g, "\\$1")).join(" ")
+    const decision = await decideInsightDispatch([{ type: "text", text }], async (path) =>
+      paths.includes(path) ? { size: 1024, isFile: true } : undefined,
+    )
+    expect(decision.mode).toBe("dispatch")
+    expect(decision.reasons).toContain("doc-count")
+    expect(decision.directFiles.map((file) => file.path)).toEqual(paths)
+  })
+
+  test("macOS 首页缩写、HOME 和 file URL 命中服务端 doc-count 兜底", async () => {
+    const home = process.env.HOME || process.env.USERPROFILE || ""
+    const paths = [
+      `${home}/Desktop/a.docx`,
+      `${home}/Desktop/b report.xlsx`,
+      "/Users/jiangke/Desktop/c.pdf",
+    ]
+    const decision = await decideInsightDispatch(
+      [
+        {
+          type: "text",
+          text: "~/Desktop/a.docx $HOME/Desktop/b\\ report.xlsx file://localhost" +
+            "/Users/jiangke/Desktop/c.pdf",
+        },
+      ],
+      async (path) => (paths.includes(path) ? { size: 1024, isFile: true } : undefined),
+    )
+    expect(decision.mode).toBe("dispatch")
+    expect(decision.reasons).toContain("doc-count")
+    expect(decision.directFiles.map((file) => file.path)).toEqual(paths)
+  })
+
   test("路径后还有扩展名文案时，以 stat 选择最长的真实候选", async () => {
     const file = "D:\\reports\\survey.txt"
     const decision = await decideInsightDispatch(

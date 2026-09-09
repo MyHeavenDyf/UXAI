@@ -61,6 +61,62 @@ describe("prompt 正文中的本地文档路径", () => {
     expect(decideInlineStrategy(resolved).reasons).toContain("doc-count")
   })
 
+  test("macOS Shell 转义路径先还原再 stat，三个真实文档命中 doc-count", async () => {
+    const paths = [
+      "/Users/jiangke/Desktop/【会议通知】12.4全天苏皖片区发展建设月度会议.docx",
+      "/Users/jiangke/Desktop/【曾来福】个人任务单反馈进度(2021-12-24).xlsx",
+      "/Users/jiangke/Desktop/【曾来福】2020-07个人任务单反馈进度(2021-12-24).xlsx",
+    ]
+    const text = paths
+      .map((path) => path.replace(/([ ()[\]])/g, "\\$1"))
+      .join(" ")
+    const probed: string[] = []
+    const resolved = await resolvePromptLocalDocuments(text, {
+      statFile: async (path) => {
+        probed.push(path)
+        return paths.includes(path) ? { size: 1024 } : null
+      },
+    })
+    expect(resolved.map((file) => file.path)).toEqual(paths)
+    expect(probed).toEqual(paths)
+    expect(decideInlineStrategy(resolved).reasons).toContain("doc-count")
+  })
+
+  test("macOS Shell 转义的空格和方括号会还原", () => {
+    const path = "/Users/jiangke/Desktop/Final Report[1].txt"
+    expect(extractPromptLocalDocuments("/Users/jiangke/Desktop/Final\\ Report\\[1\\].txt")).toEqual([
+      { filename: "Final Report[1].txt", path },
+    ])
+  })
+
+  test("macOS 首页缩写、HOME 和 file URL 会解析为真实绝对路径", async () => {
+    const home = "/Users/jiangke"
+    const paths = [
+      `${home}/Desktop/a.docx`,
+      `${home}/Desktop/b report.xlsx`,
+      `${home}/Desktop/c.pdf`,
+    ]
+    const text = "~/Desktop/a.docx $HOME/Desktop/b\\ report.xlsx file:///Users/jiangke/Desktop/c.pdf"
+    const resolved = await resolvePromptLocalDocuments(
+      text,
+      { statFile: async (path) => (paths.includes(path) ? { size: 1024 } : null) },
+      home,
+    )
+    expect(resolved.map((file) => file.path)).toEqual(paths)
+    expect(decideInlineStrategy(resolved).reasons).toContain("doc-count")
+  })
+
+  test("macOS file URL 支持 localhost 与百分号编码", () => {
+    expect(
+      extractPromptLocalDocuments("file://localhost/Users/jiangke/Desktop/Final%20Report%5B1%5D.txt"),
+    ).toEqual([
+      {
+        filename: "Final Report[1].txt",
+        path: "/Users/jiangke/Desktop/Final Report[1].txt",
+      },
+    ])
+  })
+
   test("目录名或文件名中间含受支持扩展名时不截断", () => {
     const nested = "D:\\research.md\\final.docx"
     const dotted = "D:\\reports\\survey.md.backup.docx"

@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -220,6 +221,7 @@ function InsightContent() {
   const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const layout = useLayout()
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
@@ -1222,7 +1224,7 @@ function InsightContent() {
         }),
       )
     }
-    const promptLocalDocuments = await resolvePromptLocalDocuments(text, getDesktopApi())
+    const promptLocalDocuments = await resolvePromptLocalDocuments(text, getDesktopApi(), globalSync.data.path.home)
     const inlineFiles = [
       ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a), bytes: a.size })),
       ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
