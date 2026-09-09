@@ -61,6 +61,30 @@ describe("Insight chat.message 分治守卫", () => {
     ).toEqual(["D:\\research.md\\final.docx", "D:\\reports\\survey.md.backup.docx"])
   })
 
+  test("macOS 直接路径保留大小写，并按 POSIX 等价写法去重", () => {
+    const first = "/Users/test/Documents/./materials//Final Report.txt"
+    const duplicate = "/Users/test/Documents/materials/Final Report.txt"
+    const caseDistinct = "/Users/test/Documents/materials/final report.txt"
+    expect(extractInsightPromptLocalFiles(`${first} ${duplicate} ${caseDistinct}`)).toEqual([
+      { filename: "Final Report.txt", path: first },
+      { filename: "final report.txt", path: caseDistinct },
+    ])
+  })
+
+  test("三个 macOS 文档路径命中服务端 doc-count 兜底", async () => {
+    const paths = [
+      "/Users/test/Documents/a.docx",
+      "/Users/test/Documents/b.xlsx",
+      "/Volumes/team/c.pdf",
+    ]
+    const decision = await decideInsightDispatch([{ type: "text", text: paths.join("、") }], async () => ({
+      size: 1024,
+      isFile: true,
+    }))
+    expect(decision.reasons).toContain("doc-count")
+    expect(decision.directFiles.map((file) => file.path)).toEqual(paths)
+  })
+
   test("路径后还有扩展名文案时，以 stat 选择最长的真实候选", async () => {
     const file = "D:\\reports\\survey.txt"
     const decision = await decideInsightDispatch(

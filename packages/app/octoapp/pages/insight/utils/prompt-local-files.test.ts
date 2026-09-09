@@ -29,6 +29,38 @@ describe("prompt 正文中的本地文档路径", () => {
     ).toEqual([{ filename: paths[2].split("\\").pop()!, path: paths[2] }])
   })
 
+  test("macOS 绝对路径支持空格和中文，POSIX 路径保留大小写语义", () => {
+    const upper = "/Users/test/Documents/项目资料/Final Report.txt"
+    const lower = "/Users/test/Documents/项目资料/final report.txt"
+    expect(extractPromptLocalDocuments(`请读取【"${upper}"】和【"${lower}"】`)).toEqual([
+      { filename: "Final Report.txt", path: upper },
+      { filename: "final report.txt", path: lower },
+    ])
+  })
+
+  test("macOS 路径按 POSIX 等价写法去重，并支持外置卷", () => {
+    const first = "/Users/test/Documents/./materials//a.md"
+    const duplicate = "/Users/test/Documents/materials/a.md"
+    const volume = "/Volumes/团队资料/会议/c.docx"
+    expect(extractPromptLocalDocuments(`${first} ${duplicate} ${volume}`)).toEqual([
+      { filename: "a.md", path: first },
+      { filename: "c.docx", path: volume },
+    ])
+  })
+
+  test("三个 macOS 文档路径经 stat 确认后命中 doc-count", async () => {
+    const files = [
+      "/Users/test/Documents/a.docx",
+      "/Users/test/Documents/b.xlsx",
+      "/Volumes/team/c.pdf",
+    ]
+    const resolved = await resolvePromptLocalDocuments(files.join("、"), {
+      statFile: async () => ({ size: 1024 }),
+    })
+    expect(resolved.map((file) => file.path)).toEqual(files)
+    expect(decideInlineStrategy(resolved).reasons).toContain("doc-count")
+  })
+
   test("目录名或文件名中间含受支持扩展名时不截断", () => {
     const nested = "D:\\research.md\\final.docx"
     const dotted = "D:\\reports\\survey.md.backup.docx"

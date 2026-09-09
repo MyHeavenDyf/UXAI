@@ -254,6 +254,19 @@ describe("decideInlineStrategy", () => {
     expect(d.docs).toHaveLength(1)
   })
 
+  test("macOS 同一路径按 POSIX 等价写法去重，但保留大小写差异", () => {
+    const decision = decideInlineStrategy([
+      { filename: "a.md", path: "/Users/test/Documents/./materials//a.md", bytes: 1000 },
+      { filename: "a.md", path: "/Users/test/Documents/materials/a.md", bytes: 1000 },
+      { filename: "A.md", path: "/Users/test/Documents/materials/A.md", bytes: 1000 },
+    ])
+    expect(decision.files.map((file) => file.path)).toEqual([
+      "/Users/test/Documents/./materials//a.md",
+      "/Users/test/Documents/materials/A.md",
+    ])
+    expect(decision.totalBytes).toBe(2000)
+  })
+
   test("单份超 SINGLE_DOC_LIMIT → 进 oversized，且整批必然 dispatch", () => {
     const d = decideInlineStrategy([f("huge.md", SINGLE_DOC_LIMIT + 1), f("a.md", 10)])
     expect(d.mode).toBe("dispatch")

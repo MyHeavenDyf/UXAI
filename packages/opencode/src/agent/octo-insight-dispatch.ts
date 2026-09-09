@@ -59,7 +59,23 @@ function ext(filename: string) {
 }
 
 function pathKey(path: string) {
-  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\") ? path.replace(/\//g, "\\").toLowerCase() : path
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
+    return path.replace(/\//g, "\\").toLowerCase()
+  }
+  if (!path.startsWith("/")) return path
+  return `/${path
+    .split("/")
+    .slice(1)
+    .reduce<string[]>((parts, part) => {
+      if (!part || part === ".") return parts
+      if (part === "..") {
+        parts.pop()
+        return parts
+      }
+      parts.push(part)
+      return parts
+    }, [])
+    .join("/")}`
 }
 
 function parseManifest(text: string): Candidate[] {
@@ -88,7 +104,9 @@ function localFilePart(part: DispatchPart): Candidate[] {
 
 function promptLocalFileCandidates(text: string): Candidate[][] {
   const starts = Array.from(
-    text.matchAll(/(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/])/g),
+    text.matchAll(
+      /(?<![A-Za-z0-9:\/\\])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/]|\/(?:Users|Volumes|Applications|Library|System|private|opt|tmp|var)\/)/g,
+    ),
     (match) => match.index,
   )
 
@@ -105,7 +123,7 @@ function promptLocalFileCandidates(text: string): Candidate[][] {
   })
 }
 
-/** 只解析用户原文里的 Windows 绝对路径；存在多个扩展名片段时返回最长候选。 */
+/** 只解析用户原文里的 Windows / POSIX 绝对路径；存在多个扩展名片段时返回最长候选。 */
 export function extractInsightPromptLocalFiles(text: string): Candidate[] {
   return promptLocalFileCandidates(text)
     .map((candidates) => candidates[0]!)

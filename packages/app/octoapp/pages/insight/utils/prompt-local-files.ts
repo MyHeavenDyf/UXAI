@@ -17,7 +17,23 @@ const DOCUMENT_END = new RegExp(
 )
 
 function pathKey(path: string) {
-  return path.replace(/\//g, "\\").toLowerCase()
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
+    return path.replace(/\//g, "\\").toLowerCase()
+  }
+  if (!path.startsWith("/")) return path
+  return `/${path
+    .split("/")
+    .slice(1)
+    .reduce<string[]>((parts, part) => {
+      if (!part || part === ".") return parts
+      if (part === "..") {
+        parts.pop()
+        return parts
+      }
+      parts.push(part)
+      return parts
+    }, [])
+    .join("/")}`
 }
 
 function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filename: string; path: string }>> {
@@ -25,7 +41,9 @@ function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filen
   // `survey.md.backup.docx`。保留所有前缀并按最长优先，resolve 阶段再以 stat 选出
   // 第一个真实文件，避免在首个 `.md` 处截断，也避免把路径后的 `输出为 report.md` 吞进去。
   const starts = Array.from(
-    text.matchAll(/(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/])/g),
+    text.matchAll(
+      /(?<![A-Za-z0-9:\/\\])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/]|\/(?:Users|Volumes|Applications|Library|System|private|opt|tmp|var)\/)/g,
+    ),
     (match) => match.index,
   )
 
@@ -43,7 +61,7 @@ function extractPromptLocalDocumentCandidates(text: string): Array<Array<{ filen
 }
 
 /**
- * 从用户正文提取 Windows 绝对文档 / 文本路径。
+ * 从用户正文提取 Windows 或 POSIX 绝对文档 / 文本路径。
  *
  * 正文路径不是 ProseMirror 的附件 / @文件节点，原发送链路不会把它们交给分治判定。本函数只做
  * 语法提取；调用方还必须用主进程 stat/fileExists 校验，避免把代码片段或不存在的示例路径计成材料。
