@@ -10,7 +10,6 @@ import {
 import type { DesktopApi } from "../lib/electron-api"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
 import { readHtmlFromDisk } from "./html-assets-zip"
-import { checkComplianceError } from "@/network/pipelineRequest"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -397,7 +396,6 @@ export async function createDeliverable(teamId: number, fileName: string): Promi
   }
   
   const data = await res.json()
-  checkComplianceError(data?.data ?? data)
   if (data?.errorCode === 401) {
     throw new Error("无该文件夹权限")
   }
@@ -425,9 +423,6 @@ export async function uploadCover(deliverableId: number, file: Blob): Promise<vo
   if (!res.ok) {
     throw new Error(`uploadCover failed: ${res.status}`)
   }
-
-  const data = await res.json().catch(() => null)
-  if (data) checkComplianceError(data?.data ?? data)
 }
 
 export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ success: boolean }> {
@@ -447,6 +442,5 @@ export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ suc
   }
   
   const data = await res.json()
-  checkComplianceError(data?.data ?? data)
   return { success: data?.success ?? false }
 }

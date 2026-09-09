@@ -16,7 +16,7 @@ import {
   buildArchivePath,
 } from "../utils/archive-utils"
 import { EdmUtil } from "@/utils/edmUtil"
-import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion, ComplianceError } from "@/network/pipelineRequest"
+import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion } from "@/network/pipelineRequest"
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
 import { archiveFileSizeError } from "../utils/archive-size"
@@ -190,7 +190,7 @@ async function runArchiveHtmlTask(
   } catch (err) {
     TaskStore.error([{ key: taskId, status: "error" }])
     console.error("[Archive] Failed:", err)
-    if (!(err instanceof ComplianceError)) showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+    showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -285,7 +285,7 @@ async function runArchiveFileTask(
             onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
           })
           .catch((e) => {
-            if (!(e instanceof ComplianceError)) showToast({ title: "归档失败", description: e instanceof Error ? e.message : String(e) })
+            showToast({ title: "归档失败", description: e instanceof Error ? e.message : String(e) })
           })
       },
       onError: (taskId, errors) => {
@@ -296,7 +296,7 @@ async function runArchiveFileTask(
       },
     })
   } catch (err) {
-    if (!(err instanceof ComplianceError)) showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+    showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
   }
 }
 
