@@ -27,6 +27,8 @@ export interface AssetVersionInfo {
 }
 
 export interface AssetFile {
+  /** 资产唯一 id(服务端返回);chip 的唯一标识优先用它 */
+  id?: number | string
   fileName: string
   snapshot: string
   s3BaseUrl: string
@@ -102,6 +104,7 @@ const MOCK_TEAM_TREE: AssetFolder[] = [
 
 const MOCK_FILES: AssetFile[] = [
   {
+    id: 1111,
     fileName: "容器1",
     snapshot: "image/ad270bbc7e41f8772b3d0bcc7be511fa53149cc8.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
@@ -111,6 +114,7 @@ const MOCK_FILES: AssetFile[] = [
     ],
   },
   {
+    id: 2222,
     fileName: "容器2",
     snapshot: "image/Iconolor.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
@@ -157,11 +161,14 @@ export function joinUrl(base: string, path: string): string {
 }
 
 /**
- * Unique id for an asset file chip: joinUrl(s3BaseUrl, convertHtmlUrl).
- * Falls back to appending fileName when convertHtmlUrl is empty/null,
- * so files sharing the same s3BaseUrl still get distinct ids.
+ * Unique id for an asset file chip. Prefer the server-returned file id
+ * (prefixed "asset-" to avoid collisions with skill names / file paths);
+ * fall back to joinUrl(s3BaseUrl, convertHtmlUrl) [+ fileName] when absent.
  */
 export function assetFileId(file: AssetFile): string {
+  if (file.id !== undefined && file.id !== null && `${file.id}` !== "") {
+    return `asset-${file.id}`
+  }
   const base = joinUrl(file.s3BaseUrl || "", file.convertHtmlUrl || "")
   if (file.convertHtmlUrl) return base
   return joinUrl(base, file.fileName)
