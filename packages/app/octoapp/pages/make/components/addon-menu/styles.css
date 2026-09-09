@@ -228,6 +228,216 @@
   color: #777777;
 }
 
+/* ── 产品资产库弹窗(spec line 85-122)── */
+.asset-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+}
+
+.asset-dialog {
+  position: absolute;
+  background: #ffffff;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  font-family: "HarmonyOS Sans SC";
+  /* width is set inline: leftWidth + rightWidth + splitter(4 + 8*2 margins) + padding(24*2) */
+  max-height: 650px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.asset-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.asset-dialog-title-text {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.asset-dialog-close {
+  cursor: pointer;
+}
+
+.asset-dialog-middle {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 275px;
+  overflow: hidden;
+}
+
+.asset-dialog-left {
+  min-height: 275px;
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
+}
+
+.asset-dialog-split {
+  --octo-split-handle: true;
+  width: 4px;
+  margin-left: 8px;
+  margin-right: 8px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  border-radius: 2px;
+  position: relative;
+}
+
+/* Extend the hit area 8px into each margin so the 4px handle is hoverable */
+.asset-dialog-split::before {
+  content: "";
+  position: absolute;
+  inset: 0 -8px;
+}
+
+.asset-dialog-split:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.asset-dialog-right {
+  min-height: 275px;
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.asset-dialog-right-handle {
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  right: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.asset-dialog-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 14px;
+  color: #777777;
+}
+
+/* 左侧树节点:样式同原子菜单文件夹项,缩进用 padding-left(项宽不变) */
+.asset-tree-item {
+  cursor: pointer;
+}
+
+.asset-tree-arrow {
+  transition: transform 150ms ease;
+}
+
+/* 右侧文件网格 */
+.asset-dialog-grid {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 16px;
+}
+
+.asset-grid-item {
+  width: 88px;
+  cursor: pointer;
+}
+
+.asset-grid-stage {
+  width: 100%;
+  height: 88px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  position: relative;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.asset-grid-stage:hover {
+  outline: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.asset-grid-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+.asset-grid-checkbox {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  border-radius: 2px;
+}
+
+/* 白底仅用于未选中态,避免覆盖 mention-checkbox--checked 的蓝底 */
+.asset-grid-checkbox:not(.mention-checkbox--checked) {
+  background: #fff;
+}
+
+.asset-grid-name {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  font-weight: 400;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+/* 下方按钮区(样式参照文件管理删除弹窗按钮) */
+.asset-dialog-footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.asset-dialog-btn {
+  width: 88px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 0;
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+.asset-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}
+
+/* 弹窗内预览窗:top 定位,覆盖原子菜单的 bottom: 0 */
+.asset-dialog-preview {
+  bottom: auto;
+  z-index: 20;
+}
+
 /* 产品资源库:多级文件夹层叠面板 */
 .addon-menu-secondary--assets {
   /* Container is .addon-menu-secondary (position: absolute; left: 100%).

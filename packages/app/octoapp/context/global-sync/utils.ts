@@ -1,4 +1,4 @@
-import type { Agent, Project, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -24,6 +24,27 @@ export function normalizeProviderList(input: ProviderListResponse): ProviderList
       ...provider,
       models: Object.fromEntries(Object.entries(provider.models).filter(([, info]) => info.status !== "deprecated")),
     })),
+  }
+}
+
+export function replaceProviderList(current: ProviderListResponse, incoming: Provider[]): ProviderListResponse {
+  const remoteIDs = new Set(incoming.map((provider) => provider.id))
+  const custom = current.all.filter((provider) => provider.source === "config" && !remoteIDs.has(provider.id))
+  const all = [...incoming, ...custom]
+  return {
+    ...current,
+    all,
+    connected: [
+      ...incoming.map((provider) => provider.id),
+      ...custom.filter((provider) => current.connected.includes(provider.id)).map((provider) => provider.id),
+    ],
+    default: Object.fromEntries(
+      all.flatMap((provider) => {
+        const existing = current.default[provider.id]
+        const modelID = existing && provider.models[existing] ? existing : Object.keys(provider.models)[0]
+        return modelID ? [[provider.id, modelID] as const] : []
+      }),
+    ),
   }
 }
 

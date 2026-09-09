@@ -3,7 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
+import { hiddenSettingsProviderIDs, popularProviders, useProviders } from "@/hooks/use-providers"
 import { createMemo, createSignal, type Component, For, Show, type JSX } from "solid-js"
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
@@ -74,6 +74,7 @@ export const SettingsProviders: Component = () => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
     return providers
       .connected()
+      .filter((p) => !hiddenSettingsProviderIDs.has(p.id))
       .filter((p) => p.id === "w3" || !disabled.has(p.id))
       .sort((a, b) => Number(b.id === "w3") - Number(a.id === "w3"))
   })
@@ -82,15 +83,8 @@ export const SettingsProviders: Component = () => {
     const connectedIDs = new Set(connected().map((p) => p.id))
     const items = providers
       .popular()
-      .filter((p) => !connectedIDs.has(p.id))
+      .filter((p) => !connectedIDs.has(p.id) && !hiddenSettingsProviderIDs.has(p.id))
       .slice()
-    // 预置供应商被 disable 后会从后端列表消失，补充合成条目让用户可以重新连接
-    const ids = new Set(items.map((p) => p.id))
-    for (const pid of ["opencode", "bpit"]) {
-      if (!connectedIDs.has(pid) && !ids.has(pid)) {
-        items.push({ id: pid, name: pid === "opencode" ? "Octo AI" : pid } as ProviderItem)
-      }
-    }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items
   })
