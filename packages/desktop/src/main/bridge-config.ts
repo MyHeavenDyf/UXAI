@@ -63,7 +63,7 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: false,
-      modelEdit: false,
+      modelEdit: true,
       drawEdit: false,
       canvasEdit: true,
       comment: true,
