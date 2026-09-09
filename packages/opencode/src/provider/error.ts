@@ -1,7 +1,10 @@
 import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
+import * as Log from "@opencode-ai/core/util/log"
 import type { ProviderID } from "./schema"
+
+const log = Log.create({ service: "provider.error" })
 
 // Adapted from overflow detection patterns in:
 // https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/utils/overflow.ts
@@ -48,6 +51,16 @@ function isOverflow(message: string) {
 
 function message(providerID: ProviderID, e: APICallError) {
   return iife(() => {
+    const body = json(e.responseBody)
+    log.info("api error response", {
+      statusCode: e.statusCode,
+      message: e.message,
+      responseBody: e.responseBody,
+    })
+    if (body?.errorCode === 40101 && typeof body.errorMessage === "string") {
+      return body.errorMessage
+    }
+
     const msg = e.message
     if (msg === "") {
       if (e.responseBody) return e.responseBody
@@ -62,14 +75,11 @@ function message(providerID: ProviderID, e: APICallError) {
       return msg
     }
 
-    try {
-      const body = JSON.parse(e.responseBody)
-      // try to extract common error message fields
-      const errMsg = body.message || body.error || body.error?.message
-      if (errMsg && typeof errMsg === "string") {
-        return `${msg}: ${errMsg}`
-      }
-    } catch {}
+    // body already parsed at the top of the function
+    const errMsg = body?.message || body?.error || body?.error?.message
+    if (errMsg && typeof errMsg === "string") {
+      return `${msg}: ${errMsg}`
+    }
 
     // If responseBody is HTML (e.g. from a gateway or proxy error page),
     // provide a human-readable message instead of dumping raw markup
@@ -122,6 +132,14 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   if (!body) return
 
   const responseBody = JSON.stringify(body)
+  if (body.errorCode === 40101 && typeof body.errorMessage === "string") {
+    return {
+      type: "api_error",
+      message: body.errorMessage,
+      isRetryable: false,
+      responseBody,
+    }
+  }
   if (body.type !== "error") return
 
   if (typeof body?.error?.message === "string" && isOverflow(body.error.message)) {
