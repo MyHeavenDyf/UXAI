@@ -143,6 +143,7 @@ export type ElectronAPI = {
   installUpdate: () => Promise<void>
   onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
   onResume: (callback: () => void) => () => void
+  onReopen: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
