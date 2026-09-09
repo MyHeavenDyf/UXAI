@@ -41,11 +41,12 @@ export function sendTextToAgent(
 export const APPEND_TO_COMPOSER_EVENT = 'octo:append-to-composer'
 
 export interface AppendToComposerEventDetail {
-  text: string
+  prefix: string
+  docJSON?: any
 }
 
-export function appendToMainComposer(text: string): void {
-  window.dispatchEvent(new CustomEvent(APPEND_TO_COMPOSER_EVENT, { detail: { text } }))
+export function appendToMainComposer(prefix: string, docJSON?: any): void {
+  window.dispatchEvent(new CustomEvent(APPEND_TO_COMPOSER_EVENT, { detail: { prefix, docJSON } }))
 }
 
 export const SUBMIT_COMPOSER_EVENT = 'octo:submit-composer'
