@@ -79,6 +79,7 @@ export function StudioComposer(props: {
   onSelectStyleTemplate?: (item: StudioStyleTemplateListItem) => void
   onEditStyleTemplate?: (item: StudioStyleTemplateListItem) => void
   onRequestDeleteStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  editingStyleTemplateIDs?: readonly number[]
   styleTemplateListRevision?: number
   onClearStyleTemplate?: () => void
   onStyleTemplateEditorOpen: (value: boolean) => void
@@ -1392,6 +1393,7 @@ export function StudioComposer(props: {
                 }}
                 onListTemplates={props.onListStyleTemplates}
                 listRevision={props.styleTemplateListRevision}
+                editingTemplateIDs={props.editingStyleTemplateIDs}
                 onSelectTemplate={(item) => {
                   props.onOpenMenu(null)
                   props.onSelectStyleTemplate?.(item)

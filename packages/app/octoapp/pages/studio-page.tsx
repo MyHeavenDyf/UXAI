@@ -385,12 +385,14 @@ export default function StudioPage() {
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
-  const [templateWorkspace, setTemplateWorkspace] = createSignal<StudioTemplateWorkspace>()
-  const templateCreatorTabOpen = () => Boolean(templateWorkspace())
+  const [templateWorkspaces, setTemplateWorkspaces] = createSignal<StudioTemplateWorkspace[]>([])
+  const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal<string>()
+  const templateCreatorTabOpen = () => templateWorkspaces().length > 0
+  const editingStyleTemplateIDs = () => templateWorkspaces().flatMap((workspace) => workspace.mode === "edit" ? [workspace.templateID] : [])
   const [pendingDeleteTemplate, setPendingDeleteTemplate] = createSignal<StudioStyleTemplateListItem>()
   const [templateDeleting, setTemplateDeleting] = createSignal(false)
   const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0)
-  let templateEditorRequestSeq = 0
+  const templateEditorRequestSeq = new Map<number, number>()
   const showFileManager = () => canvasView() === "file-manager"
   function setShowFileManager(value: boolean | ((current: boolean) => boolean)) {
     const next = typeof value === "function" ? value(showFileManager()) : value
@@ -1235,11 +1237,14 @@ export default function StudioPage() {
     return result.detailTitle ?? extractKeywords(result.prompt)
   }
 
-  function openTemplateCreator() {
-    templateEditorRequestSeq++
+  const templateCreateWorkspaceKey = "template:create"
+  const templateEditWorkspaceKey = (templateID: number) => `template:edit:${templateID}`
+
+  function activateTemplateWorkspace(key: string) {
+    if (!templateWorkspaces().some((workspace) => workspace.key === key)) return
     batch(() => {
       setOpenMenu(null)
-      setTemplateWorkspace({ mode: "create" })
+      setActiveTemplateWorkspaceKey(key)
       setCanvasView("template-creator")
       setShowStudioCanvas(true)
       setMode("preview")
@@ -1247,46 +1252,71 @@ export default function StudioPage() {
     })
   }
 
-  function activateTemplateWorkspace() {
-    if (!templateWorkspace()) return
-    batch(() => {
-      setCanvasView("template-creator")
-      setShowStudioCanvas(true)
-      setMode("preview")
-      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
-    })
+  function openTemplateCreator() {
+    if (!templateWorkspaces().some((workspace) => workspace.key === templateCreateWorkspaceKey)) {
+      setTemplateWorkspaces((workspaces) => [...workspaces, { key: templateCreateWorkspaceKey, mode: "create" }])
+    }
+    activateTemplateWorkspace(templateCreateWorkspaceKey)
   }
 
   async function openTemplateEditor(item: StudioStyleTemplateListItem) {
-    const seq = ++templateEditorRequestSeq
-    batch(() => {
-      setOpenMenu(null)
-      setTemplateWorkspace({ mode: "edit", templateID: item.idx, loading: true })
-      setCanvasView("template-creator")
-      setShowStudioCanvas(true)
-      setMode("preview")
-      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
-    })
+    const key = templateEditWorkspaceKey(item.idx)
+    if (templateWorkspaces().some((workspace) => workspace.key === key)) {
+      activateTemplateWorkspace(key)
+      return
+    }
+    const seq = (templateEditorRequestSeq.get(item.idx) ?? 0) + 1
+    templateEditorRequestSeq.set(item.idx, seq)
+    setTemplateWorkspaces((workspaces) => [...workspaces, {
+      key,
+      mode: "edit",
+      templateID: item.idx,
+      templateTitle: item.title,
+      loading: true,
+    }])
+    activateTemplateWorkspace(key)
     try {
       const template = await getStudioStyleTemplate(item.idx)
-      if (seq !== templateEditorRequestSeq) return
-      setTemplateWorkspace({ mode: "edit", templateID: item.idx, initialValue: template, loading: false })
-    } catch (error) {
-      if (seq !== templateEditorRequestSeq) return
-      setTemplateWorkspace({
+      if (seq !== templateEditorRequestSeq.get(item.idx)) return
+      setTemplateWorkspaces((workspaces) => workspaces.map((workspace) => workspace.key === key ? {
+        key,
         mode: "edit",
         templateID: item.idx,
+        templateTitle: template.title || item.title,
+        initialValue: template,
+        loading: false,
+      } : workspace))
+    } catch (error) {
+      if (seq !== templateEditorRequestSeq.get(item.idx)) return
+      setTemplateWorkspaces((workspaces) => workspaces.map((workspace) => workspace.key === key ? {
+        key,
+        mode: "edit",
+        templateID: item.idx,
+        templateTitle: item.title,
         loading: false,
         error: error instanceof Error ? error.message : String(error),
-      })
+      } : workspace))
     }
   }
 
-  function closeTemplateCreator() {
-    templateEditorRequestSeq++
-    const active = canvasView() === "template-creator"
-    setTemplateWorkspace(undefined)
-    if (!active) return
+  function closeTemplateCreator(key: string) {
+    const workspaces = templateWorkspaces()
+    const closingIndex = workspaces.findIndex((workspace) => workspace.key === key)
+    if (closingIndex < 0) return
+    const closingWorkspace = workspaces[closingIndex]
+    if (closingWorkspace.mode === "edit") {
+      templateEditorRequestSeq.set(closingWorkspace.templateID, (templateEditorRequestSeq.get(closingWorkspace.templateID) ?? 0) + 1)
+    }
+    const remaining = workspaces.filter((workspace) => workspace.key !== key)
+    setTemplateWorkspaces(remaining)
+    if (activeTemplateWorkspaceKey() !== key) return
+    const nextWorkspace = remaining[Math.min(closingIndex, remaining.length - 1)]
+    if (nextWorkspace) {
+      setActiveTemplateWorkspaceKey(nextWorkspace.key)
+      return
+    }
+    setActiveTemplateWorkspaceKey(undefined)
+    if (canvasView() !== "template-creator") return
     batch(() => {
       if (canvasTabImages().length > 0) {
         setCanvasView("canvas")
@@ -1496,7 +1526,8 @@ export default function StudioPage() {
       () => params.id,
       (id) => {
         setOpenMenu(null)
-        setTemplateWorkspace(undefined)
+        setTemplateWorkspaces([])
+        setActiveTemplateWorkspaceKey(undefined)
         setPendingDeleteTemplate(undefined)
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
@@ -3178,7 +3209,7 @@ export default function StudioPage() {
     if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     if (bodyText.trim()) JSON.parse(bodyText) as unknown
     showFloatingNotice("success", "图片模版创建成功")
-    closeTemplateCreator()
+    closeTemplateCreator(templateCreateWorkspaceKey)
   }
 
   async function saveStudioStyleTemplate(templateID: number, input: StudioTemplatePublishInput) {
@@ -3211,7 +3242,7 @@ export default function StudioPage() {
     if (bodyText.trim()) JSON.parse(bodyText) as unknown
     showFloatingNotice("success", "模板保存成功")
     setStyleTemplateListRevision((value) => value + 1)
-    closeTemplateCreator()
+    closeTemplateCreator(templateEditWorkspaceKey(templateID))
   }
 
   function cancelStyleTemplateDelete() {
@@ -3219,10 +3250,19 @@ export default function StudioPage() {
     setPendingDeleteTemplate(undefined)
   }
 
+  function requestStyleTemplateDelete(template: StudioStyleTemplateListItem) {
+    if (editingStyleTemplateIDs().includes(template.idx)) return
+    setPendingDeleteTemplate(template)
+  }
+
   async function confirmStyleTemplateDelete() {
     const template = pendingDeleteTemplate()
     const current = server.current
     if (!template || templateDeleting()) return
+    if (editingStyleTemplateIDs().includes(template.idx)) {
+      setPendingDeleteTemplate(undefined)
+      return
+    }
     if (!current) {
       showFloatingNotice("error", "No active server.")
       return
@@ -3244,14 +3284,11 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       if (bodyText.trim()) JSON.parse(bodyText) as unknown
-      const workspace = templateWorkspace()
-      const closeEditor = workspace?.mode === "edit" && workspace.templateID === template.idx
       batch(() => {
         setPendingDeleteTemplate(undefined)
         setStyleTemplateListRevision((value) => value + 1)
         if (selectedStyleTemplate()?.idx === template.idx) clearStyleTemplate()
       })
-      if (closeEditor) closeTemplateCreator()
       showFloatingNotice("success", "模板删除成功")
     } catch (error) {
       showFloatingNotice("error", error instanceof Error ? error.message : String(error))
@@ -4552,7 +4589,8 @@ export default function StudioPage() {
                   onListStyleTemplates={listStudioStyleTemplates}
                   onSelectStyleTemplate={applyStyleTemplate}
                   onEditStyleTemplate={(item) => void openTemplateEditor(item)}
-                  onRequestDeleteStyleTemplate={setPendingDeleteTemplate}
+                  onRequestDeleteStyleTemplate={requestStyleTemplateDelete}
+                  editingStyleTemplateIDs={editingStyleTemplateIDs()}
                   styleTemplateListRevision={styleTemplateListRevision()}
                   onClearStyleTemplate={clearStyleTemplate}
                   onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
@@ -4781,7 +4819,8 @@ if (!headerTitle.pendingRename) return
             onListStyleTemplates={listStudioStyleTemplates}
             onSelectStyleTemplate={applyStyleTemplate}
             onEditStyleTemplate={(item) => void openTemplateEditor(item)}
-            onRequestDeleteStyleTemplate={setPendingDeleteTemplate}
+            onRequestDeleteStyleTemplate={requestStyleTemplateDelete}
+            editingStyleTemplateIDs={editingStyleTemplateIDs()}
             styleTemplateListRevision={styleTemplateListRevision()}
             onClearStyleTemplate={clearStyleTemplate}
             onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
@@ -4926,7 +4965,8 @@ if (!headerTitle.pendingRename) return
               fileManagerGenPending={fileManagerGenPending()}
               canvasView={canvasView()}
               templateCreatorTabOpen={templateCreatorTabOpen()}
-              templateWorkspace={templateWorkspace()}
+              templateWorkspaces={templateWorkspaces()}
+              activeTemplateWorkspaceKey={activeTemplateWorkspaceKey()}
               onGenerateStyleDescription={generateStyleDescription}
               onPublishTemplate={publishStudioTemplate}
               onSaveTemplate={saveStudioStyleTemplate}

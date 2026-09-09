@@ -79,10 +79,12 @@ export type StudioTemplateEditableValue = StudioTemplatePublishInput & {
 }
 
 export type StudioTemplateWorkspace =
-  | { mode: "create" }
+  | { key: string; mode: "create" }
   | {
+      key: string
       mode: "edit"
       templateID: number
+      templateTitle: string
       initialValue?: StudioTemplateEditableValue
       loading: boolean
       error?: string
