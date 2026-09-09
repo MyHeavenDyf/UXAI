@@ -699,9 +699,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const handleAppend = (e: Event) => {
       const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
       const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-      const prev = ref?.getText?.() ?? ""
-      ref?.clear?.()
-      ref?.insertText?.(prev ? `${prev}\n${detail.text}` : detail.text)
+      ref?.appendDoc?.(detail.docJSON, detail.prefix)
     }
     window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
     onCleanup(() => window.removeEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend))
@@ -1396,8 +1394,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; getDocJSON: () => any; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void; appendDoc: (json: any, prefix?: string) => void; closeMention: () => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; getDocJSON: () => any; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void; appendDoc: (json: any, prefix?: string) => void; closeMention: () => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1704,6 +1702,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setCurrentVersionId: (updater) => setCurrentVersionId(updater),
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+    isActiveTab: (id) => tabStore.activeId() === id,
   })
 
   /** 刷新版本快照列表 */
@@ -4488,6 +4487,17 @@ if (dsId) {
             await autoSaveArtifact(params.id!, card, projectDir()!)
             console.log("[MakePage] Created new file for artifact:", inferred.filePath)
           }
+        }
+      }
+    }
+
+    // ★ Step -0.5: 等待文件落盘。
+    if (!isUrl && card.filePath) {
+      const api = getDesktopApi()
+      if (api?.fileExists) {
+        for (let i = 0; i < 20; i++) {
+          if (await api.fileExists(card.filePath)) break
+          await new Promise((r) => setTimeout(r, 150))
         }
       }
     }

@@ -24,12 +24,15 @@ export interface HistoryControllerCallbacks {
   setCurrentVersionId: (updater: (prev: string | null) => string | null) => void
   updateTabContent: (id: string, content: string) => void
   setFilesRefreshKey: (updater: (prev: number) => number) => void
+  isActiveTab: (id: string) => boolean
 }
 
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   const historyStore = createHistoryStore()
   const writingTabs = new Set<string>()
   const lastFileHash = new Map<string, string>()
+  // 版本列表代数：loadVersions/refreshVersions 完成后校验，防止过期的磁盘快照覆盖新记录
+  let listGeneration = 0
 
   /** 读文件并算 hash */
   async function getFileHash(filePath: string): Promise<string | null> {
@@ -102,8 +105,16 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
     const entry = await historyStore.recordVersion(tab, actor, files)
     if (entry) {
-      callbacks.setVersionList((prev) => [entry, ...prev])
-      callbacks.setCurrentVersionId(() => entry.id)
+      // 使进行中的 loadVersions/refreshVersions 失效（它们的快照可能不含本条记录）
+      listGeneration++
+      if (callbacks.isActiveTab(tab.id)) {
+        // 激活 tab：重拉磁盘列表，自愈任何过期快照
+        const list = await historyStore.listVersions(tab)
+        callbacks.setVersionList(() => list)
+        callbacks.setCurrentVersionId(() => entry.id)
+      } else {
+        callbacks.setVersionList((prev) => [entry, ...prev])
+      }
     }
   }
 
@@ -187,7 +198,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   async function loadVersions(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
+    const seq = ++listGeneration
     const list = await historyStore.listVersions(tab)
+    if (seq !== listGeneration) return
     callbacks.setVersionList(() => list)
     const currentHash = await getTabFileSetHash(tab)
     let currentId = list[0]?.id ?? null
@@ -195,6 +208,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       const matched = await findVersionByHash(tab, list, currentHash)
       if (matched) currentId = matched.id
     }
+    if (seq !== listGeneration) return
     callbacks.setCurrentVersionId(() => currentId)
     if (currentHash) {
       lastFileHash.set(tab.filePath!, currentHash)
@@ -219,7 +233,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   async function refreshVersions(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
+    const seq = ++listGeneration
     const list = await historyStore.listVersions(tab)
+    if (seq !== listGeneration) return
     callbacks.setVersionList(() => list)
   }
 

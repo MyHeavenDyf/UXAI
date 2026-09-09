@@ -177,6 +177,7 @@ type QueryTaskResponse = {
     status?: number
     order?: number
     progress?: number
+    error_message?: unknown
     results?: string[]
     results_clean_bg?: string[]
     results_v2?: Array<{
@@ -710,6 +711,12 @@ function isSuccessResponse(response: QueryTaskResponse): boolean {
 function isFailureResponse(response: QueryTaskResponse): boolean {
   const status = Number(getTaskStatus(response))
   return ![0, 1, 2, 6].includes(status)
+}
+
+export function queryTaskFailureMessage(response: QueryTaskResponse) {
+  const message = response.result?.error_message
+  if (typeof message === "string" && message.trim()) return message.trim()
+  return "生成任务失败"
 }
 
 function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery["status"] {
@@ -1768,6 +1775,7 @@ export async function queryInternalGeneration(task: ImageGenerationTask): Promis
     rawStatus: getTaskStatus(queryJson),
     progress: getTaskProgress(queryJson),
     order: getTaskOrder(queryJson),
+    error: status === "failed" ? queryTaskFailureMessage(queryJson) : undefined,
     images: [
       ...images.map((url) => ({ kind: "image" as const, url })),
       ...videos.map((url) => ({ kind: "video" as const, url })),
@@ -1789,15 +1797,13 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     if (query.status === "succeeded") return query
 
     if (query.status === "failed") {
-      throw new Error(
-        [
-          "query_task returned failure.",
-          `taskId=${task.taskId}`,
-          `status=${query.rawStatus}`,
-          `progress=${query.progress}`,
-          `response=${JSON.stringify(query.raw, null, 2)}`,
-        ].join("\n"),
-      )
+      console.error("[studio.internel] query_task returned failure", {
+        taskId: task.taskId,
+        status: query.rawStatus,
+        progress: query.progress,
+        response: query.raw,
+      })
+      throw new Error(query.error ?? "生成任务失败")
     }
 
     if (i < maxPollCount) {
