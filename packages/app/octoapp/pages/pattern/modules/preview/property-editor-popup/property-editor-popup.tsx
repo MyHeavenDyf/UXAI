@@ -251,6 +251,12 @@ export function PropertyEditorPopup(props: {
     return false
   }
 
+  /** 某图标 key 当前是否为自定义图标：优先 nameCustom==='1'，兼容带 uploads src 或旧 custom: id 的数据 */
+  const iconCustomFlag = (k: string) => {
+    const p = editProps as Record<string, string>
+    return p[`${k}Custom`] === '1' || !!p[`${k}Src`] || (p[`${k}Id`] ?? '').startsWith('custom:')
+  }
+
   /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
   function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
@@ -1012,7 +1018,8 @@ export function PropertyEditorPopup(props: {
       if (!isIconExtraKey(k)) continue
       const v = parsed[k]
       if (v == null || isStateBoundValue(v)) continue
-      setEditProps(k, v.toString())
+      // 自定义图标渲染端把 name 的 Src 参数存为元素 prop "src"（见透传），读回时归位到 nameSrc 供触发器/弹窗回显使用
+      setEditProps(k === 'src' && ICON_PICKER_PROP_KEYS.has(`${props.componentType}.name`) ? 'nameSrc' : k, v.toString())
     }
     for (const k of allKeys) {
       const parsedVal = parsed[k]
@@ -1690,14 +1697,16 @@ export function PropertyEditorPopup(props: {
       // 官方图标则下发 Url/Custom/Id/Size/Style/Color/Src 用于回显。Url/Custom/Src 支持"空串清除"。
       for (const key of propKeys()) {
         if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) continue
-        const isCustom = (editProps as Record<string, string>)[`${key}Custom`] === '1'
+        const isCustom = iconCustomFlag(key)
         const suffixes = isCustom
-          ? ['Url', 'Custom', 'Src']
+          ? ['Url', 'Custom', 'Id', 'Src']
           : ['Url', 'Custom', 'Id', 'Size', 'Style', 'Color', 'Src']
         for (const suffix of suffixes) {
           const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
           const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
-          if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name')) {
+          // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
+          // （自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
+          if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name') || (isCustom && suffix === 'Id')) {
             if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
             continue
           }
@@ -1939,10 +1948,10 @@ export function PropertyEditorPopup(props: {
                               class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
                               style={{ position: 'relative', overflow: 'hidden' }}>
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
-                              <IconFieldPreview
+              <IconFieldPreview
                                 name={(editProps as Record<string, string>)[key]}
                                 url={(editProps as Record<string, string>)[`${key}Url`]}
-                                custom={(editProps as Record<string, string>)[`${key}Custom`] === '1'}
+                                custom={iconCustomFlag(key)}
                                 color={(editProps as Record<string, string>)[`${key}Color`]}
                                 src={(editProps as Record<string, string>)[`${key}Src`]}
                                 htmlFilePath={props.htmlFilePath} />
@@ -2833,7 +2842,7 @@ export function PropertyEditorPopup(props: {
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
               currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
-              currentCustom={(editProps as Record<string, string>)[`${iconPickerKey()!}Custom`] === '1'}
+              currentCustom={iconCustomFlag(iconPickerKey()!)}
               sessionId={props.sessionId}
               htmlFilePath={props.htmlFilePath}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]

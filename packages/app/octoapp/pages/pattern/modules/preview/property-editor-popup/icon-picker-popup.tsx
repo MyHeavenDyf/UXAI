@@ -368,14 +368,50 @@ export function IconPickerPopup(props: {
       const buf = await f.arrayBuffer()
       added.push(await saveSessionIconFile(sdk.directory, sessionId(), props.htmlFilePath, f.name, buf) ?? { src: await blobToDataURL(f) })
     }
-    setState('customIcons', [...state.customIcons, ...added])
+    // 重名文件重新上传时替换旧项（同名文件落盘是覆盖写），不重复追加
+    const newNames = new Set(added.flatMap(a => {
+      const fn = a.path?.split(/[\\/]/).pop()
+      return fn ? [fn] : []
+    }))
+    setState('customIcons', prev => {
+      const kept = newNames.size ? prev.filter(p => {
+        const fn = p.path?.split(/[\\/]/).pop()
+        return !fn || !newNames.has(fn)
+      }) : prev
+      return [...kept, ...added]
+    })
   }
 
   /** 打开弹窗时读回会话已上传的自定义图标 */
   onMount(() => {
     void listSessionIconFiles(sdk.directory, sessionId(), props.htmlFilePath).then(icons => {
-      if (icons.length) setState('customIcons', [...state.customIcons, ...icons])
+      if (!icons.length) return
+      const diskNames = new Set(icons.flatMap(i => {
+        const fn = i.path?.split(/[\\/]/).pop()
+        return fn ? [fn] : []
+      }))
+      setState('customIcons', prev => [
+        ...prev.filter(p => {
+          const fn = p.path?.split(/[\\/]/).pop()
+          return !fn || !diskNames.has(fn)
+        }),
+        ...icons,
+      ])
     })
+  })
+
+  /** 元素当前为自定义图标时，待自定义列表读回后按展示名自动选中（仅当确实停留在自定义 tab，不干预用户手动切回官方） */
+  createEffect(() => {
+    if (state.source !== 'custom' || !props.current || !state.customIcons.length) return
+    if (state.selectedId.startsWith('custom:')) return
+    const currentStem = props.current.replace(/\.[^.]*$/, '')
+    const hit = state.customIcons.find(ic => {
+      const display = customIconName(ic.path ?? ic.src)
+      return display === props.current || display === currentStem
+    })
+    if (!hit) return
+    setState('selectedId', `custom:${hit.src}`)
+    setState('selected', props.current)
   })
 
   /** 删除已上传的自定义图标：会话文件一并删除；dataURL（web 回退）仅移出列表 */
