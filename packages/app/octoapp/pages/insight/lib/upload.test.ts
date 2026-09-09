@@ -59,8 +59,15 @@ describe("formatDispatchNote", () => {
 
 describe("文件分类谓词", () => {
   test("office / pdf 归 extract_document，不算可内联文本", () => {
-    for (const name of ["a.docx", "b.pdf", "c.xlsx", "d.pptx", "e.doc"]) {
+    for (const name of ["a.docx", "b.pdf", "c.xlsx", "d.pptx"]) {
       expect(isExtractableDocFile(name)).toBe(true)
+      expect(isTextInlineFile(name)).toBe(false)
+    }
+  })
+
+  test("旧版 doc/xls/ppt 不冒充 extract_document 可读格式，也不当文本内联", () => {
+    for (const name of ["a.doc", "b.xls", "c.ppt"]) {
+      expect(isExtractableDocFile(name)).toBe(false)
       expect(isTextInlineFile(name)).toBe(false)
     }
   })
