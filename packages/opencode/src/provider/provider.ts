@@ -29,7 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiCatalog, modelsApiProviderUrl } from "@/plugin/model-headers"
+import { modelRequestBody, modelsApiCatalog, modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 const decodeModelsApiProvider = Schema.decodeUnknownOption(ModelsDev.Provider)
@@ -2068,6 +2068,20 @@ const layer: Layer.Layer<
               }
               opts.body = JSON.stringify(body)
             }
+          }
+
+          if (opts.body && method === "POST") {
+            try {
+              const body = modelRequestBody(JSON.parse(opts.body as string), model.isExternal)
+              opts.body = JSON.stringify(body)
+              log.info("model request body metadata", {
+                providerID: model.providerID,
+                modelID: model.id,
+                method,
+                url,
+                body: isRecord(body) ? { isExternal: body.isExternal, w3Account: body.w3Account } : {},
+              })
+            } catch {}
           }
 
           try {
