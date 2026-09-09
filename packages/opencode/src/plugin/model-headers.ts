@@ -48,8 +48,8 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
     source: headers["x-opencode-models-api-source"],
     url: headers["x-opencode-models-api-url"],
     w3Api: headers["x-opencode-w3-api"],
-    token: headers.uiplustoken ?? headers.UiplusToken,
-    account: headers.w3account ?? headers.w3Account,
+    token: headers.uiplustoken,
+    account: headers["x-opencode-w3-account"],
   })
 }
 
@@ -124,38 +124,23 @@ function findApiModel(api: Record<string, unknown>, providerID: string, modelID:
   return Object.values(provider.models).find((model) => isRecord(model) && model.id === apiID)
 }
 
-export function modelRequestHeaders(
-  input: { providerID: string; modelID: string; apiID: string; isExternal?: boolean },
-  api?: Record<string, unknown>,
-) {
-  const model = api ? findApiModel(api, input.providerID, input.modelID, input.apiID) : undefined
-  const isExternal = typeof input.isExternal === "boolean" ? input.isExternal : isRecord(model) ? model.isExternal : false
-  return Object.assign(
-    {},
-    readHeaders(model),
-    { isExternal: String(typeof isExternal === "boolean" ? isExternal : false) },
-    modelsApi?.token ? { UiplusToken: modelsApi.token } : {},
-    modelsApi?.account ? { w3Account: modelsApi.account } : {},
-  )
+export function modelRequestBody(body: unknown, isExternal?: boolean) {
+  if (!isRecord(body)) return body
+  return {
+    ...body,
+    isExternal: isExternal ?? false,
+    ...(modelsApi?.account ? { w3Account: modelsApi.account } : {}),
+  }
 }
 
 export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
   return {
     "chat.headers": async (input, output) => {
+      const api = await loadApi()
       Object.assign(
         output.headers,
-        modelRequestHeaders(
-          {
-            providerID: input.model.providerID,
-            modelID: input.model.id,
-            apiID: input.model.api.id,
-            isExternal:
-              "isExternal" in input.model && typeof input.model.isExternal === "boolean"
-                ? input.model.isExternal
-                : undefined,
-          },
-          await loadApi(),
-        ),
+        api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
+        modelsApi?.token ? { uiplustoken: modelsApi.token } : {},
       )
     },
   }

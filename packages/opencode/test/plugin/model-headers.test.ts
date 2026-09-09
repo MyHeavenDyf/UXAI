@@ -1,45 +1,24 @@
 import { describe, expect, test } from "bun:test"
-import { configureModelsApiHeaders, modelRequestHeaders } from "@/plugin/model-headers"
+import { configureModelsApiHeaders, modelRequestBody } from "@/plugin/model-headers"
 
-describe("model headers plugin", () => {
-  test("adds model network type and user account to chat headers", () => {
+describe("model request body", () => {
+  test("adds model network type and user account", () => {
     configureModelsApiHeaders({
       "x-opencode-models-api-source": "local",
-      UiplusToken: "ui-plus-token",
-      w3account: "j60099994",
+      uiplustoken: "ui-plus-token",
+      "x-opencode-w3-account": "j60099994",
     })
-    expect(
-      modelRequestHeaders(
-        { providerID: "w3", modelID: "model", apiID: "model-api-id" },
-        {
-          w3: {
-            models: {
-              model: {
-                id: "model-api-id",
-                isExternal: true,
-                headers: { "x-model-header": "model-value" },
-              },
-            },
-          },
-        },
-      ),
-    ).toEqual({
-      "x-model-header": "model-value",
-      isExternal: "true",
-      UiplusToken: "ui-plus-token",
+
+    expect(modelRequestBody({ model: "mimo-v2.5" }, true)).toEqual({
+      model: "mimo-v2.5",
+      isExternal: true,
       w3Account: "j60099994",
     })
   })
 
-  test("uses the selected model network type without a remote catalog", () => {
-    expect(
-      modelRequestHeaders({ providerID: "opencode", modelID: "model", apiID: "model", isExternal: false }),
-    ).toMatchObject({ isExternal: "false" })
-  })
-
   test("defaults missing model network type to false", () => {
-    expect(modelRequestHeaders({ providerID: "xiaomi", modelID: "mimo-v2.5", apiID: "mimo-v2.5" })).toMatchObject({
-      isExternal: "false",
+    expect(modelRequestBody({ model: "mimo-v2.5" })).toMatchObject({
+      isExternal: false,
     })
   })
 })

@@ -138,8 +138,8 @@ export function modelsApiHeaders() {
     "x-opencode-models-api-source": source,
     ...(url ? { "x-opencode-models-api-url": url } : {}),
     ...(w3Api ? { "x-opencode-w3-api": w3Api } : {}),
-    ...(token ? { UiplusToken: token } : {}),
-    ...(account ? { w3Account: account } : {}),
+    ...(token ? { uiplustoken: token } : {}),
+    ...(account ? { "x-opencode-w3-account": account } : {}),
   }
 }
 
@@ -192,7 +192,7 @@ function apiModels(value: unknown): ApiModels {
   )
 }
 
-function withModelRequestHeaders(api: ApiModels, token: string, account: string): ApiModels {
+function withUiplusToken(api: ApiModels, token: string): ApiModels {
   return Object.fromEntries(
     Object.entries(api).map(([providerID, provider]) => {
       if (!isApiProvider(provider)) return [providerID, provider]
@@ -210,9 +210,7 @@ function withModelRequestHeaders(api: ApiModels, token: string, account: string)
                   ...model,
                   headers: {
                     ...(isRecord(model.headers) ? model.headers : {}),
-                    UiplusToken: token,
-                    isExternal: String(model.isExternal ?? false),
-                    ...(account ? { w3Account: account } : {}),
+                    uiplustoken: token,
                   },
                 },
               ]
@@ -245,7 +243,7 @@ export async function fetchModelsApi() {
     const content = apiContent(data)
     const api = apiModels(content)
     console.log("[models-api] api.json received", api)
-    latestModelsApi = withModelRequestHeaders(api, token, w3Account())
+    latestModelsApi = withUiplusToken(api, token)
     storeW3Api(latestModelsApi, url)
     return latestModelsApi
   }
@@ -259,7 +257,7 @@ export async function fetchModelsApi() {
   const content = apiContent(data)
   const api = apiModels(content)
   console.log("[models-api] api.json received", api)
-  latestModelsApi = withModelRequestHeaders(api, token, w3Account())
+  latestModelsApi = withUiplusToken(api, token)
   storeW3Api(latestModelsApi, url)
   return latestModelsApi
 }

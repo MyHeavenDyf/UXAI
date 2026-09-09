@@ -29,7 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiProviderUrl } from "@/plugin/model-headers"
+import { modelRequestBody, modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -118,7 +118,6 @@ const SENSITIVE_HEADER_KEYS = new Set([
   "set-cookie",
   "x-auth-token",
   "proxy-authorization",
-  "uiplustoken",
 ])
 
 function sanitizeHeaders(input: Headers | Record<string, string> | undefined | null): Record<string, string> {
@@ -135,12 +134,6 @@ function sanitizeHeaders(input: Headers | Record<string, string> | undefined | n
     }
   }
   return out
-}
-
-function mergeRequestHeaders(input: RequestInfo | URL, extra?: HeadersInit) {
-  const headers = new Headers(input instanceof Request ? input.headers : undefined)
-  new Headers(extra).forEach((value, key) => headers.set(key, value))
-  return headers
 }
 
 function describeInit(init: any): Record<string, any> {
@@ -2076,13 +2069,19 @@ const layer: Layer.Layer<
             }
           }
 
-          log.info("model request headers", {
-            providerID: model.providerID,
-            modelID: model.id,
-            method,
-            url,
-            headers: sanitizeHeaders(mergeRequestHeaders(input, opts.headers)),
-          })
+          if (opts.body && method === "POST") {
+            try {
+              const body = modelRequestBody(JSON.parse(opts.body as string), model.isExternal)
+              opts.body = JSON.stringify(body)
+              log.info("model request body metadata", {
+                providerID: model.providerID,
+                modelID: model.id,
+                method,
+                url,
+                body: isRecord(body) ? { isExternal: body.isExternal, w3Account: body.w3Account } : {},
+              })
+            } catch {}
+          }
 
           try {
             const onSourceAbort = (source: string, sig: AbortSignal) => {
