@@ -13,14 +13,6 @@ import { SettingsList } from "./settings-list"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 
-const ListLoadingState: Component<{ label: string }> = (props) => {
-  return (
-    <div class="flex flex-col items-center justify-center py-12 text-center">
-      <span class="text-14-regular text-text-weak">{props.label}</span>
-    </div>
-  )
-}
-
 const ListEmptyState: Component<{ message: string; filter: string }> = (props) => {
   return (
     <div class="flex flex-col items-center justify-center py-12 text-center">
@@ -97,16 +89,10 @@ export const SettingsModels: Component = () => {
 
       <div class="flex flex-col gap-8">
         <Show
-          when={models.remote.api() !== undefined}
-          fallback={
-            <ListLoadingState label={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`} />
-          }
+          when={list.flat().length > 0}
+          fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
         >
-          <Show
-            when={list.flat().length > 0}
-            fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
-          >
-            <For each={list.grouped.latest}>
+          <For each={list.grouped.latest}>
               {(group) => (
                   <div class="flex flex-col gap-1">
                     <div style={{ display: "flex", "align-items": "center", gap: "12px", "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
@@ -141,8 +127,7 @@ export const SettingsModels: Component = () => {
                   </SettingsList>
                 </div>
               )}
-            </For>
-          </Show>
+          </For>
         </Show>
       </div>
     </div>

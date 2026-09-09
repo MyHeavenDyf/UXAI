@@ -38,6 +38,8 @@ export interface SubtypeHandlerContext {
   /** 当前会话 ID（用于定位 uploads 目录） */
   sessionId?: string
   sdkDirectory?: string
+  /** 文件管理刷新回调 */
+  onFilesRefresh?: () => void
 }
 
 export type LocalEditChange =

@@ -1,4 +1,4 @@
-import type { Model } from "@opencode-ai/sdk/v2/client"
+import type { Model, Provider } from "@opencode-ai/sdk/v2/client"
 
 type Modality = keyof Model["capabilities"]["input"]
 
@@ -7,6 +7,10 @@ type ApiModel = {
   name?: string
   family?: string
   isExternal?: boolean
+  attachment?: boolean
+  reasoning?: boolean
+  temperature?: boolean
+  tool_call?: boolean
   release_date?: string
   headers?: Record<string, string>
   capabilities?: Model["capabilities"]
@@ -29,6 +33,8 @@ type ApiProvider = {
   id?: string
   name?: string
   api?: string
+  npm?: string
+  env?: string[]
   models?: Record<string, ApiModel> | ApiModel[]
 }
 
@@ -47,7 +53,6 @@ type ModelsApiBridge = {
 }
 
 export const MODELS_API_URL_STORAGE_KEY = "opencode.modelsApiUrl"
-export const MODELS_API_SOURCE_STORAGE_KEY = "opencode.modelsApiSource"
 export const MODELS_API_W3_API_STORAGE_KEY = "opencode.modelsApiW3Api"
 
 const DEFAULT_MODELS_API_URL = {
@@ -64,15 +69,13 @@ function uiplusToken() {
   return localStorageValue("uiplusToken")
 }
 
+export function hasModelsApiToken() {
+  return !!uiplusToken()
+}
+
 function modelsApiChannel() {
   const channel = (import.meta.env as Record<string, string | undefined>).VITE_OCTO_CHANNEL
   return channel === "prod" ? "prod" : "beta"
-}
-
-export function modelsApiSource() {
-  const env = import.meta.env as Record<string, string | undefined>
-  const source = localStorageValue(MODELS_API_SOURCE_STORAGE_KEY) || env.VITE_OCTO_MODELS_API_SOURCE
-  return source === "http" ? "http" : "local"
 }
 
 function modelsApiBaseUrl() {
@@ -85,7 +88,6 @@ function modelsApiBaseUrl() {
 }
 
 export function modelsApiUrl() {
-  if (modelsApiSource() !== "http") return
   const baseURL = modelsApiBaseUrl()
   if (!baseURL) return
   const url = new URL(baseURL)
@@ -118,13 +120,11 @@ function storeW3Api(api: ApiModels, modelsApiUrl: string) {
 }
 
 export function modelsApiHeaders() {
-  const source = modelsApiSource()
   const token = uiplusToken()
   const url = modelsApiUrl()
-  const w3Api = source === "http" ? latestModelsApi?.w3?.api?.trim() || cachedW3Api(url) : undefined
+  const w3Api = url ? latestModelsApi?.w3?.api?.trim() || cachedW3Api(url) : undefined
   return {
-    "x-opencode-models-api-source": source,
-    ...(url ? { "x-opencode-models-api-url": url } : {}),
+    ...(url ? { "x-opencode-models-api-source": "http", "x-opencode-models-api-url": url } : {}),
     ...(w3Api ? { "x-opencode-w3-api": w3Api } : {}),
     ...(token ? { uiplustoken: token } : {}),
   }
@@ -209,16 +209,11 @@ function withUiplusToken(api: ApiModels, token: string): ApiModels {
   )
 }
 
-export function hasApiModels(api: ApiModels | undefined) {
+export function hasApiModels(api: ApiModels | undefined): api is ApiModels {
   return !!api && Object.keys(api).length > 0
 }
 
 export async function fetchModelsApi() {
-  if (modelsApiSource() !== "http") {
-    latestModelsApi = undefined
-    if (typeof localStorage !== "undefined") localStorage.removeItem(MODELS_API_W3_API_STORAGE_KEY)
-    return {}
-  }
   const token = uiplusToken()
   const headers: Record<string, string> = token ? { uiplustoken: token } : {}
   const bridge = modelsApiBridge()
@@ -262,6 +257,14 @@ export async function refreshModelsApi() {
   return models
 }
 
+export async function refreshRemoteModels() {
+  if (!modelsApiUrl()) return false
+  await refreshModelsApi()
+  return true
+}
+
+export const refreshModelsAfterLogin = refreshRemoteModels
+
 export function modelsLocalListForProviders<TProvider extends ProviderLike & { models: Record<string, Model> }>(
   providers: TProvider[],
 ) {
@@ -304,14 +307,14 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(api: A
           ...item,
           id,
           providerID: provider.id,
-          api: { id, url: "", npm: "" },
+          api: { id, url: apiProvider.api?.trim() ?? "", npm: apiProvider.npm?.trim() ?? "" },
           name: typeof item.name === "string" && item.name ? item.name : modelKey,
           family: typeof item.family === "string" ? item.family : "",
           capabilities: {
-            temperature: item.capabilities?.temperature ?? false,
-            reasoning: item.capabilities?.reasoning ?? false,
-            attachment: item.capabilities?.attachment ?? false,
-            toolcall: item.capabilities?.toolcall ?? false,
+            temperature: item.temperature ?? item.capabilities?.temperature ?? false,
+            reasoning: item.reasoning ?? item.capabilities?.reasoning ?? false,
+            attachment: item.attachment ?? item.capabilities?.attachment ?? false,
+            toolcall: item.tool_call ?? item.capabilities?.toolcall ?? false,
             input: item.modalities?.input
               ? capabilitiesFromModalities(item.modalities.input)
               : (item.capabilities?.input ?? capabilitiesFromModalities(["text"])),
@@ -337,4 +340,28 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(api: A
     })
   })
   return result
+}
+
+export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
+  if (!api) return []
+  return Object.entries(api).flatMap(([key, item]) => {
+    if (!isApiProvider(item)) return []
+    const id = typeof item.id === "string" && item.id ? item.id : key
+    const provider = {
+      id,
+      name: typeof item.name === "string" && item.name ? item.name : id,
+      source: "api" as const,
+      env: Array.isArray(item.env) ? item.env.filter((value): value is string => typeof value === "string") : [],
+      options: item.api?.trim() ? { baseURL: item.api.trim() } : {},
+      models: {},
+    }
+    return [
+      {
+        ...provider,
+        models: Object.fromEntries(
+          modelsApiListForProviders(api, [provider]).map((model) => [model.id, model]),
+        ),
+      },
+    ]
+  })
 }
