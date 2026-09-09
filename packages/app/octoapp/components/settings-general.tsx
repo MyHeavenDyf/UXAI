@@ -34,8 +34,7 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
-import { useUpdateAvailableDialog } from "./dialog-update-available"
-import { cancelStartupUpdateCheck } from "./update-checker"
+import { openAvailableUpdate } from "./update-checker"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -212,11 +211,8 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
-  const showUpdate = useUpdateAvailableDialog()
-
   const check = () => {
     if (!platform.checkUpdate) return
-    cancelStartupUpdateCheck()
     setStore("checking", true)
 
     void platform
@@ -232,7 +228,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        showUpdate(result.version ?? "", result.releaseNotes)
+        openAvailableUpdate({ version: result.version ?? "", releaseNotes: result.releaseNotes })
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
