@@ -1704,6 +1704,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setCurrentVersionId: (updater) => setCurrentVersionId(updater),
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+    isActiveTab: (id) => tabStore.activeId() === id,
   })
 
   /** 刷新版本快照列表 */
@@ -4488,6 +4489,17 @@ if (dsId) {
             await autoSaveArtifact(params.id!, card, projectDir()!)
             console.log("[MakePage] Created new file for artifact:", inferred.filePath)
           }
+        }
+      }
+    }
+
+    // ★ Step -0.5: 等待文件落盘。
+    if (!isUrl && card.filePath) {
+      const api = getDesktopApi()
+      if (api?.fileExists) {
+        for (let i = 0; i < 20; i++) {
+          if (await api.fileExists(card.filePath)) break
+          await new Promise((r) => setTimeout(r, 150))
         }
       }
     }

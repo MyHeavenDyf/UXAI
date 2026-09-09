@@ -274,13 +274,14 @@
 .asset-dialog-middle {
   display: flex;
   align-items: stretch;
-  flex: 1 1 0;
+  /* basis auto: height follows content (clamped by children max-height), min 275.
+     flex-basis 0 would lock the dialog to its minimum height. */
+  flex: 1 1 auto;
   min-height: 275px;
   overflow: hidden;
 }
 
 .asset-dialog-left {
-  min-height: 275px;
   /* scroll handled by ScrollView (native scrollbar hidden, floating thumb on hover) */
 }
 

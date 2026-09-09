@@ -115,6 +115,23 @@ export function createHistoryStore() {
     const versionName = buildVersionFolderName(baseName, ts, actor)
     const versionDir = historyDir + sep + versionName
 
+    const copyFileTo = api.copyFileTo
+    const copyWithRetry = async (src: string, dest: string): Promise<boolean> => {
+      try {
+        await copyFileTo(src, dest)
+        return true
+      } catch {
+        // 源文件可能正被写入（如 autoSaveArtifact 进行中，Windows 下复制会 EBUSY），延迟后重试一次
+        await new Promise((r) => setTimeout(r, 300))
+        try {
+          await copyFileTo(src, dest)
+          return true
+        } catch {
+          return false
+        }
+      }
+    }
+
     let copied = 0
     for (const rel of files) {
       const originalPath = resolveRelativePath(rel, tab.filePath!)
@@ -122,11 +139,8 @@ export function createHistoryStore() {
       const ext = getExt(originalPath)
       const versionFileName = id + ext
       const versionFilePath = versionDir + sep + versionFileName
-      try {
-        await api.copyFileTo(originalPath, versionFilePath)
+      if (await copyWithRetry(originalPath, versionFilePath)) {
         copied++
-      } catch {
-        // 源文件不存在则跳过该文件
       }
     }
 
