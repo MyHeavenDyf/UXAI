@@ -19,24 +19,22 @@ import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
 import { getDesktopApi } from "../../../utils/desktop-api"
 
-/** 图标触发器预览：自定义图标（custom）原样 img 渲染——优先内嵌 url，否则按 src（uploads/文件名）+ htmlFilePath 读本地文件；
- *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；失败回退本地 lucide 按名渲染 */
+/** 图标触发器预览：自定义图标（custom）按 src（uploads/文件名）+ htmlFilePath 读本地文件原样 img 展示；
+ *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；均失败时回退本地 lucide 按名渲染 */
 function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
   const [failed, setFailed] = createSignal(false)
   const [fileUrl, setFileUrl] = createSignal<string | null>(null)
   createEffect(() => {
-    props.url; props.custom; props.src; setFailed(false); setFileUrl(null)
-    const s = props.custom ? (props.src || '') : ''
-    const htmlPath = props.htmlFilePath || ''
-    if (!s || !htmlPath || !getDesktopApi()?.readFileBuffer) return
-    const base = htmlPath.replace(/[\\/][^\\/]+$/, '')
-    void getDesktopApi()!.readFileBuffer?.(`${base}/${s}`).then((buf) => {
+    props.custom; props.src; props.htmlFilePath; setFailed(false); setFileUrl(null)
+    if (!props.custom || !props.src || !props.htmlFilePath) return
+    const api = getDesktopApi()
+    const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
+    api?.readFileBuffer?.(`${base}/${props.src}`).then((buf) => {
       setFileUrl(buf ? URL.createObjectURL(new Blob([buf])) : null)
     }).catch(() => setFileUrl(null))
   })
-  const customSrc = () => props.custom ? (props.url || fileUrl() || undefined) : undefined
   return (
-    <Show when={customSrc()} fallback={
+    <Show when={props.custom && fileUrl()} fallback={
       <Show when={props.url && !failed()} fallback={
         (() => {
           const d = LUCIDE_ICONS.find(i => i.name === props.name)
@@ -63,7 +61,7 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
         </Show>
       </Show>
     }>
-      <img src={customSrc()!} alt="" class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+      <img src={fileUrl()!} alt="" class="h-4 w-4 shrink-0 object-contain" />
     </Show>
   )
 }
