@@ -20,6 +20,7 @@ import "./styles.css"
 interface EditorRef {
   getText: () => string
   getMentions: () => MentionAttrs[]
+  getDocJSON: () => any
   focus: () => void
   clear: () => void
   insertText: (text: string) => void
@@ -29,6 +30,7 @@ interface EditorRef {
   updateMentionPath: (id: string, path: string) => void
   isAlive: () => boolean
   replaceDoc: (json: any) => void
+  appendDoc: (json: any, prefix?: string) => void
   closeMention: () => void
 }
 
@@ -353,6 +355,32 @@ export const ProseMirrorEditor = (props: Props) => {
           const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
           tr.setSelection(TextSelection.atStart(tr.doc))
           v.dispatch(tr)
+        },
+        getDocJSON: () => {
+          const v = view()
+          if (!v || !v.state || !v.dom?.isConnected) return null
+          return v.state.doc.toJSON()
+        },
+        appendDoc: (json: any, prefix?: string) => {
+          const v = view()
+          if (!v || !v.state || !v.dom?.isConnected) return
+          const tr = v.state.tr
+          let insertPos = v.state.doc.content.size
+          if (prefix) {
+            tr.insertText(`\n${prefix}\n`, insertPos)
+            insertPos = tr.doc.content.size
+          }
+          if (json?.content?.length > 0) {
+            const newDoc = docFromJSON(json)
+            newDoc.content.forEach((node) => {
+              tr.insert(tr.doc.content.size, node)
+            })
+          }
+          if (tr.docChanged) {
+            tr.setSelection(TextSelection.atEnd(tr.doc))
+            v.dispatch(tr)
+            v.focus()
+          }
         },
         closeMention: () => {
           const v = view()

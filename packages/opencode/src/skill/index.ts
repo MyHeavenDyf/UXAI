@@ -382,8 +382,7 @@ export const layer = Layer.effect(
         }
       }
 
-      const allowedDirs = d.agentConfig[agentKey] ?? []
-      const allowedSet = new Set(allowedDirs)
+      const allowedSet = new Set(d.agentConfig[agentKey] ?? [])
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
         const skillDir = s.skillDirMap[skill.name]

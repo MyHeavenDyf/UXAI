@@ -236,6 +236,7 @@ export function HtmlRenderer(props: {
   const [mentionPanelOpen, setMentionPanelOpen] = createSignal(false)
   const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
   const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
+  const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
     elementId: string | null
@@ -1129,6 +1130,10 @@ createEffect(() => {
     }
 
     if (d.type === "od:edit-selected") {
+      if (mentionPanelOpen() || pendingLocalEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
       const target: ManualEditTarget = d.target
       
       // Save previous element's pending changes before switching
@@ -1424,6 +1429,15 @@ createEffect(() => {
       iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
       props.onRefreshNeeded?.()
     }
+    if (prev && !disabled && pendingLocalEditClose()) {
+      setPendingLocalEditClose(false)
+      cancelManualEditStyleDraft()
+      setEditTarget(null)
+      manualEditPendingStyle = null
+      manualEditPendingText = null
+      setEditDraft(emptyManualEditDraft(props.content))
+      props.onRefreshNeeded?.()
+    }
   }))
 
 // Send inspect-mode toggle to iframe
@@ -1601,7 +1615,7 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: pendingModelEditClose() ? 'wait' : undefined }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: (pendingModelEditClose() || pendingLocalEditClose()) ? 'wait' : undefined }}
     >
       {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
           超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
@@ -1968,8 +1982,35 @@ onExit={() => {
   setEditDraft(emptyManualEditDraft(props.content))
 }}
 onFloatingPositionChange={setEditPanelPosition}
-               />
+                />
               </Show>
+          <Show when={props.editing && editTarget()}>
+            <ModelEditAreaDialog
+              element={editTarget()}
+              iframeRect={iframeRef?.getBoundingClientRect()}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                cancelManualEditStyleDraft()
+                setEditTarget(null)
+                manualEditPendingStyle = null
+                manualEditPendingText = null
+                setEditDraft(emptyManualEditDraft(props.content))
+                setMentionPanelOpen(false)
+                tracker.interaction({ module: "design", name: "cancel-local-edit-area" })
+              }}
+              onSubmitStart={() => setPendingLocalEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+            />
+          </Show>
           <Show when={props.modelEditing && modelEditTarget()}>
             <ModelEditPanel
               element={modelEditTarget()}
