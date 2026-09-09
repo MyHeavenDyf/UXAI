@@ -213,14 +213,16 @@ export function IconPickerPopup(props: {
   initialColor?: string
   /** 当前图标的唯一 id（icon-plus 的 icon_id；offline 无 id 时以 name 充当），回显按 id 匹配 */
   currentId?: string
+  /** 当前是否为自定义图标（元素 nameCustom===1；不再存 custom:base64 的 id） */
+  currentCustom?: boolean
   /** 会话 id：自定义图标持久化定位用 */
   sessionId?: string
   /** 预览产物 html 路径：自定义图标存到其同级 uploads 目录（与图片上传落盘规则一致） */
   htmlFilePath?: string
 }): JSX.Element {
   const [state, setState] = createStore({
-    /** 当前为自定义图标（currentId 带 custom: 前缀）时默认打开自定义 tab */
-    source: props.currentId?.startsWith('custom:') ? 'custom' as const : 'official' as const,
+    /** 当前为自定义图标（nameCustom=1 ）时默认打开自定义 tab */
+    source: props.currentCustom ? 'custom' as const : 'official' as const,
     tabsCan: { left: false, right: false },
     category: 'all' as number | 'all',
     categoryName: '全部分类',
@@ -388,10 +390,11 @@ export function IconPickerPopup(props: {
     if (state.selected) {
       const custom = state.selectedId.startsWith('custom:') ? state.customIcons.find(c => `custom:${c.src}` === state.selectedId) : undefined
       props.onPick({
-        /** 自定义图标：name 即原始文件名；src 为渲染端消费的相对路径 uploads/<文件名>（普通图标不带，接收方清除） */
+        /** 自定义图标：name 即原始文件名；src 为渲染端消费的相对路径 uploads/<文件名>（普通图标不带，接收方清除）。
+         *  自定义不传 id/url，避免把整段 base64 写进元素 props */
         name: custom ? customIconName(custom.path ?? custom.src) : state.selected,
-        id: state.selectedId || undefined,
-        url: custom?.src ?? iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
+        id: custom ? undefined : state.selectedId || undefined,
+        url: custom ? undefined : iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
         src: custom?.path ? `uploads/${custom.path.split(/[\\/]/).pop()}` : undefined,
         isCustom: !!custom,
         size: iconStore.state.iconSize,

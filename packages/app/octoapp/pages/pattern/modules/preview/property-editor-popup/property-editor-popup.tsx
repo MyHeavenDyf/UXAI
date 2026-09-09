@@ -17,14 +17,26 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
+import { getDesktopApi } from "../../../utils/desktop-api"
 
-/** 图标触发器预览：自定义图标（custom prop）直接 img 原样渲染（不染色不加蒙版）；
+/** 图标触发器预览：自定义图标（custom）原样 img 渲染——优先内嵌 url，否则按 src（uploads/文件名）+ htmlFilePath 读本地文件；
  *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；失败回退本地 lucide 按名渲染 */
-function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean }) {
+function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
   const [failed, setFailed] = createSignal(false)
-  createEffect(() => { props.url; props.custom; setFailed(false) })
+  const [fileUrl, setFileUrl] = createSignal<string | null>(null)
+  createEffect(() => {
+    props.url; props.custom; props.src; setFailed(false); setFileUrl(null)
+    const s = props.custom ? (props.src || '') : ''
+    const htmlPath = props.htmlFilePath || ''
+    if (!s || !htmlPath || !getDesktopApi()?.readFileBuffer) return
+    const base = htmlPath.replace(/[\\/][^\\/]+$/, '')
+    void getDesktopApi()!.readFileBuffer?.(`${base}/${s}`).then((buf) => {
+      setFileUrl(buf ? URL.createObjectURL(new Blob([buf])) : null)
+    }).catch(() => setFileUrl(null))
+  })
+  const customSrc = () => props.custom ? (props.url || fileUrl() || undefined) : undefined
   return (
-    <Show when={props.custom && props.url} fallback={
+    <Show when={customSrc()} fallback={
       <Show when={props.url && !failed()} fallback={
         (() => {
           const d = LUCIDE_ICONS.find(i => i.name === props.name)
@@ -51,7 +63,7 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
         </Show>
       </Show>
     }>
-      <img src={props.url!} alt="" class="h-4 w-4 shrink-0 object-contain" />
+      <img src={customSrc()!} alt="" class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
     </Show>
   )
 }
@@ -245,8 +257,8 @@ export function PropertyEditorPopup(props: {
   function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
     updateEditProp(key, pick.name)
-    if (pick.id) updateEditProp(`${key}Id`, pick.id)
-    /** url/custom 无条件写入：普通图标置空串，避免残留上次自定义图标的值 */
+    /** id/url 无条件写入（自定义图标不带，置空以免把 base64 残留到 editProps/元素） */
+    updateEditProp(`${key}Id`, pick.id ?? '')
     updateEditProp(`${key}Url`, pick.url ?? '')
     updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
     /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
@@ -1675,11 +1687,16 @@ export function PropertyEditorPopup(props: {
             : val
         }
       }
-      // 图标专属参数（${key}Url/Custom/Id/Size/Style/Color/Src）随元素透传：预览渲染端展示（src）与面板重开回显（Url/Size/Style/Color）都依赖；
-      // Url/Custom/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次自定义图标
+      // 图标专属参数随元素透传。自定义图标渲染端只需 name+nameCustom+src（src 即 uploads/文件名），
+      // 不再下发 nameId/nameUrl（曾含整段 base64 造成数据膨胀）/nameSize/Style/Color（对自定义无意义）；
+      // 官方图标则下发 Url/Custom/Id/Size/Style/Color/Src 用于回显。Url/Custom/Src 支持"空串清除"。
       for (const key of propKeys()) {
         if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) continue
-        for (const suffix of ['Url', 'Custom', 'Id', 'Size', 'Style', 'Color', 'Src']) {
+        const isCustom = (editProps as Record<string, string>)[`${key}Custom`] === '1'
+        const suffixes = isCustom
+          ? ['Url', 'Custom', 'Src']
+          : ['Url', 'Custom', 'Id', 'Size', 'Style', 'Color', 'Src']
+        for (const suffix of suffixes) {
           const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
           const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
           if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name')) {
@@ -1928,7 +1945,9 @@ export function PropertyEditorPopup(props: {
                                 name={(editProps as Record<string, string>)[key]}
                                 url={(editProps as Record<string, string>)[`${key}Url`]}
                                 custom={(editProps as Record<string, string>)[`${key}Custom`] === '1'}
-                                color={(editProps as Record<string, string>)[`${key}Color`]} />
+                                color={(editProps as Record<string, string>)[`${key}Color`]}
+                                src={(editProps as Record<string, string>)[`${key}Src`]}
+                                htmlFilePath={props.htmlFilePath} />
                               </div>
                               <div class="text-left text-slate-600"
                                 style={{ position: 'absolute', left: '40px', right: '26px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{(editProps as Record<string, string>)[key] || '选择图标'}</div>
@@ -2816,6 +2835,7 @@ export function PropertyEditorPopup(props: {
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
               currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
+              currentCustom={(editProps as Record<string, string>)[`${iconPickerKey()!}Custom`] === '1'}
               sessionId={props.sessionId}
               htmlFilePath={props.htmlFilePath}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
