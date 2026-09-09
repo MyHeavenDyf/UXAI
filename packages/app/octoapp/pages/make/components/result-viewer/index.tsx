@@ -302,30 +302,31 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-model-edit-mode", extend: JSON.stringify({ action: nextModelEditing ? "open" : "close" }) })
   }
 
-  const handleModelEditSave = async (element: ModelEditElement, prev: Record<string, string>, current: Record<string, string>) => {
+  const handleModelEditSave = async (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: any): Promise<boolean | void> => {
     const tab = activeTab()
-    if (!tab) return
+    if (!tab) return false
     const handler = getSubtypeHandler(tab.subtype)
-    if (!handler?.modelEditConfig) return
-    const type = element.componentType || element.htmlType || 'default'
-    const prompt = handler.modelEditConfig.saveCallback({
-      type, prev, current, dom: element, filePath: tab.filePath || '',
+    if (!handler?.modelEditConfig) return false
+    const result = await handler.modelEditConfig.saveCallback({
+      ...ctx,
+      prev, current,
     })
+    const prompt = typeof result === 'string' ? result : ''
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
     tracker.interaction({ module: "design", name: "save-model-edit-changes", extend: JSON.stringify({ type: tab.type }) })
+    return prompt ? undefined : true
   }
 
-  const handleModelEditDelete = async (element: ModelEditElement) => {
+  const handleModelEditDelete = async (element: ModelEditElement, ctx: any): Promise<boolean | void> => {
     const tab = activeTab()
-    if (!tab) return
+    if (!tab) return false
     const handler = getSubtypeHandler(tab.subtype)
-    if (!handler?.modelEditConfig) return
-    const type = element.componentType || element.htmlType || 'default'
-    const prompt = handler.modelEditConfig.deleteCallback({
-      type, dom: element, filePath: tab.filePath || '',
-    })
+    if (!handler?.modelEditConfig) return false
+    const result = await handler.modelEditConfig.deleteCallback(ctx)
+    const prompt = typeof result === 'string' ? result : ''
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
     tracker.interaction({ module: "design", name: "delete-model-edit-element", extend: JSON.stringify({ type: tab.type }) })
+    return prompt ? undefined : true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"

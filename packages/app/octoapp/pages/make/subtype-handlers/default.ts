@@ -1,6 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
-import type { ModelEditConfig, ModelEditElement } from '../components/model-edit-items/types'
+import type { ModelEditConfig, ModelEditElement, OnChangeArgs } from '../components/model-edit-items/types'
 import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
@@ -87,6 +87,121 @@ const defaultModelEditConfig: ModelEditConfig = {
 }
 
 export { defaultModelEditConfig }
+
+function parseJson(s: string): Record<string, string> {
+  try { return JSON.parse(s) } catch { return {} }
+}
+
+const directModelEditConfig: ModelEditConfig = {
+  ...defaultModelEditConfig,
+
+  onChange: ({ key, value, dom, postMessageToIframe }: OnChangeArgs) => {
+    const id = dom.dataOdId
+    const version = Date.now()
+    const send = (styles: Record<string, string>) => {
+      postMessageToIframe({ type: 'od:edit-preview-style', id, styles, version })
+    }
+
+    switch (key) {
+      case 'od_color': send({ color: value }); break
+      case 'od_fontSize': send({ fontSize: value }); break
+      case 'od_fontWeight': send({ fontWeight: value }); break
+      case 'od_fontFamily': send({ fontFamily: value }); break
+      case 'od_textAlign': send({ textAlign: value }); break
+      case 'od_lineHeight': send({ lineHeight: value }); break
+      case 'od_letterSpacing': send({ letterSpacing: value }); break
+      case 'od_verticalAlign': send({ verticalAlign: value }); break
+      case 'od_backgroundColor': send({ backgroundColor: value }); break
+      case 'od_opacity': send({ opacity: value }); break
+      case 'od_borderRadius': send({ borderRadius: value }); break
+      case 'od_overflow': send({ overflow: value }); break
+      case 'od_width': send({ width: value }); break
+      case 'od_height': send({ height: value }); break
+      case 'od_textContent':
+        postMessageToIframe({ type: 'od:edit-text', elementId: id, value })
+        break
+      case 'od_href':
+        send({ href: value })
+        break
+      case 'od_layout': {
+        const d = parseJson(value)
+        send({ flexDirection: d.flexDirection || '', justifyContent: d.justifyContent || '', alignItems: d.alignItems || '', gap: d.gap || '' })
+        break
+      }
+      case 'od_size': {
+        const d = parseJson(value)
+        send({ width: d.width || '', height: d.height || '', overflow: d.overflow || '' })
+        break
+      }
+      case 'od_padding': {
+        const d = parseJson(value)
+        send({ paddingTop: d.t || '', paddingRight: d.r || '', paddingBottom: d.b || '', paddingLeft: d.l || '' })
+        break
+      }
+      case 'od_margin': {
+        const d = parseJson(value)
+        send({ marginTop: d.t || '', marginRight: d.r || '', marginBottom: d.b || '', marginLeft: d.l || '' })
+        break
+      }
+      case 'od_appearance': {
+        const d = parseJson(value)
+        send({
+          backgroundColor: d.backgroundColor || '',
+          opacity: d.opacity || '',
+          borderRadius: d.borderRadius || '',
+          borderTopLeftRadius: d.borderTopLeftRadius || '',
+          borderTopRightRadius: d.borderTopRightRadius || '',
+          borderBottomRightRadius: d.borderBottomRightRadius || '',
+          borderBottomLeftRadius: d.borderBottomLeftRadius || '',
+        })
+        break
+      }
+      case 'od_border': {
+        const d = parseJson(value)
+        send({
+          borderColor: d.borderColor || '',
+          borderTopWidth: d.borderTopWidth || '',
+          borderRightWidth: d.borderRightWidth || '',
+          borderBottomWidth: d.borderBottomWidth || '',
+          borderLeftWidth: d.borderLeftWidth || '',
+          borderStyle: d.borderStyle || '',
+        })
+        break
+      }
+      case 'od_bgImage': send({ backgroundImage: value }); break
+    }
+  },
+
+  saveCallback: async ({ getIframeSnapshot, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }) => {
+    const html = await getIframeSnapshot()
+    const clean = cleanBridgeContent(html)
+    const wrapped = wrapHtmlContent(clean)
+    await onContentChange(wrapped)
+    onRefreshNeeded()
+    return ''
+  },
+
+  deleteCallback: async ({ dom, getIframeSnapshot, applyPatch, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }) => {
+    const html = await getIframeSnapshot()
+    const result = applyPatch(html, { id: dom.dataOdId, kind: 'remove-element' })
+    if (result.ok) {
+      const clean = cleanBridgeContent(result.source)
+      const wrapped = wrapHtmlContent(clean)
+      await onContentChange(wrapped)
+      onRefreshNeeded()
+    }
+    return ''
+  },
+
+  promptCallback: (filePath, selector) => {
+    return [
+      `[文件: ${filePath}]`,
+      `[选择器: ${selector}]`,
+    ].join('\n')
+  },
+}
+
+export { directModelEditConfig }
 
 /**
  * 默认 SubtypeHandler 实现
@@ -572,6 +687,8 @@ const defaultHandler: SubtypeHandler = {
       extraButtons: []
     }
   },
+
+  modelEditConfig: directModelEditConfig,
 
   async onHistoryTrigger(_event, _ctx) {
     return DEFAULT_HISTORY_FILES
