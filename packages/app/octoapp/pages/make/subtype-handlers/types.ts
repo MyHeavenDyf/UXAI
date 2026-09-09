@@ -38,6 +38,8 @@ export interface SubtypeHandlerContext {
   /** 当前会话 ID（用于定位 uploads 目录） */
   sessionId?: string
   sdkDirectory?: string
+  /** 文件管理刷新回调 */
+  onFilesRefresh?: () => void
 }
 
 export type LocalEditChange =
@@ -98,7 +100,7 @@ export interface SubtypeHandler {
    * 返回要记录的文件相对路径数组，或 null 表示本次不记录
    * actor（init/user/agent）由调用方根据事件类型决定
    */
-  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => string[] | null
+  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => Promise<string[] | null> | string[] | null
 
   /**
    * 历史恢复

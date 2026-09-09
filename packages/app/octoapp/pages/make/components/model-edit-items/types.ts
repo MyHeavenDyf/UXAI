@@ -1,4 +1,5 @@
 import type { ManualEditKind } from "../../edit-mode/source-patches"
+import type { ColorToken } from "../../../pattern/modules/preview/property-editor-popup/hui-color-tokens"
 
 export type { ManualEditKind }
 
@@ -84,4 +85,5 @@ export type ModelEditConfig = {
   saveCallback: (args: SaveCallbackArgs) => string
   deleteCallback: (args: DeleteCallbackArgs) => string
   promptCallback?: (filePath: string, selector: string) => string
+  colors?: ColorToken[]
 }

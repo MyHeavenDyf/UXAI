@@ -929,6 +929,11 @@ const sessionMessagesLoaded = createMemo(() => {
   const [patternUserInput, setPatternUserInput] = createSignal("")
   const [optimisticPatternIntent, setOptimisticPatternIntent] = createSignal(false)
   const [patternEnded, setPatternEnded] = createSignal(false)
+  // 已 enrich 过的 match / module-list 消息 id：复用已结束子 session 继续对话时，
+  // 跳过历史中已处理过的 <pattern-match>/<module-list>，避免旧匹配弹窗重新弹出。
+  // 新建子 session 或恢复活跃子 session 时清空（恢复时需重新 enrich）。
+  let lastEnrichedPatternMatchMsgId: string | null = null
+  let lastEnrichedModuleListMsgId: string | null = null
   /** 输入框中的 PatternPage 胶囊状态，用户提交后才创建子 session */
   const [patternPageCapsule, setPatternPageCapsule] = createSignal(false)
   const patternPageCapsuleActive = () => patternPageCapsule() && !activePatternSessionId() && !patternEnded()
@@ -1356,8 +1361,9 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
-    const line = text ? `[选中元素: ${id}] ${text};` : ""
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = text ? `[${tag}: ${id}] ${text};` : ""
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     if (text) {
@@ -1366,8 +1372,9 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     void handleSubmit()
   })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
-    const line = `[选中元素: ${id}] ${text};`
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id, kind }) => {
+    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
+    const line = `[${tag}: ${id}] ${text};`
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
     const prev = ref?.getText?.() ?? ""
     ref?.clear?.()
@@ -1868,25 +1875,37 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => {
     const sid = activePatternSessionId(); if (!sid || patternSubPhase() === "module") return null
     return moduleListScanned()
-  }, (ml) => { if (ml) setPatternSubPhase("module") }, { defer: true }))
+  }, (ml) => {
+    if (!ml) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    setPatternSubPhase("module")
+  }, { defer: true }))
   // [模块匹配] 已发送但 agent 未响应时，也恢复到 module 阶段
   // 覆盖场景：用户点"跳过"/"下一步"进入 Phase 2 后切换 session 或刷新页面，
   // agent 仍在处理中（无 <module-list> 输出），用 user 消息中的 [模块匹配] 标记恢复阶段
+  // 只看最后一条用户消息：复用已结束子 session 继续对话时，历史中的旧 [模块匹配]
+  // 不应再把 phase 拉回 module，避免新一轮 <pattern-match> 弹窗从「模块」步起
   createEffect(on(() => {
     const sid = activePatternSessionId()
     if (!sid || patternSubPhase() === "module") return false
     const msgs = sync.data.message?.[sid]
-    if (!msgs) return false
-    return msgs.some((m: any) => {
-      if (m.role !== "user") return false
-      const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-      return text?.includes("[模块匹配]")
-    })
+    if (!msgs || msgs.length === 0) return false
+    let lastUser: Message | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") { lastUser = msgs[i]; break }
+    }
+    if (!lastUser) return false
+    const text = (sync.data.part?.[lastUser.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+    return text?.includes("[模块匹配]") ?? false
   }, (hasPrompt) => { if (hasPrompt) setPatternSubPhase("module") }, { defer: true }))
   // <pattern-match> 扫描到后 enrich file/preview
   createEffect(on(() => patternSubMatchScanned(), async (scanned, prev) => {
     if (!scanned || scanned === prev) return
     if (scanned.results.length === 0) { setPatternMatches(null); return }
+    if (scanned.matchedMessageId && scanned.matchedMessageId === lastEnrichedPatternMatchMsgId) return
+    lastEnrichedPatternMatchMsgId = scanned.matchedMessageId ?? null
+    // 新一轮匹配：重置到 match 阶段，避免复用继续对话时历史 [模块匹配] 把 phase 拉回 module 导致弹窗从「模块」步起
+    setPatternSubPhase("match")
     setPatternSubEnriching(true)
     try {
       const enriched = await getPagePatternResource({ results: scanned.results })
@@ -1897,6 +1916,8 @@ const sessionMessagesLoaded = createMemo(() => {
   // <module-list> 扫描到后调 getBlockPatternResource 搜索向量库补全预览图
   createEffect(on(() => moduleListScanned(), async (ml, prev) => {
     if (!ml || ml === prev) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    lastEnrichedModuleListMsgId = ml.matchedMessageId ?? null
     setPatternBlockMatching(true)
     setPatternBlockMatchError(false)
     setPatternBlockMatches([])
@@ -1960,10 +1981,17 @@ const sessionMessagesLoaded = createMemo(() => {
       : cmd
     const handoff = readPlanSkillHandoff(mainSid)
 
+    // 确认后的首轮生成消息直发主会话，绕过了 sendMessage 的每轮注入；
+    // 补上 [Artifact Folder]，主 agent 生成 HTML 时不再依赖历史消息里碰巧存在的目录上下文。
+    const artifactFolderPrefix = await buildArtifactFolderPrefix(mainSid)
+
     try {
       if (handoff && handoff.childSessionId === planSid && handoff.skills.length > 0) {
         const model = `${modelKey.providerID}/${modelKey.modelID}`
         const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
+        // 与 sendMessage 命令路径同款：前缀作为 synthetic part，服务端排在模板 parts 之后，
+        // 渲染端只取第一个 text part（skill 模板文本），前缀不会显示。
+        let prefixInjected = false
         for (const skill of handoff.skills) {
           // 记录发送开始时间（每次 skill 命令前重新设置，支持多 skill 逐条追踪）
           messageTimingMap.set(mainSid, {
@@ -1976,16 +2004,22 @@ const sessionMessagesLoaded = createMemo(() => {
             arguments: skillPrompt,
             agent: "octo_make",
             model,
+            parts: !prefixInjected && artifactFolderPrefix
+              ? [{ type: "text" as const, text: artifactFolderPrefix, synthetic: true }]
+              : undefined,
           })
+          prefixInjected = true
         }
       } else {
         // 无 Skill 时走普通 prompt；避免确认消息被 command 分支误拆。
-        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取。
+        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取——
+        // 产物目录前缀拼进 text 与方案内容走同一条隐藏通道，气泡仍只显示 [confirm-plan xxx]。
+        const promptText = artifactFolderPrefix ? artifactFolderPrefix + "\n" + message : message
         await sdk.client.session.prompt({
           sessionID: mainSid,
           agent: "octo_make",
           model: modelKey,
-          parts: [{ type: "text", text: message, metadata: { displayText: cmd } }],
+          parts: [{ type: "text", text: promptText, metadata: { displayText: cmd } }],
         })
       }
     } catch (err) {
@@ -2055,6 +2089,8 @@ const sessionMessagesLoaded = createMemo(() => {
   function handleOpenPatternPageConfirm() {
     if (activePatternSessionId() || patternPageCapsule()) return
     setPatternEnded(false)
+    const sid = params.id
+    if (sid) localStorage.removeItem(PATTERN_SUB_ENDED_LS + sid)
     setPatternPageCapsule(true)
     requestAnimationFrame(() => textareaRef?.focus())
   }
@@ -2532,6 +2568,8 @@ const sessionMessagesLoaded = createMemo(() => {
             setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
             sync.session.sync(restoredPatternSubSid).catch(() => {})
           }
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
           setActivePatternSessionId(restoredPatternSubSid)
           setPatternSubParentSessionId(newSid)
           // 恢复用户输入（handleMatchPattern Phase 2 拼装所需）
@@ -2594,6 +2632,8 @@ const sessionMessagesLoaded = createMemo(() => {
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childId); return n })
           sync.session.sync(childId).catch(() => {})
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
           setActivePatternSessionId(childId)
           setPatternSubParentSessionId(newSid)
           setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
@@ -2819,6 +2859,42 @@ const sessionMessagesLoaded = createMemo(() => {
     return undefined
   }
 
+  /**
+   * 构建 [Artifact Folder] 上下文前缀：目标会话产物目录绝对路径 + 当前会话已有产物文件列表（供 edit 工具使用）。
+   * 文件列表每次调用都重新扫盘，保证新鲜。
+   * sendMessage 每轮注入；handleConfirmPlan 直发 prompt/command 绕过 sendMessage，同样用此函数补注入。
+   */
+  async function buildArtifactFolderPrefix(sessionId: string): Promise<string> {
+    const folderProjDir = projectDir()
+    if (!folderProjDir || !sessionId) return ""
+    const sep = folderProjDir.includes("\\") ? "\\" : "/"
+    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    let existingList = ""
+    try {
+      const relPath = `.octo/${sessionId}/outputs`
+      const result = await sdk.client.file.list({ path: relPath })
+      const files = (result.data ?? []).filter((n) => n.type === "file")
+      if (files.length > 0) {
+        const lines = files.map((n) => `- ${n.absolute}`)
+        existingList = [
+          ``,
+          `[Existing artifacts in this session]`,
+          ...lines,
+          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+        ].join("\n")
+      }
+    } catch {
+      // 目录可能还没创建(还没生成过产物),忽略
+    }
+    return [
+      `[Artifact Folder]: ${artifactFolder}`,
+      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      existingList,
+      `---`,
+      ``,
+    ].filter(Boolean).join("\n")
+  }
+
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
@@ -2943,38 +3019,7 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
 
       // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
-      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
-      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
-      let artifactFolderPrefix = ""
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-        artifactFolderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-      }
+      const artifactFolderPrefix = await buildArtifactFolderPrefix(sessionId)
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
@@ -3431,6 +3476,8 @@ const sessionMessagesLoaded = createMemo(() => {
           const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
           const patternChildSession = patternChild.data as Session | undefined
           if (patternChildSession) {
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
             loadedChildSessions.add(patternChildSession.id)
             setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
             setActivePatternSessionId(patternChildSession.id)
@@ -3495,23 +3542,46 @@ if (dsId) {
         sid = session.id
       }
       autoScroll.forceScrollToBottom()
-      // 有 session + PatternPage 胶囊：创建 ict_pattern 子 session，消息发给子 session
+      // 有 session + PatternPage 胶囊：优先复用上一次已结束的 ict_pattern 子 session，
+      // 保留会话上下文不清空历史，继续在下面输入输出；首次进入才创建新子 session。
       if (shouldStartPatternPage && sid && !shouldStartInitialPlan) {
         const dir2 = sdk.directory
         if (dir2) {
-          const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
-          const patternChildSession = patternChild.data as Session | undefined
-          if (patternChildSession) {
-            loadedChildSessions.add(patternChildSession.id)
-            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
-            setActivePatternSessionId(patternChildSession.id)
+          // 复用本 session 上一次的 ict_pattern 子 session（已结束但未归档），保留会话上下文继续在下面输入输出
+          const existingChildId = _patternSubChildCache[sid] ?? localStorage.getItem(PATTERN_SUB_CHILD_LS + sid) ?? null
+          if (existingChildId) {
+            if (!loadedChildSessions.has(existingChildId)) {
+              loadedChildSessions.add(existingChildId)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(existingChildId); return n })
+              sync.session.sync(existingChildId).catch(() => {})
+            }
+            setActivePatternSessionId(existingChildId)
             setPatternSubParentSessionId(sid)
-            localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
-            _patternSubChildCache[sid] = patternChildSession.id
             setPatternSubPhase("match")
             setPatternMatches(null)
-            sync.session.sync(patternChildSession.id).catch(() => {})
-            await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+            setPatternBlockMatches([])
+            setPatternBlockMatching(false)
+            // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
+            // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
+            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+          } else {
+            // 首次进入：创建新的 ict_pattern 子 session
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
+            const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
+            const patternChildSession = patternChild.data as Session | undefined
+            if (patternChildSession) {
+              loadedChildSessions.add(patternChildSession.id)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+              setActivePatternSessionId(patternChildSession.id)
+              setPatternSubParentSessionId(sid)
+              localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
+              _patternSubChildCache[sid] = patternChildSession.id
+              setPatternSubPhase("match")
+              setPatternMatches(null)
+              sync.session.sync(patternChildSession.id).catch(() => {})
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+            }
           }
         }
       } else {
@@ -4891,7 +4961,7 @@ if (dsId) {
                       <div class="make-plan-capsule-row">
                         <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
                           <span class="make-plan-capsule-icon">✦</span>
-                          <span>PatternPage 模式</span>
+                          <span>Pattern 模式</span>
                           <span class="make-plan-capsule-close">×</span>
                         </button>
                       </div>
@@ -5132,12 +5202,6 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
-                        contextTokens={contextTokens()}
-                        contextLimit={contextLimit()}
-                        contextLocale={language.intl()}
-                        contextCompactionDisabled={contextCompactionDisabled()}
-                        contextLimitVisible={contextSendBlocked()}
-                        onCompactContext={confirmCompactContext}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -5166,12 +5230,6 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
-                            contextTokens={contextTokens()}
-                            contextLimit={contextLimit()}
-                            contextLocale={language.intl()}
-                            contextCompactionDisabled={contextCompactionDisabled()}
-                            contextLimitVisible={contextSendBlocked()}
-                            onCompactContext={confirmCompactContext}
                           />
                         )
                       }}
@@ -5302,6 +5360,16 @@ onPreview={(url) => {
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                   }}
                 >
+                  {/* PatternPage 模式胶囊 */}
+                  <Show when={patternPageCapsuleActive()}>
+                    <div class="make-plan-capsule-row">
+                      <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
+                        <span class="make-plan-capsule-icon">✦</span>
+                        <span>Pattern 模式</span>
+                        <span class="make-plan-capsule-close">×</span>
+                      </button>
+                    </div>
+                  </Show>
                   {/* Slash Command Popover */}
                   <Show when={slashState() && filteredSlash().length > 0}>
                     <div class="slash-popover">

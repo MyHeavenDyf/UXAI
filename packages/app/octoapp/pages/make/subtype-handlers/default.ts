@@ -351,7 +351,7 @@ const defaultHandler: SubtypeHandler = {
   },
   
   async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
-    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter, onFilesRefresh } = ctx
     
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
@@ -411,7 +411,8 @@ const defaultHandler: SubtypeHandler = {
               }
             }
             
-            showOctoToast({ title: "已保存", description: folderName })
+            showOctoToast({ title: "已解压", description: folderName })
+            onFilesRefresh?.()
             return
           }
           
@@ -572,7 +573,7 @@ const defaultHandler: SubtypeHandler = {
     }
   },
 
-  onHistoryTrigger(_event, _ctx) {
+  async onHistoryTrigger(_event, _ctx) {
     return DEFAULT_HISTORY_FILES
   },
 

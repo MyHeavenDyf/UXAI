@@ -720,6 +720,7 @@ it.live(
           expect(value).toBe("stop")
           expect(yield* llm.calls).toBe(0)
           expect(handle.message.error?.name).toBe("ContextOverflowError")
+          expect(handle.message.tokens.input).toBeGreaterThanOrEqual(80)
           expect(JSON.stringify(handle.message.error)).toContain("current request is too large")
         }),
       { git: true, config: (url) => providerCfg(url) },

@@ -661,12 +661,6 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
-  contextTokens?: number
-  contextLimit?: number
-  contextLocale?: string
-  contextCompactionDisabled?: boolean
-  contextLimitVisible?: boolean
-  onCompactContext?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -808,7 +802,7 @@ export function InsightTurn(props: {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
-      if (!shouldShowTurnError(err.name as string, props.contextLimitVisible)) continue
+      if (!shouldShowTurnError(err.name as string)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }
@@ -1651,36 +1645,14 @@ const stateStatus = state.status as string | undefined
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
-        <Show
-          when={assistantError()!.name === "ContextOverflowError" && props.contextLimit}
-          fallback={
-            <MakeErrorNotice
-              class="mx-3"
-              title={
-                assistantError()!.name === "ProviderAuthError"
-                  ? "认证失败"
-                  : assistantError()!.name === "ContextOverflowError"
-                    ? "当前对话上下文已达上限"
-                    : "生成出错"
-              }
-            >
-              <Show when={assistantError()!.message}>
-                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
-              </Show>
-            </MakeErrorNotice>
-          }
+        <MakeErrorNotice
+          class="mx-3"
+          title={assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
         >
-          {(limit) => (
-            <ContextOverflowNotice
-              class="mx-3"
-              tokens={props.contextTokens ?? limit()}
-              limit={limit()}
-              locale={props.contextLocale ?? "zh-CN"}
-              disabled={props.contextCompactionDisabled}
-              onCompact={props.onCompactContext}
-            />
-          )}
-        </Show>
+          <Show when={assistantError()!.message}>
+            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+          </Show>
+        </MakeErrorNotice>
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}

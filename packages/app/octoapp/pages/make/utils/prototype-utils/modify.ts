@@ -1,6 +1,6 @@
 import type { PrototypeModifyData, PrototypeSession } from "./types"
 import { getSession } from "./session"
-import { commitA2ui } from "./a2ui"
+import { commitA2uiDoc, findDocByElementId } from "./a2ui"
 
 /** 按原值类型把 string/boolean 转成 boolean/number，避免把 "true" 字符串塞进布尔/数字字段 */
 export function coercePropValue(prev: unknown, val: string | boolean | number | object): string | boolean | number | object {
@@ -121,14 +121,17 @@ function writeLoopBindings(
 
 /** 应用一次属性编辑到当前 prototype 的 A2UI JSON 并 od:a2ui-update 回推重渲染。
  *  循环实例（elementId 含 :N 后缀）：绑定字段写入 state 中对应数组项；普通字段改模板 props。
- *  非循环：绑定字段按 path 直写 state；普通字段改元素 props。 */
+ *  非循环：绑定字段按 path 直写 state；普通字段改元素 props。
+ *  混合页多 doc：按 elementId 定位到所属 entry 再改。 */
 export function applyPrototypeModify(data: PrototypeModifyData) {
   const session = getSession()
   if (!session) return
-  const ctx = session.ctx
-  const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
-  if (!filePath) return
-  const current = session.a2ui?.doc
+  const entry = findDocByElementId(session.a2uiDocs, data.elementId)
+  if (!entry) {
+    console.warn("[applyPrototypeModify] no doc for elementId", data.elementId, "(a2uiDocs:", session.a2uiDocs.length, session.a2uiDocs.map((e) => e.rootId), ")")
+    return
+  }
+  const current = entry.doc
   if (!current || typeof current !== "object") return
   const doc = JSON.parse(JSON.stringify(current)) as {
     state?: Record<string, unknown>
@@ -175,17 +178,16 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
     }
   }
 
-  commitA2ui(session, filePath, doc)
+  commitA2uiDoc(session, entry, doc)
 }
 
 /** 拖拽换序：在 A2UI JSON 中重排同级 children（静态 string[] 或循环 {path,componentId}）并 od:a2ui-update 回推 */
 export function applyPrototypeReorder(elementId: string, targetSiblingId: string, position: "before" | "after") {
   const session = getSession()
   if (!session) return
-  const ctx = session.ctx
-  const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
-  if (!filePath) return
-  const current = session.a2ui?.doc
+  const entry = findDocByElementId(session.a2uiDocs, elementId)
+  if (!entry) return
+  const current = entry.doc
   if (!current || typeof current !== "object") return
   const doc = JSON.parse(JSON.stringify(current)) as {
     state?: Record<string, unknown>
@@ -220,7 +222,7 @@ export function applyPrototypeReorder(elementId: string, targetSiblingId: string
 
   for (const el of elements) {
     if (el.children && !Array.isArray(el.children) && reorderLoopChildren(el.children as { path: string; componentId: string })) {
-      commitA2ui(session, filePath, doc)
+      commitA2uiDoc(session, entry, doc)
       return
     }
     if (!Array.isArray(el.children)) continue
@@ -232,7 +234,7 @@ export function applyPrototypeReorder(elementId: string, targetSiblingId: string
     const idx = filtered.indexOf(targetId)
     filtered.splice(position === "before" ? idx : idx + 1, 0, sourceId)
     el.children = filtered
-    commitA2ui(session, filePath, doc)
+    commitA2uiDoc(session, entry, doc)
     return
   }
   console.warn("[prototype] reorder: no matching parent found for", elementId, "->", targetSiblingId)

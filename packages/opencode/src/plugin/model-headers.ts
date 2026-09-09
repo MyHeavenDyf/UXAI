@@ -67,17 +67,70 @@ function parseJson(value: unknown): unknown {
   }
 }
 
-function apiModels(value: unknown): Record<string, unknown> {
+function normalizeModels(value: unknown) {
+  const entries = Array.isArray(value)
+    ? value.flatMap((model) => (isRecord(model) && typeof model.id === "string" ? [[model.id, model] as const] : []))
+    : isRecord(value)
+      ? Object.entries(value)
+      : []
+
+  return Object.fromEntries(
+    entries.flatMap(([key, model]) => {
+      if (!isRecord(model)) return []
+      const id = typeof model.id === "string" && model.id ? model.id : key
+      const limit = isRecord(model.limit) ? model.limit : {}
+      return [
+        [
+          id,
+          {
+            ...model,
+            id,
+            name: typeof model.name === "string" && model.name ? model.name : id,
+            release_date: typeof model.release_date === "string" ? model.release_date : "",
+            attachment: model.attachment === true,
+            reasoning: model.reasoning === true,
+            temperature: model.temperature === true,
+            tool_call: model.tool_call !== false,
+            limit: {
+              ...limit,
+              context: typeof limit.context === "number" ? limit.context : 0,
+              output: typeof limit.output === "number" ? limit.output : 0,
+            },
+          },
+        ] as const,
+      ]
+    }),
+  )
+}
+
+export function parseModelsApi(value: unknown): Record<string, unknown> {
   const input = parseJson(value)
   if (!isRecord(input)) return {}
 
   const direct = Object.fromEntries(
-    Object.entries(input).filter(([, provider]) => isRecord(provider) && isRecord(provider.models)),
+    Object.entries(input).flatMap(([key, provider]) => {
+      if (!isRecord(provider) || (!isRecord(provider.models) && !Array.isArray(provider.models))) return []
+      const id = typeof provider.id === "string" && provider.id ? provider.id : key
+      return [
+        [
+          id,
+          {
+            ...provider,
+            id,
+            name: typeof provider.name === "string" && provider.name ? provider.name : id,
+            env: Array.isArray(provider.env)
+              ? provider.env.filter((item): item is string => typeof item === "string")
+              : [],
+            models: normalizeModels(provider.models),
+          },
+        ] as const,
+      ]
+    }),
   )
   if (Object.keys(direct).length > 0) return direct
 
   return ["content", "data", "provider", "providers", "result"]
-    .map((key) => apiModels(input[key]))
+    .map((key) => parseModelsApi(input[key]))
     .find((providers) => Object.keys(providers).length > 0) ?? {}
 }
 
@@ -89,7 +142,7 @@ async function loadApi() {
   loading = fetch(modelsApi.url, {
     headers: modelsApi.token ? { uiplustoken: modelsApi.token } : {},
   })
-    .then(async (response) => (response.ok ? apiModels(await response.json()) : undefined))
+    .then(async (response) => (response.ok ? parseModelsApi(await response.json()) : undefined))
     .catch(() => undefined)
     .finally(() => {
       loading = undefined
@@ -97,6 +150,10 @@ async function loadApi() {
   const api = await loading
   if (api) cache = { api, expires: Date.now() + CACHE_DURATION }
   return api
+}
+
+export function modelsApiCatalog() {
+  return loadApi()
 }
 
 export async function modelsApiProviderUrl(providerID: string) {

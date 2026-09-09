@@ -670,7 +670,8 @@ archiving={featureMutex.state.archiving}
                      sessionId={props.sessionId}
                      sdkDirectory={props.sdkDirectory}
                      postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
-                   />
+                     onFilesRefresh={props.onFilesRefresh}
+                    />
 
                     
                   

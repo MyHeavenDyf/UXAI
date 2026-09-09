@@ -6,7 +6,7 @@ import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { TaskStore } from "@/context/task"
 import { tracker } from "@/utils/tracker"
-import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, getSession, loadA2uiData, closePrototypePanels, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
+import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, getSession, loadA2uiDocs, findDocByElementId, closePrototypePanels, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
 
 const MENU_WIDTH = 160
 const MENU_HEIGHT = 108
@@ -243,9 +243,12 @@ export function PrototypeCtxMenu(): JSX.Element {
   }
 
   const handleCopyName = () => {
-    const id = menu()?.id ?? ""
+    // 宿主元素复制 CSS 选择器，A2UI 元素复制 elementId
+    const m = menu()
+    const isHost = (m?.kind ?? 'a2ui') === 'host'
+    const text = isHost ? (m?.selector || m?.id || "") : (m?.id ?? "")
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(id).then(() => showOctoToast({ title: "已复制" })).catch(() => {})
+      navigator.clipboard.writeText(text).then(() => showOctoToast({ title: "已复制" })).catch(() => {})
     }
     close()
   }
@@ -279,14 +282,16 @@ export function PrototypeCtxMenu(): JSX.Element {
     }])
 
     try {
-      const a2uiData = await loadA2uiData(session, session.ctx)
-      if (!a2uiData || typeof a2uiData !== "object") {
+      const entries = await loadA2uiDocs(session, session.ctx)
+      // 按 elementId 定位到所属 entry 的 doc（混合页多 doc）
+      const entry = findDocByElementId(entries, elementId)
+      if (!entry || !entry.doc || typeof entry.doc !== "object") {
         TaskStore.error([{ key: taskId, status: "error" }])
         showOctoToast({ title: "无法读取原型数据" })
         return
       }
 
-      const pattern = extractPatternData(a2uiData as A2uiDoc, elementId)
+      const pattern = extractPatternData(entry.doc as A2uiDoc, elementId)
       if (!pattern) {
         TaskStore.error([{ key: taskId, status: "error" }])
         showOctoToast({ title: "未找到选中的元素" })
@@ -359,14 +364,16 @@ export function PrototypeCtxMenu(): JSX.Element {
             >
               复制名称
             </div>
-            <div
-              style={{ ...itemBase, "border-top": "1px solid var(--octo-border-default, #E5E7EB)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              onClick={handleDownload}
-            >
-              下载Pattern
-            </div>
+            <Show when={(m().kind ?? 'a2ui') !== 'host'}>
+              <div
+                style={{ ...itemBase, "border-top": "1px solid var(--octo-border-default, #E5E7EB)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                onClick={handleDownload}
+              >
+                下载Pattern
+              </div>
+            </Show>
           </div>
         </Portal>
       )}

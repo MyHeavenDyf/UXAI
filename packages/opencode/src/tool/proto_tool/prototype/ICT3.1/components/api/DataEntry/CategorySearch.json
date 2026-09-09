@@ -1,0 +1,97 @@
+{
+  "name": "CategorySearch",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/searchValue",
+            "searchValue",
+            "category"
+          ]
+        }
+      }
+    },
+    "CategoryOption": {
+      "type": "object",
+      "description": "An option in the category dropdown.",
+      "required": ["text", "value"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Display text of the option."
+        },
+        "value": {
+          "description": "Value of the option, corresponds to the category prop."
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "CategorySearch"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "categoryOptions": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CategoryOption"
+              }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Options for the category dropdown selector."
+        },
+        "category": {
+          "oneOf": [
+            {},
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The selected category value, corresponding to a categoryOptions item's value."
+        },
+        "value": {
+          "oneOf": [
+            {},
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The current value of the search input."
+        },
+        "placeholder": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Placeholder text for the search input."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

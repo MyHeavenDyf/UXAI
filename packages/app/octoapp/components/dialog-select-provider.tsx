@@ -1,6 +1,6 @@
 import { Component, Show } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
+import { hiddenSettingsProviderIDs, popularProviders, useProviders } from "@/hooks/use-providers"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tag } from "@opencode-ai/ui/tag"
@@ -35,7 +35,10 @@ export const DialogSelectProvider: Component = () => {
         key={(x) => x?.id}
         items={() => {
           language.locale()
-          return [{ id: CUSTOM_ID, name: customLabel() }, ...providers.all()]
+          return [
+            { id: CUSTOM_ID, name: customLabel() },
+            ...providers.all().filter((provider) => !hiddenSettingsProviderIDs.has(provider.id)),
+          ]
         }}
         filterKeys={["id", "name"]}
         groupBy={(x) => (popularProviders.includes(x.id) ? popularGroup() : otherGroup())}

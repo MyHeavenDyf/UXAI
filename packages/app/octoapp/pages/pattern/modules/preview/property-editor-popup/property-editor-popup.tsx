@@ -15,6 +15,41 @@ import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
+import { LUCIDE_ICONS } from "./lucide-icons"
+import { iconColors } from "./icon-colors"
+
+/** 图标触发器预览：url 即云端图片实际地址。有颜色时用 mask 技法把 svg 染成所选色；无颜色直接 img；失败回退本地 lucide 按名渲染 */
+function IconFieldPreview(props: { name?: string; url?: string; color?: string }) {
+  const [failed, setFailed] = createSignal(false)
+  createEffect(() => { props.url; setFailed(false) })
+  return (
+    <Show when={props.url && !failed()} fallback={
+      (() => {
+        const d = LUCIDE_ICONS.find(i => i.name === props.name)
+        return d
+          ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+          : null
+      })()
+    }>
+      <Show when={props.color} fallback={
+        <img src={props.url} alt="" loading="lazy" decoding="async"
+          class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+      }>
+        <div class="h-4 w-4 shrink-0" style={{
+          'background-color': props.color,
+          '-webkit-mask-image': `url("${props.url}")`,
+          'mask-image': `url("${props.url}")`,
+          '-webkit-mask-repeat': 'no-repeat',
+          'mask-repeat': 'no-repeat',
+          '-webkit-mask-position': 'center',
+          'mask-position': 'center',
+          '-webkit-mask-size': 'contain',
+          'mask-size': 'contain',
+        }} />
+      </Show>
+    </Show>
+  )
+}
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -186,6 +221,30 @@ export function PropertyEditorPopup(props: {
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
   const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
+
+  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
+  const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
+
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) {
+    const key = iconPickerKey()!
+    updateEditProp(key, pick.name)
+    if (pick.id) updateEditProp(`${key}Id`, pick.id)
+    if (pick.url) updateEditProp(`${key}Url`, pick.url)
+    updateEditProp(`${key}Size`, pick.size)
+    updateEditProp(`${key}Style`, pick.style)
+    updateEditProp(`${key}Color`, pick.color)
+    const px = Number(pick.size)
+    if (px > 0) {
+      setFillWidth(false); setHugWidth(false)
+      setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
+      setFillHeight(false); setHugHeight(false)
+      setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
+    }
+    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === pick.style)) updateEditProp('shape', pick.style)
+    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color)
+    if (colorKey && COMPONENT_ENUMS[`${props.componentType}.color`]?.some(o => o.value === colorKey)) updateEditProp('color', colorKey)
+  }
 
   function updateEditProp(key: string, val: string) {
     setEditProps(key, val)
@@ -1785,12 +1844,14 @@ export function PropertyEditorPopup(props: {
             </div>
           </Show>
 
-          <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
+          <Show when={!isTextElement() && propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color'))).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
-              <For each={propKeys().filter(k => k !== 'className' || !hasClassEditor())}>
+              <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
-                  <div class="flex items-center gap-2">
+                  <div class={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)
+                    ? 'flex w-full flex-col items-start gap-2'
+                    : 'flex items-center gap-2'}>
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
                       {LABEL_MAP[key] || key}
                       <Show when={isBinding(key)}>
@@ -1800,20 +1861,37 @@ export function PropertyEditorPopup(props: {
                     <Show
                       when={getEnumOptions(key).length > 0}
                       fallback={
-                        <div class="flex items-center gap-1 flex-1 min-w-0">
-                          <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            readOnly={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
-                            classList={{ 'cursor-pointer': ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`) }}
-                            onInput={(e) => updateEditProp(key, e.currentTarget.value)}
-                            onClick={(e) => {
-                              if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) return
-                              e.stopPropagation()
-                              setIconPickerKey(key)
-                              setIconPickerAnchor(e.currentTarget)
-                              setIconPickerOpen(true)
-                            }}
-                            type="text" placeholder={key}
-                  class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                          <div class="flex items-center gap-1 flex-1 min-w-0 w-full">
+                          <Show
+                            when={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
+                            fallback={
+                              <input value={(editProps as Record<string, string>)[key] ?? ''}
+                                onInput={(e) => updateEditProp(key, e.currentTarget.value)}
+                                type="text" placeholder={key}
+                                class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                            }>
+                            {/* 图标属性：下拉样式触发器（图标16px + 名称 + 下拉箭头），点击打开图标弹窗。
+                                文本用绝对定位脱离文档流，超长必然截断为省略号，不会顶开容器 */}
+                            <button type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setIconPickerKey(key)
+                                setIconPickerAnchor(e.currentTarget)
+                                setIconPickerOpen(true)
+                              }}
+                              class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              style={{ position: 'relative', overflow: 'hidden' }}>
+                              <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
+                                <IconFieldPreview
+                                  name={(editProps as Record<string, string>)[key]}
+                                  url={(editProps as Record<string, string>)[`${key}Url`]}
+                                  color={(editProps as Record<string, string>)[`${key}Color`]} />
+                              </div>
+                              <div class="text-left text-slate-600"
+                                style={{ position: 'absolute', left: '40px', right: '26px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{(editProps as Record<string, string>)[key] || '选择图标'}</div>
+                              <svg style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            </button>
+                          </Show>
                           <Show when={key === 'src'}>
                             <button onClick={() => pickAndUploadImage((url) => updateEditProp('src', url))}
                               class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
@@ -2367,35 +2445,38 @@ export function PropertyEditorPopup(props: {
 
             </div> */}
 
-            <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-semibold text-slate-500">宽高</span>
-              <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
-                <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+            {/* 宽高组：图标类组件不展示（宽高由图标弹窗确认时写入），其余组件保持原样 */}
+            <Show when={!isIconComponent()}>
+              <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
+                <span class="text-[12px] font-semibold text-slate-500">宽高</span>
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
+                  <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+                </div>
+                <div class="grid grid-cols-2 gap-x-2 gap-y-1">
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer col-span-2">
+                    <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
+                    <span class="text-[10px] text-slate-500">裁剪内容</span>
+                  </label>
+                </div>
               </div>
-              <div class="grid grid-cols-2 gap-x-2 gap-y-1">
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
-                  <span class="text-[10px] text-slate-500">填充宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
-                  <span class="text-[10px] text-slate-500">填充高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
-                  <span class="text-[10px] text-slate-500">适应宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
-                  <span class="text-[10px] text-slate-500">适应高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer col-span-2">
-                  <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
-                  <span class="text-[10px] text-slate-500">裁剪内容</span>
-                </label>
-              </div>
-            </div>
+            </Show>
 
             <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
@@ -2691,8 +2772,15 @@ export function PropertyEditorPopup(props: {
           <Show when={iconPickerOpen() && iconPickerKey()}>
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
+              currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
+              initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
+                ?? (editHeightPx() || editWidthPx() ? String(editHeightPx() || editWidthPx()) : undefined)
+                ?? (editProps as Record<string, string>)['size']
+                ?? '24'}
+              initialStyle={(editProps as Record<string, string>)[`${iconPickerKey()!}Style`] ?? (editProps as Record<string, string>)['shape']}
+              initialColor={(editProps as Record<string, string>)[`${iconPickerKey()!}Color`] ?? (editProps as Record<string, string>)['color']}
               anchor={iconPickerAnchor()}
-              onPick={(name) => updateEditProp(iconPickerKey()!, name)}
+              onPick={handleIconPick}
               onClose={() => setIconPickerOpen(false)}
             />
           </Show>
