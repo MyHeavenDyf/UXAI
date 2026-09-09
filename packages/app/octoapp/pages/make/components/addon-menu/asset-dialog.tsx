@@ -278,7 +278,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
 
             {/* 中间区域:左树 + 分隔条 + 右文件网格 */}
             <div class="asset-dialog-middle" ref={middleRef}>
-              <ScrollView class="asset-dialog-left" style={{ width: `${leftWidth()}px`, "max-height": "480px", "flex-shrink": "0" }}>
+              <ScrollView class="asset-dialog-left" style={{ width: `${leftWidth()}px`, height: "100%", "min-height": "275px", "max-height": "480px", "flex-shrink": "0" }}>
                 <Show when={treeLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
@@ -297,7 +297,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                 onMouseDown={startLeftDrag}
               />
 
-              <ScrollView class="asset-dialog-right" style={{ width: `${rightWidth()}px`, "max-height": "480px", "flex-shrink": "0", padding: "1px" }}>
+              <ScrollView class="asset-dialog-right" style={{ width: `${rightWidth()}px`, height: "100%", "min-height": "275px", "max-height": "480px", "flex-shrink": "0", padding: "1px" }}>
                 <Show when={filesLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
