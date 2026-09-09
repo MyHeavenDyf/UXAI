@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -79,6 +79,11 @@ const StudioRecipeTemplatePublishInput = StudioTemplatePublishBaseInput.extend({
 const StudioTemplatePublishInput = z.discriminatedUnion("template_type", [
   StudioStyleTemplatePublishInput,
   StudioRecipeTemplatePublishInput,
+])
+
+const StudioTemplateUpdateInput = z.discriminatedUnion("template_type", [
+  StudioStyleTemplatePublishInput.extend({ idx: z.number() }),
+  StudioRecipeTemplatePublishInput.extend({ idx: z.number() }),
 ])
 
 const StudioTemplateListQuery = z.object({
@@ -261,6 +266,55 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioTemplatePublishInput),
       async (c) => c.json(await publishTemplate(c.req.valid("json"))),
+    )
+    .put(
+      "/template-update/:templateID",
+      describeRoute({
+        summary: "Update Studio template",
+        description: "Updates a Studio style template or preset recipe using the internal Studio style template API.",
+        operationId: "studio.template-update.update",
+        responses: {
+          200: {
+            description: "Studio template update result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateDetailQuery),
+      validator("json", StudioTemplateUpdateInput),
+      async (c) => {
+        const template = c.req.valid("json")
+        if (template.idx !== Number(c.req.param("templateID"))) return c.json({ error: "Template id does not match request body." }, 400)
+        return c.json(await updateTemplate({
+          user_id: c.req.valid("query").user_id,
+          template,
+        }))
+      },
+    )
+    .delete(
+      "/template-delete/:templateID",
+      describeRoute({
+        summary: "Delete Studio template",
+        description: "Deletes a Studio template using the internal Studio style template API.",
+        operationId: "studio.template-delete.delete",
+        responses: {
+          200: {
+            description: "Studio template delete result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateDetailQuery),
+      async (c) => {
+        const templateID = Number(c.req.param("templateID"))
+        if (!Number.isFinite(templateID)) return c.json({ error: "Template id must be a number." }, 400)
+        return c.json(await deleteTemplate({
+          template_id: templateID,
+          user_id: c.req.valid("query").user_id,
+        }))
+      },
     )
     .get(
       "/template-list",

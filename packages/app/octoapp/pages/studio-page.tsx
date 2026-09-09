@@ -68,6 +68,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import { StudioStyleTemplateDeleteDialog } from "./studio/studio-style-template-delete-dialog"
 import type { StudioStyleTemplateListInput, StudioStyleTemplateListItem, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
 import {
   STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS,
@@ -83,6 +84,7 @@ import type {
   StudioStyleDescriptionGenerateInput,
   StudioStyleDescriptionStreamEvent,
   StudioTemplatePublishInput,
+  StudioTemplateWorkspace,
   StudioTemplateUserSearchInput,
   StudioTemplateVisibleUser,
 } from "./studio/studio-template-creator"
@@ -383,7 +385,12 @@ export default function StudioPage() {
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
-  const [templateCreatorTabOpen, setTemplateCreatorTabOpen] = createSignal(false)
+  const [templateWorkspace, setTemplateWorkspace] = createSignal<StudioTemplateWorkspace>()
+  const templateCreatorTabOpen = () => Boolean(templateWorkspace())
+  const [pendingDeleteTemplate, setPendingDeleteTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [templateDeleting, setTemplateDeleting] = createSignal(false)
+  const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0)
+  let templateEditorRequestSeq = 0
   const showFileManager = () => canvasView() === "file-manager"
   function setShowFileManager(value: boolean | ((current: boolean) => boolean)) {
     const next = typeof value === "function" ? value(showFileManager()) : value
@@ -1229,9 +1236,10 @@ export default function StudioPage() {
   }
 
   function openTemplateCreator() {
+    templateEditorRequestSeq++
     batch(() => {
       setOpenMenu(null)
-      setTemplateCreatorTabOpen(true)
+      setTemplateWorkspace({ mode: "create" })
       setCanvasView("template-creator")
       setShowStudioCanvas(true)
       setMode("preview")
@@ -1239,9 +1247,45 @@ export default function StudioPage() {
     })
   }
 
+  function activateTemplateWorkspace() {
+    if (!templateWorkspace()) return
+    batch(() => {
+      setCanvasView("template-creator")
+      setShowStudioCanvas(true)
+      setMode("preview")
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
+    })
+  }
+
+  async function openTemplateEditor(item: StudioStyleTemplateListItem) {
+    const seq = ++templateEditorRequestSeq
+    batch(() => {
+      setOpenMenu(null)
+      setTemplateWorkspace({ mode: "edit", templateID: item.idx, loading: true })
+      setCanvasView("template-creator")
+      setShowStudioCanvas(true)
+      setMode("preview")
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
+    })
+    try {
+      const template = await getStudioStyleTemplate(item.idx)
+      if (seq !== templateEditorRequestSeq) return
+      setTemplateWorkspace({ mode: "edit", templateID: item.idx, initialValue: template, loading: false })
+    } catch (error) {
+      if (seq !== templateEditorRequestSeq) return
+      setTemplateWorkspace({
+        mode: "edit",
+        templateID: item.idx,
+        loading: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   function closeTemplateCreator() {
+    templateEditorRequestSeq++
     const active = canvasView() === "template-creator"
-    setTemplateCreatorTabOpen(false)
+    setTemplateWorkspace(undefined)
     if (!active) return
     batch(() => {
       if (canvasTabImages().length > 0) {
@@ -1452,7 +1496,8 @@ export default function StudioPage() {
       () => params.id,
       (id) => {
         setOpenMenu(null)
-        setTemplateCreatorTabOpen(false)
+        setTemplateWorkspace(undefined)
+        setPendingDeleteTemplate(undefined)
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -3136,6 +3181,85 @@ export default function StudioPage() {
     closeTemplateCreator()
   }
 
+  async function saveStudioStyleTemplate(templateID: number, input: StudioTemplatePublishInput) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const userID = uiplusUserAccount() ?? ""
+    const url = new URL(`/studio/template-update/${encodeURIComponent(templateID)}`, current.http.url)
+    url.searchParams.set("user_id", userID)
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        ...input,
+        idx: templateID,
+        creator_user_id: input.creator_user_id || userID,
+      }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    if (bodyText.trim()) JSON.parse(bodyText) as unknown
+    showFloatingNotice("success", "模板保存成功")
+    setStyleTemplateListRevision((value) => value + 1)
+    closeTemplateCreator()
+  }
+
+  function cancelStyleTemplateDelete() {
+    if (templateDeleting()) return
+    setPendingDeleteTemplate(undefined)
+  }
+
+  async function confirmStyleTemplateDelete() {
+    const template = pendingDeleteTemplate()
+    const current = server.current
+    if (!template || templateDeleting()) return
+    if (!current) {
+      showFloatingNotice("error", "No active server.")
+      return
+    }
+    const url = new URL(`/studio/template-delete/${encodeURIComponent(template.idx)}`, current.http.url)
+    url.searchParams.set("user_id", uiplusUserAccount() ?? "")
+    const headers: Record<string, string> = {
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    setTemplateDeleting(true)
+    try {
+      const response = await fetch(url, { method: "DELETE", headers })
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      if (bodyText.trim()) JSON.parse(bodyText) as unknown
+      const workspace = templateWorkspace()
+      const closeEditor = workspace?.mode === "edit" && workspace.templateID === template.idx
+      batch(() => {
+        setPendingDeleteTemplate(undefined)
+        setStyleTemplateListRevision((value) => value + 1)
+        if (selectedStyleTemplate()?.idx === template.idx) clearStyleTemplate()
+      })
+      if (closeEditor) closeTemplateCreator()
+      showFloatingNotice("success", "模板删除成功")
+    } catch (error) {
+      showFloatingNotice("error", error instanceof Error ? error.message : String(error))
+    } finally {
+      setTemplateDeleting(false)
+    }
+  }
+
   async function listStudioStyleTemplates(input: StudioStyleTemplateListInput): Promise<StudioStyleTemplateListResult> {
     const current = server.current
     if (!current) throw new Error("No active server.")
@@ -3162,7 +3286,7 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioStyleTemplateListResult
   }
 
-  async function getStudioStyleTemplate(templateID: string): Promise<StudioStyleTemplateListItem> {
+  async function getStudioStyleTemplate(templateID: string | number): Promise<StudioStyleTemplateListItem> {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const url = new URL(`/studio/template-detail/${encodeURIComponent(templateID)}`, current.http.url)
@@ -4427,6 +4551,9 @@ export default function StudioPage() {
                   onCreateTemplate={openTemplateCreator}
                   onListStyleTemplates={listStudioStyleTemplates}
                   onSelectStyleTemplate={applyStyleTemplate}
+                  onEditStyleTemplate={(item) => void openTemplateEditor(item)}
+                  onRequestDeleteStyleTemplate={setPendingDeleteTemplate}
+                  styleTemplateListRevision={styleTemplateListRevision()}
                   onClearStyleTemplate={clearStyleTemplate}
                   onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
                   onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
@@ -4653,6 +4780,9 @@ if (!headerTitle.pendingRename) return
             onCreateTemplate={openTemplateCreator}
             onListStyleTemplates={listStudioStyleTemplates}
             onSelectStyleTemplate={applyStyleTemplate}
+            onEditStyleTemplate={(item) => void openTemplateEditor(item)}
+            onRequestDeleteStyleTemplate={setPendingDeleteTemplate}
+            styleTemplateListRevision={styleTemplateListRevision()}
             onClearStyleTemplate={clearStyleTemplate}
             onStyleTemplateEditorOpen={setStyleTemplateEditorOpen}
             onStyleTemplateDescription={updateStyleTemplateDescriptionDraft}
@@ -4796,10 +4926,12 @@ if (!headerTitle.pendingRename) return
               fileManagerGenPending={fileManagerGenPending()}
               canvasView={canvasView()}
               templateCreatorTabOpen={templateCreatorTabOpen()}
+              templateWorkspace={templateWorkspace()}
               onGenerateStyleDescription={generateStyleDescription}
               onPublishTemplate={publishStudioTemplate}
+              onSaveTemplate={saveStudioStyleTemplate}
               onSearchTemplateUsers={searchStudioTemplateUsers}
-              onTemplateCreatorClick={openTemplateCreator}
+              onTemplateCreatorClick={activateTemplateWorkspace}
               onTemplateCreatorClose={closeTemplateCreator}
             >
               <Show when={canvasView() === "canvas" && showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
@@ -4931,6 +5063,16 @@ if (!headerTitle.pendingRename) return
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
+      </Show>
+      <Show when={pendingDeleteTemplate()}>
+        {(template) => (
+          <StudioStyleTemplateDeleteDialog
+            templateTitle={template().title}
+            deleting={templateDeleting()}
+            onCancel={cancelStyleTemplateDelete}
+            onConfirm={() => void confirmStyleTemplateDelete()}
+          />
+        )}
       </Show>
       <Show when={isOverlayMode() && studioLeftOverlayOpen()}>
         <div

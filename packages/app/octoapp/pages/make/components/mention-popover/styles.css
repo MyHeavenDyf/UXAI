@@ -539,3 +539,16 @@
   box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
   z-index: 102;
 }
+
+.mention-asset-level::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mention-asset-level::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.mention-asset-level::-webkit-scrollbar-track {
+  background: transparent;
+}

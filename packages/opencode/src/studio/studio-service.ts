@@ -9,18 +9,23 @@ import {
   type PromptGenResponse,
 } from "@/tool/internel_image_generate"
 import {
+  deleteInternalStyleTemplate,
   generateStyleDescriptionStream,
   getInternalStyleTemplate,
   listInternalStyleTemplates,
   publishInternalStyleTemplate,
   searchInternalStyleTemplateUsers,
+  updateInternalStyleTemplate,
   type StyleDescriptionGenRequest,
   type StyleDescriptionGenStreamEvent,
   type StyleTemplateDetailRequest,
+  type StyleTemplateDeleteRequest,
   type StyleTemplateListRequest,
   type StyleTemplateListItem,
   type StyleTemplateListResult,
   type StyleTemplatePublishRequest,
+  type StyleTemplateUpdatePayload,
+  type StyleTemplateUpdateRequest,
   type StyleTemplateUserSearchItem,
   type StyleTemplateUserSearchRequest,
 } from "@/tool/internel_style_template"
@@ -130,6 +135,9 @@ export type StudioPromptGenRequest = {
 export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
 export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
 export type StudioTemplatePublishRequest = StyleTemplatePublishRequest
+export type StudioTemplateUpdatePayload = StyleTemplateUpdatePayload
+export type StudioTemplateUpdateRequest = StyleTemplateUpdateRequest
+export type StudioTemplateDeleteRequest = StyleTemplateDeleteRequest
 export type StudioTemplateListRequest = StyleTemplateListRequest
 export type StudioTemplateDetailRequest = StyleTemplateDetailRequest
 export type StudioTemplateListItem = StyleTemplateListItem
@@ -191,6 +199,14 @@ export async function createStyleDescriptionGenStream(
 
 export async function publishTemplate(input: StudioTemplatePublishRequest): Promise<unknown> {
   return publishInternalStyleTemplate(input)
+}
+
+export async function updateTemplate(input: StudioTemplateUpdateRequest): Promise<unknown> {
+  return updateInternalStyleTemplate(input)
+}
+
+export async function deleteTemplate(input: StudioTemplateDeleteRequest): Promise<unknown> {
+  return deleteInternalStyleTemplate(input)
 }
 
 export async function listTemplates(input: StudioTemplateListRequest): Promise<StudioTemplateListResult> {
@@ -1795,7 +1811,7 @@ async function processGeneration(record: StudioGenerationRecord) {
         record,
         Number(query.rawStatus) === 4
           ? "用户取消生成"
-          : `query_task returned failure. taskId=${task.taskId} status=${query.rawStatus}`,
+          : query.error ?? "生成任务失败",
         query.rawStatus,
       )
       return

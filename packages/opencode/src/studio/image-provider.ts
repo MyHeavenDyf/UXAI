@@ -49,6 +49,7 @@ export type ImageGenerationQuery = ImageGenerateOutput & {
   rawStatus: number | string
   progress: number
   order?: number
+  error?: string
 }
 
 export type ImageGenerationProvider = {

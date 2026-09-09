@@ -1,5 +1,5 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import type { StudioTemplatePublishInput } from "./studio-template-creator"
 
 type StyleTemplateSection = "creative-square" | "mine"
@@ -12,7 +12,7 @@ export type StudioStyleTemplateListInput = {
 }
 
 export type StudioStyleTemplateListItem = StudioTemplatePublishInput & {
-  idx: string
+  idx: number
 }
 
 export type StudioStyleTemplateListResult = {
@@ -28,6 +28,9 @@ export function StudioStyleTemplateMenu(props: {
   onCreateTemplate: () => void
   onListTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
   onSelectTemplate?: (item: StudioStyleTemplateListItem) => void
+  onEditTemplate?: (item: StudioStyleTemplateListItem) => void
+  onRequestDeleteTemplate?: (item: StudioStyleTemplateListItem) => void
+  listRevision?: number
 }): JSX.Element {
   const [section, setSection] = createSignal<StyleTemplateSection>("creative-square")
   const [items, setItems] = createSignal<StudioStyleTemplateListItem[]>([])
@@ -37,6 +40,7 @@ export function StudioStyleTemplateMenu(props: {
   const [error, setError] = createSignal("")
   const hasMore = createMemo(() => items().length < (total() ?? Number.POSITIVE_INFINITY))
   let requestSeq = 0
+  let lastListRevision = props.listRevision
 
   async function loadTemplates(input: { reset?: boolean; section?: StyleTemplateSection } = {}) {
     if (!props.onListTemplates) return
@@ -88,6 +92,13 @@ export function StudioStyleTemplateMenu(props: {
     void loadTemplates({ reset: true })
   })
 
+  createEffect(() => {
+    const revision = props.listRevision
+    if (revision === undefined || revision === lastListRevision) return
+    lastListRevision = revision
+    if (section() === "mine") void loadTemplates({ reset: true })
+  })
+
   return (
     <div class="studio-menu studio-style-template-menu">
       <div class="studio-style-template-header">
@@ -132,28 +143,53 @@ export function StudioStyleTemplateMenu(props: {
           <div class="studio-style-template-list">
             <For each={items()}>
               {(item) => (
-                <button
-                  type="button"
-                  class="studio-style-template-card"
-                  onClick={() => props.onSelectTemplate?.(item)}
-                >
-                  <div class="studio-style-template-card-cover">
-                    <Show when={item.example_images[0]?.url}>
-                      {(cover) => (
-                        <img class="studio-style-template-card-cover-image" src={cover()} alt="" />
-                      )}
-                    </Show>
-                    <div class="studio-style-template-card-type">
-                      <img
-                        class="studio-style-template-card-type-icon"
-                        src="/studio/studio_template_photo_group.svg"
-                        alt=""
-                      />
-                      <span>{templateTypeLabel(item)}</span>
+                <div class="studio-style-template-card" classList={{ editable: section() === "mine" }}>
+                  <button
+                    type="button"
+                    class="studio-style-template-card-select"
+                    onClick={() => props.onSelectTemplate?.(item)}
+                  >
+                    <div class="studio-style-template-card-cover">
+                      <Show when={item.example_images[0]?.url}>
+                        {(cover) => (
+                          <img class="studio-style-template-card-cover-image" src={cover()} alt="" />
+                        )}
+                      </Show>
+                      <div class="studio-style-template-card-type">
+                        <img
+                          class="studio-style-template-card-type-icon"
+                          src="/studio/studio_template_photo_group.svg"
+                          alt=""
+                        />
+                        <span>{templateTypeLabel(item)}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div class="studio-style-template-card-title" title={item.title}>{item.title}</div>
-                </button>
+                    <div class="studio-style-template-card-title" title={item.title}>{item.title}</div>
+                  </button>
+                  <Show when={section() === "mine"}>
+                    <div class="studio-style-template-card-actions">
+                      <button
+                        type="button"
+                        class="studio-style-template-card-action"
+                        aria-label="编辑模板"
+                        title="编辑模板"
+                        onClick={() => props.onEditTemplate?.(item)}
+                      >
+                        <img src="/studio/studio_template_edit.svg" alt="" />
+                      </button>
+                      <span class="studio-style-template-card-action-divider" />
+                      <button
+                        type="button"
+                        class="studio-style-template-card-action"
+                        aria-label="删除模板"
+                        title="删除模板"
+                        onClick={() => props.onRequestDeleteTemplate?.(item)}
+                      >
+                        <img src="/studio/studio_delete.svg" alt="" />
+                      </button>
+                    </div>
+                  </Show>
+                </div>
               )}
             </For>
           </div>

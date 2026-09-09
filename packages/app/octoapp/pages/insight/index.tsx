@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -28,12 +29,16 @@ import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
+import { useProviders } from "@/hooks/use-providers"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
@@ -77,6 +82,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
+import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType } from "./utils/output-type"
 import { isPendingUploadPath } from "./utils/worktree-layout"
@@ -85,9 +91,30 @@ import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-
 import { type MentionSelection, type MentionSkill } from "./components/mention-popover"
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
+import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
+import {
+  insightContextCommandName,
+  insightContextTokens,
+  isInsightSendDisabled,
+  isMessageAbortedError,
+  isSuccessfulCompaction,
+} from "./utils/context-usage"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
+
+function contextCommandErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") return
+  const data = Reflect.get(error, "data")
+  if (data && typeof data === "object") {
+    const message = Reflect.get(data, "message")
+    if (typeof message === "string") return message
+  }
+  const message = Reflect.get(error, "message")
+  if (typeof message === "string") return message
+}
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -166,6 +193,7 @@ const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round
 // 值为 JSON {dir, id}(id 空串 = 上次在新建空态):id 绑定其所属目录,恢复时目录不符不跳——
 // 服务端 session.get 按 id 全局查(不按 project 过滤),仅靠存在性校验拦不住跨目录复活旧会话。
 const LAST_SESSION_KEY = "octo:insight:last-session"
+const PROMPT_KEY_PREFIX = "octo:insight:prompt:"
 // 兼容历史纯 id 字符串记录:无目录信息无法校验归属,视为无记录(宁可落空态,不串台)。
 function readLastSession(): { dir: string; id: string } | undefined {
   const raw = localStorage.getItem(LAST_SESSION_KEY)
@@ -217,8 +245,11 @@ function InsightContent() {
   const local = useLocal()
   useTabModel("insight")
   const language = useLanguage()
+  const providers = useProviders()
+  const dialog = useDialog()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const layout = useLayout()
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
@@ -347,7 +378,13 @@ function InsightContent() {
     (): Message[] => {
       const id = params.id
       if (!id) return EMPTY_MESSAGES
-      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((message) => {
+        if (message.role !== "user") return false
+        const parts = sync.data.part[message.id] ?? []
+        if (!parts.some((part) => part.type === "compaction")) return true
+        // 手动 /compact 带 synthetic text，用于在对话流中回显；内部自动压缩没有 text，保持隐藏。
+        return parts.some((part) => part.type === "text")
+      })
       // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
       // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
       // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错、消息显示在顶部。
@@ -519,6 +556,93 @@ function InsightContent() {
     return t === "busy" || t === "retry"
   })
 
+  const contextMetrics = createMemo(() => {
+    const messages = params.id ? [...(sync.data.message[params.id] ?? [])] : []
+    messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
+    return getSessionContextMetrics(messages, providers.all()).context
+  })
+  const contextLimit = createMemo(() =>
+    [
+      local.model.current()?.limit.input,
+      local.model.current()?.limit.context,
+      contextMetrics()?.model?.limit.input,
+      contextMetrics()?.model?.limit.context,
+      contextMetrics()?.limit,
+    ].find((limit) => typeof limit === "number" && limit > 0),
+  )
+  const contextTokens = createMemo(() => {
+    return insightContextTokens(contextMetrics())
+  })
+  const contextUsage = createMemo(() => {
+    const limit = contextLimit()
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+  })
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const [contextCommandPending, setContextCommandPending] = createSignal(false)
+  const [abortPending, setAbortPending] = createSignal(false)
+  const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
+  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
+  const contextWarningVisible = createMemo(
+    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), isWorking()),
+  )
+
+  createEffect(() => {
+    const ignored = ignoredContextWarningSession()
+    if (!ignored) return
+    if (ignored === params.id && contextUsage() >= 80) return
+    setIgnoredContextWarningSession(undefined)
+  })
+
+  async function compactContext(command: "compact" | "summarize" = "compact") {
+    const sessionID = params.id
+    const model = local.model.current()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+
+    setContextCommandPending(true)
+    try {
+      const result = await sdk.client.session.command({
+        sessionID,
+        command,
+        arguments: "",
+        agent: INSIGHT_AGENT,
+        model: `${model.provider.id}/${model.id}`,
+      })
+      const info = result.data?.info
+      if (info && isSuccessfulCompaction(info)) {
+        showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
+        return
+      }
+      const error = info?.error ?? result.error
+      if (isMessageAbortedError(error)) return
+      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
+    } catch (error) {
+      console.error(`[InsightPage] command /${command} failed`, error)
+      if (isMessageAbortedError(error)) return
+      showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
+    } finally {
+      setContextCommandPending(false)
+    }
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？</span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
+            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => {
+              dialog.close()
+              void compactContext()
+            }}>确认压缩</Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
+
   // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
   // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
   createEffect(on(isBusy, (busy, prev) => {
@@ -629,6 +753,31 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
+  type InsightPromptDoc = Exclude<Parameters<InsightEditorRef["replaceDoc"]>[0], undefined>
+  const promptStorageKey = (sessionId: string | undefined) => PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+  function loadPromptDoc(sessionId: string | undefined) {
+    const raw = localStorage.getItem(promptStorageKey(sessionId))
+    if (!raw) return undefined
+    try {
+      const parsed = JSON.parse(raw) as { doc?: unknown }
+      if (!parsed.doc || typeof parsed.doc !== "object") return undefined
+      const doc = parsed.doc as { type?: unknown; content?: unknown }
+      if (doc.type !== "doc" || !Array.isArray(doc.content)) return undefined
+      return parsed.doc as InsightPromptDoc
+    } catch {
+      return undefined
+    }
+  }
+  function savePromptDoc(sessionId: string | undefined, doc: InsightPromptDoc) {
+    localStorage.setItem(promptStorageKey(sessionId), JSON.stringify({ v: 1, doc }))
+  }
+  const [promptDoc, setPromptDoc] = createSignal<InsightPromptDoc | undefined>(loadPromptDoc(params.id))
+  let currentSessionIdForPrompt = params.id
+  function handleComposerContentChange(doc: InsightPromptDoc, text: string) {
+    setPromptDoc(doc)
+    setPrompt(text)
+    savePromptDoc(currentSessionIdForPrompt, doc)
+  }
   // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
   // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
   // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
@@ -989,14 +1138,23 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件，并恢复目标会话输入草稿
   // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
   //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
-  // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
+  // 附件草稿仍按原逻辑清理；输入框草稿按 session 分桶持久化，切回原 session / agent 后恢复。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
   //   (否则切换 session 可绕过 3 分钟防抖,spec task-card.md §7.1)。
   createEffect(on(() => params.id, () => {
+    currentSessionIdForPrompt = params.id
+    const doc = loadPromptDoc(params.id)
+    setPromptDoc(doc)
+    setPrompt("")
+    setMentionSelections([])
+    requestAnimationFrame(() => {
+      const ref = pmRefWelcome?.isAlive() ? pmRefWelcome : (pmRefConv?.isAlive() ? pmRefConv : undefined)
+      ref?.replaceDoc(doc)
+    })
     tabStore.reset()
     setPanelCollapsed(false)
     setResultViewMode("files")
@@ -1008,7 +1166,6 @@ function InsightContent() {
       revokeAllPreviews()
       filesById.clear()
       setAttachments([])
-      clearComposers()
       setMcpSelection(null)
     }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
@@ -1202,8 +1359,8 @@ function InsightContent() {
       localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
 
-    // SPEC-INS-032 §2.3:内联分层判定 —— 本轮可内联文本材料的**总字节**超预算就整批不内联,
-    // 改由父代理逐份派 insight_reader 子代理通读。判定在**发送前确定性完成**,不交给模型判断。
+    // SPEC-INS-032 §2.3:内联分层判定 —— 附件、@引用和正文里已确认存在的本地文件一起判定；
+    // 文本材料总字节超预算或 office/pdf 达到份数阈值时，改由父代理逐份派 insight_reader 通读。
     // 字节数:附件直接用 Attachment.size;`@` 引用的会话文件没有 size 字段,用 readFileBuffer 补
     // (读失败按未知计 → 计 0 字节,该文件本就内联不进上下文,不该因此把整批拖进分治)。
     const mentionFiles = opts.mentions?.files ?? []
@@ -1221,9 +1378,11 @@ function InsightContent() {
         }),
       )
     }
+    const promptLocalDocuments = await resolvePromptLocalDocuments(text, getDesktopApi(), globalSync.data.path.home)
     const inlineFiles = [
       ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a), bytes: a.size })),
       ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
+      ...promptLocalDocuments,
     ]
     const inlineDecision = decideInlineStrategy(inlineFiles)
     if (inlineDecision.mode === "dispatch") {
@@ -1305,12 +1464,14 @@ function InsightContent() {
     if (opts.mentions?.files.length) {
       mentionBlocks.push(formatMentionedFilesForPrompt(opts.mentions.files))
     }
+    const promptLocalDocumentBlock =
+      inlineDecision.mode === "dispatch" ? formatPromptLocalDocuments(promptLocalDocuments) : ""
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
     // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
-    // dispatchNote(SPEC-INS-032)排在**末尾**:它说的是「本轮共 N 份材料(含 [附件] 与 [引用文件])」,
-    // 两个清单都出现过之后再给这段总述才对得上;drain 路径同样放末尾(那边是 push 式构建),防两套漂移。
-    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks, dispatchNote].filter(
+    // dispatchNote(SPEC-INS-032)排在**末尾**:附件/@引用/正文路径清单都出现后再给总述；
+    // drain 路径同样放末尾(那边是 push 式构建),防两套漂移。
+    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks, promptLocalDocumentBlock, dispatchNote].filter(
       (t): t is string => !!t,
     )
     // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个
@@ -1583,6 +1744,31 @@ function InsightContent() {
     // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
     if (!text || hasUploadingAttachments()) return
 
+    if (sessionSettling()) {
+      showToast({ title: "上下文压缩正在处理中", description: "请等待压缩或终止完成后再发送。" })
+      return
+    }
+
+    const contextCommand = insightContextCommandName(text)
+    if (contextCommand) {
+      if (!params.id) {
+        showToast({ title: "当前没有可压缩的对话" })
+        return
+      }
+      if (contextCompactionDisabled()) {
+        showToast({ title: "暂时无法压缩", description: isWorking() ? "请等待当前回复结束后再试。" : "请先选择模型。" })
+        return
+      }
+      clearComposers()
+      await compactContext(contextCommand)
+      return
+    }
+
+    if (contextSendBlocked()) {
+      showToast({ title: "当前对话上下文已达上限", description: "请先进行上下文压缩，或新建对话。", variant: "error" })
+      return
+    }
+
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
       tracker.interaction({
@@ -1720,14 +1906,17 @@ function InsightContent() {
 
   async function handleAbort() {
     const sid = params.id
-    if (!sid) return
+    if (!sid || abortPending()) return
     tracker.interaction({ module: "insight", name: "message-abort" })
     // 先清空整个队列，避免 abort 完成后 idle 触发器自动 flush(abort = 全部停下，不回填)
     if (queue().length) clearQueue()
+    setAbortPending(true)
     try {
       await sdk.client.session.abort({ sessionID: sid })
     } catch {
       // session_status 事件自动同步状态，忽略网络错误
+    } finally {
+      setAbortPending(false)
     }
   }
 
@@ -1735,7 +1924,15 @@ function InsightContent() {
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
-  const sendDisabled = createMemo(() => !stopping() && (!prompt().trim() || hasUploadingAttachments()))
+  const sendDisabled = createMemo(() =>
+    isInsightSendDisabled({
+      stopping: stopping(),
+      settling: sessionSettling(),
+      contextBlocked: contextSendBlocked(),
+      text: prompt(),
+      uploading: hasUploadingAttachments(),
+    }),
+  )
 
   // 注:方案 B 换 ProseMirror 后,输入法合成、Enter 发送、退格删胶囊、@ 面板开关均由编辑器内部处理
   // (Enter keymap → onSubmit;atomKeymap 退格删原子节点;mention-trigger 插件管面板);此处不再需要 textarea 版键盘/合成逻辑。
@@ -2349,8 +2546,10 @@ function InsightContent() {
                         filesLoading={mentionFiles.loading}
                         mentionSelections={mentionSelections()}
                         setMentionSelections={setMentionSelections}
+                        initialDocJSON={promptDoc()}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                        onContentChange={setPrompt}
+                        onContentChange={handleComposerContentChange}
+                        onInitialContent={setPrompt}
                         onSubmit={() => void handleSubmit("enter")}
                         onTriggerMention={loadInsightSkills}
                         onMentionOpen={trackMentionOpen}
@@ -2440,6 +2639,14 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
+                context={{
+                  tokens: contextTokens(),
+                  limit: contextLimit(),
+                  usage: contextUsage(),
+                  blocked: contextSendBlocked(),
+                  disabled: contextCompactionDisabled(),
+                  onCompact: confirmCompactContext,
+                }}
                 sidebarToggle={sidebarCollapsed() ? (
                   <button
                     type="button"
@@ -2512,6 +2719,35 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="flex flex-col min-h-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
+                <Show when={contextSendBlocked() && contextLimit()}>
+                  {(limit) => (
+                    <div class="insight-context-notice-wrap">
+                      <InsightContextOverflowNotice
+                        tokens={contextTokens()}
+                        limit={limit()}
+                        locale={language.intl()}
+                        disabled={contextCompactionDisabled()}
+                        onCompact={confirmCompactContext}
+                      />
+                    </div>
+                  )}
+                </Show>
+
+                <Show when={contextWarningVisible() && contextLimit()}>
+                  {(limit) => (
+                    <div class="insight-context-notice-wrap">
+                      <InsightContextUsageWarning
+                        tokens={contextTokens()}
+                        limit={limit()}
+                        locale={language.intl()}
+                        disabled={contextCompactionDisabled()}
+                        onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                        onCompact={confirmCompactContext}
+                      />
+                    </div>
+                  )}
+                </Show>
+
                 {/* 阻塞 Dock(权限 + 答题)与队列条同处一个可滚动区(6px 细滚动条):
                     question 工具与队列同时出现、总高溢出时由此区吸收,不再挤压下方 composer
                     输入框(shrink-0 始终完整可见)。 */}
@@ -2589,8 +2825,10 @@ function InsightContent() {
                     filesLoading={mentionFiles.loading}
                     mentionSelections={mentionSelections()}
                     setMentionSelections={setMentionSelections}
+                    initialDocJSON={promptDoc()}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                    onContentChange={setPrompt}
+                    onContentChange={handleComposerContentChange}
+                    onInitialContent={setPrompt}
                     onSubmit={() => void handleSubmit("enter")}
                     onTriggerMention={loadInsightSkills}
                     onMentionOpen={trackMentionOpen}

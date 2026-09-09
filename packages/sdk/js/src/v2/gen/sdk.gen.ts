@@ -224,12 +224,16 @@ import type {
   StudioPromptTagsListResponses,
   StudioStyleDescriptionGenCreateErrors,
   StudioStyleDescriptionGenCreateResponses,
+  StudioTemplateDeleteDeleteErrors,
+  StudioTemplateDeleteDeleteResponses,
   StudioTemplateDetailGetErrors,
   StudioTemplateDetailGetResponses,
   StudioTemplateListListErrors,
   StudioTemplateListListResponses,
   StudioTemplatePublishCreateErrors,
   StudioTemplatePublishCreateResponses,
+  StudioTemplateUpdateUpdateErrors,
+  StudioTemplateUpdateUpdateResponses,
   StudioTemplateUserSearchCreateErrors,
   StudioTemplateUserSearchCreateResponses,
   SubtaskPartInput,
@@ -5819,6 +5823,144 @@ export class TemplatePublish extends HeyApiClient {
   }
 }
 
+export class TemplateUpdate extends HeyApiClient {
+  /**
+   * Update Studio template
+   *
+   * Updates a Studio style template or preset recipe using the internal Studio style template API.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+      body?:
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            idx: number
+            template_type: "extract_style"
+            style_description: {
+              overview: string
+              tonal?: string
+              composition?: string
+              volume?: string
+              surface?: string
+              color?: string
+              linework?: string
+              shape_structure?: string
+              role_design?: string
+              lettering?: string
+              post_processing?: string
+            }
+            style_images: Array<{
+              url: string
+            }>
+            style_keywords: string
+          }
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            idx: number
+            template_type: "preset_recipe"
+            fixed_reference_images: Array<{
+              url: string
+            }>
+            play_description: string
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      StudioTemplateUpdateUpdateResponses,
+      StudioTemplateUpdateUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-update/{templateID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplateDelete extends HeyApiClient {
+  /**
+   * Delete Studio template
+   *
+   * Deletes a Studio template using the internal Studio style template API.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      StudioTemplateDeleteDeleteResponses,
+      StudioTemplateDeleteDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-delete/{templateID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class TemplateList extends HeyApiClient {
   /**
    * List Studio templates
@@ -6216,6 +6358,16 @@ export class Studio extends HeyApiClient {
   private _templatePublish?: TemplatePublish
   get templatePublish(): TemplatePublish {
     return (this._templatePublish ??= new TemplatePublish({ client: this.client }))
+  }
+
+  private _templateUpdate?: TemplateUpdate
+  get templateUpdate(): TemplateUpdate {
+    return (this._templateUpdate ??= new TemplateUpdate({ client: this.client }))
+  }
+
+  private _templateDelete?: TemplateDelete
+  get templateDelete(): TemplateDelete {
+    return (this._templateDelete ??= new TemplateDelete({ client: this.client }))
   }
 
   private _templateList?: TemplateList

@@ -77,6 +77,9 @@ export function StudioComposer(props: {
   onCreateTemplate?: () => void
   onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
   onSelectStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  onEditStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  onRequestDeleteStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  styleTemplateListRevision?: number
   onClearStyleTemplate?: () => void
   onStyleTemplateEditorOpen: (value: boolean) => void
   onStyleTemplateDescription: (field: StudioStyleDescriptionFieldId, value: string) => void
@@ -1388,10 +1391,13 @@ export function StudioComposer(props: {
                   props.onCreateTemplate?.()
                 }}
                 onListTemplates={props.onListStyleTemplates}
+                listRevision={props.styleTemplateListRevision}
                 onSelectTemplate={(item) => {
                   props.onOpenMenu(null)
                   props.onSelectStyleTemplate?.(item)
                 }}
+                onEditTemplate={props.onEditStyleTemplate}
+                onRequestDeleteTemplate={props.onRequestDeleteStyleTemplate}
               />
             </div>
           </Show>

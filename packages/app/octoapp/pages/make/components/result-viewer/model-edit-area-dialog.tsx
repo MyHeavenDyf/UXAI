@@ -1,29 +1,33 @@
 import { createSignal, Show, onMount, createEffect, on, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import type { ModelEditElement } from '../model-edit-items/types'
 import type { MentionAttrs } from '../prosemirror-editor/schema'
 import { ProseMirrorEditor } from '../prosemirror-editor'
 import type { MentionSelection } from '../mention-popover'
 import type { ArtifactFile } from '../../utils/artifact-file-api'
 import type { SkillConfig } from '../skill-config-types'
 import { sendTextToAgent, appendToMainComposer, submitMainComposer } from '../../utils/agent-events'
-import { processMentions } from '../../utils/mention-processor'
 import { tracker } from '@/utils/tracker'
 import './model-edit-area-dialog.css'
 
 type EditorRef = {
   getText: () => string
   getMentions: () => MentionAttrs[]
+  getDocJSON: () => any
   clear: () => void
   insertText: (text: string) => void
   isAlive: () => boolean
   closeMention: () => void
 }
 
+type AreaDialogElement = {
+  rect: { x: number; y: number; width: number; height: number }
+  selector: string
+}
+
 const MASK_COLOR = 'rgba(0,0,0,0.3)'
 
 export function ModelEditAreaDialog(props: {
-  element: ModelEditElement | null
+  element: AreaDialogElement | null
   iframeRect?: DOMRect
   filePath: string
   tabTitle: string
@@ -159,20 +163,13 @@ export function ModelEditAreaDialog(props: {
     return lines.join('\n')
   }
 
-  const buildFullText = () => {
-    const text = editorRef?.getText?.() || ''
-    const mentions = editorRef?.getMentions?.() || []
-    const { processed } = processMentions(text, mentions)
-    const prefix = buildPrefix()
-    return prefix ? `${prefix}\n\n${processed}` : processed
-  }
-
   const handleNext = () => {
     if (isDisabled()) return
     const text = editorRef?.getText?.() || ''
     if (!text.trim()) return
-    const fullText = buildFullText()
-    appendToMainComposer(fullText)
+    const prefix = buildPrefix()
+    const docJSON = editorRef?.getDocJSON?.()
+    appendToMainComposer(prefix, docJSON)
     editorRef?.clear?.()
     setMentionSelections([])
     tracker.interaction({ module: "design", name: "append-model-edit-prompt" })
@@ -180,8 +177,9 @@ export function ModelEditAreaDialog(props: {
 
   const handleConfirm = async () => {
     if (isDisabled()) return
-    const fullText = buildFullText()
-    appendToMainComposer(fullText)
+    const prefix = buildPrefix()
+    const docJSON = editorRef?.getDocJSON?.()
+    appendToMainComposer(prefix, docJSON)
     setSubmitting(true)
     props.onSubmitStart?.()
     submitMainComposer()
