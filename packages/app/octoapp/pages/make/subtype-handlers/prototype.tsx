@@ -15,7 +15,7 @@ import {
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "../components/octo-toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
-import type { DesktopApi } from "../lib/electron-api"
+import type { DesktopApi, CodeManifest } from "../lib/electron-api"
 import { joinPath } from "../utils/references"
 
 let downloading = false
@@ -38,6 +38,8 @@ async function buildPrototypeCodeFiles(
   makeUploadsDir?: string | null
   /** 本次使用的 planner（供调用方复用给其他 targetLib，避免重复调 LLM） */
   planner: Record<string, unknown> | null
+  /** 代码 manifest（tree+content），供归档侧落 data/{lib}/{tree,content}.json */
+  manifest: CodeManifest
 } | null> {
   const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showOctoToast(msg) }
 
@@ -103,7 +105,8 @@ async function buildPrototypeCodeFiles(
     : [{ planner: plannerForInput, mergedA2UI: entries[0]!.doc as Record<string, unknown> }]
   const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib })
   const files = result?.files
-  if (!files || files.length === 0) {
+  const manifest = result?.manifest
+  if (!files || files.length === 0 || !manifest) {
     toast({ title: "暂无可导出的代码" })
     return null
   }
@@ -115,7 +118,7 @@ async function buildPrototypeCodeFiles(
   const htmlPath = ctx.tab.filePath || ctx.tab.absoluteFilePath
   const makeUploadsDir = htmlPath ? htmlPath.replace(/[\\/][^\\/]+$/, '') + '/uploads' : null
 
-  return { files, uploadsDir, makeUploadsDir, planner }
+  return { files, uploadsDir, makeUploadsDir, planner, manifest }
 }
 
 /** 列出目录下所有文件（绝对路径）。
@@ -313,6 +316,17 @@ export default {
       // 两包并列子目录，避免根级文件冲突
       for (const f of reactResult.files) out.push({ path: `eview-react/${f.path}`, content: f.content })
       if (uiResult) for (const f of uiResult.files) out.push({ path: `eview-ui/${f.path}`, content: f.content })
+
+      // manifest 落 src/manifest/{lib}/tree.json + content.json（与 eview-react/、eview-ui/
+      // 两个组件库产出平级的 manifest/ 文件夹下，按组件库名称分子目录）：
+      // 每次 downloadHuiCode = 单 lib → 单个 manifest；序列化进 out，由 createArchiveZip
+      // 统一套 src/ 前缀写到 src/manifest/{lib}/。
+      out.push({ path: 'manifest/eview-react/tree.json', content: JSON.stringify(reactResult.manifest.tree, null, 2) })
+      out.push({ path: 'manifest/eview-react/content.json', content: JSON.stringify(reactResult.manifest.content, null, 2) })
+      if (uiResult) {
+        out.push({ path: 'manifest/eview-ui/tree.json', content: JSON.stringify(uiResult.manifest.tree, null, 2) })
+        out.push({ path: 'manifest/eview-ui/content.json', content: JSON.stringify(uiResult.manifest.content, null, 2) })
+      }
 
       // 打包 pattern 侧 + make 侧 uploads 资源：每个代码包各自 public/assets/
       // codegen 已把 /uploads/... 和 uploads/... 改写为 /assets/...，故都落到各包 public/assets/

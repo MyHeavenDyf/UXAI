@@ -6,7 +6,7 @@
  * | value（字面量） | value | LiteralValue.useState(onChange) — 受控 |
  * | value（DataBinding） | value | ComputedValue.useState(onChange) — 受控 |
  * | categoryOptions（字面量） | categoryOptions | 同名透传（{text, value}[]） |
- * | categoryOptions（DataBinding） | categoryOptions | 保持 BindingValue 原样 |
+ * | categoryOptions（DataBinding） | categoryOptions | ComputedValue(containsJSX:false)，transform 兜空数组 |
  * | category（字面量） | category | 同名透传 |
  * | category（DataBinding） | category | 保持 BindingValue 原样 |
  * | placeholder（字面量） | placeholder | 同名透传 |
@@ -37,7 +37,7 @@ export function createCategoryInputMapping(pkg: string): MappingDef {
 
       // ─── value（useState 受控，双形态） ───
       //   字面量 → Value.literal（初始值 hardcode）
-      //   DataBinding → Value.computed + useState（初始值从 state.js 取，path 直传）
+      //   DataBinding → Value.computed + useState（初始值从 state.js 取，path 透传）
       if ('value' in props) {
         const val = props.value
         if (val && typeof val === 'object' && val.type === 'binding') {
@@ -63,17 +63,29 @@ export function createCategoryInputMapping(pkg: string): MappingDef {
         }
       }
 
-      // ─── categoryOptions（双形态：字面量直传，DataBinding 保持 BindingValue 原样） ───
+      // ─── categoryOptions（DataBinding path→ComputedValue；字面量数组透传；item 形状 {text,value} 与 eview 一致） ───
+      // 同 Select.options/SearchInput.popItems：DataBinding 走 ComputedValue(containsJSX:false)，transform 防御性兜空数组
       if ('categoryOptions' in props) {
-        outputProps.categoryOptions = props.categoryOptions
+        const opts = props.categoryOptions
+        if (opts && typeof opts === 'object' && opts.type === 'binding') {
+          outputProps.categoryOptions = Value.computed({
+            path: opts.path,
+            pathType: opts.pathType ?? 'absolute',
+            accessPath: opts.accessPath,
+            containsJSX: false,
+            transform: (rawItems) => (Array.isArray(rawItems) ? rawItems : []),
+          })
+        } else if (Array.isArray(opts)) {
+          outputProps.categoryOptions = opts as any
+        }
       }
 
-      // ─── category（双形态：字面量直传，DataBinding 保持 BindingValue 原样） ───
+      // ─── category（双形态：字面量透传，DataBinding 保持 BindingValue 原样） ───
       if ('category' in props) {
         outputProps.category = props.category
       }
 
-      // ─── placeholder（双形态：字面量直传，DataBinding 保持 BindingValue 原样） ───
+      // ─── placeholder（双形态：字面量透传，DataBinding 保持 BindingValue 原样） ───
       if ('placeholder' in props) {
         const ph = props.placeholder
         if (ph && typeof ph === 'object' && ph.type === 'binding') {
