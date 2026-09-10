@@ -1,0 +1,93 @@
+{
+  "name": "SearchInput",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/searchValue",
+            "/form/q",
+            "searchValue"
+          ]
+        }
+      }
+    },
+    "PopItem": {
+      "type": "object",
+      "description": "An item in the suggestion dropdown.",
+      "required": ["text", "value"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Display text of the item."
+        },
+        "value": {
+          "description": "Value of the item."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item is disabled and not selectable."
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "SearchInput"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            {},
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The current value of the search input."
+        },
+        "placeholder": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Placeholder text for the search input."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the search input is disabled."
+        },
+        "popItems": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/PopItem" }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Suggestion dropdown items."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

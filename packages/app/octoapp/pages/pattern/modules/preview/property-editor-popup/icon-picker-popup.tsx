@@ -8,6 +8,69 @@ import { iconColors, iconCssColor } from "./icon-colors"
 import { IconCategorySelect } from "./icon-category-select"
 import noDataEmptySvg from "../../../assets/images/noDataEmpty.svg?url"
 import deleteSvg from "../../../assets/images/delete.svg?url"
+import { getDesktopApi } from "../../../utils/desktop-api"
+import { useSDK } from "@/context/sdk"
+import { useParams } from "@solidjs/router"
+
+const blobToDataURL = (b: Blob | File) => new Promise<string>(resolve => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(reader.result as string)
+  reader.readAsDataURL(b)
+})
+
+/** 会话自定义图标目录：优先预览产物同级的 uploads（<htmlFilePath 目录>/uploads，与 pickAndUploadImage 落盘规则一致），
+ *  无 htmlFilePath 时回退 <工作区>/.octo/<sessionId>/assets/。文件名 icon_ 前缀与其它资源区分。 */
+type CustomIcon = { src: string; path?: string }
+
+const ICON_FILE_RE = /^icon_.+\.(svg|png|jpe?g)$/i
+
+function customIconsDir(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined): string | null {
+  if (htmlFilePath) return `${htmlFilePath.replace(/[\\/][^\\/]+$/, "")}/uploads`
+  if (root && sessionId) return `${root}/.octo/${sessionId}/assets`
+  return null
+}
+
+/** 上传单个图标：写入目标目录（icon_ 原文件名，同文件重传覆盖）；src 用 dataURL（不依赖服务目录，刷新仍有效）。失败返回 null（调用方回退 dataURL） */
+async function saveSessionIconFile(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined, name: string, buf: ArrayBuffer): Promise<CustomIcon | null> {
+  const api = getDesktopApi()
+  const dir = customIconsDir(root, sessionId, htmlFilePath)
+  if (!dir || !api?.writeFileBuffer) return null
+  const safe = name.replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "")
+  const filename = `icon_${safe}`
+  const path = `${dir}/${filename}`
+  try {
+    await api.writeFileBuffer(path, buf)
+  } catch (e) {
+    console.log('[icon-picker] 写入失败', path, e)
+    return null
+  }
+  return { src: await blobToDataURL(new Blob([buf])), path }
+}
+
+/** 读回目标目录中的自定义图标（仅 icon_ 前缀文件） */
+async function listSessionIconFiles(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined): Promise<CustomIcon[]> {
+  const api = getDesktopApi()
+  const dir = customIconsDir(root, sessionId, htmlFilePath)
+  if (!dir || !api?.listDirectory || !api.readFileBuffer) return []
+  const out: CustomIcon[] = []
+  for (const e of await api.listDirectory(dir)) {
+    const filename = e.path.split(/[\\/]/).pop() ?? ''
+    if (e.type !== 'file' || !ICON_FILE_RE.test(filename)) continue
+    const buf = await api.readFileBuffer(`${dir}/${filename}`)
+    if (!buf) continue
+    out.push({ src: await blobToDataURL(new Blob([buf])), path: `${dir}/${filename}` })
+  }
+  return out
+}
+
+/** 自定义图标展示名：用户原始文件名（去 icon_ 前缀与扩展名） */
+const customIconName = (srcOrPath: string) =>
+  decodeURIComponent(srcOrPath.split(/[\\/]/).pop() ?? '').replace(/^icon_/, '').replace(/\.[^.]*$/, '')
+
+/** 删除会话 assets 目录中的图标文件 */
+async function deleteSessionIconFile(icon: CustomIcon): Promise<void> {
+  if (icon.path) await getDesktopApi()?.deleteFile?.(icon.path)
+}
 
 const PANEL_W = 380
 const PANEL_H = 634
@@ -140,7 +203,7 @@ export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
   anchor: HTMLElement | undefined
-  onPick: (pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) => void
+  onPick: (pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) => void
   onClose: () => void
   /** 点击确认按钮（事件预留） */
   onConfirm?: () => void
@@ -150,15 +213,22 @@ export function IconPickerPopup(props: {
   initialColor?: string
   /** 当前图标的唯一 id（icon-plus 的 icon_id；offline 无 id 时以 name 充当），回显按 id 匹配 */
   currentId?: string
+  /** 当前是否为自定义图标（元素 nameCustom===1；不再存 custom:base64 的 id） */
+  currentCustom?: boolean
+  /** 会话 id：自定义图标持久化定位用 */
+  sessionId?: string
+  /** 预览产物 html 路径：自定义图标存到其同级 uploads 目录（与图片上传落盘规则一致） */
+  htmlFilePath?: string
 }): JSX.Element {
   const [state, setState] = createStore({
-    source: 'official' as 'official' | 'custom',
+    /** 当前为自定义图标（nameCustom=1 ）时默认打开自定义 tab */
+    source: props.currentCustom ? 'custom' as const : 'official' as const,
     tabsCan: { left: false, right: false },
     category: 'all' as number | 'all',
     categoryName: '全部分类',
     shapeKey: props.initialStyle ?? 'outline',
     iconColorKey: Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === normalizeInitialColor(props.initialColor)) ?? 'default',
-    customIcons: [] as string[],
+    customIcons: [] as CustomIcon[],
     selected: props.current,
     selectedId: props.currentId ?? '',
     tip: null as { name: string; x: number; y: number } | null,
@@ -171,6 +241,8 @@ export function IconPickerPopup(props: {
     if (props.initialSize && /^\d+$/.test(props.initialSize)) iconStore.setSize(props.initialSize)
     iconStore.setShape(shapeKeyToStyle(state.shapeKey))
     iconStore.setColor(normalizeInitialColor(props.initialColor))
+    // 仅自定义图标场景清空搜索；普通图标保留正常搜索
+    if (state.source === 'custom') iconStore.setKeyword('')
     void iconStore.init()
   })
   onCleanup(() => iconStore.dispose())
@@ -281,30 +353,91 @@ export function IconPickerPopup(props: {
     })
   }
 
-  /** 自定义图标：支持 SVG/PNG/JPG 单张与批量上传 */
-  const onFiles = (e: Event) => {
+  /** 自定义图标：上传写入 <工作区>/.octo/<sessionId>/assets/，重开弹窗可读回；无 desktop API 时回退 dataURL（仅本次会话） */
+  const sdk = useSDK()
+  /** 会话 id：优先 prop 传入，缺失时直接取路由参数（避免多层传参链路缺位） */
+  const routeParams = useParams<{ id?: string }>()
+  const sessionId = () => props.sessionId ?? routeParams.id
+  const onFiles = async (e: Event) => {
     const input = e.currentTarget as HTMLInputElement
     const files = Array.from(input.files ?? []).filter(f => /\.(svg|png|jpe?g)$/i.test(f.name))
-    if (files.length) setState('customIcons', [...state.customIcons, ...files.map(f => URL.createObjectURL(f))])
     input.value = ''
+    if (!files.length) return
+    const added: CustomIcon[] = []
+    for (const f of files) {
+      const buf = await f.arrayBuffer()
+      added.push(await saveSessionIconFile(sdk.directory, sessionId(), props.htmlFilePath, f.name, buf) ?? { src: await blobToDataURL(f) })
+    }
+    // 重名文件重新上传时替换旧项（同名文件落盘是覆盖写），不重复追加
+    const newNames = new Set(added.flatMap(a => {
+      const fn = a.path?.split(/[\\/]/).pop()
+      return fn ? [fn] : []
+    }))
+    setState('customIcons', prev => {
+      const kept = newNames.size ? prev.filter(p => {
+        const fn = p.path?.split(/[\\/]/).pop()
+        return !fn || !newNames.has(fn)
+      }) : prev
+      return [...kept, ...added]
+    })
   }
-  onCleanup(() => state.customIcons.forEach(u => URL.revokeObjectURL(u)))
 
-  /** 删除已上传的自定义图标（同时释放 objectURL） */
+  /** 打开弹窗时读回会话已上传的自定义图标 */
+  onMount(() => {
+    void listSessionIconFiles(sdk.directory, sessionId(), props.htmlFilePath).then(icons => {
+      if (!icons.length) return
+      const diskNames = new Set(icons.flatMap(i => {
+        const fn = i.path?.split(/[\\/]/).pop()
+        return fn ? [fn] : []
+      }))
+      setState('customIcons', prev => [
+        ...prev.filter(p => {
+          const fn = p.path?.split(/[\\/]/).pop()
+          return !fn || !diskNames.has(fn)
+        }),
+        ...icons,
+      ])
+    })
+  })
+
+  /** 元素当前为自定义图标时，待自定义列表读回后按展示名自动选中（仅当确实停留在自定义 tab，不干预用户手动切回官方） */
+  createEffect(() => {
+    if (state.source !== 'custom' || !props.current || !state.customIcons.length) return
+    if (state.selectedId.startsWith('custom:')) return
+    const currentStem = props.current.replace(/\.[^.]*$/, '')
+    const hit = state.customIcons.find(ic => {
+      const display = customIconName(ic.path ?? ic.src)
+      return display === props.current || display === currentStem
+    })
+    if (!hit) return
+    setState('selectedId', `custom:${hit.src}`)
+    setState('selected', props.current)
+  })
+
+  /** 删除已上传的自定义图标：会话文件一并删除；dataURL（web 回退）仅移出列表 */
   const deleteCustomIcon = (i: number) => {
-    URL.revokeObjectURL(state.customIcons[i])
+    const icon = state.customIcons[i]
+    if (icon.path) void deleteSessionIconFile(icon)
     setState('customIcons', prev => prev.filter((_, idx) => idx !== i))
+    setState('tip', null)
   }
 
   const handleConfirm = () => {
-    if (state.selected) props.onPick({
-      name: state.selected,
-      id: state.selectedId || undefined,
-      url: iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
-      size: iconStore.state.iconSize,
-      style: state.shapeKey,
-      color: iconStore.state.iconColor,
-    })
+    if (state.selected) {
+      const custom = state.selectedId.startsWith('custom:') ? state.customIcons.find(c => `custom:${c.src}` === state.selectedId) : undefined
+      props.onPick({
+        /** 自定义图标：name 即原始文件名；src 为渲染端消费的相对路径 uploads/<文件名>（普通图标不带，接收方清除）。
+         *  自定义不传 id/url，避免把整段 base64 写进元素 props */
+        name: custom ? customIconName(custom.path ?? custom.src) : state.selected,
+        id: custom ? undefined : state.selectedId || undefined,
+        url: custom ? undefined : iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
+        src: custom?.path ? `uploads/${custom.path.split(/[\\/]/).pop()}` : undefined,
+        isCustom: !!custom,
+        size: iconStore.state.iconSize,
+        style: state.shapeKey,
+        color: iconStore.state.iconColor,
+      })
+    }
     props.onConfirm?.()
     props.onClose()
   }
@@ -374,7 +507,7 @@ export function IconPickerPopup(props: {
               <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
             </Show>
           </button>
-          <button type="button" onClick={() => setState('source', 'custom')}
+          <button type="button" onClick={() => { setState('source', 'custom'); iconStore.setKeyword('') }}
             class="relative pb-[4px] text-[12px] leading-5"
             style={{ color: state.source === 'custom' ? '#0A59F7' : '#777777' }}>
             自定义
@@ -496,11 +629,15 @@ export function IconPickerPopup(props: {
                   fallback={<EmptyState text="暂无内容，点击上传图标吧～" />}>
                   <div class="grid grid-cols-5 gap-2">
                     <For each={state.customIcons}>
-                      {(u, i) => (
-                        <div class="group relative flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]">
-                          <img src={u} class="max-h-full max-w-full object-contain" />
+                      {(icon, i) => (
+                        <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]"
+                          classList={{ 'ring-1 ring-inset ring-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
+                          onMouseEnter={(e) => showTip(e.currentTarget, customIconName(icon.path ?? icon.src))}
+                          onMouseLeave={() => setState('tip', null)}
+                          onClick={() => { setState('selectedId', `custom:${icon.src}`); setState('selected', customIconName(icon.path ?? icon.src)) }}>
+                          <img src={icon.src} class="max-h-full max-w-full object-contain" />
                           <button type="button" title="删除"
-                            onClick={() => deleteCustomIcon(i())}
+                            onClick={(e) => { e.stopPropagation(); deleteCustomIcon(i()) }}
                             class="absolute right-[6px] top-[6px] z-10 hidden cursor-pointer group-hover:block">
                             <img src={deleteSvg} width="16" height="16" alt="" />
                           </button>
@@ -518,16 +655,16 @@ export function IconPickerPopup(props: {
         {/* 底部：第一组三个筛选项（线性/尺寸/颜色），往下16px 是取消/确认按钮 */}
         <div class="mt-4 shrink-0 px-4">
           <div class="flex items-center gap-2">
-            <div class="w-[96px] shrink-0">
+            <div class="w-[110px] shrink-0">
               <CustomSelect value={state.shapeKey} options={SHAPE_OPTIONS}
                 onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
-            <div class="w-[96px] shrink-0">
+            <div class="w-[110px] shrink-0">
               <CustomSelect value={iconStore.state.iconSize} options={SIZE_OPTIONS} onChange={v => iconStore.setSize(v)}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
-            <div class="min-w-0 flex-1">
+            <div class="w-[110px] shrink-0">
               <IconColorSelect value={state.iconColorKey}
                 onChange={v => { setState('iconColorKey', v); iconStore.setColor(iconCssColor(v)) }} />
             </div>
