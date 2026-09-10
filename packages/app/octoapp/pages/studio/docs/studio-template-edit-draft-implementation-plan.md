@@ -146,7 +146,7 @@ result.request.input.extra.template
         -> 使用接口返回 result 作为 selectedStyleTemplate
         -> 按当前模板配置决定如何使用 extra.template.prompt 恢复输入内容
         -> 按当前模板配置决定是否/最多恢复 input.referenceImages
-        -> 写入 Composer 状态并显示「模版应用中」
+        -> 写入 Composer 状态并显示「模板应用中」
 ```
 
 ## 5. 涉及文件
@@ -659,7 +659,7 @@ templateType: template.template_type
 ### 13.2 风格模板任务
 
 - 点击“重新编辑”后：
-  - toolbar 显示“模版应用中”。
+  - toolbar 显示“模板应用中”。
   - 普通输入区恢复 `template.prompt.custom`。
   - 当前模板为详情接口返回模板。
   - 参考图按历史任务恢复，并受模板张数限制。
@@ -668,7 +668,7 @@ templateType: template.template_type
 ### 13.3 配方模板任务
 
 - 点击“重新编辑”后：
-  - toolbar 显示“模版应用中”。
+  - toolbar 显示“模板应用中”。
   - 输入区为配方模板两段式输入态。
   - 灰色输入区恢复 `template.prompt.mainPrompt`。
   - 后置额外输入区恢复 `template.prompt.extraPrompt`。

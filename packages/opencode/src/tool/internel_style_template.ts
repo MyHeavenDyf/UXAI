@@ -1,5 +1,6 @@
 const METHOD = "POST"
 const DEFAULT_TIMEOUT_MS = 120_000
+const STYLE_TEMPLATE_SAVE_FALLBACK = "保存失败，请检查网络"
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: {
@@ -176,6 +177,11 @@ function env(name: string) {
   return process.env[name]
 }
 
+function normalizeTemplateUserID(value: string) {
+  if (value.slice(1, 3) !== "wx") return value
+  return `${value.slice(0, 1)}WX${value.slice(3)}`
+}
+
 function internalStyleTemplateHeaders(input: { accept?: string } = {}) {
   return {
     "content-type": "application/json",
@@ -216,9 +222,17 @@ function parseJson(text: string) {
   }
 }
 
-function parseBusinessResponse(text: string, action: string): StyleTemplateBusinessResponse {
-  const json = parseJson(text) as StyleTemplateBusinessResponse
+function parseBusinessResponse(text: string, action: string, fallbackMessage?: string): StyleTemplateBusinessResponse {
+  const json = (() => {
+    try {
+      return JSON.parse(text) as StyleTemplateBusinessResponse
+    } catch {
+      if (fallbackMessage) throw new Error(fallbackMessage)
+      return parseJson(text) as StyleTemplateBusinessResponse
+    }
+  })()
   if (json.resp_code === 200) return json
+  if (fallbackMessage) throw new Error(json.resp_msg?.trim() || fallbackMessage)
   throw new Error(
     [
       `${action} returned business failure.`,
@@ -227,6 +241,15 @@ function parseBusinessResponse(text: string, action: string): StyleTemplateBusin
       `body=${JSON.stringify(json, null, 2)}`,
     ].join("\n"),
   )
+}
+
+function styleTemplateMutationError(text: string) {
+  try {
+    const response = JSON.parse(text) as StyleTemplateBusinessResponse
+    return new Error(response.resp_msg?.trim() || STYLE_TEMPLATE_SAVE_FALLBACK)
+  } catch {
+    return new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
+  }
 }
 
 function parseUserSearchBusinessResponse(text: string): StyleTemplateUserSearchBusinessResponse {
@@ -351,7 +374,7 @@ export async function generateStyleDescriptionStream(
 
 export async function publishInternalStyleTemplate(input: StyleTemplatePublishRequest): Promise<unknown> {
   const url = env("IMAGE_STYLE_TEMPLATE_PUBLISH_URL") ?? DEFAULT_STYLE_TEMPLATE_PUBLISH
-  if (!url || url === "xx") throw new Error("style_template_publish url is not configured.")
+  if (!url || url === "xx") throw new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
@@ -360,39 +383,24 @@ export async function publishInternalStyleTemplate(input: StyleTemplatePublishRe
     headers: internalStyleTemplateHeaders(),
     body: JSON.stringify({
       ...input,
-      creator_user_id: input.creator_user_id || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX,
+      creator_user_id: normalizeTemplateUserID(input.creator_user_id || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX),
     }),
     signal: controller.signal,
-  }).catch((error) => {
-    throw new Error(
-      [
-        "style_template_publish network failed.",
-        `url=${url}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
+  }).catch(() => {
+    throw new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
   }).finally(() => clearTimeout(timeout))
 
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(
-      [
-        "style_template_publish failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
-  }
-  if (!text.trim()) throw new Error("style_template_publish returned empty response.")
-  return parseBusinessResponse(text, "style_template_publish")
+  const text = await response.text().catch(() => "")
+  if (!response.ok) throw styleTemplateMutationError(text)
+  if (!text.trim()) throw new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
+  return parseBusinessResponse(text, "style_template_publish", STYLE_TEMPLATE_SAVE_FALLBACK)
 }
 
 function styleTemplateMutationUrl(templateID: number, userID: string) {
   const endpoint = env("IMAGE_STYLE_TEMPLATE_PUBLISH_URL") ?? DEFAULT_STYLE_TEMPLATE_PUBLISH
-  if (!endpoint || endpoint === "xx") throw new Error("style_template url is not configured.")
+  if (!endpoint || endpoint === "xx") throw new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
   const url = new URL(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(templateID)}`)
-  url.searchParams.set("user_id", userID || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX)
+  url.searchParams.set("user_id", normalizeTemplateUserID(userID || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX))
   return url
 }
 
@@ -403,31 +411,19 @@ export async function updateInternalStyleTemplate(input: StyleTemplateUpdateRequ
   const response = await fetch(url, {
     method: "PUT",
     headers: internalStyleTemplateHeaders(),
-    body: JSON.stringify(input.template),
+    body: JSON.stringify({
+      ...input.template,
+      creator_user_id: normalizeTemplateUserID(input.template.creator_user_id),
+    }),
     signal: controller.signal,
-  }).catch((error) => {
-    throw new Error(
-      [
-        "style_template_update network failed.",
-        `url=${url.href}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
+  }).catch(() => {
+    throw new Error(STYLE_TEMPLATE_SAVE_FALLBACK)
   }).finally(() => clearTimeout(timeout))
 
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(
-      [
-        "style_template_update failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
-  }
+  const text = await response.text().catch(() => "")
+  if (!response.ok) throw styleTemplateMutationError(text)
   if (!text.trim()) return {}
-  return parseBusinessResponse(text, "style_template_update")
+  return parseBusinessResponse(text, "style_template_update", STYLE_TEMPLATE_SAVE_FALLBACK)
 }
 
 export async function deleteInternalStyleTemplate(input: StyleTemplateDeleteRequest): Promise<unknown> {

@@ -132,6 +132,24 @@ type PendingScrollRequest = {
 
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+const STUDIO_TEMPLATE_SAVE_ERROR = "保存失败，请检查网络"
+
+function studioTemplateSaveErrorMessage(bodyText: string) {
+  const parsed = (() => {
+    try {
+      return JSON.parse(bodyText) as unknown
+    } catch {
+      return undefined
+    }
+  })()
+  const data = recordValue(parsed, "data")
+  return [
+    stringValue(parsed, "resp_msg"),
+    stringValue(data, "resp_msg"),
+    stringValue(data, "message"),
+    stringValue(parsed, "message"),
+  ].map((message) => message?.trim()).find(Boolean) ?? STUDIO_TEMPLATE_SAVE_ERROR
+}
 
 function sameStudioInputImages(left?: StudioInputImage[], right?: StudioInputImage[]) {
   if (left === right) return true
@@ -2147,7 +2165,7 @@ export default function StudioPage() {
   }
 
   function showUnsupportedTemplateReferenceNotice() {
-    showFloatingNotice("info", "该风格模版不支持上传参考图")
+    showFloatingNotice("info", "该风格模板不支持上传参考图")
   }
 
   function pickReferenceFile() {
@@ -3186,7 +3204,7 @@ export default function StudioPage() {
 
   async function publishStudioTemplate(input: StudioTemplatePublishInput) {
     const current = server.current
-    if (!current) throw new Error("No active server.")
+    if (!current) throw new Error(STUDIO_TEMPLATE_SAVE_ERROR)
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...directoryHeader(projectDir()),
@@ -3204,17 +3222,18 @@ export default function StudioPage() {
         ...input,
         creator_user_id: input.creator_user_id || uiplusUserAccount(),
       }),
+    }).catch(() => {
+      throw new Error(STUDIO_TEMPLATE_SAVE_ERROR)
     })
-    const bodyText = await response.text()
-    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
-    if (bodyText.trim()) JSON.parse(bodyText) as unknown
-    showFloatingNotice("success", "图片模版创建成功")
+    const bodyText = await response.text().catch(() => "")
+    if (!response.ok) throw new Error(studioTemplateSaveErrorMessage(bodyText))
+    showFloatingNotice("success", "图片模板创建成功")
     closeTemplateCreator(templateCreateWorkspaceKey)
   }
 
   async function saveStudioStyleTemplate(templateID: number, input: StudioTemplatePublishInput) {
     const current = server.current
-    if (!current) throw new Error("No active server.")
+    if (!current) throw new Error(STUDIO_TEMPLATE_SAVE_ERROR)
     const userID = uiplusUserAccount() ?? ""
     const url = new URL(`/studio/template-update/${encodeURIComponent(templateID)}`, current.http.url)
     url.searchParams.set("user_id", userID)
@@ -3236,10 +3255,11 @@ export default function StudioPage() {
         idx: templateID,
         creator_user_id: input.creator_user_id || userID,
       }),
+    }).catch(() => {
+      throw new Error(STUDIO_TEMPLATE_SAVE_ERROR)
     })
-    const bodyText = await response.text()
-    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
-    if (bodyText.trim()) JSON.parse(bodyText) as unknown
+    const bodyText = await response.text().catch(() => "")
+    if (!response.ok) throw new Error(studioTemplateSaveErrorMessage(bodyText))
     showFloatingNotice("success", "模板保存成功")
     setStyleTemplateListRevision((value) => value + 1)
     closeTemplateCreator(templateEditWorkspaceKey(templateID))

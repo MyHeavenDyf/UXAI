@@ -49,7 +49,7 @@
 |---|---|
 | label | 图片模板标题 |
 | 必填 | 是 |
-| placeholder | 描述你的模板（5-10字） |
+| placeholder | 描述你的模板（2-10字） |
 | 字数计数 | 初始显示 `0/10` |
 | 最大字数 | 10 |
 
@@ -351,7 +351,7 @@ async function fileToDataUrl(file: File) {
 
 当 `category === "extract_style"`：
 
-- 标题长度 `5-10`。
+- 标题长度 `2-10`。
 - 风格图集数量 `>= 3` 且 `<= 30`。
 - 风格图集总大小 `<= 30MB`。
 - 风格描述“概览”输入项必填。
@@ -360,7 +360,7 @@ async function fileToDataUrl(file: File) {
 
 当 `category === "preset_recipe"`：
 
-- 标题长度 `5-10`。
+- 标题长度 `2-10`。
 - 玩法描述非空。
 - 固定参考图数量 `<= 3`。
 

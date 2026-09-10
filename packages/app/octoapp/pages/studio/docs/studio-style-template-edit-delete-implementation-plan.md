@@ -87,7 +87,7 @@ const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal
 
 “创意广场”卡片保持现状，不增加编辑和删除 DOM，也不预留不可见按钮。
 
-如果卡片对应模板已经存在于任一右侧编辑 tab，hover 操作层仍然显示，但编辑和删除图标均置灰且不可点击。鼠标 hover 任一置灰图标时显示 tooltip：`当前模版正在编辑中，请先保存或取消编辑`。
+如果卡片对应模板已经存在于任一右侧编辑 tab，hover 操作层仍然显示，但编辑和删除图标均置灰且不可点击。鼠标 hover 任一置灰图标时显示 tooltip：`当前模板正在编辑中，请先保存或取消编辑`。
 
 本阶段只处理鼠标 hover，不扩展 `:focus-within`、触屏点击或其他可用性入口。
 
@@ -182,7 +182,7 @@ packages/app/public/studio/studio_template_edit.svg
 
 - 弹窗宽 `400px`、高约 `162px`，白色背景，圆角 `8px`，带投影。
 - 左侧显示蓝色信息图标。
-- 标题为 `确定删除 “${template.title}” 模版吗？`。
+- 标题为 `确定删除 “${template.title}” 模板吗？`。
 - 说明为“删除操作无法撤回，请慎重选择”。
 - 底部右侧显示“取消”和“确认”两个按钮，按钮宽 `88px`、高 `32px`。
 - “取消”为次按钮，“确认”为蓝色主按钮。
@@ -479,7 +479,7 @@ const canSave = createMemo(() =>
 
 对应规则不变：
 
-- 标题长度为 5～10 字。
+- 标题长度为 2～10 字。
 - 预设灵感配方必须有玩法描述，固定参考图最多 3 张。
 - 提取视觉风格必须有 3～30 张风格图、风格概览，总描述不超过 700 字。
 - 使用说明必填。
@@ -904,7 +904,7 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 - [ ] 鼠标移出后操作图标隐藏。
 - [ ] 点击编辑、删除不会触发选择模板。
 - [ ] 当前正在编辑的模板 hover 时编辑、删除图标置灰且不可点击。
-- [ ] hover 置灰图标时显示“当前模版正在编辑中，请先保存或取消编辑”。
+- [ ] hover 置灰图标时显示“当前模板正在编辑中，请先保存或取消编辑”。
 - [ ] 点击卡片其他区域仍可正常选择模板。
 - [ ] 编辑、删除图标从 `/studio/` 静态资源路径加载，不包含外部或临时 URL。
 - [ ] 缺失的编辑图标已保存到 `packages/app/public/studio`。
