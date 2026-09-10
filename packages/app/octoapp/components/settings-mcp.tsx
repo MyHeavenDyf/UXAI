@@ -5,11 +5,12 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useQueryClient } from "@tanstack/solid-query"
-import { createMemo, createSignal, For, Show, type Component, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { mcpQueryKey, useGlobalSync } from "@/context/global-sync"
+import { directoryKey } from "@/context/global-sync/utils"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { Link } from "@/components/link"
 import { DialogMcpForm } from "./dialog-mcp-form"
@@ -151,6 +152,18 @@ export const SettingsMcp: Component = () => {
     const [store] = globalSync.peek(dir, { bootstrap: false })
     return store.mcp[name]
   }
+
+  // 服务端仅在成功拉取工具时发布 mcp.tools.changed,连接失败不发事件;查询默认只在窗口
+  // 聚焦/显式失效时刷新,否则状态会冻结在启动快照的「连接中」。设置页打开期间轮询失效。
+  // 注意:child store 的查询 key 是 directoryKey 规范化路径(Windows 反斜杠→正斜杠),
+  // invalidate 必须用同一形态,否则 key 不匹配、失效空转。
+  createEffect(() => {
+    const timer = setInterval(() => {
+      const dir = projectDir()
+      if (dir) void queryClient.invalidateQueries({ queryKey: mcpQueryKey(directoryKey(dir)) })
+    }, 3000)
+    onCleanup(() => clearInterval(timer))
+  })
   const statusLabel = (name: string) => {
     const status = statusOf(name)?.status
     const key = status ? statusLabels[status as keyof typeof statusLabels] : undefined
@@ -170,7 +183,7 @@ export const SettingsMcp: Component = () => {
     await globalSDK.client.global.dispose()
     await queryClient.invalidateQueries({ queryKey: ["config"] })
     const dir = projectDir()
-    if (dir) void queryClient.invalidateQueries({ queryKey: mcpQueryKey(dir) })
+    if (dir) void queryClient.invalidateQueries({ queryKey: mcpQueryKey(directoryKey(dir)) })
   }
 
   const withPending = async (name: string, task: () => Promise<void>) => {
