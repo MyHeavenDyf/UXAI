@@ -185,7 +185,14 @@ export async function fetchIconInfo(params: IconSearchParams): Promise<Result<Ic
   const icons = (r.data ?? [])
     .flatMap(g => g?.icons ?? [])
     .map(i => ({ ...i, icon_id: (i as { id?: string }).id ?? i.icon_id ?? i.name }))
-  return { success: true, data: icons }
+  // 批量关键词搜索时同一图标可能被多个关键词命中，按 icon_id 去重（先出现的保留）
+  const seen = new Set<string>()
+  const deduped = icons.filter(i => {
+    if (seen.has(i.icon_id)) return false
+    seen.add(i.icon_id)
+    return true
+  })
+  return { success: true, data: deduped }
 }
 
 /** 5. 根据 url 批量获取图标内容，按输入 url 索引回填（批量返回假定顺序与输入一致，联调校准） */
