@@ -2,9 +2,9 @@
 
 ## 1. 文档状态
 
-- 当前阶段：需求分析完成，尚未进入代码实现。
-- 文档用途：记录 Studio“我的模板”列表中的编辑、删除入口，以及右侧“制作模板”编辑工作区的实现方案、状态设计、组件改造、文件范围和验收标准。
-- 最后更新：2026-09-07。
+- 当前阶段：已完成代码实现，并补充支持多个模板同时打开编辑 tab。
+- 文档用途：记录 Studio“我的模板”列表中的编辑、删除入口，以及右侧多模板编辑工作区的实现方案、状态设计、组件改造、文件范围和验收标准。
+- 最后更新：2026-09-09。
 - 关联前置：
   - `packages/app/octoapp/pages/studio/docs/studio-image-template-implementation-plan.md`：风格模板入口、浮窗和创建模板 tab。
   - `packages/app/octoapp/pages/studio/docs/studio-style-template-list-implementation-plan.md`：创意广场、我的模板和分页列表。
@@ -23,7 +23,7 @@
 
 1. 仅在风格模板浮窗的“我的模板”tab 中，为模板卡片增加 hover 操作。
 2. 鼠标 hover 模板封面时显示编辑和删除图标。
-3. 点击编辑后关闭风格模板浮窗，在右侧工作区打开标题为“制作模板”的 tab。
+3. 点击编辑后关闭风格模板浮窗，在右侧工作区打开标题为“编辑模板-{模板标题}”的 tab。
 4. 编辑内容和现有创建模板内容一致，但不再拆为三个步骤，所有内容在同一滚动页面中展示。
 5. 原三步骤进度条不在编辑模式中显示，改为普通内容标题和分区标题。
 6. 编辑页底部固定显示“取消”和“保存”按钮。
@@ -32,40 +32,46 @@
 9. 编辑保存通过 Studio 本地代理调用供应商模板更新接口。
 10. 点击删除图标后显示带背景遮罩的确认弹窗。
 11. 用户确认后通过 Studio 本地代理调用供应商模板删除接口。
+12. 支持同时打开多个不同模板的编辑 tab，各 tab 独立保留表单状态。
 
 ### 2.2 本次不包含
 
 1. “创意广场”中的编辑、删除入口。
 2. 非 hover 场景下的操作入口，包括键盘 focus、触屏、右键菜单、更多菜单和常驻按钮。
 3. 未保存修改的离开确认。
-4. 多个模板编辑 tab；模板工作区仍保持单例。
 
 ## 3. 核心结论
 
 现有 `StudioTemplateCreator` 已经包含完整的字段状态、两种模板类型、图片上传、风格描述生成、指定用户搜索和三段校验逻辑。编辑功能不应复制一套表单，而应把该组件扩展为“创建模式”和“编辑模式”。
 
-推荐页面级状态：
+页面级状态使用工作区数组和当前激活 key：
 
 ```ts
 type StudioTemplateWorkspace =
   | {
+      key: string
       mode: "create"
     }
   | {
+      key: string
       mode: "edit"
       templateID: number
+      templateTitle: string
       initialValue?: StudioStyleTemplateListItem
       loading: boolean
     }
+
+const [templateWorkspaces, setTemplateWorkspaces] = createSignal<StudioTemplateWorkspace[]>([])
+const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal<string>()
 ```
 
-使用 `StudioTemplateWorkspace | undefined` 替代当前只能表示开关的 `templateCreatorTabOpen`：
+工作区 key 规则：
 
-- `undefined`：模板工作区关闭。
-- `{ mode: "create" }`：保持现有“创建模板”tab 和三步流程。
-- `{ mode: "edit", ... }`：显示“制作模板”tab 和单页编辑表单。
+- 创建 tab：`template:create`，最多一个。
+- 编辑 tab：`template:edit:${templateID}`，每个模板最多一个。
+- `activeTemplateWorkspaceKey` 指向当前展示的工作区。
 
-这样可以让 tab 文案、内容布局、底部按钮和提交行为由明确的模式驱动，避免增加多个彼此关联的布尔状态。
+数组负责保持 tab 顺序并让不同编辑器实例同时挂载；active key 只控制显示，不销毁未激活模板的表单状态。
 
 ## 4. 我的模板 Hover 操作
 
@@ -80,6 +86,8 @@ type StudioTemplateWorkspace =
 ```
 
 “创意广场”卡片保持现状，不增加编辑和删除 DOM，也不预留不可见按钮。
+
+如果卡片对应模板已经存在于任一右侧编辑 tab，hover 操作层仍然显示，但编辑和删除图标均置灰且不可点击。鼠标 hover 任一置灰图标时显示 tooltip：`当前模版正在编辑中，请先保存或取消编辑`。
 
 本阶段只处理鼠标 hover，不扩展 `:focus-within`、触屏点击或其他可用性入口。
 
@@ -144,8 +152,8 @@ packages/app/public/studio/studio_template_edit.svg
 ```text
 点击编辑图标
   -> 关闭风格模板浮窗
-  -> 将模板工作区切换为 edit
-  -> 打开并激活右侧“制作模板”tab
+  -> 按模板 ID 查找或创建 edit 工作区
+  -> 打开并激活右侧“编辑模板-{模板标题}”tab
   -> 展示编辑加载态
   -> 获取模板详情
   -> 使用详情初始化表单
@@ -194,13 +202,13 @@ packages/app/public/studio/studio_template_edit.svg
 - 用户确认后进入删除中状态，“确认”按钮显示“删除中...”并禁用两个按钮，防止重复请求。
 - 删除失败时保持弹窗和卡片，恢复按钮，并显示错误提示。
 - 删除成功后关闭弹窗，通过列表刷新版本重新请求“我的模板”第一页，而不是由页面层直接修改菜单内部数组。
-- 如果被删除模板正处于右侧编辑状态，删除成功后关闭“制作模板”tab。
+- 正处于右侧编辑状态的模板不能发起删除；菜单层禁用入口，页面层按模板 ID 再次拦截。
 - 如果被删除模板正被 Composer 选中，删除成功后清除当前模板选择和相关草稿状态。
 - 删除请求使用 `DELETE /image_template/${templateID}?user_id=${user_id}`，具体调用链见第 10.4 节。
 
 ## 5. 页面级模板工作区状态
 
-### 5.1 替换布尔开关
+### 5.1 多工作区状态
 
 `studio-page.tsx` 当前使用：
 
@@ -208,56 +216,62 @@ packages/app/public/studio/studio_template_edit.svg
 const [templateCreatorTabOpen, setTemplateCreatorTabOpen] = createSignal(false)
 ```
 
-需要改为能够表达模式和编辑对象的状态，例如：
+改为能够同时表达多个模式和编辑对象的状态：
 
 ```ts
-const [templateWorkspace, setTemplateWorkspace] = createSignal<StudioTemplateWorkspace>()
+const [templateWorkspaces, setTemplateWorkspaces] = createSignal<StudioTemplateWorkspace[]>([])
+const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal<string>()
 ```
 
 派生状态：
 
 ```ts
-const templateCreatorTabOpen = () => Boolean(templateWorkspace())
-const templateWorkspaceMode = () => templateWorkspace()?.mode
-const templateWorkspaceLabel = () =>
-  templateWorkspaceMode() === "edit" ? "制作模板" : "创建模板"
+const templateCreatorTabOpen = () => templateWorkspaces().length > 0
+const editingStyleTemplateIDs = () => templateWorkspaces()
+  .flatMap((workspace) => workspace.mode === "edit" ? [workspace.templateID] : [])
 ```
 
-现有所有关于“模板 tab 是否打开”的 canvas 门控可以继续使用派生的 `templateCreatorTabOpen()`，减少对其他工作区逻辑的影响。
+现有关于“模板 tab 是否打开”的 canvas 门控继续使用派生的 `templateCreatorTabOpen()`；左侧列表使用 `editingStyleTemplateIDs()` 禁用所有已打开模板的编辑、删除入口。
 
 ### 5.2 打开创建模式
 
-现有 `openTemplateCreator()` 行为基本保留，只需明确写入创建模式：
+现有 `openTemplateCreator()` 保留创建工作区语义：
 
 ```ts
-setTemplateWorkspace({ mode: "create" })
+setTemplateWorkspaces((current) => [
+  ...current,
+  { key: "template:create", mode: "create" },
+])
 ```
 
 重复点击“创建模板”时：
 
 - 如果已经处于创建模式，只激活现有 tab。
-- 如果正在编辑模板，则切换成全新的创建模式并重置表单。
+- 如果存在编辑 tab，不关闭或替换它们，只激活创建 tab。
 
 ### 5.3 打开编辑模式
 
-新增页面级 `openTemplateEditor(templateID)`：
+页面级 `openTemplateEditor(template)`：
 
 1. 关闭 `openMenu`。
-2. 写入 edit loading 状态。
-3. 打开 Studio workspace，保持现有小屏 overlay 逻辑。
-4. 调用现有模板详情查询。
-5. 请求成功后写入 `initialValue` 并结束 loading。
-6. 请求失败时写入错误状态或关闭工作区并提示。
+2. 按 `template:edit:${templateID}` 查找已有工作区；已存在时直接激活，不重复创建。
+3. 不存在时追加 edit loading 工作区。
+4. 打开 Studio workspace，保持现有小屏 overlay 逻辑。
+5. 调用现有模板详情查询。
+6. 请求成功后只更新对应 key 的 `initialValue` 并结束 loading。
+7. 请求失败时只写入对应工作区的错误状态。
 
 ### 5.4 关闭行为
 
-现有 `closeTemplateCreator()` 可重命名为更通用的 `closeTemplateWorkspace()`：
+关闭方法接收工作区 key：
 
 - 创建 tab 的关闭图标调用它。
 - 编辑 tab 的关闭图标调用它。
 - 编辑页“取消”按钮调用它。
-- 关闭后恢复 canvas、文件管理或空白 Studio 的现有优先级逻辑不变。
-- 关闭时编辑表单组件应卸载，终止进行中的风格描述生成和保存请求状态。
+- 关闭非激活 tab 时，当前视图保持不变。
+- 关闭激活 tab 时，优先激活相邻模板 tab。
+- 只在最后一个模板工作区关闭后，才恢复 canvas、文件管理或空白 Studio，现有优先级逻辑不变。
+- 关闭时仅卸载对应表单，并使该模板仍在进行的详情请求失效。
 
 ## 6. Tab 与右侧内容
 
@@ -268,9 +282,9 @@ setTemplateWorkspace({ mode: "create" })
 | 模式 | tab 文案 | 关闭按钮提示 |
 |---|---|---|
 | 创建 | 创建模板 | 关闭创建模板 |
-| 编辑 | 制作模板 | 关闭制作模板 |
+| 编辑 | 编辑模板-{模板标题} | 关闭编辑模板-{模板标题} |
 
-tab 仍为单例，不为不同模板创建多个 tab。
+不同模板拥有独立 tab；同一模板重复打开时只激活已有 tab。
 
 ### 6.2 加载状态
 
@@ -285,7 +299,7 @@ tab 仍为单例，不为不同模板创建多个 tab。
 
 ### 6.3 表单实例隔离
 
-编辑不同模板或从编辑切换到创建时，需要按模式和模板 ID 重建 `StudioTemplateCreator`：
+不同模板和创建模式分别持有独立的 `StudioTemplateCreator`：
 
 ```text
 create
@@ -293,7 +307,7 @@ edit:template-a
 edit:template-b
 ```
 
-可使用 keyed 渲染或把完整 reset 逻辑集中到初始化 effect。优先 keyed 重建，避免以下状态从上一实例泄漏：
+所有工作区通过 keyed 列表同时渲染，非激活实例使用 CSS 隐藏但不卸载，以保留各自未保存内容；关闭对应 tab 时才销毁实例。这样可避免以下状态在模板间泄漏：
 
 - 图片上传错误提示。
 - 风格描述流式生成阶段和输出。
@@ -483,7 +497,7 @@ const canSave = createMemo(() =>
   -> 在请求体中增加 idx，值为当前 templateID
   -> 调用 Studio 模板更新接口
   -> 成功提示
-  -> 关闭“制作模板”tab
+  -> 只关闭当前模板对应的编辑 tab
 ```
 
 状态要求：
@@ -496,7 +510,7 @@ const canSave = createMemo(() =>
 
 ### 8.4 取消行为
 
-- 点击“取消”直接关闭“制作模板”tab。
+- 点击“取消”直接关闭当前模板对应的编辑 tab。
 - 不保存当前修改。
 - 不弹未保存确认。
 - 关闭后恢复原 canvas、文件管理或 Studio 空白状态，沿用现有关闭创建模板 tab 的逻辑。
@@ -533,16 +547,17 @@ styleTemplateListRevision?: number
 
 ### 9.3 StudioResultCanvas
 
-把只支持创建的 props 扩展为工作区语义：
+把只支持创建的 props 扩展为多工作区语义：
 
 ```ts
-templateWorkspace?: StudioTemplateWorkspace
-onTemplateWorkspaceClick: () => void
-onTemplateWorkspaceClose: () => void
+templateWorkspaces: readonly StudioTemplateWorkspace[]
+activeTemplateWorkspaceKey?: string
+onTemplateWorkspaceClick: (key: string) => void
+onTemplateWorkspaceClose: (key: string) => void
 onSaveTemplate?: (...) => Promise<void>
 ```
 
-也可以保留现有 prop 名以减少修改，但至少需要新增 mode、label、initialValue、onCancel 和 onSave。
+每个 tab 和内容面板都通过 workspace key 激活或关闭，编辑 tab 文案由 `templateTitle` 生成。
 
 ### 9.4 StudioTemplateCreator
 
@@ -652,8 +667,8 @@ async function saveStudioStyleTemplate(
 保存成功后：
 
 - 显示“模板保存成功”。
-- 关闭“制作模板”tab。
-- 清理当前编辑工作区状态。
+- 只关闭本次保存模板对应的“编辑模板-{模板标题}”tab。
+- 其他模板编辑 tab 及其未保存内容保持不变。
 - 后续重新打开“我的模板”时按现有列表逻辑重新查询。
 
 保存失败后：
@@ -733,7 +748,7 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 2. 点击取消时清空 `pendingDeleteTemplate`。
 3. 点击确认时使用 `pendingDeleteTemplate().idx` 调用删除方法。
 4. 请求过程中保持待删除模板不变并设置 `templateDeleting(true)`。
-5. 成功后清空待删除模板、递增 `styleTemplateListRevision`，并处理已选择或正在编辑的同一模板。
+5. 成功后清空待删除模板、递增 `styleTemplateListRevision`，并处理已选择的同一模板。
 6. 失败后保留待删除模板和弹窗，显示错误并恢复按钮。
 7. 无论成功或失败，都在请求结束时解除删除中状态。
 
@@ -744,6 +759,7 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 #### `packages/app/octoapp/pages/studio/studio-style-template-menu.tsx`
 
 - 为 props 增加编辑和删除回调。
+- 增加当前编辑模板 ID 列表，匹配任一已打开模板的编辑、删除按钮置灰并展示 tooltip。
 - 调整卡片 DOM，避免 button 嵌套。
 - 仅在“我的模板”渲染 hover 操作层。
 - 点击删除时把待删除模板交给页面层，不在菜单组件内渲染弹窗。
@@ -757,7 +773,7 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 
 #### `packages/app/octoapp/pages/studio-page.tsx`
 
-- 用可区分 create/edit 的工作区状态替换单一 boolean。
+- 用工作区数组和 active key 管理创建 tab 与多个编辑 tab。
 - 新增打开编辑、加载详情、取消、编辑保存和删除处理。
 - 继续复用现有模板详情查询。
 - 保存时组装 `idx`、`creator_user_id` 和 `user_id`，调用 Studio 本地模板更新路由。
@@ -766,15 +782,15 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 - 用户确认后调用 Studio 本地模板删除路由。
 - 保存或删除成功后的页面状态清理。
 - 向页面内两处 `StudioComposer` 传递相同回调。
-- 向 `StudioResultCanvas` 传递工作区模式和编辑初始值。
+- 向 `StudioResultCanvas` 传递全部工作区、当前 active key 和编辑初始值。
 
 #### `packages/app/octoapp/pages/studio/studio-conversation.tsx`
 
-- 根据 create/edit 模式显示“创建模板”或“制作模板”。
+- 根据 create/edit 模式显示“创建模板”或“编辑模板-{模板标题}”。
 - 动态设置关闭按钮提示。
 - 编辑详情加载时显示 loading。
 - 向 `StudioTemplateCreator` 传递 mode、initialValue、templateID、onCancel 和 onSaveTemplate。
-- 按模式和模板 ID 隔离表单实例。
+- 同时挂载多个模板工作区，仅显示 active key 对应实例，按模板 ID 隔离并保留表单状态。
 
 #### `packages/app/octoapp/pages/studio/studio-template-creator.tsx`
 
@@ -887,6 +903,8 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 - [ ] 鼠标 hover 我的模板封面时显示编辑、删除图标。
 - [ ] 鼠标移出后操作图标隐藏。
 - [ ] 点击编辑、删除不会触发选择模板。
+- [ ] 当前正在编辑的模板 hover 时编辑、删除图标置灰且不可点击。
+- [ ] hover 置灰图标时显示“当前模版正在编辑中，请先保存或取消编辑”。
 - [ ] 点击卡片其他区域仍可正常选择模板。
 - [ ] 编辑、删除图标从 `/studio/` 静态资源路径加载，不包含外部或临时 URL。
 - [ ] 缺失的编辑图标已保存到 `packages/app/public/studio`。
@@ -895,8 +913,12 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 ### 13.2 编辑工作区
 
 - [ ] 点击编辑后关闭风格模板浮窗。
-- [ ] 右侧打开并激活“制作模板”tab。
-- [ ] tab 关闭提示为“关闭制作模板”。
+- [ ] 右侧打开并激活“编辑模板-{模板标题}”tab。
+- [ ] tab 关闭提示包含模板标题。
+- [ ] 可同时打开多个不同模板的编辑 tab。
+- [ ] 同一模板不会重复创建 tab，重复打开时激活已有 tab。
+- [ ] 切换编辑 tab 后，各自未保存表单内容仍然保留且互不串联。
+- [ ] 关闭激活 tab 后自动激活相邻 tab；关闭非激活 tab 不改变当前视图。
 - [ ] 详情加载期间显示 loading，不显示空表单。
 - [ ] 两种模板类型均能正确回填对应字段和图片。
 - [ ] 编辑页不显示三步骤进度条。
@@ -913,9 +935,8 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 - [ ] 保存请求使用 PUT，并调用 `/image_template/${templateID}?user_id=${user_id}` 对应的本地代理链路。
 - [ ] 保存请求体与创建参数一致，并额外包含 `idx: templateID`。
 - [ ] path 中的模板 ID 与 body `idx` 不一致时不调用供应商接口。
-- [ ] 保存成功后关闭编辑 tab，保存失败时保留表单。
-- [ ] 从模板 A 切换编辑模板 B 时没有表单状态串联。
-- [ ] 从编辑模式切换到创建模式时创建表单为空白初始状态。
+- [ ] 保存成功后只关闭对应编辑 tab，其他 tab 不受影响；保存失败时保留对应表单。
+- [ ] 创建 tab 与各编辑 tab 的表单状态相互隔离。
 
 ### 13.4 删除确认与请求
 
@@ -931,7 +952,7 @@ const [styleTemplateListRevision, setStyleTemplateListRevision] = createSignal(0
 - [ ] 删除成功后关闭弹窗并刷新“我的模板”第一页。
 - [ ] 删除失败后保留弹窗和模板卡片，并显示错误提示。
 - [ ] 删除当前选中模板后清理 Composer 模板状态。
-- [ ] 删除当前正在编辑的模板后关闭“制作模板”tab。
+- [ ] 当前正在编辑的模板不能打开删除确认弹窗，也不会发出 DELETE 请求。
 
 ### 13.5 回归
 

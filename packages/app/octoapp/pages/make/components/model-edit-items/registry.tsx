@@ -92,7 +92,7 @@ const LINK_GROUP: ConfigGroup = {
 export function getDefaultNativeConfig(kind: ManualEditKind, isLayoutContainer?: boolean): ConfigGroup[] {
   switch (kind) {
     case 'text':
-      return [TYPOGRAPHY_GROUP]
+      return [TEXT_GROUP, TYPOGRAPHY_GROUP]
     case 'link':
       return [LINK_GROUP, TYPOGRAPHY_GROUP]
     case 'image':

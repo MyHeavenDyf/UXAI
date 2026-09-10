@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show, For, onCleanup, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import type { ConfigGroup, ModelEditElement } from '../model-edit-items/types'
+import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs } from '../model-edit-items/types'
 import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import { renderConfigItem, checkKeyConflicts } from '../model-edit-items/registry'
 import './manual-edit-panel.css'
@@ -9,15 +9,17 @@ import './model-edit-panel.css'
 export function ModelEditPanel(props: {
   element: ModelEditElement | null
   config: ConfigGroup[]
-  panelData: Record<string, string>
+  panelData: Record<string, any>
   panelTitle: string
   panelInfo: string
   filePath: string
   disabled?: boolean
   onSubmitStart?: () => void
   colors?: ColorToken[]
-  onSave: (current: Record<string, string>) => Promise<void> | void
-  onDelete: () => Promise<void> | void
+  onChange?: (args: OnChangeArgs) => void
+  context?: ModelEditContext
+  onSave: (current: Record<string, any>) => Promise<boolean | void>
+  onDelete: () => Promise<boolean | void>
   onExit: () => void
   floatingStyle?: { left: number; top: number }
   onFloatingPositionChange?: (pos: { left: number; top: number }) => void
@@ -156,9 +158,13 @@ export function ModelEditPanel(props: {
   const handleSave = async () => {
     if (isDisabled()) return
     setSubmitting(true)
-    props.onSubmitStart?.()
     try {
-      await props.onSave({ ...values })
+      const result = await props.onSave({ ...values })
+      if (result === true) {
+        props.onExit?.()
+      } else if (result !== false) {
+        props.onSubmitStart?.()
+      }
     } finally {
       setSubmitting(false)
     }
@@ -167,9 +173,13 @@ export function ModelEditPanel(props: {
   const handleDelete = async () => {
     if (isDisabled()) return
     setSubmitting(true)
-    props.onSubmitStart?.()
     try {
-      await props.onDelete()
+      const result = await props.onDelete()
+      if (result === true) {
+        props.onExit?.()
+      } else if (result !== false) {
+        props.onSubmitStart?.()
+      }
     } finally {
       setSubmitting(false)
     }
@@ -178,8 +188,12 @@ export function ModelEditPanel(props: {
 
   const itemValue = (key: string) => () => values[key] ?? ''
 
-  const itemOnChange = (key: string) => (v: string) => {
+  const itemOnChange = (key: string) => (v: any) => {
+    const prev = values[key]
     setValues(key, v)
+    if (props.onChange && props.context) {
+      props.onChange({ ...props.context, key, value: v, prev })
+    }
   }
 
   return (

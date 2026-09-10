@@ -16,7 +16,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       const connected = yield* provider.list()
       const hasAuth = (p: Provider.Info) =>
-        p.id === "w3" ||
+        p.source === "remote" ||
         Boolean(p.key) ||
         p.source === "env" ||
         p.source === "api" ||

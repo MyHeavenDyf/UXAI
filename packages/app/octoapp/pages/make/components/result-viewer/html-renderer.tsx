@@ -13,7 +13,7 @@ import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
 import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
-import type { ModelEditElement, ModelEditConfig, ConfigGroup } from "../model-edit-items/types"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
 import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
 import { HUI_COLOR_TOKENS } from "../../../pattern/modules/preview/property-editor-popup/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
@@ -165,8 +165,8 @@ export function HtmlRenderer(props: {
   editing?: boolean
   modelEditing?: boolean
   modelEditConfig?: ModelEditConfig
-  onModelEditSave?: (element: ModelEditElement, prev: Record<string, string>, current: Record<string, string>) => Promise<void>
-  onModelEditDelete?: (element: ModelEditElement) => Promise<void>
+  onModelEditSave?: (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: ModelEditContext) => Promise<boolean | void>
+  onModelEditDelete?: (element: ModelEditElement, ctx: ModelEditContext) => Promise<boolean | void>
   drawing?: boolean
   commenting?: boolean
   archiving?: boolean
@@ -237,6 +237,22 @@ export function HtmlRenderer(props: {
   const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
   const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
   const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
+  const modelEditContext = createMemo((): ModelEditContext | undefined => {
+    const target = modelEditTarget()
+    if (!target) return undefined
+    return {
+      dom: target,
+      filePath: props.filePath || '',
+      type: target.componentType || target.htmlType || 'default',
+      postMessageToIframe: (data: unknown) => iframeRef?.contentWindow?.postMessage(data, '*'),
+      getIframeSnapshot: () => getIframeSnapshot(),
+      onContentChange: (content: string) => props.onContentChange?.(content) ?? Promise.resolve(),
+      onRefreshNeeded: () => props.onRefreshNeeded?.(),
+      cleanBridgeContent: (html: string) => cleanBridgeContent(html),
+      applyPatch: (html: string, patch: ManualEditPatch) => applyManualEditPatch(html, patch),
+      wrapHtmlContent: (html: string) => wrapHtmlContent(html, props.content),
+    }
+  })
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
     elementId: string | null
@@ -2021,18 +2037,22 @@ onFloatingPositionChange={setEditPanelPosition}
               filePath={props.filePath || ''}
               disabled={props.disabled}
               colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
+              onChange={props.modelEditConfig?.onChange}
+              context={modelEditContext()}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {
                 const target = modelEditTarget()
-                if (target) {
-                  await props.onModelEditSave?.(target, modelEditPrevData(), current)
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditSave?.(target, modelEditPrevData(), current, ctx) ?? undefined
                 }
               }}
               onDelete={async () => {
                 const target = modelEditTarget()
-                if (target) {
-                  await props.onModelEditDelete?.(target)
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditDelete?.(target, ctx) ?? undefined
                 }
               }}
               onExit={() => {

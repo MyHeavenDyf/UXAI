@@ -90,8 +90,8 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: { enabled: true, editOnly: true },
-      modelEdit: false,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
       drawEdit: false,
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
@@ -113,8 +113,8 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: { enabled: true, editOnly: true },
-      modelEdit: false,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
       drawEdit: { enabled: true, editOnly: true },
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
@@ -129,6 +129,26 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
   },
 
   demo: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: { enabled: true, editOnly: true },
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: { enabled: true, editOnly: true },
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+    },
+  },
+
+  demoedit: {
     features: {
       refresh: true,
       modeToggle: true,
