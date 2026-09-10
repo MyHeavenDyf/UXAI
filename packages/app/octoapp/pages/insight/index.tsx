@@ -2174,7 +2174,7 @@ function InsightContent() {
       .filter((file): file is File => Boolean(file))
     if (files.length === 0) return
     e.preventDefault()
-    addAttachments(files, "paste")
+    request(() => addAttachments(files, "paste"))
   }
 
   async function handleOpenResult(card: OutputCard) {
