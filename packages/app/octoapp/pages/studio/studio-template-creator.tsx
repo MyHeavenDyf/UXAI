@@ -79,10 +79,12 @@ export type StudioTemplateEditableValue = StudioTemplatePublishInput & {
 }
 
 export type StudioTemplateWorkspace =
-  | { mode: "create" }
+  | { key: string; mode: "create" }
   | {
+      key: string
       mode: "edit"
       templateID: number
+      templateTitle: string
       initialValue?: StudioTemplateEditableValue
       loading: boolean
       error?: string
@@ -745,14 +747,16 @@ function StyleDescriptionSection(props: {
           {props.styleDescriptionGenerateTip}
         </div>
         <Show when={props.showStyleDescriptionThinking}>
-          <div
-            ref={(element) => {
+          <ScrollView
+            class="studio-template-creator-thinking"
+            viewportRef={(element) => {
               thinkingRef = element
             }}
-            class="studio-template-creator-thinking"
           >
-            {props.styleDescriptionThinking}
-          </div>
+            <div class="studio-template-creator-thinking-content">
+              {props.styleDescriptionThinking}
+            </div>
+          </ScrollView>
         </Show>
       </div>
       <div class="studio-template-creator-description-panel">
