@@ -107,8 +107,8 @@ export function UpdateChecker() {
     setPending(undefined)
     entry += 1
     clearTimeout(startupPrompt)
-    scheduleNextPrompt()
-    showUpdate(update.version, update.releaseNotes)
+    clearTimeout(nextPrompt)
+    showUpdate(update.version, update.releaseNotes, scheduleNextPrompt)
   })
 
   onMount(() => {
@@ -130,7 +130,7 @@ export function UpdateChecker() {
     enter()
     scheduleNextPrompt()
     const unsubscribe = platform.onResume?.(() => void check())
-    window.addEventListener("focus", enter)
+    const unsubscribeReopen = platform.onReopen?.(enter)
     const open = () => {
       const update = availableUpdate()
       if (update) setPending(update)
@@ -142,7 +142,7 @@ export function UpdateChecker() {
       clearTimeout(startupPrompt)
       clearTimeout(nextPrompt)
       unsubscribe?.()
-      window.removeEventListener("focus", enter)
+      unsubscribeReopen?.()
       dialogRequests.removeEventListener("open", open)
     })
   })

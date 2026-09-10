@@ -9,7 +9,7 @@ export function UpdateButton() {
       <button
         type="button"
         title="打开更新"
-        class="absolute right-[12px] top-[8px] z-[1] flex h-[20px] items-center justify-center rounded-full border-0 bg-[#2070F3] px-[12px] text-[12px] font-normal leading-[20px] !text-white"
+        class="absolute right-[27px] top-[8px] z-[1] flex h-[20px] items-center justify-center rounded-full border-0 bg-[#2070F3] px-[12px] text-[12px] font-normal leading-[20px] !text-white"
         style={{ color: "#FFFFFF" }}
         onClick={() => available.open()}
       >
