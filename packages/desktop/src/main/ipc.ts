@@ -9,6 +9,7 @@ import { dirname, extname, join, basename, resolve as resolvePath, sep } from "n
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
+import { applyEdits, modify } from "jsonc-parser"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import log from "electron-log/main.js"
@@ -1057,6 +1058,59 @@ export function registerIpcHandlers(deps: Deps) {
       await shell.openPath(octoSkillDir)
     }
   })
+
+  // ── 设置-MCP 页:编辑全局配置文件的 mcp 段 ──────────────────────────────
+  // jsonc modify/applyEdits 保留注释(先例 cli/cmd/mcp.ts addMcpToConfig)。
+  // 内置 MCP 名单与服务端 builtin-mcp.ts BUILTIN_MCP_KEYS 同步,内置条目不经此通道管理。
+  // 写入后由 renderer 调 global.dispose 重建实例重读配置(见 packages/app settings-mcp.tsx)。
+  const BUILTIN_MCP_KEYS = new Set(["uxr-tool", "pixso"])
+
+  // 复刻 opencode config.ts globalConfigFile():先 ~/.config/octo 后 ~/.config/opencode,
+  // 目录内 octo.json > octo.jsonc > opencode.json > opencode.jsonc > config.json,默认前者 octo.json。
+  function globalMcpConfigFile() {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+    const names = ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc", "config.json"]
+    for (const dir of [join(xdgConfig, "octo"), join(xdgConfig, "opencode")]) {
+      for (const name of names) {
+        const file = join(dir, name)
+        if (existsSync(file)) return file
+      }
+    }
+    return join(xdgConfig, "octo", names[0])
+  }
+
+  ipcMain.handle(
+    "mcp-config-write",
+    (
+      _event: IpcMainInvokeEvent,
+      arg: { op: "set" | "remove"; name: string; value?: Record<string, unknown> },
+    ) => {
+      try {
+        if (!/^[a-zA-Z0-9_-]+$/.test(arg.name)) {
+          throw new Error(`Invalid MCP server name: ${arg.name}`)
+        }
+        if (BUILTIN_MCP_KEYS.has(arg.name)) {
+          throw new Error(`Built-in MCP server "${arg.name}" is managed by octo and cannot be modified`)
+        }
+        if (arg.op === "set" && (!arg.value || typeof arg.value !== "object" || Array.isArray(arg.value))) {
+          throw new Error("MCP config value must be an object")
+        }
+        const file = globalMcpConfigFile()
+        let text = "{}"
+        if (existsSync(file)) text = readFileSync(file, "utf-8")
+        // jsonc-parser 约定:value 传 undefined 即删除该 key
+        const edits = modify(text, ["mcp", arg.name], arg.op === "set" ? arg.value : undefined, {
+          formattingOptions: { tabSize: 2, insertSpaces: true },
+        })
+        const result = applyEdits(text, edits)
+        mkdirSync(dirname(file), { recursive: true })
+        writeFileSync(file, result, "utf-8")
+      } catch (err) {
+        console.error("mcp-config-write failed", err)
+        throw new Error(`Failed to write MCP config: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+  )
 
   ipcMain.handle("html-to-pdf", async (_event: IpcMainInvokeEvent, html: string) => {
     const win = new BrowserWindow({

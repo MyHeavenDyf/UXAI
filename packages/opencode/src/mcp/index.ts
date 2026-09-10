@@ -382,6 +382,7 @@ export const layer = Layer.effect(
         url: url.href,
         proxy: mcp.proxy,
         proxyMode,
+        transport: mcp.transport ?? "auto",
         timeout: mcp.timeout ?? DEFAULT_TIMEOUT,
         oauth: !oauthDisabled,
         headerKeys: mcp.headers ? Object.keys(mcp.headers) : [],
@@ -426,7 +427,7 @@ export const layer = Layer.effect(
             fetch: fetchFn,
           }),
         },
-      ]
+      ].filter((t) => !mcp.transport || t.name === (mcp.transport === "sse" ? "SSE" : "StreamableHTTP"))
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
       let lastStatus: Status | undefined

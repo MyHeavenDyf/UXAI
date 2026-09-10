@@ -6,6 +6,7 @@ import { useLanguage } from "@/context/language"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
+import { SettingsMcp } from "./settings-mcp"
 
 // ── Dialog drag-to-move support ──
 // The settings dialog is a centered modal portaled to document.body. There is no
@@ -292,6 +293,16 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                 />
                 {language.t("settings.models.title")}
               </TabsTrigger>
+              <TabsTrigger value="mcp" style={triggerStyle}>
+                <div
+                  style={{
+                    ...iconBase,
+                    "mask-image": "url(/setting/mcpIcon.svg)",
+                    "-webkit-mask-image": "url(/setting/mcpIcon.svg)",
+                  }}
+                />
+                {language.t("settings.mcp.title")}
+              </TabsTrigger>
             </div>
             <div
               style={{
@@ -320,6 +331,9 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}
           >
             <SettingsModels />
+          </TabsContent>
+          <TabsContent value="mcp" style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "auto", padding: "8px 20px" }}>
+            <SettingsMcp />
           </TabsContent>
         </TabsRoot>
       </div>

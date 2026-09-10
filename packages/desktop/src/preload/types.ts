@@ -41,6 +41,12 @@ export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
   | { success: false; error: string }
 
+// 设置-MCP 页写操作:直改全局配置文件的 mcp 段(local/remote 条目,字段见 opencode ConfigMCP schema)。
+// 内置名单(uxr-tool/pixso)主进程拒改;生效需 renderer 随后调 global.dispose 重建实例。
+export type McpConfigWriteInput =
+  | { op: "set"; name: string; value: Record<string, unknown> }
+  | { op: "remove"; name: string }
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
@@ -137,6 +143,8 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  /** 设置-MCP 页:写全局配置文件的 mcp 段(jsonc 保留注释,内置名单拒改);生效需随后 global.dispose */
+  mcpConfigWrite: (input: McpConfigWriteInput) => Promise<void>
   getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
