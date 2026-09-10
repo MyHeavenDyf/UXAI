@@ -260,26 +260,37 @@ export function PropertyEditorPopup(props: {
   /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
   function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
+    const prevProps = editProps as Record<string, string>
     updateEditProp(key, pick.name)
-    /** id/url 无条件写入（自定义图标不带，置空以免把 base64 残留到 editProps/元素） */
+    /** id 无条件写入（自定义图标不带，置空以免残留）；url 仅在换图标/换自定义时覆盖——
+     *  只改线性/大小/颜色再确认时 pick.url 为空（当前图标不在搜索结果里），保留原 url 供回显与渲染 */
     updateEditProp(`${key}Id`, pick.id ?? '')
-    updateEditProp(`${key}Url`, pick.url ?? '')
+    updateEditProp(`${key}Url`, pick.url ?? (pick.isCustom ? '' : (prevProps[`${key}Url`] ?? '')))
     updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
     /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
     updateEditProp(`${key}Src`, pick.src ?? '')
     updateEditProp(`${key}Size`, pick.size)
     updateEditProp(`${key}Style`, pick.style)
     updateEditProp(`${key}Color`, pick.color)
+    /** 尺寸写元素宽高仅限 Icon 组件（图标即元素本体）；Button/Input 等带图标组件不能被图标尺寸改写自身宽高 */
     const px = Number(pick.size)
-    if (px > 0) {
+    if (px > 0 && props.componentType === 'Icon') {
       setFillWidth(false); setHugWidth(false)
       setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
       setFillHeight(false); setHugHeight(false)
       setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
     }
-    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === pick.style)) updateEditProp('shape', pick.style)
+    // shape/color 仅同步到"本身就是图标枚举"的组件字段（Icon.shape ⊆ outline/two-tone/square/circle、Icon.color ⊆ iconColors）。
+    // Button.shape(default/circle/round)/Button.color(default/primary/danger) 是按钮自身外观，图标筛选的撞名值不得覆盖
+    const compShapeValues = COMPONENT_ENUMS[`${props.componentType}.shape`]?.map(o => o.value) ?? []
+    if (compShapeValues.length && compShapeValues.every(v => ['outline', 'two-tone', 'square', 'circle'].includes(v)) && compShapeValues.includes(pick.style)) {
+      updateEditProp('shape', pick.style)
+    }
+    const compColorValues = COMPONENT_ENUMS[`${props.componentType}.color`]?.map(o => o.value) ?? []
     const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color)
-    if (colorKey && COMPONENT_ENUMS[`${props.componentType}.color`]?.some(o => o.value === colorKey)) updateEditProp('color', colorKey)
+    if (colorKey && compColorValues.length && compColorValues.every(v => v in iconColors) && compColorValues.includes(colorKey)) {
+      updateEditProp('color', colorKey)
+    }
   }
 
   function updateEditProp(key: string, val: string) {

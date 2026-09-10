@@ -226,7 +226,9 @@ export function IconPickerPopup(props: {
     tabsCan: { left: false, right: false },
     category: 'all' as number | 'all',
     categoryName: '全部分类',
-    shapeKey: props.initialStyle ?? 'outline',
+    /** 带入形状仅认弹窗自身的枚举（outline 等）：Button.shape 的 default/round 等组件枚举与图标筛选无关，
+     *  透传给 icon-plus 的 style 会接口报错，一律回退"线性" */
+    shapeKey: SHAPE_OPTIONS.some(o => o.value === props.initialStyle) ? props.initialStyle! : 'outline',
     iconColorKey: Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === normalizeInitialColor(props.initialColor)) ?? 'default',
     customIcons: [] as CustomIcon[],
     selected: props.current,
