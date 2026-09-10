@@ -4210,7 +4210,7 @@ if (dsId) {
       .filter((file): file is File => Boolean(file))
     if (files.length === 0) return
     e.preventDefault()
-    handleAddFiles(files, "paste")
+    request(() => handleAddFiles(files, "paste"))
   }
 
   function retryUpload(id: string) {
