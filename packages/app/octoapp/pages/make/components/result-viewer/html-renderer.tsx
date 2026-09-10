@@ -2003,7 +2003,7 @@ onFloatingPositionChange={setEditPanelPosition}
           <Show when={props.editing && editTarget()}>
             <ModelEditAreaDialog
               element={editTarget()}
-              iframeRect={iframeRef?.getBoundingClientRect()}
+              iframeRef={iframeRef}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}
@@ -2039,6 +2039,7 @@ onFloatingPositionChange={setEditPanelPosition}
               colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
               onChange={props.modelEditConfig?.onChange}
               context={modelEditContext()}
+              iconConfig={props.modelEditConfig?.iconConfig}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {
@@ -2066,7 +2067,7 @@ onFloatingPositionChange={setEditPanelPosition}
           <Show when={props.modelEditing && modelEditTarget()}>
             <ModelEditAreaDialog
               element={modelEditTarget()}
-              iframeRect={iframeRef?.getBoundingClientRect()}
+              iframeRef={iframeRef}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}
