@@ -1,6 +1,7 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
+const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 let modelsApi: { source: "http" | "local"; url?: string; token?: string; account?: string } | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
@@ -109,6 +110,7 @@ export function parseModelsApi(value: unknown): Record<string, unknown> {
     Object.entries(input).flatMap(([key, provider]) => {
       if (!isRecord(provider) || (!isRecord(provider.models) && !Array.isArray(provider.models))) return []
       const id = typeof provider.id === "string" && provider.id ? provider.id : key
+      if (REMOVED_PROVIDER_IDS.has(id)) return []
       return [
         [
           id,

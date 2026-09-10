@@ -4,9 +4,9 @@ import { configureModelsApiHeaders, modelRequestBody, parseModelsApi } from "@/p
 test("normalizes array models from the remote catalog", () => {
   const catalog = parseModelsApi({
     content: {
-      bpit: {
-        id: "bpit",
-        name: "BPIT",
+      w3: {
+        id: "w3",
+        name: "W3",
         env: ["MODEL_API_KEY"],
         npm: "@ai-sdk/openai-compatible",
         api: "https://api.example.com/v1",
@@ -25,13 +25,24 @@ test("normalizes array models from the remote catalog", () => {
     },
   })
 
-  expect((catalog.bpit as Record<string, unknown>).models).toEqual({
+  expect((catalog.w3 as Record<string, unknown>).models).toEqual({
     "remote-only-model": expect.objectContaining({
       id: "remote-only-model",
       name: "Remote only model",
       release_date: "",
     }),
   })
+})
+
+test("excludes removed providers from the remote catalog", () => {
+  expect(
+    parseModelsApi({
+      content: {
+        opencode: { id: "opencode", name: "Octo AI", models: {} },
+        bpit: { id: "bpit", name: "BPIT", models: {} },
+      },
+    }),
+  ).toEqual({})
 })
 
 describe("model request body", () => {

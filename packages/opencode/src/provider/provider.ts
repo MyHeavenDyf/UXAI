@@ -315,7 +315,8 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
 // 解决方案：针对本地 provider 强制使用无代理 dispatcher，禁用所有 timeout，绕过系统代理。
 //
 // 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
-const LOCAL_PROVIDER_IDS = new Set(["opencode", "bpit", "bpit-beta"])
+const LOCAL_PROVIDER_IDS = new Set(["bpit-beta"])
+const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 const LOCAL_PROVIDER_HOST_PATTERNS = [/\.huawei\.com$/i, /^localhost$/i, /^127\.0\.0\.\d+$/, /^::1$/]
 
 let _bypassDispatcher: any = null
@@ -502,106 +503,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
-    opencode: Effect.fnUntraced(function* (input: Info) {
-      const env = yield* dep.env()
-      const hasKey = iife(() => {
-        if (input.env.some((item) => env[item])) return true
-        return false
-      })
-      const ok =
-        hasKey ||
-        Boolean(yield* dep.auth(input.id)) ||
-        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
-
-      input.name = "Octo AI"
-
-      // ===== 原硬编码方式（已注释，保留供参考） =====
-      // const createModel = (id: string, name: string): Model => ({
-      //   id: ModelID.make(id),
-      //   providerID: ProviderID.make("opencode"),
-      //   name,
-      //   family: undefined,
-      //   api: {
-      //     id,
-      //     url: "http://octoai-llm.ucd.huawei.com/v1",
-      //     npm: "@ai-sdk/openai-compatible",
-      //   },
-      //   status: "active",
-      //   headers: {},
-      //   options: {},
-      //   cost: {
-      //     input: 0,
-      //     output: 0,
-      //     cache: { read: 0, write: 0 },
-      //   },
-      //   limit: {
-      //     context: 128000,
-      //     output: 4096,
-      //   },
-      //   capabilities: {
-      //     temperature: true,
-      //     reasoning: false,
-      //     attachment: true,
-      //     toolcall: true,
-      //     input: { text: true, audio: false, image: true, video: false, pdf: true },
-      //     output: { text: true, audio: false, image: false, video: false, pdf: false },
-      //     interleaved: false,
-      //   },
-      //   release_date: "",
-      //   variants: {},
-      // })
-      // input.models = {
-      //   "GLM-5": createModel("GLM-5", "GLM-5"),
-      //   "MiniMax-M2.5": createModel("MiniMax-M2.5", "MiniMax M2.5"),
-      //   "MiniMax-M2.5-W8A8": createModel("MiniMax-M2.5-W8A8", "MiniMax M2.5 W8A8"),
-      //   "Qwen3.5-27B-Claude-4.6": createModel("Qwen3.5-27B-Claude-4.6", "Qwen3.5 27B Claude 4.6"),
-      // }
-      // =====
-
-      // 新方式：从构建时快照（源自 api.json）读取模型定义
-      const snapshot = yield* Effect.tryPromise({
-        try: () =>
-          import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const opencodeProvider = snapshot?.["opencode"]
-      if (opencodeProvider) {
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(opencodeProvider.models)) {
-          models[key] = fromModelsDevModel(opencodeProvider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
-    bpit: Effect.fnUntraced(function* (input: Info) {
-      input.name = "BPIT"
-
-      const snapshot = yield* Effect.tryPromise({
-        try: () =>
-          import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const bpitProvider = snapshot?.["bpit"]
-      if (bpitProvider) {
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(bpitProvider.models)) {
-          models[key] = fromModelsDevModel(bpitProvider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
     "bpit-beta": Effect.fnUntraced(function* (input: Info) {
       input.name = "BPIT Beta"
 
@@ -1536,12 +1437,17 @@ const layer: Layer.Layer<
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        const database = mapValues(modelsDev, (provider) => fromModelsDevProvider(provider))
+        const database = Object.fromEntries(
+          Object.entries(modelsDev).flatMap(([id, provider]) =>
+            REMOVED_PROVIDER_IDS.has(id) ? [] : [[id, fromModelsDevProvider(provider)]],
+          ),
+        ) as Record<string, Info>
 
-        const providers = mapValues(modelsDev, (provider) => fromModelsDevProvider(provider, "remote")) as Record<
-          ProviderID,
-          Info
-        >
+        const providers = Object.fromEntries(
+          Object.entries(modelsDev).flatMap(([id, provider]) =>
+            REMOVED_PROVIDER_IDS.has(id) ? [] : [[id, fromModelsDevProvider(provider, "remote")]],
+          ),
+        ) as Record<ProviderID, Info>
         const languages = new Map<string, LanguageModelV3>()
         const modelLoaders: {
           [providerID: string]: CustomModelLoader
@@ -1563,6 +1469,7 @@ const layer: Layer.Layer<
         log.info("init")
 
         function mergeProvider(providerID: ProviderID, provider: Partial<Info>) {
+          if (REMOVED_PROVIDER_IDS.has(providerID)) return
           const existing = providers[providerID]
           if (existing) {
             // @ts-expect-error
@@ -1570,21 +1477,15 @@ const layer: Layer.Layer<
             return
           }
           const match = database[providerID]
-          // Special case: allow opencode/bpit/bpit-beta to merge even without database entry
+          // Special case: allow bpit-beta to merge even without database entry
           // (custom loader self-constructs model data)
-          if (!match && providerID !== "opencode" && providerID !== "bpit" && providerID !== "bpit-beta") return
+          if (!match && providerID !== "bpit-beta") return
           // @ts-expect-error
           providers[providerID] = mergeDeep(
             match ?? {
               id: providerID,
-              name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
-              env: [
-                providerID === "opencode"
-                  ? "OPENCODE_API_KEY"
-                  : providerID === "bpit-beta"
-                    ? "BPIT_BETA_API_KEY"
-                    : "BPIT_API_KEY",
-              ],
+              name: "BPIT Beta",
+              env: ["BPIT_BETA_API_KEY"],
               models: {},
             },
             provider,
@@ -1786,24 +1687,18 @@ const layer: Layer.Layer<
           if (disabled.has(providerID)) continue
           const data = database[providerID]
 
-          // Special case: opencode/bpit custom loader can run without database entry
+          // Special case: bpit-beta custom loader can run without database entry
           // because it self-constructs all model data
-          if (!data && providerID !== "opencode" && providerID !== "bpit" && providerID !== "bpit-beta") {
+          if (!data && providerID !== "bpit-beta") {
             log.error("Provider does not exist in model list " + providerID)
             continue
           }
 
-          // For opencode/bpit/bpit-beta, create minimal placeholder if missing from database
+          // For bpit-beta, create minimal placeholder if missing from database
           const providerData = data ?? {
             id: providerID,
-            name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
-            env: [
-              providerID === "opencode"
-                ? "OPENCODE_API_KEY"
-                : providerID === "bpit-beta"
-                  ? "BPIT_BETA_API_KEY"
-                  : "BPIT_API_KEY",
-            ],
+            name: "BPIT Beta",
+            env: ["BPIT_BETA_API_KEY"],
             models: {},
           }
 
@@ -1925,6 +1820,7 @@ const layer: Layer.Layer<
 
       const incoming = Object.values(catalog).flatMap((item) => {
         const provider = Option.getOrUndefined(decodeModelsApiProvider(item))
+        if (provider && REMOVED_PROVIDER_IDS.has(provider.id)) return []
         return provider ? [fromModelsDevProvider(provider, "remote")] : []
       })
       const remoteIDs = new Set(incoming.map((provider) => provider.id))
@@ -1989,12 +1885,6 @@ const layer: Layer.Layer<
 
         if (baseURL !== undefined) options["baseURL"] = baseURL
         if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
-        if (model.providerID === "opencode" && options["apiKey"] === undefined) {
-          throw new AuthError({
-            providerID: "opencode",
-            message: "Octo AI 需要配置 API Key，请在设置中输入您的 API Key 后再使用。",
-          })
-        }
         if (model.headers)
           options["headers"] = {
             ...options["headers"],
