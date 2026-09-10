@@ -1,33 +1,31 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
-let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
+let modelsApi: { source: "http" | "local"; url?: string; token?: string; account?: string } | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
 
-export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
+export function configureModelsApi(input: { source?: string; url?: string; token?: string; account?: string }) {
   const source = input.source === "local" ? "local" : "http"
   if (source === "local") {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   if (!input.url) {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   try {
     const url = new URL(input.url)
     if (url.protocol !== "http:" && url.protocol !== "https:") return
-    const w3Api = input.w3Api ? new URL(input.w3Api) : undefined
-    if (w3Api && w3Api.protocol !== "http:" && w3Api.protocol !== "https:") return
-    const next = { source, url: url.toString(), w3Api: w3Api?.toString(), token: input.token } as const
+    const next = { source, url: url.toString(), token: input.token, account: input.account } as const
     if (
       modelsApi?.source !== next.source ||
       modelsApi.url !== next.url ||
-      modelsApi.w3Api !== next.w3Api ||
-      modelsApi.token !== next.token
+      modelsApi.token !== next.token ||
+      modelsApi.account !== next.account
     ) {
       cache = undefined
     }
@@ -40,8 +38,8 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
   configureModelsApi({
     source: headers["x-opencode-models-api-source"],
     url: headers["x-opencode-models-api-url"],
-    w3Api: headers["x-opencode-w3-api"],
     token: headers.uiplustoken,
+    account: headers["x-opencode-w3-account"],
   })
 }
 
@@ -129,9 +127,11 @@ export function parseModelsApi(value: unknown): Record<string, unknown> {
   )
   if (Object.keys(direct).length > 0) return direct
 
-  return ["content", "data", "provider", "providers", "result"]
-    .map((key) => parseModelsApi(input[key]))
-    .find((providers) => Object.keys(providers).length > 0) ?? {}
+  return (
+    ["content", "data", "provider", "providers", "result"]
+      .map((key) => parseModelsApi(input[key]))
+      .find((providers) => Object.keys(providers).length > 0) ?? {}
+  )
 }
 
 async function loadApi() {
@@ -157,7 +157,6 @@ export function modelsApiCatalog() {
 }
 
 export async function modelsApiProviderUrl(providerID: string) {
-  if (providerID === "w3" && modelsApi?.w3Api) return modelsApi.w3Api
   const api = await loadApi()
   const provider = api?.[providerID]
   if (!isRecord(provider)) return
@@ -171,6 +170,15 @@ function findApiModel(api: Record<string, unknown>, providerID: string, modelID:
   const direct = provider.models[modelID] ?? provider.models[apiID]
   if (direct) return direct
   return Object.values(provider.models).find((model) => isRecord(model) && model.id === apiID)
+}
+
+export function modelRequestBody(body: unknown, isExternal?: boolean) {
+  if (!isRecord(body)) return body
+  return {
+    ...body,
+    isExternal: isExternal ?? false,
+    ...(modelsApi?.account ? { w3Account: modelsApi.account } : {}),
+  }
 }
 
 export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
