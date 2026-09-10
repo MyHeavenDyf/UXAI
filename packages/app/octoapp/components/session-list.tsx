@@ -1,6 +1,7 @@
 import { Show, For, Match, Switch, createEffect, createSignal, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
@@ -54,10 +55,14 @@ export type SessionListItemProps = {
   isActive: boolean
   onClick?: () => void
   onContextMenu?: (e: MouseEvent) => void
+  /** Action (three-dots) click handler. When provided, shows an ellipsis button on hover. */
+  onActionClick?: (e: MouseEvent) => void
   /** Additional class for the button */
   class?: string
   /** Additional class when context menu is targeting this item */
   isContextTarget?: boolean
+  /** When true, hover background applies even on the active (selected) item, overriding the active bg */
+  hoverOnActive?: boolean
   /** Ref callback for scroll-into-view */
   ref?: (el: HTMLButtonElement) => void
   /** Rename state: pass the ID of the session being renamed */
@@ -78,6 +83,7 @@ export function SessionListItem(props: SessionListItemProps) {
   const title = () => sessionTitle(props.session.title) || "无标题"
 
   const [isTruncated, setIsTruncated] = createSignal(false)
+  const [isHovered, setIsHovered] = createSignal(false)
   let titleRef: HTMLSpanElement | undefined
   let titleResizeObserver: ResizeObserver | undefined
   const checkTruncation = () => {
@@ -158,9 +164,9 @@ export function SessionListItem(props: SessionListItemProps) {
           notification.session.markViewed(props.session.id)
         }}
         onContextMenu={(e) => { e.preventDefault(); props.onContextMenu?.(e) }}
-        onMouseEnter={enterTrigger}
-        onMouseLeave={leaveTrigger}
-        class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+        onMouseEnter={() => { setIsHovered(true); enterTrigger() }}
+        onMouseLeave={() => { setIsHovered(false); leaveTrigger() }}
+        class="group w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
         style={{
           height: "36px",
           padding: "0 24px 0 44px",
@@ -168,11 +174,11 @@ export function SessionListItem(props: SessionListItemProps) {
         }}
         classList={{
           "bg-[rgba(10,89,247,0.08)]": props.isActive,
-          "hover:bg-surface-base-hover": !props.isActive && !props.isContextTarget,
+          "hover:bg-surface-base-hover": (!props.isActive || props.hoverOnActive) && !props.isContextTarget,
           "bg-[rgba(0,0,0,0.06)]": props.isContextTarget,
         }}
       >
-        <Show when={props.isActive}>
+        <Show when={props.isActive && !(props.hoverOnActive && isHovered())}>
           <span
             class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
             style={{
@@ -196,6 +202,15 @@ export function SessionListItem(props: SessionListItemProps) {
         >
           {title()}
         </span>
+        <Show when={props.onActionClick}>
+          <div
+            class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[rgba(0,0,0,0.06)]"
+            style={{ width: "20px", height: "20px", "border-radius": "4px", transition: "opacity 150ms" }}
+            onClick={(e) => { if (!isHovered()) return; e.stopPropagation(); e.preventDefault(); props.onActionClick?.(e) }}
+          >
+            <Icon name="ellipsis" size="small" style={{ color: "rgba(0,0,0,0.6)", transform: "rotate(90deg)" }} />
+          </div>
+        </Show>
       </button>
       <Show when={showTooltip()}>
         <Portal>
@@ -232,6 +247,8 @@ export type SessionListProps = {
   onSessionClick?: (session: Session) => void
   /** Right-click handler for session item */
   onSessionContextMenu?: (session: Session, e: MouseEvent) => void
+  /** Action (three-dots) click handler for session items. When provided, shows an ellipsis button on hover. */
+  onSessionActionClick?: (session: Session, e: MouseEvent) => void
   /** Whether there are more sessions to load */
   hasMore?: boolean
   /** Load more handler */
@@ -244,6 +261,8 @@ export type SessionListProps = {
   itemRef?: (session: Session, el: HTMLButtonElement) => void
   /** Check if context menu is targeting this session */
   isContextTarget?: (session: Session) => boolean
+  /** When true, hover background applies even on the active (selected) item, overriding the active bg */
+  hoverOnActive?: boolean
   /** ID of the session currently being renamed */
   renamingId?: string | null
   /** Current rename draft text */
@@ -305,7 +324,9 @@ export function SessionList(props: SessionListProps) {
                   isActive={props.activeSessionId === session.id}
                   onClick={() => props.onSessionClick?.(session)}
                   onContextMenu={props.onSessionContextMenu ? (e) => props.onSessionContextMenu!(session, e) : undefined}
+                  onActionClick={props.onSessionActionClick ? (e) => props.onSessionActionClick!(session, e) : undefined}
                   isContextTarget={props.isContextTarget?.(session)}
+                  hoverOnActive={props.hoverOnActive}
                   ref={props.itemRef ? (el) => props.itemRef!(session, el) : undefined}
                   renamingId={props.renamingId}
                   renameDraft={props.renameDraft}

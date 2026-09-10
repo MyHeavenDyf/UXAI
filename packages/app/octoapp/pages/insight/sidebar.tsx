@@ -1,20 +1,9 @@
-import { createEffect, createSignal, Show, type JSX } from "solid-js"
-import { useNavigate } from "@solidjs/router"
-import { InsightSessionList } from "./components/session-list"
-import { Icon } from "@opencode-ai/ui/icon"
+import { createEffect, createSignal, type JSX } from "solid-js"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { GroupedSidebar } from "@/components/grouped-sidebar"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 
-/**
- * InsightSidebar —— insight 自带的左侧会话栏(SPEC-INS-010 §11:废弃 _shell 后侧栏归 insight)
- *
- * 自包含:宽度/拖拽/持久化 + 会话列表全在内部,对外零必填参数。insight/index.tsx 直接渲染。
- * 宿主(UXAI 等)挂 insight 时,topbar 在它之上,本组件就是 topbar 以下的左栏。
- *
- * 两个槽(props,默认空)留给宿主注入产品级 chrome:
- *   - top    顶部项目/产品切换器(D5,UXAI 抽共享组件后注入)
- *   - bottom 底部 技能库/资产库/设置(D7,同上)
- * octo-agent 本地不传 → 空着即可。
- */
 export const SIDEBAR_WIDTH_KEY = "octo:insight:sidebar-width"
 export const SIDEBAR_MIN_W = 200
 export const SIDEBAR_MAX_W = 360
@@ -24,32 +13,15 @@ export function initialSidebarWidth(): number {
   const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
   if (stored) {
     const n = parseInt(stored, 10)
-    // 钳制而非丢弃:max 从 420→360 后,已存 360–420 的值会被静默重置回默认;这里钳到 [MIN,MAX]。
     if (!isNaN(n)) return Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, n))
   }
   return SIDEBAR_DEFAULT_W
 }
 
-function ChevronIcon(props: { collapsed: boolean }): JSX.Element {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
-      style={{
-        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
-        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
-        "flex-shrink": "0",
-      }}
-    >
-      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
-    </svg>
-  )
-}
-
 export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element; onWidthChange?: (w: number) => void }): JSX.Element {
   const [width, setWidth] = createSignal(initialSidebarWidth())
-  const [collapsed, setCollapsed] = createSignal(false)
-  const navigate = useNavigate()
+  const globalSDK = useGlobalSDK()
 
-  // 把当前侧栏宽同步给宿主页面,用于动态计算「侧栏收起」断点(对齐 Design make-layout)。
   createEffect(() => props.onWidthChange?.(width()))
 
   function handleResize(e: MouseEvent) {
@@ -58,8 +30,6 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     const startW = width()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
-    // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
     const restoreIframes = disableIframesDuringDrag()
     const onMove = (ev: MouseEvent) => setWidth(Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, startW + ev.clientX - startX)))
     const onUp = () => {
@@ -74,64 +44,36 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     document.addEventListener("mouseup", onUp)
   }
 
+  const fetchInsightSessions = async (dir: string): Promise<Session[]> => {
+    const insightApi = globalSDK.client.insight
+    if (insightApi) {
+      const result = await insightApi.sessions.list({ directory: dir, limit: 200 })
+      return (result.data?.items ?? []) as Session[]
+    }
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.list()
+    return ((result.data ?? []) as Session[]) as Session[]
+  }
+
   return (
     <div
       class="shrink-0 relative flex flex-col h-full"
-      style={{
-        width: `${width()}px`,
-        background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
-      }}
+      style={{ "--sidebar-width": `${width()}px` }}
     >
-      {/* 顶部槽:项目/产品切换器(D5) */}
-      <Show when={props.top}>
-        <div class="shrink-0 flex flex-col px-[12px] pt-[12px]">{props.top}</div>
-      </Show>
-
-      {/* 新建按钮 + 分隔线 — 固定不滚动 */}
-      <div class="shrink-0 px-[12px]" style={{ "padding-top": props.top ? "0" : "12px" }}>
-        <button
-          type="button"
-          class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-          style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-          onClick={() => navigate("/insight")}
-        >
-          <Icon name="plus" size="normal" class="shrink-0" />
-          <span>新建对话</span>
-        </button>
-        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
-      </div>
-
-      {/* Octo Insight 段标题 — 固定不滚动 */}
-      <div class="shrink-0 px-[12px]">
-        <div class="flex items-center h-[36px] px-[12px]">
-          <button
-            type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
-          >
-            <span class="flex items-center gap-[12px] min-w-0">
-              <Icon name="tab-cowork" size="normal" style={{ color: "var(--octo-brand)" }} />
-              <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                Octo Insight
-              </span>
-            </span>
-            <ChevronIcon collapsed={collapsed()} />
-          </button>
-        </div>
-      </div>
-
-      {/* 会话列表 — 仅此区域可滚动;收起时容器保留占位,底部槽不上移 */}
-      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px] z-12">
-        <Show when={!collapsed()}>
-          <InsightSessionList />
-        </Show>
-      </div>
-
-      {/* 底部槽:技能库/资产库/设置(D7) */}
-      {props.bottom}
-
-      {/* 拖拽手柄 */}
+      <GroupedSidebar
+        namespace="insight"
+        routePrefix="/insight"
+        agentFilter="octo_insight"
+        fetchSessions={fetchInsightSessions}
+        buildSessionRoute={(s: Session) => `/insight/${s.id}`}
+        buildNewRoute={() => "/insight"}
+        buildDeleteFallback={() => "/insight"}
+        sectionTitle="最近"
+        newButtonText="新建对话"
+        trackerModule="insight"
+        sidebarSourceKey="insight"
+        inlineBeforeSection
+      />
       <div
         class="absolute top-0 bottom-0"
         style={{ right: "-3px", width: "6px", cursor: "col-resize", "z-index": "10" }}

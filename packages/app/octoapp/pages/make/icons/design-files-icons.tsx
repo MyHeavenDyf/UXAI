@@ -1,15 +1,16 @@
 import type { JSX } from "solid-js"
 import { createMemo } from "solid-js"
 
-type IconProps = { size?: number; class?: string; style?: JSX.CSSProperties }
+type IconProps = { size?: number; width?: number | string; height?: number | string; preserveAspectRatio?: JSX.SVGPreserveAspectRatio; class?: string; style?: JSX.CSSProperties }
 
 function mk(viewBox: string, inner: string, defaultSize: number) {
   return function Icon(props: IconProps): JSX.Element {
     return (
       <svg
         viewBox={viewBox}
-        width={props.size ?? defaultSize}
-        height={props.size ?? defaultSize}
+        width={props.width ?? props.size ?? defaultSize}
+        height={props.height ?? props.size ?? defaultSize}
+        preserveAspectRatio={props.preserveAspectRatio}
         fill="none"
         aria-hidden="true"
         class={props.class}

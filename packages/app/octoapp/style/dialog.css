@@ -3,6 +3,94 @@
     border-radius: var(--radius-xl);
   }
 
+  [data-component="dialog-overlay"] {
+    top: 48px;
+    background-color: rgba(0, 0, 0, 0.3);
+  }
+
+  [data-component="dialog"] {
+    top: 48px;
+  }
+
+  [data-component="dialog"]:has(.create-group-dialog) [data-slot="dialog-container"] {
+    width: 500px;
+  }
+
+  [data-component="dialog"]:has(.create-group-dialog) [data-slot="dialog-header"] {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  [data-component="dialog"]:has(.create-group-dialog) [data-slot="dialog-body"] {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  [data-component="dialog"]:has(.create-group-dialog) [data-slot="input-input"]::placeholder {
+    color: #AEAEAE;
+  }
+
+  .create-group-dialog [data-slot="input-input"]:not(:focus) {
+    text-overflow: ellipsis;
+  }
+
+  [data-slot="dialog-content"].create-group-dialog {
+    height: 210px;
+  }
+
+  .create-group-dialog [data-component="input"] [data-slot="input-wrapper"] {
+    align-items: center;
+    padding-left: 12px;
+    background: #fff;
+  }
+
+  .create-group-dialog [data-component="input"][data-variant="normal"] {
+    position: relative;
+    gap: 0;
+  }
+
+  .create-group-dialog [data-component="input"] [data-slot="input-label"] {
+    line-height: 22px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+  }
+
+  .create-group-dialog .create-group-input-icon {
+    color: #777777;
+  }
+
+  .create-group-dialog .create-group-actions {
+    height: 40px;
+  }
+
+  .create-group-dialog .create-group-cancel-btn {
+    width: 88px;
+    border-radius: 16px;
+    background: rgba(25, 25, 25, 0.05);
+  }
+
+  .create-group-dialog .create-group-create-btn {
+    width: 88px;
+    border-radius: 16px;
+    background: #0A59F7;
+  }
+
+  .create-group-dialog .create-group-create-btn:hover:not(:disabled) {
+    background: #0849D6;
+  }
+
+  .create-group-dialog .create-group-create-btn:active:not(:disabled) {
+    background: #073BAC;
+  }
+
+  .create-group-dialog .create-group-create-btn:disabled {
+    background: rgba(10, 89, 247, 0.4);
+  }
+
+  .create-group-dialog .create-group-create-btn:disabled {
+    background: rgba(10, 89, 247, 0.4);
+  }
+
   .settings-dialog [data-slot="tabs-trigger-wrapper"][data-value="shortcuts"] {
     display: none;
   }

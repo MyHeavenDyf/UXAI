@@ -2331,7 +2331,7 @@ function VideoSettings(props: {
             <button
               type="button"
               onClick={() => props.onQualityMode(item.value)}
-              disabled={props.qualityLocked}
+              disabled={props.qualityLocked && item.value !== "720"}
               class="studio-image-settings-count"
               classList={{ active: item.value === props.qualityMode }}
               aria-pressed={item.value === props.qualityMode}

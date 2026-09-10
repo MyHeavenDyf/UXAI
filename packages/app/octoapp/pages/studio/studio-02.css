@@ -1004,6 +1004,12 @@
   margin-bottom: 14px;
 }
 
+.studio-video-settings-quality .studio-image-settings-count:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .studio-video-settings-count {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 14px;
