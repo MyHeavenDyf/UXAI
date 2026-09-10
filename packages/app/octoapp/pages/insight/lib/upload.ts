@@ -81,6 +81,12 @@ function hasEmptyBaseName(filename: string): boolean {
 // 原始文件名拼进返回 URL、特殊字符致 MCP 取文件失败」的防御性补丁。字符集安全改由服务端
 // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部 2026-07-03 修订提案）。
 
+// 外网模型上传限制(数据安全):仅允许轻量文本 + 常见图片格式,单文件 ≤ 2MB。
+// 外网模型有数据安全要求,需限制可上传的文件类型与体量,防止敏感信息外泄。
+// 与 ALLOWED_EXT 的区别:.html 放开(设计稿常见)、docx/xlsx/pdf/pptx/gif/webp 收紧。
+export const EXTERNAL_ALLOWED_EXT = ["txt", "html", "md", "png", "jpg", "jpeg"] as const
+export const EXTERNAL_MAX_UPLOAD_SIZE = 2 * 1024 * 1024
+
 export function validateFile(file: File): UploadError | null {
   if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
   if (file.size > MAX_UPLOAD_SIZE) {
@@ -96,6 +102,29 @@ export function validateFile(file: File): UploadError | null {
   const ext = getExt(file.name)
   if (!ALLOWED_EXT.includes(ext as (typeof ALLOWED_EXT)[number])) {
     return new UploadError("EXT_NOT_ALLOWED", `不支持的格式 .${ext || "(无扩展名)"}`)
+  }
+  return null
+}
+
+// 外网模型专属校验:格式 + 大小都更严格。.html 在 ALLOWED_EXT 之外,故不能复用 validateFile
+// (会被 EXT_NOT_ALLOWED 误拒),本函数独立判定,含空文件 / 空文件名检查。
+export function validateFileForExternal(file: File): UploadError | null {
+  if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
+  if (file.size > EXTERNAL_MAX_UPLOAD_SIZE) {
+    return new UploadError(
+      "FILE_TOO_LARGE",
+      `文件超过 ${Math.round(EXTERNAL_MAX_UPLOAD_SIZE / 1024 / 1024)}MB 上限`,
+    )
+  }
+  if (hasEmptyBaseName(file.name)) {
+    return new UploadError("FILENAME_EMPTY", "文件名为空，请重命名文件后重新上传")
+  }
+  const ext = getExt(file.name)
+  if (!EXTERNAL_ALLOWED_EXT.includes(ext as (typeof EXTERNAL_ALLOWED_EXT)[number])) {
+    return new UploadError(
+      "EXT_NOT_ALLOWED",
+      `外网模型仅支持 ${EXTERNAL_ALLOWED_EXT.map((e) => `.${e}`).join("、")} 格式`,
+    )
   }
   return null
 }

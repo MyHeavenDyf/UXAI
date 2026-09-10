@@ -14,6 +14,9 @@ import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { useLocal } from "@/context/local"
+import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
+import { validateFileForExternal } from "@/pages/insight/lib/upload"
 import { tracker } from "@/utils/tracker"
 import {
   createArtifactFileStore,
@@ -85,6 +88,7 @@ interface Props {
 export function DesignFilesPanel(props: Props): JSX.Element {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
+  const local = useLocal()
   const dialog = useDialog()
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
@@ -92,6 +96,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
+
+  // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+  function checkExternalFile(file: File): boolean {
+    if (!local.model.current()?.isExternal) return true
+    const err = validateFileForExternal(file)
+    if (err) {
+      showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+      return false
+    }
+    return true
+  }
 
   const PREVIEW_MIN = 150
   const LIST_MIN = 390
@@ -386,6 +401,8 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   const handleUpload = async (files: FileList) => {
+    const filtered = Array.from(files).filter(checkExternalFile)
+    if (filtered.length === 0) return
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
@@ -396,7 +413,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     ) {
       let okCount = 0
       let failedCount = 0
-      for (const file of Array.from(files)) {
+      for (const file of filtered) {
         let srcPath = ""
         try {
           srcPath = desktopApi.getPathForFile(file)
@@ -427,7 +444,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       return
     }
 
-    for (const file of Array.from(files)) {
+    for (const file of filtered) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
         const base64 = ev.target?.result as string
@@ -508,6 +525,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
         const file = await getFileFromEntry(entry as FileSystemFileEntry)
+        if (!checkExternalFile(file)) return
         const relativePath = entry.fullPath.slice(1 + folderName.length)
         const base64 = await readFileAsBase64(file)
         fileEntries.push({ relativePath, content: base64 })
@@ -552,6 +570,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   async function uploadSingleFile(file: File) {
+    if (!checkExternalFile(file)) return
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
@@ -640,7 +659,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const fileEntries: FolderUploadFile[] = []
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
 
-    for (const file of Array.from(files)) {
+    for (const file of Array.from(files).filter(checkExternalFile)) {
       const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
       const reader = new FileReader()
       const base64 = await new Promise<string>((resolve) => {
@@ -1102,6 +1121,7 @@ onDelete={handleDelete}
           )}
         </Show>
       </div>
+      <InsightNoticeHost />
     </div>
   )
 }
