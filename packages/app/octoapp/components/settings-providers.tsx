@@ -3,7 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
-import { hiddenSettingsProviderIDs, popularProviders, useProviders } from "@/hooks/use-providers"
+import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { createMemo, createSignal, type Component, For, Show, type JSX } from "solid-js"
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
@@ -74,7 +74,6 @@ export const SettingsProviders: Component = () => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
     return providers
       .connected()
-      .filter((p) => !hiddenSettingsProviderIDs.has(p.id))
       .filter((p) => p.source === "remote" || !disabled.has(p.id))
       .sort((a, b) => Number(b.source === "remote") - Number(a.source === "remote"))
   })
@@ -83,7 +82,7 @@ export const SettingsProviders: Component = () => {
     const connectedIDs = new Set(connected().map((p) => p.id))
     const items = providers
       .popular()
-      .filter((p) => !connectedIDs.has(p.id) && !hiddenSettingsProviderIDs.has(p.id))
+      .filter((p) => !connectedIDs.has(p.id))
       .slice()
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items

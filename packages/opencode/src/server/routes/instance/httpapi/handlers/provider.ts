@@ -21,9 +21,9 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
         p.source === "env" ||
         p.source === "api" ||
         Boolean((p.options as Record<string, unknown>)?.apiKey)
-      // 诊断日志: opencode/bpit/bpit-beta 的 hasAuth 各分支分解
+      // 诊断日志: bpit-beta 的 hasAuth 各分支分解
       for (const p of Object.values(connected)) {
-        if (p.id === "opencode" || p.id === "bpit" || p.id === "bpit-beta") {
+        if (p.id === "bpit-beta") {
           console.log("[HttpApi.provider.list] hasAuth breakdown", {
             id: p.id,
             key: Boolean(p.key),
