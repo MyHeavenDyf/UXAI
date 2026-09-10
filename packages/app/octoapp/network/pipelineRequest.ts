@@ -13,22 +13,6 @@ const API_PREFIXES = {
   deliverable: "/main/rest.root/workflow/deliverable",
 }
 
-// 合规检测未通过(40101):后端返回 code 或 errorCode 为 40101 时,
-// 弹出专用 toast 并抛出 ComplianceError,调用方 catch 块据此跳过通用「归档失败」toast(避免双弹)。
-export class ComplianceError extends Error {
-  constructor() {
-    super("合规检测未通过，原因:发现KIA资产")
-    this.name = "ComplianceError"
-  }
-}
-
-export function checkComplianceError(inner: any): void {
-  if (inner?.code === 40101 || inner?.errorCode === 40101) {
-    showToast({ title: "合规检测未通过，原因:发现KIA资产", variant: "error" })
-    throw new ComplianceError()
-  }
-}
-
 // 请求失败统一上报: 右下角 toast 报错(非阻断, 不中断用户) + 详情进 console;
 // 返回 null 让调用方降级为空态, 不抛异常 → 既不整页崩溃也不把面板替换成报错页。
 // silent=true 时仅 console.error、不弹 toast, 供需自定义失败提示的调用方使用(如归档自行 throw)。
@@ -82,10 +66,8 @@ async function apiFetch<T>(options: ApiFetchOptions): Promise<T> {
       return reportRequestError<T>("网络异常,请稍后重试", silent, `Failed to ${method} ${relativeUrl}: HTTP ${res.status} ${res.statusText}`)
     }
     const data = await res.json()
-    checkComplianceError(data?.data ?? data)
     return raw ? (data as T) : parseResponse<T>(data, silent)
   } catch (error) {
-    if (error instanceof ComplianceError) throw error
     return reportRequestError<T>("网络异常,请稍后重试", silent, `Failed to ${method} ${relativeUrl}:`, error)
   }
 }
