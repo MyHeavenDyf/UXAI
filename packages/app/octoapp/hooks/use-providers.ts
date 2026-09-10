@@ -7,7 +7,6 @@ export const popularProviders = [
   "opencode",
   "bpit",
   "bpit-beta",
-  "w3",
   "opencode-go",
   "anthropic",
   "github-copilot",

@@ -35,7 +35,7 @@ export const ProviderRoutes = lazy(() =>
           const svc = yield* Provider.Service
           const connected = yield* svc.list()
           const hasAuth = (p: Provider.Info) =>
-            p.id === "w3" ||
+            p.source === "remote" ||
             Boolean(p.key) ||
             p.source === "env" ||
             p.source === "api" ||

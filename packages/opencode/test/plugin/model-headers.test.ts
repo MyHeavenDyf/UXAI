@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
-import { parseModelsApi } from "@/plugin/model-headers"
+import { describe, expect, test } from "bun:test"
+import { configureModelsApiHeaders, modelRequestBody, parseModelsApi } from "@/plugin/model-headers"
 
 test("normalizes array models from the remote catalog", () => {
   const catalog = parseModelsApi({
@@ -31,5 +31,25 @@ test("normalizes array models from the remote catalog", () => {
       name: "Remote only model",
       release_date: "",
     }),
+  })
+})
+
+describe("model request body", () => {
+  test("adds model network type and user account", () => {
+    configureModelsApiHeaders({
+      "x-opencode-models-api-source": "local",
+      uiplustoken: "ui-plus-token",
+      "x-opencode-w3-account": "j60099994",
+    })
+
+    expect(modelRequestBody({ model: "mimo-v2.5" }, true)).toEqual({
+      model: "mimo-v2.5",
+      isExternal: true,
+      w3Account: "j60099994",
+    })
+  })
+
+  test("defaults missing model network type to false", () => {
+    expect(modelRequestBody({ model: "mimo-v2.5" })).toMatchObject({ isExternal: false })
   })
 })
