@@ -12,13 +12,11 @@
  */
 import { loadCurrentSceneState, readCodeDirFiles } from "../utils/version-history"
 import {
-  patchHandlerOverride,
   resolveTypeId,
   handlerFilePathForType,
-  isFallbackPartId,
-  patchHandlerMaterialColor,
-  patchHandlerSkip,
-  hasSkipSkeleton,
+  applyDeletion,
+  applyMaterialChange,
+  applyTypeTransform,
 } from "../utils/patch-handler"
 import type { CodeFile } from "../utils/parse-code-files"
 import type { EditDeltaEntry } from "../utils/scene-config"
@@ -76,8 +74,10 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
   }
 
   // 3. 按 type 分组 delta（反查 __id → type）
+  // P0.14 added 项自带 type/nodeId（不依赖 resolveTypeId——新 id 尚不存在于 merged，反查会失败）
   const byType = new Map<string, { __id: string; entry: EditDeltaEntry }[]>()
   for (const [__id, entry] of delta) {
+    if (entry.added) continue
     const type = resolveTypeId(merged, __id)
     if (!type) {
       skipped.push({
@@ -89,6 +89,20 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
     const arr = byType.get(type) ?? []
     arr.push({ __id, entry })
     byType.set(type, arr)
+  }
+
+  // 3.5 处理复制新增节点（P0.14：零 LLM，确定性克隆 live-data node 追加 merged[type]）
+  for (const [__id, entry] of delta) {
+    if (!entry.added) continue
+    const { type, nodeId, params } = entry.added
+    const rows = Array.isArray(merged[type]) ? merged[type] : []
+    if (rows.some((n: { id?: string }) => n.id === nodeId)) {
+      skipped.push({ __id, reason: `复制失败：${type} 下已存在 nodeId ${nodeId}（id 冲突）` })
+      continue
+    }
+    const newNode: Record<string, unknown> = { id: nodeId }
+    if (params) newNode.params = params
+    merged[type] = [...rows, newNode]
   }
 
   // 4. 对每个受影响 type 的 handler 源码 patch
@@ -115,41 +129,35 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
     let src = target.content
     for (const { __id, entry } of entries) {
       try {
-        // 删除：往 handler 源码 SUB_SKIP 数组加 cid（重载后 `if (SUB_SKIP.includes(cid)) return` 跳过创建）。
-        // 仅对循环创建点（rack-${i} 等语义 cid）有效；group 根（__id===node.id）无 SUB_SKIP 检查点 → 跳过回报。
+        // 删除：NL=Edit 单代码路径——applyDeletion 三层分流（group 根→live-data / 非循环→deleteCreation / 循环→SUB_SKIP）
         if (entry.deleted) {
-          if (!hasSkipSkeleton(src)) {
-            skipped.push({ __id, reason: "handler 无 SUB_SKIP 骨架，无法删除（需重新生成带 SUB_SKIP 契约的 handler）" })
-            continue
-          }
-          src = patchHandlerSkip(src, __id, "add")
-          continue
-        }
-        // P0.1-4：group 根（__id === node.id，整体选中）transform → live-data params（绕过 SUB_OVERRIDES 死项）。
-        // 该项 continue 不进 skipped，committedCount=delta.size-skipped.length 自然计为成功。
-        if (entry.transform) {
-          const rootNode = typeRows.find((n) => n.id === __id)
-          if (rootNode) {
-            if (!rootNode.params) rootNode.params = {}
-            if (entry.transform.position) rootNode.params.position = entry.transform.position
-            if (entry.transform.rotation) rootNode.params.rotation = entry.transform.rotation
-            if (entry.transform.scale) rootNode.params.scale = entry.transform.scale
-            continue // merged 已就地改，onCodeVersionReady(files, summary, merged) 落盘 + reload handler 读新 params
-          }
-        }
-        // 兜底 part-N __id（组件型 Group 内部子 mesh，如 Wall/GLB）：SUB_OVERRIDES+applyOverride 对黑盒
-        // Group 走不通（key 错位 + Group 无 material + part __id 由 manager 在 create 后盖、applyOverride 在
-        // create 内调时序错位）→ 材质改色走 edit_code 改 handler 的 color 字面量（重建时组件用新色，确定性持久）。
-        if (isFallbackPartId(__id) && entry.material?.color) {
-          const newHex = "0x" + entry.material.color.replace(/^#/, "")
-          const r = patchHandlerMaterialColor(src, newHex)
+          const r = applyDeletion(src, __id, typeRows)
           if (r.failed) {
             skipped.push({ __id, reason: r.failed.reason })
-          } else {
-            src = r.source
+            continue
           }
+          src = r.source
+          if (r.deletedNodeId) {
+            merged[type] = typeRows.filter((n) => n.id !== r.deletedNodeId)
+          }
+          continue
+        }
+        // P0.1-4：group 根（__id === node.id，整体选中）transform → live-data params（NL=Edit 单代码路径）。
+        // applyTypeTransform 改 merged node params，onCodeVersionReady 落盘 + reload handler 读新 params。
+        if (entry.transform) {
+          const rootNode = typeRows.find((n) => n.id === __id)
+          if (rootNode?.id) {
+            applyTypeTransform(merged, type, __id, entry.transform)
+            continue
+          }
+        }
+        // 材质/transform：NL=Edit 单代码路径——applyMaterialChange 两层分流
+        // （part-N 兜底→改 color 字面量 / 语义 cid→ensureApplyOverride+patchHandlerOverride）
+        const r = applyMaterialChange(src, __id, entry, typeRows)
+        if (r.failed) {
+          skipped.push({ __id, reason: r.failed.reason })
         } else {
-          src = patchHandlerOverride(src, __id, entry)
+          src = r.source
         }
       } catch (e) {
         skipped.push({ __id, reason: e instanceof Error ? e.message : String(e) })

@@ -42,6 +42,8 @@ function RoundCard(props: {
   onRetry?: () => void
   onFix?: (findings: { file?: string; line?: number; code?: string; message: string }[]) => void
   elapsedText?: string
+  /** 失败定格：codegen 失败后 pipeline 结束，但计时器定格显示「生成失败(用时 Xm)」 */
+  elapsedFrozen?: boolean
   blockTime?: number
   onAbort?: () => void
   /** 总墙钟超时（15min 仍生成中）→ 三按钮卡片（继续等待/中止/重试） */
@@ -71,11 +73,11 @@ function RoundCard(props: {
         onRetry={props.onRetry}
         onFix={props.onFix}
       />
-      {/* 执行计时 —— 仅最新轮生成中显示（镜像 make insight-turn.tsx:1366） */}
-      <Show when={generating() && props.elapsedText}>
+      {/* 执行计时 —— 生成中显示「已执行 Xm」，失败定格显示「生成失败(用时 Xm)」 */}
+      <Show when={(generating() || props.elapsedFrozen) && props.elapsedText}>
         <div class="mx-3 mb-3">
-          <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
-            已执行 {props.elapsedText}
+          <span class="text-xs tabular-nums" style={{ color: props.elapsedFrozen ? "#b34700" : "#6e737a" }}>
+            {props.elapsedFrozen ? `生成失败（用时 ${props.elapsedText}）` : `已执行 ${props.elapsedText}`}
           </span>
         </div>
       </Show>
@@ -167,6 +169,8 @@ export function ChatPanel(props: {
   pipelineBusy: boolean
   /** 执行计时文本「X分Y秒」 */
   elapsedText?: string
+  /** 失败定格：codegen 失败后 pipeline 结束，但计时器定格显示「生成失败(用时 Xm)」 */
+  elapsedFrozen?: boolean
   /** 阻塞秒数（>0 表示模型无 delta 超过 3s） */
   blockTime?: number
   /** 中止生成 */
@@ -412,6 +416,7 @@ export function ChatPanel(props: {
                           onRetry={props.onRetry}
                           onFix={props.onFix}
                           elapsedText={props.elapsedText}
+                          elapsedFrozen={props.elapsedFrozen}
                           blockTime={props.blockTime}
                           onAbort={props.onAbort}
                           timeoutExceeded={props.timeoutExceeded}

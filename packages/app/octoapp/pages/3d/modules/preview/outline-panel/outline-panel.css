@@ -1,0 +1,216 @@
+.outline-panel {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  height: 100%;
+  background: #f8f8f9;
+  border-right: 1px solid #e5e7eb;
+  overflow: hidden;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.outline-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.outline-count {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.outline-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.outline-body::-webkit-scrollbar {
+  width: 4px;
+}
+.outline-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
+.outline-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+
+.outline-item:hover {
+  background: #eef2f7;
+}
+
+.outline-item-selected {
+  background: #e0efff;
+  border-left-color: #3d99ff;
+  color: #1e3a5f;
+}
+
+.outline-item-root {
+  font-weight: 600;
+}
+
+.outline-toggle {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #64748b;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.outline-toggle-placeholder {
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.outline-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.outline-empty {
+  padding: 16px 10px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.outline-item-hidden {
+  opacity: 0.45;
+}
+
+.outline-item-locked {
+  opacity: 0.45;
+}
+
+.outline-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: inherit;
+  color: #1e3a5f;
+  background: #fff;
+  border: 1px solid #3d99ff;
+  border-radius: 2px;
+  padding: 0 2px;
+  outline: none;
+}
+
+.outline-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+  /* 默认整体透明（占位不跳动），hover 或有 persistent 按钮时转显 */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.outline-item:hover .outline-actions,
+.outline-actions:has(.outline-action-btn-persistent) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 非常显按钮：hover 行时才可见（容器透明时 persistent 按钮仍可见） */
+.outline-actions .outline-action-btn {
+  visibility: hidden;
+}
+
+.outline-item:hover .outline-actions .outline-action-btn,
+.outline-actions .outline-action-btn-persistent {
+  visibility: visible;
+}
+
+.outline-action-btn-active {
+  color: #f59e0b;
+}
+
+.outline-action-btn {
+  font-size: 11px;
+  line-height: 1;
+  color: #64748b;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.outline-action-btn:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.outline-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.outline-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.outline-context-menu-item:hover {
+  background: #f1f5f9;
+}
+
+.outline-context-menu-item-danger {
+  color: #dc2626;
+}
+
+.outline-context-menu-item-danger:hover {
+  background: #fef2f2;
+}
+
+.outline-context-menu-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}

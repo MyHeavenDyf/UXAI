@@ -156,6 +156,9 @@ function Scene3DContent() {
   const [prompt, setPrompt] = createSignal("")
   const [sendingSids, setSendingSids] = createSignal<Set<string>>(new Set())
   const sending = () => !!params.id && sendingSids().has(params.id)
+  // 全流程墙钟起点：用户点「生成」的时刻（按 sid 记），覆盖 triage+codegen+物化全流程。
+  // codegen 失败时定格（不清零）以显示「生成失败(用时 Xm)」，成功或重试时重置。
+  const [generationStarts, setGenerationStarts] = createSignal<Record<string, number>>({})
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [sessionErrors, setSessionErrors] = createSignal<Record<string, ProtoError>>({})
@@ -445,19 +448,22 @@ function Scene3DContent() {
   // 调高为 120s 灰提示/300s 橙警告+中止按钮。
   const [elapsedText, setElapsedText] = createSignal("")
   const [elapsedSecs, setElapsedSecs] = createSignal(0)
+  // 失败定格：codegen 失败后 pipeline 结束，但不清零计时器——定格显示「生成失败(用时 Xm)」，
+  // 让用户知道这次花了多久没成功。成功或新一轮 sending 开始时重置。
+  const [elapsedFrozen, setElapsedFrozen] = createSignal(false)
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
+    const id = params.id
+    // 失败定格：pipeline 已不 busy 但 frozen 置位 → 保留最终用时，不跑 timer 不清零
+    if (elapsedFrozen()) {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = undefined }
+      return
+    }
     if (pipelineBusy()) {
-      const id = params.id
       if (id) {
-        // 找 root + child 里最后一个未完成的 assistant（pipeline 在途的那一个）
-        const candidates = [...(sync.data.message?.[id] ?? [])]
-        for (const childID of childSessionIDs()) {
-          candidates.push(...(sync.data.message?.[childID] ?? []))
-        }
-        const pending = [...candidates].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
-        if (pending) {
-          const start = pending.time.created
+        // 全流程墙钟起点：用户点「生成」时刻（generationStarts），回退到 codegen assistant 消息创建（防御）
+        const start = generationStarts()[id]
+        if (start) {
           const fmt = () => {
             const secs = Math.max(0, Math.round((Date.now() - start) / 1000))
             setElapsedSecs(secs)
@@ -632,7 +638,9 @@ function Scene3DContent() {
     const clearDir = sceneHistoryDir()
     if (clearDir) await clearProtoError(clearDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
-
+    // 全流程墙钟起点：用户点「重试生成」时刻（覆盖 triage+codegen+物化），清定格
+    setElapsedFrozen(false)
+    setGenerationStarts((prev) => ({ ...prev, [sid]: Date.now() }))
     const hasScene = (lastSceneObjects()[sid] ?? []).length > 0
     if (hasScene) sessionMap.set(setIsModifying, sid, true)
     const intentCtx: SceneCreateInput = {
@@ -673,6 +681,8 @@ function Scene3DContent() {
         }))
         const errDir = sceneHistoryDir()
         if (errDir) void saveProtoError(errDir, sid, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings })
+        // 失败定格：pipeline 即将结束，定格计时器显示「生成失败(用时 Xm)」
+        setElapsedFrozen(true)
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
       } else if (codegenResult.routing === "patch") {
@@ -690,6 +700,7 @@ function Scene3DContent() {
     } catch (err) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid, "retryCodegen")
+      setElapsedFrozen(true)
     } finally {
       setSendingSids((prev) => {
         const n = new Set(prev)
@@ -721,6 +732,9 @@ function Scene3DContent() {
         sid = session.id
       }
       setSendingSids((prev) => new Set(prev).add(sid!))
+      // 全流程墙钟起点：用户点「生成」时刻（覆盖 triage+codegen+物化），清定格
+      setElapsedFrozen(false)
+      setGenerationStarts((prev) => ({ ...prev, [sid!]: Date.now() }))
       setSessionErrors((prev) => {
         if (!prev[sid!]) return prev
         const next = { ...prev }
@@ -817,6 +831,8 @@ function Scene3DContent() {
         }))
         const errDir = sceneHistoryDir()
         if (errDir) void saveProtoError(errDir, sid!, { title: cls.title || "生成失败", description: cls.description, agentLabel: "3D 代码生成", findings })
+        // 失败定格：pipeline 即将结束，定格计时器显示「生成失败(用时 Xm)」
+        setElapsedFrozen(true)
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
       } else if (codegenResult.routing === "patch") {
@@ -834,6 +850,7 @@ function Scene3DContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleSubmit")
+      setElapsedFrozen(true)
       if (sid) sessionMap.set(setIsModifying, sid, false)
     } finally {
       setSendingSids((prev) => {
@@ -863,6 +880,16 @@ function Scene3DContent() {
       if (!prev.has(sid)) return prev
       const next = new Set(prev)
       next.delete(sid)
+      return next
+    })
+    // 用户主动中止：清定格 + 清起点（中止不算失败，计时器归零）
+    setElapsedFrozen(false)
+    setElapsedText("")
+    setElapsedSecs(0)
+    setGenerationStarts((prev) => {
+      if (!prev[sid]) return prev
+      const next = { ...prev }
+      delete next[sid]
       return next
     })
     // 乐观清 session_status store：abort 不保证立即推 session.status(idle)（某些 provider
@@ -1421,6 +1448,7 @@ function Scene3DContent() {
             onDrop={handleDrop}
             pipelineBusy={pipelineBusy()}
             elapsedText={elapsedText()}
+            elapsedFrozen={elapsedFrozen()}
             blockTime={blockTime()}
             onAbort={halt}
             timeoutExceeded={timeoutExceeded()}

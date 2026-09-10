@@ -108,7 +108,7 @@ const locateOverridesLiteral = (source: string): { start: number; end: number } 
 }
 
 /** 一份 per-instance 改动（镜像 3d-templete OverrideSpec；rotation 存弧度） */
-type OverrideEntry = {
+export type OverrideEntry = {
   material?: Record<string, unknown>
   transform?: { position?: number[]; rotation?: number[]; scale?: number[] }
 }
@@ -527,6 +527,51 @@ export function applySearchReplace(
 export const isFallbackPartId = (__id: string): boolean => /-part-\d+$/.test(__id)
 
 /**
+ * 删除 handler 源码中第 N 个无 __id 赋值的 group.add(var) 创建块（part-N 兜底 id fallback）。
+ *
+ * stampMissingIds 按 traverse 顺序给无 __id 的后代盖 part-0/part-1/...，
+ * 源码里 group.add(var) 的出现顺序与 traverse 顺序一致（声明在前 add 在后）。
+ * 本函数枚举所有 `group.add(varName);` 调用，过滤出 varName 对应创建块里
+ * **没有 `userData.__id` 赋值的**（即被 stampMissingIds 兜底盖的），取第 N 个删整块。
+ */
+const deletePartByIndex = (
+  source: string,
+  partIndex: number,
+): { source: string; failed?: { reason: string } } => {
+  // 枚举所有 group.add(varName); 调用
+  const addPattern = /group\.add\((\w+)\);/g
+  const candidates: { varName: string; addMatch: RegExpExecArray }[] = []
+  let m: RegExpExecArray | null
+  while ((m = addPattern.exec(source)) !== null) {
+    candidates.push({ varName: m[1], addMatch: m })
+  }
+  // 过滤：varName 对应创建块里没有 userData.__id 赋值的（被 stampMissingIds 兜底盖的）
+  const partCandidates = candidates.filter((c) => {
+    // 在 varName 声明→group.add(varName) 块里找 userData.__id 赋值
+    const blockPattern = new RegExp(
+      `const ${c.varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} =[\\s\\S]*?group\\.add\\(${c.varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\);`,
+    )
+    const blockMatch = blockPattern.exec(source)
+    if (!blockMatch) return false
+    // 块内有 userData.__id = 赋值 → handler 已盖语义 id，非 part-N 兜底
+    return !/userData\.__id\s*=/.test(blockMatch[0])
+  })
+  if (partIndex >= partCandidates.length) {
+    return { source, failed: { reason: `part-N fallback：无 __id 的创建块仅 ${partCandidates.length} 个，part-${partIndex} 越界` } }
+  }
+  const target = partCandidates[partIndex]
+  // 删整块：const varName = 声明 → group.add(varName);
+  const blockPattern = new RegExp(
+    `(\\n\\s*const ${target.varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} =[\\s\\S]*?group\\.add\\(${target.varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\);)`,
+  )
+  const blockMatch = blockPattern.exec(source)
+  if (!blockMatch) {
+    return { source, failed: { reason: `part-N fallback：未匹配 ${target.varName} 创建块` } }
+  }
+  return { source: source.replace(blockMatch[1], "") }
+}
+
+/**
  * 把 handler 源码里首个材质 color 字面量（`color: 0xHEX`）替换为新色（edit_code 路线，Aider 式唯一匹配）。
  *
  * 用于编辑态提交组件型 Group 改色（isFallbackPartId 命中）：SUB_OVERRIDES+applyOverride 对黑盒 Group
@@ -570,4 +615,209 @@ export const patchHandlerMaterialColor = (
     return { source: res.source, failed: { reason: `edit_code 改色：color 字面量匹配不唯一或失败（${res.failed.reason}）` } }
   }
   return { source: res.source }
+}
+
+/**
+ * 删除 handler 源码中含特定 cid 的非循环创建块（const 声明 → group.add(var) / addPart 调用）。
+ *
+ * 用于编辑态删除非循环子部件（如 warehouse_shell 的 roof/floor/wall、lujiazui_skyline 的 pearl 子件）：
+ * 这些创建点不在 for 循环里，无 SUB_SKIP 检查点 → patchHandlerSkip 加 cid 静默 no-op。改走 edit_code 删整块
+ * 创建代码（声明+属性+stamp/addPart 调用），重建时该子部件不创建 → 确定性删除。
+ *
+ * 匹配（三路，按序尝试）：
+ *  ① stamp 模式：从 `stamp(var, ..., \`${node.id}-suffix\`)` 反推变量名 var → 找 `const var =` 声明行 →
+ *    删到 `group.add(var);` 结束。
+ *  ② addPart 模式：handler 用 `addPart(parent, obj, cid, 'name')` 创建（__id = `${cid}-${name}`）→
+ *    遍历所有 addPart 调用，cidSuffix 尾部匹配 name（`-${name}` 是 cidSuffix 后缀）→
+ *    删从 `const var =` 声明到 `addPart(..., var, ..., 'name');` 整块。
+ *  ③ part-N 兜底：handler 无 stamp/addPart 注册（mesh 被 stampMissingIds 运行时盖 part-N）→
+ *    按 `group.add(var)` 出现顺序找第 N 个无 __id 赋值的创建块删除。
+ *
+ * 局限：循环创建点（for 体内）的 cid 不走这里（循环子实例走 SUB_SKIP）。
+ */
+export const patchHandlerDeleteCreation = (
+  source: string,
+  cidSuffix: string,
+): { source: string; failed?: { reason: string } } => {
+  // cidSuffix = __id 去掉 node.id 前缀的尾部（如 "warehouse_shell-1-roof" → "-roof"）
+  // 在 stamp 调用里找 `${node.id}-roof` 模板字面量，反推变量名
+  const stampPattern = new RegExp(
+    `stamp\\(\\s*(\\w+)\\s*,[^,]*,\\s*\\\`\\\${node\\.id}${cidSuffix.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\\`\\s*\\)`,
+  )
+  const stampMatch = stampPattern.exec(source)
+  if (!stampMatch) {
+    // addPart 模式 fallback：handler 用 addPart(parent, obj, cid, 'name') 创建子部件，
+    // __id = ${cid}-${name}（cid 是 ${node.id}-xxx 变量）。addPart 创建点无 SUB_SKIP 检查 →
+    // patchHandlerSkip 加 cid 静默 no-op。改走删整块创建代码（声明+属性+addPart 调用）。
+    // 匹配：遍历 addPart(_, var, _, 'name') 调用，找 cidSuffix 尾部匹配 name 的（${cid}-${name}=__id，
+    // cidSuffix=__id.slice(node.id.length)，name 是 cidSuffix 后缀）。
+    const addPartPattern = /addPart\s*\(\s*[^,]+,\s*(\w+)\s*,\s*[^,]+,\s*['"]([^'"]+)['"]\s*\)/g
+    let m: RegExpExecArray | null
+    while ((m = addPartPattern.exec(source)) !== null) {
+      const varName = m[1]
+      const name = m[2]
+      // __id = ${cid}-${name}，cidSuffix = __id.slice(node.id.length)，故 cidSuffix 尾部 = -${name}
+      if (!cidSuffix.endsWith("-" + name)) continue
+      // 从 const varName = 声明开始，到 addPart(..., varName, ..., 'name'); 结束，删整块
+      const escaped = varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const nameEsc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const blockPattern = new RegExp(
+        `(\\n\\s*const ${escaped} =[\\s\\S]*?addPart\\s*\\([^,]+,\\s*${escaped}\\s*,[^,]+,\\s*['"]${nameEsc}['"]\\s*\\);)`,
+      )
+      const blockMatch = blockPattern.exec(source)
+      if (blockMatch) {
+        return { source: source.replace(blockMatch[1], "") }
+      }
+    }
+    // part-N 兜底 id fallback：handler 源码无 stamp 注册（mesh 被 stampMissingIds 运行时盖 part-N），
+    // 按 group.add(var) 出现顺序找第 N 个无 __id 赋值的创建块删除。
+    const partMatch = cidSuffix.match(/^-part-(\d+)$/)
+    if (partMatch) {
+      const r = deletePartByIndex(source, parseInt(partMatch[1], 10))
+      if (!r.failed) return { source: r.source }
+    }
+    return { source, failed: { reason: `edit_code 删创建块：未找到 stamp/addPart 匹配（cidSuffix=${cidSuffix}），且 part-N fallback 失败` } }
+  }
+  const varName = stampMatch[1]
+  // 从 const varName = 声明开始，到 group.add(varName); 结束，删整块
+  const declPattern = new RegExp(
+    `(\\n\\s*const ${varName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")} =[^;]+;[^\\n]*\\n(?:[^\\n]*\\n)*?\\s*group\\.add\\(${varName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\);)`,
+  )
+  const declMatch = declPattern.exec(source)
+  if (!declMatch) {
+    return { source, failed: { reason: `edit_code 删创建块：找到 stamp 调用变量 ${varName}，但未匹配 const 声明→group.add(${varName}); 整块` } }
+  }
+  // 删掉整块（含起始换行）
+  return { source: source.replace(declMatch[1], "") }
+}
+
+/** 行类型（live-data 节点行，commit-edits / patch-scene 共享删除决策用） */
+type TypeRow = { id?: string; params?: Record<string, unknown> }
+
+/** 删除决策结果（NL=Edit 单代码路径：commit-edits + patch-scene skip_instance 共调） */
+export type DeletionResult = {
+  /** patch 后的 handler 源码（可能不变——group 根删除只改 live-data 不碰源码） */
+  source: string
+  /** group 根删除时返回 node.id，供调用方从 merged[type] 数组过滤掉该 node */
+  deletedNodeId?: string
+  /** 失败原因（无法删除时） */
+  failed?: { reason: string }
+}
+
+/**
+ * 统一删除决策（NL=Edit 单代码路径）。三层分流：
+ *   ① group 根（__id === node.id，顶层节点）→ 返回 deletedNodeId，调用方从 merged[type] 过滤（live-data 删 node）
+ *   ② 非循环子部件（__id startsWith node.id-，单创建点非 for 循环）→ patchHandlerDeleteCreation 删创建块
+ *   ③ 循环子实例（for 体内，已有 SUB_SKIP 检查点）→ patchHandlerSkip 加 cid
+ *
+ * commit-edits 和 patch-scene skip_instance 都调本函数，删除逻辑只有一份，不区分来源。
+ */
+export const applyDeletion = (
+  source: string,
+  __id: string,
+  typeRows: TypeRow[],
+): DeletionResult => {
+  // ① group 根
+  const rootNode = typeRows.find((n) => n.id === __id)
+  if (rootNode) {
+    return { source, deletedNodeId: __id }
+  }
+  // ② 非循环子部件：找 __id 匹配的 node.id 前缀，算 cidSuffix，试删创建块
+  const ownerNode = typeRows.find((n) => n.id && __id.startsWith(n.id + "-"))
+  if (ownerNode?.id) {
+    const cidSuffix = __id.slice(ownerNode.id.length) // 如 "-roof"
+    const r = patchHandlerDeleteCreation(source, cidSuffix)
+    if (!r.failed) {
+      return { source: r.source }
+    }
+    // 删创建块失败（循环 cid 模板拼接匹配不到字面量）→ fallback SUB_SKIP
+  }
+  // ③ 循环子实例
+  if (!hasSkipSkeleton(source)) {
+    return { source, failed: { reason: "handler 无 SUB_SKIP 骨架且非循环创建块删失败，无法删除（需重新生成）" } }
+  }
+  return { source: patchHandlerSkip(source, __id, "add") }
+}
+
+/** 材质/transform 改动结果（NL=Edit 单代码路径） */
+export type MaterialResult = {
+  source: string
+  failed?: { reason: string }
+}
+
+/**
+ * 统一材质/transform 改色（NL=Edit 单代码路径）。两层分流：
+ *   ① 兜底 part-N __id（组件型 Group 内部子 mesh）→ patchHandlerMaterialColor 改 color 字面量
+ *   ② 语义 cid → ensureApplyOverride 自愈漏 applyOverride + patchHandlerOverride 写 SUB_OVERRIDES
+ *
+ * commit-edits 和 patch-scene set_instance 都调本函数，改色逻辑只有一份。
+ * transform 子部件级（非 group 根）也走 patchHandlerOverride（SUB_OVERRIDES transform）。
+ */
+export const applyMaterialChange = (
+  source: string,
+  __id: string,
+  entry: OverrideEntry,
+  typeRows: TypeRow[],
+): MaterialResult => {
+  // ① 兜底 part-N __id 改色 → edit_code 改 color 字面量
+  if (isFallbackPartId(__id) && entry.material?.color) {
+    const color = entry.material.color as string
+    const newHex = "0x" + color.replace(/^#/, "")
+    const r = patchHandlerMaterialColor(source, newHex)
+    if (r.failed) {
+      return { source, failed: r.failed }
+    }
+    return { source: r.source }
+  }
+  // ② 语义 cid → ensureApplyOverride 自愈 + patchHandlerOverride
+  const ownerNode = typeRows.find((n) => n.id && __id.startsWith(n.id + "-"))
+  if (ownerNode?.id) {
+    const healed = ensureApplyOverride(source, __id, ownerNode.id)
+    const src = healed.source
+    return { source: patchHandlerOverride(src, __id, entry) }
+  }
+  // 无前缀匹配（__id 既非 part-N 也非已知 node.id 前缀）→ 直接 patchHandlerOverride
+  return { source: patchHandlerOverride(source, __id, entry) }
+}
+
+/**
+ * 在 scene 对象的 type 分组里按 nodeId 找顶层节点（NL=Edit 单代码路径共享）。
+ * commit-edits 和 patch-scene 都调本函数定位 group 根节点。
+ */
+export const findTypeNode = (
+  sceneObj: Record<string, unknown>,
+  type: string,
+  nodeId: string,
+): Record<string, unknown> | null => {
+  const arr = sceneObj[type]
+  if (!Array.isArray(arr)) return null
+  for (const n of arr) {
+    if (n && typeof n === "object" && (n as { id?: unknown }).id === nodeId) {
+      return n as Record<string, unknown>
+    }
+  }
+  return null
+}
+
+/**
+ * 统一 group 根 transform（NL=Edit 单代码路径）。改 live-data 节点 params →
+ * handler 读 opts.position/fromArray 整体移动。原地 mutate，返回是否找到节点。
+ *
+ * commit-edits 改 merged（onCodeVersionReady 落盘）；patch-scene 改 mergedClone + liveData（onMaterialize 落盘）。
+ */
+export const applyTypeTransform = (
+  sceneObj: Record<string, unknown>,
+  type: string,
+  nodeId: string,
+  tf: OverrideEntry["transform"],
+): boolean => {
+  if (!tf) return false
+  const node = findTypeNode(sceneObj, type, nodeId)
+  if (!node) return false
+  const params = (node.params ?? {}) as Record<string, unknown>
+  if (tf.position) params.position = tf.position
+  if (tf.rotation) params.rotation = tf.rotation
+  if (tf.scale) params.scale = tf.scale
+  node.params = params
+  return true
 }

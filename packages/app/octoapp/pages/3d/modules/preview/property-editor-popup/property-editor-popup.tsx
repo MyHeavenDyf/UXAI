@@ -24,6 +24,8 @@ export interface PropertyEditor3DPopupProps {
   onClose: () => void
   /** 删除当前选中物体（运行时移除 + editDelta 标 deleted，提交时落盘） */
   onRemove?: (id: string) => void
+  /** 复制当前选中物体（克隆 live-data node + 新 id，提交时追加 merged[type]） */
+  onDuplicate?: (id: string) => void
 }
 
 /** 各几何体类型可编辑的参数（对齐 3d-templete createLiveGeometry 支持集） */
@@ -381,7 +383,20 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
           </div>
         </Show>
 
-        {/* 删除物体（运行时移除 + editDelta 标 deleted，提交时 patchHandlerSkip 落盘）。
+        {/* 复制物体（克隆 live-data node + 新 id，提交时追加 merged[type]，零 LLM） */}
+        <Show when={props.onDuplicate}>
+          <div class="border-t border-[#e5e7eb] -mx-4 px-4 pt-2">
+            <button
+              type="button"
+              class="edit-btn subtle w-full"
+              onClick={() => props.onDuplicate!(d().id)}
+            >
+              复制物体
+            </button>
+          </div>
+        </Show>
+
+        {/* 删除物体（运行时移除 + editDelta 标 deleted，提交时 applyDeletion 落盘）。
             inline 确认（对齐 make manual-edit-panel，不用 window.confirm 弹框）。 */}
         <Show when={props.onRemove}>
           <div class="border-t border-[#e5e7eb] -mx-4 px-4 pt-2">

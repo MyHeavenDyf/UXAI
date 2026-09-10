@@ -7,7 +7,7 @@
  *   loadCurrentSceneState 取 codeDir+merged → readCodeDirFiles 读全量 →
  *   extractPatchCandidates 抽候选 → 校验所有 op 目标合法（防 triage 臆造）→
  *   ① set_type_transform：改 live-data 节点 params（整物 transform，handler 读 opts.position 整体移动）
- *   ② set_instance：per-handler ensureApplyOverride 自愈漏 applyOverride 的子物 + patchHandlerOverride
+ *   ② set_instance：per-handler applyMaterialChange 两层分流（part-N 兜底改 color 字面量 / 语义 cid ensureApplyOverride 自愈+patchHandlerOverride）
  *      merge 进 SUB_OVERRIDES（部件材质/transform）
  *   → 重组全量 codeFiles → 调 onMaterialize 轻量物化（overlay 子集 + vite 自然 full-reload，不碰 switchVersion 240s 卡顿）。
  *
@@ -16,7 +16,7 @@
  * codegen 覆盖」的不一致。
  *
  * **ensureApplyOverride 自愈**（修「改墙色无反应」静默 no-op）：LLM 常对单组件型子物（createComponentObject('Wall')）
- * 设 __id 却漏调 applyOverride → SUB_OVERRIDES 写了运行时不读 = 静默无变化。patchHandlerOverride 写入前先调
+ * 设 __id 却漏调 applyOverride → SUB_OVERRIDES 写了运行时不读 = 静默无变化。applyMaterialChange 写入前先调
  * ensureApplyOverride：定位 `obj.userData.__id = <cid>` 赋值点，若该 obj 无 applyOverride 调用，在其 .add 前
  * 确定性注入一行 applyOverride —— 既有不合契约 handler 自愈，无需 codegen 重生成、不丢其他物体。
  *
@@ -27,15 +27,16 @@
  */
 import { loadCurrentSceneState, readCodeDirFiles } from "../utils/version-history"
 import {
-  patchHandlerOverride,
-  patchHandlerSkip,
-  hasSkipSkeleton,
+  applyDeletion,
+  applyMaterialChange,
+  applyTypeTransform,
+  findTypeNode,
   patchHandlerAdd,
   hasAddSkeleton,
   applySearchReplace,
   resolveTypeId,
   handlerFilePathForType,
-  ensureApplyOverride,
+  type OverrideEntry,
 } from "../utils/patch-handler"
 import { extractPatchCandidates, searchHandlerForSynonymCid } from "./patch-resolver"
 import type { CodeFile } from "../utils/parse-code-files"
@@ -68,7 +69,7 @@ export interface SetTypeTransformOp {
 
 /** Phase B op：删一个已有子实例（部件）—— 把其 __id 加进 handler 的 SUB_SKIP 删除集合，
  * handler 创建点 `if (SUB_SKIP.includes(cid)) continue` 跳过 = 删除。须 __id ∈ 候选清单（同 set_instance，
- * 防臆造）；handler 须含 SUB_SKIP 骨架（hasSkipSkeleton），否则该 type 进 codegenFallback 升级。 */
+ * 防臆造）；删除走 applyDeletion 三层分流（group 根→live-data 删 node / 非循环子部件→deleteCreation / 循环子实例→SUB_SKIP）。 */
 export interface SkipInstanceOp {
   op: "skip_instance"
   __id: string
@@ -164,49 +165,12 @@ export interface PatchSceneResult {
   error?: string
 }
 
-/** 在 scene 对象的 type 分组里按 nodeId 找顶层节点（Record 或 null） */
-function findTypeNode(
-  sceneObj: Record<string, unknown>,
-  type: string,
-  nodeId: string,
-): Record<string, unknown> | null {
-  const arr = sceneObj[type]
-  if (!Array.isArray(arr)) return null
-  for (const n of arr) {
-    if (n && typeof n === "object" && (n as { id?: unknown }).id === nodeId) {
-      return n as Record<string, unknown>
-    }
-  }
-  return null
-}
-
 /** 某 type 下若恰好 1 个顶层节点 → 返其 id；0 或 >1 → null（多同类须 triage 显式 nodeId 消歧） */
 function uniqueNodeIdOfType(sceneObj: Record<string, unknown>, type: string): string | null {
   const arr = sceneObj[type]
   if (!Array.isArray(arr) || arr.length !== 1) return null
   const id = (arr[0] as { id?: unknown }).id
   return typeof id === "string" ? id : null
-}
-
-/**
- * 把整物 transform merge 进 scene 对象某顶层节点的 params（position/rotation/scale 子字段级）。
- * 用于 set_type_transform：改 live-data 节点 params → handler 读 opts.position 整体移动。
- * 找不到节点返回 false（调用方判 fallback）。原地 mutate。
- */
-function applyTypeTransform(
-  sceneObj: Record<string, unknown>,
-  type: string,
-  nodeId: string,
-  tf: TransformFields,
-): boolean {
-  const node = findTypeNode(sceneObj, type, nodeId)
-  if (!node) return false
-  const params = (node.params ?? {}) as Record<string, unknown>
-  if (tf.position) params.position = tf.position
-  if (tf.rotation) params.rotation = tf.rotation
-  if (tf.scale) params.scale = tf.scale
-  node.params = params
-  return true
 }
 
 /** 场景级 op 判定（M-3 ①）：set_light/set_camera/set_scene 作用 live-data 顶层保留键，
@@ -462,8 +426,8 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     }
   }
 
-  // 5. 应用 set_instance → per-handler：先 ensureApplyOverride 自愈漏 applyOverride 的子物
-  //    （否则 SUB_OVERRIDES 写了运行时不读 = 静默 no-op，用户「改墙色无反应」即此），再 patchHandlerOverride merge
+  // 5. 应用 set_instance → per-handler：NL=Edit 单代码路径——applyMaterialChange 两层分流
+  //    （part-N 兜底→改 color 字面量 / 语义 cid→ensureApplyOverride 自愈+patchHandlerOverride）
   const byType = new Map<string, SetInstanceOp[]>()
   for (const op of instanceOps) {
     const type = resolveTypeId(merged, op.__id) // 校验阶段已确认非空
@@ -481,25 +445,27 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
       for (const op of ops) skipped.push({ __id: op.__id, reason: `codeDir 未找到 ${type} handler 文件（${handlerPath}）` })
       continue
     }
+    const typeRows: Array<{ id?: string; params?: Record<string, unknown> }> = Array.isArray(mergedClone[type])
+      ? mergedClone[type]
+      : []
     let src = target.content
     for (const op of ops) {
-      const cand = candById.get(op.__id)
-      if (cand) {
-        // 自愈：handler 漏 applyOverride 则注入一行（幂等，已有则跳过）
-        src = ensureApplyOverride(src, op.__id, cand.nodeId).source
-      }
-      try {
-        src = patchHandlerOverride(src, op.__id, { material: op.material, transform: op.transform })
-      } catch (e) {
-        skipped.push({ __id: op.__id, reason: e instanceof Error ? e.message : String(e) })
+      const entry: OverrideEntry = {}
+      if (op.material) entry.material = op.material
+      if (op.transform) entry.transform = op.transform
+      const r = applyMaterialChange(src, op.__id, entry, typeRows)
+      if (r.failed) {
+        skipped.push({ __id: op.__id, reason: r.failed.reason })
+      } else {
+        src = r.source
       }
     }
     target.content = src
   }
 
-  // 5b. 应用 skip_instance → per-handler：有 SUB_SKIP 骨架则 patchHandlerSkip 加 cid（data patch）；
-  //     无骨架 → skipped（该 type 需 codegen 升级，all-or-nothing 走 fallback modify）。
-  //     （B6 将改为 scoped codegen 升级单 type + 再 data-patch，不全量 fallback。）
+  // 5b. 应用 skip_instance → per-handler：NL=Edit 单代码路径——applyDeletion 三层分流
+  //     （group 根→mergedClone 删 node / 非循环子部件→deleteCreation / 循环子实例→SUB_SKIP）。
+  //     group 根删除需同步 live-data.json（reload handler 读新 live-data 自然不创建该 node）。
   if (skipOps.length > 0) {
     const skipByType = new Map<string, string[]>()
     for (const op of skipOps) {
@@ -516,16 +482,26 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
         for (const id of ids) skipped.push({ __id: id, reason: `codeDir 未找到 ${type} handler 文件（${handlerPath}）` })
         continue
       }
-      if (!hasSkipSkeleton(target.content)) {
-        for (const id of ids) skipped.push({ __id: id, reason: `${type} handler 无 SUB_SKIP 骨架（需 codegen 升级，合 HANDLER_CONTRACT 规则 7）` })
-        continue
-      }
+      const typeRows: Array<{ id?: string; params?: Record<string, unknown> }> = Array.isArray(mergedClone[type])
+        ? mergedClone[type]
+        : []
       let src = target.content
       for (const id of ids) {
-        try {
-          src = patchHandlerSkip(src, id, "add")
-        } catch (e) {
-          skipped.push({ __id: id, reason: e instanceof Error ? e.message : String(e) })
+        const r = applyDeletion(src, id, typeRows)
+        if (r.failed) {
+          skipped.push({ __id: id, reason: r.failed.reason })
+          continue
+        }
+        src = r.source
+        if (r.deletedNodeId) {
+          const currentRows: Array<{ id?: string }> = Array.isArray(mergedClone[type]) ? mergedClone[type] : []
+          mergedClone[type] = currentRows.filter((n) => n.id !== r.deletedNodeId)
+          if (liveData && Array.isArray(liveData[type])) {
+            liveData[type] = (liveData[type] as unknown[]).filter((n) => {
+              const row = n as Record<string, unknown>
+              return row?.id !== r.deletedNodeId
+            })
+          }
         }
       }
       target.content = src

@@ -120,8 +120,15 @@ export type EditDeltaEntry = {
   material?: SceneConfigMaterial
   /** rotation 存弧度（Three 原生；applyEdit 从 popup 度转弧度写入，patchHandlerOverride 原样落盘 SUB_OVERRIDES） */
   transform?: { position?: number[]; rotation?: number[]; scale?: number[] }
-  /** 删除标记：提交时 commitEdits 路由到 patchHandlerSkip（往 handler 源码 SUB_SKIP 数组加 cid） */
+  /** 删除标记：提交时 commitEdits 路由到 applyDeletion（group 根→merged 删 node / 非循环→deleteCreation / 循环→SUB_SKIP） */
   deleted?: boolean
+  /** 复制新增节点：提交时 commitEdits 把完整 node 追加进 merged[type]（handler 遍历创建，零 LLM）。
+   *  新 id = 同 type 下 max+1；position 偏移避免与源重叠。 */
+  added?: {
+    type: string
+    nodeId: string
+    params?: Record<string, unknown>
+  }
 }
 
 /**
