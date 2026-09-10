@@ -1716,8 +1716,9 @@ export function PropertyEditorPopup(props: {
           const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
           const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
           // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
-          // （自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
-          if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name') || (isCustom && suffix === 'Id')) {
+          // （Src 对所有图标键生效：name→src、icon→iconSrc…，否则切回官方后残留的 iconSrc 会让重开误判为自定义；
+          //  自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
+          if (suffix === 'Url' || suffix === 'Custom' || suffix === 'Src' || (isCustom && suffix === 'Id')) {
             if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
             continue
           }
