@@ -176,6 +176,14 @@ function ensureProxyFromConfig() {
 }
 
 function useEnvProxy() {
+  // setGlobalProxyFromEnv 在 env 无 proxy 变量时静默 no-op 且不报错,
+  // 仅靠 try/catch 无法发现"OK 日志但实际直连"的情况,这里显式警告
+  const hasProxyEnv = Boolean(
+    process.env.http_proxy ?? process.env.HTTP_PROXY ?? process.env.https_proxy ?? process.env.HTTPS_PROXY,
+  )
+  if (!hasProxyEnv) {
+    console.warn("[sidecar:proxy] proxy env MISSING — setGlobalProxyFromEnv is a NO-OP, all fetch will go DIRECT")
+  }
   try {
     ;(http as NodeHttpWithEnvProxy).setGlobalProxyFromEnv()
     console.log(
