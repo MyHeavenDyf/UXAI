@@ -96,8 +96,8 @@ function wrapComponentsPrompt(filePath: string, body: string): string {
 }
 
 const componentsModelEditConfig: ModelEditConfig = {
-  saveCallback: (args) => wrapComponentsPrompt(args.filePath, defaultModelEditConfig.saveCallback(args)),
-  deleteCallback: (args) => wrapComponentsPrompt(args.filePath, defaultModelEditConfig.deleteCallback(args)),
+  saveCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
+  deleteCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
 }
 
 export default {
