@@ -17,39 +17,55 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
+import { getDesktopApi } from "../../../utils/desktop-api"
 
-/** 图标触发器预览：url 即云端图片实际地址。有颜色时用 mask 技法把 svg 染成所选色；无颜色直接 img；失败回退本地 lucide 按名渲染 */
-function IconFieldPreview(props: { name?: string; url?: string; color?: string }) {
+/** 图标触发器预览：自定义图标（custom）按 src（uploads/文件名）+ htmlFilePath 读本地文件原样 img 展示；
+ *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；均失败时回退本地 lucide 按名渲染 */
+function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
   const [failed, setFailed] = createSignal(false)
-  createEffect(() => { props.url; setFailed(false) })
+  const [fileUrl, setFileUrl] = createSignal<string | null>(null)
+  createEffect(() => {
+    props.custom; props.src; props.htmlFilePath; setFailed(false); setFileUrl(null)
+    if (!props.custom || !props.src || !props.htmlFilePath) return
+    const api = getDesktopApi()
+    const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
+    api?.readFileBuffer?.(`${base}/${props.src}`).then((buf) => {
+      setFileUrl(buf ? URL.createObjectURL(new Blob([buf])) : null)
+    }).catch(() => setFileUrl(null))
+  })
   return (
-    <Show when={props.url && !failed()} fallback={
-      (() => {
-        const d = LUCIDE_ICONS.find(i => i.name === props.name)
-        return d
-          ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
-          : null
-      })()
-    }>
-      <Show when={props.color} fallback={
-        <img src={props.url} alt="" loading="lazy" decoding="async"
-          class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+    <Show when={props.custom && fileUrl()} fallback={
+      <Show when={props.url && !failed()} fallback={
+        (() => {
+          const d = LUCIDE_ICONS.find(i => i.name === props.name)
+          return d
+            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+            : null
+        })()
       }>
-        <div class="h-4 w-4 shrink-0" style={{
-          'background-color': props.color,
-          '-webkit-mask-image': `url("${props.url}")`,
-          'mask-image': `url("${props.url}")`,
-          '-webkit-mask-repeat': 'no-repeat',
-          'mask-repeat': 'no-repeat',
-          '-webkit-mask-position': 'center',
-          'mask-position': 'center',
-          '-webkit-mask-size': 'contain',
-          'mask-size': 'contain',
-        }} />
+        <Show when={props.color} fallback={
+          <img src={props.url} alt="" loading="lazy" decoding="async"
+            class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+        }>
+          <div class="h-4 w-4 shrink-0" style={{
+            'background-color': props.color,
+            '-webkit-mask-image': `url("${props.url}")`,
+            'mask-image': `url("${props.url}")`,
+            '-webkit-mask-repeat': 'no-repeat',
+            'mask-repeat': 'no-repeat',
+            '-webkit-mask-position': 'center',
+            'mask-position': 'center',
+            '-webkit-mask-size': 'contain',
+            'mask-size': 'contain',
+          }} />
+        </Show>
       </Show>
+    }>
+      <img src={fileUrl()!} alt="" class="h-4 w-4 shrink-0 object-contain" />
     </Show>
   )
 }
+
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -222,15 +238,35 @@ export function PropertyEditorPopup(props: {
   const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
 
-  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整） */
-  const isIconComponent = () => propKeys().some(k => ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${k}`))
+  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整）。仅 Icon 组件类型本身适用；Button/Tag 等带 icon 属性的组件不算图标类组件 */
+  const isIconComponent = () => props.componentType === 'Icon'
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(pick: { name: string; id?: string; url?: string; size: string; style: string; color: string }) {
+  /** 图标扩展键（如 nameId/nameUrl/nameSrc/src 等）：随元素透传但不在属性面板展示为行 */
+  const isIconExtraKey = (k: string) => {
+    if (k === 'src') return ICON_PICKER_PROP_KEYS.has(`${props.componentType}.name`)
+    for (const base of ['icon', 'name', 'prefix', 'suffix', 'expandIcon', 'closeIcon']) {
+      if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${base}`)) continue
+      if (/^(Id|Url|Custom|Size|Style|Color|Src)$/.test(k.slice(base.length))) return true
+    }
+    return false
+  }
+
+  /** 某图标 key 当前是否为自定义图标：优先 nameCustom==='1'，兼容带 uploads src 或旧 custom: id 的数据 */
+  const iconCustomFlag = (k: string) => {
+    const p = editProps as Record<string, string>
+    return p[`${k}Custom`] === '1' || !!p[`${k}Src`] || (p[`${k}Id`] ?? '').startsWith('custom:')
+  }
+
+  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
     const key = iconPickerKey()!
     updateEditProp(key, pick.name)
-    if (pick.id) updateEditProp(`${key}Id`, pick.id)
-    if (pick.url) updateEditProp(`${key}Url`, pick.url)
+    /** id/url 无条件写入（自定义图标不带，置空以免把 base64 残留到 editProps/元素） */
+    updateEditProp(`${key}Id`, pick.id ?? '')
+    updateEditProp(`${key}Url`, pick.url ?? '')
+    updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
+    /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
+    updateEditProp(`${key}Src`, pick.src ?? '')
     updateEditProp(`${key}Size`, pick.size)
     updateEditProp(`${key}Style`, pick.style)
     updateEditProp(`${key}Color`, pick.color)
@@ -969,6 +1005,7 @@ export function PropertyEditorPopup(props: {
     const defKeys = COMPONENT_PROPS[props.componentType] || []
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => {
       if (k.startsWith('__bind_') || k === 'inlineCollapsed' || k === 'preview' || k === 'url' || k === 'items' || k === 'open' || k === 'footer') return false
+      if (isIconExtraKey(k)) return false
       const v = parsed[k]
       if (v == null) return true
       if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true
@@ -976,6 +1013,14 @@ export function PropertyEditorPopup(props: {
       return false
     })
     setPropKeys(allKeys)
+    // 图标扩展键不展示为属性行，但需写入 editProps（弹窗重开回显 Url/Size/Style/Color、触发器预览 Url）
+    for (const k of Object.keys(parsed)) {
+      if (!isIconExtraKey(k)) continue
+      const v = parsed[k]
+      if (v == null || isStateBoundValue(v)) continue
+      // 自定义图标渲染端把 name 的 Src 参数存为元素 prop "src"（见透传），读回时归位到 nameSrc 供触发器/弹窗回显使用
+      setEditProps(k === 'src' && ICON_PICKER_PROP_KEYS.has(`${props.componentType}.name`) ? 'nameSrc' : k, v.toString())
+    }
     for (const k of allKeys) {
       const parsedVal = parsed[k]
       const raw = isStateBoundValue(parsedVal) ? '' : (parsedVal ?? '').toString()
@@ -1647,6 +1692,27 @@ export function PropertyEditorPopup(props: {
             : val
         }
       }
+      // 图标专属参数随元素透传。自定义图标渲染端只需 name+nameCustom+src（src 即 uploads/文件名），
+      // 不再下发 nameId/nameUrl（曾含整段 base64 造成数据膨胀）/nameSize/Style/Color（对自定义无意义）；
+      // 官方图标则下发 Url/Custom/Id/Size/Style/Color/Src 用于回显。Url/Custom/Src 支持"空串清除"。
+      for (const key of propKeys()) {
+        if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) continue
+        const isCustom = iconCustomFlag(key)
+        const suffixes = isCustom
+          ? ['Url', 'Custom', 'Id', 'Src']
+          : ['Url', 'Custom', 'Id', 'Size', 'Style', 'Color', 'Src']
+        for (const suffix of suffixes) {
+          const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
+          const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
+          // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
+          // （自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
+          if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name') || (isCustom && suffix === 'Id')) {
+            if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
+            continue
+          }
+          if (extra) componentProps[propName] = extra
+        }
+      }
       if (props.componentType === 'Menu') {
         if (!isBinding('items') && menuTree.length) {
           const items = menuTree.map((n) => {
@@ -1882,10 +1948,13 @@ export function PropertyEditorPopup(props: {
                               class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
                               style={{ position: 'relative', overflow: 'hidden' }}>
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
-                                <IconFieldPreview
-                                  name={(editProps as Record<string, string>)[key]}
-                                  url={(editProps as Record<string, string>)[`${key}Url`]}
-                                  color={(editProps as Record<string, string>)[`${key}Color`]} />
+              <IconFieldPreview
+                                name={(editProps as Record<string, string>)[key]}
+                                url={(editProps as Record<string, string>)[`${key}Url`]}
+                                custom={iconCustomFlag(key)}
+                                color={(editProps as Record<string, string>)[`${key}Color`]}
+                                src={(editProps as Record<string, string>)[`${key}Src`]}
+                                htmlFilePath={props.htmlFilePath} />
                               </div>
                               <div class="text-left text-slate-600"
                                 style={{ position: 'absolute', left: '40px', right: '26px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{(editProps as Record<string, string>)[key] || '选择图标'}</div>
@@ -2773,6 +2842,9 @@ export function PropertyEditorPopup(props: {
             <IconPickerPopup
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
               currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
+              currentCustom={iconCustomFlag(iconPickerKey()!)}
+              sessionId={props.sessionId}
+              htmlFilePath={props.htmlFilePath}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
                 ?? (editHeightPx() || editWidthPx() ? String(editHeightPx() || editWidthPx()) : undefined)
                 ?? (editProps as Record<string, string>)['size']

@@ -63,7 +63,7 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: false,
-      modelEdit: false,
+      modelEdit: true,
       drawEdit: false,
       canvasEdit: true,
       comment: true,
@@ -81,8 +81,8 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: true,
-      modelEdit: false,
+      localEdit: false,
+      modelEdit: true,
       drawEdit: true,
       canvasEdit: true,
       comment: true,
@@ -93,6 +93,22 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
   },
 
   demo: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: true,
+      modelEdit: true,
+      drawEdit: true,
+      canvasEdit: true,
+      comment: true,
+      archive: true,
+      download: true,
+      fullscreen: true,
+    }
+  },
+
+  demoedit: {
     features: {
       refresh: true,
       modeToggle: true,

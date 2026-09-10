@@ -111,15 +111,16 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
   const parsed = z.object({ name: z.string(), description: z.string() }).safeParse(md.data)
   if (!parsed.success) return
 
+  state.dirs.add(path.dirname(match))
+  // matches 已按来源优先级排序且顺序加载,首个注册的同名 skill 即高优先级来源,后到的跳过
   if (state.skills[parsed.data.name]) {
-    log.warn("duplicate skill name", {
+    log.warn("duplicate skill name, keeping higher priority entry", {
       name: parsed.data.name,
       existing: state.skills[parsed.data.name].location,
       duplicate: match,
     })
+    return
   }
-
-  state.dirs.add(path.dirname(match))
   const skillDir = path.basename(path.dirname(match))
   state.skills[parsed.data.name] = {
     name: parsed.data.name,
@@ -291,6 +292,18 @@ const discoverSkills = Effect.fnUntraced(function* (
     }
   }
 
+  // 同名 skill 冲突时 ~/.config/octo 必须确定性胜出(此前 unbounded 并发 + 后写覆盖,结果随机):
+  // P0 = octoConfig/skill/<dir>/SKILL.md(桌面端统一管理/部署位置,仅一层)
+  // P1 = octoConfig 下其余路径(skills/ 复数目录、嵌套副本如 dist/)
+  // P2 = 其它所有来源(.claude/.agents/.opencode/项目目录等)
+  // 配合 loadSkills 的顺序加载 + add() 的首个注册生效。
+  const priority = (match: string) => {
+    if (path.dirname(path.dirname(match)) === octoSkillDir) return 0
+    if (match.startsWith(global.octoConfig + path.sep)) return 1
+    return 2
+  }
+  matches.sort((a, b) => priority(a) - priority(b))
+
   return {
     matches,
     dirs: Array.from(state.dirs),
@@ -300,8 +313,8 @@ const discoverSkills = Effect.fnUntraced(function* (
 })
 
 const loadSkills = Effect.fnUntraced(function* (state: State, discovered: DiscoveryState, bus: Bus.Interface) {
+  // 顺序加载(非并发):保证 discoverSkills 的优先级排序真实生效,见排序处注释
   yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus, discovered.typeMap), {
-    concurrency: "unbounded",
     discard: true,
   })
 

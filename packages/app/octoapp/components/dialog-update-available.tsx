@@ -10,21 +10,24 @@ export function useUpdateAvailableDialog() {
   const dialog = useDialog()
   const platform = usePlatform()
 
-  return (version: string, releaseNotes?: string) =>
-    dialog.show(() => (
-      <DialogUpdateAvailable
-        os={platform.os === "macos" ? "macos" : "windows"}
-        version={version}
-        releaseNotes={releaseNotes}
-        onUpgrade={(onProgress) => {
-          if (platform.os === "macos") {
-            platform.openLink(MAC_DOWNLOAD_PAGE_URL)
-            return
-          }
-          return platform.updateAndRestart?.(onProgress)
-        }}
-      />
-    ))
+  return (version: string, releaseNotes?: string, onClose?: () => void) =>
+    dialog.show(
+      () => (
+        <DialogUpdateAvailable
+          os={platform.os === "macos" ? "macos" : "windows"}
+          version={version}
+          releaseNotes={releaseNotes}
+          onUpgrade={(onProgress) => {
+            if (platform.os === "macos") {
+              platform.openLink(MAC_DOWNLOAD_PAGE_URL)
+              return
+            }
+            return platform.updateAndRestart?.(onProgress)
+          }}
+        />
+      ),
+      onClose,
+    )
 }
 
 export function DialogUpdateAvailable(props: {
