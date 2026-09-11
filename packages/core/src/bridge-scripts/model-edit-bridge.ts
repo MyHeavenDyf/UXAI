@@ -7,7 +7,14 @@ var me_annotateNextId = -1;
 function me_tagLabel(el) {
   var t = el.tagName ? el.tagName.toLowerCase() : '';
   var c = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
-  return t + c;
+  var nth = 1;
+  var parent = el.parentElement;
+  if (parent) {
+    for (var i = 0; i < parent.children.length; i++) {
+      if (parent.children[i] === el) { nth = i + 1; break; }
+    }
+  }
+  return t + c + ':nth-child(' + nth + ')';
 }
 
 function me_buildSelector(el) {

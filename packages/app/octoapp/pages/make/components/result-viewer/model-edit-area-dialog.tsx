@@ -29,6 +29,7 @@ const MASK_COLOR = 'rgba(0,0,0,0.3)'
 export function ModelEditAreaDialog(props: {
   element: AreaDialogElement | null
   iframeRef?: HTMLIFrameElement
+  viewportScale?: number
   filePath: string
   tabTitle: string
   disabled?: boolean
@@ -95,13 +96,14 @@ export function ModelEditAreaDialog(props: {
     if (!el || !cRect) return null
     const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
+    const scale = props.viewportScale ?? 1
     const offsetX = iframeRect.left - cRect.left
     const offsetY = iframeRect.top - cRect.top
     return {
-      x: offsetX + el.rect.x,
-      y: offsetY + el.rect.y,
-      width: el.rect.width,
-      height: el.rect.height,
+      x: offsetX + el.rect.x * scale,
+      y: offsetY + el.rect.y * scale,
+      width: el.rect.width * scale,
+      height: el.rect.height * scale,
     }
   }
 
@@ -181,7 +183,7 @@ export function ModelEditAreaDialog(props: {
     const lines: string[] = []
     if (props.filePath) lines.push(`[文件路径: ${props.filePath}]`)
     if (props.tabTitle) lines.push(`[页面: ${props.tabTitle}]`)
-    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}]`)
+    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}（该元素可能是动态生成的）]`)
     return lines.join('\n')
   }
 
