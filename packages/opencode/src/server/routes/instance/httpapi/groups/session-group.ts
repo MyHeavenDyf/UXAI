@@ -21,7 +21,10 @@ const GroupSchema = Schema.Struct({
 
 const ListResultSchema = Schema.Struct({
   groups: Schema.Array(GroupSchema),
-  mapping: Schema.Record(Schema.String, Schema.String),
+  mapping: Schema.Record(
+    Schema.String,
+    Schema.Struct({ groupId: Schema.String, position: Schema.Number }),
+  ),
 })
 
 const ListQuery = Schema.Struct({
@@ -36,7 +39,8 @@ const CreatePayload = Schema.Struct({
 const IdParams = Schema.Struct({ id: Schema.String })
 const RenamePayload = Schema.Struct({ name: Schema.String })
 const ReorderPayload = Schema.Struct({ ids: Schema.Array(Schema.String) })
-const MapSessionPayload = Schema.Struct({ sessionId: SessionID, groupId: Schema.String })
+const MapSessionPayload = Schema.Struct({ sessionId: SessionID, groupId: Schema.String, position: Schema.optional(Schema.Number) })
+const ReorderSessionsPayload = Schema.Struct({ groupId: Schema.String, sessionIds: Schema.Array(Schema.String) })
 const UnmapParams = Schema.Struct({ sessionID: SessionID })
 
 const root = "/session-group"
@@ -48,6 +52,7 @@ const SessionGroupPaths = {
   reorder: `${root}/reorder`,
   mapSession: `${root}/mapping`,
   unmapSession: `${root}/mapping/:sessionID`,
+  reorderSessions: `${root}/reorder-sessions`,
 } as const
 
 export const SessionGroupApi = HttpApi.make("session-group")
@@ -130,6 +135,17 @@ export const SessionGroupApi = HttpApi.make("session-group")
             identifier: "sessionGroup.unmapSession",
             summary: "Remove session from group",
             description: "Remove a session's group assignment.",
+          }),
+        ),
+        HttpApiEndpoint.post("reorderSessions", SessionGroupPaths.reorderSessions, {
+          payload: ReorderSessionsPayload,
+          success: described(Schema.Struct({ ok: Schema.Boolean }), "Reordered"),
+          error: [HttpApiError.BadRequest],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "sessionGroup.reorderSessions",
+            summary: "Reorder sessions within a group",
+            description: "Update the position of sessions within a group.",
           }),
         ),
       )

@@ -188,6 +188,8 @@ import type {
   SessionGroupRenameResponses,
   SessionGroupReorderErrors,
   SessionGroupReorderResponses,
+  SessionGroupReorderSessionsErrors,
+  SessionGroupReorderSessionsResponses,
   SessionGroupUnmapSessionErrors,
   SessionGroupUnmapSessionResponses,
   SessionInitErrors,
@@ -3893,6 +3895,8 @@ export class Session2 extends HeyApiClient {
       time?: {
         archived?: number
       }
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      pinned?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3907,6 +3911,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "time" },
+            { in: "body", key: "sort_order" },
+            { in: "body", key: "pinned" },
           ],
         },
       ],
@@ -4933,6 +4939,7 @@ export class SessionGroup extends HeyApiClient {
       workspace?: string
       sessionId?: string
       groupId?: string
+      position?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4945,6 +4952,7 @@ export class SessionGroup extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "sessionId" },
             { in: "body", key: "groupId" },
+            { in: "body", key: "position" },
           ],
         },
       ],
@@ -4998,6 +5006,49 @@ export class SessionGroup extends HeyApiClient {
       url: "/session-group/mapping/{sessionID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Reorder sessions within a group
+   *
+   * Update the position of sessions within a group.
+   */
+  public reorderSessions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      groupId?: string
+      sessionIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "groupId" },
+            { in: "body", key: "sessionIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionGroupReorderSessionsResponses,
+      SessionGroupReorderSessionsErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/reorder-sessions",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

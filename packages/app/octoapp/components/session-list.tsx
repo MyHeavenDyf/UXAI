@@ -64,7 +64,7 @@ export type SessionListItemProps = {
   /** When true, hover background applies even on the active (selected) item, overriding the active bg */
   hoverOnActive?: boolean
   /** Ref callback for scroll-into-view */
-  ref?: (el: HTMLButtonElement) => void
+  ref?: (el: HTMLElement) => void
   /** Rename state: pass the ID of the session being renamed */
   renamingId?: string | null
   /** Current rename draft text */
@@ -75,6 +75,20 @@ export type SessionListItemProps = {
   onRenameSave?: () => void
   /** Callback when rename is cancelled (Escape) */
   onRenameCancel?: () => void
+  /** Whether this item is draggable */
+  draggable?: boolean
+  /** Whether this item is currently being dragged */
+  isDragging?: boolean
+  /** Whether this item is the current drop target */
+  isDropTarget?: boolean
+  /** Drop indicator position */
+  dropIndicator?: "before" | "after" | null
+  /** DnD event handlers */
+  onDragStart?: (e: DragEvent) => void
+  onDragEnd?: (e: DragEvent) => void
+  onDragOver?: (e: DragEvent) => void
+  onDragLeave?: (e: DragEvent) => void
+  onDrop?: (e: DragEvent) => void
 }
 
 export function SessionListItem(props: SessionListItemProps) {
@@ -155,10 +169,14 @@ export function SessionListItem(props: SessionListItemProps) {
         </div>
       }
     >
-      <button
+      <div
         data-session-id={props.session.id}
-        ref={props.ref}
-        type="button"
+        ref={(el) => {
+          if (props.draggable) el.setAttribute("draggable", "true")
+          props.ref?.(el)
+        }}
+        role="button"
+        tabindex="0"
         onClick={() => {
           props.onClick?.()
           notification.session.markViewed(props.session.id)
@@ -166,18 +184,42 @@ export function SessionListItem(props: SessionListItemProps) {
         onContextMenu={(e) => { e.preventDefault(); props.onContextMenu?.(e) }}
         onMouseEnter={() => { setIsHovered(true); enterTrigger() }}
         onMouseLeave={() => { setIsHovered(false); leaveTrigger() }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onClick?.(); notification.session.markViewed(props.session.id) } }}
+        draggable={props.draggable}
+        onDragStart={props.onDragStart}
+        onDragEnd={props.onDragEnd}
+        onDragOver={props.onDragOver}
+        onDragLeave={props.onDragLeave}
+        onDrop={props.onDrop}
         class="group w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
         style={{
           height: "36px",
           padding: "0 24px 0 44px",
           color: props.isActive ? "#0A59F7" : undefined,
+          "-webkit-user-drag": props.draggable ? "element" : undefined,
+          cursor: props.draggable ? "grab" : undefined,
         }}
         classList={{
           "bg-[rgba(10,89,247,0.08)]": props.isActive,
           "hover:bg-surface-base-hover": (!props.isActive || props.hoverOnActive) && !props.isContextTarget,
           "bg-[rgba(0,0,0,0.06)]": props.isContextTarget,
+          "opacity-40": props.isDragging,
+          "cursor-grabbing": props.isDragging,
         }}
       >
+        <Show when={props.isDropTarget && props.dropIndicator}>
+          <div
+            class="absolute left-[8px] right-[8px] pointer-events-none"
+            style={{
+              height: "2px",
+              background: "#0A59F7",
+              "border-radius": "1px",
+              "z-index": "10",
+              top: props.dropIndicator === "before" ? "0" : undefined,
+              bottom: props.dropIndicator === "after" ? "0" : undefined,
+            }}
+          />
+        </Show>
         <Show when={props.isActive && !(props.hoverOnActive && isHovered())}>
           <span
             class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
@@ -211,7 +253,7 @@ export function SessionListItem(props: SessionListItemProps) {
             <Icon name="ellipsis" size="small" style={{ color: "rgba(0,0,0,0.6)", transform: "rotate(90deg)" }} />
           </div>
         </Show>
-      </button>
+      </div>
       <Show when={showTooltip()}>
         <Portal>
           <div
@@ -258,7 +300,7 @@ export type SessionListProps = {
   /** Custom render for each session item (for rename, etc.) */
   renderItem?: (session: Session) => JSX.Element
   /** Ref callback for session items (for scroll-into-view) */
-  itemRef?: (session: Session, el: HTMLButtonElement) => void
+  itemRef?: (session: Session, el: HTMLElement) => void
   /** Check if context menu is targeting this session */
   isContextTarget?: (session: Session) => boolean
   /** When true, hover background applies even on the active (selected) item, overriding the active bg */
@@ -273,6 +315,26 @@ export type SessionListProps = {
   onRenameSave?: () => void
   /** Callback when rename is cancelled (Escape) */
   onRenameCancel?: () => void
+  /** DnD: whether items are draggable */
+  itemsDraggable?: boolean
+  /** DnD: ID of session being dragged */
+  draggingSessionId?: string | null
+  /** DnD: ID of session being hovered over */
+  dragOverSessionId?: string | null
+  /** DnD: drop position for hovered session */
+  sessionDropPosition?: "before" | "after" | null
+  /** DnD: drag start handler */
+  onSessionDragStart?: (session: Session) => void
+  /** DnD: drag end handler */
+  onSessionDragEnd?: () => void
+  /** DnD: drag over handler */
+  onSessionDragOver?: (e: DragEvent, session: Session) => void
+  /** DnD: drag leave handler */
+  onSessionDragLeave?: (e: DragEvent, session: Session) => void
+  /** DnD: drop handler */
+  onSessionDrop?: (e: DragEvent, session: Session) => void
+  /** DnD: drop on empty area handler */
+  onEmptyDrop?: (e: DragEvent) => void
 }
 
 /**
@@ -305,9 +367,28 @@ export function SessionList(props: SessionListProps) {
         <Show
           when={props.sessions.length > 0}
           fallback={
-            <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-              {props.isOnboarding ? "请先选择项目目录" : (props.emptyText ?? "暂无对话")}
-            </div>
+            <Show
+              when={props.itemsDraggable && !props.isOnboarding}
+              fallback={
+                <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                  {props.isOnboarding ? "请先选择项目目录" : (props.emptyText ?? "暂无对话")}
+                </div>
+              }
+            >
+              <div
+                class="flex items-center justify-center rounded-[8px] transition-colors"
+                style={{ height: "36px", border: "1px dashed rgba(10,89,247,0.25)", margin: "2px 0" }}
+                onDragOver={(e) => {
+                  if (props.draggingSessionId) {
+                    e.preventDefault()
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                  }
+                }}
+                onDrop={(e) => { e.preventDefault(); props.onEmptyDrop?.(e) }}
+              >
+                <span class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>拖拽到此处</span>
+              </div>
+            </Show>
           }
         >
           <For each={props.sessions}>
@@ -333,6 +414,22 @@ export function SessionList(props: SessionListProps) {
                   onRenameInput={props.onRenameInput}
                   onRenameSave={props.onRenameSave}
                   onRenameCancel={props.onRenameCancel}
+                  draggable={props.itemsDraggable}
+                  isDragging={props.draggingSessionId === session.id}
+                  isDropTarget={props.dragOverSessionId === session.id}
+                  dropIndicator={props.dragOverSessionId === session.id ? props.sessionDropPosition : null}
+                  onDragStart={(e) => {
+                    if (e.dataTransfer) {
+                      e.dataTransfer.effectAllowed = "move"
+                      e.dataTransfer.setData("application/x-session-id", session.id)
+                      e.dataTransfer.setData("text/plain", session.id)
+                    }
+                    props.onSessionDragStart?.(session)
+                  }}
+                  onDragEnd={() => props.onSessionDragEnd?.()}
+                  onDragOver={(e) => props.onSessionDragOver?.(e, session)}
+                  onDragLeave={(e) => props.onSessionDragLeave?.(e, session)}
+                  onDrop={(e) => props.onSessionDrop?.(e, session)}
                 />
               )
             }}

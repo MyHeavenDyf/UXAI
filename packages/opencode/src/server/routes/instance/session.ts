@@ -313,6 +313,8 @@ export const SessionRoutes = lazy(() =>
               archived: z.number().optional(),
             })
             .optional(),
+          sort_order: z.number().optional(),
+          pinned: z.boolean().optional(),
         }),
       ),
       async (c) =>
@@ -333,6 +335,12 @@ export const SessionRoutes = lazy(() =>
           }
           if (updates.time?.archived !== undefined) {
             yield* session.setArchived({ sessionID, time: updates.time.archived })
+          }
+          if (updates.sort_order !== undefined) {
+            yield* session.setSortOrder({ sessionID, sortOrder: updates.sort_order })
+          }
+          if (updates.pinned !== undefined) {
+            yield* session.setPinned({ sessionID, pinned: updates.pinned })
           }
 
           return yield* session.get(sessionID)

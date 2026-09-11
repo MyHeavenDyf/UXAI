@@ -23,6 +23,8 @@ const info = {
   },
   permission: undefined,
   revert: undefined,
+  sort_order: 0,
+  pinned: false,
 } satisfies Session.Info
 
 describe("Session schema", () => {

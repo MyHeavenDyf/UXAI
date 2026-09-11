@@ -765,6 +765,8 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  pinned: boolean
 }
 
 export type Prompt = {
@@ -1420,6 +1422,8 @@ export type GlobalSession = {
     snapshot?: string
     diff?: string
   }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  pinned: boolean
   project: ProjectSummary | null
 }
 
@@ -1796,6 +1800,101 @@ export type ChatMigrationError = {
   }
 }
 
+export type Session9 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  agent?: string
+  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity"
+  pinned: boolean
+}
+
+export type SyncEventSessionUpdated11 = {
+  type: "sync"
+  name: "session.updated.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    sessionID: string
+    info: {
+      id?: string
+      slug?: string
+      projectID?: string
+      workspaceID?: string
+      directory?: string
+      path?: string
+      parentID?: string
+      summary?: {
+        additions: number
+        deletions: number
+        files: number
+        diffs?: Array<SnapshotFileDiff>
+      }
+      share?: {
+        url?: string
+      }
+      title?: string
+      agent?: string
+      model?: {
+        id: string
+        providerID: string
+        variant?: string
+      }
+      version?: string
+      time?: {
+        created?: number
+        updated?: number
+        compacting?: number
+        archived?: number
+      }
+      permission?: PermissionRuleset
+      revert?: {
+        messageID: string
+        partID?: string
+        snapshot?: string
+        diff?: string
+      }
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity"
+      pinned?: boolean
+    }
+  }
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -1904,6 +2003,8 @@ export type SyncEventSessionUpdated = {
         snapshot?: string
         diff?: string
       } | null
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | null
+      pinned?: boolean | null
     }
   }
 }
@@ -5888,6 +5989,8 @@ export type SessionUpdateData = {
     time?: {
       archived?: number
     }
+    sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    pinned?: boolean
   }
   path: {
     sessionID: string
@@ -6756,7 +6859,10 @@ export type SessionGroupListResponses = {
       time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }>
     mapping: {
-      [key: string]: string
+      [key: string]: {
+        groupId: string
+        position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
     }
   }
 }
@@ -6913,6 +7019,7 @@ export type SessionGroupMapSessionData = {
   body?: {
     sessionId: string
     groupId: string
+    position?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   }
   path?: never
   query?: {
@@ -6982,6 +7089,41 @@ export type SessionGroupUnmapSessionResponses = {
 
 export type SessionGroupUnmapSessionResponse =
   SessionGroupUnmapSessionResponses[keyof SessionGroupUnmapSessionResponses]
+
+export type SessionGroupReorderSessionsData = {
+  body?: {
+    groupId: string
+    sessionIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/reorder-sessions"
+}
+
+export type SessionGroupReorderSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupReorderSessionsError =
+  SessionGroupReorderSessionsErrors[keyof SessionGroupReorderSessionsErrors]
+
+export type SessionGroupReorderSessionsResponses = {
+  /**
+   * Reordered
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupReorderSessionsResponse =
+  SessionGroupReorderSessionsResponses[keyof SessionGroupReorderSessionsResponses]
 
 export type SyncStartData = {
   body?: never

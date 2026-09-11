@@ -14,6 +14,7 @@ import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -25,6 +26,11 @@ import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 
 export type SidebarGroup = { id: string; name: string }
+
+export type SessionDropTarget =
+  | { type: "session"; sessionId: string; position: "before" | "after"; section: "pinned" | "recent" | "group"; groupId?: string }
+  | { type: "section"; section: "pinned" | "recent" }
+  | { type: "group"; groupId: string }
 
 export type BeforeSectionApi = {
   sessions: Session[]
@@ -40,6 +46,14 @@ export type BeforeSectionApi = {
   onRenameCancel: () => void
   stable: () => boolean
   deleteSessions: (sessions: Session[]) => Promise<void>
+  draggingSessionId: () => string | null
+  dragOverSessionId: () => string | null
+  sessionDropPosition: () => "before" | "after" | null
+  onSessionDragStart: (session: Session) => void
+  onSessionDragEnd: () => void
+  onSessionDragOver: (e: DragEvent, session: Session) => void
+  onSessionDragLeave: (e: DragEvent, session: Session) => void
+  handleSessionDrop: (target: SessionDropTarget) => void
 }
 
 export type AgentSidebarProps = {
@@ -76,14 +90,16 @@ export type AgentSidebarProps = {
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
   groups?: SidebarGroup[]
-  /** Session-to-group mapping (sessionId -> groupId). Sessions with a mapping are excluded from "最近". */
-  sessionGroupMapping?: Record<string, string>
+  /** Session-to-group mapping (sessionId -> { groupId, position }). Sessions with a mapping are excluded from "最近". */
+  sessionGroupMapping?: Record<string, { groupId: string; position: number }>
   /** Called when the user selects a group in the "移动到分组" submenu. */
   onMoveToGroup?: (session: Session, groupId: string) => void
   /** Called when the user clicks "移出此分组" in the context menu. */
   onRemoveFromGroup?: (session: Session) => void
   /** Called when the user clicks "新建分组" in the "移动到分组" submenu. Implementations should open the create-group dialog, then move the current session into the newly created group. */
   onCreateGroupForSession?: (session: Session) => void
+  /** Called when a session is reordered within a group via DnD. */
+  onReorderGroupSessions?: (groupId: string, sourceId: string, targetId: string, position: "before" | "after") => void
 
   // ── UI toggles ──
   showProjectInfo?: boolean
@@ -132,13 +148,26 @@ export function AgentSidebar(props: AgentSidebarProps) {
     },
   )
 
-  const pinStorageKey = `octo:pinned-sessions:${props.sidebarSourceKey ?? "default"}`
   const [sessionList, setSessionList] = createStore<Session[]>([])
-  const [pinnedIds, setPinnedIds] = createSignal<Set<string>>((() => { try { return new Set<string>(JSON.parse(localStorage.getItem(pinStorageKey) ?? "[]")) } catch { return new Set<string>() } })())
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
 
-  const pinnedSessions = createMemo(() => sessionList.filter(s => pinnedIds().has(s.id)))
-  const recentSessions = createMemo(() => sessionList.filter(s => !pinnedIds().has(s.id) && !props.sessionGroupMapping?.[s.id]))
+  const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
+  const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
+  const [sessionDropPosition, setSessionDropPosition] = createSignal<"before" | "after" | null>(null)
+  let restoreIframes: (() => void) | undefined
+
+  const pinnedSessions = createMemo(() =>
+    sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
+  )
+  const recentSessions = createMemo(() =>
+    sessionList
+      .filter(s => !s.pinned && !props.sessionGroupMapping?.[s.id])
+      .sort((a, b) => {
+        const sa = Number(a.sort_order), sb = Number(b.sort_order)
+        if (sa !== sb) return sa - sb
+        return (b.time.updated ?? 0) - (a.time.updated ?? 0)
+      })
+  )
 
   const VISIBLE_BATCH = 30
   const [visibleCount, setVisibleCount] = createSignal(VISIBLE_BATCH)
@@ -147,14 +176,122 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   createEffect(on(resolvedDir, () => setVisibleCount(VISIBLE_BATCH), { defer: true }))
 
-  function togglePin(id: string) {
-    setPinnedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
+  async function togglePin(id: string) {
+    const idx = sessionList.findIndex(s => s.id === id)
+    if (idx < 0) return
+    const newVal = !sessionList[idx].pinned
+    setSessionList(idx, "pinned", newVal)
+    const d = resolvedDir()
+    if (!d) return
+    const client = globalSDK.createClient({ directory: d })
+    await client.session.update({ sessionID: id, pinned: newVal })
+  }
+
+  async function reorderPinned(sourceId: string, targetId: string, position: "before" | "after") {
+    const ids = pinnedSessions().map(s => s.id).filter(id => id !== sourceId)
+    const targetIdx = ids.indexOf(targetId)
+    if (targetIdx === -1) return
+    ids.splice(position === "before" ? targetIdx : targetIdx + 1, 0, sourceId)
+    ids.forEach((id, i) => {
+      const idx = sessionList.findIndex(s => s.id === id)
+      if (idx >= 0) setSessionList(idx, "sort_order", i)
     })
-    try { localStorage.setItem(pinStorageKey, JSON.stringify([...pinnedIds()])) } catch {}
+    const d = resolvedDir()
+    if (!d) return
+    const client = globalSDK.createClient({ directory: d })
+    await Promise.all(ids.map((id, i) => client.session.update({ sessionID: id, sort_order: i })))
+  }
+
+  async function reorderRecent(sourceId: string, targetId: string, position: "before" | "after") {
+    const ids = recentSessions().map(s => s.id).filter(id => id !== sourceId)
+    const targetIdx = ids.indexOf(targetId)
+    if (targetIdx === -1) { ids.push(sourceId) } else {
+      ids.splice(position === "before" ? targetIdx : targetIdx + 1, 0, sourceId)
+    }
+    ids.forEach((id, i) => {
+      const idx = sessionList.findIndex(s => s.id === id)
+      if (idx >= 0) setSessionList(idx, "sort_order", i)
+    })
+    const d = resolvedDir()
+    if (!d) return
+    const client = globalSDK.createClient({ directory: d })
+    await Promise.all(ids.map((id, i) => client.session.update({ sessionID: id, sort_order: i })))
+  }
+
+  function handleSessionDragStart(session: Session) {
+    const frames = [...document.querySelectorAll("iframe")]
+    const saved = frames.map((f) => f.style.pointerEvents)
+    frames.forEach((f) => (f.style.pointerEvents = "none"))
+    restoreIframes = () => { frames.forEach((f, i) => (f.style.pointerEvents = saved[i])) }
+    setTimeout(() => setDraggingSessionId(session.id), 0)
+  }
+
+  function handleSessionDragEnd() {
+    setDraggingSessionId(null)
+    setDragOverSessionId(null)
+    setSessionDropPosition(null)
+    restoreIframes?.()
+    restoreIframes = undefined
+  }
+
+  function handleSessionDragOver(e: DragEvent, session: Session) {
+    if (!draggingSessionId() || draggingSessionId() === session.id) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setDragOverSessionId(session.id)
+    setSessionDropPosition(e.clientY - rect.top < rect.height / 2 ? "before" : "after")
+  }
+
+  function handleSessionDragLeave(e: DragEvent, session: Session) {
+    const related = e.relatedTarget as Node | null
+    if (related && (e.currentTarget as HTMLElement).contains(related)) return
+    if (dragOverSessionId() === session.id) setDragOverSessionId(null)
+  }
+
+  function performSessionMove(target: SessionDropTarget) {
+    const sourceId = draggingSessionId()
+    if (!sourceId) { handleSessionDragEnd(); return }
+    const source = sessionList.find(s => s.id === sourceId)
+    if (!source) { handleSessionDragEnd(); return }
+
+    const sourceIsPinned = !!source.pinned
+    const sourceGroup = props.sessionGroupMapping?.[sourceId]?.groupId
+
+    if (target.type === "session") {
+      const { sessionId: targetId, position, section, groupId } = target
+      if (sourceId === targetId) { handleSessionDragEnd(); return }
+      if (section === "pinned") {
+        if (!sourceIsPinned) {
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          void togglePin(sourceId)
+        }
+        void reorderPinned(sourceId, targetId, position)
+      } else if (section === "recent") {
+        if (sourceIsPinned) void togglePin(sourceId)
+        if (sourceGroup) props.onRemoveFromGroup?.(source)
+        void reorderRecent(sourceId, targetId, position)
+      } else if (section === "group" && groupId) {
+        if (sourceIsPinned) void togglePin(sourceId)
+        if (sourceGroup !== groupId) props.onMoveToGroup?.(source, groupId)
+        props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
+      }
+    } else if (target.type === "section") {
+      if (target.section === "pinned") {
+        if (!sourceIsPinned) {
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          void togglePin(sourceId)
+        }
+      } else if (target.section === "recent") {
+        if (sourceIsPinned) void togglePin(sourceId)
+        if (sourceGroup) props.onRemoveFromGroup?.(source)
+      }
+    } else if (target.type === "group" && target.groupId) {
+      if (sourceIsPinned) void togglePin(sourceId)
+      if (sourceGroup !== target.groupId) props.onMoveToGroup?.(source, target.groupId)
+    }
+
+    handleSessionDragEnd()
   }
 
   createEffect(on(sessions, (data) => {
@@ -299,7 +436,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!session) return
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "move-session-to-group" })
-    if (pinnedIds().has(session.id)) togglePin(session.id)
+    if (session.pinned) void togglePin(session.id)
     props.onMoveToGroup?.(session, groupId)
     closeContextMenu()
   }
@@ -318,7 +455,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!session) return
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "create-group-for-session" })
-    if (pinnedIds().has(session.id)) togglePin(session.id)
+    if (session.pinned) void togglePin(session.id)
     props.onCreateGroupForSession?.(session)
     closeContextMenu()
   }
@@ -488,7 +625,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
       beforeSection={() => (
         <>
           <Show when={pinnedSessions().length}>
-            <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => setPinnedCollapsed(v => !v)} class="section-header-inline" />
+            <div
+              onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
+              onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
+              classList={{ "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0) }}
+            >
+              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => setPinnedCollapsed(v => !v)} class="section-header-inline" />
+            </div>
             <Show when={!pinnedCollapsed()}>
               <SessionList
                 sessions={pinnedSessions()}
@@ -504,6 +647,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 onRenameInput={(v) => setRenameDraft(v)}
                 onRenameSave={handleRenameSave}
                 onRenameCancel={() => setRenamingId(null)}
+                itemsDraggable
+                draggingSessionId={draggingSessionId()}
+                dragOverSessionId={dragOverSessionId()}
+                sessionDropPosition={sessionDropPosition()}
+                onSessionDragStart={handleSessionDragStart}
+                onSessionDragEnd={handleSessionDragEnd}
+                onSessionDragOver={handleSessionDragOver}
+                onSessionDragLeave={handleSessionDragLeave}
+                onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "pinned" }) }}
+                onEmptyDrop={() => performSessionMove({ type: "section", section: "pinned" })}
               />
             </Show>
           </Show>
@@ -513,7 +666,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onSessionContextMenu: handleSessionContextMenu,
             activeSessionId: props.activeSessionId,
             isContextTarget: (s) => contextMenu.show && contextMenu.session?.id === s.id,
-            isPinned: (s) => pinnedIds().has(s.id),
+            isPinned: (s) => s.pinned,
             renamingId,
             renameDraft,
             onRenameInput: (v) => setRenameDraft(v),
@@ -521,6 +674,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onRenameCancel: () => setRenamingId(null),
             stable,
             deleteSessions,
+            draggingSessionId,
+            dragOverSessionId,
+            sessionDropPosition,
+            onSessionDragStart: handleSessionDragStart,
+            onSessionDragEnd: handleSessionDragEnd,
+            onSessionDragOver: handleSessionDragOver,
+            onSessionDragLeave: handleSessionDragLeave,
+            handleSessionDrop: performSessionMove,
           })}
         </>
       )}
@@ -557,6 +718,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
         onRenameInput={(v) => setRenameDraft(v)}
         onRenameSave={handleRenameSave}
         onRenameCancel={() => setRenamingId(null)}
+        itemsDraggable
+        draggingSessionId={draggingSessionId()}
+        dragOverSessionId={dragOverSessionId()}
+        sessionDropPosition={sessionDropPosition()}
+        onSessionDragStart={handleSessionDragStart}
+        onSessionDragEnd={handleSessionDragEnd}
+        onSessionDragOver={handleSessionDragOver}
+        onSessionDragLeave={handleSessionDragLeave}
+        onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "recent" }) }}
+        onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
       />
       <Show when={contextMenu.show && contextMenu.session}>
         <Portal>
@@ -623,7 +794,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 }}
               >
                 <img src={pinPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                <span data-slot="dropdown-menu-item-label">{contextMenu.session && pinnedIds().has(contextMenu.session.id) ? "取消置顶聊天" : "置顶"}</span>
+                <span data-slot="dropdown-menu-item-label">{contextMenu.session && contextMenu.session.pinned ? "取消置顶聊天" : "置顶"}</span>
               </button>
               <button
                 data-slot="dropdown-menu-item"
@@ -694,7 +865,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                               >
                       <img src={folderLineClosePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
                                 <span data-slot="dropdown-menu-item-label" class="flex-1" style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{group.name}</span>
-                                <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id] === group.id}>
+                                <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id]?.groupId === group.id}>
                                   <Icon name="check-small" size="small" style={{ color: "#0A59F7" }} />
                                 </Show>
                               </button>
@@ -716,7 +887,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                   </Show>
                 </div>
               </Show>
-              <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id] && !pinnedIds().has(contextMenu.session.id)}>
+              <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id] && !contextMenu.session.pinned}>
                 <button
                   data-slot="dropdown-menu-item"
                   class="flex items-center gap-2"

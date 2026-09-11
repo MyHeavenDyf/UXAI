@@ -47,6 +47,8 @@ describe("Session.Info", () => {
       title: "First session",
       version: "0.1.0",
       time: { created: 1, updated: 2 },
+      sort_order: 0,
+      pinned: false,
     }
     expect(decode(input)).toEqual(input)
     expect(Session.Info.zod.parse(input)).toEqual(input)
@@ -78,6 +80,8 @@ describe("Session.Info", () => {
         snapshot: "snap-1",
         diff: "diff-1",
       },
+      sort_order: 0,
+      pinned: false,
     }
     expect(decode(input)).toEqual(input)
     expect(Session.Info.zod.parse(input)).toEqual(input)
@@ -122,6 +126,8 @@ describe("Session.GlobalInfo", () => {
       version: "0",
       time: { created: 0, updated: 0 },
       project: null,
+      sort_order: 0,
+      pinned: false,
     }
     expect(decode(input)).toEqual(input)
     expect(Session.GlobalInfo.zod.parse(input)).toEqual(input)
@@ -137,6 +143,8 @@ describe("Session.GlobalInfo", () => {
       version: "0",
       time: { created: 0, updated: 0 },
       project: { id: projectID, worktree: "/tmp/wt", name: "alpha" },
+      sort_order: 0,
+      pinned: false,
     }
     expect(decode(input)).toEqual(input)
     expect(Session.GlobalInfo.zod.parse(input)).toEqual(input)

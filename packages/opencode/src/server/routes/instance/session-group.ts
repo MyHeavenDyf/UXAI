@@ -24,7 +24,10 @@ const GroupSchema = z.object({
 
 const ListResultSchema = z.object({
   groups: z.array(GroupSchema),
-  mapping: z.record(z.string(), z.string()),
+  mapping: z.record(z.string(), z.object({
+    groupId: z.string(),
+    position: z.number(),
+  })),
 })
 
 export const SessionGroupRoutes = lazy(() =>
@@ -208,13 +211,48 @@ export const SessionGroupRoutes = lazy(() =>
         z.object({
           sessionId: SessionID.zod,
           groupId: z.string(),
+          position: z.number().optional(),
         }),
       ),
       async (c) => {
         const body = c.req.valid("json")
         return jsonRequest("SessionGroupRoutes.mapSession", c, function* () {
           const svc = yield* SessionGroup.Service
-          yield* svc.mapSession(body.sessionId, body.groupId)
+          yield* svc.mapSession(body.sessionId, body.groupId, body.position)
+          return { ok: true }
+        })
+      },
+    )
+    .post(
+      "/reorder-sessions",
+      describeRoute({
+        summary: "Reorder sessions within a group",
+        description: "Update the position of sessions within a group.",
+        operationId: "sessionGroup.reorderSessions",
+        responses: {
+          200: {
+            description: "Reordered",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          groupId: z.string(),
+          sessionIds: z.array(z.string()),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        return jsonRequest("SessionGroupRoutes.reorderSessions", c, function* () {
+          const svc = yield* SessionGroup.Service
+          yield* svc.reorderSessions(body.groupId, body.sessionIds)
           return { ok: true }
         })
       },

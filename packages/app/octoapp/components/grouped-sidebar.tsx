@@ -21,9 +21,9 @@ import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 export type GroupedSidebarProps = Omit<
   AgentSidebarProps,
   "directory" | "activeSessionId" | "groups" | "sessionGroupMapping" |
-  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "beforeSection"
+  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "onReorderGroupSessions" | "beforeSection"
 > & {
-  /** Namespace for group localStorage keys (e.g. "make", "insight") */
+  /** Namespace for group DB queries (e.g. "make", "insight") */
   namespace: string
   /** Route prefix for extracting active session ID from URL (e.g. "/make", "/insight") */
   routePrefix: string
@@ -46,9 +46,10 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   const [draggingId, setDraggingId] = createSignal<string | null>(null)
   const [dragOverId, setDragOverId] = createSignal<string | null>(null)
   const [dropPosition, setDropPosition] = createSignal<"before" | "after">("before")
+  const [sessionDragOverGroup, setSessionDragOverGroup] = createSignal<string | null>(null)
   let sectionApi: BeforeSectionApi | undefined
   const { groups, addGroup, renameGroup, removeGroup, moveGroup } = useMakeGroups(() => resolvedDir(), props.namespace)
-  const { mapping: sessionGroupMapping, moveSessionToGroup, removeSessionFromGroup, clearGroup } = useSessionGroups(() => resolvedDir(), props.namespace)
+  const { mapping: sessionGroupMapping, moveSessionToGroup, removeSessionFromGroup, clearGroup, reorderGroupSessions } = useSessionGroups(() => resolvedDir(), props.namespace)
 
   const toggleGroup = (id: string) => {
     if (expandedGroups().has(id)) {
@@ -57,7 +58,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
     } else {
       setExpandedGroups(prev => { const next = new Set(prev); next.add(id); return next })
       const activeSid = rawActiveSessionId()
-      setSelectedGroupId(activeSid && sessionGroupMapping[activeSid] === id ? null : id)
+      setSelectedGroupId(activeSid && sessionGroupMapping[activeSid]?.groupId === id ? null : id)
     }
   }
 
@@ -74,6 +75,22 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   }
 
   const handleRemoveGroup = (group: MakeGroup) => setRemoveTarget(group)
+
+  const getGroupSessions = (groupId: string) => {
+    const api = sectionApi
+    if (!api) return []
+    const filtered = api.sessions.filter(s => sessionGroupMapping[s.id]?.groupId === groupId && !api.isPinned(s))
+    return filtered.sort((a, b) => (sessionGroupMapping[a.id]?.position ?? 0) - (sessionGroupMapping[b.id]?.position ?? 0))
+  }
+
+  const reorderGroupSession = async (groupId: string, sourceId: string, targetId: string, position: "before" | "after") => {
+    const sessions = getGroupSessions(groupId)
+    const ids = sessions.map(s => s.id).filter(id => id !== sourceId)
+    const targetIdx = ids.indexOf(targetId)
+    if (targetIdx === -1) ids.push(sourceId)
+    else ids.splice(position === "before" ? targetIdx : targetIdx + 1, 0, sourceId)
+    await reorderGroupSessions(groupId, ids)
+  }
 
   const rawActiveSessionId = () => {
     const m = location.pathname.match(new RegExp(`^${props.routePrefix}/(.+)$`))
@@ -122,6 +139,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
           }}
         />
       ))}
+      onReorderGroupSessions={(groupId, sourceId, targetId, position) => reorderGroupSession(groupId, sourceId, targetId, position)}
       beforeSection={(api) => {
         sectionApi = api
         return (
@@ -160,6 +178,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                           "bg-[rgba(10,89,247,0.08)]": isActive(),
                           "hover:bg-surface-base-hover": true,
                           "opacity-40": draggingId() === group.id,
+                          "bg-[rgba(10,89,247,0.06)]": sessionDragOverGroup() === group.id && !isActive(),
                         }}
                         style={{
                           "padding-left": "12px",
@@ -176,28 +195,40 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                         onDragEnd={() => {
                           setDraggingId(null)
                           setDragOverId(null)
+                          setSessionDragOverGroup(null)
                         }}
                         onDragOver={(e) => {
-                          if (!draggingId()) return
-                          e.preventDefault()
-                          if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
-                          const rect = e.currentTarget.getBoundingClientRect()
-                          setDragOverId(group.id)
-                          setDropPosition(e.clientY - rect.top < rect.height / 2 ? "before" : "after")
+                          if (api.draggingSessionId()) {
+                            e.preventDefault()
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                            setSessionDragOverGroup(group.id)
+                          } else if (draggingId()) {
+                            e.preventDefault()
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            setDragOverId(group.id)
+                            setDropPosition(e.clientY - rect.top < rect.height / 2 ? "before" : "after")
+                          }
                         }}
                         onDragLeave={(e) => {
                           const related = e.relatedTarget as Node | null
                           if (related && e.currentTarget.contains(related)) return
                           if (dragOverId() === group.id) setDragOverId(null)
+                          if (sessionDragOverGroup() === group.id) setSessionDragOverGroup(null)
                         }}
                         onDrop={(e) => {
                           e.preventDefault()
-                          const sourceId = draggingId()
-                          if (sourceId && sourceId !== group.id) {
-                            moveGroup(sourceId, group.id, dropPosition())
+                          if (api.draggingSessionId()) {
+                            api.handleSessionDrop({ type: "group", groupId: group.id })
+                          } else {
+                            const sourceId = draggingId()
+                            if (sourceId && sourceId !== group.id) {
+                              moveGroup(sourceId, group.id, dropPosition())
+                            }
                           }
                           setDraggingId(null)
                           setDragOverId(null)
+                          setSessionDragOverGroup(null)
                         }}
                         onMouseEnter={() => setHoveredId(group.id)}
                         onMouseLeave={() => setHoveredId(null)}
@@ -276,7 +307,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                       </div>
                       <Show when={expandedGroups().has(group.id)}>
                         <SessionList
-                          sessions={api.sessions.filter(s => sessionGroupMapping[s.id] === group.id && !api.isPinned(s))}
+                          sessions={getGroupSessions(group.id)}
                           activeSessionId={api.activeSessionId()}
                           stable={api.stable()}
                           emptyText="暂无对话"
@@ -290,6 +321,16 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                           onRenameInput={api.onRenameInput}
                           onRenameSave={api.onRenameSave}
                           onRenameCancel={api.onRenameCancel}
+                          itemsDraggable
+                          draggingSessionId={api.draggingSessionId()}
+                          dragOverSessionId={api.dragOverSessionId()}
+                          sessionDropPosition={api.sessionDropPosition()}
+                          onSessionDragStart={api.onSessionDragStart}
+                          onSessionDragEnd={api.onSessionDragEnd}
+                          onSessionDragOver={api.onSessionDragOver}
+                          onSessionDragLeave={api.onSessionDragLeave}
+                          onSessionDrop={(e, session) => { e.preventDefault(); api.handleSessionDrop({ type: "session", sessionId: session.id, position: api.sessionDropPosition() ?? "before", section: "group", groupId: group.id }) }}
+                          onEmptyDrop={() => api.handleSessionDrop({ type: "group", groupId: group.id })}
                         />
                       </Show>
                     </>
@@ -317,7 +358,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
             const api = sectionApi
             if (target) {
               const sessions = api
-                ? api.sessions.filter(s => sessionGroupMapping[s.id] === target.id && !api.isPinned(s))
+                ? api.sessions.filter(s => sessionGroupMapping[s.id]?.groupId === target.id && !api.isPinned(s))
                 : []
               if (sessions.length && api) await api.deleteSessions(sessions)
               clearGroup(target.id)

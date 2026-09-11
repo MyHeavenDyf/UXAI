@@ -37,6 +37,7 @@ export const SessionGroupMappingTable = sqliteTable(
     group_id: text()
       .notNull()
       .references(() => SessionGroupTable.id, { onDelete: "cascade" }),
+    position: integer().notNull().default(0),
     ...Timestamps,
   },
   (table) => [index("session_group_mapping_group_idx").on(table.group_id)],

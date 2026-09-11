@@ -19,7 +19,7 @@ export type Group = {
   time_updated: number
 }
 
-export type SessionGroupMapping = Record<string, string>
+export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
 export type ListResult = {
   groups: Group[]
@@ -40,9 +40,10 @@ export interface Interface {
   readonly rename: (id: string, name: string) => Effect.Effect<void, never>
   readonly remove: (id: string) => Effect.Effect<void, never>
   readonly reorder: (ids: readonly string[]) => Effect.Effect<void, never>
-  readonly mapSession: (sessionID: SessionID, groupID: string) => Effect.Effect<void, never>
+  readonly mapSession: (sessionID: SessionID, groupID: string, position?: number) => Effect.Effect<void, never>
   readonly unmapSession: (sessionID: SessionID) => Effect.Effect<void, never>
   readonly clearGroup: (groupID: string) => Effect.Effect<void, never>
+  readonly reorderSessions: (groupID: string, sessionIds: readonly string[]) => Effect.Effect<void, never>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionGroup") {}
@@ -81,7 +82,7 @@ export const layer = Layer.effect(
             const mappingRows = Database.use((db) =>
               db.select().from(SessionGroupMappingTable).where(inArray(SessionGroupMappingTable.group_id, groupIds)).all(),
             )
-            for (const row of mappingRows ?? []) mapping[row.session_id as string] = row.group_id
+            for (const row of mappingRows ?? []) mapping[row.session_id as string] = { groupId: row.group_id, position: row.position }
           }
           return { groups, mapping }
         }),
@@ -157,16 +158,24 @@ export const layer = Layer.effect(
           })
         }),
 
-      mapSession: (sessionID, groupID) =>
+      mapSession: (sessionID, groupID, position) =>
         Effect.sync(() => {
           const now = Date.now()
+          const pos = position ?? Database.use((db) => {
+            const maxRow = db
+              .select({ max: SessionGroupMappingTable.position })
+              .from(SessionGroupMappingTable)
+              .where(eq(SessionGroupMappingTable.group_id, groupID))
+              .all()
+            return (maxRow?.reduce((acc, r) => Math.max(acc, r.max ?? -1), -1) ?? -1) + 1
+          })
           Database.use((db) =>
             db
               .insert(SessionGroupMappingTable)
-              .values({ session_id: sessionID, group_id: groupID, time_created: now, time_updated: now })
+              .values({ session_id: sessionID, group_id: groupID, position: pos, time_created: now, time_updated: now })
               .onConflictDoUpdate({
                 target: SessionGroupMappingTable.session_id,
-                set: { group_id: groupID, time_updated: now },
+                set: { group_id: groupID, position: pos, time_updated: now },
               })
               .run(),
           )
@@ -184,6 +193,19 @@ export const layer = Layer.effect(
           Database.use((db) =>
             db.delete(SessionGroupMappingTable).where(eq(SessionGroupMappingTable.group_id, groupID)).run(),
           )
+        }),
+
+      reorderSessions: (groupID, sessionIds) =>
+        Effect.sync(() => {
+          const now = Date.now()
+          Database.use((db) => {
+            for (let i = 0; i < sessionIds.length; i++) {
+              db.update(SessionGroupMappingTable)
+                .set({ position: i, time_updated: now })
+                .where(eq(SessionGroupMappingTable.session_id, sessionIds[i] as SessionID))
+                .run()
+            }
+          })
         }),
     })
   }),

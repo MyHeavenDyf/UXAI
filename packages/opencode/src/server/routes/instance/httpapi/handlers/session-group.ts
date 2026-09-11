@@ -47,9 +47,9 @@ export const sessionGroupHandlers = HttpApiBuilder.group(InstanceHttpApi, "sessi
     })
 
     const mapSession = Effect.fn("SessionGroupHttpApi.mapSession")(function* (ctx: {
-      payload: { sessionId: string; groupId: string }
+      payload: { sessionId: string; groupId: string; position?: number }
     }) {
-      yield* svc.mapSession(ctx.payload.sessionId as SessionID, ctx.payload.groupId)
+      yield* svc.mapSession(ctx.payload.sessionId as SessionID, ctx.payload.groupId, ctx.payload.position)
       return { ok: true }
     })
 
@@ -57,6 +57,13 @@ export const sessionGroupHandlers = HttpApiBuilder.group(InstanceHttpApi, "sessi
       params: { sessionID: string }
     }) {
       yield* svc.unmapSession(ctx.params.sessionID as SessionID)
+      return { ok: true }
+    })
+
+    const reorderSessions = Effect.fn("SessionGroupHttpApi.reorderSessions")(function* (ctx: {
+      payload: { groupId: string; sessionIds: readonly string[] }
+    }) {
+      yield* svc.reorderSessions(ctx.payload.groupId, ctx.payload.sessionIds)
       return { ok: true }
     })
 
@@ -68,5 +75,6 @@ export const sessionGroupHandlers = HttpApiBuilder.group(InstanceHttpApi, "sessi
       .handle("reorder", reorder)
       .handle("mapSession", mapSession)
       .handle("unmapSession", unmapSession)
+      .handle("reorderSessions", reorderSessions)
   }),
 ).pipe(Layer.provide(SessionGroup.defaultLayer))
