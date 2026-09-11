@@ -5606,6 +5606,7 @@ onPreview={(url) => {
                 onModeChange={(mode) => {
                   if (mode === "edit") setShowHistoryPanel(false)
                 }}
+                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())

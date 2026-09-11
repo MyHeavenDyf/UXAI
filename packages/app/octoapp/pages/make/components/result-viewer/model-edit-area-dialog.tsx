@@ -194,7 +194,7 @@ export function ModelEditAreaDialog(props: {
   }
 
   return (
-    <div ref={parentRef} style={{ position: props.fixedPosition ? 'fixed' : 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default' }}>
+    <div ref={parentRef} style={{ position: props.fixedPosition ? 'fixed' : 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default', ...(props.fixedPosition ? { 'z-index': 200 } : {}) }}>
       {maskPieces()}
       <div
         ref={dialogRef}
