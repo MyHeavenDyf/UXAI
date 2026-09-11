@@ -1,6 +1,7 @@
 const METHOD = "POST"
 const DEFAULT_TIMEOUT_MS = 120_000
 const STYLE_TEMPLATE_SAVE_FALLBACK = "保存失败，请检查网络"
+const STYLE_TEMPLATE_READ_FALLBACK = "读取失败，请检查网络"
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: {
@@ -252,6 +253,15 @@ function styleTemplateMutationError(text: string) {
   }
 }
 
+function styleTemplateReadError(text: string) {
+  try {
+    const response = JSON.parse(text) as StyleTemplateBusinessResponse
+    return new Error(response.resp_msg?.trim() || STYLE_TEMPLATE_READ_FALLBACK)
+  } catch {
+    return new Error(STYLE_TEMPLATE_READ_FALLBACK)
+  }
+}
+
 function parseUserSearchBusinessResponse(text: string): StyleTemplateUserSearchBusinessResponse {
   const json = parseJson(text) as StyleTemplateUserSearchBusinessResponse
   if (json.code === 200) return json
@@ -498,7 +508,7 @@ function parseStyleTemplateListResult(response: StyleTemplateBusinessResponse): 
 
 function parseStyleTemplateDetailResult(response: StyleTemplateBusinessResponse): StyleTemplateListItem {
   const result = response.result
-  if (!result || typeof result !== "object" || !("idx" in result)) throw new Error(`style_template_detail returned invalid result:\n${JSON.stringify(result, null, 2)}`)
+  if (!result || typeof result !== "object" || !("idx" in result)) throw new Error(response.resp_msg?.trim() || STYLE_TEMPLATE_READ_FALLBACK)
   return result as StyleTemplateListItem
 }
 
@@ -561,29 +571,14 @@ export async function getInternalStyleTemplate(input: StyleTemplateDetailRequest
     method: "GET",
     headers: internalStyleTemplateHeaders(),
     signal: controller.signal,
-  }).catch((error) => {
-    throw new Error(
-      [
-        "style_template_detail network failed.",
-        `url=${url.href}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
+  }).catch(() => {
+    throw new Error(STYLE_TEMPLATE_READ_FALLBACK)
   }).finally(() => clearTimeout(timeout))
 
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(
-      [
-        "style_template_detail failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
-  }
-  if (!text.trim()) throw new Error("style_template_detail returned empty response.")
-  return parseStyleTemplateDetailResult(parseBusinessResponse(text, "style_template_detail"))
+  const text = await response.text().catch(() => "")
+  if (!response.ok) throw styleTemplateReadError(text)
+  if (!text.trim()) throw new Error(STYLE_TEMPLATE_READ_FALLBACK)
+  return parseStyleTemplateDetailResult(parseBusinessResponse(text, "style_template_detail", STYLE_TEMPLATE_READ_FALLBACK))
 }
 
 export async function searchInternalStyleTemplateUsers(input: StyleTemplateUserSearchRequest): Promise<StyleTemplateUserSearchItem[]> {
