@@ -22,6 +22,8 @@ type EditorRef = {
 type AreaDialogElement = {
   rect: { x: number; y: number; width: number; height: number }
   selector: string
+  dataOdId?: string
+  id?: string
 }
 
 const MASK_COLOR = 'rgba(0,0,0,0.3)'
@@ -56,6 +58,25 @@ export function ModelEditAreaDialog(props: {
 
   const [iframeRectTick, setIframeRectTick] = createSignal(0)
 
+  const [liveRect, setLiveRect] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  const elementId = () => props.element?.dataOdId || props.element?.id || null
+
+  const startTrackRect = () => {
+    const id = elementId()
+    if (!id) return
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:track-rect', elementId: id }, '*')
+  }
+
+  const stopTrackRect = () => {
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:stop-track-rect' }, '*')
+  }
+
+  createEffect(on(() => props.element?.dataOdId ?? props.element?.id, () => {
+    setLiveRect(null)
+    startTrackRect()
+  }))
+
   onMount(() => {
     if (parentRef) {
       setCRect(parentRef.getBoundingClientRect())
@@ -79,6 +100,23 @@ export function ModelEditAreaDialog(props: {
         window.removeEventListener('scroll', onWinResize, true)
       })
     }
+
+    const iframe = props.iframeRef
+    if (iframe) {
+      const onMessage = (e: MessageEvent) => {
+        if (e.source !== iframe.contentWindow) return
+        const d = e.data
+        if (!d || typeof d !== 'object') return
+        if (d.type === 'od:rect-update' && d.rect) {
+          setLiveRect(d.rect)
+        }
+      }
+      window.addEventListener('message', onMessage)
+      onCleanup(() => {
+        window.removeEventListener('message', onMessage)
+        stopTrackRect()
+      })
+    }
   })
 
   createEffect(on(() => props.closeMentionTrigger, (n) => {
@@ -97,13 +135,14 @@ export function ModelEditAreaDialog(props: {
     const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
     const scale = props.viewportScale ?? 1
+    const r = liveRect() ?? el.rect
     const offsetX = iframeRect.left - cRect.left
     const offsetY = iframeRect.top - cRect.top
     return {
-      x: offsetX + el.rect.x * scale,
-      y: offsetY + el.rect.y * scale,
-      width: el.rect.width * scale,
-      height: el.rect.height * scale,
+      x: offsetX + r.x * scale,
+      y: offsetY + r.y * scale,
+      width: r.width * scale,
+      height: r.height * scale,
     }
   }
 

@@ -4,6 +4,41 @@ var me_componentFlag = null;
 var me_htmlFlag = null;
 var me_annotateNextId = -1;
 
+var me_trackId = null;
+var me_trackRaf = 0;
+var me_trackRo = null;
+function me_trackSend() {
+  if (!me_trackId) return;
+  var el = document.querySelector('[data-od-id="' + me_trackId + '"]');
+  if (!el) return;
+  var r = el.getBoundingClientRect();
+  window.parent.postMessage({ type: 'od:rect-update', elementId: me_trackId, rect: { x: r.left, y: r.top, width: r.width, height: r.height } }, '*');
+}
+function me_trackRefresh() {
+  if (me_trackRaf) cancelAnimationFrame(me_trackRaf);
+  me_trackRaf = requestAnimationFrame(function() { me_trackRaf = 0; me_trackSend(); });
+}
+function me_startTrack(id) {
+  me_stopTrack();
+  me_trackId = id;
+  me_trackSend();
+  window.addEventListener('scroll', me_trackRefresh, true);
+  window.addEventListener('resize', me_trackRefresh);
+  if (typeof ResizeObserver !== 'undefined' && document.documentElement) {
+    me_trackRo = new ResizeObserver(function() { me_trackRefresh(); });
+    me_trackRo.observe(document.documentElement);
+  }
+}
+function me_stopTrack() {
+  if (me_trackId) {
+    window.removeEventListener('scroll', me_trackRefresh, true);
+    window.removeEventListener('resize', me_trackRefresh);
+    if (me_trackRo) { me_trackRo.disconnect(); me_trackRo = null; }
+    if (me_trackRaf) { cancelAnimationFrame(me_trackRaf); me_trackRaf = 0; }
+    me_trackId = null;
+  }
+}
+
 function me_tagLabel(el) {
   var t = el.tagName ? el.tagName.toLowerCase() : '';
   var c = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
@@ -231,6 +266,16 @@ window.addEventListener('message', function(ev) {
         oldEl.parentNode.replaceChild(newEl, oldEl);
       }
     }
+    return;
+  }
+
+  if (d.type === 'od:track-rect') {
+    me_startTrack(d.elementId);
+    return;
+  }
+
+  if (d.type === 'od:stop-track-rect') {
+    me_stopTrack();
     return;
   }
 });

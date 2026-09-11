@@ -182,9 +182,12 @@ export async function fetchIconInfo(params: IconSearchParams): Promise<Result<Ic
   )
   if (!r.success) return r
   // 拍平分组并归一化 id：优先 id，其次 icon_id，最后以 name 兜底（保证唯一索引始终存在）
-  const icons = (r.data ?? [])
+  // 按 icon_id 去重（预设多关键词搜索可能返回相同图标）
+  const icons = [...(r.data ?? [])
     .flatMap(g => g?.icons ?? [])
     .map(i => ({ ...i, icon_id: (i as { id?: string }).id ?? i.icon_id ?? i.name }))
+    .reduce((m, i) => { if (i.icon_id && !m.has(i.icon_id)) m.set(i.icon_id, i); return m }, new Map<string, IconInfo>())
+    .values()]
   return { success: true, data: icons }
 }
 

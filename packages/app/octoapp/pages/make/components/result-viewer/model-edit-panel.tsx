@@ -1,7 +1,7 @@
-import { createSignal, createEffect, Show, For, onCleanup, type JSX } from 'solid-js'
+import { createSignal, createEffect, Show, For, onCleanup, onMount, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs, IconConfig } from '../model-edit-items/types'
-import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
+import type { ColorToken } from '../model-edit-items/icon-data/hui-color-tokens'
 import { renderConfigItem, checkKeyConflicts } from '../model-edit-items/registry'
 import { IconModule } from '../model-edit-items/icon-module'
 import { getDesktopApi } from '../../lib/electron-api'
@@ -32,6 +32,7 @@ export function ModelEditPanel(props: {
   const [submitting, setSubmitting] = createSignal(false)
   const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [values, setValues] = createStore<Record<string, string>>({})
+  const [panelMaxHeight, setPanelMaxHeight] = createSignal<string | undefined>(undefined)
   let panelRef: HTMLElement | undefined
 
   const isDisabled = () => submitting() || !!props.disabled
@@ -50,14 +51,25 @@ export function ModelEditPanel(props: {
   })
 
   const updatePanelMaxHeight = () => {
-    if (!panelRef || !props.floatingStyle) return
+    if (!panelRef) return
     const parent = panelRef.parentElement
     if (!parent) return
     const parentRect = parent.getBoundingClientRect()
-    const panelTop = props.floatingStyle.top
+    const panelTop = props.floatingStyle?.top ?? 12
     const available = parentRect.height - panelTop - 12
-    panelRef.style.maxHeight = `${Math.max(100, available)}px`
+    setPanelMaxHeight(`${Math.max(100, available)}px`)
   }
+
+  onMount(() => {
+    updatePanelMaxHeight()
+    const ro = new ResizeObserver(() => updatePanelMaxHeight())
+    if (panelRef) ro.observe(panelRef)
+    window.addEventListener('resize', updatePanelMaxHeight)
+    onCleanup(() => {
+      ro.disconnect()
+      window.removeEventListener('resize', updatePanelMaxHeight)
+    })
+  })
 
   const clampPosition = () => {
     if (!panelRef || !props.floatingStyle || !props.onFloatingPositionChange) return
@@ -66,13 +78,17 @@ export function ModelEditPanel(props: {
     const parentRect = parent.getBoundingClientRect()
     const panelRect = panelRef.getBoundingClientRect()
     const pad = 8
-    const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
-    const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
-    const clampedLeft = clamp(props.floatingStyle.left, pad, maxLeft)
-    const clampedTop = clamp(props.floatingStyle.top, pad, maxTop)
+    // If panel is wider/taller than parent, clamp to 0 (top-left)
+    const maxLeft = panelRect.width >= parentRect.width ? 0 : Math.max(pad, parentRect.width - panelRect.width - pad)
+    const maxTop = panelRect.height >= parentRect.height ? 0 : Math.max(pad, parentRect.height - panelRect.height - pad)
+    const clampedLeft = clamp(props.floatingStyle.left, 0, maxLeft)
+    const clampedTop = clamp(props.floatingStyle.top, 0, maxTop)
     if (clampedLeft !== props.floatingStyle.left || clampedTop !== props.floatingStyle.top) {
       props.onFloatingPositionChange({ left: clampedLeft, top: clampedTop })
     }
+    // Also clamp maxHeight so panel doesn't overflow bottom
+    const available = parentRect.height - clampedTop - pad
+    setPanelMaxHeight(`${Math.max(100, available)}px`)
   }
 
   createEffect(() => {
@@ -210,8 +226,9 @@ export function ModelEditPanel(props: {
         top: `${props.floatingStyle.top}px`,
         right: 'auto',
         bottom: 'auto',
+        'max-height': panelMaxHeight(),
         cursor: isDisabled() ? 'wait' : 'default',
-      } : { cursor: isDisabled() ? 'wait' : 'default' }}
+      } : { 'max-height': panelMaxHeight(), cursor: isDisabled() ? 'wait' : 'default' }}
     >
       <section class="manual-edit-modal cc-panel octo-thin-scroll">
         <div class="manual-edit-titlebar" onPointerDown={startPanelDrag}>
