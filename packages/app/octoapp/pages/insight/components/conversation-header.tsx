@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -19,6 +19,7 @@ import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/ut
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useSettings } from "@/context/settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
 
@@ -54,6 +55,7 @@ export function ConversationHeader(
   const sdk = useSDK()
   const dialog = useDialog()
   const layout = useLayout()
+  const settings = useSettings()
   const language = useLanguage()
   const removeSession = useSessionDelete()
 
@@ -75,6 +77,21 @@ export function ConversationHeader(
     const id = sessionID()
     if (!id) return false
     return sync.data.session_status[id]?.type === "busy"
+  })
+
+  const [progress, setProgress] = createStore({ visible: false })
+  const working = createMemo(() => {
+    const id = sessionID()
+    const status = id ? sync.data.session_status[id]?.type : undefined
+    return status === "busy" || status === "retry"
+  })
+  createEffect(() => {
+    if (working()) {
+      setProgress("visible", true)
+      return
+    }
+    const timer = setTimeout(() => setProgress("visible", false), 260)
+    onCleanup(() => clearTimeout(timer))
   })
 
   const [title, setTitle] = createStore({ draft: "", editing: false, menuOpen: false, pendingRename: false })
@@ -146,9 +163,14 @@ export function ConversationHeader(
     <Show when={sessionID()}>
       {(id) => (
         <div
-          class="shrink-0 h-12 flex items-center justify-between gap-2 px-4"
+          class="relative shrink-0 h-12 flex items-center justify-between gap-2 px-4"
           style={{ "border-bottom": "1px solid var(--octo-border-default, #E5E7EB)" }}
         >
+          <Show when={progress.visible && settings.general.showSessionProgressBar()}>
+            <div class="insight-session-progress" data-state={working() ? "showing" : "hiding"} aria-hidden="true">
+              <div class="insight-session-progress-bar" />
+            </div>
+          </Show>
           <div class="flex items-center gap-2 min-w-0 flex-1">
             {props.sidebarToggle}
             <Show when={busy()}>
