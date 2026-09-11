@@ -28,7 +28,7 @@ import type { SceneCreateInput } from "./scene-create-input"
 import type { GateFinding, GateResult } from "../utils/scene-gate"
 import type { ErrorFinding } from "../utils/error-msg"
 
-const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
+const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove", "renderer", "controls"])
 
 /** direct codegen 产出的 type 元数据（build_detail 空——LLM 自己想，不需要 plan 预设） */
 export interface DirectType {

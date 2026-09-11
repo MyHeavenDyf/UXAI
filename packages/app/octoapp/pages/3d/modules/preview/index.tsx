@@ -32,8 +32,14 @@ export type PreviewPageAPI = {
   sendResetCamera?: () => void
   /** 切主题（SCENE_THEME） */
   sendTheme?: (mode: "light" | "dark") => void
-  /** 场景级增量更新（SCENE_PATCH_ENV，M-3 ①）：mutate 灯/相机/背景·雾，不 reload 不 dispose */
-  sendPatchEnv?: (env: { camera?: unknown; lights?: unknown; scene?: unknown }) => void
+  /** 场景级增量更新（SCENE_PATCH_ENV，M-3 ①）：mutate 灯/相机/背景·雾/渲染器/轨道控制，不 reload 不 dispose */
+  sendPatchEnv?: (env: {
+    camera?: unknown
+    lights?: unknown
+    scene?: unknown
+    renderer?: unknown
+    controls?: unknown
+  }) => void
   /** 即时移除物体（SCENE_REMOVE_OBJECT）：运行时 parent.remove + dispose，不碰 data 层 */
   sendRemoveObject?: (id: string) => void
 }
@@ -111,6 +117,8 @@ export function PreviewPage3D(props: {
       camera: d.camera,
       lights: (d.lights ?? []) as SceneConfigLight[],
       scene: d.scene,
+      renderer: d.renderer,
+      controls: d.controls,
     }
   })
 
@@ -290,8 +298,21 @@ export function PreviewPage3D(props: {
     post({ type: "SCENE_THEME", mode })
   }
   /** 场景级增量（M-3 ①）：post SCENE_PATCH_ENV → iframe onPatchEnv → handle.updateEnvironment 运行时 mutate（不重建物体树） */
-  function sendPatchEnv(env: { camera?: unknown; lights?: unknown; scene?: unknown }): void {
-    post({ type: "SCENE_PATCH_ENV", camera: env.camera, lights: env.lights, scene: env.scene })
+  function sendPatchEnv(env: {
+    camera?: unknown
+    lights?: unknown
+    scene?: unknown
+    renderer?: unknown
+    controls?: unknown
+  }): void {
+    post({
+      type: "SCENE_PATCH_ENV",
+      camera: env.camera,
+      lights: env.lights,
+      scene: env.scene,
+      renderer: env.renderer,
+      controls: env.controls,
+    })
   }
   /** Phase 1.5 大纲：请求场景 Object3D 树（embed 回传 SCENE_TREE） */
   function sendQueryTree(): void {

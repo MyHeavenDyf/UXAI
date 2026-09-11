@@ -29,7 +29,7 @@ export interface PatchCandidate {
 }
 
 /** 保留 key（不入 type 清单），与 codegen-scene RESERVED_TYPES 一致 */
-const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
+const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove", "renderer", "controls"])
 
 /** 从 mergedSceneConfig 取所有顶层节点 [{type, nodeId}]（剔除保留 key） */
 function topNodes(merged: Record<string, unknown>): { type: string; nodeId: string }[] {

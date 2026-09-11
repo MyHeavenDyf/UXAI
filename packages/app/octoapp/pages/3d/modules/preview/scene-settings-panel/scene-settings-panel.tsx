@@ -1,5 +1,5 @@
 /**
- * 场景设置面板（10.5 第一批：scene/camera/lights 三块 UI 化）。
+ * 场景设置面板（10.5 + Phase L/S：scene/camera/lights/renderer/controls 五块 UI 化）。
  *
  * 后端走 M-3 ① 已通的链路：
  *   - 实时预览：onLiveChange → sendPatchEnv → SCENE_PATCH_ENV → iframe updateEnvironment
@@ -7,7 +7,9 @@
  *   - 提交落盘：onCommit → materializeEnvPatch（appendSceneVersion + 落盘 live-data + 版本菜单）
  *
  * lights 按 index 定位（__id=light-${i}）；增删由 updateEnvironment 的 existing/seen diff 自动处理。
- * 本批只编现有三型（ambient/hemisphere/directional）；point/spot/rectarea 属 P3 不碰。
+ * Phase L/S：灯光六型（ambient/hemisphere/directional/point/spot/rectarea）+ 阴影 bias/normalBias/radius，
+ * renderer 运行时可变子集（toneMapping/shadowMapType/exposure/outputColorSpace/autoClear），
+ * controls 手感（阻尼/距离/极角/开关/autoRotate）。
  *
  * UI 复用 property-editor-popup 的 .property-editor-popup 容器 + ui-primitives 控件，风格一致。
  */
@@ -24,6 +26,8 @@ export interface SceneEnvSlice {
   camera?: SceneConfig["camera"]
   lights?: SceneConfigLight[]
   scene?: SceneConfig["scene"]
+  renderer?: SceneConfig["renderer"]
+  controls?: SceneConfig["controls"]
 }
 
 export interface SceneSettingsPanelProps {
@@ -71,6 +75,8 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
   const cam = createMemo(() => work()?.camera ?? null)
   const lights = createMemo(() => work()?.lights ?? [])
   const scene = createMemo(() => work()?.scene ?? null)
+  const renderer = createMemo(() => work()?.renderer ?? null)
+  const controls = createMemo(() => work()?.controls ?? null)
 
   /** 更新 workEnv 的某切片并 emit 实时预览 */
   function mutate(fn: (w: SceneEnvSlice) => void): void {
@@ -150,9 +156,10 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
       if (!w.lights || idx >= w.lights.length) return
       const light = w.lights[idx] as unknown as Record<string, unknown>
       light.type = type
-      // 非 directional 无阴影：切走时清 castShadow，避免 live-data 残留 + 引擎警告
-      if (type !== "directional") {
+      // 非 directional/spot 无阴影：切走时清 castShadow + shadow，避免 live-data 残留 + 引擎警告
+      if (type !== "directional" && type !== "spot") {
         light.castShadow = false
+        delete light.shadow
       }
     })
   }
@@ -171,6 +178,31 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
       ;(w.lights[idx] as unknown as Record<string, unknown>)[field] = arr
     })
   }
+  /** 阴影配置字段（directional/spot 共用）：mapSize/bias/normalBias/radius */
+  function setShadowField(
+    idx: number,
+    field: "mapSize" | "bias" | "normalBias" | "radius",
+    value: unknown,
+  ): void {
+    mutate((w) => {
+      if (!w.lights || idx >= w.lights.length) return
+      const light = w.lights[idx]
+      if (!light.shadow) light.shadow = {}
+      ;(light.shadow as unknown as Record<string, unknown>)[field] = value
+    })
+  }
+  /** spot angle：UI 用度数，data 存弧度（THREE 原生弧度；angleUnit 只管物体 rotation 不涉及灯角） */
+  const RAD2DEG = 180 / Math.PI
+  function spotAngleDeg(idx: number): number {
+    const l = lights()[idx]
+    return (l?.angle ?? Math.PI / 6) * RAD2DEG
+  }
+  function setSpotAngleDeg(idx: number, deg: number): void {
+    mutate((w) => {
+      if (!w.lights || idx >= w.lights.length) return
+      w.lights[idx].angle = deg / RAD2DEG
+    })
+  }
   function addLight(): void {
     mutate((w) => {
       if (!w.lights) w.lights = []
@@ -181,6 +213,20 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
     mutate((w) => {
       if (!w.lights || idx >= w.lights.length) return
       w.lights.splice(idx, 1)
+    })
+  }
+
+  // ── renderer / controls ──
+  function setRendererField(field: keyof NonNullable<SceneConfig["renderer"]>, value: unknown): void {
+    mutate((w) => {
+      if (!w.renderer) w.renderer = {}
+      ;(w.renderer as Record<string, unknown>)[field] = value
+    })
+  }
+  function setControlsField(field: keyof NonNullable<SceneConfig["controls"]>, value: unknown): void {
+    mutate((w) => {
+      if (!w.controls) w.controls = {}
+      ;(w.controls as Record<string, unknown>)[field] = value
     })
   }
 
@@ -215,7 +261,7 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
     >
       <div class="popup-header" onMouseDown={startDrag}>
         <span class="text-sm font-semibold text-slate-700">场景设置</span>
-        <span class="text-xs text-slate-400 ml-2">scene / camera / lights</span>
+        <span class="text-xs text-slate-400 ml-2">scene / camera / lights / renderer / controls</span>
         <button
           type="button"
           onClick={() => props.onClose()}
@@ -351,6 +397,9 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
                     <option value="ambient">ambient 环境光</option>
                     <option value="hemisphere">hemisphere 半球光</option>
                     <option value="directional">directional 平行光</option>
+                    <option value="point">point 点光源</option>
+                    <option value="spot">spot 聚光灯</option>
+                    <option value="rectarea">rectarea 面光</option>
                   </select>
                   <button
                     type="button"
@@ -388,7 +437,8 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
                     onChange={(v) => setLightField(idx, "groundColor", v)}
                   />
                 </Show>
-                <Show when={light().type === "directional"}>
+                {/* directional/point/spot/rectarea 都有位置 */}
+                <Show when={light().type === "directional" || light().type === "point" || light().type === "spot" || light().type === "rectarea"}>
                   <Vec3Row
                     label="位置"
                     values={[
@@ -399,6 +449,9 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
                     step={0.5}
                     onChange={(i, v) => setLightVec(idx, "position", i, v)}
                   />
+                </Show>
+                {/* directional/spot/rectarea 支持 target（rectarea 用 lookAt 定向） */}
+                <Show when={light().type === "directional" || light().type === "spot" || light().type === "rectarea"}>
                   <Vec3Row
                     label="目标"
                     values={[
@@ -409,6 +462,82 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
                     step={0.5}
                     onChange={(i, v) => setLightVec(idx, "target", i, v)}
                   />
+                </Show>
+                {/* point：物理衰减距离/系数 */}
+                <Show when={light().type === "point"}>
+                  <SliderRow
+                    label="距离"
+                    value={light().distance ?? 0}
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    onChange={(v) => setLightField(idx, "distance", v)}
+                  />
+                  <SliderRow
+                    label="衰减"
+                    value={light().decay ?? 2}
+                    min={0}
+                    max={5}
+                    step={0.1}
+                    onChange={(v) => setLightField(idx, "decay", v)}
+                  />
+                </Show>
+                {/* spot：光锥半角(度数)/半影软边/衰减 */}
+                <Show when={light().type === "spot"}>
+                  <SliderRow
+                    label="角度°"
+                    value={spotAngleDeg(idx)}
+                    min={1}
+                    max={90}
+                    step={1}
+                    onChange={(v) => setSpotAngleDeg(idx, v)}
+                  />
+                  <SliderRow
+                    label="半影"
+                    value={light().penumbra ?? 0}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={(v) => setLightField(idx, "penumbra", v)}
+                  />
+                  <SliderRow
+                    label="距离"
+                    value={light().distance ?? 0}
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    onChange={(v) => setLightField(idx, "distance", v)}
+                  />
+                  <SliderRow
+                    label="衰减"
+                    value={light().decay ?? 2}
+                    min={0}
+                    max={5}
+                    step={0.1}
+                    onChange={(v) => setLightField(idx, "decay", v)}
+                  />
+                </Show>
+                {/* rectarea：发光面尺寸 */}
+                <Show when={light().type === "rectarea"}>
+                  <SliderRow
+                    label="宽度"
+                    value={light().width ?? 4}
+                    min={0.5}
+                    max={20}
+                    step={0.5}
+                    onChange={(v) => setLightField(idx, "width", v)}
+                  />
+                  <SliderRow
+                    label="高度"
+                    value={light().height ?? 4}
+                    min={0.5}
+                    max={20}
+                    step={0.5}
+                    onChange={(v) => setLightField(idx, "height", v)}
+                  />
+                </Show>
+                {/* directional/spot 阴影 */}
+                <Show when={light().type === "directional" || light().type === "spot"}>
                   <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
                     <input
                       type="checkbox"
@@ -418,6 +547,35 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
                     />
                     阴影
                   </label>
+                  <Show when={light().castShadow}>
+                    <SliderRow
+                      label="贴图"
+                      value={light().shadow?.mapSize ?? 1024}
+                      min={256}
+                      max={4096}
+                      step={256}
+                      onChange={(v) => setShadowField(idx, "mapSize", v)}
+                    />
+                    <NumberField
+                      value={light().shadow?.bias ?? -0.0005}
+                      step={0.0001}
+                      placeholder="bias"
+                      onChange={(v) => setShadowField(idx, "bias", v)}
+                    />
+                    <NumberField
+                      value={light().shadow?.normalBias ?? 0}
+                      step={0.01}
+                      placeholder="normalBias"
+                      onChange={(v) => setShadowField(idx, "normalBias", v)}
+                    />
+                    <NumberField
+                      value={light().shadow?.radius ?? 1}
+                      step={0.1}
+                      min={0}
+                      placeholder="radius"
+                      onChange={(v) => setShadowField(idx, "radius", v)}
+                    />
+                  </Show>
                 </Show>
               </div>
             )}
@@ -429,6 +587,162 @@ export function SceneSettingsPanel(props: SceneSettingsPanelProps): JSX.Element 
           >
             + 添加灯光
           </button>
+        </Section>
+
+        {/* ── 渲染器 Renderer ── */}
+        <Section title="渲染器 Renderer">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-500 w-10 shrink-0">色调映射</span>
+            <select
+              value={renderer()?.toneMapping ?? "ACESFilmicToneMapping"}
+              onChange={(e) => setRendererField("toneMapping", e.currentTarget.value)}
+              class="property-input flex-1 min-w-0 h-6"
+            >
+              <option value="NoToneMapping">No 无</option>
+              <option value="LinearToneMapping">Linear</option>
+              <option value="ReinhardToneMapping">Reinhard</option>
+              <option value="CineonToneMapping">Cineon</option>
+              <option value="ACESFilmicToneMapping">ACES Filmic</option>
+              <option value="AgXToneMapping">AgX</option>
+              <option value="NeutralToneMapping">Neutral</option>
+            </select>
+          </div>
+          <SliderRow
+            label="曝光"
+            value={renderer()?.toneMappingExposure ?? 1}
+            min={0}
+            max={3}
+            step={0.05}
+            onChange={(v) => setRendererField("toneMappingExposure", v)}
+          />
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-500 w-10 shrink-0">阴影算法</span>
+            <select
+              value={renderer()?.shadowMapType ?? "PCFShadowMap"}
+              onChange={(e) => setRendererField("shadowMapType", e.currentTarget.value)}
+              class="property-input flex-1 min-w-0 h-6"
+            >
+              <option value="BasicShadowMap">Basic</option>
+              <option value="PCFShadowMap">PCF</option>
+              <option value="PCFSoftShadowMap">PCF Soft</option>
+              <option value="VSMShadowMap">VSM</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-500 w-10 shrink-0">色彩空间</span>
+            <select
+              value={renderer()?.outputColorSpace ?? "srgb"}
+              onChange={(e) => setRendererField("outputColorSpace", e.currentTarget.value)}
+              class="property-input flex-1 min-w-0 h-6"
+            >
+              <option value="srgb">sRGB</option>
+              <option value="linear">Linear</option>
+            </select>
+          </div>
+          <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={renderer()?.autoClear ?? true}
+              onChange={(e) => setRendererField("autoClear", e.currentTarget.checked)}
+              class="accent-[#3D99FF]"
+            />
+            自动清屏 autoClear
+          </label>
+        </Section>
+
+        {/* ── 轨道控制 Controls ── */}
+        <Section title="轨道控制 Controls">
+          <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={controls()?.enableDamping ?? true}
+              onChange={(e) => setControlsField("enableDamping", e.currentTarget.checked)}
+              class="accent-[#3D99FF]"
+            />
+            阻尼 enableDamping
+          </label>
+          <Show when={controls()?.enableDamping}>
+            <SliderRow
+              label="阻尼系数"
+              value={controls()?.dampingFactor ?? 0.05}
+              min={0}
+              max={0.5}
+              step={0.01}
+              onChange={(v) => setControlsField("dampingFactor", v)}
+            />
+          </Show>
+          <SliderRow
+            label="最近距离"
+            value={controls()?.minDistance ?? 0}
+            min={0}
+            max={30}
+            step={0.5}
+            onChange={(v) => setControlsField("minDistance", v)}
+          />
+          <SliderRow
+            label="最远距离"
+            value={controls()?.maxDistance ?? 500}
+            min={0}
+            max={1000}
+            step={10}
+            onChange={(v) => setControlsField("maxDistance", v)}
+          />
+          <SliderRow
+            label="极角上限"
+            value={controls()?.maxPolarAngle ?? Math.PI}
+            min={0}
+            max={Math.PI}
+            step={0.05}
+            onChange={(v) => setControlsField("maxPolarAngle", v)}
+          />
+          <div class="flex items-center gap-3">
+            <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={controls()?.enableRotate ?? true}
+                onChange={(e) => setControlsField("enableRotate", e.currentTarget.checked)}
+                class="accent-[#3D99FF]"
+              />
+              旋转
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={controls()?.enableZoom ?? true}
+                onChange={(e) => setControlsField("enableZoom", e.currentTarget.checked)}
+                class="accent-[#3D99FF]"
+              />
+              缩放
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={controls()?.enablePan ?? true}
+                onChange={(e) => setControlsField("enablePan", e.currentTarget.checked)}
+                class="accent-[#3D99FF]"
+              />
+              平移
+            </label>
+          </div>
+          <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={controls()?.autoRotate ?? false}
+              onChange={(e) => setControlsField("autoRotate", e.currentTarget.checked)}
+              class="accent-[#3D99FF]"
+            />
+            自动旋转 autoRotate
+          </label>
+          <Show when={controls()?.autoRotate}>
+            <SliderRow
+              label="旋转速度"
+              value={controls()?.autoRotateSpeed ?? 2}
+              min={0}
+              max={10}
+              step={0.1}
+              onChange={(v) => setControlsField("autoRotateSpeed", v)}
+            />
+          </Show>
         </Section>
 
         {/* 提交按钮 */}

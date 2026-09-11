@@ -14,7 +14,7 @@ const schema = {
     patchOps: {
       type: "array",
       description:
-        "routing=patch 时输出；基于原场景的局部增删查改 ops。set_instance 改子实例材质/transform；set_type_transform 改顶层 type 整体的 transform（整物移动/旋转/缩放）；set_light/set_camera/set_scene 场景级增量（灯/相机/背景，运行时 mutate 不重建物体树，M-3 ①）。",
+        "routing=patch 时输出；基于原场景的局部增删查改 ops。set_instance 改子实例材质/transform；set_type_transform 改顶层 type 整体的 transform（整物移动/旋转/缩放）；set_light/set_camera/set_scene/set_renderer/set_controls 场景级增量（灯/相机/背景/渲染器/轨道控制，运行时 mutate 不重建物体树，M-3 ①/Phase L/S）。",
       items: {
         oneOf: [
           {
@@ -216,6 +216,58 @@ const schema = {
                   background: { type: "string" },
                   fog: { type: "object", additionalProperties: true },
                   environment: { type: "object", additionalProperties: true },
+                },
+                additionalProperties: true,
+              },
+            },
+            required: ["op", "fields"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            description:
+              "场景级改渲染器（Phase L/S）：改渲染器运行时可变参数（色调映射/阴影质量/曝光/色彩空间），运行时 mutate 不重建物体树。用于「曝光调低一点/阴影更柔和/换色调映射」。",
+            properties: {
+              op: { type: "string", enum: ["set_renderer"] },
+              fields: {
+                type: "object",
+                description:
+                  "要改的渲染器字段：toneMapping(NoToneMapping|LinearToneMapping|ReinhardToneMapping|CineonToneMapping|ACESFilmicToneMapping|AgXToneMapping|NeutralToneMapping)/shadowMapType(BasicShadowMap|PCFShadowMap|PCFSoftShadowMap|VSMShadowMap)/toneMappingExposure(数字)/outputColorSpace(srgb|linear)/autoClear(布尔)",
+                properties: {
+                  toneMapping: { type: "string" },
+                  shadowMapType: { type: "string" },
+                  toneMappingExposure: { type: "number" },
+                  outputColorSpace: { type: "string" },
+                  autoClear: { type: "boolean" },
+                },
+                additionalProperties: true,
+              },
+            },
+            required: ["op", "fields"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            description:
+              "场景级改轨道控制器（Phase L/S）：改相机交互手感（阻尼/自动旋转/缩放限制），运行时 mutate 不重建物体树。用于「开启自动旋转/拖拽阻尼调大一点/限制缩放距离」。",
+            properties: {
+              op: { type: "string", enum: ["set_controls"] },
+              fields: {
+                type: "object",
+                description:
+                  "要改的控制器字段：enableDamping(布尔)/dampingFactor(数字)/minDistance/maxDistance/maxPolarAngle(数字)/enableRotate/enableZoom/enablePan(布尔)/autoRotate(布尔)/autoRotateSpeed(数字)/target{x,y,z}",
+                properties: {
+                  enableDamping: { type: "boolean" },
+                  dampingFactor: { type: "number" },
+                  minDistance: { type: "number" },
+                  maxDistance: { type: "number" },
+                  maxPolarAngle: { type: "number" },
+                  enableRotate: { type: "boolean" },
+                  enableZoom: { type: "boolean" },
+                  enablePan: { type: "boolean" },
+                  autoRotate: { type: "boolean" },
+                  autoRotateSpeed: { type: "number" },
+                  target: { type: "object", additionalProperties: true },
                 },
                 additionalProperties: true,
               },

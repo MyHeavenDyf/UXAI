@@ -118,6 +118,17 @@ export interface SetSceneOp {
   /** 要改的字段：background/fog/environment.intensity（直接 mutate scene 属性，不重建物体树） */
   fields: Record<string, unknown>
 }
+/** Phase L/S op：改渲染器运行时可变参数（toneMapping/shadowMapType/exposure/outputColorSpace/autoClear）。
+ *  LLM 生成的 live-data 无 renderer 键（走 templete 默认），故缺失时创建空对象再 assign（区别于 set_camera 缺失返 false）。 */
+export interface SetRendererOp {
+  op: "set_renderer"
+  fields: Record<string, unknown>
+}
+/** Phase L/S op：改轨道控制器参数（阻尼/距离/极角/开关/autoRotate）。renderer 同理缺失即创建。 */
+export interface SetControlsOp {
+  op: "set_controls"
+  fields: Record<string, unknown>
+}
 
 // Phase D 余：remove_type
 export type PatchOp =
@@ -129,6 +140,8 @@ export type PatchOp =
   | SetLightOp
   | SetCameraOp
   | SetSceneOp
+  | SetRendererOp
+  | SetControlsOp
 
 export interface PatchSceneInput {
   /** 场景历史目录（sceneHistoryDir()） */
@@ -173,21 +186,30 @@ function uniqueNodeIdOfType(sceneObj: Record<string, unknown>, type: string): st
   return typeof id === "string" ? id : null
 }
 
-/** 场景级 op 判定（M-3 ①）：set_light/set_camera/set_scene 作用 live-data 顶层保留键，
+/** 场景级 op 判定（M-3 ①）：set_light/set_camera/set_scene/set_renderer/set_controls 作用 live-data 顶层保留键，
  *  不进 handler 源码 patch、不抽候选、不校验候选（直读 live-data，区别于部件级五 op）。 */
-function isSceneLevelOp(op: PatchOp): op is SetLightOp | SetCameraOp | SetSceneOp {
-  return op.op === "set_light" || op.op === "set_camera" || op.op === "set_scene"
+function isSceneLevelOp(
+  op: PatchOp,
+): op is SetLightOp | SetCameraOp | SetSceneOp | SetRendererOp | SetControlsOp {
+  return (
+    op.op === "set_light"
+    || op.op === "set_camera"
+    || op.op === "set_scene"
+    || op.op === "set_renderer"
+    || op.op === "set_controls"
+  )
 }
 
 /**
- * 把场景级 op merge 进 scene 对象的顶层保留键（lights[index]/camera/scene）。
- * 用于 set_light/set_camera/set_scene：改 live-data 保留键 → 运行时 mutate 不重建物体树。
- * lights 按 index 定位（数组无 id）；camera/scene 是对象直接 merge。原地 mutate。
+ * 把场景级 op merge 进 scene 对象的顶层保留键（lights[index]/camera/scene/renderer/controls）。
+ * 用于 set_light/set_camera/set_scene/set_renderer/set_controls：改 live-data 保留键 → 运行时 mutate 不重建物体树。
+ * lights 按 index 定位（数组无 id）；camera/scene 是对象直接 merge；renderer/controls 键缺失时创建空对象再 assign
+ * （LLM 生成场景无 renderer/controls 键 → 走 templete 默认，部分配置安全，区别 set_camera 的缺失返 false）。
  * @returns true=应用成功；false=目标不存在（index 越界 / camera·scene 缺失）→ 调用方判 skipped。
  */
 function applySceneLevel(
   sceneObj: Record<string, unknown>,
-  op: SetLightOp | SetCameraOp | SetSceneOp,
+  op: SetLightOp | SetCameraOp | SetSceneOp | SetRendererOp | SetControlsOp,
 ): boolean {
   if (op.op === "set_light") {
     const lights = sceneObj.lights
@@ -201,6 +223,20 @@ function applySceneLevel(
     const camera = sceneObj.camera
     if (!camera || typeof camera !== "object") return false
     Object.assign(camera as Record<string, unknown>, op.fields)
+    return true
+  }
+  if (op.op === "set_renderer") {
+    if (!sceneObj.renderer || typeof sceneObj.renderer !== "object") {
+      sceneObj.renderer = {}
+    }
+    Object.assign(sceneObj.renderer as Record<string, unknown>, op.fields)
+    return true
+  }
+  if (op.op === "set_controls") {
+    if (!sceneObj.controls || typeof sceneObj.controls !== "object") {
+      sceneObj.controls = {}
+    }
+    Object.assign(sceneObj.controls as Record<string, unknown>, op.fields)
     return true
   }
   // set_scene
@@ -251,7 +287,7 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     material?: Record<string, unknown>
   }[] = []
   const editCodeOps: { type: string; edits: { search: string; replace: string }[] }[] = []
-  const sceneLevelOps: (SetLightOp | SetCameraOp | SetSceneOp)[] = []
+  const sceneLevelOps: (SetLightOp | SetCameraOp | SetSceneOp | SetRendererOp | SetControlsOp)[] = []
   for (const op of patchOps) {
     if (op.op === "set_instance") {
       if (!op.material && !op.transform) {
@@ -350,8 +386,9 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
       }
       editCodeOps.push({ type: op.type, edits: op.edits })
     } else if (isSceneLevelOp(op)) {
-      // 场景级 op（M-3 ①）：set_light/set_camera/set_scene 直读 live-data 保留键，
-      // 不抽候选、不校验候选、不碰 handler 源码。校验 = 目标存在（index 不越界 / camera·scene 键在）+ fields 非空。
+      // 场景级 op（M-3 ①）：set_light/set_camera/set_scene/set_renderer/set_controls 直读 live-data 保留键，
+      // 不抽候选、不校验候选、不碰 handler 源码。校验 = 目标存在（index 不越界 / camera·scene 键在）+ fields 非空；
+      // renderer/controls 缺失即创建（LLM 生成场景无此两键），不做存在校验。
       if (op.op === "set_light") {
         const lightArr = merged.lights
         if (!Array.isArray(lightArr) || op.index < 0 || op.index >= lightArr.length) {
@@ -363,20 +400,20 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
           skipped.push({ __id: "camera", reason: "live-data 无 camera 保留键" })
           continue
         }
-      } else {
-        // set_scene
+      } else if (op.op === "set_scene") {
         if (!merged.scene || typeof merged.scene !== "object") {
           skipped.push({ __id: "scene", reason: "live-data 无 scene 保留键" })
           continue
         }
       }
+      // set_renderer/set_controls 无目标存在校验（applySceneLevel 缺失创建空对象再 assign）
       if (!op.fields || typeof op.fields !== "object") {
         skipped.push({ __id: op.op, reason: `${op.op} 须含 fields（至少 1 个要改的字段）` })
         continue
       }
       sceneLevelOps.push(op)
     } else {
-      // op 在此为 never（PatchOp 八分支已穷尽）；防御性兜底：若联合扩展未接线则落地坏 op 便于排查
+      // op 在此为 never（PatchOp 十分支已穷尽）；防御性兜底：若联合扩展未接线则落地坏 op 便于排查
       skipped.push({ __id: "", reason: `未知 op 类型：${JSON.stringify(op)}` })
     }
   }

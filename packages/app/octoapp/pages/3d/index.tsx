@@ -1242,6 +1242,8 @@ function Scene3DContent() {
         camera: sceneData.camera,
         lights: sceneData.lights,
         scene: sceneData.scene,
+        renderer: sceneData.renderer,
+        controls: sceneData.controls,
       })
     } else {
       sendToPreview(sceneData as unknown as SceneConfig)
@@ -1269,6 +1271,8 @@ function Scene3DContent() {
     if (env.camera) merged.camera = env.camera
     if (env.lights) merged.lights = env.lights
     if (env.scene) merged.scene = env.scene
+    if (env.renderer) merged.renderer = env.renderer
+    if (env.controls) merged.controls = env.controls
     // 落盘 live-data.json：读 codeDir 全量，替换 live-data.json 内容（覆盖 env 键，保留 type 分组）
     const files = await readCodeDirFiles(cur.codeDir)
     if (!files) throw new Error(`读 codeDir 失败：${cur.codeDir}`)
@@ -1286,6 +1290,8 @@ function Scene3DContent() {
       if (env.camera) live.camera = env.camera
       if (env.lights) live.lights = env.lights
       if (env.scene) live.scene = env.scene
+      if (env.renderer) live.renderer = env.renderer
+      if (env.controls) live.controls = env.controls
       liveFile.content = JSON.stringify(live, null, 2)
     } else {
       // 无 live-data.json（冷启动兜底）：构造一个仅含 env 键的最小 live-data
@@ -1293,6 +1299,8 @@ function Scene3DContent() {
       if (env.camera) live.camera = env.camera
       if (env.lights) live.lights = env.lights
       if (env.scene) live.scene = env.scene
+      if (env.renderer) live.renderer = env.renderer
+      if (env.controls) live.controls = env.controls
       live.version = "1.0"
       live.angleUnit = "deg"
       files.push({ path: "live-data.json", content: JSON.stringify(live, null, 2) })

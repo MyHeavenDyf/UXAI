@@ -70,7 +70,7 @@ export interface SceneConfigObject3D {
   __zone?: boolean
 }
 export interface SceneConfigLight {
-  type: "ambient" | "hemisphere" | "directional"
+  type: "ambient" | "hemisphere" | "directional" | "point" | "spot" | "rectarea"
   intensity: number
   color?: string
   skyColor?: string
@@ -78,7 +78,48 @@ export interface SceneConfigLight {
   position?: number[]
   target?: number[]
   castShadow?: boolean
-  shadow?: Record<string, unknown>
+  /** point/spot：物理衰减距离与衰减系数 */
+  distance?: number
+  decay?: number
+  /** spot：光锥半角（rad）与半影软边（0-1） */
+  angle?: number
+  penumbra?: number
+  /** rectarea：发光面尺寸 */
+  width?: number
+  height?: number
+  shadow?: {
+    mapSize?: number
+    bias?: number
+    normalBias?: number
+    radius?: number
+    camera?: { near: number; far: number; left: number; right: number; top: number; bottom: number }
+  }
+}
+/** 渲染器运行时可变配置（templete RendererManager.update 消费；构造参数不在此） */
+export interface SceneConfigRenderer {
+  /** 'NoToneMapping'|'LinearToneMapping'|'ReinhardToneMapping'|'CineonToneMapping'|'ACESFilmicToneMapping'|'AgXToneMapping'|'NeutralToneMapping' */
+  toneMapping?: string
+  toneMappingExposure?: number
+  /** 'BasicShadowMap'|'PCFShadowMap'|'PCFSoftShadowMap'|'VSMShadowMap' */
+  shadowMapType?: string
+  /** 'srgb' | 'linear' */
+  outputColorSpace?: string
+  autoClear?: boolean
+}
+/** 轨道控制器运行时可变配置（templete ControlsManager.update 消费） */
+export interface SceneConfigControls {
+  enableDamping?: boolean
+  dampingFactor?: number
+  minDistance?: number
+  maxDistance?: number
+  /** 极角上限（rad，防穿地下） */
+  maxPolarAngle?: number
+  enableRotate?: boolean
+  enableZoom?: boolean
+  enablePan?: boolean
+  autoRotate?: boolean
+  autoRotateSpeed?: number
+  target?: { x: number; y: number; z: number }
 }
 export interface SceneConfig {
   version: string
@@ -86,7 +127,8 @@ export interface SceneConfig {
   scene: {
     background?: string
     environment?: { preset: string; intensity: number }
-    fog?: { type: string; color: string; near: number; far: number }
+    /** fog.type: 'linear'（near/far）| 'exp'（density，FogExp2） */
+    fog?: { type: string; color: string; near: number; far: number; density?: number }
   }
   camera: {
     type: "perspective" | "orthographic"
@@ -96,6 +138,8 @@ export interface SceneConfig {
     orthographic?: Record<string, number>
   }
   lights?: SceneConfigLight[]
+  renderer?: SceneConfigRenderer
+  controls?: SceneConfigControls
   objects?: SceneConfigObject3D[]
 }
 
