@@ -449,6 +449,9 @@ export const ProseMirrorEditor = (props: Props) => {
       // Don't close if clicking on editor (let ProseMirror handle it)
       if (target.closest(".pm-editor")) return
       
+      // Don't close if clicking on the upload risk gate dialog
+      if (target.closest(".make-model-risk-overlay")) return
+      
       if (!target.closest(".mention-popover-container")) {
         console.log("[click-outside] closing popover")
         const v = view()
