@@ -43,8 +43,11 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
   const [menuOpenId, setMenuOpenId] = createSignal<string | null>(null)
   const [removeTarget, setRemoveTarget] = createSignal<MakeGroup | null>(null)
+  const [draggingId, setDraggingId] = createSignal<string | null>(null)
+  const [dragOverId, setDragOverId] = createSignal<string | null>(null)
+  const [dropPosition, setDropPosition] = createSignal<"before" | "after">("before")
   let sectionApi: BeforeSectionApi | undefined
-  const { groups, addGroup, renameGroup, removeGroup } = useMakeGroups(() => resolvedDir(), props.namespace)
+  const { groups, addGroup, renameGroup, removeGroup, moveGroup } = useMakeGroups(() => resolvedDir(), props.namespace)
   const { mapping: sessionGroupMapping, moveSessionToGroup, removeSessionFromGroup, clearGroup } = useSessionGroups(() => resolvedDir(), props.namespace)
 
   const toggleGroup = (id: string) => {
@@ -102,15 +105,18 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       activeSessionId={activeSessionId}
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
-      onMoveToGroup={(session, groupId) => moveSessionToGroup(session.id, groupId)}
+      onMoveToGroup={(session, groupId) => {
+        moveSessionToGroup(session.id, groupId)
+        setExpandedGroups(prev => { const next = new Set(prev); next.add(groupId); return next })
+      }}
       onRemoveFromGroup={(session) => removeSessionFromGroup(session.id)}
       onCreateGroupForSession={(session) => dialog.show(() => (
         <DialogCreateGroup
           existingNames={groups.map(g => g.name)}
-          onCreate={(name) => {
-            const id = addGroup(name)
+          onCreate={async (name) => {
+            const id = await addGroup(name)
             if (id) {
-              moveSessionToGroup(session.id, id)
+              await moveSessionToGroup(session.id, id)
               setExpandedGroups(prev => { const next = new Set(prev); next.add(id); return next })
             }
           }}
@@ -149,20 +155,67 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                     return (
                     <>
                       <div
-                        class="group-item flex items-center gap-[8px] text-[12px] leading-[20px] cursor-pointer h-[36px] shrink-0 relative rounded-[8px] transition-colors"
+                        class="group-item flex items-center gap-[8px] text-[12px] leading-[20px] cursor-grab h-[36px] shrink-0 relative rounded-[8px] transition-colors"
                         classList={{
                           "bg-[rgba(10,89,247,0.08)]": isActive(),
                           "hover:bg-surface-base-hover": true,
+                          "opacity-40": draggingId() === group.id,
                         }}
                         style={{
                           "padding-left": "12px",
                           "padding-right": showMenu() ? "28px" : (isActive() ? "12px" : "0"),
                           color: isActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
                         }}
+                        draggable={true}
+                        onDragStart={(e) => {
+                          setDraggingId(group.id)
+                          if (!e.dataTransfer) return
+                          e.dataTransfer.effectAllowed = "move"
+                          e.dataTransfer.setData("text/plain", group.id)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null)
+                          setDragOverId(null)
+                        }}
+                        onDragOver={(e) => {
+                          if (!draggingId()) return
+                          e.preventDefault()
+                          if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          setDragOverId(group.id)
+                          setDropPosition(e.clientY - rect.top < rect.height / 2 ? "before" : "after")
+                        }}
+                        onDragLeave={(e) => {
+                          const related = e.relatedTarget as Node | null
+                          if (related && e.currentTarget.contains(related)) return
+                          if (dragOverId() === group.id) setDragOverId(null)
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          const sourceId = draggingId()
+                          if (sourceId && sourceId !== group.id) {
+                            moveGroup(sourceId, group.id, dropPosition())
+                          }
+                          setDraggingId(null)
+                          setDragOverId(null)
+                        }}
                         onMouseEnter={() => setHoveredId(group.id)}
                         onMouseLeave={() => setHoveredId(null)}
                         onClick={() => toggleGroup(group.id)}
                       >
+                        <Show when={dragOverId() === group.id && draggingId() && draggingId() !== group.id}>
+                          <div
+                            class="absolute left-[8px] right-[8px] pointer-events-none"
+                            style={{
+                              height: "2px",
+                              background: "#0A59F7",
+                              "border-radius": "1px",
+                              "z-index": "10",
+                              top: dropPosition() === "before" ? "0" : undefined,
+                              bottom: dropPosition() === "after" ? "0" : undefined,
+                            }}
+                          />
+                        </Show>
                         <span style={{ width: "20px", height: "20px", display: "flex", "align-items": "center", "justify-content": "center", "flex-shrink": "0" }}>
                           <img src={expandedGroups().has(group.id) ? folderLinePng : folderLineClosePng} style={{ width: "20px", height: "20px", "flex-shrink": "0" }} alt="" draggable={false} />
                         </span>
@@ -268,7 +321,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                 : []
               if (sessions.length && api) await api.deleteSessions(sessions)
               clearGroup(target.id)
-              removeGroup(target.id)
+              await removeGroup(target.id)
               setExpandedGroups(prev => { const next = new Set(prev); next.delete(target.id); return next })
               if (selectedGroupId() === target.id) setSelectedGroupId(null)
             }

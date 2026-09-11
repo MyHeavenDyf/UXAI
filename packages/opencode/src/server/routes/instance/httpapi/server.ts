@@ -29,6 +29,7 @@ import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
 import { Question } from "@/question"
 import { Session } from "@/session/session"
+import { SessionGroup } from "@/session/session-group"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -67,6 +68,7 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectRoute, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
+import { sessionGroupHandlers } from "./handlers/session-group"
 import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
@@ -129,6 +131,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     permissionHandlers,
     providerHandlers,
     sessionHandlers,
+    sessionGroupHandlers,
     syncHandlers,
     v2Handlers,
     tuiHandlers,
@@ -183,6 +186,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       Question.defaultLayer,
       Ripgrep.defaultLayer,
       Session.defaultLayer,
+      SessionGroup.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,
       SessionRevert.defaultLayer,

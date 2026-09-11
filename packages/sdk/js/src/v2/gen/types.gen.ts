@@ -6720,6 +6720,269 @@ export type PartUpdateResponses = {
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
 
+export type SessionGroupListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    namespace: "make" | "insight"
+  }
+  url: "/session-group"
+}
+
+export type SessionGroupListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupListError = SessionGroupListErrors[keyof SessionGroupListErrors]
+
+export type SessionGroupListResponses = {
+  /**
+   * Groups and mappings
+   */
+  200: {
+    groups: Array<{
+      id: string
+      project_id: string
+      directory: string
+      namespace: "make" | "insight"
+      name: string
+      position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    mapping: {
+      [key: string]: string
+    }
+  }
+}
+
+export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGroupListResponses]
+
+export type SessionGroupCreateData = {
+  body?: {
+    namespace: "make" | "insight"
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group"
+}
+
+export type SessionGroupCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupCreateError = SessionGroupCreateErrors[keyof SessionGroupCreateErrors]
+
+export type SessionGroupCreateResponses = {
+  /**
+   * Created group
+   */
+  200: {
+    id: string
+    project_id: string
+    directory: string
+    namespace: "make" | "insight"
+    name: string
+    position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionGroupCreateResponse = SessionGroupCreateResponses[keyof SessionGroupCreateResponses]
+
+export type SessionGroupRemoveData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/{id}"
+}
+
+export type SessionGroupRemoveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupRemoveError = SessionGroupRemoveErrors[keyof SessionGroupRemoveErrors]
+
+export type SessionGroupRemoveResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupRemoveResponse = SessionGroupRemoveResponses[keyof SessionGroupRemoveResponses]
+
+export type SessionGroupRenameData = {
+  body?: {
+    name: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/{id}"
+}
+
+export type SessionGroupRenameErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupRenameError = SessionGroupRenameErrors[keyof SessionGroupRenameErrors]
+
+export type SessionGroupRenameResponses = {
+  /**
+   * Renamed
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupRenameResponse = SessionGroupRenameResponses[keyof SessionGroupRenameResponses]
+
+export type SessionGroupReorderData = {
+  body?: {
+    ids: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/reorder"
+}
+
+export type SessionGroupReorderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupReorderError = SessionGroupReorderErrors[keyof SessionGroupReorderErrors]
+
+export type SessionGroupReorderResponses = {
+  /**
+   * Reordered
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupReorderResponse = SessionGroupReorderResponses[keyof SessionGroupReorderResponses]
+
+export type SessionGroupMapSessionData = {
+  body?: {
+    sessionId: string
+    groupId: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/mapping"
+}
+
+export type SessionGroupMapSessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupMapSessionError = SessionGroupMapSessionErrors[keyof SessionGroupMapSessionErrors]
+
+export type SessionGroupMapSessionResponses = {
+  /**
+   * Mapped
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupMapSessionResponse = SessionGroupMapSessionResponses[keyof SessionGroupMapSessionResponses]
+
+export type SessionGroupUnmapSessionData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/mapping/{sessionID}"
+}
+
+export type SessionGroupUnmapSessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupUnmapSessionError = SessionGroupUnmapSessionErrors[keyof SessionGroupUnmapSessionErrors]
+
+export type SessionGroupUnmapSessionResponses = {
+  /**
+   * Removed
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupUnmapSessionResponse =
+  SessionGroupUnmapSessionResponses[keyof SessionGroupUnmapSessionResponses]
+
 export type SyncStartData = {
   body?: never
   path?: never

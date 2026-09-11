@@ -1,63 +1,50 @@
 import { createEffect, on } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { migrateLocalGroupsToDB } from "./migrate-groups"
 
 export type SessionGroupMapping = Record<string, string>
 
-const keyFor = (dir: string, namespace: string) => `octo:${namespace}-session-groups:${dir}`
-
-function readMapping(dir: string, namespace: string): SessionGroupMapping {
-  try {
-    const raw = localStorage.getItem(keyFor(dir, namespace))
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return typeof parsed === "object" && parsed !== null ? (parsed as SessionGroupMapping) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeMapping(dir: string, namespace: string, mapping: SessionGroupMapping) {
-  localStorage.setItem(keyFor(dir, namespace), JSON.stringify(mapping))
-}
-
 export function useSessionGroups(dir: () => string | undefined, namespace: string = "make") {
+  const globalSDK = useGlobalSDK()
   const [mapping, setMapping] = createStore<SessionGroupMapping>({})
 
-  createEffect(on(dir, (d) => {
-    if (!d) return
-    setMapping(reconcile(readMapping(d, namespace)))
-  }))
+  createEffect(
+    on(dir, async (d) => {
+      if (!d) {
+        setMapping(reconcile({}))
+        return
+      }
+      const client = globalSDK.createClient({ directory: d })
+      await migrateLocalGroupsToDB({ dir: d, namespace, client })
+      const result = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+      const data = result.data
+      setMapping(reconcile(data?.mapping ?? {}))
+    }, { defer: true }),
+  )
 
-  const moveSessionToGroup = (sessionId: string, groupId: string) => {
+  const moveSessionToGroup = async (sessionId: string, groupId: string) => {
     const d = dir()
     if (!d) return
-    const next = { ...mapping, [sessionId]: groupId }
-    writeMapping(d, namespace, next)
-    setMapping(reconcile(next))
+    setMapping(produce((draft) => { draft[sessionId] = groupId }))
+    const client = globalSDK.createClient({ directory: d })
+    await client.sessionGroup.mapSession({ sessionId, groupId })
   }
 
-  const removeSessionFromGroup = (sessionId: string) => {
+  const removeSessionFromGroup = async (sessionId: string) => {
     const d = dir()
     if (!d) return
-    setMapping(
-      produce((draft) => {
-        delete draft[sessionId]
-      }),
-    )
-    const next = { ...mapping }
-    delete next[sessionId]
-    writeMapping(d, namespace, next)
+    setMapping(produce((draft) => { delete draft[sessionId] }))
+    const client = globalSDK.createClient({ directory: d })
+    await client.sessionGroup.unmapSession({ sessionID: sessionId })
   }
 
   const clearGroup = (groupId: string) => {
-    const d = dir()
-    if (!d) return
-    const next: SessionGroupMapping = {}
-    for (const [sid, gid] of Object.entries(mapping)) {
-      if (gid !== groupId) next[sid] = gid
-    }
-    writeMapping(d, namespace, next)
-    setMapping(reconcile(next))
+    setMapping(produce((draft) => {
+      for (const sid of Object.keys(draft)) {
+        if (draft[sid] === groupId) delete draft[sid]
+      }
+    }))
   }
 
   const sessionIdsOfGroup = (groupId: string) =>
