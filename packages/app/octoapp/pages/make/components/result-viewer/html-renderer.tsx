@@ -2004,6 +2004,7 @@ onFloatingPositionChange={setEditPanelPosition}
             <ModelEditAreaDialog
               element={editTarget()}
               iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}
@@ -2068,6 +2069,7 @@ onFloatingPositionChange={setEditPanelPosition}
             <ModelEditAreaDialog
               element={modelEditTarget()}
               iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}

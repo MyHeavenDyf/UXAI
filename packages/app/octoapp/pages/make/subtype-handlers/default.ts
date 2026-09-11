@@ -36,7 +36,7 @@ function buildModelEditPrompt(
   lines.push('请修改以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   lines.push('')
   const changes: string[] = []
@@ -73,7 +73,7 @@ function buildModelDeletePrompt(element: ModelEditElement, filePath: string): st
   lines.push('请删除以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   return lines.join('\n')
 }
@@ -197,7 +197,7 @@ const directModelEditConfig: ModelEditConfig = {
   promptCallback: (filePath, selector) => {
     return [
       `[文件: ${filePath}]`,
-      `[选择器: ${selector}]`,
+      `[选择器: ${selector}（该元素可能是动态生成的）]`,
     ].join('\n')
   },
 
