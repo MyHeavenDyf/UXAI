@@ -1710,16 +1710,23 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
   // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
-  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // 用 beginWrite/endWrite 包住，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // detail.history=true（源于 commitA2uiDoc 属性编辑/拖拽）才记 user 版本；
+  // history=false（状态同步 A2UI_STATE_CHANGE / od:a2ui-state-snapshot / 退出 flush）
+  // 仅落盘保活，不产生历史，但仍推进 lastFileHash 防止 onFileRefresh 误记 agent。
   createEffect(() => {
     const handler = async (e: Event) => {
-      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      const detail = (e as CustomEvent<{ filePath: string; history?: boolean }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target || target.subtype !== "prototype") return
       historyController.beginWrite(target.id)
       try {
-        await historyController.onUserEdit(target)
+        if (detail.history) {
+          await historyController.onUserEdit(target)
+        } else {
+          await historyController.syncFileHash(target)
+        }
       } finally {
         historyController.endWrite(target.id)
       }

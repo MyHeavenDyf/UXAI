@@ -193,6 +193,7 @@ export async function loadA2uiDocs(session: PrototypeSession, ctx: SubtypeHandle
       rootId: rootIdOf(read.doc),
       persistTimer: null,
       persistPending: false,
+      pendingHistory: false,
     })
   }
 
@@ -214,6 +215,7 @@ export async function loadA2uiDocs(session: PrototypeSession, ctx: SubtypeHandle
           rootId: rootIdOf(read.doc),
           persistTimer: null,
           persistPending: false,
+          pendingHistory: false,
         })
       }
     }
@@ -279,7 +281,7 @@ async function writeAtomic(api: ReturnType<SubtypeHandlerContext["getDesktopApi"
  *  - 旧 <protoDir>/data.js（jsonPath 是 data.js 且无孪生）→ window.__A2UI_DATA__ = <JSON>;
  *  - 否则 jsonPath 写裸 JSON；.data.js 孪生写 window.__A2UI_FILE_DATA__ = <JSON>;。
  *  写前 stat jsonPath 脏检：size 与加载时不一致（外部改过）→ 中止 + toast + 清缓存。 */
-export async function persistA2uiDoc(session: PrototypeSession, entry: A2uiDocEntry) {
+export async function persistA2uiDoc(session: PrototypeSession, entry: A2uiDocEntry, history = false) {
   const data = entry.doc
   if (!data || typeof data !== "object") return
   const api = getDesktopApi()
@@ -299,33 +301,41 @@ export async function persistA2uiDoc(session: PrototypeSession, entry: A2uiDocEn
   }
 
   entry.loadSize = (await api?.statFile?.(entry.jsonPath))?.size ?? currentSize
-  dispatchA2uiPersisted(session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || "")
+  dispatchA2uiPersisted(session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || "", history)
 }
 
 /** 写盘成功后派发事件，让 index.tsx 的 historyController 记录用户编辑版本。
- *  filePath 是 prototype.html 的绝对路径（tab.filePath），index.tsx 据此定位对应 tab。 */
-function dispatchA2uiPersisted(filePath: string) {
+ *  filePath 是 prototype.html 的绝对路径（tab.filePath），index.tsx 据此定位对应 tab。
+ *  history=true 表示源于 commitA2uiDoc（属性编辑/拖拽换序），才记 user 版本；
+ *  history=false 表示源于状态同步（A2UI_STATE_CHANGE / od:a2ui-state-snapshot / dispose flush），
+ *  仅落盘保活，不产生历史记录。 */
+function dispatchA2uiPersisted(filePath: string, history: boolean) {
   if (!filePath) return
-  window.dispatchEvent(new CustomEvent("prototype:a2ui-persisted", { detail: { filePath } }))
+  window.dispatchEvent(new CustomEvent("prototype:a2ui-persisted", { detail: { filePath, history } }))
 }
 
-/** 按 entry 独立防抖排程写盘（合并连续拖滑块等快速编辑） */
-export function schedulePersistA2uiDoc(session: PrototypeSession, entry: A2uiDocEntry) {
+/** 按 entry 独立防抖排程写盘（合并连续拖滑块等快速编辑）。
+ *  history=true 累积进 entry.pendingHistory：防抖窗口内任一次提交是用户编辑，
+ *  最终落盘就派发 prototype:a2ui-persisted(history=true) 触发历史；纯状态同步不置位。 */
+export function schedulePersistA2uiDoc(session: PrototypeSession, entry: A2uiDocEntry, history = false) {
   entry.persistPending = true
+  if (history) entry.pendingHistory = true
   if (entry.persistTimer) clearTimeout(entry.persistTimer)
   entry.persistTimer = setTimeout(() => {
     entry.persistTimer = null
     if (entry.persistPending) {
       entry.persistPending = false
-      void persistA2uiDoc(session, entry)
+      const hist = entry.pendingHistory
+      entry.pendingHistory = false
+      void persistA2uiDoc(session, entry, hist)
     }
   }, 600)
 }
 
-/** 统一提交点：更新 entry 缓存 + od:a2ui-update 回推重渲染 + 排程写盘 */
+/** 统一提交点：更新 entry 缓存 + od:a2ui-update 回推重渲染 + 排程写盘（标记为用户编辑，触发历史） */
 export function commitA2uiDoc(session: PrototypeSession, entry: A2uiDocEntry, doc: unknown) {
   entry.doc = doc
   entry.rootId = rootIdOf(doc)
   session.ctx?.postMessageToIframe?.({ type: "od:a2ui-update", payload: doc })
-  schedulePersistA2uiDoc(session, entry)
+  schedulePersistA2uiDoc(session, entry, true)
 }

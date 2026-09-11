@@ -41,7 +41,9 @@ export function disposeSession(tabId: string | null) {
       entry.persistTimer = null
       if (entry.persistPending) {
         entry.persistPending = false
-        void persistA2uiDoc(session, entry)
+        const hist = entry.pendingHistory
+        entry.pendingHistory = false
+        void persistA2uiDoc(session, entry, hist)
       }
     }
   }
