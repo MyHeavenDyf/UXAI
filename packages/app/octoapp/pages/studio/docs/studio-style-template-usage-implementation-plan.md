@@ -21,7 +21,7 @@ https://pixso.cn/app/design/27L8ZYe3wLXH3yaWPaAe8Q?item-id=1081:499679
 
 截图可见：
 
-- 按钮文案为“模版应用中”。
+- 按钮文案为“模板应用中”。
 - 按钮右侧有画笔图标和关闭图标。
 - 点击关闭图标用于取消当前模板。
 
@@ -36,7 +36,7 @@ MCP DSL 关键规格：
 | gap | `6px` |
 | 圆角 | `999px` |
 | 背景 | `rgba(44, 46, 52, 0.05)` |
-| 文案 | `模版应用中` |
+| 文案 | `模板应用中` |
 | 文案样式 | `Body/font-body-1 （Regular）`，颜色 `#191919` |
 | 图标容器 | `16px × 16px` |
 | 画笔图层名 | `ic_public_brush` |
@@ -131,7 +131,7 @@ template: {
   - `prompt_setting=not_supported`：输入区不可编辑，显示“此图片模板不支持输入提示词”。
   - `reference_image_setting=fixed`：必须上传且只能上传 `reference_image_count` 张参考图，发送校验为严格相等。
   - `reference_image_setting=optional`：参考图非必填，但最多上传 `reference_image_count` 张。
-  - `reference_image_setting=not_supported`：禁用上传参考图入口，点击提示“该风格模版不支持上传参考图”。
+  - `reference_image_setting=not_supported`：禁用上传参考图入口，点击提示“该风格模板不支持上传参考图”。
 
 ## 4. 数据类型
 
@@ -359,7 +359,7 @@ reference_image_count: 0 | 1 | 2 | 3
 |---|---|---|
 | `fixed` | 允许上传，最大数量为 `reference_image_count` | 必须上传且只能上传 `reference_image_count` 张 |
 | `optional` | 允许上传，最大数量为 `reference_image_count` | 不要求上传 |
-| `not_supported` | 上传按钮禁用，点击提示“该风格模版不支持上传参考图” | 不允许有参考图 |
+| `not_supported` | 上传按钮禁用，点击提示“该风格模板不支持上传参考图” | 不允许有参考图 |
 
 `fixed` 需要特别注意：
 
@@ -389,7 +389,7 @@ assets().length === template.reference_image_count
 - 点击上传按钮提示：
 
 ```text
-该风格模版不支持上传参考图
+该风格模板不支持上传参考图
 ```
 
 - 粘贴图片、拖拽图片也要拦截，不能绕过按钮限制。
@@ -415,7 +415,7 @@ function canUseTemplateReferenceImages() {
 }
 
 function showUnsupportedReferenceNotice() {
-  showFloatingNotice("info", "该风格模版不支持上传参考图")
+  showFloatingNotice("info", "该风格模板不支持上传参考图")
 }
 
 function pickReferenceFile() {
@@ -584,7 +584,7 @@ function SelectedTemplateButton(props: {
 
 - 首个上传参考图按钮显示禁用态。
 - 已上传参考图会在应用模板时被清空，因此通常不会出现继续上传按钮。
-- 点击上传按钮调用 `onUnsupportedReferenceUpload`，提示“该风格模版不支持上传参考图”。
+- 点击上传按钮调用 `onUnsupportedReferenceUpload`，提示“该风格模板不支持上传参考图”。
 - 拖拽 hover 态不应激活。
 
 Composer 内部的 `canDropImages` 建议叠加：
@@ -612,7 +612,7 @@ const canDropImages = () =>
   }}
   class="studio-composer-ref-btn"
   classList={{ disabled: !canUseReferenceImages() }}
-  title={canUseReferenceImages() ? "上传参考图" : "该风格模版不支持上传参考图"}
+  title={canUseReferenceImages() ? "上传参考图" : "该风格模板不支持上传参考图"}
 />
 ```
 
@@ -1052,7 +1052,7 @@ function selectedTemplateSubmitDisabledReason() {
     template.reference_image_setting === "not_supported" &&
     assets().length > 0
   ) {
-    return "该风格模版不支持上传参考图"
+    return "该风格模板不支持上传参考图"
   }
 
   return ""
@@ -1327,7 +1327,7 @@ function runStyleTemplateGeneration(template: StudioStyleTemplateListItem) {
    - 新增 `onUnsupportedReferenceUpload` props。
    - 将 `StudioStyleTemplateMenu` 的选择事件透传给页面。
    - 未选择模板时显示原“风格模板”按钮。
-   - 已选择模板时显示 Pixso `1081:499679` 的“模版应用中”按钮。
+   - 已选择模板时显示 Pixso `1081:499679` 的“模板应用中”按钮。
    - 选中配方模板时，把普通输入区切换为 Pixso `1081:510343` 的灰框输入 + 补充输入。
    - `prompt_setting=not_supported` 时显示禁用文案，不允许输入。
    - `reference_image_setting=not_supported` 时禁用参考图上传按钮，点击调用提示。
@@ -1441,7 +1441,7 @@ bun typecheck
 2. 点击“风格模板”。
 3. 点击一个风格模板卡片：
    - 浮窗关闭。
-   - toolbar 按钮变为“模版应用中”。
+   - toolbar 按钮变为“模板应用中”。
    - 有 seedream 权限时模型切到 `Seedream 5.0 Lite`。
    - 无 seedream 权限时模型切到 `千问`。
 4. 输入普通 prompt，点击发送：
@@ -1452,7 +1452,7 @@ bun typecheck
    - 最终供应商接口 `args.template.prompt` 包含 `style_description` 全部已有属性和 `custom`。
    - `args.template.prompt.custom` 等于用户实际输入。
    - 会话中展示用户输入，不展示 JSON。
-5. 点击“模版应用中”按钮的关闭图标：
+5. 点击“模板应用中”按钮的关闭图标：
    - 当前模板被清除。
    - 按钮恢复“风格模板”。
 6. 点击一个配方模板卡片：
@@ -1490,7 +1490,7 @@ bun typecheck
 15. 选择 `reference_image_setting=not_supported` 的模板：
     - 应用模板时清空已有参考图。
     - 上传参考图按钮禁用态显示。
-    - 点击上传按钮提示“该风格模版不支持上传参考图”。
+    - 点击上传按钮提示“该风格模板不支持上传参考图”。
     - 粘贴、拖拽图片不能绕过限制。
 
 ## 18. 暂不实现内容

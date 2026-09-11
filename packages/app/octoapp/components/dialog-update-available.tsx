@@ -10,21 +10,24 @@ export function useUpdateAvailableDialog() {
   const dialog = useDialog()
   const platform = usePlatform()
 
-  return (version: string, releaseNotes?: string) =>
-    dialog.show(() => (
-      <DialogUpdateAvailable
-        os={platform.os === "macos" ? "macos" : "windows"}
-        version={version}
-        releaseNotes={releaseNotes}
-        onUpgrade={(onProgress) => {
-          if (platform.os === "macos") {
-            platform.openLink(MAC_DOWNLOAD_PAGE_URL)
-            return
-          }
-          return platform.updateAndRestart?.(onProgress)
-        }}
-      />
-    ))
+  return (version: string, releaseNotes?: string, onClose?: () => void) =>
+    dialog.show(
+      () => (
+        <DialogUpdateAvailable
+          os={platform.os === "macos" ? "macos" : "windows"}
+          version={version}
+          releaseNotes={releaseNotes}
+          onUpgrade={(onProgress) => {
+            if (platform.os === "macos") {
+              platform.openLink(MAC_DOWNLOAD_PAGE_URL)
+              return
+            }
+            return platform.updateAndRestart?.(onProgress)
+          }}
+        />
+      ),
+      onClose,
+    )
 }
 
 export function DialogUpdateAvailable(props: {
@@ -88,6 +91,12 @@ export function DialogUpdateAvailable(props: {
       </section>
 
       <style>{`
+        body:has(.octo-update-dialog) [data-component="dialog-overlay"],
+        [data-component="dialog"]:has(.octo-update-dialog),
+        [data-component="dialog"]:has(.octo-update-dialog) [data-slot="dialog-container"],
+        .octo-update-dialog-close {
+          z-index: 19900 !important;
+        }
         .octo-update-dialog {
           width: min(calc(100vw - 32px), 500px) !important;
           min-height: 0 !important;
@@ -110,7 +119,6 @@ export function DialogUpdateAvailable(props: {
         }
         .octo-update-dialog-close {
           position: absolute;
-          z-index: 2;
           top: 16px;
           right: 18px;
           width: 28px;

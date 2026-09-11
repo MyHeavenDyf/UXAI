@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, createEffect, on, type JSX } from 'solid-js'
+import { createSignal, Show, onMount, onCleanup, createEffect, on, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import type { MentionAttrs } from '../prosemirror-editor/schema'
 import { ProseMirrorEditor } from '../prosemirror-editor'
@@ -28,7 +28,8 @@ const MASK_COLOR = 'rgba(0,0,0,0.3)'
 
 export function ModelEditAreaDialog(props: {
   element: AreaDialogElement | null
-  iframeRect?: DOMRect
+  iframeRef?: HTMLIFrameElement
+  viewportScale?: number
   filePath: string
   tabTitle: string
   disabled?: boolean
@@ -59,9 +60,30 @@ export function ModelEditAreaDialog(props: {
 
   const [cRect, setCRect] = createSignal<DOMRect | null>(null)
 
+  const [iframeRectTick, setIframeRectTick] = createSignal(0)
+
   onMount(() => {
     if (parentRef) {
       setCRect(parentRef.getBoundingClientRect())
+      const ro = new ResizeObserver(() => {
+        setCRect(parentRef!.getBoundingClientRect())
+        setIframeRectTick(t => t + 1)
+      })
+      ro.observe(parentRef)
+      if (props.iframeRef) {
+        ro.observe(props.iframeRef)
+      }
+      const onWinResize = () => {
+        setCRect(parentRef!.getBoundingClientRect())
+        setIframeRectTick(t => t + 1)
+      }
+      window.addEventListener('resize', onWinResize)
+      window.addEventListener('scroll', onWinResize, true)
+      onCleanup(() => {
+        ro.disconnect()
+        window.removeEventListener('resize', onWinResize)
+        window.removeEventListener('scroll', onWinResize, true)
+      })
     }
   })
 
@@ -74,18 +96,20 @@ export function ModelEditAreaDialog(props: {
   const containerRect = () => cRect()
 
   const elementPos = () => {
+    iframeRectTick()  // track iframe position changes
     const el = props.element
     const cRect = containerRect()
     if (!el || !cRect) return null
-    const iframeRect = props.iframeRect
+    const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
+    const scale = props.viewportScale ?? 1
     const offsetX = iframeRect.left - cRect.left
     const offsetY = iframeRect.top - cRect.top
     return {
-      x: offsetX + el.rect.x,
-      y: offsetY + el.rect.y,
-      width: el.rect.width,
-      height: el.rect.height,
+      x: offsetX + el.rect.x * scale,
+      y: offsetY + el.rect.y * scale,
+      width: el.rect.width * scale,
+      height: el.rect.height * scale,
     }
   }
 
@@ -165,7 +189,7 @@ export function ModelEditAreaDialog(props: {
     const lines: string[] = []
     if (props.filePath) lines.push(`[文件路径: ${props.filePath}]`)
     if (props.tabTitle) lines.push(`[页面: ${props.tabTitle}]`)
-    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}]`)
+    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}（该元素可能是动态生成的）]`)
     return lines.join('\n')
   }
 

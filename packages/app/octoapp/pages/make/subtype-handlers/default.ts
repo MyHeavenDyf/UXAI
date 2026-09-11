@@ -1,8 +1,9 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
-import type { ModelEditConfig, ModelEditElement, OnChangeArgs } from '../components/model-edit-items/types'
+import type { ModelEditConfig, ModelEditElement, OnChangeArgs, IconConfig, IconConfirmArgs } from '../components/model-edit-items/types'
 import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
+import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 import JSZip from 'jszip'
 
@@ -35,7 +36,7 @@ function buildModelEditPrompt(
   lines.push('请修改以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   lines.push('')
   const changes: string[] = []
@@ -72,7 +73,7 @@ function buildModelDeletePrompt(element: ModelEditElement, filePath: string): st
   lines.push('请删除以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   return lines.join('\n')
 }
@@ -196,9 +197,91 @@ const directModelEditConfig: ModelEditConfig = {
   promptCallback: (filePath, selector) => {
     return [
       `[文件: ${filePath}]`,
-      `[选择器: ${selector}]`,
+      `[选择器: ${selector}（该元素可能是动态生成的）]`,
     ].join('\n')
   },
+
+  iconConfig: {
+    getCustomIconDir: ({ sessionDir, filePath }) => {
+      if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
+      return `${sessionDir}/.octo/${sessionDir}/assets`
+    },
+    getInitialState: (dom) => ({
+      name: dom.attributes['data-icon-name'] || '',
+      id: dom.attributes['data-icon-id'] || '',
+      isCustom: dom.attributes['data-icon-custom'] === 'true',
+      size: dom.attributes['data-icon-size'] || '24',
+      style: dom.attributes['data-icon-style'] || 'outline',
+      color: dom.attributes['data-icon-color'] || '#191919',
+      src: dom.attributes['data-icon-src'] || undefined,
+    }),
+    data: {
+      styles: [
+        { key: '线性', label: '线性', value: 'outline' },
+        { key: '线性双色', label: '线性双色', value: 'two-tone' },
+        { key: '方底托', label: '方底托', value: 'square' },
+        { key: '圆底托', label: '圆底托', value: 'circle' },
+      ],
+      colors: iconColors,
+      sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
+      acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
+    },
+    onConfirm: async ({ prev, current, dom, filePath, postMessageToIframe, writeFileBuffer, sessionDir, getIframeSnapshot, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }: IconConfirmArgs) => {
+      const id = dom.dataOdId
+      const tag = dom.tagName
+      let iconSrc = current.src ?? ''
+
+      // 1. 下载 SVG 到 uploads（在线/lucide 图标有 svgContent）
+      if (current.svgContent && writeFileBuffer && sessionDir) {
+        const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/${sessionDir}/assets`
+        const safeName = (current.name ?? 'icon').replace(/[\\/:*?"<>|]/g, '_')
+        const iconPath = `${iconDir}/icon_${safeName}.svg`
+        try {
+          await writeFileBuffer(iconPath, new TextEncoder().encode(current.svgContent).buffer as ArrayBuffer)
+        } catch (e) {
+          console.error('[icon] write SVG failed', iconPath, e)
+        }
+        iconSrc = `uploads/icons/icon_${safeName}.svg`
+      }
+
+      // 2. 构建 data-icon-* 元数据属性
+      const iconAttrs: Record<string, string> = {
+        'data-icon-name': current.name ?? '',
+        'data-icon-id': current.id ?? '',
+        'data-icon-custom': current.isCustom ? 'true' : 'false',
+        'data-icon-src': iconSrc,
+        'data-icon-size': current.size ?? '',
+        'data-icon-style': current.style ?? '',
+        'data-icon-color': current.color ?? '',
+      }
+
+      // 3. 替换 DOM
+      if (tag === 'img') {
+        // <img>: 设置 src 属性
+        if (iconSrc) postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: 'src', value: iconSrc })
+        for (const [k, v] of Object.entries(iconAttrs)) {
+          postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: k, value: v })
+        }
+      } else if (tag === 'svg') {
+        // <svg>: 替换整个元素
+        const html = current.isCustom || !current.svgContent
+          ? `<img src="${iconSrc}" width="${current.size ?? 24}" height="${current.size ?? 24}" />`
+          : current.svgContent
+        postMessageToIframe({ type: 'od:replace-element', elementId: id, html, attrs: iconAttrs })
+      }
+
+      // 4. 写回 HTML + 刷新
+      if (getIframeSnapshot && cleanBridgeContent && wrapHtmlContent && onContentChange && onRefreshNeeded) {
+        const snapshotHtml = await getIframeSnapshot()
+        const clean = cleanBridgeContent(snapshotHtml)
+        const wrapped = wrapHtmlContent(clean)
+        await onContentChange(wrapped)
+        onRefreshNeeded()
+      }
+
+      return ''
+    },
+  } satisfies IconConfig,
 }
 
 export { directModelEditConfig }

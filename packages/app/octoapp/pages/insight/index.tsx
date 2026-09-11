@@ -44,6 +44,7 @@ import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
 import { SidebarFooter } from "./components/sidebar-footer"
@@ -66,7 +67,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateFile, validateFileForExternal, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
@@ -164,6 +165,7 @@ export default function InsightPage() {
               <ErrorBoundary fallback={(err) => <InsightCrashFallback error={err} />}>
                 <InsightContent />
               </ErrorBoundary>
+              <InsightNoticeHost />
             </LocalProvider>
           </SyncProvider>
         </SDKProvider>
@@ -1949,13 +1951,25 @@ function InsightContent() {
   }
 
   function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    const isExternal = !!local.model.current()?.isExternal
+    const accepted = isExternal
+      ? files.filter((file) => {
+          const err = validateFileForExternal(file)
+          if (err) {
+            showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+            return false
+          }
+          return true
+        })
+      : files
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
-    if (files.length > slots) {
+    if (accepted.length > slots) {
       showToast("请保持上传文件不超过10个或分多轮对话处理")
     }
     if (slots <= 0) return
-    const toAdd = files.slice(0, slots)
+    const toAdd = accepted.slice(0, slots)
     for (const rawFile of toAdd) {
       // 不再做客户端文件名清洗（原为防内网上传服务把原始名拼进 URL）：字符集安全改由服务端
       // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部提案）。
@@ -1970,15 +1984,13 @@ function InsightContent() {
         name: "attachment-add",
         extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
       })
-      // insight 图片专用上限(评审 P1):新链路图片走 base64 落库+每轮重发(膨胀 ~33%),且多数
-      // provider 单图 base64 有 ~5MB 量级硬上限——超限图发送必失败且消息已落库,之后每轮重发
-      // 都撞墙。**只拦 insight**:加在调用点而非共用的 validateFile(make 页走 S3,无此约束,
-      // 共用会被波及)。超限与其他客户端校验失败同款 error chip(retriable:false,重试同错)。
-      const insightImageErr =
-        isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
-          ? `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
-          : null
-      const validationErr = validateFile(file) ?? (insightImageErr ? new UploadError("FILE_TOO_LARGE", insightImageErr) : null)
+      // 外网模型已在上方完成校验(validateFileForExternal);内网模型走常规 validateFile + 图片上限
+      const validationErr = isExternal
+        ? null
+        : validateFile(file) ??
+          (isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
+            ? new UploadError("FILE_TOO_LARGE", `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`)
+            : null)
       if (validationErr) {
         // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
         console.warn("[octo:upload] client-validate rejected", {
@@ -2174,7 +2186,7 @@ function InsightContent() {
       .filter((file): file is File => Boolean(file))
     if (files.length === 0) return
     e.preventDefault()
-    addAttachments(files, "paste")
+    request(() => addAttachments(files, "paste"))
   }
 
   async function handleOpenResult(card: OutputCard) {

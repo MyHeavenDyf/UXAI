@@ -40,6 +40,7 @@ type ApiProvider = {
 
 export type ApiModels = Record<string, ApiProvider | null | undefined>
 type ProviderLike = { id: string; name: string }
+const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 let latestModelsApi: ApiModels | undefined
 const refreshModelsApiListeners = new Set<(models: ApiModels) => void | Promise<void>>()
 type ModelsApiBridge = {
@@ -53,7 +54,6 @@ type ModelsApiBridge = {
 }
 
 export const MODELS_API_URL_STORAGE_KEY = "opencode.modelsApiUrl"
-export const MODELS_API_W3_API_STORAGE_KEY = "opencode.modelsApiW3Api"
 
 const DEFAULT_MODELS_API_URL = {
   beta: "",
@@ -67,6 +67,17 @@ function localStorageValue(key: string) {
 
 function uiplusToken() {
   return localStorageValue("uiplusToken")
+}
+
+function w3Account() {
+  if (typeof localStorage === "undefined") return ""
+  try {
+    const user = JSON.parse(localStorage.getItem("userInfo") ?? "") as unknown
+    if (!isRecord(user) || typeof user.account !== "string") return ""
+    return user.account.trim()
+  } catch {
+    return ""
+  }
 }
 
 export function hasModelsApiToken() {
@@ -96,37 +107,14 @@ export function modelsApiUrl() {
   return url.toString()
 }
 
-function cachedW3Api(modelsApiUrl: string | undefined) {
-  if (!modelsApiUrl) return
-  const value = localStorageValue(MODELS_API_W3_API_STORAGE_KEY)
-  if (!value) return
-  try {
-    const cached = JSON.parse(value) as { modelsApiUrl?: unknown; api?: unknown }
-    if (cached.modelsApiUrl !== modelsApiUrl || typeof cached.api !== "string") return
-    return cached.api.trim() || undefined
-  } catch {
-    return
-  }
-}
-
-function storeW3Api(api: ApiModels, modelsApiUrl: string) {
-  if (typeof localStorage === "undefined") return
-  const value = api.w3?.api?.trim()
-  if (!value) {
-    localStorage.removeItem(MODELS_API_W3_API_STORAGE_KEY)
-    return
-  }
-  localStorage.setItem(MODELS_API_W3_API_STORAGE_KEY, JSON.stringify({ modelsApiUrl, api: value }))
-}
-
 export function modelsApiHeaders() {
   const token = uiplusToken()
+  const account = w3Account()
   const url = modelsApiUrl()
-  const w3Api = url ? latestModelsApi?.w3?.api?.trim() || cachedW3Api(url) : undefined
   return {
     ...(url ? { "x-opencode-models-api-source": "http", "x-opencode-models-api-url": url } : {}),
-    ...(w3Api ? { "x-opencode-w3-api": w3Api } : {}),
     ...(token ? { uiplustoken: token } : {}),
+    ...(account ? { "x-opencode-w3-account": account } : {}),
   }
 }
 
@@ -167,7 +155,9 @@ function apiModels(value: unknown): ApiModels {
   const direct = Object.fromEntries(
     Object.entries(input).flatMap(([key, provider]) => {
       if (!isApiProvider(provider)) return []
-      return [[typeof provider.id === "string" && provider.id ? provider.id : key, provider] as const]
+      const id = typeof provider.id === "string" && provider.id ? provider.id : key
+      if (REMOVED_PROVIDER_IDS.has(id)) return []
+      return [[id, provider] as const]
     }),
   )
   if (Object.keys(direct).length > 0) return direct
@@ -226,7 +216,6 @@ export async function fetchModelsApi() {
     const api = apiModels(content)
     console.log("[models-api] api.json received", api)
     latestModelsApi = withUiplusToken(api, token)
-    storeW3Api(latestModelsApi, url)
     return latestModelsApi
   }
 
@@ -240,7 +229,6 @@ export async function fetchModelsApi() {
   const api = apiModels(content)
   console.log("[models-api] api.json received", api)
   latestModelsApi = withUiplusToken(api, token)
-  storeW3Api(latestModelsApi, url)
   return latestModelsApi
 }
 
@@ -281,7 +269,10 @@ function capabilitiesFromModalities(modalities: Modality[]) {
   }
 }
 
-export function modelsApiListForProviders<TProvider extends ProviderLike>(api: ApiModels | undefined, providers: TProvider[]) {
+export function modelsApiListForProviders<TProvider extends ProviderLike>(
+  api: ApiModels | undefined,
+  providers: TProvider[],
+) {
   if (!api) return []
   const apiProviders = new Map(
     Object.entries(api).flatMap(([key, provider]) => {
@@ -347,10 +338,11 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
   return Object.entries(api).flatMap(([key, item]) => {
     if (!isApiProvider(item)) return []
     const id = typeof item.id === "string" && item.id ? item.id : key
+    if (REMOVED_PROVIDER_IDS.has(id)) return []
     const provider = {
       id,
       name: typeof item.name === "string" && item.name ? item.name : id,
-      source: "api" as const,
+      source: "remote" as const,
       env: Array.isArray(item.env) ? item.env.filter((value): value is string => typeof value === "string") : [],
       options: item.api?.trim() ? { baseURL: item.api.trim() } : {},
       models: {},
@@ -358,9 +350,7 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
     return [
       {
         ...provider,
-        models: Object.fromEntries(
-          modelsApiListForProviders(api, [provider]).map((model) => [model.id, model]),
-        ),
+        models: Object.fromEntries(modelsApiListForProviders(api, [provider]).map((model) => [model.id, model])),
       },
     ]
   })

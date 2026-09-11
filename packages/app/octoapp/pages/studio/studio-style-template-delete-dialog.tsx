@@ -48,7 +48,7 @@ export function StudioStyleTemplateDeleteDialog(props: {
           <img src="/studio/studio_risk_info.svg" class="studio-style-template-delete-icon" alt="" />
           <div class="studio-style-template-delete-copy">
             <h2 id="studio-style-template-delete-title" class="studio-style-template-delete-title">
-              确定删除 “{props.templateTitle}” 模版吗？
+              确定删除 “{props.templateTitle}” 模板吗？
             </h2>
             <p id="studio-style-template-delete-description" class="studio-style-template-delete-description">
               删除操作无法撤回，请慎重选择

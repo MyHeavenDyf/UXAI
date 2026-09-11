@@ -6,6 +6,7 @@ import { lookupDisplayName } from "../skill-config-types"
 import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import {
@@ -50,6 +51,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
+
+  // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
+  // 确认后才展示资产/文件列表。tab 点击不拦截。
+  const { request, gate } = useUploadRiskGate()
   
   // 产品资产库状态
   const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
@@ -589,7 +594,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('design') }}
+          onClick={() => { setActiveTab('files'); setSelectedCategory('platform') }}
         >
           设计文件
         </button>
@@ -622,7 +627,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => { setSelectedCategory('design') }}
+            onClick={() => request(() => setSelectedCategory('design'))}
           >
             <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
@@ -653,7 +658,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <button
                   type="button"
                   class={`mention-primary-item ${selectedTopFolderId() === folder.id.toString() ? 'mention-primary-item--selected' : ''}`}
-                  onClick={() => handleTopFolderClick(folder)}
+                  onClick={() => request(() => handleTopFolderClick(folder))}
                 >
                   <Icon name="folder" size="small" />
                   <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
@@ -729,7 +734,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       </Show>
 
       {/* Secondary Panel - Files */}
-      <Show when={activeTab() === 'files' && filteredFiles()}>
+      <Show when={activeTab() === 'files' && selectedCategory() === 'design' && filteredFiles()}>
         {(files) => (
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
             <div class="mention-files-header">当前会话</div>
@@ -1026,6 +1031,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         </div>
       </Show>
     </Portal>
+    {gate}
   </>
   )
 }

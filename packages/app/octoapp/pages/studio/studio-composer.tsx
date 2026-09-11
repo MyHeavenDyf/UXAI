@@ -79,6 +79,7 @@ export function StudioComposer(props: {
   onSelectStyleTemplate?: (item: StudioStyleTemplateListItem) => void
   onEditStyleTemplate?: (item: StudioStyleTemplateListItem) => void
   onRequestDeleteStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  editingStyleTemplateIDs?: readonly number[]
   styleTemplateListRevision?: number
   onClearStyleTemplate?: () => void
   onStyleTemplateEditorOpen: (value: boolean) => void
@@ -1295,6 +1296,7 @@ export function StudioComposer(props: {
                           disabled={isBusy()}
                           editable={Boolean(selectedExtractStyleTemplate())}
                           editorOpen={props.styleTemplateEditorOpen}
+                          toolbarMore
                           onClick={() => {
                             props.onStyleTemplateEditorOpen(false)
                             props.onOpenMenu("style-template")
@@ -1392,6 +1394,7 @@ export function StudioComposer(props: {
                 }}
                 onListTemplates={props.onListStyleTemplates}
                 listRevision={props.styleTemplateListRevision}
+                editingTemplateIDs={props.editingStyleTemplateIDs}
                 onSelectTemplate={(item) => {
                   props.onOpenMenu(null)
                   props.onSelectStyleTemplate?.(item)
@@ -1512,6 +1515,7 @@ function SelectedTemplateButton(props: {
   disabled?: boolean
   editable?: boolean
   editorOpen?: boolean
+  toolbarMore?: boolean
   onClick: () => void
   onPointerDown?: () => void
   onEdit?: () => void
@@ -1532,32 +1536,37 @@ function SelectedTemplateButton(props: {
       classList={{ active: props.active, disabled: props.disabled }}
       aria-disabled={props.disabled ? "true" : undefined}
     >
-      <span class="studio-composer-template-applied-label">模版应用中</span>
-      <Show when={props.editable}>
+      <Show when={props.toolbarMore}>
+        <img alt="" class="studio-composer-toolbar-more-item-icon studio-composer-template-applied-placeholder" />
+      </Show>
+      <span class="studio-composer-template-applied-label">模板应用中</span>
+      <div class="studio-composer-template-applied-actions">
+        <Show when={props.editable}>
+          <button
+            type="button"
+            class="studio-composer-template-applied-icon"
+            classList={{ active: props.editorOpen }}
+            disabled={props.disabled}
+            aria-label="调整模板预设"
+            title="调整模板预设"
+            onClick={(event) => {
+              event.stopPropagation()
+              props.onEdit?.()
+            }}
+          />
+        </Show>
         <button
           type="button"
-          class="studio-composer-template-applied-icon"
-          classList={{ active: props.editorOpen }}
+          class="studio-composer-template-applied-clear"
           disabled={props.disabled}
-          aria-label="调整模板预设"
-          title="调整模板预设"
+          aria-label="取消应用模板"
+          title="取消应用模板"
           onClick={(event) => {
             event.stopPropagation()
-            props.onEdit?.()
+            props.onClear?.()
           }}
         />
-      </Show>
-      <button
-        type="button"
-        class="studio-composer-template-applied-clear"
-        disabled={props.disabled}
-        aria-label="取消应用模板"
-        title="取消应用模板"
-        onClick={(event) => {
-          event.stopPropagation()
-          props.onClear?.()
-        }}
-      />
+      </div>
     </div>
   )
 }
@@ -1569,13 +1578,42 @@ function StyleTemplatePresetEditor(props: {
   onRestore: (field: StudioStyleDescriptionFieldId) => void
   onClose: () => void
 }): JSX.Element {
+  let editorRef!: HTMLDivElement
   const originalDescription = createMemo(() => props.template.style_description as Record<string, string | undefined>)
   const fields = createMemo(() =>
     STUDIO_STYLE_TEMPLATE_DESCRIPTION_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(originalDescription(), field.id)),
   )
 
+  onMount(() => {
+    const composer = editorRef.parentElement
+    if (!composer) return
+    const center = composer.closest(".studio-center")
+    const visibleArea = center?.querySelector<HTMLElement>(".studio-center-scroll")
+      ?? composer.closest<HTMLElement>(".studio-empty-workspace")
+      ?? composer.closest<HTMLElement>(".studio-page")
+
+    const updateHeight = () => {
+      const visibleTop = Math.max(0, window.visualViewport?.offsetTop ?? 0, visibleArea?.getBoundingClientRect().top ?? 0)
+      const availableHeight = Math.max(0, composer.getBoundingClientRect().top - visibleTop - 24)
+      editorRef.style.height = `${Math.min(590, availableHeight)}px`
+    }
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(composer)
+    if (visibleArea) observer.observe(visibleArea)
+    window.addEventListener("resize", updateHeight)
+    window.visualViewport?.addEventListener("resize", updateHeight)
+    updateHeight()
+
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener("resize", updateHeight)
+      window.visualViewport?.removeEventListener("resize", updateHeight)
+    })
+  })
+
   return (
-    <div class="studio-composer-template-preset-editor">
+    <div ref={editorRef} class="studio-composer-template-preset-editor">
       <div class="studio-composer-template-preset-editor-head">
         <div>
           <div class="studio-composer-template-preset-editor-title">预设调整</div>
