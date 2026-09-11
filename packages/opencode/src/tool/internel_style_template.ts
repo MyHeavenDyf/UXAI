@@ -474,7 +474,7 @@ function styleTemplateDetailUrl(input: StyleTemplateDetailRequest) {
   const endpoint = env("IMAGE_STYLE_TEMPLATE_DETAIL_URL") ?? DEFAULT_STYLE_TEMPLATE_DETAIL
   if (!endpoint || endpoint === "xx") throw new Error("style_template_detail url is not configured.")
   const url = new URL(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(input.template_id)}`)
-  url.searchParams.set("user_id", input.user_id || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX)
+  url.searchParams.set("user_id", normalizeTemplateUserID(input.user_id || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX))
   return url
 }
 

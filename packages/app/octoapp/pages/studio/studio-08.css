@@ -10,13 +10,14 @@
 }
 
 .studio-style-template-header {
-  height: 60px;
-  flex: 0 0 60px;
+  margin-top: 16px;
+  height: 28px;
+  flex: 0 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 16px 0;
+  padding: 0 16px;
 }
 
 .studio-style-template-tabs {
@@ -102,7 +103,7 @@
 
 .studio-style-template-content .scroll-view__viewport {
   overflow-x: hidden;
-  padding: 24px 16px 16px;
+  padding: 8px 16px 16px;
 }
 
 .studio-style-template-list {
@@ -115,12 +116,12 @@
 .studio-style-template-card {
   position: relative;
   width: 120px;
-  height: 140px;
+  height: 144px;
 }
 
 .studio-style-template-card-select {
   width: 120px;
-  height: 140px;
+  height: 144px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -193,13 +194,13 @@
 
 .studio-style-template-card-title {
   width: 120px;
-  height: 12px;
+  height: 16px;
   overflow: hidden;
   color: #191919;
   font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
   font-size: 12px;
   font-weight: 400;
-  line-height: 12px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
@@ -404,8 +405,8 @@
   bottom: calc(100% + 12px);
   z-index: 20;
   box-sizing: border-box;
-  width: 556px;
-  max-width: calc(100vw - 48px);
+  width: min(556px, calc(100% - 48px));
+  max-width: none;
   height: min(590px, calc(100vh - 180px));
   min-height: 0;
   display: flex;
