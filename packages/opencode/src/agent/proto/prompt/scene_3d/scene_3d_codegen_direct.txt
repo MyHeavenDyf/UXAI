@@ -37,7 +37,18 @@ You are an expert 3D engine programmer. 单次直出 codegen：你一次性实�
   "scene": { "background": "#1a1a2e", "environment": { "preset": "studio", "intensity": 0.8 } }
 }
 ```
-按用户场景请求定相机位置/fov/lookAt、灯光（ambient + directional 主光 + 可选 hemisphere）、环境（背景色 / environment preset）。host 会把它填进 live-data.json 的 camera/lights/scene 键。
+按用户场景请求定相机、灯光、环境。host 会把它填进 live-data.json 的 camera/lights/scene 键。
+
+- **camera.type**：`"perspective"`（默认，透视）或 `"orthographic"`（正交，用于轴测/俯视/产品三视图类需求）。正交只需 `orthographic: { top, bottom }`（left/right 由 host 按画面宽高比自动算），仍给 position/lookAt。
+- **lights 六型**（默认 ambient + directional 主光；局部照明才用 point/spot，rectarea 慎用）：
+  - `ambient`：`{ "type": "ambient", "intensity": 0.5 }`
+  - `hemisphere`：`{ "type": "hemisphere", "intensity": 1, "skyColor": "#...", "groundColor": "#..." }`
+  - `directional`：`{ "type": "directional", "intensity": 1.2, "position": [x,y,z], "castShadow": true }`
+  - `point`：`{ "type": "point", "intensity": 1, "position": [x,y,z], "distance": 10, "decay": 2 }`
+  - `spot`：`{ "type": "spot", "intensity": 1, "position": [x,y,z], "target": [x,y,z], "angle": 0.5, "penumbra": 0.2, "castShadow": true }`（angle 半角弧度）
+  - `rectarea`：`{ "type": "rectarea", "intensity": 1, "position": [x,y,z], "target": [x,y,z], "width": 4, "height": 4 }`
+- **fog（可选）**：`{ "type": "linear", "color": "#...", "near": 10, "far": 60 }` 或 `{ "type": "exp", "color": "#...", "density": 0.02 }`（指数雾 density 0.01-0.05；linear 更可控）。
+- **不写 renderer / controls 键**（渲染审美与交互手感走引擎默认 + 预览面板调参，生成时不管）。
 
 # Output Format（Markdown 代码块，2N+1 个文件）
 

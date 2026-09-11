@@ -3,7 +3,7 @@ import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { SCENE_TRIAGE_FORMAT } from "./schema"
 import { agentThrow } from "../../utils/error-msg"
-import type { PatchOp, TransformFields, SetInstanceOp, SetTypeTransformOp, SkipInstanceOp, AddInstanceOp, EditCodeOp, SetLightOp, SetCameraOp, SetSceneOp } from "../../workflow/patch-scene"
+import type { PatchOp, TransformFields, SetInstanceOp, SetTypeTransformOp, SkipInstanceOp, AddInstanceOp, EditCodeOp, SetLightOp, SetCameraOp, SetSceneOp, SetRendererOp, SetControlsOp } from "../../workflow/patch-scene"
 import type { PatchCandidate } from "../../workflow/patch-resolver"
 
 const AGENT_NAME = "scene_3d_triage"
@@ -30,9 +30,9 @@ export type TriageInputContext = {
    *  verbatim 含缩进、须在源码中唯一匹配，防臆造 search 匹配不上 → fallback modify 丢物体）。
    *  本地 dev 工具，token 成本可接受；改材质标量/transform/删部件等用不到源码的 op 无须看。 */
   currentHandlers?: string
-  /** 当前场景级配置（hasScene 时 host 从 mergedSceneConfig 取 camera/lights/scene 注入；
-   *  set_light 的 index 按 lights 数组顺序、set_camera/set_scene 的 fields 参照当前值改）。无场景时不传。 */
-  currentSceneEnv?: { camera?: unknown; lights?: unknown; scene?: unknown }
+  /** 当前场景级配置（hasScene 时 host 从 mergedSceneConfig 取 camera/lights/scene/renderer/controls 注入；
+   *  set_light 的 index 按 lights 数组顺序、set_camera/set_scene/set_renderer/set_controls 的 fields 参照当前值改）。无场景时不传。 */
+  currentSceneEnv?: { camera?: unknown; lights?: unknown; scene?: unknown; renderer?: unknown; controls?: unknown }
   /**
    * 兜底再问模式：host 检测到 triage 把标量改动误判 modify（没吐 patchOps）且候选非空时，
    * 置 true 再问一次 —— 强制 routing=patch 并从候选清单选 __id 出 patchOps；
@@ -190,6 +190,14 @@ function parsePatchOps(v: unknown): PatchOp[] {
       // 场景级改环境（M-3 ①）：fields 含 background/fog/environment
       if (!r.fields || typeof r.fields !== "object") continue
       out.push({ op: "set_scene", fields: r.fields as Record<string, unknown> } as SetSceneOp)
+    } else if (r.op === "set_renderer") {
+      // 场景级改渲染器（Phase L/S）：fields 含 toneMapping/shadowMapType/toneMappingExposure/outputColorSpace/autoClear
+      if (!r.fields || typeof r.fields !== "object") continue
+      out.push({ op: "set_renderer", fields: r.fields as Record<string, unknown> } as SetRendererOp)
+    } else if (r.op === "set_controls") {
+      // 场景级改轨道控制器（Phase L/S）：fields 含 enableDamping/autoRotate/minDistance 等
+      if (!r.fields || typeof r.fields !== "object") continue
+      out.push({ op: "set_controls", fields: r.fields as Record<string, unknown> } as SetControlsOp)
     }
   }
   return out
@@ -244,7 +252,7 @@ function buildHumanMessage(ctx: TriageInputContext): string {
   }
   if (ctx.currentSceneEnv) {
     lines.push(``)
-    lines.push(`[当前场景 camera/lights/scene]（set_light 的 index 按 lights 数组顺序；set_camera/set_scene 的 fields 参照当前值改，如「灯再亮一点」= 当前 intensity +0.5）:`)
+    lines.push(`[当前场景 camera/lights/scene]（set_light 的 index 按 lights 数组顺序；set_camera/set_scene/set_renderer/set_controls 的 fields 参照当前值改，如「灯再亮一点」= 当前 intensity +0.5）:`)
     lines.push(JSON.stringify(ctx.currentSceneEnv))
   }
   return lines.join("\n")

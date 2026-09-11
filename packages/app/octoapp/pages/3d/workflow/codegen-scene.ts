@@ -583,19 +583,19 @@ async function loadPatchCandidates(sceneDir: string, sid: string): Promise<Patch
 
 /**
  * 取当前场景级配置（camera/lights/scene 顶层保留键，M-3 ①）。注入 triage 的 [当前场景 camera/lights/scene]，
- * 供 set_light 的 index 按 lights 顺序、set_camera/set_scene 的 fields 参照当前值改（如「灯再亮一点」= 当前 +0.5）。
+ * 供 set_light 的 index 按 lights 顺序、set_camera/set_scene/set_renderer/set_controls 的 fields 参照当前值改（如「灯再亮一点」= 当前 +0.5）。
  * 无 mergedSceneConfig / 读失败 → 返 undefined（triage 无场景级参照，改值靠目标值推断，不崩）。
  */
 async function loadCurrentSceneEnv(
   sceneDir: string,
   sid: string,
-): Promise<{ camera?: unknown; lights?: unknown; scene?: unknown } | undefined> {
+): Promise<{ camera?: unknown; lights?: unknown; scene?: unknown; renderer?: unknown; controls?: unknown } | undefined> {
   try {
     const state = await loadCurrentSceneState(sceneDir, sid)
     const merged = state?.mergedSceneConfig
     if (!merged || typeof merged !== "object") return undefined
     const m = merged as Record<string, unknown>
-    return { camera: m.camera, lights: m.lights, scene: m.scene }
+    return { camera: m.camera, lights: m.lights, scene: m.scene, renderer: m.renderer, controls: m.controls }
   } catch (e) {
     console.warn("[codegen_scene] loadCurrentSceneEnv 失败", e)
     return undefined
