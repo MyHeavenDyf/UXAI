@@ -1,5 +1,6 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { showFloatingNotice } from "@/components/floating-notice"
 import {
   STUDIO_STYLE_TEMPLATE_DIMENSIONS,
   type StudioStyleDimensionId,
@@ -93,7 +94,7 @@ export type StudioTemplateWorkspace =
 const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"])
 const ACCEPTED_IMAGE_EXTENSIONS = /\.(png|jpe?g|webp)$/i
 const TITLE_MAX_LENGTH = 10
-const TITLE_MIN_LENGTH = 5
+const TITLE_MIN_LENGTH = 2
 const DESCRIPTION_ITEM_MAX_LENGTH = 300
 const DESCRIPTION_TOTAL_MAX_LENGTH = 700
 const BYTES_IN_MB = 1024 * 1024
@@ -266,7 +267,7 @@ function TemplateCreatorTitleInput(props: { value: string; onInput: (value: stri
         class="studio-template-creator-title-input"
         value={props.value}
         maxLength={TITLE_MAX_LENGTH}
-        placeholder="描述你的模板（5-10字）"
+        placeholder="描述你的模板"
         onInput={(event) => props.onInput(truncateValue(event.currentTarget.value, TITLE_MAX_LENGTH))}
       />
       <span class="studio-template-creator-title-count">{props.value.length}/{TITLE_MAX_LENGTH}</span>
@@ -935,7 +936,7 @@ function MakeTemplateForm(props: {
       <TemplateCreatorField title="图片模板标题" required>
         <TemplateCreatorTitleInput value={props.title} onInput={props.onTitle} />
       </TemplateCreatorField>
-      <TemplateCreatorField title="模型分类" required>
+      <TemplateCreatorField title="模板分类" required>
         <TemplateCreatorCategoryCards value={props.category} onChange={props.onCategory} />
       </TemplateCreatorField>
       <Show
@@ -1172,9 +1173,8 @@ function TemplateCreatorFooter(props: {
   mode: "create" | "edit"
   currentStep: TemplateCreatorStep
   canNext: boolean
+  submitting: boolean
   primaryLabel: string
-  message: string
-  messageTone: "default" | "success" | "error"
   onPrev: () => void
   onNext: () => void
   onCancel?: () => void
@@ -1193,15 +1193,17 @@ function TemplateCreatorFooter(props: {
             取消
           </button>
         </Show>
-        <button type="button" class="studio-template-creator-next" disabled={!props.canNext} onClick={props.onNext}>
+        <button
+          type="button"
+          class="studio-template-creator-next"
+          classList={{ invalid: !props.canNext }}
+          disabled={props.submitting}
+          aria-disabled={!props.canNext || props.submitting}
+          onClick={props.onNext}
+        >
           {props.primaryLabel}
         </button>
       </div>
-      <Show when={props.message}>
-        <div class="studio-template-creator-footer-message" classList={{ success: props.messageTone === "success", error: props.messageTone === "error" }}>
-          {props.message}
-        </div>
-      </Show>
     </div>
   )
 }
@@ -1234,7 +1236,12 @@ export function StudioTemplateCreator(props: {
   )
   const [styleDescriptionOverview, setStyleDescriptionOverview] = createSignal(initialStyle?.style_description.overview ?? "")
   const [styleDescriptionDetails, setStyleDescriptionDetails] = createSignal<Partial<Record<StudioStyleDimensionId, string>>>(
-    initialStyle?.style_description ?? {},
+    Object.fromEntries(
+      STYLE_DIMENSIONS.flatMap((dimension) => {
+        const value = initialStyle?.style_description[dimension.id]
+        return value === undefined ? [] : [[dimension.id, value]]
+      }),
+    ),
   )
   const [styleDescriptionGenerating, setStyleDescriptionGenerating] = createSignal(false)
   const [styleDescriptionGenerateMessage, setStyleDescriptionGenerateMessage] = createSignal("")
@@ -1242,8 +1249,6 @@ export function StudioTemplateCreator(props: {
   const [styleDescriptionThinking, setStyleDescriptionThinking] = createSignal("")
   const [styleDescriptionStreamStarted, setStyleDescriptionStreamStarted] = createSignal(false)
   const [templatePublishing, setTemplatePublishing] = createSignal(false)
-  const [templatePublishMessage, setTemplatePublishMessage] = createSignal("")
-  const [templatePublishMessageTone, setTemplatePublishMessageTone] = createSignal<"default" | "success" | "error">("default")
   const [recipeDescription, setRecipeDescription] = createSignal(initialRecipe?.play_description ?? "")
   const [recipeImages, setRecipeImages] = createSignal<TemplateUploadImage[]>(initialRecipe?.fixed_reference_images ?? [])
   const [sizeByUrl, setSizeByUrl] = createSignal<Record<string, number>>({})
@@ -1262,7 +1267,10 @@ export function StudioTemplateCreator(props: {
   const [exampleImages, setExampleImages] = createSignal<TemplateUploadImage[]>(initial?.example_images ?? [])
   const [exampleUploadMessage, setExampleUploadMessage] = createSignal("")
   const styleDescriptionTotalCount = createMemo(() =>
-    styleDescriptionOverview().length + Object.values(styleDescriptionDetails()).reduce((sum, value) => sum + (value?.length ?? 0), 0),
+    styleDescriptionOverview().length + selectedDimensions().reduce(
+      (sum, id) => sum + (styleDescriptionDetails()[id]?.length ?? 0),
+      0,
+    ),
   )
   const canGenerateStyleDescription = createMemo(() => styleImages().length >= 3 && Boolean(props.onGenerateStyleDescription))
   const showStyleDescriptionThinking = createMemo(() => styleDescriptionStreamPhase() === "extracting" && styleDescriptionThinking().length > 0)
@@ -1275,32 +1283,44 @@ export function StudioTemplateCreator(props: {
     return "生成风格描述需要先上传风格图集，生成描述耗时约20-30s，请耐心等待。"
   })
   const titleValid = createMemo(() => title().trim().length >= TITLE_MIN_LENGTH && title().trim().length <= TITLE_MAX_LENGTH)
-  const canMakeNext = createMemo(() => {
-    if (!titleValid()) return false
-    if (category() === "preset_recipe") return recipeDescription().trim().length > 0 && recipeImages().length <= 3
-    return (
-      styleImages().length >= 3 &&
-      styleImages().length <= 30 &&
-      imageTotalSize(styleImages(), sizeByUrl()) <= 30 * BYTES_IN_MB &&
-      styleDescriptionOverview().trim().length > 0 &&
-      styleDescriptionTotalCount() <= DESCRIPTION_TOTAL_MAX_LENGTH
-    )
+  const makeValidationMessages = createMemo(() => {
+    const messages = titleValid() ? [] : [`图片模板标题需为${TITLE_MIN_LENGTH}-${TITLE_MAX_LENGTH}个字`]
+    if (category() === "preset_recipe") {
+      if (!recipeDescription().trim()) messages.push("请输入玩法描述")
+      if (recipeImages().length > 3) messages.push("固定参考图不能超过3张")
+      return messages
+    }
+    if (styleImages().length < 3) messages.push("请至少上传3张风格图")
+    if (styleImages().length > 30) messages.push("风格图不能超过30张")
+    if (imageTotalSize(styleImages(), sizeByUrl()) > 30 * BYTES_IN_MB) messages.push("风格图总大小不能超过30MB")
+    if (!styleDescriptionOverview().trim()) messages.push("请填写风格描述概览")
+    if (styleDescriptionTotalCount() > DESCRIPTION_TOTAL_MAX_LENGTH) {
+      messages.push(`风格描述总字数不能超过${DESCRIPTION_TOTAL_MAX_LENGTH}字`)
+    }
+    return messages
   })
-  const canPublishNext = createMemo(() =>
-    titleValid() &&
-    usageDescription().trim().length > 0 &&
-    Boolean(promptSetting()) &&
-    Boolean(referenceMode()) &&
-    (referenceMode() === "not_supported" || referenceCount() <= maxReferenceCount()) &&
-    Boolean(visibility()) &&
-    (visibility() === "all_users" || specifiedUsers().length > 0),
-  )
-  const canPublish = createMemo(
-    () =>
-      exampleImages().length >= 1 &&
-      exampleImages().length <= 20 &&
-      imageTotalSize(exampleImages(), sizeByUrl()) <= 30 * BYTES_IN_MB,
-  )
+  const publishValidationMessages = createMemo(() => {
+    const messages = titleValid() ? [] : [`图片模板标题需为${TITLE_MIN_LENGTH}-${TITLE_MAX_LENGTH}个字`]
+    if (!usageDescription().trim()) messages.push("请填写模板使用说明")
+    if (!promptSetting()) messages.push("请选择提示词设置")
+    if (!referenceMode()) messages.push("请选择参考图设置")
+    if (referenceMode() !== "not_supported" && referenceCount() > maxReferenceCount()) {
+      messages.push("参考图数量超过当前模板可支持数量")
+    }
+    if (!visibility()) messages.push("请选择可见范围")
+    if (visibility() === "specified_users" && specifiedUsers().length === 0) messages.push("请至少选择1个可见用户")
+    return messages
+  })
+  const exampleValidationMessages = createMemo(() => {
+    const messages: string[] = []
+    if (exampleImages().length < 1) messages.push("请至少上传1张示例图")
+    if (exampleImages().length > 20) messages.push("示例图不能超过20张")
+    if (imageTotalSize(exampleImages(), sizeByUrl()) > 30 * BYTES_IN_MB) messages.push("示例图总大小不能超过30MB")
+    return messages
+  })
+  const canMakeNext = createMemo(() => makeValidationMessages().length === 0)
+  const canPublishNext = createMemo(() => publishValidationMessages().length === 0)
+  const canPublish = createMemo(() => exampleValidationMessages().length === 0)
   const canNext = createMemo(() => {
     if (props.mode === "edit") return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onSaveTemplate) && props.templateID !== undefined && !templatePublishing()
     if (currentStep() === "make") return canMakeNext()
@@ -1454,8 +1474,6 @@ export function StudioTemplateCreator(props: {
     if (props.mode === "edit" && (!props.onSaveTemplate || props.templateID === undefined)) return
     if (props.mode !== "edit" && !props.onPublishTemplate) return
     setTemplatePublishing(true)
-    setTemplatePublishMessage("")
-    setTemplatePublishMessageTone("default")
     try {
       if (props.mode === "edit") {
         const saveTemplate = props.onSaveTemplate
@@ -1468,8 +1486,7 @@ export function StudioTemplateCreator(props: {
       if (!publishTemplate) return
       await publishTemplate(templatePublishInput())
     } catch (error) {
-      setTemplatePublishMessage(error instanceof Error ? error.message : String(error))
-      setTemplatePublishMessageTone("error")
+      showFloatingNotice("error", error instanceof Error ? error.message : String(error))
     } finally {
       setTemplatePublishing(false)
     }
@@ -1482,7 +1499,25 @@ export function StudioTemplateCreator(props: {
     })
   }
   const goNext = () => {
-    if (!canNext()) return
+    if (templatePublishing()) return
+    if (!canNext()) {
+      const messages = props.mode === "edit"
+        ? [...new Set([...makeValidationMessages(), ...publishValidationMessages(), ...exampleValidationMessages()])]
+        : currentStep() === "make"
+          ? makeValidationMessages()
+          : currentStep() === "publish"
+            ? publishValidationMessages()
+            : [...new Set([...makeValidationMessages(), ...publishValidationMessages(), ...exampleValidationMessages()])]
+      const unavailable = props.mode === "edit"
+        ? !props.onSaveTemplate || props.templateID === undefined
+        : currentStep() === "examples" && !props.onPublishTemplate
+      showFloatingNotice("warning", messages.length > 0
+        ? `请完善以下内容：${messages.join("；")}`
+        : unavailable
+          ? `${props.mode === "edit" ? "保存" : "发布"}功能暂不可用`
+          : "请完善模板信息")
+      return
+    }
     if (props.mode === "edit") {
       void publishCurrentTemplate()
       return
@@ -1599,9 +1634,8 @@ export function StudioTemplateCreator(props: {
         mode={props.mode ?? "create"}
         currentStep={currentStep()}
         canNext={canNext()}
+        submitting={templatePublishing()}
         primaryLabel={primaryLabel()}
-        message={templatePublishMessage()}
-        messageTone={templatePublishMessageTone()}
         onPrev={goPrev}
         onNext={goNext}
         onCancel={props.onCancel}

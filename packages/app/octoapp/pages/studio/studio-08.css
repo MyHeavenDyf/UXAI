@@ -299,12 +299,28 @@
 
 .studio-composer-toolbar-more-template-applied {
   width: 100%;
-  padding: 2px 0;
 }
 
 .studio-composer-toolbar-more-template-applied .studio-composer-template-applied {
   width: 100%;
-  justify-content: center;
+  height: auto;
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: transparent;
+  line-height: 20px;
+  transition: none;
+}
+
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied:hover,
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied.active {
+  background: transparent;
+}
+
+.studio-composer-template-applied-placeholder:not([src]) {
+  visibility: hidden;
 }
 
 .studio-composer-template-applied:hover,
@@ -349,6 +365,22 @@
   white-space: nowrap;
 }
 
+.studio-composer-template-applied-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied-actions {
+  margin-left: auto;
+}
+
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied-icon:hover,
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied-icon.active,
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied-clear:hover {
+  background-color: transparent;
+}
+
 .studio-composer-template-applied-clear {
   padding: 0;
   border: 0;
@@ -367,22 +399,28 @@
 }
 
 .studio-composer-template-preset-editor {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  z-index: 20;
   box-sizing: border-box;
   width: 556px;
   max-width: calc(100vw - 48px);
   height: min(590px, calc(100vh - 180px));
-  min-height: 360px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  margin: 0 auto 12px;
+  margin: 0;
   padding: 16px 12px;
+  overflow: hidden;
   border: 1px solid transparent;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
   color: #191919;
   font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+  transform: translateX(-50%);
 }
 
 .studio-composer-template-preset-editor-head {
@@ -1588,22 +1626,6 @@
   gap: 12px;
 }
 
-.studio-template-creator-footer-message {
-  margin-top: 6px;
-  color: #747476;
-  font-size: 13px;
-  line-height: 18px;
-  text-align: center;
-}
-
-.studio-template-creator-footer-message.success {
-  color: #17a34a;
-}
-
-.studio-template-creator-footer-message.error {
-  color: #e5484d;
-}
-
 .studio-template-creator-prev,
 .studio-template-creator-next {
   height: 32px;
@@ -1624,6 +1646,7 @@
   color: #191919;
 }
 
+.studio-template-creator-next.invalid,
 .studio-template-creator-next:disabled {
   background: #f0f0f0;
   color: #b6b6b8;
