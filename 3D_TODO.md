@@ -6,7 +6,7 @@
 >
 > 完整全流程回归用例（开发完成后**交付测试团队**用）：[3D_E2E_TESTCASES.md](3D_E2E_TESTCASES.md)
 > 已修项的根因取证归档：[3D_CODEGEN_DESIGN.md §十四](3D_CODEGEN_DESIGN.md)
-> 最后更新：2026-09-10（**Phase 1.5+ Spline 化大纲 4 项整体收口 ✅**：TC-OUTLINE-1~18 全过（16 条主用例 + 17 状态图标常显 + 18 复制偏移场景比例）；共 7 轮修复记录见下）。下一步：三仓 commit 或按优先级排 TODO 其余项。
+> 最后更新：2026-09-11（**第 8 项 Phase R 代码结构重构 ✅**：四 commit 8e3c330/c769470/902b463/f5ad8a3 全落地 3d-templete，用户 e2e 全过——生成全链路/M-3①矩阵/编辑态/大纲/切历史/导出）。下一步：参数清单扩展（Phase L/S，按用户提供的 THREE.JS 可配置参数清单）或 Spline 化 Phase 2-5。
 
 ---
 
@@ -20,9 +20,10 @@
 **是什么**：dev_cyc1 堆着 P8 direct + 之前 P1.5+全清+P0.4~P0.10 约 40+ 文件未提交，e2e 绿后一次提交。
 **落地状态**：三仓均已提交。
 
-### 2. 打包 exe 内 3D 全链路 ⬜
+### 2. 打包 exe 内 3D 全链路 ✅
 **是什么**：`release.ts --win --channel dev` 打 exe，验 3D 全链路。exe 是最终分发形态，这条不绿都是 dev 自嗨。
-**测试用例**：exe 里新会话生成场景 → 渲染 → modify 一版 → patch 一版 → 切历史 → 导出工程 zip，全链路与 dev 环境一致。白屏查 extraResources .3d-dist 是否进包。
+**落地状态**：e2e ✅ 通过（2026-09-10）。产物 `octo-desktop-win-x64.exe` 246MB：resources/3d/template（源码+node_modules 155 包）+ 3d-components + bin/bun.exe 94MB 全进包。打包前置踩点：staging 防呆拦「dist 比 src 旧」→ 3d-components `npm run build` 重出 fresh dist 后过（dts 阶段报错非零退出属正常，JS 产物已 fresh）。本地签名分叉生效（主 exe 默认图标，NSIS 安装包图标正常）。
+**测试用例**：✅ exe 里新会话生成场景 → 渲染 → modify 一版 → patch 一版 → 切历史 → 导出工程 zip，全链路与 dev 环境一致（用户实测通过）。
 
 ## 🟠 第二梯队 — 报错体验（direct 失败后用户要能定位+修一行）
 
@@ -137,8 +138,15 @@
 
 > Spline 化目标：编辑确定性 + 实时拖拽 + 操作可持久化。当前架构（确定性 editObject + commitEdits 落盘）支持扩展，不需推翻重写。
 
-### 8. P2 Phase R 代码结构重构（R1-R9 + core/edit-bridge 分层隔离）⬜
+### 8. P2 Phase R 代码结构重构（R1-R9 + core/edit-bridge 分层隔离）✅
 **是什么**：拆 7 个 app 级单例 Manager（renderer/scene/environment/camera/light/controls/renderLoop）+ App3D 瘦身 + **3d-templete 内部 core/edit-bridge 物理隔离**。纯结构，**行为零变化**是验收标准。为 Spline 化 Phase 2-5 铺路（SelectionManager / LayoutEngine / MaterialLayerSystem 要加 Manager）。
+**落地状态**：四 commit 全落地（2026-09-11），用户 e2e 全过（生成全链路 + M-3① 矩阵 + 编辑态改色/拖动提交 + 大纲 + 切历史 + 导出工程）：
+- **C1（8e3c330）**：`src/3d/managers/app/` 7 Manager（Renderer/Scene/Environment/Camera/Light/Controls/RenderLoop）；App3D 316→175 行组合根 + facade getter 全保留（消费方零改动）；_orthoHalfH 正交 resize 基准原子落 CameraManager；ControlsManager 由 createScene3D 创建（偏离①：controls 选项在 Scene3DOptions）
+- **C2（c769470）**：environment.ts 278→85 行纯 dispatcher（EnvUpdate 签名冻结）；背景/雾两处重复合一进 SceneManager.applyBackgroundFog
+- **C3（902b463）**：createScene3D 602 行拆三：入口（类型+编排）/ sceneSetup.ts / sceneHandle.ts
+- **C4（f5ad8a3）**：`src/3d/editBridge/` 物理隔离——git mv postMessageHost/SelectionService/SelectionVisuals（100% rename 历史保留）+ sceneEdit.ts（6 编辑 helper）+ editHandle.ts（`attachEditBridge(core): EditSceneHandle`）+ barrel；core Scene3DHandle 删 selection+7 编辑方法、加 interactiveManager；Embed.vue 改 `attachEditBridge(await createScene3D(...))`；core→editBridge 零 import（grep 实证）
+- **三个已批准偏离**：ControlsManager 由 createScene3D 创建 / debug+CameraRig 留 core（RenderLoop 每帧驱动 HUD；shared.ts sacred import）/ camelCase 目录名 editBridge 非 edit-bridge
+- **后续扩展接缝**：LightManager（Phase L 加 point/spot/rectarea）、EnvironmentManager（Phase S 环境可换）、ControlsManager（Phase S set_controls op）、CameraManager/SceneManager（相机/背景参数扩展）——参数清单扩展直接往对应 Manager 塞方法
 **为什么现在做**：Phase 2-5（选择模型/布局/材质/动画）要加 Manager 级新模块，不先拆 App3D 会堆进已经臃肿的 App3D 里更乱。Phase R 是 Phase 2-5 的前提。
 **core/edit-bridge 分层隔离**（3d-templete 导出给二次开发，内部要分层）：
 - **core（预览/二次开发核心）**：`createScene3D` 入口 + `App3D` 渲染循环/相机/灯光 + `scene/`（loader/objects/environment/presets）+ `managers/component/`（ComponentManager+handler 注册+override）+ `managers/card/` + `controls/OrbitControls` + `resources/`（材质/模型注册）+ `components/`（Primitive/Model/Text 基础组件+builders）+ `assets/` + `utils/`。二次开发用户直接用，须纯净不带 UXAI 编辑概念。
