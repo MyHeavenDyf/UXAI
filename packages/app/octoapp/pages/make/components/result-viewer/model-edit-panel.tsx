@@ -1,8 +1,11 @@
 import { createSignal, createEffect, Show, For, onCleanup, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs } from '../model-edit-items/types'
+import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs, IconConfig } from '../model-edit-items/types'
 import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
 import { renderConfigItem, checkKeyConflicts } from '../model-edit-items/registry'
+import { IconModule } from '../model-edit-items/icon-module'
+import { getDesktopApi } from '../../lib/electron-api'
+import { useSDK } from '@/context/sdk'
 import './manual-edit-panel.css'
 import './model-edit-panel.css'
 
@@ -18,12 +21,14 @@ export function ModelEditPanel(props: {
   colors?: ColorToken[]
   onChange?: (args: OnChangeArgs) => void
   context?: ModelEditContext
+  iconConfig?: IconConfig
   onSave: (current: Record<string, any>) => Promise<boolean | void>
   onDelete: () => Promise<boolean | void>
   onExit: () => void
   floatingStyle?: { left: number; top: number }
   onFloatingPositionChange?: (pos: { left: number; top: number }) => void
 }): JSX.Element {
+  const sdk = useSDK()
   const [submitting, setSubmitting] = createSignal(false)
   const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [values, setValues] = createStore<Record<string, string>>({})
@@ -234,6 +239,27 @@ export function ModelEditPanel(props: {
         </div>
 
         <div class="manual-edit-scroll octo-thin-scroll">
+          <Show when={props.iconConfig && props.element && (props.element.tagName === 'img' || props.element.tagName === 'svg')}>
+            <div class="model-edit-group">
+              <div class="model-edit-group-body">
+                <IconModule
+                  iconConfig={props.iconConfig!}
+                  dom={props.element!}
+                  filePath={props.filePath}
+                  disabled={isDisabled()}
+                  onSubmitStart={() => props.onSubmitStart?.()}
+                  postMessageToIframe={props.context?.postMessageToIframe}
+                  writeFileBuffer={getDesktopApi()?.writeFileBuffer}
+                  sessionDir={sdk.directory}
+                  getIframeSnapshot={props.context?.getIframeSnapshot}
+                  cleanBridgeContent={props.context?.cleanBridgeContent}
+                  wrapHtmlContent={props.context?.wrapHtmlContent}
+                  onContentChange={props.context?.onContentChange}
+                  onRefreshNeeded={props.context?.onRefreshNeeded}
+                />
+              </div>
+            </div>
+          </Show>
           <For each={props.config}>
             {(group) => (
               <div class="model-edit-group">

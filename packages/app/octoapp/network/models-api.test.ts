@@ -4,8 +4,8 @@ import { modelsApiHeaders, modelsApiProviders } from "./models-api"
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
     const result = modelsApiProviders({
-      opencode: {
-        id: "opencode",
+      w3: {
+        id: "w3",
         name: "Octo AI",
         api: "http://octoai-llm.ucd.huawei.com/v1",
         npm: "@ai-sdk/openai-compatible",
@@ -43,11 +43,11 @@ describe("modelsApiProviders", () => {
     })
 
     expect(result).toHaveLength(2)
-    expect(result[0].id).toBe("opencode")
+    expect(result[0].id).toBe("w3")
     expect(result[0].source).toBe("remote")
     expect(result[0].models["GLM-V5_1"]).toMatchObject({
       id: "GLM-V5_1",
-      providerID: "opencode",
+      providerID: "w3",
       api: {
         url: "http://octoai-llm.ucd.huawei.com/v1",
         npm: "@ai-sdk/openai-compatible",
@@ -66,6 +66,15 @@ describe("modelsApiProviders", () => {
       options: { baseURL: "https://api.xiaomimimo.com/v1" },
     })
     expect(result[1].models["mimo-v2.5"].api.url).toBe("https://api.xiaomimimo.com/v1")
+  })
+
+  test("excludes removed providers from remote catalogs", () => {
+    expect(
+      modelsApiProviders({
+        opencode: { id: "opencode", name: "Octo AI", models: {} },
+        bpit: { id: "bpit", name: "BPIT", models: {} },
+      }),
+    ).toEqual([])
   })
 })
 

@@ -90,23 +90,10 @@ export const Provider = Schema.Struct({
 
 export type Provider = Schema.Schema.Type<typeof Provider>
 
-export const OPENCODE_FALLBACK: Record<string, Provider> = {
-  opencode: {
-    id: "opencode",
-    name: "Octo AI",
-    env: ["OPENCODE_API_KEY"],
-    npm: "@ai-sdk/openai-compatible",
-    api: "http://octoai-llm.ucd.huawei.com/v1",
-    models: {},
-  },
-}
+const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 
-const ensureOpencode = (data: Record<string, Provider>): Record<string, Provider> => {
-  if (!data.opencode) {
-    data = { ...data, ...OPENCODE_FALLBACK }
-  }
-  return data
-}
+const withoutRemovedProviders = (providers: Record<string, Provider>) =>
+  Object.fromEntries(Object.entries(providers).filter(([id]) => !REMOVED_PROVIDER_IDS.has(id)))
 
 export interface Interface {
   readonly get: () => Effect.Effect<Record<string, Provider>>
@@ -169,7 +156,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       // if (fromDisk) return ensureOpencode(fromDisk)
 
       const snapshot = yield* loadSnapshot
-      if (snapshot) return ensureOpencode(snapshot)
+      if (snapshot) return withoutRemovedProviders(snapshot)
 
       // 注释掉网络获取 — 模型通过 api.json 配置，不从网络获取
       // if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return ensureOpencode({})
@@ -180,12 +167,12 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       //     return yield* fetchAndWrite()
       //   }),
       // ).pipe(
-      //   Effect.catch(() => Effect.succeed(JSON.stringify(OPENCODE_FALLBACK))),
+      //   Effect.catch(() => Effect.succeed("{}")),
       // )
       // return ensureOpencode(JSON.parse(text) as Record<string, Provider>)
 
       // 兜底：无快照时返回空
-      return ensureOpencode({})
+      return {}
     }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 
     const [cachedGet] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)

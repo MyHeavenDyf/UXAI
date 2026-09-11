@@ -47,6 +47,8 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
+import { SidebarFooter } from "./components/sidebar-footer"
+import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
@@ -2464,13 +2466,13 @@ function InsightContent() {
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
         <Show when={!sidebarCollapsed()}>
-          <InsightSidebar onWidthChange={setSidebarW} />
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
         </Show>
         {/* 窄屏左侧栏抽屉:经汉堡唤出,贴左侧;透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
         <Show when={sidebarCollapsed() && sidebarOverlayOpen()}>
           <div class="absolute inset-0 z-20" onClick={() => setSidebarOverlayOpen(false)} />
           <div class="absolute left-0 top-0 bottom-0 z-30" style={{ "box-shadow": "8px 0 24px rgba(0,0,0,0.12)" }}>
-            <InsightSidebar onWidthChange={setSidebarW} />
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
           </div>
         </Show>
 
