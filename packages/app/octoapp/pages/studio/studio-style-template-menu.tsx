@@ -182,7 +182,7 @@ export function StudioStyleTemplateMenu(props: {
                       <div class="studio-style-template-card-actions">
                         <Tooltip
                           placement="top"
-                          value="当前模版正在编辑中，请先保存或取消编辑"
+                          value="当前模板正在编辑中，请先保存或取消编辑"
                           inactive={!editing()}
                           contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
                           class="studio-style-template-card-action-tooltip"
@@ -200,7 +200,7 @@ export function StudioStyleTemplateMenu(props: {
                         </Tooltip>
                         <Tooltip
                           placement="top"
-                          value="当前模版正在编辑中，请先保存或取消编辑"
+                          value="当前模板正在编辑中，请先保存或取消编辑"
                           inactive={!editing()}
                           contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
                           class="studio-style-template-card-action-tooltip"

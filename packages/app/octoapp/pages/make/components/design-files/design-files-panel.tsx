@@ -17,6 +17,7 @@ import { useSDK } from "@/context/sdk"
 import { useLocal } from "@/context/local"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { validateFileForExternal } from "@/pages/insight/lib/upload"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { tracker } from "@/utils/tracker"
 import {
   createArtifactFileStore,
@@ -96,6 +97,14 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
+
+  // 外网模型上传风险确认:点击「上传」或拖入文件时,若当前模型为外网(isExternal),先弹风险提示弹框,
+  // 确认后才执行上传。内网模型不拦截。
+  const { request, gate } = useUploadRiskGate()
+  const requestUploadFile = () => request(() => fileInputRef?.click())
+  const requestUploadFolder = () => request(() => folderInputRef?.click())
+
+  const isExternal = createMemo(() => !!local.model.current()?.isExternal)
 
   // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
   function checkExternalFile(file: File): boolean {
@@ -494,16 +503,24 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const items = e.dataTransfer?.items
     if (items) {
       const entries: FileSystemEntry[] = []
+      let hasDir = false
       for (const item of Array.from(items)) {
         if (item.kind === "file") {
           const entry = (item as any).webkitGetAsEntry?.() as FileSystemEntry | null
-          if (entry) entries.push(entry)
+          if (entry) {
+            if (entry.isDirectory) hasDir = true
+            else entries.push(entry)
+          }
         }
       }
-      void processEntries(entries)
+      if (hasDir && isExternal()) {
+        showInsightNotice("info", "外网模型不支持上传文件夹，请逐个上传文件")
+        if (entries.length === 0) return
+      }
+      request(() => void processEntries(entries))
     } else {
       const files = e.dataTransfer?.files
-      if (files && files.length > 0) handleUpload(files)
+      if (files && files.length > 0) request(() => handleUpload(files))
     }
   }
 
@@ -648,6 +665,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleFolderUpload = async (files: FileList) => {
     if (!files || files.length === 0) return
+    if (isExternal()) {
+      showInsightNotice("info", "外网模型不支持上传文件夹，请逐个上传文件")
+      return
+    }
 
     const firstFile = files[0]
     const folderName = firstFile.webkitRelativePath?.split("/")[0]
@@ -708,9 +729,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       <Show when={showHeader()}>
         <DesignFilesToolbar
           fileStore={fileStore}
+          isExternal={isExternal}
           onRefresh={refresh}
-          onUploadFile={() => fileInputRef?.click()}
-          onUploadFolder={() => folderInputRef?.click()}
+          onUploadFile={requestUploadFile}
+          onUploadFolder={requestUploadFolder}
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
         />
@@ -854,24 +876,26 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
                     style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
                   >
+                    <Show when={!isExternal()}>
+                      <button
+                        type="button"
+                        onClick={() => { requestUploadFolder(); setEmptyUploadOpen(false) }}
+                        class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                        style={{
+                          height: "36px",
+                          "border-radius": "6px",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "#191919",
+                        }}
+                      >
+                        <IconFolder size={16} />
+                        <span>{language.t("designFiles.uploadFolder")}</span>
+                      </button>
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
-                      style={{
-                        height: "36px",
-                        "border-radius": "6px",
-                        "font-size": "14px",
-                        "line-height": "22px",
-                        color: "#191919",
-                      }}
-                    >
-                      <IconFolder size={16} />
-                      <span>{language.t("designFiles.uploadFolder")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      onClick={() => { requestUploadFile(); setEmptyUploadOpen(false) }}
                       class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
                       style={{
                         height: "36px",
@@ -917,24 +941,26 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
                     style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
                   >
+                    <Show when={!isExternal()}>
+                      <button
+                        type="button"
+                        onClick={() => { requestUploadFolder(); setEmptyUploadOpen(false) }}
+                        class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                        style={{
+                          height: "36px",
+                          "border-radius": "6px",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "#191919",
+                        }}
+                      >
+                        <IconFolder size={16} />
+                        <span>{language.t("designFiles.uploadFolder")}</span>
+                      </button>
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
-                      style={{
-                        height: "36px",
-                        "border-radius": "6px",
-                        "font-size": "14px",
-                        "line-height": "22px",
-                        color: "#191919",
-                      }}
-                    >
-                      <IconFolder size={16} />
-                      <span>{language.t("designFiles.uploadFolder")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      onClick={() => { requestUploadFile(); setEmptyUploadOpen(false) }}
                       class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
                       style={{
                         height: "36px",
@@ -1121,6 +1147,7 @@ onDelete={handleDelete}
           )}
         </Show>
       </div>
+      {gate}
       <InsightNoticeHost />
     </div>
   )
