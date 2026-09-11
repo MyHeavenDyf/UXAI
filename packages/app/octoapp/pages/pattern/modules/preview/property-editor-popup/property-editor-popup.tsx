@@ -14,7 +14,7 @@ import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, m
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
-import { IconPickerPopup } from "./icon-picker-popup"
+import { IconPickerPopup, type IconPickerMode } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
 import { getDesktopApi } from "../../../utils/desktop-api"
@@ -25,7 +25,8 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
   const [failed, setFailed] = createSignal(false)
   const [fileUrl, setFileUrl] = createSignal<string | null>(null)
   createEffect(() => {
-    props.custom; props.src; props.htmlFilePath; setFailed(false); setFileUrl(null)
+    /** url/name 变化（如图标弹窗确认换图标）也要重置 failed：否则上一次 img 加载失败的锁死状态会挡住新 url 的展示 */
+    props.custom; props.src; props.htmlFilePath; props.url; props.name; setFailed(false); setFileUrl(null)
     if (!props.custom || !props.src || !props.htmlFilePath) return
     const api = getDesktopApi()
     const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
@@ -39,7 +40,7 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
         (() => {
           const d = LUCIDE_ICONS.find(i => i.name === props.name)
           return d
-            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
             : null
         })()
       }>
@@ -257,11 +258,29 @@ export function PropertyEditorPopup(props: {
     return p[`${k}Custom`] === '1' || !!p[`${k}Src`] || (p[`${k}Id`] ?? '').startsWith('custom:')
   }
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
+  /** 图标弹窗模式解析（与 icon-picker-popup 的 IconPickerMode 一一对应）：
+   *  standalone —— 独立图标组件（Icon.name，图标即元素本体）：全功能（官方+自定义、筛选、全量参数回传）；
+   *  embedded   —— 组件内嵌图标入口（Button.icon/Tag.icon/Input.prefix 等，渲染端仅按 name 解析）：只换名称。
+   *  后续新增第三种入口形态时在此按 组件/键 映射新成员即可 */
+  const iconPickerMode = (k: string): IconPickerMode =>
+    props.componentType === 'Icon' && k === 'name' ? 'standalone' : 'embedded'
+
+  /** 图标弹窗确认：写回图标名与各入口专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），按模式走 if/else 分支 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size?: string; style?: string; color?: string }) {
     const key = iconPickerKey()!
     const prevProps = editProps as Record<string, string>
     updateEditProp(key, pick.name)
+
+    if (iconPickerMode(key) === 'embedded') {
+      // —— 组件内嵌图标入口：只换名称。保留 Id/Url（触发器小图预览与弹窗回显高亮用，渲染端仍只按 name 解析），
+      //    其余参数清空（Custom/Src 残留会误判自定义，Size/Style/Color 渲染端不消费）——
+      updateEditProp(`${key}Id`, pick.id ?? '')
+      updateEditProp(`${key}Url`, pick.url ?? (prevProps[`${key}Url`] ?? ''))
+      for (const suffix of ['Custom', 'Src', 'Size', 'Style', 'Color']) updateEditProp(`${key}${suffix}`, '')
+      return
+    }
+
+    // —— 独立图标组件（Icon.name）：写回全量参数 ——
     /** id 无条件写入（自定义图标不带，置空以免残留）；url 仅在换图标/换自定义时覆盖——
      *  只改线性/大小/颜色再确认时 pick.url 为空（当前图标不在搜索结果里），保留原 url 供回显与渲染 */
     updateEditProp(`${key}Id`, pick.id ?? '')
@@ -269,9 +288,9 @@ export function PropertyEditorPopup(props: {
     updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
     /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
     updateEditProp(`${key}Src`, pick.src ?? '')
-    updateEditProp(`${key}Size`, pick.size)
-    updateEditProp(`${key}Style`, pick.style)
-    updateEditProp(`${key}Color`, pick.color)
+    updateEditProp(`${key}Size`, pick.size ?? '')
+    updateEditProp(`${key}Style`, pick.style ?? '')
+    updateEditProp(`${key}Color`, pick.color ?? '')
     /** 尺寸写元素宽高仅限 Icon 组件（图标即元素本体）；Button/Input 等带图标组件不能被图标尺寸改写自身宽高 */
     const px = Number(pick.size)
     if (px > 0 && props.componentType === 'Icon') {
@@ -283,11 +302,11 @@ export function PropertyEditorPopup(props: {
     // shape/color 仅同步到"本身就是图标枚举"的组件字段（Icon.shape ⊆ outline/two-tone/square/circle、Icon.color ⊆ iconColors）。
     // Button.shape(default/circle/round)/Button.color(default/primary/danger) 是按钮自身外观，图标筛选的撞名值不得覆盖
     const compShapeValues = COMPONENT_ENUMS[`${props.componentType}.shape`]?.map(o => o.value) ?? []
-    if (compShapeValues.length && compShapeValues.every(v => ['outline', 'two-tone', 'square', 'circle'].includes(v)) && compShapeValues.includes(pick.style)) {
+    if (pick.style && compShapeValues.length && compShapeValues.every(v => ['outline', 'two-tone', 'square', 'circle'].includes(v)) && compShapeValues.includes(pick.style)) {
       updateEditProp('shape', pick.style)
     }
     const compColorValues = COMPONENT_ENUMS[`${props.componentType}.color`]?.map(o => o.value) ?? []
-    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color)
+    const colorKey = pick.color ? Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color) : undefined
     if (colorKey && compColorValues.length && compColorValues.every(v => v in iconColors) && compColorValues.includes(colorKey)) {
       updateEditProp('color', colorKey)
     }
@@ -1716,9 +1735,8 @@ export function PropertyEditorPopup(props: {
           const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
           const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
           // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
-          // （Src 对所有图标键生效：name→src、icon→iconSrc…，否则切回官方后残留的 iconSrc 会让重开误判为自定义；
-          //  自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
-          if (suffix === 'Url' || suffix === 'Custom' || suffix === 'Src' || (isCustom && suffix === 'Id')) {
+          // （Src 对所有图标键生效：name→src、icon→iconSrc…；内嵌入口只换名称时 Id 一并清空，避免重开误判回显）
+          if (suffix === 'Url' || suffix === 'Custom' || suffix === 'Src' || suffix === 'Id') {
             if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
             continue
           }
@@ -2855,6 +2873,7 @@ export function PropertyEditorPopup(props: {
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
               currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
               currentCustom={iconCustomFlag(iconPickerKey()!)}
+              mode={iconPickerMode(iconPickerKey()!)}
               sessionId={props.sessionId}
               htmlFilePath={props.htmlFilePath}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]

@@ -76,6 +76,24 @@ const PANEL_W = 380
 const PANEL_H = 634
 const ACCENT = "#3D99FF"
 
+/**
+ * 弹窗按「图标入口形态」分模式：显隐 / 高度 / 确认回传统一从 MODE_CONFIG 读取，
+ * 后续新增第三种形态只需：1) IconPickerMode 加成员；2) MODE_CONFIG 加配置；3) handleConfirm 加对应分支。
+ *
+ * standalone —— 独立图标组件（Icon.name，图标即元素本体）：官方+自定义来源、形状/尺寸/颜色筛选齐全，
+ *              确认回传全量参数（name/id/url/src/size/style/color）。
+ * embedded   —— 组件内嵌图标入口（Button.icon / Tag.icon / Input.prefix 等，图标是组件的一个属性，
+ *              渲染端仅按 name 解析）：只开放官方来源、隐藏底部筛选（形状恒线性、大小/颜色随组件，改了不生效），
+ *              确认只回传 name + id/url（仅供触发器小图预览与重开回显高亮），
+ *              隐藏筛选行（h-9=36px）与间距后弹窗高度相应减小。
+ */
+export type IconPickerMode = 'standalone' | 'embedded'
+
+const MODE_CONFIG: Record<IconPickerMode, { allowCustomTab: boolean; showFilters: boolean; panelH: number }> = {
+  standalone: { allowCustomTab: true, showFilters: true, panelH: PANEL_H },
+  embedded: { allowCustomTab: false, showFilters: false, panelH: PANEL_H - 36 - 32 },
+}
+
 /** 图标来源 tab 兜底：offline 或 tags 未返回前用这份渲染，tags 返回后由 store.tabs 覆盖 */
 const FALLBACK_TABS = [
   { label: '基础图标', value: '基础图标' },
@@ -203,7 +221,7 @@ export function IconPickerPopup(props: {
   current: string
   /** 触发按钮元素：弹窗锚定在其左侧，点外部（含锚点）关闭 */
   anchor: HTMLElement | undefined
-  onPick: (pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) => void
+  onPick: (pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size?: string; style?: string; color?: string }) => void
   onClose: () => void
   /** 点击确认按钮（事件预留） */
   onConfirm?: () => void
@@ -219,10 +237,16 @@ export function IconPickerPopup(props: {
   sessionId?: string
   /** 预览产物 html 路径：自定义图标存到其同级 uploads 目录（与图片上传落盘规则一致） */
   htmlFilePath?: string
+  /** 入口形态（standalone=独立图标组件全功能 / embedded=组件内嵌图标入口只换名称），默认 standalone，见 MODE_CONFIG */
+  mode?: IconPickerMode
 }): JSX.Element {
+  /** 模式在弹窗挂载时确定（每次打开重新挂载），模板显隐与确认回传统一从 cfg 读取 */
+  const mode = () => props.mode ?? 'standalone'
+  const cfg = () => MODE_CONFIG[mode()]
+
   const [state, setState] = createStore({
-    /** 当前为自定义图标（nameCustom=1 ）时默认打开自定义 tab */
-    source: props.currentCustom ? 'custom' as const : 'official' as const,
+    /** 当前为自定义图标（nameCustom=1）时默认打开自定义 tab；embedded 模式只有官方来源 */
+    source: cfg().allowCustomTab && props.currentCustom ? 'custom' as const : 'official' as const,
     tabsCan: { left: false, right: false },
     category: 'all' as number | 'all',
     categoryName: '全部分类',
@@ -273,7 +297,7 @@ export function IconPickerPopup(props: {
     const rect = props.anchor.getBoundingClientRect()
     setState('pos', {
       x: Math.max(4, rect.left - PANEL_W - 20),
-      y: Math.max(4, Math.min(rect.top - 8, window.innerHeight - PANEL_H - 4)),
+      y: Math.max(4, Math.min(rect.top - 8, window.innerHeight - cfg().panelH - 4)),
     })
   }
   updatePos()
@@ -426,19 +450,30 @@ export function IconPickerPopup(props: {
 
   const handleConfirm = () => {
     if (state.selected) {
-      const custom = state.selectedId.startsWith('custom:') ? state.customIcons.find(c => `custom:${c.src}` === state.selectedId) : undefined
-      props.onPick({
-        /** 自定义图标：name 即原始文件名；src 为渲染端消费的相对路径 uploads/<文件名>（普通图标不带，接收方清除）。
-         *  自定义不传 id/url，避免把整段 base64 写进元素 props */
-        name: custom ? customIconName(custom.path ?? custom.src) : state.selected,
-        id: custom ? undefined : state.selectedId || undefined,
-        url: custom ? undefined : iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
-        src: custom?.path ? `uploads/${custom.path.split(/[\\/]/).pop()}` : undefined,
-        isCustom: !!custom,
-        size: iconStore.state.iconSize,
-        style: state.shapeKey,
-        color: iconStore.state.iconColor,
-      })
+      if (mode() === 'embedded') {
+        // —— 组件内嵌图标入口（Button.icon 等）：渲染端仅按 name 解析，
+        //    只回传名称与回显所需的 id/url，不带尺寸/形状/颜色 ——
+        props.onPick({
+          name: state.selected,
+          id: state.selectedId || undefined,
+          url: iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
+        })
+      } else {
+        // —— 独立图标组件（Icon.name）：回传全量参数（官方 id/url；自定义 name+src）——
+        const custom = state.selectedId.startsWith('custom:') ? state.customIcons.find(c => `custom:${c.src}` === state.selectedId) : undefined
+        props.onPick({
+          /** 自定义图标：name 即原始文件名；src 为渲染端消费的相对路径 uploads/<文件名>（普通图标不带，接收方清除）。
+           *  自定义不传 id/url，避免把整段 base64 写进元素 props */
+          name: custom ? customIconName(custom.path ?? custom.src) : state.selected,
+          id: custom ? undefined : state.selectedId || undefined,
+          url: custom ? undefined : iconStore.state.icons.find(i => String(i.icon_id) === state.selectedId)?.url,
+          src: custom?.path ? `uploads/${custom.path.split(/[\\/]/).pop()}` : undefined,
+          isCustom: !!custom,
+          size: iconStore.state.iconSize,
+          style: state.shapeKey,
+          color: iconStore.state.iconColor,
+        })
+      }
     }
     props.onConfirm?.()
     props.onClose()
@@ -462,7 +497,7 @@ export function IconPickerPopup(props: {
           left: state.pos.x + 'px',
           top: state.pos.y + 'px',
           width: `${PANEL_W}px`,
-          "height": `${PANEL_H}px`,
+          "height": `${cfg().panelH}px`,
           background: "#fff",
           border: "1px solid #e2e8f0",
           "box-shadow": "0 8px 24px rgba(0,0,0,0.18)",
@@ -499,25 +534,28 @@ export function IconPickerPopup(props: {
             }} />
         </div>
 
-        {/* 一级 tab：官方 / 自定义；选中 #0A59F7 + 下划线（距文字底部 4px），未选中 #777777 */}
-        <div class="mt-4 flex shrink-0 items-center gap-8 px-4">
-          <button type="button" onClick={() => setState('source', 'official')}
-            class="relative pb-[4px] text-[12px] leading-5"
-            style={{ color: state.source === 'official' ? '#0A59F7' : '#777777' }}>
-            官方
-            <Show when={state.source === 'official'}>
-              <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
-            </Show>
-          </button>
-          <button type="button" onClick={() => { setState('source', 'custom'); iconStore.setKeyword('') }}
-            class="relative pb-[4px] text-[12px] leading-5"
-            style={{ color: state.source === 'custom' ? '#0A59F7' : '#777777' }}>
-            自定义
-            <Show when={state.source === 'custom'}>
-              <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
-            </Show>
-          </button>
-        </div>
+        {/* 一级 tab：官方 / 自定义；选中 #0A59F7 + 下划线（距文字底部 4px），未选中 #777777。
+            embedded 模式（组件内嵌图标入口）只有官方来源，整行隐藏 */}
+        <Show when={cfg().allowCustomTab}>
+          <div class="mt-4 flex shrink-0 items-center gap-8 px-4">
+            <button type="button" onClick={() => setState('source', 'official')}
+              class="relative pb-[4px] text-[12px] leading-5"
+              style={{ color: state.source === 'official' ? '#0A59F7' : '#777777' }}>
+              官方
+              <Show when={state.source === 'official'}>
+                <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
+              </Show>
+            </button>
+            <button type="button" onClick={() => { setState('source', 'custom'); iconStore.setKeyword('') }}
+              class="relative pb-[4px] text-[12px] leading-5"
+              style={{ color: state.source === 'custom' ? '#0A59F7' : '#777777' }}>
+              自定义
+              <Show when={state.source === 'custom'}>
+                <span class="absolute bottom-0 left-0 right-0 h-[2px] rounded-full" style={{ background: '#0A59F7' }} />
+              </Show>
+            </button>
+          </div>
+        </Show>
 
         {/* 二级 tab（仅官方）：现有来源 tab 去掉"自定义"；不出现滚动条，超宽时左右箭头点击滚动 */}
         <Show when={state.source === 'official'}>
@@ -654,23 +692,26 @@ export function IconPickerPopup(props: {
           </Show>
         </div>
 
-        {/* 底部：第一组三个筛选项（线性/尺寸/颜色），往下16px 是取消/确认按钮 */}
-        <div class="mt-4 shrink-0 px-4">
-          <div class="flex items-center gap-2">
-            <div class="w-[110px] shrink-0">
-              <CustomSelect value={state.shapeKey} options={SHAPE_OPTIONS}
-                onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }}
-                class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
+        {/* 底部：第一组三个筛选项（线性/尺寸/颜色），往下16px 是取消/确认按钮；embedded 模式隐藏筛选。
+            mt-4 挂在筛选项行上（容器不带），隐藏后底部不会多出空隙 */}
+        <div class="shrink-0 px-4">
+          <Show when={cfg().showFilters}>
+            <div class="mt-4 flex items-center gap-2">
+              <div class="w-[110px] shrink-0">
+                <CustomSelect value={state.shapeKey} options={SHAPE_OPTIONS}
+                  onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }}
+                  class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
+              </div>
+              <div class="w-[110px] shrink-0">
+                <CustomSelect value={iconStore.state.iconSize} options={SIZE_OPTIONS} onChange={v => iconStore.setSize(v)}
+                  class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
+              </div>
+              <div class="w-[110px] shrink-0">
+                <IconColorSelect value={state.iconColorKey}
+                  onChange={v => { setState('iconColorKey', v); iconStore.setColor(iconCssColor(v)) }} />
+              </div>
             </div>
-            <div class="w-[110px] shrink-0">
-              <CustomSelect value={iconStore.state.iconSize} options={SIZE_OPTIONS} onChange={v => iconStore.setSize(v)}
-                class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
-            </div>
-            <div class="w-[110px] shrink-0">
-              <IconColorSelect value={state.iconColorKey}
-                onChange={v => { setState('iconColorKey', v); iconStore.setColor(iconCssColor(v)) }} />
-            </div>
-          </div>
+          </Show>
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onClick={() => props.onClose()}
               class="h-7 shrink-0 rounded-[28px] bg-[#F2F3F5] px-[22px] text-[12px] hover:bg-[#E8E9EC]"
