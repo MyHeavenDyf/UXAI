@@ -40,7 +40,7 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
         (() => {
           const d = LUCIDE_ICONS.find(i => i.name === props.name)
           return d
-              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
+            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
             : null
         })()
       }>
@@ -1412,6 +1412,8 @@ export function PropertyEditorPopup(props: {
     right: `${initialPos.right + dragOffset.x}px`,
     top: `${initialPos.top + dragOffset.y}px`,
     'max-height': `${maxPopupH()}px`,
+    /** 最小高度：Icon 等行数少的组件面板过矮，展开内外边距设置时内容超出会出滚动条；给个下限留出空间（不超过最大高度） */
+    'min-height': `${Math.min(280, maxPopupH())}px`,
   }))
 
   function startDrag(e: MouseEvent) {
