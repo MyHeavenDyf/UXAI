@@ -44,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
+import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -533,8 +533,11 @@ const sessionMessagesLoaded = createMemo(() => {
   )
 
   // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
+  // 同时关闭 prototype 局部编辑浮层（mask/属性编辑器/右键菜单）：它们是挂在
+  // ResultViewer 层级的单例,不随 tab 卸载而消失,需显式关闭。
   createEffect(on(() => params.id, () => {
     setAttachments([])
+    closePrototypePanels()
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -1359,26 +1362,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id, kind }) => {
-    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
-    const line = text ? `[${tag}: ${id}] ${text};` : ""
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    if (text) {
-      ref?.clear?.()
-      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-    }
-    void handleSubmit()
-  })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id, kind }) => {
-    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
-    const line = `[${tag}: ${id}] ${text};`
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    ref?.clear?.()
-    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-  })
-  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)

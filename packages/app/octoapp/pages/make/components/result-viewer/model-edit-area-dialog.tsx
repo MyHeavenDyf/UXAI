@@ -43,6 +43,12 @@ export function ModelEditAreaDialog(props: {
   onMentionActiveChange?: (active: boolean) => void
   closeMentionTrigger?: number
   promptCallback?: (filePath: string, selector: string) => string
+  /** 选中框边框色（默认蓝 #007bff，prototype 宿主元素传橙 #fa8c16） */
+  maskBorderColor?: string
+  /** 选中框背景色（默认 rgba(0,123,255,0.1)） */
+  maskBgColor?: string
+  /** 容器用 position:fixed 而非 absolute（prototype 浮层需脱离面板定位到视口） */
+  fixedPosition?: boolean
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
@@ -126,7 +132,7 @@ export function ModelEditAreaDialog(props: {
         <div style={{ position: 'absolute', left: '0', top: `${ey + eh}px`, width: `${cw}px`, height: `${ch - ey - eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: '0', top: `${ey}px`, width: `${ex}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: `${ex + ew}px`, top: `${ey}px`, width: `${cw - ex - ew}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
-        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: '2px solid #007bff', 'border-radius': '4px', background: 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
+        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: `2px solid ${props.maskBorderColor ?? '#007bff'}`, 'border-radius': '4px', background: props.maskBgColor ?? 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
       </>
     )
   }
@@ -188,7 +194,7 @@ export function ModelEditAreaDialog(props: {
   }
 
   return (
-    <div ref={parentRef} style={{ position: 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default' }}>
+    <div ref={parentRef} style={{ position: props.fixedPosition ? 'fixed' : 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default' }}>
       {maskPieces()}
       <div
         ref={dialogRef}

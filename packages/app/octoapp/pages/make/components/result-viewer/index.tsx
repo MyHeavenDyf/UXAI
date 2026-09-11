@@ -810,7 +810,14 @@ archiving={featureMutex.state.archiving}
       </Show>
     </Show>
     <PrototypeCtxMenu />
-    <PrototypePropertyEditor />
+    <PrototypePropertyEditor
+      sessionId={props.sessionId}
+      skillConfig={props.skillConfig}
+      artifactFiles={props.artifactFiles}
+      productId={props.productId}
+      onDownloadProductAsset={props.onDownloadProductAsset}
+      onUpdateMentionPath={props.onUpdateMentionPath}
+    />
   </div>
 )
 }
