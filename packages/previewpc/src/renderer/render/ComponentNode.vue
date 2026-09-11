@@ -13,7 +13,7 @@ const props = defineProps<ComponentNodeProps>()
 const actualRegistry = computed(
   () => props.registry ?? ComponentRegistry.getInstance()
 )
-const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, setState, sendAction } = useA2UIComponent(props.node, props.surfaceId)
 const nodeType = computed(() =>
   props.node && typeof props.node === "object" && "type" in props.node
     ? props.node.type
@@ -46,8 +46,29 @@ const elementPropsJson = computed(() => {
   return JSON.stringify(simple)
 })
 
+// 原生 H5 元素（div/span/a…）的点击触发：把 props.onClick（setState 动作对象）转成真正的点击处理函数，
+// 与 Button.handleClick 同构，使任意原生元素也能作为 setState 触发器（如切换 tab、打开抽屉）。
+const clickHandler = computed<((e?: Event) => void) | null>(() => {
+  const p = props.node.properties
+  const onClick = p?.onClick
+  if (onClick && onClick.action === "setState" && onClick.args?.path) {
+    const { path, value } = onClick.args
+    return (e?: Event) => {
+      e?.preventDefault?.() // <a href> 不跳转；对 div/span 无害
+      setState(path, value)
+    }
+  }
+  // 兼容 Button 的 legacy action：派发用户动作到外层 host
+  if (p?.action) {
+    const a = p.action
+    return () => sendAction(a)
+  }
+  return null
+})
+
 const bindProps = computed(() => {
-  const { children, ...otherProps } = props.node.properties
+  // 剥离 children/onClick/action：onClick 由 clickHandler 转为函数挂载，action 走 legacy 派发
+  const { children, onClick, action, ...otherProps } = props.node.properties || {}
   const { value, ...otherNodeProps } = otherProps
   let propsObj: Record<string, any> = {}
   for (const [key, prop] of Object.entries(otherNodeProps)) {
@@ -62,6 +83,8 @@ const bindProps = computed(() => {
   propsObj.id = props.node.id
   propsObj['dom-picker-component'] = nodeType.value
   propsObj['data-element-props'] = elementPropsJson.value
+  const handler = clickHandler.value
+  if (handler) propsObj.onClick = handler
   return propsObj
 })
 </script>

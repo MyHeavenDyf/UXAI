@@ -1,0 +1,1072 @@
+{
+  "state": {
+    "ipv4Address": "10.80.52.212",
+    "ipv6Address": "10:80:52:211:0000:0000:0000:0000",
+    "macAddress": "3D-F2-C9-A6-B3-4F",
+    "hexValue": "52,61,72,21,1a,74,00,cf",
+    "categorySearchValue": "",
+    "categorySearchCategory": 1,
+    "categorySearchOptions": [
+      { "text": "China", "value": 1 },
+      { "text": "UK", "value": 2 },
+      { "text": "USA", "value": 3 }
+    ],
+    "categoryInputValue": "",
+    "categoryInputCategory": 1,
+    "categoryInputOptions": [
+      { "text": "China", "value": 1 },
+      { "text": "UK", "value": 2 },
+      { "text": "USA", "value": 3 }
+    ],
+    "sectionTitleClassName": "text-2xl font-bold text-on-surface",
+    "ipInputClassName": "w-80",
+    "searchInputValue": "",
+    "searchInputPopItems": [
+      { "text": "China", "value": 1 },
+      { "text": "UK", "value": 2 },
+      { "text": "USA", "value": 3 }
+    ],
+    "drawerOpen": false,
+    "drawerInputValue": ""
+  },
+  "rootId": "pageRoot",
+  "elements": [
+    {
+      "id": "pageRoot",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col h-screen overflow-auto bg-surface-container-lowest p-8 gap-8"
+      },
+      "children": [
+        "sectionTitle",
+        "ipInputCard",
+        "hexFieldCard",
+        "categorySearchCard",
+        "categoryInputCard",
+        "popoverCard",
+        "dropdownCard",
+        "anchorCard",
+        "searchInputCard",
+        "drawerCard",
+        "tabsButtonCard"
+      ]
+    },
+    {
+      "id": "sectionTitle",
+      "component": "span",
+      "props": {
+        "value": "新增组件测试",
+        "className": {"path": "/sectionTitleClassName"}
+      }
+    },
+    {
+      "id": "ipInputCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "ipInputCardTitle",
+        "ipInputRowV4",
+        "ipInputRowV6",
+        "ipInputRowMac"
+      ]
+    },
+    {
+      "id": "ipInputCardTitle",
+      "component": "span",
+      "props": {
+        "value": "IpInput IP地址输入框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "ipInputRowV4",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "ipInputRowV4Label",
+        "ipInputRowV4Content"
+      ]
+    },
+    {
+      "id": "ipInputRowV4Label",
+      "component": "span",
+      "props": {
+        "value": "IPv4",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "ipInputRowV4Content",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "ipInputV4"
+      ]
+    },
+    {
+      "id": "ipInputV4",
+      "component": "IpInput",
+      "props": {
+        "value": { "path": "/ipv4Address" },
+        "className": {"path": "/ipInputClassName"},
+        "type": "v4"
+      }
+    },
+    {
+      "id": "ipInputRowV6",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "ipInputRowV6Label",
+        "ipInputRowV6Content"
+      ]
+    },
+    {
+      "id": "ipInputRowV6Label",
+      "component": "span",
+      "props": {
+        "value": "IPv6",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "ipInputRowV6Content",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "ipInputV6"
+      ]
+    },
+    {
+      "id": "ipInputV6",
+      "component": "IpInput",
+      "props": {
+        "value": { "path": "/ipv6Address" },
+        "type": "v6"
+      }
+    },
+    {
+      "id": "ipInputRowMac",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "ipInputRowMacLabel",
+        "ipInputRowMacContent"
+      ]
+    },
+    {
+      "id": "ipInputRowMacLabel",
+      "component": "span",
+      "props": {
+        "value": "MAC",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "ipInputRowMacContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "ipInputMac"
+      ]
+    },
+    {
+      "id": "ipInputMac",
+      "component": "IpInput",
+      "props": {
+        "value": { "path": "/macAddress" },
+        "type": "mac"
+      }
+    },
+    {
+      "id": "hexFieldCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "hexFieldCardTitle",
+        "hexFieldRowBasic",
+        "hexFieldRowDisabled"
+      ]
+    },
+    {
+      "id": "hexFieldCardTitle",
+      "component": "span",
+      "props": {
+        "value": "HexField 十六进制输入框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "hexFieldRowBasic",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "hexFieldRowBasicLabel",
+        "hexFieldRowBasicContent"
+      ]
+    },
+    {
+      "id": "hexFieldRowBasicLabel",
+      "component": "span",
+      "props": {
+        "value": "基础",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "hexFieldRowBasicContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "hexFieldBasic"
+      ]
+    },
+    {
+      "id": "hexFieldBasic",
+      "component": "Input",
+      "props": {
+        "value": { "path": "/hexValue" },
+              "className": "w-60",
+        "placeholder": "请输入十六进制数据"
+      }
+    },
+    {
+      "id": "hexFieldRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "hexFieldRowDisabledLabel",
+        "hexFieldRowDisabledContent"
+      ]
+    },
+    {
+      "id": "hexFieldRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "hexFieldRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "hexFieldDisabled"
+      ]
+    },
+    {
+      "id": "hexFieldDisabled",
+      "component": "HexField",
+      "props": {
+        "value": { "path": "/hexValue" },
+        "disabled": true
+      }
+    },
+    {
+      "id": "categorySearchCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "categorySearchCardTitle",
+        "categorySearchRowBasic"
+      ]
+    },
+    {
+      "id": "categorySearchCardTitle",
+      "component": "span",
+      "props": {
+        "value": "CategorySearch 分类搜索",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "categorySearchRowBasic",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "categorySearchRowBasicLabel",
+        "categorySearchRowBasicContent"
+      ]
+    },
+    {
+      "id": "categorySearchRowBasicLabel",
+      "component": "span",
+      "props": {
+        "value": "基础",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "categorySearchRowBasicContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "categorySearchBasic"
+      ]
+    },
+    {
+      "id": "categorySearchBasic",
+      "component": "CategorySearch",
+      "props": {
+        "categoryOptions": { "path": "/categorySearchOptions" },
+        "category": { "path": "/categorySearchCategory" },
+        "value": { "path": "/categorySearchValue" },
+        "placeholder": "搜索名称、ID 或关键词"
+      }
+    },
+    {
+      "id": "categoryInputCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "categoryInputCardTitle",
+        "categoryInputRowBasic",
+        "categoryInputRowDisabled"
+      ]
+    },
+    {
+      "id": "categoryInputCardTitle",
+      "component": "span",
+      "props": {
+        "value": "CategoryInput 分类输入",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "categoryInputRowBasic",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "categoryInputRowBasicLabel",
+        "categoryInputRowBasicContent"
+      ]
+    },
+    {
+      "id": "categoryInputRowBasicLabel",
+      "component": "span",
+      "props": {
+        "value": "基础",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "categoryInputRowBasicContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "categoryInputBasic"
+      ]
+    },
+    {
+      "id": "categoryInputBasic",
+      "component": "CategoryInput",
+      "props": {
+        "categoryOptions": { "path": "/categoryInputOptions" },
+        "category": { "path": "/categoryInputCategory" },
+        "value": { "path": "/categoryInputValue" },
+        "placeholder": "请输入内容"
+      }
+    },
+    {
+      "id": "categoryInputRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "categoryInputRowDisabledLabel",
+        "categoryInputRowDisabledContent"
+      ]
+    },
+    {
+      "id": "categoryInputRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "categoryInputRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "categoryInputDisabled"
+      ]
+    },
+    {
+      "id": "categoryInputDisabled",
+      "component": "CategoryInput",
+      "props": {
+        "categoryOptions": { "path": "/categoryInputOptions" },
+        "category": { "path": "/categoryInputCategory" },
+        "value": { "path": "/categoryInputValue" },
+        "disabled": true
+      }
+    },
+    {
+      "id": "popoverCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "popoverCardTitle",
+        "popoverRowHover",
+        "popoverRowClick",
+        "popoverRowSlot"
+      ]
+    },
+    {
+      "id": "popoverCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Popover 气泡卡片",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "popoverRowHover",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["popoverRowHoverLabel", "popoverRowHoverContent"]
+    },
+    {
+      "id": "popoverRowHoverLabel",
+      "component": "span",
+      "props": { "value": "hover 触发（文本内容）", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "popoverRowHoverContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["popoverHover"]
+    },
+    {
+      "id": "popoverHover",
+      "component": "Popover",
+      "props": {
+        "content": "这是一段气泡内容，悬停触发显示。",
+        "title": "提示标题",
+        "placement": "top",
+        "trigger": ["hover"]
+      },
+      "children": ["popoverHoverTrigger"]
+    },
+    {
+      "id": "popoverHoverTrigger",
+      "component": "Button",
+      "props": { "value": "悬停我" }
+    },
+    {
+      "id": "popoverRowClick",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["popoverRowClickLabel", "popoverRowClickContent"]
+    },
+    {
+      "id": "popoverRowClickLabel",
+      "component": "span",
+      "props": { "value": "click 触发", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "popoverRowClickContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["popoverClick"]
+    },
+    {
+      "id": "popoverClick",
+      "component": "Popover",
+      "props": {
+        "content": "点击触发的气泡，可放置较长的说明文字。",
+        "placement": "bottom",
+        "trigger": ["click"]
+      },
+      "children": ["popoverClickTrigger"]
+    },
+    {
+      "id": "popoverClickTrigger",
+      "component": "Button",
+      "props": { "value": "点击我", "color": "primary" }
+    },
+    {
+      "id": "popoverRowSlot",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["popoverRowSlotLabel", "popoverRowSlotContentWrap"]
+    },
+    {
+      "id": "popoverRowSlotLabel",
+      "component": "span",
+      "props": { "value": "SlotNode 内容（自定义组件）", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "popoverRowSlotContentWrap",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["popoverSlot"]
+    },
+    {
+      "id": "popoverSlot",
+      "component": "Popover",
+      "props": {
+        "content": { "componentId": "popoverSlotBody" },
+        "title": "自定义内容",
+        "placement": "right",
+        "trigger": ["hover"]
+      },
+      "children": ["popoverSlotTrigger"]
+    },
+    {
+      "id": "popoverSlotTrigger",
+      "component": "Button",
+      "props": { "value": "悬停查看自定义内容" }
+    },
+    {
+      "id": "popoverSlotBody",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2 p-1 w-52" },
+      "children": ["popoverSlotBodyText", "popoverSlotBodyBtn"]
+    },
+    {
+      "id": "popoverSlotBodyText",
+      "component": "span",
+      "props": { "value": "气泡内可放置任意组件节点", "className": "text-sm text-on-surface" }
+    },
+    {
+      "id": "popoverSlotBodyBtn",
+      "component": "Button",
+      "props": { "value": "操作", "color": "primary", "size": "small" }
+    },
+    {
+      "id": "dropdownCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "dropdownCardTitle",
+        "dropdownRowClick",
+        "dropdownRowHover",
+        "dropdownRowSubmenu"
+      ]
+    },
+    {
+      "id": "dropdownCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Dropdown 下拉菜单",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "dropdownRowClick",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["dropdownRowClickLabel", "dropdownRowClickContent"]
+    },
+    {
+      "id": "dropdownRowClickLabel",
+      "component": "span",
+      "props": { "value": "click 触发（带图标）", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "dropdownRowClickContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["dropdownClick"]
+    },
+    {
+      "id": "dropdownClick",
+      "component": "Dropdown",
+      "props": {
+        "trigger": ["click"],
+        "placement": "bottomLeft",
+        "menu": [
+          { "label": "新建", "key": "new", "icon": "plus" },
+          { "label": "编辑", "key": "edit", "icon": "pencil" },
+          { "label": "删除", "key": "delete", "icon": "trash-2" }
+        ]
+      },
+      "children": ["dropdownClickTrigger"]
+    },
+    {
+      "id": "dropdownClickTrigger",
+      "component": "Button",
+      "props": { "value": "点击打开" }
+    },
+    {
+      "id": "dropdownRowHover",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["dropdownRowHoverLabel", "dropdownRowHoverContent"]
+    },
+    {
+      "id": "dropdownRowHoverLabel",
+      "component": "span",
+      "props": { "value": "hover 触发", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "dropdownRowHoverContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["dropdownHover"]
+    },
+    {
+      "id": "dropdownHover",
+      "component": "Dropdown",
+      "props": {
+        "trigger": ["hover"],
+        "placement": "bottom",
+        "menu": [
+          { "label": "选项一", "key": "1" },
+          { "label": "选项二", "key": "2" },
+          { "label": "选项三", "key": "3" }
+        ]
+      },
+      "children": ["dropdownHoverTrigger"]
+    },
+    {
+      "id": "dropdownHoverTrigger",
+      "component": "Button",
+      "props": { "value": "悬停打开" }
+    },
+    {
+      "id": "dropdownRowSubmenu",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["dropdownRowSubmenuLabel", "dropdownRowSubmenuContent"]
+    },
+    {
+      "id": "dropdownRowSubmenuLabel",
+      "component": "span",
+      "props": { "value": "嵌套子菜单", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "dropdownRowSubmenuContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["dropdownSubmenu"]
+    },
+    {
+      "id": "dropdownSubmenu",
+      "component": "Dropdown",
+      "props": {
+        "trigger": ["click"],
+        "placement": "bottomLeft",
+        "menu": [
+          {
+            "label": "文件",
+            "key": "file",
+            "icon": "file",
+            "children": [
+              { "label": "新建文件", "key": "new-file" },
+              { "label": "打开文件", "key": "open-file" }
+            ]
+          },
+          {
+            "label": "导出",
+            "key": "export",
+            "icon": "download",
+            "children": [
+              { "label": "导出 PDF", "key": "pdf" },
+              { "label": "导出 PNG", "key": "png" }
+            ]
+          },
+          { "label": "退出", "key": "quit" }
+        ]
+      },
+      "children": ["dropdownSubmenuTrigger"]
+    },
+    {
+      "id": "dropdownSubmenuTrigger",
+      "component": "Button",
+      "props": { "value": "查看子菜单" }
+    },
+    {
+      "id": "anchorCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "anchorCardTitle",
+        "anchorRow"
+      ]
+    },
+    {
+      "id": "anchorCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Anchor 锚点",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "anchorRow",
+      "component": "div",
+      "props": { "className": "flex items-start gap-3 flex-wrap" },
+      "children": ["anchorBasic", "anchorNested"]
+    },
+    {
+      "id": "anchorBasic",
+      "component": "Anchor",
+      "props": {
+        "offsetTop": 0,
+        "items": [
+          { "key": "ip", "href": "#ipInputCard", "title": "IpInput" },
+          { "key": "hex", "href": "#hexFieldCard", "title": "HexField" },
+          { "key": "cat", "href": "#categoryInputCard", "title": "CategoryInput" },
+          { "key": "pop", "href": "#popoverCard", "title": "Popover" },
+          { "key": "drop", "href": "#dropdownCard", "title": "Dropdown" }
+        ]
+      }
+    },
+    {
+      "id": "anchorNested",
+      "component": "Anchor",
+      "props": {
+        "offsetTop": 0,
+        "items": [
+          {
+            "key": "ip",
+            "href": "#ipInputCard",
+            "title": "IpInput",
+            "children": [
+              { "key": "ip-v4", "href": "#ipInputV4", "title": "IPv4" },
+              { "key": "ip-v6", "href": "#ipInputV6", "title": "IPv6" }
+            ]
+          },
+          { "key": "hex", "href": "#hexFieldCard", "title": "HexField" },
+          { "key": "drop", "href": "#dropdownCard", "title": "Dropdown" }
+        ]
+      }
+    },
+    {
+      "id": "searchInputCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "searchInputCardTitle",
+        "searchInputRowBasic",
+        "searchInputRowDisabled"
+      ]
+    },
+    {
+      "id": "searchInputCardTitle",
+      "component": "span",
+      "props": {
+        "value": "SearchInput 搜索输入框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "searchInputRowBasic",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["searchInputRowBasicLabel", "searchInputRowBasicContent"]
+    },
+    {
+      "id": "searchInputRowBasicLabel",
+      "component": "span",
+      "props": { "value": "基础", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "searchInputRowBasicContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["searchInputBasic"]
+    },
+    {
+      "id": "searchInputBasic",
+      "component": "SearchInput",
+      "props": {
+        "value": { "path": "/searchInputValue" },
+        "popItems": { "path": "/searchInputPopItems" },
+        "placeholder": "请输入搜索关键词",
+        "className": "w-80"
+      }
+    },
+    {
+      "id": "searchInputRowDisabled",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["searchInputRowDisabledLabel", "searchInputRowDisabledContent"]
+    },
+    {
+      "id": "searchInputRowDisabledLabel",
+      "component": "span",
+      "props": { "value": "禁用", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "searchInputRowDisabledContent",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["searchInputDisabled"]
+    },
+    {
+      "id": "searchInputDisabled",
+      "component": "SearchInput",
+      "props": {
+        "value": { "path": "/searchInputValue" },
+        "popItems": { "path": "/searchInputPopItems" },
+        "placeholder": "禁用状态",
+        "disabled": true,
+        "className": "w-80"
+      }
+    },
+    {
+      "id": "drawerCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": ["drawerCardTitle", "drawerRow", "demoDrawer"]
+    },
+    {
+      "id": "drawerCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Drawer 抽屉",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "drawerRow",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["drawerTrigger"]
+    },
+    {
+      "id": "drawerTrigger",
+      "component": "Button",
+      "props": {
+        "value": "打开抽屉",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/drawerOpen", "value": true } }
+      }
+    },
+    {
+      "id": "demoDrawer",
+      "component": "Drawer",
+      "props": {
+        "open": { "path": "/drawerOpen" },
+        "onClose": { "action": "setState", "args": { "path": "/drawerOpen", "value": false } },
+        "title": "抽屉标题",
+        "placement": "right",
+        "width": 420,
+        "footer": { "componentId": "drawerFooter" }
+      },
+      "children": ["drawerBody"]
+    },
+    {
+      "id": "drawerBody",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-3" },
+      "children": ["drawerBodyText", "drawerBodyInput"]
+    },
+    {
+      "id": "drawerBodyText",
+      "component": "span",
+      "props": {
+        "value": "抽屉内可放置任意内容，支持表单、表格等组件。",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "drawerBodyInput",
+      "component": "Input",
+      "props": {
+        "value": { "path": "/drawerInputValue" },
+        "placeholder": "请输入内容",
+        "className": "w-full"
+      }
+    },
+    {
+      "id": "drawerFooter",
+      "component": "div",
+      "props": { "className": "flex items-center justify-end gap-3" },
+      "children": ["drawerFooterCancel", "drawerFooterOk"]
+    },
+    {
+      "id": "drawerFooterCancel",
+      "component": "Button",
+      "props": {
+        "value": "取消",
+        "onClick": { "action": "setState", "args": { "path": "/drawerOpen", "value": false } }
+      }
+    },
+    {
+      "id": "drawerFooterOk",
+      "component": "Button",
+      "props": {
+        "value": "确定",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/drawerOpen", "value": false } }
+      }
+    },
+    {
+      "id": "tabsButtonCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": ["tabsButtonCardTitle", "tabsButtonRow", "tabsNativeRow", "tabsSwitchDemo"]
+    },
+    {
+      "id": "tabsButtonCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Tabs 触发器联动（Button / 原生 div·span·a）",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "tabsButtonRow",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["switchTab1Btn", "switchTab2Btn", "switchTab3Btn"]
+    },
+    {
+      "id": "switchTab1Btn",
+      "component": "Button",
+      "props": {
+        "value": "切换到概述",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab1" } }
+      }
+    },
+    {
+      "id": "switchTab2Btn",
+      "component": "Button",
+      "props": {
+        "value": "切换到详情",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab2" } }
+      }
+    },
+    {
+      "id": "switchTab3Btn",
+      "component": "Button",
+      "props": {
+        "value": "切换到设置",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab3" } }
+      }
+    },
+    {
+      "id": "tabsNativeRow",
+      "component": "div",
+      "props": { "className": "flex items-center gap-3 flex-wrap" },
+      "children": ["nativeTab1Div", "nativeTab2Span", "nativeTab3A"]
+    },
+    {
+      "id": "nativeTab1Div",
+      "component": "div",
+      "props": {
+        "value": "概述（div）",
+        "className": "px-4 py-2 rounded-md cursor-pointer text-sm font-medium bg-blue-500 text-white",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab1" } }
+      }
+    },
+    {
+      "id": "nativeTab2Span",
+      "component": "span",
+      "props": {
+        "value": "详情（span）",
+        "className": "px-4 py-2 rounded-md cursor-pointer text-sm font-medium bg-emerald-500 text-white",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab2" } }
+      }
+    },
+    {
+      "id": "nativeTab3A",
+      "component": "a",
+      "props": {
+        "value": "设置（a）",
+        "className": "px-4 py-2 rounded-md cursor-pointer text-sm font-medium bg-amber-500 text-white",
+        "onClick": { "action": "setState", "args": { "path": "/tabsActiveKey", "value": "tab3" } }
+      }
+    },
+    {
+      "id": "tabsSwitchDemo",
+      "component": "Tabs",
+      "props": {
+        "activeKey": { "path": "/tabsActiveKey" },
+        "types": "line"
+      },
+      "children": ["tabItem1", "tabItem2", "tabItem3"]
+    },
+    {
+      "id": "tabItem1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "概述",
+        "icon": "home",
+        "content": "这是概述页面的内容。点击上方的按钮可以切换到其它 Tab。"
+      }
+    },
+    {
+      "id": "tabItem2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file",
+        "content": "这是详情页面的内容。Button 通过 setState 改写 /tabsActiveKey 来驱动 Tab 切换。"
+      }
+    },
+    {
+      "id": "tabItem3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "这是设置页面的内容。手动点击 Tab 头同样会回写 /tabsActiveKey，与 Button 状态保持一致。"
+      }
+    }
+  ]
+}

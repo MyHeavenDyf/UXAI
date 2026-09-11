@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElTabs, ElTabPane, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus"
 import type { TabsNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
+import { useA2UI } from "../../renderer/render/Provider"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
@@ -32,7 +33,8 @@ const positionEnum = {
 const props = defineProps<A2UIComponentProps<TabsNode>>()
 const { properties } = props.node
 
-const { resolveValue, commitActivation } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, commitActivation, getValue, setState } = useA2UIComponent(props.node, props.surfaceId)
+const { store } = useA2UI()
 
 defineOptions({ inheritAttrs: false })
 
@@ -86,10 +88,48 @@ const position = computed(() => {
   return properties.tabPlacement ? positionEnum[properties.tabPlacement] : "top"
 })
 
-const activeKey = ref(resolveValue(properties.activeKey) as string)
+const firstTabKey = computed(() => {
+  const first = (properties.children as any[] | undefined)?.[0]
+  return first ? (resolveValue(first.properties.key) as string) : undefined
+})
+
+// activeKey 绑定到 state 路径（{ "path": "/x" }）时，构建期若 state 已声明该 key，会被替换成字面量值、路径丢失
+// （见 componentModel.resolvePropertyValue）。因此绑定态下 state 不应预声明该 key；此时初值回退到第一个 TabItem 的 key。
+const activeKey = ref((resolveValue(properties.activeKey) as string) || firstTabKey.value || "")
+
+// 从 activeKey 取绑定的 state 路径，使外部（如 Button 的 setState）改写该路径时能向下驱动当前 tab
+const bindingPath = computed(() => {
+  const ak = properties.activeKey as any
+  if (ak && typeof ak === "object" && !Array.isArray(ak) && typeof ak.path === "string") {
+    return ak.path
+  }
+  return null
+})
 
 watch(activeKey, (val) => {
-  if (val != null) commitActivation('activeKey', val)
+  if (val == null) return
+  // 用户点击 tab 头时把新 key 回写到绑定的 state 路径，并通知外部 host
+  if (bindingPath.value) {
+    setState(bindingPath.value, val)
+  } else {
+    commitActivation('activeKey', val)
+  }
+})
+
+let unsubscribe: (() => void) | null = null
+onMounted(() => {
+  unsubscribe = store.subscribeToSurface(props.surfaceId, () => {
+    if (bindingPath.value) {
+      const next = getValue(bindingPath.value) as string | null
+      if (next != null && next !== activeKey.value) {
+        activeKey.value = next
+      }
+    }
+  })
+})
+onUnmounted(() => {
+  unsubscribe?.()
+  unsubscribe = null
 })
 
 
