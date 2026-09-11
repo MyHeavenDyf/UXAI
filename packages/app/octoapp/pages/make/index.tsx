@@ -1453,7 +1453,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!state) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (!target.closest(".mention-popover-container")) {
+      if (!target.closest(".mention-popover-container") && !target.closest(".make-model-risk-overlay")) {
         setMentionState(null)
       }
     }
