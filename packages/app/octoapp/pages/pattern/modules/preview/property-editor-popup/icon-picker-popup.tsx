@@ -303,10 +303,11 @@ export function IconPickerPopup(props: {
   updatePos()
 
   const onOutside = (e: MouseEvent) => {
-    const t = e.target as Node
-    if (popupRef?.contains(t)) return
+    const t = e.target as HTMLElement
+    /** 用 closest 判定而非 ref.contains：兼容门户挂载时机/内部 shadow 目标导致的 ref 失效，点击弹窗内任何元素都不关闭 */
+    if (t?.closest?.('[data-icon-picker-popup]')) return
     if (props.anchor?.contains(t)) return
-    if ((t as HTMLElement).closest?.('[data-custom-select-list]')) return
+    if (t?.closest?.('[data-custom-select-list]')) return
     props.onClose()
   }
   window.addEventListener('mousedown', onOutside)
@@ -492,7 +493,7 @@ export function IconPickerPopup(props: {
         .icon-tabs :focus, .icon-tabs :focus-visible { outline: none }
         .api-icon > svg { width: 100%; height: 100% }
       `}</style>
-      <div ref={popupRef} class="fixed z-[302] flex flex-col rounded-md py-4"
+      <div ref={popupRef} data-icon-picker-popup class="fixed z-[450] flex flex-col rounded-md py-4"
         style={{
           left: state.pos.x + 'px',
           top: state.pos.y + 'px',

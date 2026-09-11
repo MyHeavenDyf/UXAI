@@ -217,6 +217,13 @@ export function PropertyEditorPopup(props: {
   let menuNodeIdCounter = 0
   const [menuPanelOpen, setMenuPanelOpen] = createSignal(false)
   let menuPanelRef!: HTMLDivElement
+  /** 菜单项图标选择弹窗：parent=顶层项索引，child=-1 表示顶层项本身、>=0 表示其子项索引；
+   *  渲染端菜单图标仅按 name 解析，走 embedded 模式只回传名称 */
+  const [menuIconPicker, setMenuIconPicker] = createSignal<{ parent: number; child: number; anchor?: HTMLElement } | null>(null)
+  /** 面板/编辑器关闭时清掉弹窗状态：否则残留的 target 会让下次打开菜单面板时图标弹窗自动弹出 */
+  createEffect(() => {
+    if (!props.show || !menuPanelOpen()) setMenuIconPicker(null)
+  })
 
   type TableColumn = {
     id: number; title: string; dataIndex: string; align: string
@@ -1283,7 +1290,13 @@ export function PropertyEditorPopup(props: {
   createEffect(() => {
     if (!menuPanelOpen()) return
     const handler = (ev: MouseEvent) => {
-      if (menuPanelRef && !menuPanelRef.contains(ev.target as Node)) setMenuPanelOpen(false)
+      const t = ev.target as HTMLElement
+      if (menuPanelRef?.contains(t)) return
+      /** 图标弹窗经 Portal 挂在 body 下（不在面板 DOM 内），其内部点击不算"面板外"；
+       *  其下拉列表（data-custom-select-list）同理，否则点菜单项图标弹窗会把整个编辑菜单关掉 */
+      if (t?.closest?.('[data-icon-picker-popup]')) return
+      if (t?.closest?.('[data-custom-select-list]')) return
+      setMenuPanelOpen(false)
     }
     document.addEventListener('mousedown', handler)
     onCleanup(() => document.removeEventListener('mousedown', handler))
@@ -1945,9 +1958,7 @@ export function PropertyEditorPopup(props: {
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
               <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
-                  <div class={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)
-                    ? 'flex w-full flex-col items-start gap-2'
-                    : 'flex items-center gap-2'}>
+                  <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
                       {LABEL_MAP[key] || key}
                       <Show when={isBinding(key)}>
@@ -1975,7 +1986,7 @@ export function PropertyEditorPopup(props: {
                                 setIconPickerAnchor(e.currentTarget)
                                 setIconPickerOpen(true)
                               }}
-                              class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              class="h-6 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
                               style={{ position: 'relative', overflow: 'hidden' }}>
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
               <IconFieldPreview
@@ -2052,8 +2063,14 @@ export function PropertyEditorPopup(props: {
 
           <Show when={menuPanelOpen()}>
             <Portal>
-              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
-                onMouseDown={() => setMenuPanelOpen(false)}>
+              <div class="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={(e) => {
+                  /** 仅"直接点在遮罩空白处"才关面板：e.target 校验挡住一切子元素/弹层冒泡上来的 mousedown
+                   *  （含图标弹窗搜索框原生清除按钮等异常路径）；图标弹窗打开时点遮罩只关弹窗，不关面板 */
+                  if (e.target !== e.currentTarget) return
+                  if (menuIconPicker()) { setMenuIconPicker(null); return }
+                  setMenuPanelOpen(false)
+                }}>
                 <div ref={menuPanelRef} class="flex flex-col gap-2 w-[440px] max-w-[92vw] p-3"
                   style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
                   onMouseDown={(e) => e.stopPropagation()}>
@@ -2087,10 +2104,18 @@ export function PropertyEditorPopup(props: {
                                 onInput={(e) => setMenuTree(i(), 'title', e.currentTarget.value)}
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!n.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                              <input value={n.icon}
-                                onInput={(e) => setMenuTree(i(), 'icon', e.currentTarget.value)}
-                                type="text" placeholder="图标"
-                                class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              {/* 菜单项图标：下拉触发器（小预览+名称+箭头），点击打开图标弹窗（embedded，只回传名称） */}
+                              <button type="button"
+                                onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: -1, anchor: e.currentTarget }) }}
+                                class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                style={{ position: 'relative', overflow: 'hidden' }}>
+                                <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                  <IconFieldPreview name={n.icon} />
+                                </span>
+                                <span class="text-left text-slate-600"
+                                  style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{n.icon || '图标'}</span>
+                                <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                              </button>
                               <button onClick={() => setMenuTree(menuTree.filter(x => x.id !== n.id))}
                                 class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                 <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -2112,10 +2137,18 @@ export function PropertyEditorPopup(props: {
                                           onInput={(e) => setMenuTree(i(), 'children', ci(), 'title', e.currentTarget.value)}
                                           type="text" placeholder="子项标题"
                                           class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                                        <input value={c.icon}
-                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'icon', e.currentTarget.value)}
-                                          type="text" placeholder="图标"
-                                          class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                        {/* 子项图标：同顶层项，embedded 模式只回传名称 */}
+                                        <button type="button"
+                                          onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: ci(), anchor: e.currentTarget }) }}
+                                          class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                          style={{ position: 'relative', overflow: 'hidden' }}>
+                                          <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                            <IconFieldPreview name={c.icon} />
+                                          </span>
+                                          <span class="text-left text-slate-600"
+                                            style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{c.icon || '图标'}</span>
+                                          <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        </button>
                                         <button onClick={() => setMenuTree(i(), 'children', (menuTree[i()].children ?? []).filter(x => x.id !== c.id))}
                                           class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -2156,6 +2189,24 @@ export function PropertyEditorPopup(props: {
                   </button>
                 </div>
               </div>
+              {/* 菜单项图标弹窗：挂在菜单面板 Show 内（随面板卸载），embedded 模式只回传名称写入对应菜单项 */}
+              <Show when={menuIconPicker()}>
+                <IconPickerPopup
+                  mode="embedded"
+                  current={(menuIconPicker()!.child >= 0
+                    ? menuTree[menuIconPicker()!.parent]?.children?.[menuIconPicker()!.child]?.icon
+                    : menuTree[menuIconPicker()!.parent]?.icon) ?? ''}
+                  anchor={menuIconPicker()!.anchor}
+                  sessionId={props.sessionId}
+                  htmlFilePath={props.htmlFilePath}
+                  onPick={(pick) => {
+                    const t = menuIconPicker()!
+                    if (t.child >= 0) setMenuTree(t.parent, 'children', t.child, 'icon', pick.name)
+                    else setMenuTree(t.parent, 'icon', pick.name)
+                    setMenuIconPicker(null)
+                  }}
+                  onClose={() => setMenuIconPicker(null)} />
+              </Show>
             </Portal>
           </Show>
 
