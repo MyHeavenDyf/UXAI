@@ -1958,9 +1958,7 @@ export function PropertyEditorPopup(props: {
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
               <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
-                  <div class={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)
-                    ? 'flex w-full flex-col items-start gap-2'
-                    : 'flex items-center gap-2'}>
+                  <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
                       {LABEL_MAP[key] || key}
                       <Show when={isBinding(key)}>
@@ -1988,7 +1986,7 @@ export function PropertyEditorPopup(props: {
                                 setIconPickerAnchor(e.currentTarget)
                                 setIconPickerOpen(true)
                               }}
-                              class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              class="h-6 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
                               style={{ position: 'relative', overflow: 'hidden' }}>
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
               <IconFieldPreview
