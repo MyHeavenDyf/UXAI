@@ -53,6 +53,9 @@ export function ModelEditAreaDialog(props: {
   let editorRef: EditorRef | undefined
   let dialogRef: HTMLDivElement | undefined
   let parentRef: HTMLDivElement | undefined
+  let dragOverlay: HTMLDivElement | undefined
+
+  onCleanup(() => { dragOverlay?.remove() })
 
   const [cRect, setCRect] = createSignal<DOMRect | null>(null)
 
@@ -204,15 +207,24 @@ export function ModelEditAreaDialog(props: {
     const startLeft = dialogRef.offsetLeft
     const startTop = dialogRef.offsetTop
 
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:move;background:transparent'
+    document.body.appendChild(overlay)
+    dragOverlay = overlay
+
     const move = (ev: MouseEvent) => {
       setDragPos({ left: startLeft + ev.clientX - startX, top: startTop + ev.clientY - startY })
     }
     const up = () => {
       document.removeEventListener('mousemove', move)
       document.removeEventListener('mouseup', up)
+      window.removeEventListener('blur', up)
+      overlay.remove()
+      dragOverlay = undefined
     }
     document.addEventListener('mousemove', move)
     document.addEventListener('mouseup', up)
+    window.addEventListener('blur', up)
   }
 
   const buildPrefix = () => {
