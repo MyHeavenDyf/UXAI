@@ -148,7 +148,7 @@ export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig 
   const config = getSubtypeConfig(subtype)
   const { features, rendering } = config
   
-  const editEnabled = features.localEdit || features.drawEdit || features.canvasEdit
+  const editOrModelEdit = features.localEdit || features.drawEdit || features.canvasEdit || features.modelEdit
   const customBridges = rendering?.customBridges || []
   
   return {
@@ -157,8 +157,8 @@ export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig 
     injectPicker: true,
     injectInspect: true,
     
-    injectEdit: editEnabled,
-    injectEditStyle: editEnabled,
+    injectEdit: editOrModelEdit,
+    injectEditStyle: editOrModelEdit,
     injectModelEdit: features.modelEdit,
     
     injectComment: features.comment && !customBridges.includes('custom-comment'),

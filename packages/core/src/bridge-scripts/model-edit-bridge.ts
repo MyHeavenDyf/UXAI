@@ -178,6 +178,11 @@ function me_setSelected(el) {
   if (el) el.setAttribute('data-od-edit-selected', 'true');
 }
 
+function me_handleMouseDown(ev) {
+  if (!me_enabled) return;
+  ev.preventDefault();
+}
+
 function me_handleClick(ev) {
   if (!me_enabled) return;
   ev.preventDefault();
@@ -233,8 +238,10 @@ window.addEventListener('message', function(ev) {
     document.documentElement.toggleAttribute('data-od-edit-mode', me_enabled);
     if (me_enabled) {
       me_annotateRendered();
+      document.body.addEventListener('mousedown', me_handleMouseDown, true);
       document.body.addEventListener('click', me_handleClick, true);
     } else {
+      document.body.removeEventListener('mousedown', me_handleMouseDown, true);
       document.body.removeEventListener('click', me_handleClick, true);
       me_clearSelected();
     }
