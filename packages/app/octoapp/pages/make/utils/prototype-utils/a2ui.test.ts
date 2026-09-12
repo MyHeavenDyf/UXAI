@@ -10,6 +10,7 @@ import {
   loadA2uiData,
   loadA2uiDocs,
   persistA2uiDoc,
+  schedulePersistA2uiDoc,
 } from "./a2ui"
 
 // ── 内存 fake DesktopApi：用 Map 模拟文件系统，记录写入/重命名 ─────────────
@@ -361,6 +362,18 @@ describe("commitA2uiDoc", () => {
     expect(posted[0].type).toBe("od:a2ui-update")
     expect(posted[0].payload).toBe(modified)
     expect(entry.persistPending).toBe(true)
+    expect(entry.pendingHistory).toBe(true)
     expect(entry.persistTimer).not.toBeNull()
+  })
+
+  test("schedulePersistA2uiDoc 默认不标记历史：状态同步落盘不触发 user 版本", () => {
+    const { api } = makeFs({})
+    const { session } = makeSession(api, { filePath: "/proto/prototype.html" })
+    const entry: A2uiDocEntry = { doc: docA, loadSize: 10, jsonPath: "x", dataJsPath: null, rootId: "notesCard", persistTimer: null, persistPending: false }
+    session.a2uiDocs = [entry]
+    // 模拟 od:a2ui-state-snapshot / A2UI_STATE_CHANGE 的调用：不传 history
+    schedulePersistA2uiDoc(session, entry)
+    expect(entry.persistPending).toBe(true)
+    expect(entry.pendingHistory).toBeFalsy()
   })
 })

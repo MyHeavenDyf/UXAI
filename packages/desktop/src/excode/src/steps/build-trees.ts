@@ -117,17 +117,29 @@ interface BuildContext {
    * state-builder 据此给 binding/computed 打 shared 标记 → 走共享 store。
    */
   eventMutatedPaths: Set<string>
+  /**
+   * 锚点目标 id 集合（#buildPage 预扫产出，去前导 `#`）。
+   * 命中此 id 的节点建树时打 keepId=true，使 config.id=false 时仍输出 id（锚点 href 不致变死链）。
+   * 仅当「数据含 Anchor 组件 且 config.id===false」时预扫返回非空集；否则为 null（不预扫 /
+   * 无 Anchor → 建树时可选链短路，不调 has()、不打任何 keepId）。
+   */
+  anchorTargetIds: Set<string> | null
 }
 
 export class BuildTrees extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
     ctx.builtPages = []
 
+    // keepId 只在「config.id===false 且数据含 Anchor 组件」时才有意义（config.id=true 时 emitId
+    // 已覆盖全部 id）。config.id=false 时才预扫；预扫内单次遍历同时判定有无 Anchor，无 Anchor
+    // 则返回 null、不进标记（见 #collectAnchorTargetIds / #buildPage）。config.id=true 时不预扫。
+    const needKeepId = ctx.config?.id === false
+
     const pagesData: PageData[] = (ctx as any).pagesData || []
     for (const pageData of pagesData) {
       ctx.currentPage = pageData.pageName   // 诊断：出错时 pipeline-engine 能定位到页
       try {
-        const built = await this.#buildPage(pageData)
+        const built = await this.#buildPage(pageData, needKeepId)
         ctx.builtPages.push(built)
       } catch (err: any) {
         // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
@@ -146,7 +158,7 @@ export class BuildTrees extends Step {
     )
   }
 
-  async #buildPage(pageData: PageData): Promise<BuiltPage> {
+  async #buildPage(pageData: PageData, needKeepId: boolean): Promise<BuiltPage> {
     const { pageName, a2uiDoc, splitMeta } = pageData
     const { rootId, elements, state } = a2uiDoc
 
@@ -168,6 +180,14 @@ export class BuildTrees extends Step {
     // 必须在建树遍历前完成——#processValue 解析 binding 时即可查此集合。
     const eventMutatedPaths = this.#collectEventMutatedPaths(elements)
 
+    // 锚点目标 id 预扫：仅 config.id===false 时跑（needKeepId）。
+    // #collectAnchorTargetIds 单次遍历同时判定「是否含 Anchor」：无 Anchor → 返回 null，
+    // 建树标记侧可选链短路（不调 has()、不打 keepId）——id 保留只在「有 Anchor 且 config.id===false」时发生。
+    // config.id=true 时根本不预扫（needKeepId=false → null）。
+    const anchorTargetIds = needKeepId
+      ? this.#collectAnchorTargetIds(elements, state || {})
+      : null
+
     const ctx: BuildContext = {
       elements,
       state: state || {},
@@ -176,6 +196,7 @@ export class BuildTrees extends Step {
       iconCollector,
       loopStack: [],
       eventMutatedPaths,
+      anchorTargetIds,
     }
 
     const rootTree = this.#buildTree(rootId, ctx, 0)
@@ -229,6 +250,50 @@ export class BuildTrees extends Step {
     return paths
   }
 
+  /**
+   * 预扫所有 Anchor 元素的 items，收集锚点目标 id（去前导 `#`）。
+   * 命中此 id 的节点建树时打 keepId=true，使 config.id=false 时仍输出 id（锚点 href 不致变死链）。
+   *
+   * 单次遍历同时判定「是否含 Anchor」：未发现任何 Anchor 元素时返回 **null**（而非空集），
+   * 让 #buildTree 标记侧经可选链短路（不建 Set、不逐节点调 has()）——id 保留只在
+   * 「数据有 Anchor 且 config.id===false」时才真正发生（#buildPage 已按 config.id 门控调用）。
+   *
+   * items 两形态（与 Anchor 映射 transform 识别一致）：
+   *   - 字面量数组 → 直接遍历
+   *   - DataBinding（{path} 对象，#processValue 识别为 BindingValue）→ 绝对 path（`/` 前缀）
+   *     解析到页面 state 拿真实 items 数组再遍历；相对 path（无 `/`）跳过；state 取不到跳过。
+   * 递归 item.children 收集多级嵌套 href。
+   */
+  #collectAnchorTargetIds(elements: any[], state: Record<string, any>): Set<string> | null {
+    const ids = new Set<string>()
+    let sawAnchor = false
+    const visit = (item: any) => {
+      if (!item || typeof item !== 'object') return
+      if (typeof item.href === 'string') {
+        const h = item.href.startsWith('#') ? item.href.slice(1) : item.href
+        if (h) ids.add(h)
+      }
+      if (Array.isArray(item.children)) item.children.forEach(visit)
+    }
+    for (const el of elements || []) {
+      if (el?.component !== 'Anchor') continue
+      sawAnchor = true
+      const items = el?.props?.items
+      let arr: any[] | null = null
+      if (Array.isArray(items)) {
+        arr = items                                  // 字面量
+      } else if (items && typeof items === 'object' && 'path' in items && typeof items.path === 'string') {
+        // DataBinding：仅绝对 path 可静态解析（相对 path 在循环内 per-item，跳过）
+        if (items.path.startsWith('/')) {
+          const resolved = resolveBySegments(state, pathToSegments(items.path))
+          if (Array.isArray(resolved)) arr = resolved
+        }
+      }
+      arr?.forEach(visit)
+    }
+    return sawAnchor ? ids : null
+  }
+
   #buildTree(elementId: string, ctx: BuildContext, depth: number): RegularNode | null {
     if (depth > 200) {
       console.warn(`[BuildTrees] 深度超过 200，终止: ${elementId}`)
@@ -261,11 +326,16 @@ export class BuildTrees extends Step {
 
     const loopScope = buildLoopScope(ctx.loopStack)
 
+    // 锚点目标节点打 keepId（anchorTargetIds 仅在「config.id=false 且数据含 Anchor」时非 null；
+    // null 时可选链短路返回 undefined，不调 has()、无逐节点开销）
+    const keepId = ctx.anchorTargetIds?.has(el.id) || undefined
+
     if (isComponent) {
       const node: ComponentNode = {
         __node: true,
         kind: 'component',
         id: el.id,
+        keepId,
         component: el.component,
         props: processedProps,
         children: children as any,
@@ -285,6 +355,7 @@ export class BuildTrees extends Step {
         __node: true,
         kind: 'html',
         id: el.id,
+        keepId,
         tag: el.component,
         props: finalProps,
         children: finalChildren as any,
@@ -361,11 +432,15 @@ export class BuildTrees extends Step {
 
     const loopScope = buildLoopScope(ctx.loopStack)
 
+    // 锚点目标节点打 keepId（抽取模块 inner 节点同样打标，使模板文件 emit 时输出 id）
+    const keepId = ctx.anchorTargetIds?.has(el.id) || undefined
+
     const innerNode: RegularNode = isComponent
       ? {
           __node: true,
           kind: 'component',
           id: el.id,
+          keepId,
           component: el.component,
           props: processedProps,
           children: children as any,
@@ -376,6 +451,7 @@ export class BuildTrees extends Step {
           __node: true,
           kind: 'html',
           id: el.id,
+          keepId,
           tag: el.component,
           props: processedProps,
           children: children as any,

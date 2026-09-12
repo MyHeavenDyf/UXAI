@@ -97,6 +97,8 @@ export function ResultViewer(props: {
   historyEntries?: VersionEntry[]
   currentVersionId?: string | null
   onModeChange?: (mode: "preview" | "edit") => void
+  /** 进入局部修改（editing）时触发，父侧用于关闭历史记录等浮层 */
+  onLocalEditStart?: () => void
   onHistorySwitch?: (entry: VersionEntry) => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
@@ -213,6 +215,7 @@ export function ResultViewer(props: {
       const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
       if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
     }
+    if (!prev && editing) props.onLocalEditStart?.()
   }))
 
   const handleLocalEditToggle = async () => {
@@ -810,7 +813,14 @@ archiving={featureMutex.state.archiving}
       </Show>
     </Show>
     <PrototypeCtxMenu />
-    <PrototypePropertyEditor />
+    <PrototypePropertyEditor
+      sessionId={props.sessionId}
+      skillConfig={props.skillConfig}
+      artifactFiles={props.artifactFiles}
+      productId={props.productId}
+      onDownloadProductAsset={props.onDownloadProductAsset}
+      onUpdateMentionPath={props.onUpdateMentionPath}
+    />
   </div>
 )
 }

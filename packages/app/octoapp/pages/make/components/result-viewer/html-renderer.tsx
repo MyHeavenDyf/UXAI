@@ -36,6 +36,7 @@ import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import { getA2uiDataRelativePaths } from "../../utils/prototype-utils"
 import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
@@ -450,6 +451,7 @@ export function HtmlRenderer(props: {
       
       // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
       let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
+      let previewExtraRels: string[] = []
       const handler = getSubtypeHandler(props.subtype)
       if (handler?.buildArchiveSrc && props.tabId) {
         const m = local.model.current()
@@ -478,6 +480,15 @@ export function HtmlRenderer(props: {
           sessionId: props.sessionId,
           sdkDirectory: props.sdkDirectory,
         }
+        // 混合 prototype 的 a2ui-data 以 dataPath: './...' JS 字面量引用，静态正则抓不到、
+        // 运行时 observedUrls 时序不稳定——按 getA2uiDataRelativePaths 显式列出，确定性地补进 preview/。
+        if (props.subtype === "prototype") {
+          try {
+            previewExtraRels = await getA2uiDataRelativePaths(ctx)
+          } catch (err) {
+            console.warn("[Archive] getA2uiDataRelativePaths failed:", err)
+          }
+        }
         try {
           const r = await handler.buildArchiveSrc(ctx)
           if (r) {
@@ -491,10 +502,40 @@ export function HtmlRenderer(props: {
         }
       }
       
-      // prototype 的 assets 是 symlink 指向 ict-coder 安装位置（不带 hash，与 HTML 引用 ./assets/index.js 匹配）；
-      // list-directory 用 readdirSync 跟随 symlink，能列出真实内容
+      // prototype 归档补 preview/ 本地资源目录（绕过静态正则 + observedUrls 时序局限）：
+      //  ① htmlDir/assets —— 顶层 assets 软链布局（HTML 引用 ./assets/index.js，无 hash）；不存在则 archive-utils 逐目录 try/catch 跳过。
+      //  ② previewdist 运行时 —— 混合/previewdist 布局（HTML 引用 ./previewdist/PreviewRenderer.js，distPath='./previewdist'，
+      //     PreviewRenderer 运行时再动态加载 ./previewdist/assets/index.js + CSS + 字体 + index.prototype.html）。
+      //     兼容真实目录与软链两种形态：优先页内 htmlDir/previewdist（内容与其 PreviewRenderer.js 自洽）；
+      //     若 listDirectory 不跟随软链 / 目录不存在导致拿不到文件，回退 getPreviewDistDir() 真实路径
+      //     （开发态 packages/previewdist、安装态 resources/previewdist；pattern 归档同此路径，见 pattern-archive-utils.ts）。
+      //     两者经 previewExtraDirs 的 relativeTo(htmlDir, …) → 'previewdist' 写到 preview/previewdist/，对上 HTML 的 ./previewdist/ 引用。
       const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
-      const previewExtraDirs = props.subtype === "prototype" && htmlDir ? [joinPath(htmlDir, "assets")] : []
+      const previewExtraDirs: string[] = []
+      if (props.subtype === "prototype" && htmlDir) {
+        previewExtraDirs.push(joinPath(htmlDir, "assets"))
+        const desktopApi = getDesktopApi()
+        // 仅当页引用 ./previewdist/ 时才补 previewdist 运行时（避免顶层-assets 布局无谓打包共享运行时）：
+        if (/\.\/previewdist\//i.test(htmlContent)) {
+          const previewdistDir = joinPath(htmlDir, "previewdist")
+          const listDirectory = desktopApi?.listDirectory
+          let usePreviewdistDir = false
+          if (listDirectory) {
+            try {
+              const entries = await listDirectory(previewdistDir)
+              usePreviewdistDir = entries.some(e => e.type === "file")
+            } catch { /* 软链未跟随 / 目录不存在 → 走回退 */ }
+          }
+          if (usePreviewdistDir) {
+            previewExtraDirs.push(previewdistDir)
+          } else {
+            const getPreviewDistDir = desktopApi?.getPreviewDistDir
+            if (getPreviewDistDir) {
+              try { previewExtraDirs.push(await getPreviewDistDir()) } catch {}
+            }
+          }
+        }
+      }
 
       // prototype：抓 iframe 实时 DOM 快照，用于在 data/components.json 记录
       // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
@@ -511,6 +552,7 @@ export function HtmlRenderer(props: {
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
         srcFiles,
         previewExtraDirs,
+        previewExtraRels,
         prototypeSnapshotHtml,
       })
       

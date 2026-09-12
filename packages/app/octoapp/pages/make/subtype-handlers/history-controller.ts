@@ -149,6 +149,17 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     }
   }
 
+  /** 仅刷新 tab 关联文件的合并 hash 基线，不记录版本。
+   *  用于 prototype 状态同步落盘（非用户编辑）：persist 写了 a2ui-data 但不该产生 user 版本，
+   *  此处把 lastFileHash 推进到写后值，避免随后 onFileRefresh 把这次写入误记为 agent 编辑。 */
+  async function syncFileHash(tab: ResultTab): Promise<void> {
+    if (!isEligible(tab)) return
+    const hash = await getTabFileSetHash(tab)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
+    }
+  }
+
   /** 标记 tab 开始写文件（避免 agent 路径 B 误判） */
   function beginWrite(tabId: string): void {
     writingTabs.add(tabId)
@@ -243,6 +254,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     trigger,
     switchVersion,
     onUserEdit,
+    syncFileHash,
     onTabOpen,
     onFileRefresh,
     loadVersions,

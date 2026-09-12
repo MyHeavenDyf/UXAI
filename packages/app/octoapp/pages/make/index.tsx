@@ -44,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
+import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -534,8 +534,11 @@ const sessionMessagesLoaded = createMemo(() => {
   )
 
   // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
+  // 同时关闭 prototype 局部编辑浮层（mask/属性编辑器/右键菜单）：它们是挂在
+  // ResultViewer 层级的单例,不随 tab 卸载而消失,需显式关闭。
   createEffect(on(() => params.id, () => {
     setAttachments([])
+    closePrototypePanels()
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -1360,26 +1363,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id, kind }) => {
-    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
-    const line = text ? `[${tag}: ${id}] ${text};` : ""
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    if (text) {
-      ref?.clear?.()
-      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-    }
-    void handleSubmit()
-  })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id, kind }) => {
-    const tag = kind === 'host' ? '选中页面元素' : '选中A2UI元素'
-    const line = `[${tag}: ${id}] ${text};`
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    ref?.clear?.()
-    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-  })
-  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -1728,16 +1711,23 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
   // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
-  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // 用 beginWrite/endWrite 包住，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // detail.history=true（源于 commitA2uiDoc 属性编辑/拖拽）才记 user 版本；
+  // history=false（状态同步 A2UI_STATE_CHANGE / od:a2ui-state-snapshot / 退出 flush）
+  // 仅落盘保活，不产生历史，但仍推进 lastFileHash 防止 onFileRefresh 误记 agent。
   createEffect(() => {
     const handler = async (e: Event) => {
-      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      const detail = (e as CustomEvent<{ filePath: string; history?: boolean }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target || target.subtype !== "prototype") return
       historyController.beginWrite(target.id)
       try {
-        await historyController.onUserEdit(target)
+        if (detail.history) {
+          await historyController.onUserEdit(target)
+        } else {
+          await historyController.syncFileHash(target)
+        }
       } finally {
         historyController.endWrite(target.id)
       }
@@ -5629,6 +5619,7 @@ onPreview={(url) => {
                 onModeChange={(mode) => {
                   if (mode === "edit") setShowHistoryPanel(false)
                 }}
+                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())

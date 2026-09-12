@@ -7,6 +7,7 @@
  *
  * | A2UI prop | 处理方式 |
  * |-----------|---------|
+ * | src（字面量/DataBinding） | **优先**：渲染原生 `<img src=... />`，name/color/shape 不再处理 |
  * | name（字面量） | resolveIcon 直出（无 binding 场景） |
  * | name（DataBinding，绝对/相对） | **ComputedValue** + Fragment + Node.text，transform 内 cvCtx.resolveIcon |
  * | color（字面量） | 传给 resolveIcon（→ iconColor） |
@@ -69,6 +70,24 @@ export function createIconMapping(pkg: string): MappingDef {
 
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
+
+      // ─── src 存在 → 渲染原生 <img>，name/color/shape 不再处理 ───
+      // src：字面量字符串 → src="..."；DataBinding（绝对/相对）→ src={stateRef}（state-builder 自动收集）
+      // import:'' 必填：覆盖 def.import（${pkg}/Icon），否则 registry 的 `result.import ?? def.import`
+      // 会回退到 Icon 模块路径，而 tag 是 img → import-collector 会误产 `import img from '.../Icon'`。
+      // 空串非 nullish 能命中 ?? 覆盖；所有下游 import 消费方对 falsy import 提前 return（img 是原生标签无 import）。
+      const { src } = props
+      if (src !== undefined && src !== null) {
+        const imgProps: Record<string, any> = { src }
+        if (typeof props.className === 'string') imgProps.className = props.className
+        return {
+          tag: 'img',
+          import: '',
+          props: imgProps,
+          selfClosing: true,
+        } as any
+      }
+
       const name = props.name
       const color = props.color
       const iconProps = extractLiteralIconProps(props)

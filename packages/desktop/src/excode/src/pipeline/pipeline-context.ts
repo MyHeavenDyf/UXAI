@@ -48,6 +48,13 @@ export interface MappedPage {
 export interface GeneratedFile {
   path: string
   content: string
+  /**
+   * 仅 .tsx/.jsx 产物文件有：该文件 emitted 的 A2UI 元素基础 id 列表。
+   * 用于设计平台「框选节点 → 定位产物文件」映射（见 PLAN-manifest.md）。
+   * 存的是基础 id（不含循环展开的 `:index` 后缀），由 file-assembler 走树收集。
+   * state.ts / .less / config.ts / 模板复制文件不带此字段。
+   */
+  nodeIds?: string[]
 }
 
 /** 管线执行期错误（单页隔离收集，由 GenerateReport 汇总输出） */
