@@ -93,18 +93,27 @@ const firstTabKey = computed(() => {
   return first ? (resolveValue(first.properties.key) as string) : undefined
 })
 
-// activeKey 绑定到 state 路径（{ "path": "/x" }）时，构建期若 state 已声明该 key，会被替换成字面量值、路径丢失
-// （见 componentModel.resolvePropertyValue）。因此绑定态下 state 不应预声明该 key；此时初值回退到第一个 TabItem 的 key。
-const activeKey = ref((resolveValue(properties.activeKey) as string) || firstTabKey.value || "")
-
-// 从 activeKey 取绑定的 state 路径，使外部（如 Button 的 setState）改写该路径时能向下驱动当前 tab
+// 绑定路径：activeKey 为 { path } 绑定时的 state 路径。
+// 注意：若 state 已预声明该 key，构建期会把 { path } 折叠成字面量，properties.activeKey 里就只剩字面量、路径丢失；
+// 此时从 store 的原始 elements（未折叠）里取回 activeKey 的绑定路径，确保外部 Button 的 setState 能驱动当前 tab。
 const bindingPath = computed(() => {
   const ak = properties.activeKey as any
   if (ak && typeof ak === "object" && !Array.isArray(ak) && typeof ak.path === "string") {
     return ak.path
   }
+  const surface = store.getSurface(props.surfaceId) as any
+  const rawAk = surface?.components?.get?.(props.node.id)?.props?.activeKey
+  if (rawAk && typeof rawAk === "object" && !Array.isArray(rawAk) && typeof rawAk.path === "string") {
+    return rawAk.path
+  }
   return null
 })
+
+// 初值：绑定态优先从 state 读取，否则取 activeKey 字面量，最后回退到第一个 TabItem 的 key
+const activeKey = ref(
+  (bindingPath.value ? (getValue(bindingPath.value) as string) : (resolveValue(properties.activeKey) as string))
+  || firstTabKey.value || ""
+)
 
 watch(activeKey, (val) => {
   if (val == null) return
