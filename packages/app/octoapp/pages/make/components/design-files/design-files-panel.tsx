@@ -48,10 +48,21 @@ import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile, IconRefresh } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
+import { getDesktopApi } from "../../lib/electron-api"
+import { dirname, basename, joinPath } from "../../utils/references"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
   const capitalized = kind.charAt(0).toUpperCase() + kind.slice(1)
   return `designFiles.kind${capitalized}`
+}
+
+async function deletePanelStateFile(htmlPath: string): Promise<void> {
+  const api = getDesktopApi()
+  if (!api?.deleteFile) return
+  try {
+    const statePath = joinPath(dirname(htmlPath), '.' + basename(htmlPath) + '.panel-state.json')
+    await api.deleteFile(statePath)
+  } catch { /* silent — don't block deletion */ }
 }
 
 const modifiedSectionToI18nKey = (section: ModifiedSection): string => {
@@ -229,6 +240,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const doDelete = async (file: ArtifactFile) => {
     try {
       await deleteArtifactFile(globalSDK.url, sdk.directory, file.path)
+      void deletePanelStateFile(file.path)
       fileStore.deleteFile(file.path)
 
       const previewFile = fileStore.previewFile()
@@ -280,6 +292,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     try {
       const result = await deleteArtifactBatch(globalSDK.url, sdk.directory, paths)
       for (const path of paths) {
+        void deletePanelStateFile(path)
         fileStore.deleteFile(path)
       }
       fileStore.clearSelection()

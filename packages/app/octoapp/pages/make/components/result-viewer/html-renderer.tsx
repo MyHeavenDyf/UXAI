@@ -1,4 +1,5 @@
 import { createMemo, createSignal, createResource, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
@@ -22,7 +23,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
-import { dirname, joinPath } from "../../utils/references"
+import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
@@ -237,6 +238,77 @@ export function HtmlRenderer(props: {
   const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
   const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
   const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
+
+  const [panelStateCache, setPanelStateCache] = createStore<Record<string, Record<string, string>>>({})
+
+  const panelStatePath = () => {
+    const fp = props.filePath
+    if (!fp) return null
+    return joinPath(dirname(fp), '.' + basename(fp) + '.panel-state.json')
+  }
+
+  const loadPanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.readFileBuffer || !sp) return
+    try {
+      const buf = await api.readFileBuffer(sp)
+      if (!buf) return
+      const text = new TextDecoder().decode(new Uint8Array(buf))
+      const data = JSON.parse(text) as Record<string, Record<string, string>>
+      setPanelStateCache({ ...data })
+    } catch { /* file not found or parse error — normal degradation */ }
+  }
+
+  const writePanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.writeFileBuffer || !sp) return
+    try {
+      const json = JSON.stringify(panelStateCache)
+      const buf = new TextEncoder().encode(json).buffer as ArrayBuffer
+      await api.writeFileBuffer(sp, buf)
+    } catch { /* silent fail — don't block save */ }
+  }
+
+  const handleIframeLoad = () => {
+    if (!iframeRef) return
+    if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
+    if (props.editing) {
+      iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+    }
+    if (props.inspecting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+    }
+    if (props.commenting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+      const comments = savedComments()
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+    }
+    if (props.modelEditing) {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage({
+        type: "od:model-edit-mode",
+        enabled: true,
+        componentFlag: config?.componentFlag || null,
+        htmlFlag: config?.htmlFlag || null,
+      }, "*")
+    }
+    if (props.palette) {
+      iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+    }
+    const overrides = savedOverrides()
+    if (overrides.length > 0) {
+      overrides.forEach((override) => {
+        iframeRef.contentWindow?.postMessage(
+          { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+          "*"
+        )
+      })
+    }
+    void loadPanelState()
+  }
+
   const modelEditContext = createMemo((): ModelEditContext | undefined => {
     const target = modelEditTarget()
     if (!target) return undefined
@@ -1242,6 +1314,11 @@ createEffect(() => {
         setModelEditPanelInfo(target.htmlHint)
       }
 
+      const cached = panelStateCache[target.selector]
+      if (cached) {
+        panelData = { ...panelData, ...cached }
+      }
+
       setModelEditPrevData({ ...panelData })
       setModelEditTarget(target)
       setModelEditPanelConfig(panelConfig)
@@ -1691,44 +1768,7 @@ return (
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.modelEditing) {
-                    const config = props.modelEditConfig
-                    iframeRef.contentWindow?.postMessage({
-                      type: "od:model-edit-mode",
-                      enabled: true,
-                      componentFlag: config?.componentFlag || null,
-                      htmlFlag: config?.htmlFlag || null,
-                    }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           ) : (
@@ -1745,44 +1785,7 @@ return (
                 sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.modelEditing) {
-                    const config = props.modelEditConfig
-                    iframeRef.contentWindow?.postMessage({
-                      type: "od:model-edit-mode",
-                      enabled: true,
-                      componentFlag: config?.componentFlag || null,
-                      htmlFlag: config?.htmlFlag || null,
-                    }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           )}
@@ -2038,12 +2041,17 @@ onFloatingPositionChange={setEditPanelPosition}
               filePath={props.filePath || ''}
               disabled={props.disabled}
               colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
-              onChange={props.modelEditConfig?.onChange}
+              onChange={(args) => {
+                const selector = args.dom.selector
+                if (selector) setPanelStateCache(selector, (prev: Record<string, string>) => ({ ...prev, [args.key]: args.value }))
+                props.modelEditConfig?.onChange?.(args)
+              }}
               context={modelEditContext()}
               iconConfig={props.modelEditConfig?.iconConfig}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {
+                await writePanelState()
                 const target = modelEditTarget()
                 const ctx = modelEditContext()
                 if (target && ctx) {

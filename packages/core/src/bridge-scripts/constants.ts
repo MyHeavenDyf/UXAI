@@ -815,9 +815,11 @@ window.addEventListener('message',function(ev){
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
       annotateRendered();
+      document.body.addEventListener('mousedown',handleEditMouseDown,true);
       document.body.addEventListener('click',handleEditSingleClick,true);
       document.body.addEventListener('dblclick',handleEditDoubleClick,true);
     } else {
+      document.body.removeEventListener('mousedown',handleEditMouseDown,true);
       document.body.removeEventListener('click',handleEditSingleClick,true);
       document.body.removeEventListener('dblclick',handleEditDoubleClick,true);
       clearSelectedTarget();
@@ -890,6 +892,11 @@ window.addEventListener('message',function(ev){
     return;
   }
 });
+
+function handleEditMouseDown(ev){
+  if(!editEnabled)return;
+  ev.preventDefault();
+}
 
 function handleEditSingleClick(ev){
   if(!editEnabled)return;
