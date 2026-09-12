@@ -272,6 +272,7 @@ export function createIconPlusStore(initialKeyword = "") {
   })
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let searchToken = 0
 
   /** 弹窗 onMount 调用：先试 getConfig，联通才取 tags；不联通则 online=false 回退 lucide */
   async function init() {
@@ -318,9 +319,11 @@ export function createIconPlusStore(initialKeyword = "") {
     const typed = state.keyword.trim()
     const keyword = typed || PRESET_KEYWORDS
     const topK = typed ? TOP_K : 1 // 预设 25 个关键词各取 1 个 = 25 个；单个关键词取 25 个
+    const token = ++searchToken
     setState("searching", true)
     setState("error", null)
     const res = await fetchIconInfo({ keyword, tags: state.activeTab, topK, group_id: state.groupId ?? undefined })
+    if (token !== searchToken) return
     if (!res.success) {
       setState("icons", [])
       setState("searching", false)
@@ -411,6 +414,7 @@ export function createIconPlusStore(initialKeyword = "") {
       clearTimeout(debounceTimer)
       debounceTimer = null
     }
+    searchToken++
   }
 
   return {
