@@ -100,6 +100,11 @@ export function ModelEditAreaDialog(props: {
     const el = props.element
     const cRect = containerRect()
     if (!el || !cRect) return null
+    // fixedPosition（prototype 浮层）：element rect 已是视口坐标（message-handler
+    // 做过 iframe→视口换算），父容器 position:fixed;inset:0 即视口，无需再加 iframe 偏移
+    if (props.fixedPosition) {
+      return { x: el.rect.x, y: el.rect.y, width: el.rect.width, height: el.rect.height }
+    }
     const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
     const scale = props.viewportScale ?? 1
