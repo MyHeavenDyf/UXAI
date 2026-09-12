@@ -183,6 +183,8 @@ function me_handleClick(ev) {
   ev.preventDefault();
   ev.stopPropagation();
 
+  me_clearSelected();
+
   var el = ev.target;
 
   if (me_componentFlag) {
