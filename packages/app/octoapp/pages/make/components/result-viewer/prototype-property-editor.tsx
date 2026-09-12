@@ -77,7 +77,7 @@ export function PrototypePropertyEditor(props: {
 
   // ModelEditAreaDialog 期望 { rect: {x,y,width,height}, selector }；
   // prototype 的 elementRect 是视口坐标（message-handler 已做 iframe→视口换算）。
-  // 配合 fixedPosition + zero iframeRect，elementPos 直接用视口坐标。
+  // fixedPosition 时 model-edit-area-dialog 的 elementPos 直接用视口坐标，无需 iframe 偏移。
   const elementForDialog = createMemo(() => {
     const d = data() ?? lastData
     if (!d) return null
@@ -87,8 +87,6 @@ export function PrototypePropertyEditor(props: {
       selector: isHost() ? (d.selector || d.elementId) : d.elementId,
     }
   })
-
-  const zeroIframeRect = { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect
 
   // promptCallback 构建 [选中A2UI元素: id] / [选中页面元素: selector] 前缀，
   // 替代旧 index.tsx onPrototypePickerSubmit/Append 里手拼的文本行。
@@ -122,7 +120,6 @@ export function PrototypePropertyEditor(props: {
       <Show when={data() && hasRect()}>
         <ModelEditAreaDialog
           element={elementForDialog()}
-          iframeRect={zeroIframeRect}
           filePath={(data() ?? lastData)?.filePath ?? ''}
           tabTitle={getSession()?.ctx?.tab?.title ?? ''}
           sessionId={props.sessionId}
