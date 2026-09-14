@@ -38,7 +38,7 @@ import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
 import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
-import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
+import { disposeAllPrototypeSessions, getSessionById } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -222,6 +222,10 @@ export function ResultViewer(props: {
     const ctx = buildSubtypeCtx()
     if (!ctx) return
     const handler = getSubtypeHandler(ctx.tab.subtype)
+    const enabling = handler?.handleLocalEdit
+      ? !getSessionById(ctx.tab.id)?.editing
+      : !featureMutex.state.editing
+    if (enabling) props.onLocalEditStart?.()
     if (handler?.handleLocalEdit) {
       const handled = await handler.handleLocalEdit(ctx)
       if (handled === true) return
