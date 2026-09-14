@@ -133,6 +133,7 @@ type PendingScrollRequest = {
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 const STUDIO_TEMPLATE_SAVE_ERROR = "保存失败，请检查网络"
+const STUDIO_TEMPLATE_READ_ERROR = "读取失败，请检查网络"
 
 function studioTemplateSaveErrorMessage(bodyText: string) {
   const parsed = (() => {
@@ -149,6 +150,23 @@ function studioTemplateSaveErrorMessage(bodyText: string) {
     stringValue(data, "message"),
     stringValue(parsed, "message"),
   ].map((message) => message?.trim()).find(Boolean) ?? STUDIO_TEMPLATE_SAVE_ERROR
+}
+
+function studioTemplateReadErrorMessage(bodyText: string) {
+  const parsed = (() => {
+    try {
+      return JSON.parse(bodyText) as unknown
+    } catch {
+      return undefined
+    }
+  })()
+  const data = recordValue(parsed, "data")
+  return [
+    stringValue(parsed, "resp_msg"),
+    stringValue(data, "resp_msg"),
+    stringValue(data, "message"),
+    stringValue(parsed, "message"),
+  ].map((message) => message?.trim()).find(Boolean) ?? STUDIO_TEMPLATE_READ_ERROR
 }
 
 function sameStudioInputImages(left?: StudioInputImage[], right?: StudioInputImage[]) {
@@ -1285,35 +1303,21 @@ export default function StudioPage() {
     }
     const seq = (templateEditorRequestSeq.get(item.idx) ?? 0) + 1
     templateEditorRequestSeq.set(item.idx, seq)
-    setTemplateWorkspaces((workspaces) => [...workspaces, {
-      key,
-      mode: "edit",
-      templateID: item.idx,
-      templateTitle: item.title,
-      loading: true,
-    }])
-    activateTemplateWorkspace(key)
     try {
       const template = await getStudioStyleTemplate(item.idx)
       if (seq !== templateEditorRequestSeq.get(item.idx)) return
-      setTemplateWorkspaces((workspaces) => workspaces.map((workspace) => workspace.key === key ? {
+      setTemplateWorkspaces((workspaces) => [...workspaces, {
         key,
         mode: "edit",
         templateID: item.idx,
         templateTitle: template.title || item.title,
         initialValue: template,
         loading: false,
-      } : workspace))
+      }])
+      activateTemplateWorkspace(key)
     } catch (error) {
       if (seq !== templateEditorRequestSeq.get(item.idx)) return
-      setTemplateWorkspaces((workspaces) => workspaces.map((workspace) => workspace.key === key ? {
-        key,
-        mode: "edit",
-        templateID: item.idx,
-        templateTitle: item.title,
-        loading: false,
-        error: error instanceof Error ? error.message : String(error),
-      } : workspace))
+      showFloatingNotice("error", error instanceof Error ? error.message : STUDIO_TEMPLATE_READ_ERROR)
     }
   }
 
@@ -3345,7 +3349,7 @@ export default function StudioPage() {
 
   async function getStudioStyleTemplate(templateID: string | number): Promise<StudioStyleTemplateListItem> {
     const current = server.current
-    if (!current) throw new Error("No active server.")
+    if (!current) throw new Error(STUDIO_TEMPLATE_READ_ERROR)
     const url = new URL(`/studio/template-detail/${encodeURIComponent(templateID)}`, current.http.url)
     url.searchParams.set("user_id", uiplusUserAccount() ?? "")
     const headers: Record<string, string> = {
@@ -3360,10 +3364,20 @@ export default function StudioPage() {
     const response = await fetch(url, {
       method: "GET",
       headers,
+    }).catch(() => {
+      throw new Error(STUDIO_TEMPLATE_READ_ERROR)
     })
-    const bodyText = await response.text()
-    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
-    return JSON.parse(bodyText) as StudioStyleTemplateListItem
+    const bodyText = await response.text().catch(() => "")
+    if (!response.ok) throw new Error(studioTemplateReadErrorMessage(bodyText))
+    const template = (() => {
+      try {
+        return JSON.parse(bodyText) as StudioStyleTemplateListItem
+      } catch {
+        return undefined
+      }
+    })()
+    if (!template) throw new Error(STUDIO_TEMPLATE_READ_ERROR)
+    return template
   }
 
   async function searchStudioTemplateUsers(input: StudioTemplateUserSearchInput): Promise<StudioTemplateVisibleUser[]> {
