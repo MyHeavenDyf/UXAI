@@ -44,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { closePrototypePanels } from "./utils/prototype-utils"
+import { closePrototypePanels, onPrototypeQuickFix, onPrototypeCtxMenu } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -1734,6 +1734,16 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     window.addEventListener("prototype:a2ui-persisted", handler)
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
+  })
+
+  // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
+  // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
+  // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
+  createEffect(() => {
+    const close = () => setShowHistoryPanel(false)
+    const unsubQuickFix = onPrototypeQuickFix(close)
+    const unsubCtxMenu = onPrototypeCtxMenu(close)
+    onCleanup(() => { unsubQuickFix(); unsubCtxMenu() })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
