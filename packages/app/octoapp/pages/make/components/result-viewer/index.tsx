@@ -93,7 +93,6 @@ export function ResultViewer(props: {
   focusMode?: boolean
   onFocusModeToggle?: () => void
   onHistoryToggle?: () => void
-  onHistoryClose?: () => void
   historyActive?: boolean
   historyEntries?: VersionEntry[]
   currentVersionId?: string | null
@@ -216,15 +215,17 @@ export function ResultViewer(props: {
       const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
       if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
     }
+    if (!prev && editing) props.onLocalEditStart?.()
   }))
 
   const handleLocalEditToggle = async () => {
     const ctx = buildSubtypeCtx()
     if (!ctx) return
     const handler = getSubtypeHandler(ctx.tab.subtype)
-    if (handler?.handleLocalEdit && !getSessionById(ctx.tab.id)?.editing) {
-      props.onLocalEditStart?.()
-    }
+    const enabling = handler?.handleLocalEdit
+      ? !getSessionById(ctx.tab.id)?.editing
+      : !featureMutex.state.editing
+    if (enabling) props.onLocalEditStart?.()
     if (handler?.handleLocalEdit) {
       const handled = await handler.handleLocalEdit(ctx)
       if (handled === true) return
@@ -674,7 +675,6 @@ archiving={featureMutex.state.archiving}
                      currentVersionId={props.currentVersionId}
                      onHistorySwitch={props.onHistorySwitch}
                      onHistoryToggle={props.onHistoryToggle}
-                     onHistoryClose={props.onHistoryClose}
                      sessionId={props.sessionId}
                      sdkDirectory={props.sdkDirectory}
                      postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}

@@ -502,7 +502,6 @@ export function ActionBar(props: {
     onFocusModeToggle?: () => void
     observedResourceUrls?: () => string[]
     onHistoryToggle?: () => void
-    onHistoryClose?: () => void
     historyActive?: boolean
     historyEntries?: VersionEntry[]
     currentVersionId?: string | null
@@ -957,7 +956,7 @@ export function ActionBar(props: {
         entries={props.historyEntries ?? []}
         currentId={props.currentVersionId ?? null}
         onSwitch={props.onHistorySwitch!}
-        onClose={() => props.onHistoryClose?.()}
+        onClose={() => props.onHistoryToggle?.()}
         ignoreRef={() => historyBtnRef}
       />
     </Show>
