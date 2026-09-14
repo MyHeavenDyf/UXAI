@@ -4159,32 +4159,37 @@ if (dsId) {
     const isZip = version.fileName.toLowerCase().endsWith(".zip")
 
     if (isZip) {
-      // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
-      const JSZip = (await import("jszip")).default
-      const zip = await JSZip.loadAsync(buffer)
-      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      try {
+        // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+        const JSZip = (await import("jszip")).default
+        const zip = await JSZip.loadAsync(buffer)
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-      let folderName = file.fileName
-      let counter = 1
-      if (api.dirExists) {
-        while (await api.dirExists([dir, folderName].join(sep))) {
-          folderName = `${file.fileName} (${counter})`
-          counter++
+        let folderName = file.fileName
+        let counter = 1
+        if (api.dirExists) {
+          while (await api.dirExists([dir, folderName].join(sep))) {
+            folderName = `${file.fileName} (${counter})`
+            counter++
+          }
         }
-      }
-      const folderPath = [dir, folderName].join(sep)
+        const folderPath = [dir, folderName].join(sep)
 
-      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
-        if (zipEntry.dir) continue
-        const normalized = relativePath.replace(/\//g, sep)
-        const content = await zipEntry.async("uint8array")
-        await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
-      }
-      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+        for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+          if (zipEntry.dir) continue
+          const normalized = relativePath.replace(/\//g, sep)
+          const content = await zipEntry.async("uint8array")
+          await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
+        }
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-      onProgress(100)
-      setFilesRefreshKey(k => k + 1)
-      return folderPath
+        onProgress(100)
+        setFilesRefreshKey(k => k + 1)
+        return folderPath
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err
+        // Not a valid ZIP — fall through to save as regular file
+      }
     }
 
     // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
