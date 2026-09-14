@@ -372,7 +372,7 @@ export function StudioComposer(props: {
 
   const toolbarItemKeys = createMemo(() => {
     if (isImageGeneration()) return isSeedreamModel()
-      ? ["capability", "style", "settings", "style-template", "at", "reverse", "material"]
+      ? ["capability", "style", "settings", "at", "style-template", "reverse", "material"]
       : ["capability", "style", "settings", "style-template", "reverse", "material"]
     if (isVideoGeneration()) return ["capability", "videoMode", "settings"]
     return ["capability"]
@@ -1152,6 +1152,24 @@ export function StudioComposer(props: {
                   />
                 </div>
               </Show>
+              <Show when={isSeedreamModel() && !toolbarOverflow().includes("at")}>
+                <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
+                  <IconTool
+                    label="引用参考"
+                    title="引用参考"
+                    class="studio-composer-icon-at"
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
+                    onClick={() => {
+                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                      atTriggeredByTyping = false
+                      props.onOpenMenu(null)
+                      setVideoModeOpen(false)
+                      setAtMenuOpen(true)
+                    }}
+                  />
+                </div>
+              </Show>
               <Show when={!toolbarOverflow().includes("style-template")}>
                 <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("style-template", el)} data-toolbar-item="style-template">
                   <Show
@@ -1181,24 +1199,6 @@ export function StudioComposer(props: {
                       onClear={props.onClearStyleTemplate}
                     />
                   </Show>
-                </div>
-              </Show>
-              <Show when={isSeedreamModel() && !toolbarOverflow().includes("at")}>
-                <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
-                  <IconTool
-                    label="引用参考"
-                    title="引用参考"
-                    class="studio-composer-icon-at"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
-                    onClick={() => {
-                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                      atTriggeredByTyping = false
-                      props.onOpenMenu(null)
-                      setVideoModeOpen(false)
-                      setAtMenuOpen(true)
-                    }}
-                  />
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
@@ -1275,6 +1275,24 @@ export function StudioComposer(props: {
                       <span>图片设置</span>
                     </button>
                   </Show>
+                  <Show when={isSeedreamModel() && toolbarOverflow().includes("at")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: atMenuOpen() }}
+                      onPointerDown={() => { pointerDownAtMenuOpen = atMenuOpen() }}
+                      onClick={() => {
+                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                        atTriggeredByTyping = false
+                        props.onOpenMenu(null)
+                        setVideoModeOpen(false)
+                        setAtMenuOpen(true)
+                      }}
+                    >
+                      <span class="studio-composer-toolbar-more-item-icon studio-composer-at-glyph">{"@"}</span>
+                      <span>引用参考</span>
+                    </button>
+                  </Show>
                   <Show when={toolbarOverflow().includes("style-template")}>
                     <Show
                       when={props.selectedStyleTemplate}
@@ -1308,24 +1326,6 @@ export function StudioComposer(props: {
                         />
                       </div>
                     </Show>
-                  </Show>
-                  <Show when={isSeedreamModel() && toolbarOverflow().includes("at")}>
-                    <button
-                      type="button"
-                      class="studio-composer-toolbar-more-item"
-                      classList={{ active: atMenuOpen() }}
-                      onPointerDown={() => { pointerDownAtMenuOpen = atMenuOpen() }}
-                      onClick={() => {
-                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                        atTriggeredByTyping = false
-                        props.onOpenMenu(null)
-                        setVideoModeOpen(false)
-                        setAtMenuOpen(true)
-                      }}
-                    >
-                      <span class="studio-composer-toolbar-more-item-icon studio-composer-at-glyph">{"@"}</span>
-                      <span>引用参考</span>
-                    </button>
                   </Show>
                   <Show when={toolbarOverflow().includes("reverse")}>
                     <button
