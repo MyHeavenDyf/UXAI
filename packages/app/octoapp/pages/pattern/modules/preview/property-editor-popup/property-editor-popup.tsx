@@ -17,50 +17,47 @@ import { CustomSelect } from "./custom-select"
 import { IconPickerPopup, type IconPickerMode } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
+import { fetchIconSvgByName } from "./icon-plus-fetch"
 import { getDesktopApi } from "../../../utils/desktop-api"
 
 /** 图标触发器预览：自定义图标（custom）按 src（uploads/文件名）+ htmlFilePath 读本地文件原样 img 展示；
- *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；均失败时回退本地 lucide 按名渲染 */
-function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
-  const [failed, setFailed] = createSignal(false)
+ *  非自定义只走 icon-plus 云端取图（getConfig → getIconInfo → getIcon，颜色 rgb(25,25,25)/尺寸 24px 写死）；
+ *  云端不可用走本地 lucide 按名兜底渲染（描边 rgb(25,25,25)） */
+function IconFieldPreview(props: { name?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
   const [fileUrl, setFileUrl] = createSignal<string | null>(null)
   createEffect(() => {
-    /** url/name 变化（如图标弹窗确认换图标）也要重置 failed：否则上一次 img 加载失败的锁死状态会挡住新 url 的展示 */
-    props.custom; props.src; props.htmlFilePath; props.url; props.name; setFailed(false); setFileUrl(null)
-    if (!props.custom || !props.src || !props.htmlFilePath) return
+    const src = props.src
+    props.custom; props.htmlFilePath; props.name
+    setFileUrl(null)
+    if (!props.custom || !src || !props.htmlFilePath) return
     const api = getDesktopApi()
     const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
-    api?.readFileBuffer?.(`${base}/${props.src}`).then((buf) => {
-      setFileUrl(buf ? URL.createObjectURL(new Blob([buf])) : null)
+    /** Blob 必须带正确 MIME：SVG 在 <img> 里严格要求 image/svg+xml（octet-stream 会裂图），PNG/JPG 按扩展名补上 */
+    void api?.readFileBuffer?.(`${base}/${src}`).then((buf) => {
+      if (!buf) return
+      const mime = /\.svg$/i.test(src) ? 'image/svg+xml'
+        : /\.png$/i.test(src) ? 'image/png'
+        : /\.jpe?g$/i.test(src) ? 'image/jpeg'
+        : 'application/octet-stream'
+      setFileUrl(URL.createObjectURL(new Blob([buf], { type: mime })))
     }).catch(() => setFileUrl(null))
   })
+  const [apiSvg, setApiSvg] = createSignal<string | null>(null)
+  createEffect(() => {
+    const name = props.name
+    props.custom
+    setApiSvg(null)
+    if (props.custom || !name) return
+    void fetchIconSvgByName(name).then(setApiSvg)
+  })
+  /** 本地 lucide 兜底：云端三步任一失败时按名渲染（颜色写死 rgb(25,25,25)） */
+  const lucideSvg = () => {
+    const d = LUCIDE_ICONS.find(i => i.name === props.name)
+    return d ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="rgb(25, 25, 25)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.svg}</svg>` : ''
+  }
   return (
     <Show when={props.custom && fileUrl()} fallback={
-      <Show when={props.url && !failed()} fallback={
-        (() => {
-          const d = LUCIDE_ICONS.find(i => i.name === props.name)
-          return d
-            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
-            : null
-        })()
-      }>
-        <Show when={props.color} fallback={
-          <img src={props.url} alt="" loading="lazy" decoding="async"
-            class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
-        }>
-          <div class="h-4 w-4 shrink-0" style={{
-            'background-color': props.color,
-            '-webkit-mask-image': `url("${props.url}")`,
-            'mask-image': `url("${props.url}")`,
-            '-webkit-mask-repeat': 'no-repeat',
-            'mask-repeat': 'no-repeat',
-            '-webkit-mask-position': 'center',
-            'mask-position': 'center',
-            '-webkit-mask-size': 'contain',
-            'mask-size': 'contain',
-          }} />
-        </Show>
-      </Show>
+      <div class="h-4 w-4 shrink-0 [&_svg]:h-full [&_svg]:w-full [&_img]:max-h-full [&_img]:max-w-full [&_img]:object-contain" innerHTML={apiSvg() || lucideSvg()} />
     }>
       <img src={fileUrl()!} alt="" class="h-4 w-4 shrink-0 object-contain" />
     </Show>
@@ -268,9 +265,11 @@ export function PropertyEditorPopup(props: {
   /** 图标弹窗模式解析（与 icon-picker-popup 的 IconPickerMode 一一对应）：
    *  standalone —— 独立图标组件（Icon.name，图标即元素本体）：全功能（官方+自定义、筛选、全量参数回传）；
    *  embedded   —— 组件内嵌图标入口（Button.icon/Tag.icon/Input.prefix 等，渲染端仅按 name 解析）：只换名称。
+   *  列表模板实例的 Icon（elementId 带 :N 后缀，如通知列表项 mainNoticeIcon:0）与 Button 一样
+   *  不支持自定义图标，同样走 embedded：弹窗无自定义 tab，确认只回传名称并清除残留的 Custom/Src。
    *  后续新增第三种入口形态时在此按 组件/键 映射新成员即可 */
   const iconPickerMode = (k: string): IconPickerMode =>
-    props.componentType === 'Icon' && k === 'name' ? 'standalone' : 'embedded'
+    props.componentType === 'Icon' && k === 'name' && !/(:\d+)+$/.test(props.elementId) ? 'standalone' : 'embedded'
 
   /** 图标弹窗确认：写回图标名与各入口专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），按模式走 if/else 分支 */
   function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size?: string; style?: string; color?: string }) {
@@ -1993,9 +1992,7 @@ export function PropertyEditorPopup(props: {
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
               <IconFieldPreview
                                 name={(editProps as Record<string, string>)[key]}
-                                url={(editProps as Record<string, string>)[`${key}Url`]}
                                 custom={iconCustomFlag(key)}
-                                color={(editProps as Record<string, string>)[`${key}Color`]}
                                 src={(editProps as Record<string, string>)[`${key}Src`]}
                                 htmlFilePath={props.htmlFilePath} />
                               </div>

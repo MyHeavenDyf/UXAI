@@ -433,3 +433,54 @@ export function createIconPlusStore(initialKeyword = "") {
     dispose,
   }
 }
+
+// ============ 属性面板图标触发器预览取图 ============
+
+/** hex 色值 → RGB 距离（写死色 rgb(25,25,25) 与 config.colors 匹配用；多色串取首个） */
+function hexColorDist(target: string, value: string | undefined): number {
+  const parse = (h: string) => {
+    const t = h.replace(/^#/, "").trim()
+    if (!/^[0-9a-f]{6}$/i.test(t)) return null
+    return [parseInt(t.slice(0, 2), 16), parseInt(t.slice(2, 4), 16), parseInt(t.slice(4, 6), 16)] as const
+  }
+  const a = parse(target)
+  const b = parse((value ?? "").split(",")[0] ?? "")
+  if (!a || !b) return Infinity
+  return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+}
+
+const previewIconSvgCache = new Map<string, string | null>()
+
+/** 属性面板触发器小图取图（icon-plus 三步）：
+ *  1. getConfig 取配置（联通探测）
+ *  2. getIconInfo 按名搜索（topK=2，优先"系统图标"分组 → 名称包含 → 首个）
+ *  3. getIcon 按 url 取 svg 文本 —— size 写死 24、style 固定线性、color 写死 rgb(25,25,25)
+ *     （取 config.colors 中最接近 #191919 的色 id）
+ *  任一步失败返回 null（调用方走本地 lucide 兜底）；结果按名缓存（含失败缓存） */
+export async function fetchIconSvgByName(name: string): Promise<string | null> {
+  if (!name) return null
+  if (previewIconSvgCache.has(name)) return previewIconSvgCache.get(name) ?? null
+  const svg = await (async () => {
+    const config = await fetchIconConfig()
+    if (!config.success) return null
+    const info = await fetchIconInfo({ keyword: name, topK: 2, tags: "" })
+    if (!info.success) return null
+    const inSystemGroup = (i: IconInfo) => Array.isArray(i.group)
+      ? i.group.some(g => String(g).includes("系统图标"))
+      : String(i.group ?? "").includes("系统图标")
+    const hit = info.data.find(inSystemGroup)
+      ?? info.data.find(i => (i.name ?? "").toLowerCase().includes(name.toLowerCase()))
+      ?? info.data[0]
+    if (!hit?.url) return null
+    const styles = (config.data.style as { key?: string; value?: string }[] | undefined) ?? []
+    const style = styles.find(s => s?.key === "line")?.value ?? styles[0]?.value ?? "线性"
+    const colors = config.data.colors ?? []
+    const pool = colors.filter(c => c.style === style)
+    const list = pool.length ? pool : colors
+    const colorId = list.slice().sort((a, b) => hexColorDist("#191919", a.value) - hexColorDist("#191919", b.value))[0]?.id ?? ""
+    const res = await fetchIconContent({ size: "24", style, color: colorId, urls: [hit.url] })
+    return res.success ? (res.data[hit.url] ?? null) : null
+  })()
+  previewIconSvgCache.set(name, svg)
+  return svg
+}
