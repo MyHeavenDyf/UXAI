@@ -2,6 +2,7 @@ import { createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, 
 import { Icon } from "@opencode-ai/ui/icon"
 import { fileKind, type InsightFileEntry } from "../../utils/insight-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, ResearchAssetIcon } from "./icons"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import "./styles.css"
@@ -52,6 +53,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>("skills")
   const [category, setCategory] = createSignal<"platform" | "custom" | "session">("platform")
 
+  // 外网模型:点击「用研资产」时先弹风险提示,确认后才展示会话文件列表。tab 点击不拦截。
+  const { request, gate } = useUploadRiskGate()
+
   const q = () => props.query.toLowerCase()
 
   const filteredPlatform = createMemo(() => {
@@ -100,6 +104,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       const list = category() === "custom" ? filteredCustom() : filteredPlatform()
       return list.map((skill) => ({ kind: "skill", skill }) as Row)
     }
+    if (category() !== "session") return []
     const f = filteredFiles()
     if (!f) return []
     return [...f.generated, ...f.uploaded].map((file) => ({ kind: "file", file }) as Row)
@@ -185,7 +190,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           class={`ins-mention-tab ${activeTab() === "files" ? "ins-mention-tab--active" : ""}`}
           onClick={() => {
             setActiveTab("files")
-            setCategory("session")
+            setCategory("platform")
           }}
         >
           文件管理
@@ -218,7 +223,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`ins-mention-primary-item ${category() === "session" ? "ins-mention-primary-item--selected" : ""}`}
-            onClick={() => setCategory("session")}
+            onClick={() => request(() => setCategory("session"))}
           >
             <ResearchAssetIcon />
             <span class="ins-mention-primary-text">用研资产</span>
@@ -302,7 +307,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       </Show>
 
       {/* 二级面板：会话文件 */}
-      <Show when={activeTab() === "files"}>
+      <Show when={activeTab() === "files" && category() === "session"}>
         <div class="ins-mention-secondary ins-mention-secondary--files" style={{ bottom: "8px" }}>
           <div class="ins-mention-files-header">当前会话</div>
           <Show
@@ -372,6 +377,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           </Show>
         </div>
       </Show>
+      {gate}
     </div>
   )
 }

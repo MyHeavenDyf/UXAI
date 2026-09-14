@@ -12,6 +12,7 @@ import { createEffect, createMemo, createSignal, For, Show, Switch, Match, on, b
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useSDK } from "@/context/sdk"
+import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -49,13 +50,14 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
-import { ALLOWED_EXT, getExt } from "../../lib/upload"
+import { ALLOWED_EXT, getExt, validateFileForExternal } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Breadcrumb } from "./breadcrumb"
 import { folderRelativeDir, joinSubPath, resolveFolderName } from "./folder-upload-utils"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { showInsightNotice } from "../insight-notice"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
 
@@ -154,6 +156,7 @@ function FileManagerInner(props: {
   onFilesRefresh?: () => void
 }): JSX.Element {
   const sdk = useSDK()
+  const local = useLocal()
   const dialog = useDialog()
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
@@ -166,6 +169,17 @@ function FileManagerInner(props: {
   const { request, gate } = useUploadRiskGate()
   const requestUploadFile = () => request(() => fileInputRef?.click())
   const requestUploadFolder = () => request(() => folderInputRef?.click())
+
+  // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+  function checkExternalFile(file: File): boolean {
+    if (!local.model.current()?.isExternal) return true
+    const err = validateFileForExternal(file)
+    if (err) {
+      showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+      return false
+    }
+    return true
+  }
 
   // 切会话 / 切路径 → 重置并刷新。sessionId 变化时清掉路径/筛选/两段文件,避免残留。
   createEffect(on(
@@ -323,6 +337,7 @@ function FileManagerInner(props: {
   }
 
   async function uploadSingleFile(file: File) {
+    if (!checkExternalFile(file)) return
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     try {
       const streamed = await tryStreamUpload(file, currentPath)
@@ -360,7 +375,7 @@ function FileManagerInner(props: {
       return
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const entries = Array.from(files).map((file) => ({
+    const entries = Array.from(files).filter(checkExternalFile).map((file) => ({
       file,
       relativePath: file.webkitRelativePath.slice(folderName.length + 1),
     }))
@@ -471,23 +486,25 @@ function FileManagerInner(props: {
     // 没有 catch —— 仍需在此收住 getFileFromEntry 的潜在失败 + 回退分支的 readFileAsBase64 reject。
     try {
       for (const entry of dirEntries) await collectFiles(entry)
-      // 空文件夹不再提前 return:entries=[] → tryStreamFolderUpload 返回 null → 回退
+      // 外网模型:过滤不合规文件(checkExternalFile 已 toast 提示)
+      const filteredEntries = entries.filter((e) => checkExternalFile(e.file))
+      // 空文件夹不再提前 return:filteredEntries=[] → tryStreamFolderUpload 返回 null → 回退
       // uploadInsightFolder(folderName, [], ...) → 服务端 ensureDir 建空目录(与 base64 对称)。
-      const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
+      const streamed = await tryStreamFolderUpload(filteredEntries, folderName, currentPath)
       if (streamed) {
-        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
+        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, filteredEntries.length, streamed.errors)
         await refresh()
         props.onFilesRefresh?.()
         return
       }
       // 回退 base64 + uploadInsightFolder 单请求(非桌面 / 剪贴板 blob)。
       const fileEntries: InsightFolderUploadFile[] = []
-      for (const e of entries) {
+      for (const e of filteredEntries) {
         const base64 = await readFileAsBase64(e.file)
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showFolderUploadResult(result.name, result.fileCount, entries.length, [])
+      showFolderUploadResult(result.name, result.fileCount, filteredEntries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {

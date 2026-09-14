@@ -17,7 +17,7 @@ export function cleanBridgeContent(html: string): string {
     // 3. Remove comment pin elements
     .replace(/<div[^>]*data-od-comment-pin[^>]*>[\s\S]*?<\/div>/gi, '')
     
-    // 4. Remove all data-od-* attributes from elements
+    // 4. Remove all data-od-* attributes from elements (includes data-od-effect-state)
     .replace(/\s+data-od-[a-z-]+(?:="[^"]*")?/gi, '')
     
     // 5. Clean empty script/style tags that might remain

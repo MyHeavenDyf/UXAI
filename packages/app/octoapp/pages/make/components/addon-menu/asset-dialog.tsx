@@ -202,18 +202,18 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     window.addEventListener("mouseup", onUp)
   }
 
-  // ── hover 预览(预览窗左上角对展示区右上角)──
+  // ── hover 预览(预览窗左上角对展示区右上角,4px 间距)──
   const handleStageEnter = (e: MouseEvent, file: AssetFile) => {
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined }
     const stageRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const dialogRect = dialogRef?.getBoundingClientRect()
     if (!dialogRect) return
-    let left = stageRect.right - dialogRect.left
+    let left = stageRect.right - dialogRect.left + 4
     const top = stageRect.top - dialogRect.top
     const previewWidth = 256
-    // 超出弹窗右缘则放到展示区左侧
+    // 超出弹窗右缘则放到展示区左侧(同样留 4px 间距)
     if (left + previewWidth > dialogRect.width) {
-      left = stageRect.left - dialogRect.left - previewWidth
+      left = stageRect.left - dialogRect.left - previewWidth - 4
     }
     setPreviewPos({ left, top })
     setPreviewFile(file)
@@ -278,7 +278,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
 
             {/* 中间区域:左树 + 分隔条 + 右文件网格 */}
             <div class="asset-dialog-middle" ref={middleRef}>
-              <ScrollView class="asset-dialog-left" style={{ width: `${leftWidth()}px`, height: "100%", "min-height": "275px", "max-height": "480px", "flex-shrink": "0" }}>
+              <ScrollView class="asset-dialog-left" style={{ width: `${leftWidth()}px`, "flex": "1 1 auto", "min-height": "0" }}>
                 <Show when={treeLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
@@ -297,7 +297,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                 onMouseDown={startLeftDrag}
               />
 
-              <ScrollView class="asset-dialog-right" style={{ width: `${rightWidth()}px`, height: "100%", "min-height": "275px", "max-height": "480px", "flex-shrink": "0", padding: "1px" }}>
+              <ScrollView class="asset-dialog-right" style={{ width: `${rightWidth()}px`, "flex": "1 1 auto", "min-height": "0" }}>
                 <Show when={filesLoading()}>
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>

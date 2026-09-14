@@ -203,6 +203,8 @@ const createPlatform = (): Platform => {
 
     onResume: (callback) => window.api.onResume(callback),
 
+    onReopen: (callback) => window.api.onReopen(callback),
+
     restart: async () => {
       await window.api.killSidecar().catch(() => undefined)
       window.api.relaunch()

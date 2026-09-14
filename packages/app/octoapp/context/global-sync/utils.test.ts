@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Agent, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
-import { directoryKey, normalizeAgentList, replaceProviderList } from "./utils"
+import { directoryKey, normalizeAgentList, normalizeProviderList, replaceProviderList } from "./utils"
 
 const agent = (name = "build") =>
   ({
@@ -57,21 +57,48 @@ describe("replaceProviderList", () => {
       ({ id, name: id, source: "api", env: [], options: {}, models }) as Provider
     const current = {
       all: [
-        provider("opencode", { old: { id: "old" } } as unknown as Provider["models"]),
+        provider("w3", { old: { id: "old" } } as unknown as Provider["models"]),
         { ...provider("custom"), source: "config" as const },
         provider("snapshot-only"),
       ],
-      connected: ["opencode", "custom", "snapshot-only"],
-      default: { opencode: "old" },
+      connected: ["w3", "custom", "snapshot-only"],
+      default: { w3: "old" },
     } satisfies ProviderListResponse
     const result = replaceProviderList(current, [
-      provider("opencode", { remote: { id: "remote" } } as unknown as Provider["models"]),
-      provider("bpit"),
+      provider("w3", { remote: { id: "remote" } } as unknown as Provider["models"]),
+      provider("xiaomi"),
     ])
 
-    expect(result.all.map((item) => item.id)).toEqual(["opencode", "bpit", "custom"])
+    expect(result.all.map((item) => item.id)).toEqual(["w3", "xiaomi", "custom"])
     expect(Object.keys(result.all[0].models)).toEqual(["remote"])
-    expect(result.connected).toEqual(["opencode", "bpit", "custom"])
-    expect(result.default).toEqual({ opencode: "remote" })
+    expect(result.connected).toEqual(["w3", "xiaomi", "custom"])
+    expect(result.default).toEqual({ w3: "remote" })
+  })
+
+  test("does not preserve removed configured providers", () => {
+    const provider = (id: string, source: Provider["source"] = "config") =>
+      ({ id, name: id, source, env: [], options: {}, models: {} }) as Provider
+    const current = {
+      all: [provider("opencode"), provider("bpit"), provider("custom")],
+      connected: ["opencode", "bpit", "custom"],
+      default: {},
+    } satisfies ProviderListResponse
+
+    expect(replaceProviderList(current, []).all.map((item) => item.id)).toEqual(["custom"])
+  })
+})
+
+describe("normalizeProviderList", () => {
+  test("removes legacy providers from initial server data", () => {
+    const provider = (id: string) => ({ id, name: id, source: "remote", env: [], options: {}, models: {} }) as Provider
+    const result = normalizeProviderList({
+      all: [provider("opencode"), provider("bpit"), provider("w3")],
+      connected: ["opencode", "bpit", "w3"],
+      default: { opencode: "old", bpit: "old", w3: "current" },
+    })
+
+    expect(result.all.map((item) => item.id)).toEqual(["w3"])
+    expect(result.connected).toEqual(["w3"])
+    expect(result.default).toEqual({ w3: "current" })
   })
 })

@@ -89,6 +89,46 @@ export type SaveCallbackArgs = ModelEditContext & {
 
 export type DeleteCallbackArgs = ModelEditContext
 
+export type IconState = {
+  name?: string
+  id?: string
+  isCustom?: boolean
+  size?: string
+  style?: string
+  color?: string
+  url?: string
+  src?: string
+  svgContent?: string
+}
+
+export type IconConfirmArgs = {
+  prev: IconState
+  current: IconState
+  dom: ModelEditElement
+  filePath: string
+  postMessageToIframe: (data: unknown) => void
+  writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+  sessionDir?: string
+  getIframeSnapshot?: () => Promise<string>
+  cleanBridgeContent?: (html: string) => string
+  wrapHtmlContent?: (html: string) => string
+  onContentChange?: (content: string) => Promise<void>
+  onRefreshNeeded?: () => void
+}
+
+export type IconConfig = {
+  getCustomIconDir?: (ctx: { sessionDir: string; filePath: string }) => string
+  getInitialState?: (dom: ModelEditElement) => IconState
+  data?: {
+    styles?: { key: string; label: string; value: string }[]
+    colors?: Record<string, { label: string; color: string; twoColor: string; threeColor: string }>
+    sizes?: string[]
+    acceptedFileTypes?: string
+  }
+  onlineServiceUrl?: string
+  onConfirm: (args: IconConfirmArgs) => string | Promise<string>
+}
+
 export type ModelEditConfig = {
   componentFlag?: string
   componentConfig?: Record<string, ComponentTypeConfig>
@@ -99,4 +139,5 @@ export type ModelEditConfig = {
   promptCallback?: (filePath: string, selector: string) => string
   colors?: ColorToken[]
   onChange?: (args: OnChangeArgs) => void
+  iconConfig?: IconConfig
 }

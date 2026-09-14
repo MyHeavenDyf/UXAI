@@ -1326,7 +1326,7 @@ export type Model = {
 export type Provider = {
   id: string
   name: string
-  source: "env" | "config" | "custom" | "api"
+  source: "env" | "config" | "custom" | "api" | "remote"
   env: Array<string>
   key?: string
   options: {

@@ -306,7 +306,8 @@ export function StudioResultCanvas(props: {
   fileManagerGenPending?: boolean
   canvasView: StudioCanvasView
   templateCreatorTabOpen: boolean
-  templateWorkspace?: StudioTemplateWorkspace
+  templateWorkspaces: readonly StudioTemplateWorkspace[]
+  activeTemplateWorkspaceKey?: string
   onGenerateStyleDescription?: (
     input: StudioStyleDescriptionGenerateInput,
     handlers: StudioStyleDescriptionGenerateHandlers,
@@ -314,8 +315,8 @@ export function StudioResultCanvas(props: {
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
   onSaveTemplate?: (templateID: number, input: StudioTemplatePublishInput) => Promise<void>
   onSearchTemplateUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
-  onTemplateCreatorClick: () => void
-  onTemplateCreatorClose: () => void
+  onTemplateCreatorClick: (key: string) => void
+  onTemplateCreatorClose: (key: string) => void
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
@@ -438,24 +439,32 @@ export function StudioResultCanvas(props: {
                   <span class="studio-canvas-tab-divider" />
                 </Show>
               </Show>
-              <Show when={props.templateCreatorTabOpen}>
-                <span
-                  class="studio-canvas-tab"
-                  classList={{ active: props.canvasView === "template-creator" }}
-                  onClick={props.onTemplateCreatorClick}
-                >
-                  <span class="studio-canvas-label-text">{props.templateWorkspace?.mode === "edit" ? "制作模板" : "创建模板"}</span>
-                  <span
-                    class="studio-canvas-tab-close"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      props.onTemplateCreatorClose()
-                    }}
-                    aria-label={props.templateWorkspace?.mode === "edit" ? "关闭制作模板" : "关闭创建模板"}
-                    title={props.templateWorkspace?.mode === "edit" ? "关闭制作模板" : "关闭创建模板"}
-                  />
-                </span>
-              </Show>
+              <For each={props.templateWorkspaces}>
+                {(workspace) => {
+                  const label = () => workspace.mode === "edit" ? `编辑模板-${workspace.templateTitle}` : "创建模板"
+                  return (
+                    <span
+                      class="studio-canvas-tab"
+                      classList={{
+                        active: props.canvasView === "template-creator" && props.activeTemplateWorkspaceKey === workspace.key,
+                      }}
+                      onClick={() => props.onTemplateCreatorClick(workspace.key)}
+                      title={label()}
+                    >
+                      <span class="studio-canvas-label-text">{label()}</span>
+                      <span
+                        class="studio-canvas-tab-close"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          props.onTemplateCreatorClose(workspace.key)
+                        }}
+                        aria-label={`关闭${label()}`}
+                        title={`关闭${label()}`}
+                      />
+                    </span>
+                  )
+                }}
+              </For>
               <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
                   const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" ? [props.result!.images[0]] : [])
@@ -675,35 +684,40 @@ export function StudioResultCanvas(props: {
               </Show>
                 </>
               }>
-                <Show when={props.templateWorkspace} keyed>
+                <For each={props.templateWorkspaces}>
                   {(workspace) => (
-                    <Show
-                      when={workspace.mode === "create" || !workspace.loading}
-                      fallback={<div class="studio-template-creator-state">模板加载中...</div>}
+                    <div
+                      class="studio-template-workspace-panel"
+                      classList={{ active: props.activeTemplateWorkspaceKey === workspace.key }}
                     >
                       <Show
-                        when={workspace.mode === "create" || !workspace.error}
-                        fallback={
-                          <div class="studio-template-creator-state error">
-                            <span>{workspace.mode === "edit" ? workspace.error : "模板加载失败"}</span>
-                            <button type="button" onClick={props.onTemplateCreatorClose}>取消</button>
-                          </div>
-                        }
+                        when={workspace.mode === "create" || !workspace.loading}
+                        fallback={<div class="studio-template-creator-state">模板加载中...</div>}
                       >
-                        <StudioTemplateCreator
-                          mode={workspace.mode}
-                          templateID={workspace.mode === "edit" ? workspace.templateID : undefined}
-                          initialValue={workspace.mode === "edit" ? workspace.initialValue : undefined}
-                          onGenerateStyleDescription={props.onGenerateStyleDescription}
-                          onPublishTemplate={props.onPublishTemplate}
-                          onSaveTemplate={props.onSaveTemplate}
-                          onSearchUsers={props.onSearchTemplateUsers}
-                          onCancel={props.onTemplateCreatorClose}
-                        />
+                        <Show
+                          when={workspace.mode === "create" || !workspace.error}
+                          fallback={
+                            <div class="studio-template-creator-state error">
+                              <span>{workspace.mode === "edit" ? workspace.error : "模板加载失败"}</span>
+                              <button type="button" onClick={() => props.onTemplateCreatorClose(workspace.key)}>取消</button>
+                            </div>
+                          }
+                        >
+                          <StudioTemplateCreator
+                            mode={workspace.mode}
+                            templateID={workspace.mode === "edit" ? workspace.templateID : undefined}
+                            initialValue={workspace.mode === "edit" ? workspace.initialValue : undefined}
+                            onGenerateStyleDescription={props.onGenerateStyleDescription}
+                            onPublishTemplate={props.onPublishTemplate}
+                            onSaveTemplate={props.onSaveTemplate}
+                            onSearchUsers={props.onSearchTemplateUsers}
+                            onCancel={() => props.onTemplateCreatorClose(workspace.key)}
+                          />
+                        </Show>
                       </Show>
-                    </Show>
+                    </div>
                   )}
-                </Show>
+                </For>
               </Show>
             </div>
           </>

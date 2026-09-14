@@ -107,6 +107,10 @@ const api: ElectronAPI = {
     ipcRenderer.on("power-resume", callback)
     return () => ipcRenderer.removeListener("power-resume", callback)
   },
+  onReopen: (callback) => {
+    ipcRenderer.on("app-reopen", callback)
+    return () => ipcRenderer.removeListener("app-reopen", callback)
+  },
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),

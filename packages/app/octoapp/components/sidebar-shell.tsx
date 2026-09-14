@@ -3,6 +3,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProjectInfo } from "@/components/project-info"
 import { DialogSettings } from "@/components/dialog-settings"
+import { UpdateButton } from "@/components/update-button"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -223,7 +224,7 @@ export function SidebarShell(props: SidebarShellProps) {
       </Show>
 
       {/* ─── Settings ─── */}
-      <div class="shrink-0 px-[12px] pb-[24px]" style={{ "padding-top": props.showBottomNav === false ? "12px" : "0" }}>
+      <div class="relative shrink-0 px-[12px] pb-[24px]" style={{ "padding-top": props.showBottomNav === false ? "12px" : "0" }}>
         <button
           type="button"
           title="设置"
@@ -263,6 +264,7 @@ export function SidebarShell(props: SidebarShellProps) {
             />
           </Show>
         </button>
+        <UpdateButton />
       </div>
     </div>
   )

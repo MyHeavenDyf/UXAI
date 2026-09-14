@@ -1,9 +1,18 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import type { StudioTemplatePublishInput } from "./studio-template-creator"
 
 type StyleTemplateSection = "creative-square" | "mine"
 const STYLE_TEMPLATE_PAGE_SIZE = 20
+const EDITING_TEMPLATE_TOOLTIP_STYLE = {
+  "white-space": "nowrap",
+  "max-width": "none",
+  background: "#fff",
+  color: "#191919",
+  border: "1px solid rgba(0, 0, 0, 0.08)",
+  "box-shadow": "0 4px 12px rgba(0, 0, 0, 0.12)",
+} satisfies JSX.CSSProperties
 
 export type StudioStyleTemplateListInput = {
   only_public: 0 | 1
@@ -30,6 +39,7 @@ export function StudioStyleTemplateMenu(props: {
   onSelectTemplate?: (item: StudioStyleTemplateListItem) => void
   onEditTemplate?: (item: StudioStyleTemplateListItem) => void
   onRequestDeleteTemplate?: (item: StudioStyleTemplateListItem) => void
+  editingTemplateIDs?: readonly number[]
   listRevision?: number
 }): JSX.Element {
   const [section, setSection] = createSignal<StyleTemplateSection>("creative-square")
@@ -65,7 +75,7 @@ export function StudioStyleTemplateMenu(props: {
         page_size: STYLE_TEMPLATE_PAGE_SIZE,
       })
       if (seq !== requestSeq) return
-      setItems((current) => input.reset ? result.data : [...current, ...result.data])
+      setItems((current) => (input.reset ? result.data : [...current, ...result.data]))
       setTotal(result.total)
       setPage(nextPage + 1)
     } catch (loadError) {
@@ -142,55 +152,75 @@ export function StudioStyleTemplateMenu(props: {
         >
           <div class="studio-style-template-list">
             <For each={items()}>
-              {(item) => (
-                <div class="studio-style-template-card" classList={{ editable: section() === "mine" }}>
-                  <button
-                    type="button"
-                    class="studio-style-template-card-select"
-                    onClick={() => props.onSelectTemplate?.(item)}
-                  >
-                    <div class="studio-style-template-card-cover">
-                      <Show when={item.example_images[0]?.url}>
-                        {(cover) => (
-                          <img class="studio-style-template-card-cover-image" src={cover()} alt="" />
-                        )}
-                      </Show>
-                      <div class="studio-style-template-card-type">
-                        <img
-                          class="studio-style-template-card-type-icon"
-                          src="/studio/studio_template_photo_group.svg"
-                          alt=""
-                        />
-                        <span>{templateTypeLabel(item)}</span>
+              {(item) => {
+                const editing = () => props.editingTemplateIDs?.includes(item.idx) ?? false
+                return (
+                  <div class="studio-style-template-card" classList={{ editable: section() === "mine" }}>
+                    <button
+                      type="button"
+                      class="studio-style-template-card-select"
+                      onClick={() => props.onSelectTemplate?.(item)}
+                    >
+                      <div class="studio-style-template-card-cover">
+                        <Show when={item.example_images[0]?.url}>
+                          {(cover) => <img class="studio-style-template-card-cover-image" src={cover()} alt="" />}
+                        </Show>
+                        <div class="studio-style-template-card-type">
+                          <img
+                            class="studio-style-template-card-type-icon"
+                            src="/studio/studio_template_photo_group.svg"
+                            alt=""
+                          />
+                          <span>{templateTypeLabel(item)}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div class="studio-style-template-card-title" title={item.title}>{item.title}</div>
-                  </button>
-                  <Show when={section() === "mine"}>
-                    <div class="studio-style-template-card-actions">
-                      <button
-                        type="button"
-                        class="studio-style-template-card-action"
-                        aria-label="编辑模板"
-                        title="编辑模板"
-                        onClick={() => props.onEditTemplate?.(item)}
-                      >
-                        <img src="/studio/studio_template_edit.svg" alt="" />
-                      </button>
-                      <span class="studio-style-template-card-action-divider" />
-                      <button
-                        type="button"
-                        class="studio-style-template-card-action"
-                        aria-label="删除模板"
-                        title="删除模板"
-                        onClick={() => props.onRequestDeleteTemplate?.(item)}
-                      >
-                        <img src="/studio/studio_delete.svg" alt="" />
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              )}
+                      <div class="studio-style-template-card-title" title={item.title}>
+                        {item.title}
+                      </div>
+                    </button>
+                    <Show when={section() === "mine"}>
+                      <div class="studio-style-template-card-actions">
+                        <Tooltip
+                          placement="top"
+                          value="当前模板正在编辑中，请先保存或取消编辑"
+                          inactive={!editing()}
+                          contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
+                          class="studio-style-template-card-action-tooltip"
+                        >
+                          <button
+                            type="button"
+                            class="studio-style-template-card-action"
+                            aria-label="编辑模板"
+                            title={editing() ? undefined : "编辑模板"}
+                            disabled={editing()}
+                            onClick={() => props.onEditTemplate?.(item)}
+                          >
+                            <img src="/studio/studio_template_edit.svg" alt="" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip
+                          placement="top"
+                          value="当前模板正在编辑中，请先保存或取消编辑"
+                          inactive={!editing()}
+                          contentStyle={EDITING_TEMPLATE_TOOLTIP_STYLE}
+                          class="studio-style-template-card-action-tooltip"
+                        >
+                          <button
+                            type="button"
+                            class="studio-style-template-card-action"
+                            aria-label="删除模板"
+                            title={editing() ? undefined : "删除模板"}
+                            disabled={editing()}
+                            onClick={() => props.onRequestDeleteTemplate?.(item)}
+                          >
+                            <img src="/studio/studio_delete.svg" alt="" />
+                          </button>
+                        </Tooltip>
+                      </div>
+                    </Show>
+                  </div>
+                )
+              }}
             </For>
           </div>
           <Show when={loading()}>

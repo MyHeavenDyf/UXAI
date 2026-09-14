@@ -24,6 +24,14 @@ type CustomIcon = { src: string; path?: string }
 
 const ICON_FILE_RE = /^icon_.+\.(svg|png|jpe?g)$/i
 
+const mimeFromName = (name: string) => {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (ext === 'svg') return 'image/svg+xml'
+  if (ext === 'png') return 'image/png'
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
 function customIconsDir(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined): string | null {
   if (htmlFilePath) return `${htmlFilePath.replace(/[\\/][^\\/]+$/, "")}/uploads`
   if (root && sessionId) return `${root}/.octo/${sessionId}/assets`
@@ -44,7 +52,7 @@ async function saveSessionIconFile(root: string | undefined, sessionId: string |
     console.log('[icon-picker] 写入失败', path, e)
     return null
   }
-  return { src: await blobToDataURL(new Blob([buf])), path }
+  return { src: await blobToDataURL(new Blob([buf], { type: mimeFromName(name) })), path }
 }
 
 /** 读回目标目录中的自定义图标（仅 icon_ 前缀文件） */
@@ -58,7 +66,7 @@ async function listSessionIconFiles(root: string | undefined, sessionId: string 
     if (e.type !== 'file' || !ICON_FILE_RE.test(filename)) continue
     const buf = await api.readFileBuffer(`${dir}/${filename}`)
     if (!buf) continue
-    out.push({ src: await blobToDataURL(new Blob([buf])), path: `${dir}/${filename}` })
+    out.push({ src: await blobToDataURL(new Blob([buf], { type: mimeFromName(filename) })), path: `${dir}/${filename}` })
   }
   return out
 }

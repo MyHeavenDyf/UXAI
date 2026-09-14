@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
+import { UpdateButton } from "@/components/update-button"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -86,7 +87,7 @@ export function SidebarFooter(): JSX.Element {
       </div>
 
       {/* 设置 */}
-      <div class="shrink-0 px-[12px] pb-[24px]">
+      <div class="relative shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"
           title="设置"
@@ -122,6 +123,7 @@ export function SidebarFooter(): JSX.Element {
             />
           </Show>
         </button>
+        <UpdateButton />
       </div>
     </>
   )
