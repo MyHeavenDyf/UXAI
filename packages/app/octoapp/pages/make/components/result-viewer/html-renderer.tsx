@@ -2090,6 +2090,10 @@ onFloatingPositionChange={setEditPanelPosition}
               }}
               context={modelEditContext()}
               iconConfig={props.modelEditConfig?.iconConfig}
+              assetConfig={props.modelEditConfig?.assetConfig}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {

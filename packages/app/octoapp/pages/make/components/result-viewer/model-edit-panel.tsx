@@ -1,9 +1,11 @@
 import { createSignal, createEffect, Show, For, onCleanup, onMount, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs, IconConfig } from '../model-edit-items/types'
+import type { ConfigGroup, ModelEditElement, ModelEditContext, OnChangeArgs, IconConfig, AssetConfig } from '../model-edit-items/types'
 import type { ColorToken } from '../model-edit-items/icon-data/hui-color-tokens'
+import type { AssetFile } from '../addon-menu/asset-library'
 import { renderConfigItem, checkKeyConflicts } from '../model-edit-items/registry'
 import { IconModule } from '../model-edit-items/icon-module'
+import { AssetModule } from '../model-edit-items/asset-module'
 import { getDesktopApi } from '../../lib/electron-api'
 import { useSDK } from '@/context/sdk'
 import './manual-edit-panel.css'
@@ -22,6 +24,10 @@ export function ModelEditPanel(props: {
   onChange?: (args: OnChangeArgs) => void
   context?: ModelEditContext
   iconConfig?: IconConfig
+  assetConfig?: AssetConfig
+  productId?: number
+  onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
   onSave: (current: Record<string, any>) => Promise<boolean | void>
   onDelete: () => Promise<boolean | void>
   onExit: () => void
@@ -273,6 +279,21 @@ export function ModelEditPanel(props: {
                   wrapHtmlContent={props.context?.wrapHtmlContent}
                   onContentChange={props.context?.onContentChange}
                   onRefreshNeeded={props.context?.onRefreshNeeded}
+                />
+              </div>
+            </div>
+          </Show>
+          <Show when={props.assetConfig && props.element && (!props.assetConfig.showConfig || props.assetConfig.showConfig(props.element))}>
+            <div class="model-edit-group">
+              <div class="model-edit-group-body">
+                <AssetModule
+                  assetConfig={props.assetConfig!}
+                  dom={props.element!}
+                  filePath={props.filePath}
+                  disabled={isDisabled()}
+                  onSubmitStart={() => props.onSubmitStart?.()}
+                  productId={props.productId}
+                  onDownloadProductAsset={props.onDownloadProductAsset}
                 />
               </div>
             </div>
