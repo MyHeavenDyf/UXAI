@@ -149,7 +149,7 @@ const directModelEditConfig: ModelEditConfig = {
       case 'od_appearance': {
         const d = parseJson(value)
         const styles: Record<string, string> = {}
-        if (d.backgroundColor) styles.backgroundColor = d.backgroundColor
+        if (d.backgroundColor !== undefined) styles.backgroundColor = d.backgroundColor
         if (d.opacity) styles.opacity = d.opacity
         if (d.borderRadius) {
           styles.borderRadius = d.borderRadius
