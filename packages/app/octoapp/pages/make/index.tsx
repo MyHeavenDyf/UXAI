@@ -5630,13 +5630,15 @@ onPreview={(url) => {
                   if (mode === "edit") setShowHistoryPanel(false)
                 }}
                 onLocalEditStart={() => setShowHistoryPanel(false)}
+                onHistoryClose={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
-                  if (!showHistoryPanel()) {
+                  const opening = !showHistoryPanel()
+                  if (opening) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)
                   }
-                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
-                  setShowHistoryPanel(!showHistoryPanel())
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: opening ? "open" : "close" }) })
+                  setShowHistoryPanel(opening)
                 }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
