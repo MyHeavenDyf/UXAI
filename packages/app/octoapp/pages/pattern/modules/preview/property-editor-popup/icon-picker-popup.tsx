@@ -643,7 +643,7 @@ export function IconPickerPopup(props: {
                         onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', String(icon.icon_id)); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': String(icon.icon_id) === state.selectedId || icon.name === state.selected }}>
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': !!state.selectedId && String(icon.icon_id) === state.selectedId }}>
                         <ApiIcon url={icon.url} />
                       </button>
                     )}
