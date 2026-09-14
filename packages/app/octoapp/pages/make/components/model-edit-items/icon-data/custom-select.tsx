@@ -50,18 +50,18 @@ export function CustomSelect(props: {
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
-          <div ref={listRef} data-custom-select-list class="fixed z-[2147483646] py-1 rounded-lg border border-[#e5e7eb]"
-            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}
+          <div ref={listRef} data-custom-select-list class="octo-dropdown-menu fixed"
+            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px' }}
             onClick={() => setOpen(false)}>
             <For each={props.options}>
               {(opt) => (
-                <div
+                <button
+                  type="button"
                   onClick={() => props.onChange(opt.value)}
-                  class="px-[10px] py-[6px] text-[10px] text-slate-700 bg-white hover:bg-[#f3f4f6] cursor-pointer whitespace-nowrap"
-                  classList={{ 'bg-[#E6F2FD] text-primary font-medium': opt.value === props.value }}
+                  class={`octo-dropdown-item${opt.value === props.value ? ' octo-dropdown-item-active' : ''}`}
                 >
-                  {opt.label}
-                </div>
+                  <span>{opt.label}</span>
+                </button>
               )}
             </For>
           </div>
