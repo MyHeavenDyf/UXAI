@@ -42,7 +42,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
   const [dialogPos, setDialogPos] = createSignal<{ left: number; top: number } | null>(null)
   // 左侧宽度 200-400 / 右侧宽度 190-790(拖拽,不持久化)
   const [leftWidth, setLeftWidth] = createSignal(200)
-  const [rightWidth, setRightWidth] = createSignal(390)
+  const [rightWidth, setRightWidth] = createSignal(400)
 
   // hover 预览(预览窗左上角对展示区右上角)
   const [previewFile, setPreviewFile] = createSignal<AssetFile | null>(null)
@@ -63,7 +63,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     setFiles([])
     setDialogPos(null)
     setLeftWidth(200)
-    setRightWidth(390)
+    setRightWidth(400)
     fetchTeamTree(props.productId)
       .then((folders) => {
         setTree(folders)

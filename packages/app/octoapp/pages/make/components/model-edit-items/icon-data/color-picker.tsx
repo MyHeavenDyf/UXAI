@@ -428,6 +428,12 @@ export function ColorPicker(props: {
                         class="rounded-r-[4px] w-8 bg-transparent text-right text-[12px] text-slate-500 outline-none" />
                       <span class="text-[12px] text-slate-400">%</span>
                     </div>
+                    <button type="button" title="无色" onClick={() => { props.onChange(''); setOpen(false) }}
+                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] text-slate-400 hover:bg-[#E4E4E7] hover:text-slate-600">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <path d="M3 3l10 10" />
+                      </svg>
+                    </button>
                   </div>
 
                   <div class="mt-2">
