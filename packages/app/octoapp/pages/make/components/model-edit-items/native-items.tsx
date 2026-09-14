@@ -31,8 +31,10 @@ export type NativeItemDef = {
 }
 
 function rgbToHex(rgb: string): string {
-  const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+  const m = rgb.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/)
   if (!m) return ''
+  const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1
+  if (alpha <= 0) return ''
   const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3])
   return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
 }
