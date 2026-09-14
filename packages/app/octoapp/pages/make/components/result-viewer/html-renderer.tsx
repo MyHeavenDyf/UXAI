@@ -1264,6 +1264,7 @@ createEffect(() => {
         if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
         return
       }
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
       
       // Save previous element's pending changes before switching
@@ -1328,6 +1329,8 @@ createEffect(() => {
       const target: ModelEditElement = d.target
       const config = props.modelEditConfig
       if (!config) return
+
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
 
       let panelConfig: ConfigGroup[] = []
       let panelData: Record<string, string> = {}

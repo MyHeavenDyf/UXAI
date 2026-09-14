@@ -142,9 +142,12 @@ export function ModelEditAreaDialog(props: {
     const cRect = containerRect()
     if (!el || !cRect) return null
     // fixedPosition（prototype 浮层）：element rect 已是视口坐标（message-handler
-    // 做过 iframe→视口换算），父容器 position:fixed;inset:0 即视口，无需再加 iframe 偏移
+    // 做过 iframe→视口换算）。父容器 position:fixed;inset:0 本应贴满视口，但若祖先
+    // 有 will-change/transform 等形成 containing block（如 .make-right-panel），
+    // parentRef 会贴满该祖先而非视口。用 cRect.left/top 把视口坐标转成 parentRef
+    // 相对坐标，确保 dialogPosition/maskPieces 落点正确，避免整体往右下偏移。
     if (props.fixedPosition) {
-      return { x: el.rect.x, y: el.rect.y, width: el.rect.width, height: el.rect.height }
+      return { x: el.rect.x - cRect.left, y: el.rect.y - cRect.top, width: el.rect.width, height: el.rect.height }
     }
     const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
