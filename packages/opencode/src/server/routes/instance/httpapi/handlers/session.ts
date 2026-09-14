@@ -34,6 +34,7 @@ import {
   MessagesQuery,
   PermissionResponsePayload,
   PromptPayload,
+  ReorderPayload,
   RevertPayload,
   ShellPayload,
   SummarizePayload,
@@ -203,6 +204,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         yield* session.setPinned({ sessionID: ctx.params.sessionID, pinned: ctx.payload.pinned })
       }
       return yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
+    })
+
+    const reorder = Effect.fn("SessionHttpApi.reorder")(function* (ctx: {
+      payload: typeof ReorderPayload.Type
+    }) {
+      for (let i = 0; i < ctx.payload.ids.length; i++) {
+        yield* session.setSortOrder({ sessionID: ctx.payload.ids[i], sortOrder: i })
+      }
+      return true
     })
 
     const fork = Effect.fn("SessionHttpApi.fork")(function* (ctx: {
@@ -385,6 +395,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)
+      .handle("reorder", reorder)
       .handle("fork", fork)
       .handle("abort", abort)
       .handle("init", init)

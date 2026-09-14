@@ -15,10 +15,10 @@ export function migrateLocalGroupsToDB(opts: {
   const existing = inFlight.get(key)
   if (existing) return existing
   if (migrated.has(key)) return Promise.resolve()
-  const p = doMigrate(opts).finally(() => {
-    inFlight.delete(key)
-    migrated.add(key)
-  })
+  const p = doMigrate(opts)
+    .then(() => { migrated.add(key) })
+    .catch(() => { /* partial failure: leave migrated unset so the next launch retries */ })
+    .finally(() => { inFlight.delete(key) })
   inFlight.set(key, p)
   return p
 }
@@ -55,21 +55,20 @@ async function doMigrate({ dir, namespace, client }: {
 
   const listResult = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
   const dbGroups = listResult.data?.groups ?? []
-  if (dbGroups.length > 0) {
-    localStorage.removeItem(gKey)
-    localStorage.removeItem(mKey)
-    return
-  }
 
   const idMap = new Map<string, string>()
   for (const g of localGroups) {
+    const existing = dbGroups.find((d) => d.name === g.name)
+    if (existing) { idMap.set(g.id, existing.id); continue }
     const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight", name: g.name })
-    if (result.data) idMap.set(g.id, result.data.id)
+    if (!result.data) throw new Error(`failed to create group: ${g.name}`)
+    idMap.set(g.id, result.data.id)
   }
 
   for (const [sessionId, oldGroupId] of Object.entries(localMapping)) {
     const newId = idMap.get(oldGroupId)
-    if (newId) await client.sessionGroup.mapSession({ sessionId, groupId: newId })
+    if (!newId) throw new Error(`missing group mapping for ${oldGroupId}`)
+    await client.sessionGroup.mapSession({ sessionId, groupId: newId })
   }
 
   localStorage.removeItem(gKey)

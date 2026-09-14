@@ -6281,6 +6281,36 @@ export type SessionMessageResponses = {
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
 
+export type SessionReorderData = {
+  body?: {
+    ids: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/reorder"
+}
+
+export type SessionReorderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionReorderError = SessionReorderErrors[keyof SessionReorderErrors]
+
+export type SessionReorderResponses = {
+  /**
+   * Successfully reordered sessions
+   */
+  200: boolean
+}
+
+export type SessionReorderResponse = SessionReorderResponses[keyof SessionReorderResponses]
+
 export type SessionForkData = {
   body?: {
     messageID?: string

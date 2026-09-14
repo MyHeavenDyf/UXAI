@@ -346,6 +346,41 @@ export const SessionRoutes = lazy(() =>
           return yield* session.get(sessionID)
         }),
     )
+    .post(
+      "/reorder",
+      describeRoute({
+        summary: "Reorder sessions",
+        description:
+          "Batch-update session sort_order from an ordered list of session IDs (index becomes the new sort_order). Replaces N concurrent session.update calls on drag-reorder.",
+        operationId: "session.reorder",
+        responses: {
+          200: {
+            description: "Successfully reordered sessions",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          ids: z.array(SessionID.zod),
+        }),
+      ),
+      async (c) =>
+        jsonRequest("SessionRoutes.reorder", c, function* () {
+          const ids = c.req.valid("json").ids
+          const svc = yield* Session.Service
+          for (let i = 0; i < ids.length; i++) {
+            yield* svc.setSortOrder({ sessionID: ids[i], sortOrder: i })
+          }
+          return true
+        }),
+    )
     // TODO(v2): remove this dedicated route and rely on the normal `/init` command flow.
     .post(
       "/:sessionID/init",

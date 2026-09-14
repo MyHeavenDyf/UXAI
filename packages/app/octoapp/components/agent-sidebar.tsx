@@ -93,13 +93,13 @@ export type AgentSidebarProps = {
   /** Session-to-group mapping (sessionId -> { groupId, position }). Sessions with a mapping are excluded from "最近". */
   sessionGroupMapping?: Record<string, { groupId: string; position: number }>
   /** Called when the user selects a group in the "移动到分组" submenu. */
-  onMoveToGroup?: (session: Session, groupId: string) => void
+  onMoveToGroup?: (session: Session, groupId: string) => Promise<void> | void
   /** Called when the user clicks "移出此分组" in the context menu. */
   onRemoveFromGroup?: (session: Session) => void
   /** Called when the user clicks "新建分组" in the "移动到分组" submenu. Implementations should open the create-group dialog, then move the current session into the newly created group. */
   onCreateGroupForSession?: (session: Session) => void
   /** Called when a session is reordered within a group via DnD. */
-  onReorderGroupSessions?: (groupId: string, sourceId: string, targetId: string, position: "before" | "after") => void
+  onReorderGroupSessions?: (groupId: string, sourceId: string, targetId: string, position: "before" | "after") => Promise<void> | void
 
   // ── UI toggles ──
   showProjectInfo?: boolean
@@ -201,7 +201,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const d = resolvedDir()
     if (!d) return
     const client = globalSDK.createClient({ directory: d })
-    await Promise.all(ids.map((id, i) => client.session.update({ sessionID: id, sort_order: i })))
+    await client.session.reorder({ ids })
   }
 
   async function reorderRecent(sourceId: string, targetId: string, position: "before" | "after") {
@@ -217,7 +217,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const d = resolvedDir()
     if (!d) return
     const client = globalSDK.createClient({ directory: d })
-    await Promise.all(ids.map((id, i) => client.session.update({ sessionID: id, sort_order: i })))
+    await client.session.reorder({ ids })
   }
 
   function handleSessionDragStart(session: Session) {
@@ -251,7 +251,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (dragOverSessionId() === session.id) setDragOverSessionId(null)
   }
 
-  function performSessionMove(target: SessionDropTarget) {
+  async function performSessionMove(target: SessionDropTarget) {
     const sourceId = draggingSessionId()
     if (!sourceId) { handleSessionDragEnd(); return }
     const source = sessionList.find(s => s.id === sourceId)
@@ -275,7 +275,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         void reorderRecent(sourceId, targetId, position)
       } else if (section === "group" && groupId) {
         if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup !== groupId) props.onMoveToGroup?.(source, groupId)
+        if (sourceGroup !== groupId) await props.onMoveToGroup?.(source, groupId)
         props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
       }
     } else if (target.type === "section") {
@@ -290,7 +290,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       }
     } else if (target.type === "group" && target.groupId) {
       if (sourceIsPinned) void togglePin(sourceId)
-      if (sourceGroup !== target.groupId) props.onMoveToGroup?.(source, target.groupId)
+      if (sourceGroup !== target.groupId) await props.onMoveToGroup?.(source, target.groupId)
     }
 
     handleSessionDragEnd()

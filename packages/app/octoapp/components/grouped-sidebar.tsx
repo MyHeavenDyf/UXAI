@@ -129,8 +129,9 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
       onMoveToGroup={(session, groupId) => {
-        moveSessionToGroup(session.id, groupId)
+        const p = moveSessionToGroup(session.id, groupId)
         setExpandedGroups(prev => { const next = new Set(prev); next.add(groupId); return next })
+        return p
       }}
       onRemoveFromGroup={(session) => removeSessionFromGroup(session.id)}
       onCreateGroupForSession={(session) => dialog.show(() => (

@@ -53,6 +53,9 @@ export const UpdatePayload = Schema.Struct({
   pinned: Schema.optional(Schema.Boolean),
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
+export const ReorderPayload = Schema.Struct({
+  ids: Schema.Array(SessionID),
+})
 export const InitPayload = Schema.Struct({
   modelID: ModelID,
   providerID: ProviderID,
@@ -83,6 +86,7 @@ export const SessionPaths = {
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
+  reorder: `${root}/reorder`,
   fork: `${root}/:sessionID/fork`,
   abort: `${root}/:sessionID/abort`,
   share: `${root}/:sessionID/share`,
@@ -224,6 +228,18 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.update",
             summary: "Update session",
             description: "Update properties of an existing session, such as title or other metadata.",
+          }),
+        ),
+        HttpApiEndpoint.post("reorder", SessionPaths.reorder, {
+          payload: ReorderPayload,
+          success: described(Schema.Boolean, "Successfully reordered sessions"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.reorder",
+            summary: "Reorder sessions",
+            description:
+              "Batch-update session sort_order from an ordered list of session IDs (index becomes the new sort_order). Replaces N concurrent session.update calls on drag-reorder.",
           }),
         ),
         HttpApiEndpoint.post("fork", SessionPaths.fork, {
