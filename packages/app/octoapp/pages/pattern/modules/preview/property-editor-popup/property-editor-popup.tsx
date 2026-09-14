@@ -14,7 +14,7 @@ import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, m
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
-import { IconPickerPopup } from "./icon-picker-popup"
+import { IconPickerPopup, type IconPickerMode } from "./icon-picker-popup"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { iconColors } from "./icon-colors"
 import { getDesktopApi } from "../../../utils/desktop-api"
@@ -25,7 +25,8 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
   const [failed, setFailed] = createSignal(false)
   const [fileUrl, setFileUrl] = createSignal<string | null>(null)
   createEffect(() => {
-    props.custom; props.src; props.htmlFilePath; setFailed(false); setFileUrl(null)
+    /** url/name 变化（如图标弹窗确认换图标）也要重置 failed：否则上一次 img 加载失败的锁死状态会挡住新 url 的展示 */
+    props.custom; props.src; props.htmlFilePath; props.url; props.name; setFailed(false); setFileUrl(null)
     if (!props.custom || !props.src || !props.htmlFilePath) return
     const api = getDesktopApi()
     const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
@@ -39,7 +40,7 @@ function IconFieldPreview(props: { name?: string; url?: string; color?: string; 
         (() => {
           const d = LUCIDE_ICONS.find(i => i.name === props.name)
           return d
-            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
+              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
             : null
         })()
       }>
@@ -216,6 +217,13 @@ export function PropertyEditorPopup(props: {
   let menuNodeIdCounter = 0
   const [menuPanelOpen, setMenuPanelOpen] = createSignal(false)
   let menuPanelRef!: HTMLDivElement
+  /** 菜单项图标选择弹窗：parent=顶层项索引，child=-1 表示顶层项本身、>=0 表示其子项索引；
+   *  渲染端菜单图标仅按 name 解析，走 embedded 模式只回传名称 */
+  const [menuIconPicker, setMenuIconPicker] = createSignal<{ parent: number; child: number; anchor?: HTMLElement } | null>(null)
+  /** 面板/编辑器关闭时清掉弹窗状态：否则残留的 target 会让下次打开菜单面板时图标弹窗自动弹出 */
+  createEffect(() => {
+    if (!props.show || !menuPanelOpen()) setMenuIconPicker(null)
+  })
 
   type TableColumn = {
     id: number; title: string; dataIndex: string; align: string
@@ -257,29 +265,58 @@ export function PropertyEditorPopup(props: {
     return p[`${k}Custom`] === '1' || !!p[`${k}Src`] || (p[`${k}Id`] ?? '').startsWith('custom:')
   }
 
-  /** 图标弹窗确认：写回图标名与专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），size 同步写入元素宽高，组件枚举兼容时同步旧 shape/color 字段 */
-  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size: string; style: string; color: string }) {
+  /** 图标弹窗模式解析（与 icon-picker-popup 的 IconPickerMode 一一对应）：
+   *  standalone —— 独立图标组件（Icon.name，图标即元素本体）：全功能（官方+自定义、筛选、全量参数回传）；
+   *  embedded   —— 组件内嵌图标入口（Button.icon/Tag.icon/Input.prefix 等，渲染端仅按 name 解析）：只换名称。
+   *  后续新增第三种入口形态时在此按 组件/键 映射新成员即可 */
+  const iconPickerMode = (k: string): IconPickerMode =>
+    props.componentType === 'Icon' && k === 'name' ? 'standalone' : 'embedded'
+
+  /** 图标弹窗确认：写回图标名与各入口专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），按模式走 if/else 分支 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size?: string; style?: string; color?: string }) {
     const key = iconPickerKey()!
+    const prevProps = editProps as Record<string, string>
     updateEditProp(key, pick.name)
-    /** id/url 无条件写入（自定义图标不带，置空以免把 base64 残留到 editProps/元素） */
+
+    if (iconPickerMode(key) === 'embedded') {
+      // —— 组件内嵌图标入口：只换名称。保留 Id/Url（触发器小图预览与弹窗回显高亮用，渲染端仍只按 name 解析），
+      //    其余参数清空（Custom/Src 残留会误判自定义，Size/Style/Color 渲染端不消费）——
+      updateEditProp(`${key}Id`, pick.id ?? '')
+      updateEditProp(`${key}Url`, pick.url ?? (prevProps[`${key}Url`] ?? ''))
+      for (const suffix of ['Custom', 'Src', 'Size', 'Style', 'Color']) updateEditProp(`${key}${suffix}`, '')
+      return
+    }
+
+    // —— 独立图标组件（Icon.name）：写回全量参数 ——
+    /** id 无条件写入（自定义图标不带，置空以免残留）；url 仅在换图标/换自定义时覆盖——
+     *  只改线性/大小/颜色再确认时 pick.url 为空（当前图标不在搜索结果里），保留原 url 供回显与渲染 */
     updateEditProp(`${key}Id`, pick.id ?? '')
-    updateEditProp(`${key}Url`, pick.url ?? '')
+    updateEditProp(`${key}Url`, pick.url ?? (pick.isCustom ? '' : (prevProps[`${key}Url`] ?? '')))
     updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
     /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
     updateEditProp(`${key}Src`, pick.src ?? '')
-    updateEditProp(`${key}Size`, pick.size)
-    updateEditProp(`${key}Style`, pick.style)
-    updateEditProp(`${key}Color`, pick.color)
+    updateEditProp(`${key}Size`, pick.size ?? '')
+    updateEditProp(`${key}Style`, pick.style ?? '')
+    updateEditProp(`${key}Color`, pick.color ?? '')
+    /** 尺寸写元素宽高仅限 Icon 组件（图标即元素本体）；Button/Input 等带图标组件不能被图标尺寸改写自身宽高 */
     const px = Number(pick.size)
-    if (px > 0) {
+    if (px > 0 && props.componentType === 'Icon') {
       setFillWidth(false); setHugWidth(false)
       setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
       setFillHeight(false); setHugHeight(false)
       setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
     }
-    if (COMPONENT_ENUMS[`${props.componentType}.shape`]?.some(o => o.value === pick.style)) updateEditProp('shape', pick.style)
-    const colorKey = Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color)
-    if (colorKey && COMPONENT_ENUMS[`${props.componentType}.color`]?.some(o => o.value === colorKey)) updateEditProp('color', colorKey)
+    // shape/color 仅同步到"本身就是图标枚举"的组件字段（Icon.shape ⊆ outline/two-tone/square/circle、Icon.color ⊆ iconColors）。
+    // Button.shape(default/circle/round)/Button.color(default/primary/danger) 是按钮自身外观，图标筛选的撞名值不得覆盖
+    const compShapeValues = COMPONENT_ENUMS[`${props.componentType}.shape`]?.map(o => o.value) ?? []
+    if (pick.style && compShapeValues.length && compShapeValues.every(v => ['outline', 'two-tone', 'square', 'circle'].includes(v)) && compShapeValues.includes(pick.style)) {
+      updateEditProp('shape', pick.style)
+    }
+    const compColorValues = COMPONENT_ENUMS[`${props.componentType}.color`]?.map(o => o.value) ?? []
+    const colorKey = pick.color ? Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color) : undefined
+    if (colorKey && compColorValues.length && compColorValues.every(v => v in iconColors) && compColorValues.includes(colorKey)) {
+      updateEditProp('color', colorKey)
+    }
   }
 
   function updateEditProp(key: string, val: string) {
@@ -1253,7 +1290,13 @@ export function PropertyEditorPopup(props: {
   createEffect(() => {
     if (!menuPanelOpen()) return
     const handler = (ev: MouseEvent) => {
-      if (menuPanelRef && !menuPanelRef.contains(ev.target as Node)) setMenuPanelOpen(false)
+      const t = ev.target as HTMLElement
+      if (menuPanelRef?.contains(t)) return
+      /** 图标弹窗经 Portal 挂在 body 下（不在面板 DOM 内），其内部点击不算"面板外"；
+       *  其下拉列表（data-custom-select-list）同理，否则点菜单项图标弹窗会把整个编辑菜单关掉 */
+      if (t?.closest?.('[data-icon-picker-popup]')) return
+      if (t?.closest?.('[data-custom-select-list]')) return
+      setMenuPanelOpen(false)
     }
     document.addEventListener('mousedown', handler)
     onCleanup(() => document.removeEventListener('mousedown', handler))
@@ -1705,8 +1748,8 @@ export function PropertyEditorPopup(props: {
           const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
           const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
           // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
-          // （自定义图标 Id 一并清空，避免下次打开回显时误判成旧官方图标）
-          if (suffix === 'Url' || suffix === 'Custom' || (suffix === 'Src' && key === 'name') || (isCustom && suffix === 'Id')) {
+          // （Src 对所有图标键生效：name→src、icon→iconSrc…；内嵌入口只换名称时 Id 一并清空，避免重开误判回显）
+          if (suffix === 'Url' || suffix === 'Custom' || suffix === 'Src' || suffix === 'Id') {
             if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
             continue
           }
@@ -1915,9 +1958,7 @@ export function PropertyEditorPopup(props: {
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
               <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
-                  <div class={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)
-                    ? 'flex w-full flex-col items-start gap-2'
-                    : 'flex items-center gap-2'}>
+                  <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
                       {LABEL_MAP[key] || key}
                       <Show when={isBinding(key)}>
@@ -1945,7 +1986,7 @@ export function PropertyEditorPopup(props: {
                                 setIconPickerAnchor(e.currentTarget)
                                 setIconPickerOpen(true)
                               }}
-                              class="h-9 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              class="h-6 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
                               style={{ position: 'relative', overflow: 'hidden' }}>
                               <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
               <IconFieldPreview
@@ -2022,8 +2063,14 @@ export function PropertyEditorPopup(props: {
 
           <Show when={menuPanelOpen()}>
             <Portal>
-              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
-                onMouseDown={() => setMenuPanelOpen(false)}>
+              <div class="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={(e) => {
+                  /** 仅"直接点在遮罩空白处"才关面板：e.target 校验挡住一切子元素/弹层冒泡上来的 mousedown
+                   *  （含图标弹窗搜索框原生清除按钮等异常路径）；图标弹窗打开时点遮罩只关弹窗，不关面板 */
+                  if (e.target !== e.currentTarget) return
+                  if (menuIconPicker()) { setMenuIconPicker(null); return }
+                  setMenuPanelOpen(false)
+                }}>
                 <div ref={menuPanelRef} class="flex flex-col gap-2 w-[440px] max-w-[92vw] p-3"
                   style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
                   onMouseDown={(e) => e.stopPropagation()}>
@@ -2057,10 +2104,18 @@ export function PropertyEditorPopup(props: {
                                 onInput={(e) => setMenuTree(i(), 'title', e.currentTarget.value)}
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!n.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                              <input value={n.icon}
-                                onInput={(e) => setMenuTree(i(), 'icon', e.currentTarget.value)}
-                                type="text" placeholder="图标"
-                                class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              {/* 菜单项图标：下拉触发器（小预览+名称+箭头），点击打开图标弹窗（embedded，只回传名称） */}
+                              <button type="button"
+                                onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: -1, anchor: e.currentTarget }) }}
+                                class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                style={{ position: 'relative', overflow: 'hidden' }}>
+                                <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                  <IconFieldPreview name={n.icon} />
+                                </span>
+                                <span class="text-left text-slate-600"
+                                  style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{n.icon || '图标'}</span>
+                                <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                              </button>
                               <button onClick={() => setMenuTree(menuTree.filter(x => x.id !== n.id))}
                                 class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                 <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -2082,10 +2137,18 @@ export function PropertyEditorPopup(props: {
                                           onInput={(e) => setMenuTree(i(), 'children', ci(), 'title', e.currentTarget.value)}
                                           type="text" placeholder="子项标题"
                                           class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                                        <input value={c.icon}
-                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'icon', e.currentTarget.value)}
-                                          type="text" placeholder="图标"
-                                          class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                        {/* 子项图标：同顶层项，embedded 模式只回传名称 */}
+                                        <button type="button"
+                                          onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: ci(), anchor: e.currentTarget }) }}
+                                          class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                          style={{ position: 'relative', overflow: 'hidden' }}>
+                                          <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                            <IconFieldPreview name={c.icon} />
+                                          </span>
+                                          <span class="text-left text-slate-600"
+                                            style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{c.icon || '图标'}</span>
+                                          <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        </button>
                                         <button onClick={() => setMenuTree(i(), 'children', (menuTree[i()].children ?? []).filter(x => x.id !== c.id))}
                                           class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -2126,6 +2189,24 @@ export function PropertyEditorPopup(props: {
                   </button>
                 </div>
               </div>
+              {/* 菜单项图标弹窗：挂在菜单面板 Show 内（随面板卸载），embedded 模式只回传名称写入对应菜单项 */}
+              <Show when={menuIconPicker()}>
+                <IconPickerPopup
+                  mode="embedded"
+                  current={(menuIconPicker()!.child >= 0
+                    ? menuTree[menuIconPicker()!.parent]?.children?.[menuIconPicker()!.child]?.icon
+                    : menuTree[menuIconPicker()!.parent]?.icon) ?? ''}
+                  anchor={menuIconPicker()!.anchor}
+                  sessionId={props.sessionId}
+                  htmlFilePath={props.htmlFilePath}
+                  onPick={(pick) => {
+                    const t = menuIconPicker()!
+                    if (t.child >= 0) setMenuTree(t.parent, 'children', t.child, 'icon', pick.name)
+                    else setMenuTree(t.parent, 'icon', pick.name)
+                    setMenuIconPicker(null)
+                  }}
+                  onClose={() => setMenuIconPicker(null)} />
+              </Show>
             </Portal>
           </Show>
 
@@ -2843,6 +2924,7 @@ export function PropertyEditorPopup(props: {
               current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
               currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
               currentCustom={iconCustomFlag(iconPickerKey()!)}
+              mode={iconPickerMode(iconPickerKey()!)}
               sessionId={props.sessionId}
               htmlFilePath={props.htmlFilePath}
               initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]

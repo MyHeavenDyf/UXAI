@@ -22,6 +22,7 @@ import { GenerateRoutes } from './src/steps/generate-routes'
 import { WriteOutput } from './src/steps/write-output'
 import { GenerateReport } from './src/steps/generate-report'
 import { GenerateThemeConfig } from './src/steps/generate-theme-config'
+import { buildManifest, type CodeManifest } from './src/codegen/manifest-builder'
 
 const __excodeDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -57,6 +58,12 @@ export interface OutputFile {
 
 export interface DownloadHuiCodeResult {
   files: OutputFile[]
+  /**
+   * 节点→文件映射 manifest（tree.json + content.json），供设计平台
+   * 「框选节点 → 定位产物文件」（见 PLAN-manifest.md）。
+   * manifest 不进 outputFiles（write-output 保持纯净），在此 post-pipeline 构建。
+   */
+  manifest: CodeManifest
 }
 
 // ─── 内部 config 对象 ───
@@ -203,5 +210,9 @@ export async function downloadHuiCode(
 
   await runPipeline(ctx, DEFAULT_STEPS)
 
-  return { files: ctx.outputFiles }
+  // manifest 在 post-pipeline 构建（不进 outputFiles，保持产物纯净）：
+  // 从 ctx.outputFiles（含 GeneratedFile.nodeIds）产 tree + content。
+  const manifest = buildManifest(ctx.outputFiles)
+
+  return { files: ctx.outputFiles, manifest }
 }

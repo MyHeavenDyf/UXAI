@@ -30,6 +30,7 @@ import { emitKey, serializePlainJs } from './js-serializer'
 import type { EmitOptions } from './jsx-emitter'
 import type { PropValue } from '../core/value-types'
 import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/node-types'
+import { collectFileNodeIds } from './node-id-collector'
 
 // ─── 主入口 ───
 
@@ -271,6 +272,13 @@ function assembleMainPage(
   return {
     path: draft.path,
     content: parts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id（manifest 用）：main 文件 = rootTree + main FileUnit consts + draft 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: [draft.rootTree],
+      fileUnit: mainFileUnit,
+      moduleTopConsts: draft.moduleTopConsts,
+      componentInternalConsts: draft.componentInternalConsts,
+    }),
   }
 }
 
@@ -399,6 +407,13 @@ function assembleModuleFile(
   return {
     path: ext.path,
     content: finalParts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id：module 文件 = ext.body + module FileUnit consts + ext 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: ext.body,
+      fileUnit: fileUnit,
+      moduleTopConsts: ext.moduleTopConsts,
+      componentInternalConsts: ext.componentInternalConsts,
+    }),
   }
 }
 
@@ -535,6 +550,13 @@ function assembleComponentTemplate(
   return {
     path: ext.path,
     content: parts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id：循环模板文件 = ext.body + loopTemplate FileUnit consts + ext 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: ext.body,
+      fileUnit: fileUnit,
+      moduleTopConsts: ext.moduleTopConsts,
+      componentInternalConsts: ext.componentInternalConsts,
+    }),
   }
 }
 

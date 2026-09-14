@@ -11,6 +11,9 @@ export type A2uiDocEntry = {
   rootId: string
   persistTimer: ReturnType<typeof setTimeout> | null
   persistPending: boolean
+  /** 防抖期间累积：本次待写是否源于用户编辑（commitA2uiDoc），需派发 prototype:a2ui-persisted 触发历史记录。
+   *  状态同步（A2UI_STATE_CHANGE / od:a2ui-state-snapshot）的落盘不置位，避免"进编辑态/点元素未改"也产生 user 版本。 */
+  pendingHistory?: boolean
 }
 
 export type PrototypeSession = {

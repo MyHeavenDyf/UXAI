@@ -3,6 +3,7 @@ import type { ResultTab } from '../components/result-viewer/tab-store'
 import type { ModelEditConfig, ModelEditElement, OnChangeArgs, IconConfig, IconConfirmArgs } from '../components/model-edit-items/types'
 import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
+import { serializeEffects, type EffectEntry } from '../edit-mode/source-patches'
 import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 import JSZip from 'jszip'
@@ -36,7 +37,7 @@ function buildModelEditPrompt(
   lines.push('请修改以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   lines.push('')
   const changes: string[] = []
@@ -44,12 +45,13 @@ function buildModelEditPrompt(
     const before = prev[key] ?? ''
     const after = current[key] ?? ''
     if (before !== after) {
+      const displayName = key.replace(/^od_/, '')
       const beforeLines = flattenJsonValue(key, before)
       const afterLines = flattenJsonValue(key, after)
       if (beforeLines.length <= 1 && afterLines.length <= 1) {
-        changes.push(`  ${key}: ${before || '(empty)'} → ${after || '(empty)'}`)
+        changes.push(`  ${displayName}: ${before || '(empty)'} → ${after || '(empty)'}`)
       } else {
-        changes.push(`  ${key}:`)
+        changes.push(`  ${displayName}:`)
         changes.push(`    修改前:`)
         beforeLines.forEach(l => changes.push(`      ${l.trim()}`))
         changes.push(`    修改后:`)
@@ -73,7 +75,7 @@ function buildModelDeletePrompt(element: ModelEditElement, filePath: string): st
   lines.push('请删除以下元素:')
   lines.push(`标签: <${element.tagName}>`)
   if (element.className) lines.push(`类名: ${element.className}`)
-  lines.push(`选择器: ${element.selector}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
   lines.push(`当前HTML: ${element.htmlHint}`)
   return lines.join('\n')
 }
@@ -146,15 +148,18 @@ const directModelEditConfig: ModelEditConfig = {
       }
       case 'od_appearance': {
         const d = parseJson(value)
-        send({
-          backgroundColor: d.backgroundColor || '',
-          opacity: d.opacity || '',
-          borderRadius: d.borderRadius || '',
-          borderTopLeftRadius: d.borderTopLeftRadius || '',
-          borderTopRightRadius: d.borderTopRightRadius || '',
-          borderBottomRightRadius: d.borderBottomRightRadius || '',
-          borderBottomLeftRadius: d.borderBottomLeftRadius || '',
-        })
+        const styles: Record<string, string> = {}
+        if (d.backgroundColor) styles.backgroundColor = d.backgroundColor
+        if (d.opacity) styles.opacity = d.opacity
+        if (d.borderRadius) {
+          styles.borderRadius = d.borderRadius
+        } else {
+          if (d.borderTopLeftRadius) styles.borderTopLeftRadius = d.borderTopLeftRadius
+          if (d.borderTopRightRadius) styles.borderTopRightRadius = d.borderTopRightRadius
+          if (d.borderBottomRightRadius) styles.borderBottomRightRadius = d.borderBottomRightRadius
+          if (d.borderBottomLeftRadius) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
+        }
+        send(styles)
         break
       }
       case 'od_border': {
@@ -170,6 +175,12 @@ const directModelEditConfig: ModelEditConfig = {
         break
       }
       case 'od_bgImage': send({ backgroundImage: value }); break
+      case 'od_effects': {
+        const effects = JSON.parse(value) as EffectEntry[]
+        const serialized = serializeEffects(effects)
+        send({ boxShadow: serialized.boxShadow, filter: serialized.filter, backdropFilter: serialized.backdropFilter })
+        break
+      }
     }
   },
 
@@ -197,7 +208,7 @@ const directModelEditConfig: ModelEditConfig = {
   promptCallback: (filePath, selector) => {
     return [
       `[文件: ${filePath}]`,
-      `[选择器: ${selector}]`,
+      `[选择器: ${selector}（该元素可能是动态生成的）]`,
     ].join('\n')
   },
 

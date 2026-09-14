@@ -1167,6 +1167,7 @@ export function StudioComposer(props: {
                     }
                   >
                     <SelectedTemplateButton
+                      title={props.selectedStyleTemplate?.title ?? ""}
                       active={props.openMenu === "style-template"}
                       disabled={isBusy()}
                       editable={Boolean(selectedExtractStyleTemplate())}
@@ -1284,7 +1285,7 @@ export function StudioComposer(props: {
                           classList={{ active: props.openMenu === "style-template" }}
                           onClick={() => props.onOpenMenu("style-template")}
                         >
-                          <span class="studio-composer-toolbar-more-item-icon" aria-hidden="true" />
+                          <img class="studio-composer-toolbar-more-item-icon" src="/studio/studio-template-icon.svg" />
                           <span>风格模板</span>
                           <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
                         </button>
@@ -1292,6 +1293,7 @@ export function StudioComposer(props: {
                     >
                       <div class="studio-composer-toolbar-more-template-applied">
                         <SelectedTemplateButton
+                          title={props.selectedStyleTemplate?.title ?? ""}
                           active={props.openMenu === "style-template"}
                           disabled={isBusy()}
                           editable={Boolean(selectedExtractStyleTemplate())}
@@ -1511,6 +1513,7 @@ function ToolButton(props: { label: string; active?: boolean; disabled?: boolean
 }
 
 function SelectedTemplateButton(props: {
+  title: string
   active?: boolean
   disabled?: boolean
   editable?: boolean
@@ -1521,6 +1524,10 @@ function SelectedTemplateButton(props: {
   onEdit?: () => void
   onClear?: () => void
 }): JSX.Element {
+  const displayTitle = () => Array.from(props.title).length > 6
+    ? `${Array.from(props.title).slice(0, 6).join("")}...`
+    : props.title
+
   return (
     <div
       role="button"
@@ -1537,9 +1544,9 @@ function SelectedTemplateButton(props: {
       aria-disabled={props.disabled ? "true" : undefined}
     >
       <Show when={props.toolbarMore}>
-        <img alt="" class="studio-composer-toolbar-more-item-icon studio-composer-template-applied-placeholder" />
+        <img alt="" class="studio-composer-toolbar-more-item-icon studio-composer-template-applied-placeholder" src="/studio/studio-template-icon.svg" />
       </Show>
-      <span class="studio-composer-template-applied-label">模板应用中</span>
+      <span class="studio-composer-template-applied-label">{displayTitle()}</span>
       <div class="studio-composer-template-applied-actions">
         <Show when={props.editable}>
           <button
@@ -1592,23 +1599,32 @@ function StyleTemplatePresetEditor(props: {
       ?? composer.closest<HTMLElement>(".studio-empty-workspace")
       ?? composer.closest<HTMLElement>(".studio-page")
 
-    const updateHeight = () => {
-      const visibleTop = Math.max(0, window.visualViewport?.offsetTop ?? 0, visibleArea?.getBoundingClientRect().top ?? 0)
-      const availableHeight = Math.max(0, composer.getBoundingClientRect().top - visibleTop - 24)
+    const updateSize = () => {
+      const composerRect = composer.getBoundingClientRect()
+      const visibleAreaRect = visibleArea?.getBoundingClientRect()
+      const viewportLeft = window.visualViewport?.offsetLeft ?? 0
+      const viewportRight = viewportLeft + (window.visualViewport?.width ?? window.innerWidth)
+      const visibleLeft = Math.max(viewportLeft, visibleAreaRect?.left ?? 0)
+      const visibleRight = Math.min(viewportRight, visibleAreaRect?.right ?? window.innerWidth)
+      const editorCenter = composerRect.left + composerRect.width / 2
+      const availableWidth = Math.max(0, 2 * Math.min(editorCenter - visibleLeft - 24, visibleRight - editorCenter - 24))
+      const visibleTop = Math.max(0, window.visualViewport?.offsetTop ?? 0, visibleAreaRect?.top ?? 0)
+      const availableHeight = Math.max(0, composerRect.top - visibleTop - 24)
+      editorRef.style.width = `${Math.min(556, availableWidth)}px`
       editorRef.style.height = `${Math.min(590, availableHeight)}px`
     }
 
-    const observer = new ResizeObserver(updateHeight)
+    const observer = new ResizeObserver(updateSize)
     observer.observe(composer)
     if (visibleArea) observer.observe(visibleArea)
-    window.addEventListener("resize", updateHeight)
-    window.visualViewport?.addEventListener("resize", updateHeight)
-    updateHeight()
+    window.addEventListener("resize", updateSize)
+    window.visualViewport?.addEventListener("resize", updateSize)
+    updateSize()
 
     onCleanup(() => {
       observer.disconnect()
-      window.removeEventListener("resize", updateHeight)
-      window.visualViewport?.removeEventListener("resize", updateHeight)
+      window.removeEventListener("resize", updateSize)
+      window.visualViewport?.removeEventListener("resize", updateSize)
     })
   })
 

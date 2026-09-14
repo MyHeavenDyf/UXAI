@@ -22,6 +22,8 @@ type EditorRef = {
 type AreaDialogElement = {
   rect: { x: number; y: number; width: number; height: number }
   selector: string
+  dataOdId?: string
+  id?: string
 }
 
 const MASK_COLOR = 'rgba(0,0,0,0.3)'
@@ -29,6 +31,7 @@ const MASK_COLOR = 'rgba(0,0,0,0.3)'
 export function ModelEditAreaDialog(props: {
   element: AreaDialogElement | null
   iframeRef?: HTMLIFrameElement
+  viewportScale?: number
   filePath: string
   tabTitle: string
   disabled?: boolean
@@ -43,6 +46,12 @@ export function ModelEditAreaDialog(props: {
   onMentionActiveChange?: (active: boolean) => void
   closeMentionTrigger?: number
   promptCallback?: (filePath: string, selector: string) => string
+  /** 选中框边框色（默认蓝 #007bff，prototype 宿主元素传橙 #fa8c16） */
+  maskBorderColor?: string
+  /** 选中框背景色（默认 rgba(0,123,255,0.1)） */
+  maskBgColor?: string
+  /** 容器用 position:fixed 而非 absolute（prototype 浮层需脱离面板定位到视口） */
+  fixedPosition?: boolean
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
@@ -50,10 +59,32 @@ export function ModelEditAreaDialog(props: {
   let editorRef: EditorRef | undefined
   let dialogRef: HTMLDivElement | undefined
   let parentRef: HTMLDivElement | undefined
+  let dragOverlay: HTMLDivElement | undefined
+
+  onCleanup(() => { dragOverlay?.remove() })
 
   const [cRect, setCRect] = createSignal<DOMRect | null>(null)
 
   const [iframeRectTick, setIframeRectTick] = createSignal(0)
+
+  const [liveRect, setLiveRect] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  const elementId = () => props.element?.dataOdId || props.element?.id || null
+
+  const startTrackRect = () => {
+    const id = elementId()
+    if (!id) return
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:track-rect', elementId: id }, '*')
+  }
+
+  const stopTrackRect = () => {
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:stop-track-rect' }, '*')
+  }
+
+  createEffect(on(() => props.element?.dataOdId ?? props.element?.id, () => {
+    setLiveRect(null)
+    startTrackRect()
+  }))
 
   onMount(() => {
     if (parentRef) {
@@ -78,6 +109,23 @@ export function ModelEditAreaDialog(props: {
         window.removeEventListener('scroll', onWinResize, true)
       })
     }
+
+    const iframe = props.iframeRef
+    if (iframe) {
+      const onMessage = (e: MessageEvent) => {
+        if (e.source !== iframe.contentWindow) return
+        const d = e.data
+        if (!d || typeof d !== 'object') return
+        if (d.type === 'od:rect-update' && d.rect) {
+          setLiveRect(d.rect)
+        }
+      }
+      window.addEventListener('message', onMessage)
+      onCleanup(() => {
+        window.removeEventListener('message', onMessage)
+        stopTrackRect()
+      })
+    }
   })
 
   createEffect(on(() => props.closeMentionTrigger, (n) => {
@@ -93,15 +141,22 @@ export function ModelEditAreaDialog(props: {
     const el = props.element
     const cRect = containerRect()
     if (!el || !cRect) return null
+    // fixedPosition（prototype 浮层）：element rect 已是视口坐标（message-handler
+    // 做过 iframe→视口换算），父容器 position:fixed;inset:0 即视口，无需再加 iframe 偏移
+    if (props.fixedPosition) {
+      return { x: el.rect.x, y: el.rect.y, width: el.rect.width, height: el.rect.height }
+    }
     const iframeRect = props.iframeRef?.getBoundingClientRect()
     if (!iframeRect) return null
+    const scale = props.viewportScale ?? 1
+    const r = liveRect() ?? el.rect
     const offsetX = iframeRect.left - cRect.left
     const offsetY = iframeRect.top - cRect.top
     return {
-      x: offsetX + el.rect.x,
-      y: offsetY + el.rect.y,
-      width: el.rect.width,
-      height: el.rect.height,
+      x: offsetX + r.x * scale,
+      y: offsetY + r.y * scale,
+      width: r.width * scale,
+      height: r.height * scale,
     }
   }
 
@@ -148,7 +203,7 @@ export function ModelEditAreaDialog(props: {
         <div style={{ position: 'absolute', left: '0', top: `${ey + eh}px`, width: `${cw}px`, height: `${ch - ey - eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: '0', top: `${ey}px`, width: `${ex}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: `${ex + ew}px`, top: `${ey}px`, width: `${cw - ex - ew}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
-        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: '2px solid #007bff', 'border-radius': '4px', background: 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
+        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: `2px solid ${props.maskBorderColor ?? '#007bff'}`, 'border-radius': '4px', background: props.maskBgColor ?? 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
       </>
     )
   }
@@ -163,15 +218,24 @@ export function ModelEditAreaDialog(props: {
     const startLeft = dialogRef.offsetLeft
     const startTop = dialogRef.offsetTop
 
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:move;background:transparent'
+    document.body.appendChild(overlay)
+    dragOverlay = overlay
+
     const move = (ev: MouseEvent) => {
       setDragPos({ left: startLeft + ev.clientX - startX, top: startTop + ev.clientY - startY })
     }
     const up = () => {
       document.removeEventListener('mousemove', move)
       document.removeEventListener('mouseup', up)
+      window.removeEventListener('blur', up)
+      overlay.remove()
+      dragOverlay = undefined
     }
     document.addEventListener('mousemove', move)
     document.addEventListener('mouseup', up)
+    window.addEventListener('blur', up)
   }
 
   const buildPrefix = () => {
@@ -181,7 +245,7 @@ export function ModelEditAreaDialog(props: {
     const lines: string[] = []
     if (props.filePath) lines.push(`[文件路径: ${props.filePath}]`)
     if (props.tabTitle) lines.push(`[页面: ${props.tabTitle}]`)
-    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}]`)
+    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}（该元素可能是动态生成的）]`)
     return lines.join('\n')
   }
 
@@ -210,7 +274,7 @@ export function ModelEditAreaDialog(props: {
   }
 
   return (
-    <div ref={parentRef} style={{ position: 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default' }}>
+    <div ref={parentRef} style={{ position: props.fixedPosition ? 'fixed' : 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default', ...(props.fixedPosition ? { 'z-index': 200 } : {}) }}>
       {maskPieces()}
       <div
         ref={dialogRef}
