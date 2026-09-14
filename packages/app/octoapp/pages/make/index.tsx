@@ -1739,11 +1739,19 @@ const sessionMessagesLoaded = createMemo(() => {
   // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
   // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
   // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
+  // design（纯 HTML）页面同理：sandbox allow-same-origin 后点击 iframe 不触发 parent
+  // 的 window.blur，由 html-renderer 在选中元素时派发 design:element-selected，此处监听关闭。
   createEffect(() => {
     const close = () => setShowHistoryPanel(false)
     const unsubQuickFix = onPrototypeQuickFix(close)
     const unsubCtxMenu = onPrototypeCtxMenu(close)
-    onCleanup(() => { unsubQuickFix(); unsubCtxMenu() })
+    const onElementSelected = () => close()
+    window.addEventListener("design:element-selected", onElementSelected)
+    onCleanup(() => {
+      unsubQuickFix()
+      unsubCtxMenu()
+      window.removeEventListener("design:element-selected", onElementSelected)
+    })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
