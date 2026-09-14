@@ -854,8 +854,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
                         <Show
                           when={props.groups!.length}
                           fallback={
-                            <div class="flex items-center text-[12px] leading-[20px]" style={{ height: "36px", "padding-left": "8px", color: "rgba(0,0,0,0.4)", "flex-shrink": "0" }}>
-                              暂无可移动的数据
+                            <div class="flex items-center text-[14px] leading-[20px]" style={{ height: "36px", "padding-left": "8px", color: "#777777", "flex-shrink": "0" }}>
+                              暂无可移动的分组
                             </div>
                           }
                         >

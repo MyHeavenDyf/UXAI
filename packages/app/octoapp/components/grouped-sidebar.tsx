@@ -17,6 +17,7 @@ import trashPng from "@/pages/_shell/icons/trash.png"
 import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLinePng from "@/pages/_shell/icons/Folder_line.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
+import folderOpenedPng from "@/pages/_shell/icons/ic_bpit_floder_opened.png"
 
 export type GroupedSidebarProps = Omit<
   AgentSidebarProps,
@@ -253,7 +254,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                           />
                         </Show>
                         <span style={{ width: "20px", height: "20px", display: "flex", "align-items": "center", "justify-content": "center", "flex-shrink": "0" }}>
-                          <img src={expandedGroups().has(group.id) ? folderLinePng : folderLineClosePng} style={{ width: "20px", height: "20px", "flex-shrink": "0" }} alt="" draggable={false} />
+                          <img src={isActive() ? folderOpenedPng : expandedGroups().has(group.id) ? folderLinePng : folderLineClosePng} style={{ width: "20px", height: "20px", "flex-shrink": "0" }} alt="" draggable={false} />
                         </span>
                         <span
                           class="flex-1 min-w-0"
@@ -361,12 +362,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
           onCancel={() => setRemoveTarget(null)}
           onConfirm={async () => {
             const target = removeTarget()
-            const api = sectionApi
             if (target) {
-              const sessions = api
-                ? api.sessions.filter(s => sessionGroupMapping[s.id]?.groupId === target.id && !api.isPinned(s))
-                : []
-              if (sessions.length && api) await api.deleteSessions(sessions)
               clearGroup(target.id)
               await removeGroup(target.id)
               setExpandedGroups(prev => { const next = new Set(prev); next.delete(target.id); return next })

@@ -145,7 +145,10 @@ export const layer = Layer.effect(
 
       remove: (id) =>
         Effect.sync(() => {
-          Database.use((db) => db.delete(SessionGroupTable).where(eq(SessionGroupTable.id, id)).run())
+          Database.use((db) => {
+            db.delete(SessionGroupMappingTable).where(eq(SessionGroupMappingTable.group_id, id)).run()
+            db.delete(SessionGroupTable).where(eq(SessionGroupTable.id, id)).run()
+          })
         }),
 
       reorder: (ids) =>
