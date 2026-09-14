@@ -150,6 +150,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
+  const [hasPinned, setHasPinned] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
@@ -159,6 +160,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const pinnedSessions = createMemo(() =>
     sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
   )
+  createEffect(() => { if (pinnedSessions().length > 0) setHasPinned(true) })
   const recentSessions = createMemo(() =>
     sessionList
       .filter(s => !s.pinned && !props.sessionGroupMapping?.[s.id])
@@ -624,7 +626,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       beforeSection={() => (
         <>
-          <Show when={pinnedSessions().length}>
+          <Show when={pinnedSessions().length > 0 || hasPinned()}>
             <div
               onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
@@ -657,6 +659,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 onSessionDragLeave={handleSessionDragLeave}
                 onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "pinned" }) }}
                 onEmptyDrop={() => performSessionMove({ type: "section", section: "pinned" })}
+                plainEmptyDropZone
               />
             </Show>
           </Show>
@@ -728,6 +731,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         onSessionDragLeave={handleSessionDragLeave}
         onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "recent" }) }}
         onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
+        plainEmptyDropZone
       />
       <Show when={contextMenu.show && contextMenu.session}>
         <Portal>

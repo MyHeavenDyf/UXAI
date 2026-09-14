@@ -335,6 +335,8 @@ export type SessionListProps = {
   onSessionDrop?: (e: DragEvent, session: Session) => void
   /** DnD: drop on empty area handler */
   onEmptyDrop?: (e: DragEvent) => void
+  /** When true, render the empty drop zone as plain text instead of the dashed placeholder box (still droppable) */
+  plainEmptyDropZone?: boolean
 }
 
 /**
@@ -370,14 +372,18 @@ export function SessionList(props: SessionListProps) {
             <Show
               when={props.itemsDraggable && !props.isOnboarding}
               fallback={
-                <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                <div class="pl-[40px] pr-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
                   {props.isOnboarding ? "请先选择项目目录" : (props.emptyText ?? "暂无对话")}
                 </div>
               }
             >
               <div
-                class="flex items-center justify-center rounded-[8px] transition-colors"
-                style={{ height: "36px", border: "1px dashed rgba(10,89,247,0.25)", margin: "2px 0" }}
+                class={props.plainEmptyDropZone
+                  ? "pl-[40px] pr-[8px] py-[5px] text-[12px] leading-[20px]"
+                  : "flex items-center justify-center rounded-[8px] transition-colors"}
+                style={props.plainEmptyDropZone
+                  ? { color: "var(--octo-text-secondary, #777777)" }
+                  : { height: "36px", border: "1px dashed rgba(10,89,247,0.25)", margin: "2px 0" }}
                 onDragOver={(e) => {
                   if (props.draggingSessionId) {
                     e.preventDefault()
@@ -386,7 +392,10 @@ export function SessionList(props: SessionListProps) {
                 }}
                 onDrop={(e) => { e.preventDefault(); props.onEmptyDrop?.(e) }}
               >
-                <span class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>拖拽到此处</span>
+                {props.plainEmptyDropZone
+                  ? (props.emptyText ?? "暂无对话")
+                  : <span class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>拖拽到此处</span>
+                }
               </div>
             </Show>
           }

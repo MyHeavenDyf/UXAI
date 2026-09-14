@@ -29,6 +29,9 @@ export type GroupedSidebarProps = Omit<
   routePrefix: string
 }
 
+const groupExpandedByNamespace = new Map<string, boolean>()
+const expandedGroupsByNamespace = new Map<string, Set<string>>()
+
 export function GroupedSidebar(props: GroupedSidebarProps) {
   const location = useLocation()
   const globalSync = useGlobalSync()
@@ -37,8 +40,10 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [recentCollapsed, setRecentCollapsed] = createSignal(false)
-  const [groupExpanded, setGroupExpanded] = createSignal(false)
-  const [expandedGroups, setExpandedGroups] = createSignal<Set<string>>(new Set())
+  const [groupExpanded, setGroupExpanded] = createSignal(groupExpandedByNamespace.get(props.namespace) ?? false)
+  createEffect(() => groupExpandedByNamespace.set(props.namespace, groupExpanded()))
+  const [expandedGroups, setExpandedGroups] = createSignal<Set<string>>(new Set(expandedGroupsByNamespace.get(props.namespace)))
+  createEffect(() => expandedGroupsByNamespace.set(props.namespace, expandedGroups()))
   const [selectedGroupId, setSelectedGroupId] = createSignal<string | null>(null)
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
   const [menuOpenId, setMenuOpenId] = createSignal<string | null>(null)
@@ -331,6 +336,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                           onSessionDragLeave={api.onSessionDragLeave}
                           onSessionDrop={(e, session) => { e.preventDefault(); api.handleSessionDrop({ type: "session", sessionId: session.id, position: api.sessionDropPosition() ?? "before", section: "group", groupId: group.id }) }}
                           onEmptyDrop={() => api.handleSessionDrop({ type: "group", groupId: group.id })}
+                          plainEmptyDropZone
                         />
                       </Show>
                     </>
