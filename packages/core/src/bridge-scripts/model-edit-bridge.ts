@@ -13,6 +13,19 @@ function me_runBridge() {
   })();
   var me_idPrefix = me_depth > 0 ? 'if' + me_depth + '-' : '';
 
+  function me_getOffsetToTop() {
+    var x = 0, y = 0;
+    var f = window.frameElement;
+    while (f) {
+      var r = f.getBoundingClientRect();
+      x += r.left;
+      y += r.top;
+      var w = f.ownerDocument.defaultView;
+      f = w ? w.frameElement : null;
+    }
+    return { x: x, y: y };
+  }
+
   var me_trackId = null;
   var me_trackRaf = 0;
   var me_trackRo = null;
@@ -21,7 +34,8 @@ function me_runBridge() {
     var el = document.querySelector('[data-od-id="' + me_trackId + '"]');
     if (!el) return;
     var r = el.getBoundingClientRect();
-    window.parent.postMessage({ type: 'od:rect-update', elementId: me_trackId, rect: { x: r.left, y: r.top, width: r.width, height: r.height } }, '*');
+    var off = me_getOffsetToTop();
+    window.parent.postMessage({ type: 'od:rect-update', elementId: me_trackId, rect: { x: r.left + off.x, y: r.top + off.y, width: r.width, height: r.height } }, '*');
   }
   function me_trackRefresh() {
     if (me_trackRaf) cancelAnimationFrame(me_trackRaf);
@@ -121,7 +135,9 @@ function me_runBridge() {
     var id = me_ensureAnnotatedId(el);
     if (!id) return null;
     var tag = el.tagName.toLowerCase();
-    var rect = el.getBoundingClientRect();
+    var r = el.getBoundingClientRect();
+    var off = me_getOffsetToTop();
+    var rect = { left: r.left + off.x, top: r.top + off.y, width: r.width, height: r.height };
     var computed = window.getComputedStyle(el);
     var directTextParts = [];
     for (var i = 0; i < el.childNodes.length; i++) {

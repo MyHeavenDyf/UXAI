@@ -300,7 +300,7 @@ const directModelEditConfig: ModelEditConfig = {
       return [
         `[文件: ${filePath}]`,
         `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
-        `把当前的元素替换成 ${folderpath} 内页面的内容。`,
+        `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
       ].join('\n')
     },
   } satisfies AssetConfig,
