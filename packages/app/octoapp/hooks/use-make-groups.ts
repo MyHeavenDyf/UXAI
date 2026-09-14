@@ -22,6 +22,7 @@ export function useMakeGroups(dir: () => string | undefined, namespace: string =
       const client = globalSDK.createClient({ directory: d })
       await migrateLocalGroupsToDB({ dir: d, namespace, client })
       const result = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+      if (dir() !== d) return
       const data = result.data
       const gs: MakeGroup[] = (data?.groups ?? []).map((g) => ({
         id: g.id,
@@ -40,7 +41,7 @@ export function useMakeGroups(dir: () => string | undefined, namespace: string =
     const g = result.data
     if (!g) return
     const group: MakeGroup = { id: g.id, name: g.name, created_at: g.time_created as number }
-    setGroups(produce((draft) => { draft.unshift(group) }))
+    setGroups(produce((draft) => { draft.push(group) }))
     return group.id
   }
 

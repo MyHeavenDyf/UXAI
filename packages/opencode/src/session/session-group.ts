@@ -205,7 +205,12 @@ export const layer = Layer.effect(
             for (let i = 0; i < sessionIds.length; i++) {
               db.update(SessionGroupMappingTable)
                 .set({ position: i, time_updated: now })
-                .where(eq(SessionGroupMappingTable.session_id, sessionIds[i] as SessionID))
+                .where(
+                  and(
+                    eq(SessionGroupMappingTable.session_id, sessionIds[i] as SessionID),
+                    eq(SessionGroupMappingTable.group_id, groupID),
+                  ),
+                )
                 .run()
             }
           })

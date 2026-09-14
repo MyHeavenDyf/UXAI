@@ -47,8 +47,12 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
   const fetchInsightSessions = async (dir: string): Promise<Session[]> => {
     const insightApi = globalSDK.client.insight
     if (insightApi) {
-      const result = await insightApi.sessions.list({ directory: dir, limit: 200 })
-      return (result.data?.items ?? []) as Session[]
+      const initial = await insightApi.sessions.list({ directory: dir, limit: 100 })
+      const initialItems = (initial.data?.items ?? []) as Session[]
+      const total = Number(initial.data?.total ?? initialItems.length)
+      if (!Number.isFinite(total) || initialItems.length >= total) return initialItems
+      const full = await insightApi.sessions.list({ directory: dir, limit: total })
+      return (full.data?.items ?? initialItems) as Session[]
     }
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.session.list()

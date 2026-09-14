@@ -18,6 +18,7 @@ export function useSessionGroups(dir: () => string | undefined, namespace: strin
       const client = globalSDK.createClient({ directory: d })
       await migrateLocalGroupsToDB({ dir: d, namespace, client })
       const result = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+      if (dir() !== d) return
       const data = result.data
       const raw = data?.mapping ?? {}
       const cleaned: SessionGroupMapping = {}
