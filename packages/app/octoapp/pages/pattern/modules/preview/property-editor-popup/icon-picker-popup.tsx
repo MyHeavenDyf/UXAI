@@ -449,6 +449,18 @@ export function IconPickerPopup(props: {
     setState('selected', props.current)
   })
 
+  /** 远端搜索结果回来后：无选中 id（代码生成的图标没存过 nameId）时，取与当前图标同名的
+   *  那条数据写入选中状态（selectedId/selected）——打开即默认选中 */
+  createEffect(() => {
+    const icons = iconStore.state.icons
+    if (!icons.length || state.selectedId) return
+    const byName = icons.find(i => (i.name ?? '').trim().toLowerCase() === state.selected.trim().toLowerCase())
+    if (byName) {
+      setState('selectedId', String(byName.icon_id))
+      setState('selected', byName.name)
+    }
+  })
+
   /** 删除已上传的自定义图标：会话文件一并删除；dataURL（web 回退）仅移出列表 */
   const deleteCustomIcon = (i: number) => {
     const icon = state.customIcons[i]
