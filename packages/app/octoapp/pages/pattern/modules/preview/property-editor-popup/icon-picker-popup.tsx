@@ -449,13 +449,12 @@ export function IconPickerPopup(props: {
     setState('selected', props.current)
   })
 
-  /** 远端搜索结果回来后默认选中：当前 selectedId 命中列表（选过的图标）则不动；
-   *  未命中（无 id，或历史残留的错乱 id）时取与当前图标同名的条目写入选中状态 */
+  /** 远端列表加载完后的默认选中：selectedId 命中列表（选过/已带有效 id）不动；否则取 englishName
+   *  与当前图标名一模一样的条目写入选中状态（生成元素存的图标名即 englishName，如 clound） */
   createEffect(() => {
     const icons = iconStore.state.icons
-    if (!icons.length) return
-    if (icons.some(i => String(i.icon_id) === state.selectedId)) return
-    const byName = icons.find(i => (i.name ?? '').trim().toLowerCase() === state.selected.trim().toLowerCase())
+    if (!icons.length || icons.some(i => String(i.icon_id) === state.selectedId)) return
+    const byName = icons.find(i => i.englishName === state.selected)
     if (byName) {
       setState('selectedId', String(byName.icon_id))
       setState('selected', byName.name)
