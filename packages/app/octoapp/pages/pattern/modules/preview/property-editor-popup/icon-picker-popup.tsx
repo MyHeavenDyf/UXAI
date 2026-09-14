@@ -449,11 +449,12 @@ export function IconPickerPopup(props: {
     setState('selected', props.current)
   })
 
-  /** 远端搜索结果回来后：无选中 id（代码生成的图标没存过 nameId）时，取与当前图标同名的
-   *  那条数据写入选中状态（selectedId/selected）——打开即默认选中 */
+  /** 远端搜索结果回来后默认选中：当前 selectedId 命中列表（选过的图标）则不动；
+   *  未命中（无 id，或历史残留的错乱 id）时取与当前图标同名的条目写入选中状态 */
   createEffect(() => {
     const icons = iconStore.state.icons
-    if (!icons.length || state.selectedId) return
+    if (!icons.length) return
+    if (icons.some(i => String(i.icon_id) === state.selectedId)) return
     const byName = icons.find(i => (i.name ?? '').trim().toLowerCase() === state.selected.trim().toLowerCase())
     if (byName) {
       setState('selectedId', String(byName.icon_id))
@@ -630,8 +631,8 @@ export function IconPickerPopup(props: {
                         onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', icon.name); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': (state.selectedId || state.selected) === icon.name }}>
-                        {(state.selectedId || state.selected) === icon.name
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selectedId || icon.name === state.selected }}>
+                        {icon.name === state.selectedId || icon.name === state.selected
                           ? GridIcon(icon.svg, state.shapeKey, iconStore.state.iconColor, Number(iconStore.state.iconSize))
                           : GridIcon(icon.svg, 'outline', '#191919', Number(iconStore.state.iconSize))}
                       </button>
