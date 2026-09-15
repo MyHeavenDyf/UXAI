@@ -11,6 +11,7 @@ import {
   type AssetFile,
 } from "../addon-menu/asset-library"
 import { FolderIcon } from "../addon-menu/icons"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { sendTextToAgent } from "../../utils/agent-events"
 import "./asset-module.css"
 
@@ -84,7 +85,7 @@ function AssetDialog(props: {
   const [treeError, setTreeError] = createSignal<string | null>(null)
   const [dialogPos, setDialogPos] = createSignal<{ left: number; top: number } | null>(null)
   const [leftWidth, setLeftWidth] = createSignal(200)
-  const [rightWidth, setRightWidth] = createSignal(400)
+  const [rightWidth, setRightWidth] = createSignal(412)
   const [selectedFile, setSelectedFile] = createSignal<AssetFile | null>(null)
   const [previewFile, setPreviewFile] = createSignal<AssetFile | null>(null)
   const [previewPos, setPreviewPos] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 })
@@ -101,7 +102,7 @@ function AssetDialog(props: {
     setFiles([])
     setDialogPos(null)
     setLeftWidth(200)
-    setRightWidth(400)
+    setRightWidth(412)
     setSelectedFile(null)
     fetchTeamTree(props.productId)
       .then((folders) => {
@@ -204,10 +205,11 @@ function AssetDialog(props: {
 
   const startRightDrag = (e: MouseEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     const startX = e.clientX
     const startW = rightWidth()
     const onMove = (ev: MouseEvent) => {
-      const w = Math.max(190, Math.min(790, startW - (ev.clientX - startX)))
+      const w = Math.max(202, Math.min(802, startW + (ev.clientX - startX)))
       setRightWidth(w)
     }
     const onUp = () => {
@@ -256,7 +258,7 @@ function AssetDialog(props: {
           onClick={(e) => e.stopPropagation()}
         >
           <div class="me-asset-dialog-title" onMouseDown={onTitleMouseDown}>
-            <span class="me-me-asset-dialog-title-text">产品资产库</span>
+            <span class="me-asset-dialog-title-text">产品资产库</span>
             <button type="button" class="me-asset-dialog-close" onClick={props.onCancel} aria-label="关闭">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -265,7 +267,7 @@ function AssetDialog(props: {
           </div>
 
           <div class="me-asset-dialog-middle" ref={middleRef}>
-            <div class="me-asset-dialog-left" style={{ width: `${leftWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
+            <ScrollView class="me-asset-dialog-left" style={{ width: `${leftWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
               <Show when={treeLoading()}><div class="me-asset-dialog-empty">加载中...</div></Show>
               <Show when={treeError()}><div class="me-asset-dialog-empty">{treeError()}</div></Show>
               <Show when={!treeLoading() && !treeError()}>
@@ -273,11 +275,11 @@ function AssetDialog(props: {
                   {(folder) => <TreeItem folder={folder} depth={0} parentKey="" />}
                 </For>
               </Show>
-            </div>
+            </ScrollView>
 
             <div class="me-asset-dialog-split" onMouseDown={startLeftDrag} />
 
-            <div class="me-asset-dialog-right" style={{ width: `${rightWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
+            <ScrollView class="me-asset-dialog-right" style={{ width: `${rightWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
               <Show when={filesLoading()}><div class="me-asset-dialog-empty">加载中...</div></Show>
               <Show when={!filesLoading() && files().length === 0}><div class="me-asset-dialog-empty">暂无内容</div></Show>
               <div class="me-asset-dialog-grid">
@@ -299,7 +301,7 @@ function AssetDialog(props: {
                               draggable={false}
                             />
                           </Show>
-                          <div class={`me-asset-grid-radio ${selected() ? "me-me-asset-grid-radio--checked" : ""}`}>
+                          <div class={`me-asset-grid-radio ${selected() ? "me-asset-grid-radio--checked" : ""}`}>
                             <Show when={selected()}>
                               <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                                 <path d="M3 8l3.5 3.5L13 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -313,20 +315,20 @@ function AssetDialog(props: {
                   }}
                 </For>
               </div>
-            </div>
+            </ScrollView>
           </div>
 
           <div class="me-asset-dialog-footer">
             <button type="button" class="me-asset-dialog-btn" onClick={props.onCancel}>取消</button>
             <button
               type="button"
-              class="me-asset-dialog-btn me-me-asset-dialog-btn-primary"
+              class="me-asset-dialog-btn me-asset-dialog-btn-primary"
               disabled={!selectedFile()}
               onClick={() => { const f = selectedFile(); if (f) props.onConfirm(f) }}
             >确认</button>
           </div>
 
-          <div class="me-me-asset-dialog-right-handle" onMouseDown={startRightDrag} />
+          <div class="me-asset-dialog-right-handle" onMouseDown={startRightDrag} />
 
           <Show when={previewFile()}>
             <div
@@ -335,14 +337,14 @@ function AssetDialog(props: {
               onMouseEnter={() => { if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined } }}
               onMouseLeave={() => setPreviewFile(null)}
             >
-              <div class="me-me-asset-dialog-preview-name">{previewFile()!.fileName}</div>
-              <div class="me-me-asset-dialog-preview-stage">
+              <div class="me-asset-dialog-preview-name">{previewFile()!.fileName}</div>
+              <div class="me-asset-dialog-preview-stage">
                 <Show
                   when={previewFile()!.snapshot}
                   fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}
                 >
                   <img
-                    class="me-me-asset-dialog-preview-img"
+                    class="me-asset-dialog-preview-img"
                     src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
                     alt=""
                     draggable={false}
@@ -364,7 +366,7 @@ function AssetDialog(props: {
     return (
       <>
         <div
-          class={`me-asset-tree-item ${isSelected() ? "me-me-asset-tree-item--active" : ""}`}
+          class={`me-asset-tree-item ${isSelected() ? "me-asset-tree-item--active" : ""}`}
           style={{ "padding-left": `${8 + props.depth * 8}px` }}
           onClick={() => {
             setSelectedKey(nodeKey())
