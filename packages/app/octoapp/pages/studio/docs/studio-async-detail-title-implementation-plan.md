@@ -432,13 +432,13 @@ const STUDIO_DETAIL_TITLE_SYSTEM = [
 
 标题任务使用 `toolChoice: "none"`、`tools: {}`，并关闭 skills/MCP，避免产生额外行为。
 
-标题 timeout 建议为 10 秒：
+标题 timeout 与提示词润色保持一致，设为 45 秒：
 
 ```ts
-const STUDIO_DETAIL_TITLE_TIMEOUT_MS = 10_000
+const STUDIO_DETAIL_TITLE_TIMEOUT_MS = PROMPT_REFINE_TIMEOUT_MS
 ```
 
-标题是非关键 UI 元数据，不应沿用提示词润色的 45 秒超时。
+标题虽然是非关键 UI 元数据，但部分小模型在冷启动或高负载时可能超过 10 秒。标题任务本身不会阻塞图片/视频生成，因此允许最多等待 45 秒，超时后仍仅保留 fallback 标题。
 
 ### 8.4 标题 Agent
 
@@ -531,7 +531,7 @@ const activeGenerationTitleControllers = new Map<
 - `activeGenerationControllers.get(id)`：润色和 provider 创建阶段；
 - `activeGenerationTitleControllers.get(id)`：provider 已创建后的标题阶段。
 
-标题 controller 自身还需叠加 10 秒 timeout signal。
+标题 controller 自身还需叠加 45 秒 timeout signal。
 
 ### 8.7 避免并发写覆盖
 
@@ -766,7 +766,7 @@ promptRefineModels?: Array<{ providerID: string; modelID: string }>
 3. 新增标题输入裁剪、输出解析和 normalize。
 4. 标题输入优先使用本轮润色后的 `refinedPrompt/effectivePrompt`，没有润色调用时使用用户输入。
 5. 使用增加了小模型优先判断的 Studio 文本模型选择器调用 LLM。
-6. 增加 10 秒 timeout 和独立 abort controller。
+6. 增加 45 秒 timeout 和独立 abort controller。
 7. 标题失败时返回 `undefined`，不抛到 generation 主链路。
 
 ### 阶段四：实现并发安全持久化

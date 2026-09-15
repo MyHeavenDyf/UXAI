@@ -753,7 +753,7 @@ const PROMPT_REFINE_TIMEOUT_MS = 45_000
 function isAbortError(error: unknown) {
   return (
     (error instanceof DOMException && error.name === "AbortError") ||
-    (error instanceof Error && /abort|cancel/i.test(error.message))
+    (error instanceof Error && /abort|cancel|interrupt/i.test(error.message))
   )
 }
 
@@ -1035,7 +1035,7 @@ async function refineStudioPrompt(
   }
 }
 
-const STUDIO_DETAIL_TITLE_TIMEOUT_MS = 10_000
+const STUDIO_DETAIL_TITLE_TIMEOUT_MS = PROMPT_REFINE_TIMEOUT_MS
 const STUDIO_DETAIL_TITLE_SYSTEM = [
   "你是 Octo Studio 的标题精炼助手。",
   "根据最终生效的图片或视频提示词生成一个简短标题。",
@@ -1158,6 +1158,7 @@ async function generateStudioDetailTitle(input: {
   text: string
   signal?: AbortSignal
 }) {
+  const startedAt = Date.now()
   let timedOut = false
   const controller = new AbortController()
   const timeout = setTimeout(() => {
@@ -1222,10 +1223,12 @@ async function generateStudioDetailTitle(input: {
       { signal: abortSignal },
     )
   } catch (error) {
-    if (input.signal?.aborted || (isAbortError(error) && !timedOut)) throw error
+    if (input.signal?.aborted) return
     console.warn("[studio.service] detail title failed", {
       sessionID: input.session.id,
-      error,
+      elapsed: Date.now() - startedAt,
+      timedOut,
+      error: timedOut ? controller.signal.reason : error,
     })
     return
   } finally {
