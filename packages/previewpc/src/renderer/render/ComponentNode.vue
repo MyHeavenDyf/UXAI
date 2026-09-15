@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref, onMounted, onUnmounted } from "vue"
 
 import { ComponentRegistry } from "../registry/ComponentRegistry"
 
-import { useA2UIComponent } from "./hooks"
+import { useA2UIComponent, executeAction } from "./hooks"
+import { useA2UI } from "./Provider"
+import type { ConditionSpec } from "../processor/type"
 interface ComponentNodeProps {
   node: any
   surfaceId: string
@@ -13,7 +15,8 @@ const props = defineProps<ComponentNodeProps>()
 const actualRegistry = computed(
   () => props.registry ?? ComponentRegistry.getInstance()
 )
-const { resolveValue, setState, sendAction } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, setState, sendAction, getValue } = useA2UIComponent(props.node, props.surfaceId)
+const { store } = useA2UI()
 const nodeType = computed(() =>
   props.node && typeof props.node === "object" && "type" in props.node
     ? props.node.type
@@ -46,16 +49,18 @@ const elementPropsJson = computed(() => {
   return JSON.stringify(simple)
 })
 
-// 原生 H5 元素（div/span/a…）的点击触发：把 props.onClick（setState 动作对象）转成真正的点击处理函数，
-// 与 Button.handleClick 同构，使任意原生元素也能作为 setState 触发器（如切换 tab、打开抽屉）。
+// 原生 H5 元素（div/span/a…）的点击触发：把 props.onClick（setState / cycleState 动作对象）转成真正的点击处理函数，
+// 与 Button.handleClick 同构，使任意原生元素也能作为动作触发器（如切换 tab、打开抽屉、循环场景）。
+// 注意：这是 computed，不能在求值期调用 executeAction（会副作用改状态、触发更新循环），
+// 因此只判断动作名，真正的执行推迟到返回的点击闭包内（点击时读 getValue 才正确）。
 const clickHandler = computed<((e?: Event) => void) | null>(() => {
   const p = props.node.properties
   const onClick = p?.onClick
-  if (onClick && onClick.action === "setState" && onClick.args?.path) {
-    const { path, value } = onClick.args
+  const isManagedAction = onClick && (onClick.action === "setState" || onClick.action === "cycleState")
+  if (isManagedAction) {
     return (e?: Event) => {
       e?.preventDefault?.() // <a href> 不跳转；对 div/span 无害
-      setState(path, value)
+      executeAction(onClick, { getValue, setState })
     }
   }
   // 兼容 Button 的 legacy action：派发用户动作到外层 host
@@ -64,6 +69,38 @@ const clickHandler = computed<((e?: Event) => void) | null>(() => {
     return () => sendAction(a)
   }
   return null
+})
+
+// condition 条件渲染：节点带 condition 时，仅当 path 当前值在 in 列表中才挂载。
+// componentTree 是静态构建的，故这里复刻 Modal 的订阅模式，在 store notify 时重新求值。
+const condition = computed(() => props.node?.condition as ConditionSpec | undefined)
+const conditionSatisfied = ref(true) // 默认 true：无 condition 的节点正常渲染
+
+const evalCondition = () => {
+  const c = condition.value
+  if (!c) {
+    conditionSatisfied.value = true
+    return
+  }
+  const current = getValue(c.path)
+  const currentStr = current == null ? "" : String(current)
+  conditionSatisfied.value = c.in.map(String).includes(currentStr)
+}
+
+// 同步初值：在 setup 期就求值一次，避免首帧把不满足条件的节点闪现出来。
+if (condition.value) {
+  evalCondition()
+}
+
+let unsubscribe: (() => void) | null = null
+onMounted(() => {
+  if (!condition.value) return // 无 condition → 不订阅，零开销
+  unsubscribe = store.subscribeToSurface(props.surfaceId, evalCondition)
+})
+
+onUnmounted(() => {
+  unsubscribe?.()
+  unsubscribe = null
 })
 
 const bindProps = computed(() => {
@@ -89,7 +126,7 @@ const bindProps = computed(() => {
 })
 </script>
 <template>
-  <template v-if="nodeType">
+  <template v-if="nodeType && conditionSatisfied">
     <template v-if="nodeType && !Component">
       <component :is="nodeType" v-bind="bindProps">
         <template v-if="props.node.properties.children?.length">

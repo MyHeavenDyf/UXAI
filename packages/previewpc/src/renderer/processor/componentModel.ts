@@ -1,7 +1,7 @@
 /*
  * ComponentModel - 单个组件模型
  */
-import type { ComponentInstance, AnyComponentNode, ComponentChildren, ResolvedValue, ResolvedMap } from './type'
+import type { ComponentInstance, AnyComponentNode, ComponentChildren, ResolvedValue, ResolvedMap, ConditionSpec } from './type'
 import { isObject, isTemplateChildren, isDataBinding, isComponentNode } from "./guards.ts";
 import { DataModel } from './dataModel';
 import { DataContext } from './dataContext'
@@ -14,6 +14,7 @@ export class ComponentModel {
     private name!: string
     private props: Record<string, any> = {}
     private children?: AnyComponentNode[] | null;
+    private condition?: ConditionSpec
     private initProperties!: ComponentInstance
     private components: Map<string, ComponentInstance>
     constructor(
@@ -38,6 +39,7 @@ export class ComponentModel {
         const componentData = this.components.get(this.id);
         this.initProperties = componentData!
         this.name = componentData!.component
+        this.condition = componentData?.condition
         const componentProps = componentData?.props ?? {};
         const resolvedProperties: Record<string, any> = {}
         const children = componentData?.children
@@ -162,11 +164,13 @@ export class ComponentModel {
         if (this.children) {
             properties.children = this.children
         }
-        return {
+        const node: AnyComponentNode = {
             id: `${this.id}${this.idSuffix}`,
             weight: this.initProperties?.weight ?? "initial" as any,
             type: this.name,
             properties
         }
+        if (this.condition) node.condition = this.condition
+        return node
     }
 }

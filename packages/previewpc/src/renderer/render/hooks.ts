@@ -5,6 +5,56 @@ import type { DynamicString, DynamicNumber, DynamicBoolean, DataValue, AnyCompon
 
 export { useA2UI }
 
+/**
+ * 执行一个交互动作对象（onClick / onClose 的值）。
+ * 集中处理 A2UI 协议的动作语义，避免在各组件里重复硬编码分支。
+ *
+ * - setState：把 args.value 写入 args.path。
+ * - cycleState：把 args.path 的当前值在 args.value 数组中推进到下一项，
+ *   越过末尾后回到首项（协议 Scenario 3）。
+ *
+ * 返回 true 表示动作已被处理；false 表示未识别/参数缺失，调用方可回退到 legacy 派发。
+ */
+export interface ActionApi {
+    getValue: (path: string) => DataValue | null
+    setState: (path: string, value: DataValue) => void
+}
+
+export interface ActionObject {
+    action: string
+    args?: { path?: string; value?: DataValue; [k: string]: unknown }
+}
+
+export function executeAction(
+    action: ActionObject | undefined | null,
+    api: ActionApi
+): boolean {
+    if (!action || !action.action) return false
+    switch (action.action) {
+        case "setState": {
+            const { path, value } = action.args ?? {}
+            if (path) {
+                api.setState(path, value as DataValue)
+                return true
+            }
+            return false
+        }
+        case "cycleState": {
+            const { path, value } = action.args ?? {}
+            if (!path || !Array.isArray(value) || value.length === 0) return false
+            const current = api.getValue(path)
+            const currentStr = current == null ? "" : String(current)
+            // 当前值不在数组中时 idx=-1，next=0 → 复位到首项
+            const idx = value.findIndex((v) => String(v) === currentStr)
+            const nextIdx = (idx + 1) % value.length
+            api.setState(path, value[nextIdx] as DataValue)
+            return true
+        }
+        default:
+            return false
+    }
+}
+
 export function useSurface(surfaceId: string) {
     const { store } = useA2UI()
     const surface = ref<SurfaceModel | undefined>(undefined)

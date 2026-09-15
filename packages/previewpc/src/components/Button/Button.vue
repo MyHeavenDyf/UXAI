@@ -3,7 +3,7 @@ import { computed, onMounted, ref, useAttrs } from "vue"
 import { ElButton } from "element-plus"
 import type { ButtonNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
-import { useA2UIComponent } from "../../renderer/render/hooks"
+import { useA2UIComponent, executeAction } from "../../renderer/render/hooks"
 import { useIconComponentRef } from "../Icon/IconBase"
 import "./Button.less"
 import { useTheme } from "../../composables/useTheme"
@@ -46,7 +46,7 @@ const { isDark } = useTheme()
 const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, sendAction, setState } = useA2UIComponent(node, surfaceId)
+const { resolveValue, sendAction, setState, getValue } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -174,13 +174,9 @@ const shape = computed(() => {
 })
 
 const handleClick = () => {
-  // Handle onClick (setState action)
+  // Handle onClick (setState / cycleState actions)
   const onClick = properties?.onClick
-  if (onClick && onClick.action === "setState" && onClick.args) {
-    const { path, value } = onClick.args
-    if (path) {
-      setState(path, value)
-    }
+  if (executeAction(onClick, { getValue, setState })) {
     return
   }
   // Handle legacy action format

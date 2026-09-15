@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElSteps, ElStep, type StepsStatus } from "element-plus"
 import type { StepsNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
+import { useA2UI } from "../../renderer/render/Provider"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
@@ -15,10 +16,16 @@ const statusEnum = {
   finish: "finish",
   error: "error",
 }
+// 把绑定值统一转成 ElSteps active 需要的 number（state 里是字符串 "0"）
+const toStep = (v: unknown) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
 const props = defineProps<A2UIComponentProps<StepsNode>>()
 const { properties } = props.node
 
-const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, getValue } = useA2UIComponent(props.node, props.surfaceId)
+const { store } = useA2UI()
 
 defineOptions({ inheritAttrs: false })
 
@@ -49,7 +56,38 @@ const status = computed(() => {
 const simple = computed(() => {
   return properties.types === "panel"
 })
-const current = computed(() => resolveValue(properties.current) as number)
+const current = computed(() => toStep(resolveValue(properties.current)))
+
+// current 绑定路径：若 state 已预声明该 key，构建期会把 { path } 折叠成字面量、路径丢失；
+// 此时从 store 的原始 elements（未折叠）里取回 current 的绑定路径，确保外部按钮 setState/cycleState 能驱动当前步。
+const bindingPath = computed<string | null>(() => {
+  const c = properties.current as any
+  if (c && typeof c === "object" && !Array.isArray(c) && typeof c.path === "string") {
+    return c.path
+  }
+  const rawCurrent = (store.getSurface(props.surfaceId) as any)?.components?.get?.(props.node.id)?.props?.current
+  if (rawCurrent && typeof rawCurrent === "object" && !Array.isArray(rawCurrent) && typeof rawCurrent.path === "string") {
+    return rawCurrent.path
+  }
+  return null
+})
+
+// 响应式当前步：订阅 store，notify 时（setState/cycleState 触发）重读绑定路径的值。
+const activeStep = ref(current.value)
+const readActiveStep = () => {
+  activeStep.value = toStep(bindingPath.value ? getValue(bindingPath.value) : resolveValue(properties.current))
+}
+readActiveStep()
+let unsubscribe: (() => void) | null = null
+onMounted(() => {
+  if (bindingPath.value) {
+    unsubscribe = store.subscribeToSurface(props.surfaceId, readActiveStep)
+  }
+})
+onUnmounted(() => {
+  unsubscribe?.()
+  unsubscribe = null
+})
 
 const items = computed(() => {
   const children = props.node.properties.children
@@ -105,7 +143,7 @@ watch(
     :direction="orientation"
     :process-status="status"
     :simple="simple"
-    :active="current"
+    :active="activeStep"
     align-center
   >
     <ElStep

@@ -58,15 +58,22 @@ interface BaseComponentNode {
     weight?: number;
 }
 
+interface ConditionSpec {
+    path: string
+    in: Array<string | number>
+}
+
 interface AnyComponentNode<T = Record<string, ResolvedValue>> extends BaseComponentNode {
     type: string
     properties: T
+    condition?: ConditionSpec
 }
 
 interface ComponentInstance extends BaseComponentNode {
     component: string;
     props?: Record<string, any>;
     children?: ComponentChildren
+    condition?: ConditionSpec
 }
 
 type ComponentChildren = string[] | TemplateChildren
@@ -105,5 +112,6 @@ export type {
     Action,
     DynamicStringList,
     A2UIClientEventMessage,
-    JsonComponentNode
+    JsonComponentNode,
+    ConditionSpec
 }
