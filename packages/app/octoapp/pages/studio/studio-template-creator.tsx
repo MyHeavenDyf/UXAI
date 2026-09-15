@@ -674,7 +674,9 @@ function TemplateImageUploader(props: {
                   aria-label="删除图片"
                   title="删除图片"
                   onClick={() => removeImage(index())}
-                />
+                >
+                  <img src="/studio/studio_delete.svg" alt="" />
+                </button>
               </div>
             )}
           </For>
@@ -741,8 +743,11 @@ function StyleDescriptionSection(props: {
           disabled={!props.canGenerateStyleDescription || props.styleDescriptionGenerating}
           onClick={props.onGenerateStyleDescription}
         >
-          <span aria-hidden="true">✦</span>
-          <span>{props.styleDescriptionGenerating ? "生成中..." : "生成风格描述"}</span>
+          <img class="studio-template-creator-generate-icon" src="/studio/studio_template_icon.svg" alt="" />
+          <span>生成风格描述</span>
+          <Show when={props.styleDescriptionGenerating}>
+            <img class="studio-template-creator-generate-loading" src="/studio/studio_template_desc_loading.svg" alt="" />
+          </Show>
         </button>
         <div class="studio-template-creator-generate-tip" classList={{ error: props.styleDescriptionGenerateError }}>
           {props.styleDescriptionGenerateTip}
@@ -1277,8 +1282,8 @@ export function StudioTemplateCreator(props: {
   const maxReferenceCount = createMemo(() => (category() === "preset_recipe" ? Math.max(0, 3 - recipeImages().length) : 3))
   const styleDescriptionGenerateTip = createMemo(() => {
     if (styleDescriptionGenerateMessage()) return styleDescriptionGenerateMessage()
-    if (styleDescriptionStreamPhase() === "extracting") return "正在提取图片风格特征"
-    if (styleDescriptionStreamPhase() === "summarizing") return "正在汇总风格描述"
+    if (styleDescriptionStreamPhase() === "extracting") return "正在提取图片风格特征..."
+    if (styleDescriptionStreamPhase() === "summarizing") return "正在汇总风格描述..."
     if (styleDescriptionStreamPhase() === "done") return "风格描述已生成。"
     return "生成风格描述需要先上传风格图集，生成描述耗时约20-30s，请耐心等待。"
   })
