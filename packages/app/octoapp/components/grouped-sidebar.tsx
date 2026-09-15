@@ -8,7 +8,7 @@ import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups } from "@/hooks/use-session-groups"
 import { AgentSidebar, type AgentSidebarProps, type BeforeSectionApi } from "@/components/agent-sidebar"
 import { SidebarSectionHeader } from "@/components/sidebar-shell"
-import { SessionList } from "@/components/session-list"
+import { SessionList, ScrollableText } from "@/components/session-list"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogRemoveGroup } from "@/components/dialog-remove-group"
 import { IconTableEllipsis } from "@/pages/make/icons/design-files-icons"
@@ -180,7 +180,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                     return (
                     <>
                       <div
-                        class="group-item flex items-center gap-[8px] text-[12px] leading-[20px] cursor-grab h-[36px] shrink-0 relative rounded-[8px] transition-colors"
+                        class="group-item flex items-center gap-[8px] text-[12px] leading-[20px] h-[36px] shrink-0 relative rounded-[8px] transition-colors"
                         classList={{
                           "bg-[rgba(10,89,247,0.08)]": isActive(),
                           "hover:bg-surface-base-hover": true,
@@ -257,22 +257,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                         <span style={{ width: "20px", height: "20px", display: "flex", "align-items": "center", "justify-content": "center", "flex-shrink": "0" }}>
                           <img src={isActive() ? folderOpenedPng : expandedGroups().has(group.id) ? folderLinePng : folderLineClosePng} style={{ width: "20px", height: "20px", "flex-shrink": "0" }} alt="" draggable={false} />
                         </span>
-                        <span
-                          class="flex-1 min-w-0"
-                          style={{
-                            overflow: "hidden",
-                            "white-space": "nowrap",
-                            "text-overflow": "clip",
-                            "mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
-                            "-webkit-mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
-                            "mask-size": "100% 100%",
-                            "-webkit-mask-size": "100% 100%",
-                            "mask-repeat": "no-repeat",
-                            "-webkit-mask-repeat": "no-repeat",
-                          }}
-                        >
-                          {group.name}
-                        </span>
+                        <ScrollableText text={group.name} hovered={hoveredId() === group.id} />
                         <Show when={isActive() && !showMenu()}>
                           <span
                             class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"

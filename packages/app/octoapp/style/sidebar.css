@@ -1,3 +1,12 @@
+@keyframes session-item-marquee {
+  0%, 10% {
+    transform: translateX(0);
+  }
+  90%, 100% {
+    transform: translateX(var(--marquee-end));
+  }
+}
+
 /* sidebar.css — 旧版 Chat 侧边栏覆写规则已随组件重写一并清除（第三轮 UI 整改） */
 
 .section-header-inline {
