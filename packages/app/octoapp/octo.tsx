@@ -56,8 +56,6 @@ import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
 import { InsightQueueRunner } from "@/pages/insight/queue-runner"
-import { ProjectInfo } from "@/components/project-info"
-import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { UpdateChecker } from "@/components/update-checker"
@@ -360,7 +358,7 @@ function MakeSidebarArea(props: ParentProps) {
 function InsightSidebarLayout(props: ParentProps) {
   return (
     <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+      <InsightSidebar />
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         {props.children}
       </div>

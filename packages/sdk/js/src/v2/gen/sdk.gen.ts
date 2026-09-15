@@ -176,6 +176,22 @@ import type {
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
+  SessionGroupCreateErrors,
+  SessionGroupCreateResponses,
+  SessionGroupListErrors,
+  SessionGroupListResponses,
+  SessionGroupMapSessionErrors,
+  SessionGroupMapSessionResponses,
+  SessionGroupRemoveErrors,
+  SessionGroupRemoveResponses,
+  SessionGroupRenameErrors,
+  SessionGroupRenameResponses,
+  SessionGroupReorderErrors,
+  SessionGroupReorderResponses,
+  SessionGroupReorderSessionsErrors,
+  SessionGroupReorderSessionsResponses,
+  SessionGroupUnmapSessionErrors,
+  SessionGroupUnmapSessionResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionListErrors,
@@ -188,6 +204,8 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionReorderErrors,
+  SessionReorderResponses,
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
@@ -3879,6 +3897,8 @@ export class Session2 extends HeyApiClient {
       time?: {
         archived?: number
       }
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      pinned?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3893,6 +3913,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "time" },
+            { in: "body", key: "sort_order" },
+            { in: "body", key: "pinned" },
           ],
         },
       ],
@@ -4176,6 +4198,43 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/message/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Reorder sessions
+   *
+   * Batch-update session sort_order from an ordered list of session IDs (index becomes the new sort_order). Replaces N concurrent session.update calls on drag-reorder.
+   */
+  public reorder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      ids?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "ids" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionReorderResponses, SessionReorderErrors, ThrowOnError>({
+      url: "/session/reorder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -4713,6 +4772,315 @@ export class Part extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<PartUpdateResponses, PartUpdateErrors, ThrowOnError>({
       url: "/session/{sessionID}/message/{messageID}/part/{partID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class SessionGroup extends HeyApiClient {
+  /**
+   * List session groups
+   *
+   * List all session groups and their session-to-group mappings for a directory + namespace.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      namespace: "make" | "insight"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "namespace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionGroupListResponses, SessionGroupListErrors, ThrowOnError>({
+      url: "/session-group",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create session group
+   *
+   * Create a new session group scoped to a directory + namespace.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      namespace?: "make" | "insight"
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "namespace" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionGroupCreateResponses, SessionGroupCreateErrors, ThrowOnError>({
+      url: "/session-group",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete session group
+   *
+   * Delete a session group. Mappings for this group are removed; sessions are untouched.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SessionGroupRemoveResponses, SessionGroupRemoveErrors, ThrowOnError>(
+      {
+        url: "/session-group/{id}",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * Rename session group
+   *
+   * Rename an existing session group.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<SessionGroupRenameResponses, SessionGroupRenameErrors, ThrowOnError>({
+      url: "/session-group/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Reorder session groups
+   *
+   * Persist the full ordered list of group IDs.
+   */
+  public reorder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      ids?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "ids" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionGroupReorderResponses, SessionGroupReorderErrors, ThrowOnError>(
+      {
+        url: "/session-group/reorder",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Map session to group
+   *
+   * Assign a session to a group, replacing any previous assignment.
+   */
+  public mapSession<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      groupId?: string
+      position?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "groupId" },
+            { in: "body", key: "position" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionGroupMapSessionResponses,
+      SessionGroupMapSessionErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/mapping",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove session from group
+   *
+   * Remove a session's group assignment.
+   */
+  public unmapSession<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      SessionGroupUnmapSessionResponses,
+      SessionGroupUnmapSessionErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/mapping/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Reorder sessions within a group
+   *
+   * Update the position of sessions within a group.
+   */
+  public reorderSessions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      groupId?: string
+      sessionIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "groupId" },
+            { in: "body", key: "sessionIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionGroupReorderSessionsResponses,
+      SessionGroupReorderSessionsErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/reorder-sessions",
       ...options,
       ...params,
       headers: {
@@ -6818,6 +7186,11 @@ export class OpencodeClient extends HeyApiClient {
   private _part?: Part
   get part(): Part {
     return (this._part ??= new Part({ client: this.client }))
+  }
+
+  private _sessionGroup?: SessionGroup
+  get sessionGroup(): SessionGroup {
+    return (this._sessionGroup ??= new SessionGroup({ client: this.client }))
   }
 
   private _sync?: Sync

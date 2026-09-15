@@ -38,6 +38,7 @@ function grab<T extends object, K1 extends keyof T, X>(
 }
 
 export function toPartialRow(info: DeepPartial<Session.Info>) {
+  const pinned = grab(info, "pinned")
   const obj = {
     id: grab(info, "id"),
     project_id: grab(info, "projectID"),
@@ -59,6 +60,8 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     time_updated: grab(info, "time", (v) => grab(v, "updated")),
     time_compacting: grab(info, "time", (v) => grab(v, "compacting")),
     time_archived: grab(info, "time", (v) => grab(v, "archived")),
+    sort_order: grab(info, "sort_order"),
+    pinned: pinned === undefined ? undefined : pinned ? 1 : 0,
   }
 
   return Object.fromEntries(Object.entries(obj).filter(([_, val]) => val !== undefined))
