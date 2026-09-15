@@ -52,7 +52,7 @@ export type DesktopApi = {
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
   /** 原子重命名（同文件系统内）。用于"写临时文件 → rename 到目标"原子落盘。 */
   renameFile?: (srcPath: string, destPath: string) => Promise<void>
-  statFile?: (path: string) => Promise<{ size: number } | null>
+  statFile?: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   copyFileTo?: (srcPath: string, destPath: string) => Promise<void>
   deleteFile?: (path: string) => Promise<void>

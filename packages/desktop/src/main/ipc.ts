@@ -741,7 +741,7 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       const s = await stat(path)
       if (!s.isFile()) return null
-      return { size: s.size }
+      return { size: s.size, mtimeMs: s.mtimeMs }
     } catch {
       return null
     }

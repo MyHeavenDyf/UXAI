@@ -111,7 +111,12 @@ export function createHistoryStore() {
     const sep = getSep(tab.filePath)
     const historyDir = getHistoryDir(tab.filePath)
     const baseName = getBaseName(tab.filePath)
-    const ts = new Date()
+    // 版本时间取源文件 mtime（内容真实写入时刻），stat 失败回退当前时间
+    let ts = new Date()
+    try {
+      const stat = await api.statFile?.(tab.filePath)
+      if (stat?.mtimeMs) ts = new Date(stat.mtimeMs)
+    } catch {}
     const versionName = buildVersionFolderName(baseName, ts, actor)
     const versionDir = historyDir + sep + versionName
 

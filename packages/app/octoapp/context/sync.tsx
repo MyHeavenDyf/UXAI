@@ -283,10 +283,17 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     }
 
     const touch = (directory: string, setStore: Setter, sessionID: string) => {
+      // LRU 驱逐同样不能删 busy session 的缓存(streaming 中被驱逐会出现与
+      // trim cleanup 相同的 InsightTurn 清空问题),此处传入 preserve 保护。
+      const [store] = globalSync.child(directory, { bootstrap: false })
+      const preserve = Object.keys(store.session_status).filter(
+        (sid) => store.session_status[sid]?.type === "busy",
+      )
       const stale = pickSessionCacheEvictions({
         seen: seenFor(directory),
         keep: sessionID,
         limit: SESSION_CACHE_LIMIT,
+        preserve,
       })
       evict(directory, setStore, stale)
     }
@@ -339,9 +346,36 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const message = input.mode === "prepend" ? merge(cached, next.session) : next.session
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
+            // Fix 3: busy session 期间不整体替换 parts,改为 merge:
+            // 保留本地更长的 delta 累积文本,避免服务端快照(可能落后于 streaming)覆盖
+            const busy = store.session_status[input.sessionID]?.type === "busy"
             for (const p of next.part) {
               const filtered = p.part.filter((x) => !SKIP_PARTS.has(x.type))
-              if (filtered.length) input.setStore("part", p.id, filtered)
+              if (!filtered.length) continue
+              if (busy) {
+                const existing = store.part[p.id] ?? []
+                if (existing.length > 0) {
+                  const localById = new Map(existing.map((ep) => [ep.id, ep] as const))
+                  const merged = filtered.map((fp) => {
+                    const local = localById.get(fp.id)
+                    const localText = (local as Record<string, unknown> | undefined)?.text
+                    const fpText = (fp as Record<string, unknown>).text
+                    if (typeof localText === "string") {
+                      if (typeof fpText !== "string" || localText.length > fpText.length) {
+                        return { ...fp, text: localText } as Part
+                      }
+                    }
+                    return fp
+                  })
+                  const filteredIds = new Set(filtered.map((fp) => fp.id))
+                  for (const ep of existing) {
+                    if (!filteredIds.has(ep.id)) merged.push(ep)
+                  }
+                  input.setStore("part", p.id, sortParts(merged))
+                  continue
+                }
+              }
+              input.setStore("part", p.id, filtered)
             }
             setMeta("limit", key, message.length)
             setMeta("cursor", key, next.cursor)

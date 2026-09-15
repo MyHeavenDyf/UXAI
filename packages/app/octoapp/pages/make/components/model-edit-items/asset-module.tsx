@@ -13,6 +13,7 @@ import {
 import { FolderIcon } from "../addon-menu/icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { sendTextToAgent } from "../../utils/agent-events"
+import emptyPng from "../../icons/empty.png"
 import "./asset-module.css"
 
 export function AssetModule(props: {
@@ -281,7 +282,7 @@ function AssetDialog(props: {
 
             <ScrollView class="me-asset-dialog-right" style={{ width: `${rightWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
               <Show when={filesLoading()}><div class="me-asset-dialog-empty">加载中...</div></Show>
-              <Show when={!filesLoading() && files().length === 0}><div class="me-asset-dialog-empty">暂无内容</div></Show>
+              <Show when={!filesLoading() && files().length === 0}><div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', height: '100%', 'min-height': '275px', padding: '24px 0' }}><img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} /><span style={{ "margin-top": "18px", "font-size": "14px", color: "#777" }}>暂无内容</span></div></Show>
               <div class="me-asset-dialog-grid">
                 <For each={files()}>
                   {(file) => {
@@ -374,7 +375,7 @@ function AssetDialog(props: {
           }}
         >
           <FolderIcon class="me-asset-tree-icon" />
-          <span style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
+          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <svg
               width="12" height="12" viewBox="0 0 8 8" fill="none"

@@ -913,8 +913,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
                   {/* 空状态 */}
                   <Show when={visibleChildren().length === 0 && visibleFiles().length === 0 && !level.loadingFiles}>
-                    <div class="mention-loading-state">
-                      暂无内容
+                    <div class="mention-empty-state">
+                      <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                      <span class="mention-empty-state-text">暂无内容</span>
                     </div>
                   </Show>
                 </div>

@@ -14,6 +14,7 @@ import {
   type AssetFile,
 } from "./asset-library"
 import { FolderIcon } from "./icons"
+import emptyPng from "../../icons/empty.png"
 
 interface AssetDialogProps {
   open: boolean
@@ -302,7 +303,10 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
                 <Show when={!filesLoading() && files().length === 0}>
-                  <div class="asset-dialog-empty">暂无内容</div>
+                  <div class="addon-menu-empty-state">
+                    <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                    <span class="addon-menu-empty-state-text">暂无内容</span>
+                  </div>
                 </Show>
                 <div class="asset-dialog-grid">
                   <For each={files()}>
@@ -402,7 +406,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
           }}
         >
           <span class="addon-menu-item-icon"><FolderIcon /></span>
-          <span class="addon-menu-item-text">{props.folder.name}</span>
+          <span class="addon-menu-item-text" title={props.folder.name}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <Icon
               name="chevron-right"
