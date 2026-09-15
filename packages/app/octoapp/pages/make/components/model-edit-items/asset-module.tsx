@@ -282,7 +282,7 @@ function AssetDialog(props: {
 
             <ScrollView class="me-asset-dialog-right" style={{ width: `${rightWidth()}px`, flex: '1 1 auto', "min-height": "0" }}>
               <Show when={filesLoading()}><div class="me-asset-dialog-empty">加载中...</div></Show>
-              <Show when={!filesLoading() && files().length === 0}><div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', padding: '24px 0' }}><img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} /><span style={{ "margin-top": "18px", "font-size": "14px", color: "#777" }}>暂无内容</span></div></Show>
+              <Show when={!filesLoading() && files().length === 0}><div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', height: '100%', 'min-height': '275px', padding: '24px 0' }}><img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} /><span style={{ "margin-top": "18px", "font-size": "14px", color: "#777" }}>暂无内容</span></div></Show>
               <div class="me-asset-dialog-grid">
                 <For each={files()}>
                   {(file) => {
