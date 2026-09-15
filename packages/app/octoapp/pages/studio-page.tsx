@@ -2,7 +2,7 @@ import "./studio/studio.css"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
@@ -378,13 +378,15 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const setStudioPrompt = (value: string) => setPrompt(value.trim() === "" ? "" : value)
-  const [imageSettingStore, setImageSettingStore] = persisted(
+  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  const [imageSettingStore, setImageSettingStore, , imageSettingStoreReady] = persisted(
     Persist.global("studio.image.settings"),
     createStore({
       capability: "image.generate" as StudioCapability,
-      styleModel: "seedream-5-lite",
+      styleModel: "qwen",
     }),
   )
+  const [imageSettingStoreSanitized, setImageSettingStoreSanitized] = createSignal(false)
   const [imageSessionStore, setImageSessionStore] = persisted(
     Persist.sessionGlobal("studio.image.session"),
     createStore({
@@ -401,8 +403,21 @@ export default function StudioPage() {
   const setAspectRatio = (v: StudioAspectRatio) => setImageSessionStore("aspectRatio", v)
   const count = () => imageSessionStore.count
   const setCount = (v: 1 | 2 | 3 | 4) => setImageSessionStore("count", v)
-  const styleModel = () => imageSettingStore.styleModel
+  const styleModel = () => {
+    if (
+      (!imageSettingStoreSanitized() || studioPermissionStatus() === "loading") &&
+      styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)
+    ) return "qwen"
+    return imageSettingStore.styleModel
+  }
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  createEffect(on(imageSettingStoreReady, (ready) => {
+    if (!ready) return
+    batch(() => {
+      if (styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)) setStyleModel("qwen")
+      setImageSettingStoreSanitized(true)
+    })
+  }))
   const customWidth = () => imageSessionStore.customWidth
   const setCustomWidth = (v: number) => setImageSessionStore("customWidth", v)
   const customHeight = () => imageSessionStore.customHeight
@@ -478,7 +493,6 @@ export default function StudioPage() {
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
-  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   onCleanup(() => reversePromptController?.abort())
@@ -517,6 +531,7 @@ export default function StudioPage() {
       setCanGenerateVideo(false)
       setCanUseSeedream(false)
       setStudioPermissionStatus("loading")
+      if (styleModelRequiresSeedreamPermission(untrack(() => imageSettingStore.styleModel))) setStyleModel("qwen")
     })
     const headers: Record<string, string> = {
       accept: "application/json",
@@ -4627,6 +4642,7 @@ export default function StudioPage() {
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
+                  permissionLoading={studioPermissionStatus() === "loading" || !imageSettingStoreSanitized()}
                   styleModel={styleModel()}
                   maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
@@ -4857,6 +4873,7 @@ if (!headerTitle.pendingRename) return
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
+            permissionLoading={studioPermissionStatus() === "loading" || !imageSettingStoreSanitized()}
             styleModel={styleModel()}
             maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
