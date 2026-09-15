@@ -1251,6 +1251,13 @@ export type Config = {
   }
 }
 
+export type StudioPermissionError = {
+  name: "StudioPermissionError"
+  data: {
+    message: string
+  }
+}
+
 export type Model = {
   id: string
   providerID: string
@@ -3552,6 +3559,32 @@ export type GlobalUpgradeResponses = {
 }
 
 export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
+
+export type GlobalStudioPermissionsCheckData = {
+  body?: {
+    uid?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/studio/permissions/check"
+}
+
+export type GlobalStudioPermissionsCheckErrors = {
+  /**
+   * StudioPermissionError
+   */
+  502: StudioPermissionError
+}
+
+export type GlobalStudioPermissionsCheckError =
+  GlobalStudioPermissionsCheckErrors[keyof GlobalStudioPermissionsCheckErrors]
+
+export type GlobalStudioPermissionsCheckResponses = {
+  /**
+   * Studio permission result
+   */
+  200: unknown
+}
 
 export type EventSubscribeData = {
   body?: never
@@ -7488,34 +7521,6 @@ export type StudioPromptTagsListError = StudioPromptTagsListErrors[keyof StudioP
 export type StudioPromptTagsListResponses = {
   /**
    * Prompt tags list
-   */
-  200: unknown
-}
-
-export type StudioPermissionsCheckData = {
-  body?: {
-    uid?: string
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/permissions/check"
-}
-
-export type StudioPermissionsCheckErrors = {
-  /**
-   * StudioGenerationError
-   */
-  400: StudioGenerationError
-}
-
-export type StudioPermissionsCheckError = StudioPermissionsCheckErrors[keyof StudioPermissionsCheckErrors]
-
-export type StudioPermissionsCheckResponses = {
-  /**
-   * Studio permission result
    */
   200: unknown
 }

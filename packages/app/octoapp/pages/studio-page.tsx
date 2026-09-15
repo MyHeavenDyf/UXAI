@@ -290,7 +290,6 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
-  let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -304,7 +303,32 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
-  const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
+  const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  if (syncStore.limit < 100) setSyncStore("limit", 100)
+  globalSync.child(projectDir(), { bootstrap: true })
+  const studioSessions = createMemo(() =>
+    syncStore.session
+      .filter((session) => session.agent === "octo_studio" && !session.parentID && !session.time.archived)
+      .slice()
+      .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0)),
+  )
+  const studioSessionsLoading = createMemo(() => syncStore.status !== "complete" && studioSessions().length === 0)
+  const updateStudioHistorySession = (session: Session) => {
+    setSyncStore(
+      produce((draft) => {
+        const index = draft.session.findIndex((item) => item.id === session.id)
+        if (index !== -1) draft.session[index] = session
+      }),
+    )
+  }
+  const removeStudioHistorySession = (sessionID: string) => {
+    setSyncStore(
+      produce((draft) => {
+        const index = draft.session.findIndex((item) => item.id === sessionID)
+        if (index !== -1) draft.session.splice(index, 1)
+      }),
+    )
+  }
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
@@ -452,9 +476,9 @@ export default function StudioPage() {
   const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(true)
+  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
-  const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
+  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   onCleanup(() => reversePromptController?.abort())
@@ -487,12 +511,16 @@ export default function StudioPage() {
   )
   createEffect(() => {
     const current = server.current
-    if (!current || studioPermissionChecked) return
-    studioPermissionChecked = true
+    if (!current) return
+    const controller = new AbortController()
+    batch(() => {
+      setCanGenerateVideo(false)
+      setCanUseSeedream(false)
+      setStudioPermissionStatus("loading")
+    })
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
-      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -500,10 +528,11 @@ export default function StudioPage() {
         password: current.http.password,
       })}`
     }
-    void fetch(new URL("/studio/permissions/check", current.http.url), {
+    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
       method: "POST",
       headers,
       body: JSON.stringify({ uid: uiplusUserAccount() }),
+      signal: controller.signal,
     })
       .then(async (response) => {
         const bodyText = await response.text()
@@ -511,19 +540,28 @@ export default function StudioPage() {
         const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
         const permissionData = Array.isArray(result.data) ? result.data : []
         const permissionOk = result.code === 200 || result.resp_code === 200
-        setCanGenerateVideo(permissionOk && permissionData[0] === true)
-        setCanUseSeedream(permissionOk && permissionData[1] === true)
-        setStudioPermissionReady(true)
+        const canUseSeedream = permissionOk && permissionData[1] === true
+        batch(() => {
+          setCanGenerateVideo(permissionOk && permissionData[0] === true)
+          setCanUseSeedream(canUseSeedream)
+          setStudioPermissionStatus("ready")
+          if (!canUseSeedream && styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
+        })
       })
       .catch((error) => {
-        setCanGenerateVideo(false)
-        setCanUseSeedream(false)
-        setStudioPermissionReady(true)
+        if (controller.signal.aborted) return
+        batch(() => {
+          setCanGenerateVideo(false)
+          setCanUseSeedream(false)
+          setStudioPermissionStatus("error")
+          if (styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
+        })
         console.error("[StudioPage] permission check failed", error)
       })
+    onCleanup(() => controller.abort())
   })
   createEffect(() => {
-    if (!studioPermissionReady()) return
+    if (studioPermissionStatus() === "loading") return
     if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
     setStyleModel("qwen")
   })
@@ -1681,6 +1719,8 @@ export default function StudioPage() {
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
     !selectedCapabilityNeedsImage() &&
+    (studioPermissionStatus() !== "loading" || (capability() === "image.generate" && !styleModelRequiresSeedreamPermission(styleModel()))) &&
+    (capability() !== "video.generate" || canGenerateVideo()) &&
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
@@ -4555,6 +4595,10 @@ export default function StudioPage() {
             directory={projectDir()}
             routeSlug={routeSlug()}
             activeSessionID={params.id}
+            sessions={studioSessions()}
+            loading={studioSessionsLoading()}
+            onSessionUpdated={updateStudioHistorySession}
+            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={startNewStudioConversation}
             toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
             thumbnails={studioThumbnails.thumbnails}
@@ -5175,6 +5219,10 @@ if (!headerTitle.pendingRename) return
             directory={projectDir()}
             routeSlug={routeSlug()}
             activeSessionID={params.id}
+            sessions={studioSessions()}
+            loading={studioSessionsLoading()}
+            onSessionUpdated={updateStudioHistorySession}
+            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={() => {
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()
