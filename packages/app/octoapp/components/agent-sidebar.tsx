@@ -2,7 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, For, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, For, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
@@ -150,7 +150,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
-  const [hasPinned, setHasPinned] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
@@ -160,7 +159,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const pinnedSessions = createMemo(() =>
     sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
   )
-  createEffect(() => { if (pinnedSessions().length > 0) setHasPinned(true) })
   const recentSessions = createMemo(() =>
     sessionList
       .filter(s => !s.pinned && !props.sessionGroupMapping?.[s.id])
@@ -182,11 +180,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const idx = sessionList.findIndex(s => s.id === id)
     if (idx < 0) return
     const newVal = !sessionList[idx].pinned
-    setSessionList(idx, "pinned", newVal)
     const d = resolvedDir()
     if (!d) return
     const client = globalSDK.createClient({ directory: d })
-    await client.session.update({ sessionID: id, pinned: newVal })
+    if (newVal) {
+      const pinnedIds = pinnedSessions().map(s => s.id).filter(pid => pid !== id)
+      const newOrder = [id, ...pinnedIds]
+      batch(() => {
+        setSessionList(idx, "sort_order", -1)
+        setSessionList(idx, "pinned", true)
+      })
+      await client.session.update({ sessionID: id, pinned: true, directory: d })
+      await client.session.reorder({ ids: newOrder, directory: d })
+    } else {
+      setSessionList(idx, "pinned", false)
+      await client.session.update({ sessionID: id, pinned: false, directory: d })
+    }
   }
 
   async function reorderPinned(sourceId: string, targetId: string, position: "before" | "after") {
@@ -626,7 +635,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       beforeSection={() => (
         <>
-          <Show when={pinnedSessions().length > 0 || hasPinned()}>
+          <Show when={pinnedSessions().length > 0 || draggingSessionId()}>
             <div
               onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
@@ -640,6 +649,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 activeSessionId={props.activeSessionId()}
                 stable={stable()}
                 hoverOnActive
+                useIndex
                 onSessionClick={handleSessionClick}
                 onSessionContextMenu={handleSessionContextMenu}
                 onSessionActionClick={handleSessionContextMenu}
