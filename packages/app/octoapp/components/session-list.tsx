@@ -144,7 +144,7 @@ export function SessionListItem(props: SessionListItemProps) {
       fallback={
         <div
           class="w-full rounded-[8px] flex items-center"
-          style={{ height: "36px", padding: "0 24px 0 44px" }}
+          style={{ height: "36px", padding: "0 24px 0 40px" }}
         >
           <input
             value={props.renameDraft ?? ""}
@@ -194,7 +194,7 @@ export function SessionListItem(props: SessionListItemProps) {
         class="group w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
         style={{
           height: "36px",
-          padding: "0 24px 0 44px",
+          padding: "0 24px 0 40px",
           color: props.isActive ? "#0A59F7" : undefined,
           "-webkit-user-drag": props.draggable ? "element" : undefined,
           cursor: props.draggable ? "grab" : undefined,
@@ -240,7 +240,18 @@ export function SessionListItem(props: SessionListItemProps) {
             titleResizeObserver.observe(el)
             queueMicrotask(() => checkTruncation())
           }}
-          class="flex-1 min-w-0 truncate"
+          class="flex-1 min-w-0"
+          style={{
+            overflow: "hidden",
+            "white-space": "nowrap",
+            "text-overflow": "clip",
+            "mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
+            "-webkit-mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
+            "mask-size": "100% 100%",
+            "-webkit-mask-size": "100% 100%",
+            "mask-repeat": "no-repeat",
+            "-webkit-mask-repeat": "no-repeat",
+          }}
         >
           {title()}
         </span>
@@ -449,7 +460,7 @@ export function SessionList(props: SessionListProps) {
               disabled={props.loadingMore}
               onClick={props.onLoadMore}
               class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center hover:bg-surface-base-hover disabled:opacity-60"
-              style={{ height: "36px", padding: "0 24px 0 44px", color: "rgba(0,0,0,0.6)" }}
+              style={{ height: "36px", padding: "0 24px 0 40px", color: "rgba(0,0,0,0.6)" }}
             >
               {props.loadingMore ? "加载中…" : "加载更多"}
             </button>
