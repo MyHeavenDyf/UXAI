@@ -100,6 +100,7 @@ archive.zip
 
 1. **预建空目录**：`zip.folder("data")` / `zip.folder("src")` / `zip.folder("preview")`。
 2. **src/ 平铺**（`archive-utils.ts:183`）：遍历 `options.srcFiles`（即 `buildArchiveSrc` 返回的 `out`），`zip.file('src/' + f.path, f.content)`。注意 src/ 不再嵌套 zip，直接平铺，prototype 产物自带 `eview-react/`、`eview-ui/` 子目录前缀。
+   - **代码 manifest**（`prototype.tsx buildArchiveSrc`）：把每个 lib 的 `result.manifest` 序列化成 `manifest/{lib}/tree.json` + `manifest/{lib}/content.json` 推进 `out`，与 `eview-react/`、`eview-ui/` 平级落到 `src/manifest/` 下、按组件库名称分子目录，供设计平台「框选节点 → 定位产物文件」。manifest 由 `downloadHuiCode` 在管线后置构建（不进 `outputFiles`），`buildPrototypeCodeFiles` 透传 `result.manifest`。
 3. **data/comments.json**：`transformCommentsForArchive(comments)` → 精简为 `{ id, note, selector, time, account, userName, attachments:[{fileName,id}] }`，`JSON.stringify(..., null, 2)`。
 4. **data/screenshot.jpg**：`blobToUint8Array(screenshotBlob)`。
 5. **preview/index.html**（`archive-utils.ts:198`）：`readHtmlFromDisk(htmlFilePath, htmlContent, api.readFileBuffer)` —— 再次从磁盘读原始 HTML（与主流程第 4 步一致，双保险），剥桥脚本注入。

@@ -91,6 +91,12 @@ export function DialogUpdateAvailable(props: {
       </section>
 
       <style>{`
+        body:has(.octo-update-dialog) [data-component="dialog-overlay"],
+        [data-component="dialog"]:has(.octo-update-dialog),
+        [data-component="dialog"]:has(.octo-update-dialog) [data-slot="dialog-container"],
+        .octo-update-dialog-close {
+          z-index: 19900 !important;
+        }
         .octo-update-dialog {
           width: min(calc(100vw - 32px), 500px) !important;
           min-height: 0 !important;
@@ -113,7 +119,6 @@ export function DialogUpdateAvailable(props: {
         }
         .octo-update-dialog-close {
           position: absolute;
-          z-index: 2;
           top: 16px;
           right: 18px;
           width: 28px;

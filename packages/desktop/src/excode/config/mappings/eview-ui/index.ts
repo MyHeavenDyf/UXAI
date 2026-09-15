@@ -4,27 +4,39 @@
  * eview-ui 与 eview-react 基本同一套组件库（tag 名一致），仅包名 + 图标库包名不同。
  * **特例复用** eview-react 工厂（换 pkg/iconPkg），分四类：
  *   1. 工厂复用 pkg=@cloudsop/eview-ui（eview-ui 包自带、且**不涉及 icon 属性**的组件）
- *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无、且不涉及 icon：Badge/Divider/Chart）
+ *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无原生组件、shared 实现可接 React DOM icon 故不受 icon-URL 改造约束：Badge/Divider/Chart/Empty）
  *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown/Tag/TimePicker/Popover）
  *   4. 本地工厂副本（与 eview-react 有 API 差异、不再复用 eview-react 工厂）：
  *      a. **涉及 icon 属性**的组件（Input/Menu/TabItem/Timeline/Tree）——
  *         eview-ui 的 icon 相关属性只接 URL、不接 React DOM，与 eview-react 差异显著。
  *         当前文件原样复制自 eview-react 工厂，已按 icon-URL 差异就地改造。
- *      d. **Tabs**——onClick extractor 差异（eview-ui onClick(index: string) 需 Number 转换）+
+ *      b. **Collapse**——eview-ui 的 Panel 是 **named 导出**（`import { Panel, PanelItem }
+ *         from '@cloudsop/eview-ui/Panel'`），而 eview-react 的 Panel 是 **default 导出**
+ *         （`import Panel, { PanelItem } from '@nce/eview-react/Panel'`）。eview-react 工厂
+ *         用字符串 import（= default）对 eview-ui 不成立，故改为 named import。
+ *         transform 逻辑与 eview-react 一致（Panel API 相同）；CollapseItem 复用 eview-react
+ *         工厂（其 import 本就是 named、同源，eview-ui 一致，无需副本）。
+ *      c. **Tabs**——onClick extractor 差异（eview-ui onClick(index: string) 需 Number 转换）+
  *         types/tabPlacement DataBinding 双形态支持（eview-react 工厂静默丢弃 DataBinding）。
- *      b. **Table**——与 eview-react 的两处 API 差异：① render / onRowExpend 行数据
+ *      d. **Table**——与 eview-react 的两处 API 差异：① render / onRowExpend 行数据
  *         字段名不同：eview-ui 为 `row._org`（eview-react 为 `row.rawData`），副本已把
  *         buildRenderFn 末参 `dataField` 由 `'rawData'` 改为 `'_org'`；② `expandable.expandedRowKeys`
  *         对应 eview-ui 的 `expandedRow` prop（eview-react 同名为 `expandedRowKeys`）。
- *      c. **Drawer**——与 eview-react 的三处 API 差异：① 默认 `height='100%'`（仅 right/left/
+ *      e. **Drawer**——与 eview-react 的三处 API 差异：① 默认 `height='100%'`（仅 right/left/
  *         缺省 时加，top/bottom 不加；eview-react 不加任何 height；width 两边一致——
  *         A2UI width(number) 同名透传、无默认）；② `mask`→`maskSetting.show` 嵌套对象
  *         （eview-react 为扁平 `showMask`）；③ `footer` 直接赋 `footer` prop（eview-ui Drawer
  *         有 `footer: ReactNode|false`；eview-react 无独立 footer slot、其副本把 footer 并入 children）。
+ *      f. **Anchor**——与 eview-react 的 API 结构性不同：eview-ui Anchor 是**数据式**
+ *         （`data` prop = `AnchorMenuItem[]` + `offset`/`container`），eview-react Anchor 是
+ *         **组合式**（`<AnchorLink>` children + `containerId`/`offsetTop`）。副本把 A2UI `items`
+ *         归一为 `data`（`href`→`id` 去 `#`、丢 `key`/`target`、递归 `children`），`offsetTop`→`offset`
+ *         改名，`container` 同名透传；不复用 eview-react 工厂（其产 `Anchor.Link` children 树）。
  *
  * ⚠️ 此复用模式是 eview-ui 特例。未来别的组件库不复用 eview-react，各自独立。
  */
 
+import { createAnchorMapping } from './Anchor'
 import { createBadgeMapping } from '../eview-react/Badge'
 import { createBreadcrumbMapping } from '../eview-react/Breadcrumb'
 import Button from './Button'
@@ -35,12 +47,13 @@ import { createChartMapping } from '../eview-react/Chart'
 import { ALL_CHART_NAMES } from '../../chartDefaults'
 import { createCheckboxMapping } from '../eview-react/Checkbox'
 import { createCheckboxGroupMapping } from '../eview-react/CheckboxGroup'
-import { createCollapseMapping } from '../eview-react/Collapse'
+import { createCollapseMapping } from './Collapse'
 import { createCollapseItemMapping } from '../eview-react/CollapseItem'
 import { createDividerMapping } from '../eview-react/Divider'
 import { createDrawerMapping } from './Drawer'
 import DatePicker from './DatePicker'
 import Dropdown from './Dropdown'
+import { createEmptyMapping } from '../eview-react/Empty'
 import { createHexFieldMapping } from '../eview-react/HexField'
 import { createIconMapping } from '../eview-react/Icon'
 import { createInputMapping } from './Input'
@@ -55,6 +68,7 @@ import { createRadioGroupMapping } from '../eview-react/RadioGroup'
 import Rate from './Rate'
 import { createSegmentedMapping } from '../eview-react/Segmented'
 import { createSelectMapping } from '../eview-react/Select'
+import { createSearchInputMapping } from '../eview-react/SearchInput'
 import { createSliderMapping } from '../eview-react/Slider'
 import Steps from './Steps'
 import Switch from './Switch'
@@ -80,6 +94,7 @@ function chartMappings(p: string): Record<string, ReturnType<typeof createChartM
 export const iconPkg = '@hui/icon-plus'
 
 export default {
+  Anchor: createAnchorMapping(pkg),
   Badge: createBadgeMapping(sharedPkg),
   Breadcrumb: createBreadcrumbMapping(pkg),
   Button,
@@ -94,6 +109,7 @@ export default {
   Divider: createDividerMapping(sharedPkg),
   Drawer: createDrawerMapping(pkg),
   Dropdown,
+  Empty: createEmptyMapping(sharedPkg),
   Icon: createIconMapping(pkg),
   Input: createInputMapping(pkg),
   InputNumber: createInputNumberMapping(pkg),
@@ -106,6 +122,7 @@ export default {
   Rate,
   Segmented: createSegmentedMapping(pkg),
   Select: createSelectMapping(pkg),
+  SearchInput: createSearchInputMapping(pkg),
   Slider: createSliderMapping(pkg),
   Steps,
   Switch,

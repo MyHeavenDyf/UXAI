@@ -1,7 +1,7 @@
 import type { JSX } from 'solid-js'
 import { Show, For, createSignal } from 'solid-js'
 import type { ModelEditElement, ManualEditKind } from './types'
-import type { ColorToken } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
+import type { ColorToken } from './icon-data/hui-color-tokens'
 import {
   ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect,
   HAlignIcon, VAlignIcon,
@@ -31,8 +31,10 @@ export type NativeItemDef = {
 }
 
 function rgbToHex(rgb: string): string {
-  const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+  const m = rgb.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/)
   if (!m) return ''
+  const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1
+  if (alpha <= 0) return ''
   const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3])
   return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
 }
@@ -402,6 +404,16 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       const op = () => data().opacity || ''
       const br = () => data().borderRadius || ''
 
+      const setCorner = (key: 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius', v: number) => {
+        const d = data()
+        const currentBR = d.borderRadius
+        if (currentBR) {
+          update({ borderRadius: '', borderTopLeftRadius: key === 'borderTopLeftRadius' ? `${v}px` : (d.borderTopLeftRadius || currentBR), borderTopRightRadius: key === 'borderTopRightRadius' ? `${v}px` : (d.borderTopRightRadius || currentBR), borderBottomRightRadius: key === 'borderBottomRightRadius' ? `${v}px` : (d.borderBottomRightRadius || currentBR), borderBottomLeftRadius: key === 'borderBottomLeftRadius' ? `${v}px` : (d.borderBottomLeftRadius || currentBR) })
+        } else {
+          update({ [key]: `${v}px` })
+        }
+      }
+
       return (
         <Section title="外观">
           <ColorPicker label="Fill" value={bg()} tokens={props.colors} onChange={(v) => update({ backgroundColor: v })} />
@@ -425,10 +437,10 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
           </div>
           <Show when={cornerOpen()}>
             <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => update({ borderTopLeftRadius: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => update({ borderTopRightRadius: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => update({ borderBottomLeftRadius: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => update({ borderBottomRightRadius: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} />
+              <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => setCorner('borderTopLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} />
+              <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => setCorner('borderTopRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} />
+              <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => setCorner('borderBottomLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} />
+              <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => setCorner('borderBottomRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} />
             </div>
           </Show>
         </Section>

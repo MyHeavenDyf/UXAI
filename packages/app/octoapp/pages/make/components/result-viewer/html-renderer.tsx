@@ -1,4 +1,5 @@
 import { createMemo, createSignal, createResource, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
@@ -15,14 +16,14 @@ import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
 import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
 import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
-import { HUI_COLOR_TOKENS } from "../../../pattern/modules/preview/property-editor-popup/hui-color-tokens"
+import { HUI_COLOR_TOKENS } from "../model-edit-items/icon-data/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
-import { dirname, joinPath } from "../../utils/references"
+import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
@@ -36,6 +37,7 @@ import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import { getA2uiDataRelativePaths } from "../../utils/prototype-utils"
 import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
@@ -237,6 +239,77 @@ export function HtmlRenderer(props: {
   const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
   const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
   const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
+
+  const [panelStateCache, setPanelStateCache] = createStore<Record<string, Record<string, string>>>({})
+
+  const panelStatePath = () => {
+    const fp = props.filePath
+    if (!fp) return null
+    return joinPath(dirname(fp), '.' + basename(fp) + '.panel-state.json')
+  }
+
+  const loadPanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.readFileBuffer || !sp) return
+    try {
+      const buf = await api.readFileBuffer(sp)
+      if (!buf) return
+      const text = new TextDecoder().decode(new Uint8Array(buf))
+      const data = JSON.parse(text) as Record<string, Record<string, string>>
+      setPanelStateCache({ ...data })
+    } catch { /* file not found or parse error — normal degradation */ }
+  }
+
+  const writePanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.writeFileBuffer || !sp) return
+    try {
+      const json = JSON.stringify(panelStateCache)
+      const buf = new TextEncoder().encode(json).buffer as ArrayBuffer
+      await api.writeFileBuffer(sp, buf)
+    } catch { /* silent fail — don't block save */ }
+  }
+
+  const handleIframeLoad = () => {
+    if (!iframeRef) return
+    if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
+    if (props.editing) {
+      iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+    }
+    if (props.inspecting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+    }
+    if (props.commenting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+      const comments = savedComments()
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+    }
+    if (props.modelEditing) {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage({
+        type: "od:model-edit-mode",
+        enabled: true,
+        componentFlag: config?.componentFlag || null,
+        htmlFlag: config?.htmlFlag || null,
+      }, "*")
+    }
+    if (props.palette) {
+      iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+    }
+    const overrides = savedOverrides()
+    if (overrides.length > 0) {
+      overrides.forEach((override) => {
+        iframeRef.contentWindow?.postMessage(
+          { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+          "*"
+        )
+      })
+    }
+    void loadPanelState()
+  }
+
   const modelEditContext = createMemo((): ModelEditContext | undefined => {
     const target = modelEditTarget()
     if (!target) return undefined
@@ -450,6 +523,7 @@ export function HtmlRenderer(props: {
       
       // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
       let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
+      let previewExtraRels: string[] = []
       const handler = getSubtypeHandler(props.subtype)
       if (handler?.buildArchiveSrc && props.tabId) {
         const m = local.model.current()
@@ -478,6 +552,15 @@ export function HtmlRenderer(props: {
           sessionId: props.sessionId,
           sdkDirectory: props.sdkDirectory,
         }
+        // 混合 prototype 的 a2ui-data 以 dataPath: './...' JS 字面量引用，静态正则抓不到、
+        // 运行时 observedUrls 时序不稳定——按 getA2uiDataRelativePaths 显式列出，确定性地补进 preview/。
+        if (props.subtype === "prototype") {
+          try {
+            previewExtraRels = await getA2uiDataRelativePaths(ctx)
+          } catch (err) {
+            console.warn("[Archive] getA2uiDataRelativePaths failed:", err)
+          }
+        }
         try {
           const r = await handler.buildArchiveSrc(ctx)
           if (r) {
@@ -491,10 +574,40 @@ export function HtmlRenderer(props: {
         }
       }
       
-      // prototype 的 assets 是 symlink 指向 ict-coder 安装位置（不带 hash，与 HTML 引用 ./assets/index.js 匹配）；
-      // list-directory 用 readdirSync 跟随 symlink，能列出真实内容
+      // prototype 归档补 preview/ 本地资源目录（绕过静态正则 + observedUrls 时序局限）：
+      //  ① htmlDir/assets —— 顶层 assets 软链布局（HTML 引用 ./assets/index.js，无 hash）；不存在则 archive-utils 逐目录 try/catch 跳过。
+      //  ② previewdist 运行时 —— 混合/previewdist 布局（HTML 引用 ./previewdist/PreviewRenderer.js，distPath='./previewdist'，
+      //     PreviewRenderer 运行时再动态加载 ./previewdist/assets/index.js + CSS + 字体 + index.prototype.html）。
+      //     兼容真实目录与软链两种形态：优先页内 htmlDir/previewdist（内容与其 PreviewRenderer.js 自洽）；
+      //     若 listDirectory 不跟随软链 / 目录不存在导致拿不到文件，回退 getPreviewDistDir() 真实路径
+      //     （开发态 packages/previewdist、安装态 resources/previewdist；pattern 归档同此路径，见 pattern-archive-utils.ts）。
+      //     两者经 previewExtraDirs 的 relativeTo(htmlDir, …) → 'previewdist' 写到 preview/previewdist/，对上 HTML 的 ./previewdist/ 引用。
       const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
-      const previewExtraDirs = props.subtype === "prototype" && htmlDir ? [joinPath(htmlDir, "assets")] : []
+      const previewExtraDirs: string[] = []
+      if (props.subtype === "prototype" && htmlDir) {
+        previewExtraDirs.push(joinPath(htmlDir, "assets"))
+        const desktopApi = getDesktopApi()
+        // 仅当页引用 ./previewdist/ 时才补 previewdist 运行时（避免顶层-assets 布局无谓打包共享运行时）：
+        if (/\.\/previewdist\//i.test(htmlContent)) {
+          const previewdistDir = joinPath(htmlDir, "previewdist")
+          const listDirectory = desktopApi?.listDirectory
+          let usePreviewdistDir = false
+          if (listDirectory) {
+            try {
+              const entries = await listDirectory(previewdistDir)
+              usePreviewdistDir = entries.some(e => e.type === "file")
+            } catch { /* 软链未跟随 / 目录不存在 → 走回退 */ }
+          }
+          if (usePreviewdistDir) {
+            previewExtraDirs.push(previewdistDir)
+          } else {
+            const getPreviewDistDir = desktopApi?.getPreviewDistDir
+            if (getPreviewDistDir) {
+              try { previewExtraDirs.push(await getPreviewDistDir()) } catch {}
+            }
+          }
+        }
+      }
 
       // prototype：抓 iframe 实时 DOM 快照，用于在 data/components.json 记录
       // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
@@ -511,6 +624,7 @@ export function HtmlRenderer(props: {
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
         srcFiles,
         previewExtraDirs,
+        previewExtraRels,
         prototypeSnapshotHtml,
       })
       
@@ -1150,6 +1264,7 @@ createEffect(() => {
         if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
         return
       }
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
       
       // Save previous element's pending changes before switching
@@ -1215,6 +1330,8 @@ createEffect(() => {
       const config = props.modelEditConfig
       if (!config) return
 
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
+
       let panelConfig: ConfigGroup[] = []
       let panelData: Record<string, string> = {}
 
@@ -1240,6 +1357,11 @@ createEffect(() => {
 
         setModelEditPanelTitle(target.tagName)
         setModelEditPanelInfo(target.htmlHint)
+      }
+
+      const cached = panelStateCache[target.selector]
+      if (cached) {
+        panelData = { ...panelData, ...cached }
       }
 
       setModelEditPrevData({ ...panelData })
@@ -1691,44 +1813,7 @@ return (
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.modelEditing) {
-                    const config = props.modelEditConfig
-                    iframeRef.contentWindow?.postMessage({
-                      type: "od:model-edit-mode",
-                      enabled: true,
-                      componentFlag: config?.componentFlag || null,
-                      htmlFlag: config?.htmlFlag || null,
-                    }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           ) : (
@@ -1745,44 +1830,7 @@ return (
                 sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.modelEditing) {
-                    const config = props.modelEditConfig
-                    iframeRef.contentWindow?.postMessage({
-                      type: "od:model-edit-mode",
-                      enabled: true,
-                      componentFlag: config?.componentFlag || null,
-                      htmlFlag: config?.htmlFlag || null,
-                    }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           )}
@@ -2004,6 +2052,7 @@ onFloatingPositionChange={setEditPanelPosition}
             <ModelEditAreaDialog
               element={editTarget()}
               iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}
@@ -2037,12 +2086,17 @@ onFloatingPositionChange={setEditPanelPosition}
               filePath={props.filePath || ''}
               disabled={props.disabled}
               colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
-              onChange={props.modelEditConfig?.onChange}
+              onChange={(args) => {
+                const selector = args.dom.selector
+                if (selector) setPanelStateCache(selector, (prev: Record<string, string>) => ({ ...prev, [args.key]: args.value }))
+                props.modelEditConfig?.onChange?.(args)
+              }}
               context={modelEditContext()}
               iconConfig={props.modelEditConfig?.iconConfig}
               floatingStyle={modelEditPanelPosition() ?? undefined}
               onSubmitStart={() => setPendingModelEditClose(true)}
               onSave={async (current) => {
+                await writePanelState()
                 const target = modelEditTarget()
                 const ctx = modelEditContext()
                 if (target && ctx) {
@@ -2068,6 +2122,7 @@ onFloatingPositionChange={setEditPanelPosition}
             <ModelEditAreaDialog
               element={modelEditTarget()}
               iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
               filePath={props.filePath || ''}
               tabTitle={props.tabTitle || ''}
               disabled={props.disabled}

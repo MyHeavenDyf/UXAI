@@ -14,6 +14,7 @@ const kindToI18nKey = (kind: ArtifactFileKind): string => {
 
 interface ToolbarProps {
   fileStore: ReturnType<typeof import("../../utils/artifact-file-store").createArtifactFileStore>
+  isExternal: () => boolean
   onRefresh: () => void
   onUploadFile: () => void
   onUploadFolder: () => void
@@ -273,21 +274,23 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
               style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
             >
-              <button
-                type="button"
-                onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
-                style={{
-                  height: "36px",
-                  "border-radius": "6px",
-                  "font-size": "14px",
-                  "line-height": "22px",
-                  color: "#191919",
-                }}
-              >
-                <IconFolder size={16} />
-                <span>{language.t("designFiles.uploadFolder")}</span>
-              </button>
+              <Show when={!props.isExternal()}>
+                <button
+                  type="button"
+                  onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
+                  class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
+                  style={{
+                    height: "36px",
+                    "border-radius": "6px",
+                    "font-size": "14px",
+                    "line-height": "22px",
+                    color: "#191919",
+                  }}
+                >
+                  <IconFolder size={16} />
+                  <span>{language.t("designFiles.uploadFolder")}</span>
+                </button>
+              </Show>
               <button
                 type="button"
                 onClick={() => { props.onUploadFile(); setUploadOpen(false) }}

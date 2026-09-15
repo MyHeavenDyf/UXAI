@@ -264,6 +264,7 @@ export function ProseMirrorEditor(props: Props) {
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       if (target.closest(".ins-pm-editor")) return
+      if (target.closest(".make-model-risk-overlay")) return
       if (!target.closest(".ins-mention-container")) closeMention()
     }
     document.addEventListener("mousedown", handler)

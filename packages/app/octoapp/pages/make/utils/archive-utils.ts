@@ -86,6 +86,11 @@ export interface CreateArchiveZipOptions {
    *  用于绕过静态解析局限（如打包器转换 new URL 形式、运行时动态注入 css），
    *  把 HTML 引用但 regex 抓不到的本地资源目录（如 prototype 的 assets symlink）一并带走。 */
   previewExtraDirs?: string[]
+  /** 额外显式打包进 preview/ 的文件（相对 htmlDir 的相对路径，可带 ./ 前缀）。
+   *  用于绕过静态解析 + 运行时信号都抓不到的引用：混合模式 prototype 的 a2ui-data/*.json / *.data.js
+   *  以 dataPath: './...' JS 字面量引用（非 src/href，静态正则不认；运行时加载时序不稳定），
+   *  由调用方按 getA2uiDataRelativePaths 显式列出，确定性补进 preview/。 */
+  previewExtraRels?: string[]
   /** prototype 归档：iframe 实时 DOM 快照 HTML，用于抽取 [dom-picker-component] 元素写入 data/prototype.json。
    *  仅 prototype 子类型传入；undefined 时不生成 prototype.json。 */
   prototypeSnapshotHtml?: string
@@ -282,6 +287,17 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
       const rel = norm.slice(htmlDir.length + 1)
       if (rel && rel !== htmlFileName && rel !== options.htmlFileName) {
         referencedRel.add(rel)
+      }
+    }
+
+    // 显式补充文件（混合 prototype 的 a2ui-data）：static 正则抓不到 dataPath 字面量，
+    // observedUrls 时序不稳定，按调用方给出的相对路径确定性地补进 preview/。
+    if (options.previewExtraRels?.length) {
+      for (const rel of options.previewExtraRels) {
+        const norm = rel.replace(/\\/g, "/").replace(/^\.?\//, "")
+        if (norm && norm !== htmlFileName && norm !== options.htmlFileName) {
+          referencedRel.add(norm)
+        }
       }
     }
 

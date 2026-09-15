@@ -182,9 +182,12 @@ export async function fetchIconInfo(params: IconSearchParams): Promise<Result<Ic
   )
   if (!r.success) return r
   // 拍平分组并归一化 id：优先 id，其次 icon_id，最后以 name 兜底（保证唯一索引始终存在）
-  const icons = (r.data ?? [])
+  // 按 icon_id 去重（预设多关键词搜索可能返回相同图标）
+  const icons = [...(r.data ?? [])
     .flatMap(g => g?.icons ?? [])
     .map(i => ({ ...i, icon_id: (i as { id?: string }).id ?? i.icon_id ?? i.name }))
+    .reduce((m, i) => { if (i.icon_id && !m.has(i.icon_id)) m.set(i.icon_id, i); return m }, new Map<string, IconInfo>())
+    .values()]
   return { success: true, data: icons }
 }
 
@@ -269,6 +272,7 @@ export function createIconPlusStore(initialKeyword = "") {
   })
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let searchToken = 0
 
   /** 弹窗 onMount 调用：先试 getConfig，联通才取 tags；不联通则 online=false 回退 lucide */
   async function init() {
@@ -315,9 +319,11 @@ export function createIconPlusStore(initialKeyword = "") {
     const typed = state.keyword.trim()
     const keyword = typed || PRESET_KEYWORDS
     const topK = typed ? TOP_K : 1 // 预设 25 个关键词各取 1 个 = 25 个；单个关键词取 25 个
+    const token = ++searchToken
     setState("searching", true)
     setState("error", null)
     const res = await fetchIconInfo({ keyword, tags: state.activeTab, topK, group_id: state.groupId ?? undefined })
+    if (token !== searchToken) return
     if (!res.success) {
       setState("icons", [])
       setState("searching", false)
@@ -408,6 +414,7 @@ export function createIconPlusStore(initialKeyword = "") {
       clearTimeout(debounceTimer)
       debounceTimer = null
     }
+    searchToken++
   }
 
   return {

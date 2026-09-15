@@ -1,4 +1,4 @@
-import { For, Show, createSignal, createEffect, onCleanup, onMount, type JSX } from 'solid-js'
+import { For, Show, createSignal, createEffect, createMemo, onCleanup, onMount, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { createStore } from 'solid-js/store'
 import type { IconConfig, IconState, IconConfig as IC } from './types'
@@ -164,20 +164,32 @@ function GridIcon(svg: string, s: string = 'outline', c: string = '#191919', siz
   return strokeEl(size)
 }
 
+function decodeSvgDataUrl(dataUrl: string): string {
+  const base64 = dataUrl.split(',')[1]
+  if (!base64) return ''
+  try { return atob(base64) } catch { return '' }
+}
+
 function IconFieldPreview(props: { name?: string; src?: string; url?: string; color?: string }) {
   const [failed, setFailed] = createSignal(false)
   createEffect(() => { props.url; props.src; setFailed(false) })
-  const imgSrc = props.src ?? props.url
+  const imgSrc = createMemo(() => props.url ?? props.src)
+  const isSvgDataUrl = createMemo(() => props.url?.startsWith('data:image/svg+xml') ?? false)
+  const svgContent = createMemo(() => isSvgDataUrl() ? decodeSvgDataUrl(props.url ?? '') : '')
   return (
-    <Show when={imgSrc && !failed()} fallback={
+    <Show when={(imgSrc() && !failed()) || isSvgDataUrl()} fallback={
       (() => {
         const d = LUCIDE_ICONS.find(i => i.name === props.name)
         return d
           ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color ?? '#191919' }} />
-          : <span class="text-[10px] text-slate-400">无</span>
+          : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-slate-400"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
       })()
     }>
-      <img src={imgSrc} alt="" loading="lazy" decoding="async" class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+      <Show when={isSvgDataUrl()} fallback={
+        <img src={imgSrc()} alt="" loading="lazy" decoding="async" class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+      }>
+        <span class="h-4 w-4 shrink-0 inline-flex items-center justify-center" innerHTML={svgContent()} />
+      </Show>
     </Show>
   )
 }
@@ -514,7 +526,23 @@ export function IconModule(props: {
 
   createEffect(() => {
     if (props.dom && props.iconConfig.getInitialState) {
-      setIconValue(props.iconConfig.getInitialState(props.dom))
+      const state = props.iconConfig.getInitialState(props.dom)
+      setIconValue(state)
+      // 自定义图标：readFileBuffer 转 dataURL 用于预览
+      if (state.isCustom && state.src && props.filePath) {
+        const fullPath = `${props.filePath.replace(/[\\/][^\\/]+$/, '')}/${state.src}`
+        const api = getDesktopApi()
+        if (api?.readFileBuffer) {
+          api.readFileBuffer(fullPath).then(buf => {
+            if (buf) {
+              const mime = (state.src ?? '').endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+              blobToDataURL(new Blob([buf], { type: mime })).then(dataUrl => {
+                setIconValue(prev => ({ ...prev, url: dataUrl }))
+              })
+            }
+          }).catch(() => {})
+        }
+      }
     }
   })
 

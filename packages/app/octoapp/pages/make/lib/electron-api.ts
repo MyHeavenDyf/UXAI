@@ -9,6 +9,24 @@ export type AssetsConfig = {
   user?: AssetsConfigUser
 }
 
+/**
+ * 代码 manifest 节点（结构对齐 desktop/excode 的 manifest-builder.ts；octoapp 跨包
+ * 不便直接 import excode 类型，故就地结构化声明，IPC 透传时按结构匹配）。
+ * 设计平台「框选节点 → 定位产物文件」用：tree 是 src 目录树，content 是路径→文件内容。
+ */
+export interface ManifestNode {
+  label: string
+  value: string
+  nodes?: string[]
+  children?: ManifestNode[]
+}
+
+/** 代码 manifest：tree（src 目录树）+ content（路径→文件内容） */
+export interface CodeManifest {
+  tree: ManifestNode[]
+  content: Record<string, string>
+}
+
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
@@ -60,7 +78,7 @@ export type DesktopApi = {
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
   /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
-  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
+  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: CodeManifest }>
   /** 导出 ZIP 压缩包 */
   exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   /** 获取上传资源根目录 */
