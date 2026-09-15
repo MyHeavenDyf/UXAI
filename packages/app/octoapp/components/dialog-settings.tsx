@@ -182,15 +182,18 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             transform: translateX(20px) !important;
             border: none !important;
           }
-          [data-settings-models] {
+          [data-settings-models],
+          [data-settings-mcp] {
             scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
             scrollbar-gutter: stable;
             scrollbar-width: thin;
           }
-          [data-settings-models]::-webkit-scrollbar {
+          [data-settings-models]::-webkit-scrollbar,
+          [data-settings-mcp]::-webkit-scrollbar {
             width: 6px;
           }
-          [data-settings-models]::-webkit-scrollbar-thumb {
+          [data-settings-models]::-webkit-scrollbar-thumb,
+          [data-settings-mcp]::-webkit-scrollbar-thumb {
             background: rgba(0, 0, 0, 0.24);
             border-radius: 999px;
           }
@@ -298,7 +301,9 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                   style={{
                     ...iconBase,
                     "mask-image": "url(/setting/mcpIcon.svg)",
+                    "mask-size": "15px 18.3167px",
                     "-webkit-mask-image": "url(/setting/mcpIcon.svg)",
+                    "-webkit-mask-size": "15px 18.3167px",
                   }}
                 />
                 {language.t("settings.mcp.title")}
@@ -332,7 +337,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
           >
             <SettingsModels />
           </TabsContent>
-          <TabsContent value="mcp" style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "auto", padding: "8px 20px" }}>
+          <TabsContent value="mcp" style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}>
             <SettingsMcp />
           </TabsContent>
         </TabsRoot>

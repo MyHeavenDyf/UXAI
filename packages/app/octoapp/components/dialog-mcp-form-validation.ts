@@ -103,6 +103,7 @@ export function validateMcpForm(input: {
   const value: Record<string, unknown> = {
     ...parsed,
     type: form.type === "stdio" ? "local" : "remote",
+    enabled: parsed.enabled !== false,
     ...(form.type !== "stdio" ? { transport: form.type } : {}),
     ...(homepage ? { homepage } : {}),
     ...(docs ? { docs } : {}),
