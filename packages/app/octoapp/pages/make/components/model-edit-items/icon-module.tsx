@@ -229,7 +229,7 @@ function IconPickerPopup(props: {
     customIcons: [] as CustomIcon[],
     selected: props.current,
     selectedId: props.currentId ?? '',
-    tip: null as { name: string; x: number; y: number } | null,
+    tip: null as { name: string; subname: string; x: number; y: number } | null,
     uploadTip: null as { x: number; y: number; cx: number } | null,
     pos: { x: 0, y: 0 },
     colorOpen: false,
@@ -321,11 +321,16 @@ function IconPickerPopup(props: {
     )
   }
 
-  const showTip = (el: HTMLElement, name: string) => {
+  const showTip = (el: HTMLElement, icon: { name: string; chineseName?: string; englishName?: string }) => {
     if (!popupRef) return
     const r = el.getBoundingClientRect()
     const pr = popupRef.getBoundingClientRect()
-    setState('tip', { name, x: r.left - pr.left + r.width / 2, y: r.top - pr.top + r.height })
+    setState('tip', {
+      name: icon.chineseName || icon.name,
+      subname: icon.englishName || icon.name,
+      x: r.left - pr.left + r.width / 2,
+      y: r.top - pr.top + r.height
+    })
   }
 
   const onFiles = async (e: Event) => {
@@ -453,7 +458,7 @@ function IconPickerPopup(props: {
                 <div class="grid grid-cols-5 gap-2">
                   <For each={filtered()}>
                     {(icon) => (
-                      <button type="button" onMouseEnter={(e) => showTip(e.currentTarget, icon.name)} onMouseLeave={() => setState('tip', null)}
+                      <button type="button" onMouseEnter={(e) => showTip(e.currentTarget, { name: icon.name })} onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', icon.name); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'ring-1 ring-inset ring-[#0A59F7]': (state.selectedId || state.selected) === icon.name }}>
                         <svg
@@ -475,7 +480,7 @@ function IconPickerPopup(props: {
                 <div class="grid grid-cols-5 gap-2">
                   <For each={iconStore.state.icons}>
                     {(icon) => (
-                      <button type="button" onMouseEnter={(e) => showTip(e.currentTarget, icon.name)} onMouseLeave={() => setState('tip', null)}
+                      <button type="button" onMouseEnter={(e) => showTip(e.currentTarget, icon)} onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', String(icon.icon_id)); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'ring-1 ring-inset ring-[#0A59F7]': !!state.selectedId && String(icon.icon_id) === state.selectedId }}>
                         <ApiIcon url={icon.url} />
@@ -499,7 +504,7 @@ function IconPickerPopup(props: {
                     <For each={state.customIcons}>
                       {(icon, i) => (
                         <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'ring-1 ring-inset ring-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
-                          onMouseEnter={(e) => showTip(e.currentTarget, customIconName(icon.path ?? icon.src))} onMouseLeave={() => setState('tip', null)}
+                          onMouseEnter={(e) => showTip(e.currentTarget, { name: customIconName(icon.path ?? icon.src) })} onMouseLeave={() => setState('tip', null)}
                           onClick={() => { setState('selectedId', `custom:${icon.src}`); setState('selected', customIconName(icon.path ?? icon.src)) }}>
                           <img src={icon.src} class="max-h-full max-w-full object-contain" />
                           <button type="button" title="删除" onClick={(e) => { e.stopPropagation(); deleteCustomIcon(i()) }} class="absolute right-[6px] top-[6px] z-10 hidden cursor-pointer group-hover:block"><img src={deleteSvg} width="16" height="16" alt="" /></button>
@@ -523,7 +528,7 @@ function IconPickerPopup(props: {
                 ref={colorBtnRef}
                 type="button"
                 onClick={() => setState('colorOpen', !state.colorOpen)}
-                class="flex h-9 w-full items-center gap-1 rounded-[36px] bg-[#F2F3F5] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9] focus:border-[#0067d1]"
+                class="flex h-9 w-full items-center gap-1 rounded-[36px] bg-[#F2F3F5] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9]"
               >
                 <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: iconCssColor(state.iconColorKey) }} />
                 <span class="flex-1 truncate" style={{ color: '#191919' }}>{colors[state.iconColorKey]?.label ?? state.iconColorKey}</span>
@@ -560,7 +565,7 @@ function IconPickerPopup(props: {
           <span class="pointer-events-none absolute z-20 h-[8px] w-[8px] -translate-x-1/2 rotate-45" style={{ left: state.tip!.x + 'px', top: state.tip!.y + 'px', background: '#595959' }} />
           <div class="pointer-events-none absolute z-20 -translate-x-1/2 rounded-md px-2 py-1.5 shadow-lg" style={{ left: state.tip!.x + 'px', top: state.tip!.y + 4 + 'px', background: '#595959', color: '#fff' }}>
             <div class="whitespace-nowrap text-[11px]" style={{ color: '#fff', "text-align": 'center' }}>{state.tip!.name}</div>
-            <div class="whitespace-nowrap text-[10px]" style={{ color: '#fff', opacity: 0.9, "text-align": 'center' }}>{iconClassName(state.tip!.name)}</div>
+            <div class="whitespace-nowrap text-[10px]" style={{ color: '#fff', opacity: 0.9, "text-align": 'center' }}>{state.tip!.subname}</div>
           </div>
         </Show>
       </div>
