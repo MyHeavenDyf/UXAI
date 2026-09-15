@@ -402,7 +402,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
           }}
         >
           <span class="addon-menu-item-icon"><FolderIcon /></span>
-          <span class="addon-menu-item-text">{props.folder.name}</span>
+          <span class="addon-menu-item-text" title={props.folder.name}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <Icon
               name="chevron-right"

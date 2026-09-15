@@ -374,7 +374,7 @@ function AssetDialog(props: {
           }}
         >
           <FolderIcon class="me-asset-tree-icon" />
-          <span style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
+          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <svg
               width="12" height="12" viewBox="0 0 8 8" fill="none"

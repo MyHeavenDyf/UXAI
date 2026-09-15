@@ -522,11 +522,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setComposing(false)
-        setDeltaLog([])
 
-        // 附件清空不在此处理：此处依赖函数每次求值都返回新数组引用,Sync store 任何
-        // 更新（如模型回复完成追加 message）都会触发本 effect,会误清"回复期间添加的
-        // 附件"。附件清空职责移到下方监听 params.id 切换的独立 effect。
+        // Fix 6: setDeltaLog([]) 已移至下方 params.id 切换 effect。
+        // 此 effect 的依赖 () => [params.id, sync.data.message?.[...] === undefined]
+        // 每次 Sync store 更新（如模型回复追加 message）都会触发,原逻辑会误清
+        // streaming 期间累积的 deltaLog,导致 WaitingPill 预览闪烁。
+
+        // 附件清空不在此处理：同上,Sync store 任何更新都会触发本 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
@@ -536,8 +538,10 @@ const sessionMessagesLoaded = createMemo(() => {
   // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
   // 同时关闭 prototype 局部编辑浮层（mask/属性编辑器/右键菜单）：它们是挂在
   // ResultViewer 层级的单例,不随 tab 卸载而消失,需显式关闭。
+  // Fix 6: setDeltaLog([]) 也在 session 切换时清空,而非每次 store 更新时。
   createEffect(on(() => params.id, () => {
     setAttachments([])
+    setDeltaLog([])
     closePrototypePanels()
   }, { defer: true }))
 
