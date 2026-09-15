@@ -643,7 +643,11 @@ export function IconModule(props: {
       <button ref={anchorRef} type="button" disabled={props.disabled}
         onClick={() => setPopupOpen(true)}
         class="cc-row" style={{ width: '100%', height: '36px', border: '1px solid rgba(0,0,0,0.1)', 'border-radius': '8px', background: '#FFF', padding: '8px 12px', 'box-sizing': 'border-box', cursor: props.disabled ? 'wait' : 'pointer' }}>
-        <IconFieldPreview name={iconValue().name} src={iconValue().src} url={iconValue().url} color={iconValue().color} />
+        <Show when={iconValue().name || iconValue().src || iconValue().url} fallback={
+          <span style={{ width: '16px', height: '16px', border: '1px solid #DFDFDF', background: 'white', 'border-radius': '3px', 'flex-shrink': '0' }} />
+        }>
+          <IconFieldPreview name={iconValue().name} src={iconValue().src} url={iconValue().url} color={iconValue().color} />
+        </Show>
         <span class="flex-1 truncate text-[12px] text-slate-600">{iconValue().name || '选择图标'}</span>
         <svg class="h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>

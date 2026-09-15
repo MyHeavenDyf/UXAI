@@ -1,13 +1,13 @@
-/* Asset module dialog styles (copied from addon-menu/styles.css, self-contained) */
+/* Asset module dialog styles (self-contained, prefixed me- to avoid conflicts with addon-menu) */
 
-.asset-dialog-overlay {
+.me-asset-dialog-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 10000;
 }
 
-.asset-dialog {
+.me-asset-dialog {
   position: absolute;
   background: #ffffff;
   padding: 24px;
@@ -20,7 +20,7 @@
   box-sizing: border-box;
 }
 
-.asset-dialog-title {
+.me-asset-dialog-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -30,14 +30,14 @@
   flex-shrink: 0;
 }
 
-.asset-dialog-title-text {
+.me-asset-dialog-title-text {
   font-size: 14px;
   font-weight: 700;
   line-height: 24px;
   color: rgba(0, 0, 0, 0.9);
 }
 
-.asset-dialog-close {
+.me-asset-dialog-close {
   cursor: pointer;
   background: transparent;
   border: none;
@@ -47,7 +47,7 @@
   justify-content: center;
 }
 
-.asset-dialog-middle {
+.me-asset-dialog-middle {
   display: flex;
   align-items: stretch;
   flex: 1 1 auto;
@@ -55,23 +55,23 @@
   overflow: hidden;
 }
 
-.asset-dialog-left {
+.me-asset-dialog-left {
   overflow-y: auto;
 }
 
-.asset-dialog-left::-webkit-scrollbar {
+.me-asset-dialog-left::-webkit-scrollbar {
   width: 4px;
   display: block;
 }
-.asset-dialog-left::-webkit-scrollbar-thumb {
+.me-asset-dialog-left::-webkit-scrollbar-thumb {
   background-color: #dbdbdb;
   border-radius: 9999px;
 }
-.asset-dialog-left::-webkit-scrollbar-track {
+.me-asset-dialog-left::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.asset-dialog-split {
+.me-asset-dialog-split {
   width: 4px;
   margin-left: 8px;
   margin-right: 8px;
@@ -81,34 +81,34 @@
   border-radius: 2px;
   position: relative;
 }
-.asset-dialog-split::before {
+.me-asset-dialog-split::before {
   content: "";
   position: absolute;
   inset: 0 -8px;
 }
-.asset-dialog-split:hover {
+.me-asset-dialog-split:hover {
   background: rgba(0, 0, 0, 0.08);
 }
 
-.asset-dialog-right {
+.me-asset-dialog-right {
   min-height: 275px;
   padding: 1px;
   position: relative;
   overflow-y: auto;
 }
-.asset-dialog-right::-webkit-scrollbar {
+.me-asset-dialog-right::-webkit-scrollbar {
   width: 4px;
   display: block;
 }
-.asset-dialog-right::-webkit-scrollbar-thumb {
+.me-asset-dialog-right::-webkit-scrollbar-thumb {
   background-color: #dbdbdb;
   border-radius: 9999px;
 }
-.asset-dialog-right::-webkit-scrollbar-track {
+.me-asset-dialog-right::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.asset-dialog-right-handle {
+.me-asset-dialog-right-handle {
   position: absolute;
   top: 24px;
   bottom: 24px;
@@ -118,7 +118,7 @@
   z-index: 10;
 }
 
-.asset-dialog-empty {
+.me-asset-dialog-empty {
   padding: 24px 0;
   text-align: center;
   font-size: 14px;
@@ -126,7 +126,7 @@
 }
 
 /* Tree node */
-.asset-tree-item {
+.me-asset-tree-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -145,21 +145,21 @@
   line-height: 22px;
   flex-shrink: 0;
 }
-.asset-tree-item:hover {
+.me-asset-tree-item:hover {
   background-color: rgba(0, 0, 0, 0.05);
 }
-.asset-tree-item--active {
+.me-asset-tree-item--active {
   background-color: rgba(10, 89, 247, 0.1);
   color: #0a59f7;
 }
-.asset-tree-arrow {
+.me-asset-tree-arrow {
   flex-shrink: 0;
   color: rgba(0, 0, 0, 0.4);
   transition: transform 150ms ease;
 }
 
 /* File grid */
-.asset-dialog-grid {
+.me-asset-dialog-grid {
   display: flex;
   flex-wrap: wrap;
   column-gap: 12px;
@@ -167,12 +167,12 @@
   padding: 1px;
 }
 
-.asset-grid-item {
+.me-asset-grid-item {
   width: 88px;
   cursor: pointer;
 }
 
-.asset-grid-stage {
+.me-asset-grid-stage {
   width: 100%;
   height: 88px;
   border-radius: 8px;
@@ -181,17 +181,17 @@
   margin-bottom: 8px;
   overflow: hidden;
 }
-.asset-grid-stage:hover {
+.me-asset-grid-stage:hover {
   outline: 1px solid rgba(0, 0, 0, 0.5);
 }
-.asset-grid-thumb {
+.me-asset-grid-thumb {
   width: 100%;
   height: 100%;
   object-fit: scale-down;
 }
 
-/* Single-select radio indicator (replaces checkbox) */
-.asset-grid-radio {
+/* Single-select radio indicator */
+.me-asset-grid-radio {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -206,12 +206,12 @@
   justify-content: center;
   flex-shrink: 0;
 }
-.asset-grid-radio--checked {
+.me-asset-grid-radio--checked {
   background: #0A59F7;
   border-color: #0A59F7;
 }
 
-.asset-grid-name {
+.me-asset-grid-name {
   font-size: 14px;
   line-height: 22px;
   color: rgba(0, 0, 0, 0.9);
@@ -224,7 +224,7 @@
 }
 
 /* Footer buttons */
-.asset-dialog-footer {
+.me-asset-dialog-footer {
   margin-top: 24px;
   display: flex;
   justify-content: flex-end;
@@ -232,7 +232,7 @@
   flex-shrink: 0;
 }
 
-.asset-dialog-btn {
+.me-asset-dialog-btn {
   width: 88px;
   height: 32px;
   border-radius: 4px;
@@ -245,14 +245,14 @@
   cursor: pointer;
 }
 
-.asset-dialog-btn-primary {
+.me-asset-dialog-btn-primary {
   background: #0a59f7;
   border-color: #0a59f7;
   color: #fff;
 }
 
 /* Preview popup */
-.asset-dialog-preview {
+.me-asset-dialog-preview {
   position: fixed;
   width: 256px;
   height: 330px;
@@ -266,7 +266,7 @@
   flex-direction: column;
 }
 
-.asset-dialog-preview-name {
+.me-asset-dialog-preview-name {
   font-size: 14px;
   line-height: 22px;
   font-weight: 500;
@@ -277,7 +277,7 @@
   text-overflow: ellipsis;
 }
 
-.asset-dialog-preview-stage {
+.me-asset-dialog-preview-stage {
   margin-top: 8px;
   width: 100%;
   flex: 1 1 0;
@@ -289,7 +289,7 @@
   overflow: hidden;
 }
 
-.asset-dialog-preview-img {
+.me-asset-dialog-preview-img {
   width: 100%;
   height: 100%;
   object-fit: scale-down;
