@@ -23,6 +23,9 @@ export const disposeAllInstancesAndEmitGlobalDisposed = Effect.fn("Server.dispos
     const store = yield* InstanceStore.Service
     const config = yield* Config.Service
     yield* Effect.gen(function* () {
+      // 配置必须先失效。disposeAll 期间前端查询可能立即重新拉起某个实例；如果此时
+      // cachedGlobal 仍是旧值，该实例会一直保留旧 MCP 列表，直到下一次全局刷新。
+      yield* config.invalidate()
       yield* options?.swallowErrors
         ? store.disposeAll().pipe(
             Effect.catchCause((cause) =>
@@ -32,9 +35,6 @@ export const disposeAllInstancesAndEmitGlobalDisposed = Effect.fn("Server.dispos
             ),
           )
         : store.disposeAll()
-      // 外部编辑 octo.json 后仅 dispose 无法刷新 cachedGlobal(无限 TTL,仅 updateGlobal/
-      // replaceGlobalProvider 显式失效),统一在此失效,实例重建时才会重读配置文件
-      yield* config.invalidate()
       log.info("disposeAll:emit-disposed", { t: Date.now() })
       yield* emitGlobalDisposed
       log.info("disposeAll:done", { t: Date.now() })

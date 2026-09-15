@@ -1666,6 +1666,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
+              .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
+              .flatMap((name) => {
+                const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`
+                const names = Object.keys(activeTools)
+                  .filter((toolName) => toolName.startsWith(prefix))
+                  .map((toolName) => toolName.slice(prefix.length))
+                return names.length ? [`- ${name}: ${names.join(", ")}`] : []
+              })
+            if (userMcpSummary.length) {
+              system.push(
+                [
+                  "<available_user_mcp_tools>",
+                  "These user-configured MCP servers and methods are connected and available in this request:",
+                  ...userMcpSummary,
+                  "This live list replaces every MCP inventory mentioned earlier in the conversation. Never infer current MCP availability from previous messages, previous tool calls, or configuration files, and never report a user MCP server absent from this list as currently available.",
+                  "When the user asks about one of these MCP servers, use its listed tools instead of searching configuration files or claiming the server is unavailable.",
+                  "</available_user_mcp_tools>",
+                ].join("\n"),
+              )
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
