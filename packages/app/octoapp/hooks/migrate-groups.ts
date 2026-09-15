@@ -54,6 +54,7 @@ async function doMigrate({ dir, namespace, client }: {
   }
 
   const listResult = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+  if (listResult.error) throw new Error("failed to list session groups")
   const dbGroups = listResult.data?.groups ?? []
 
   const idMap = new Map<string, string>()
@@ -61,14 +62,15 @@ async function doMigrate({ dir, namespace, client }: {
     const existing = dbGroups.find((d) => d.name === g.name)
     if (existing) { idMap.set(g.id, existing.id); continue }
     const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight", name: g.name })
-    if (!result.data) throw new Error(`failed to create group: ${g.name}`)
+    if (result.error || !result.data) throw new Error(`failed to create group: ${g.name}`)
     idMap.set(g.id, result.data.id)
   }
 
   for (const [sessionId, oldGroupId] of Object.entries(localMapping)) {
     const newId = idMap.get(oldGroupId)
     if (!newId) throw new Error(`missing group mapping for ${oldGroupId}`)
-    await client.sessionGroup.mapSession({ sessionId, groupId: newId })
+    const r = await client.sessionGroup.mapSession({ sessionId, groupId: newId })
+    if (r.error || !r.data) throw new Error(`failed to map session: ${sessionId}`)
   }
 
   localStorage.removeItem(gKey)

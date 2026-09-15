@@ -7,23 +7,27 @@ type FakeMapping = Record<string, { groupId: string; position: number }>
 
 type Db = { groups: FakeGroup[]; mapping: FakeMapping; counter: number }
 
-function makeClient(db: Db, behavior: { failOnCreateNum?: number } = {}): OpencodeClient {
+function makeClient(
+  db: Db,
+  behavior: { failOnCreateNum?: number; mapSessionFails?: boolean } = {},
+): OpencodeClient {
   let createCalls = 0
+  const createError = { data: undefined, error: { message: "create failed" } }
+  const mapError = { data: undefined, error: { message: "mapSession failed" } }
   return {
     sessionGroup: {
       list: async () => ({ data: { groups: [...db.groups], mapping: { ...db.mapping } } }),
       create: async ({ name }: { namespace: "make" | "insight"; name: string }) => {
         createCalls += 1
-        if (behavior.failOnCreateNum && createCalls === behavior.failOnCreateNum) {
-          throw new Error("create failed")
-        }
+        if (behavior.failOnCreateNum && createCalls === behavior.failOnCreateNum) return createError
         const g: FakeGroup = { id: `g${++db.counter}`, name, time_created: Date.now() }
         db.groups.push(g)
         return { data: g }
       },
       mapSession: async ({ sessionId, groupId }: { sessionId: string; groupId: string }) => {
+        if (behavior.mapSessionFails) return mapError
         db.mapping[sessionId] = { groupId, position: 0 }
-        return { data: undefined }
+        return { data: { ok: true } }
       },
     },
   } as unknown as OpencodeClient
@@ -82,5 +86,23 @@ describe("migrateLocalGroupsToDB", () => {
     expect(db.groups.find((g) => g.name === "A")?.id).toBe("gX")
     expect(db.groups.map((g) => g.name).sort()).toEqual(["A", "B"])
     expect(localStorage.getItem(gKey(dir, "make"))).toBeNull()
+  })
+
+  test("mapSession failure keeps localStorage (no data loss on partial mapping failure)", async () => {
+    const dir = "dir-map-fail"
+    seed(dir)
+    const db: Db = { groups: [], mapping: {}, counter: 0 }
+    // groups create fine, but mapSession returns an error object (throwOnError:false default) without throwing
+    await migrateLocalGroupsToDB({
+      dir,
+      namespace: "make",
+      client: makeClient(db, { mapSessionFails: true }),
+    })
+
+    // both groups created, but localStorage must be retained so the next launch retries the mapping
+    expect(db.groups.map((g) => g.name).sort()).toEqual(["A", "B"])
+    expect(localStorage.getItem(gKey(dir, "make"))).not.toBeNull()
+    expect(localStorage.getItem(mKey(dir, "make"))).not.toBeNull()
+    expect(Object.keys(db.mapping)).toHaveLength(0)
   })
 })
