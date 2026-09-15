@@ -43,25 +43,25 @@ export function CustomSelect(props: {
         ref={btnRef}
         type="button"
         onClick={() => setOpen(!open())}
-        class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none w-full border border-transparent hover:border-[#c9c9c9] focus:border-[#0067d1] focus:shadow-[0_0_0_1px_#8abef3] text-left"
+        class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none w-full border border-transparent hover:border-[#c9c9c9] text-left"
       >
         <span class="flex-1 truncate">{props.options.find(o => o.value === props.value)?.label || props.value}</span>
         <svg class="w-3 h-3 ml-1 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
-          <div ref={listRef} data-custom-select-list class="fixed z-[2147483646] py-1 rounded-lg border border-[#e5e7eb]"
-            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}
+          <div ref={listRef} data-custom-select-list class="octo-dropdown-menu fixed"
+            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px' }}
             onClick={() => setOpen(false)}>
             <For each={props.options}>
               {(opt) => (
-                <div
+                <button
+                  type="button"
                   onClick={() => props.onChange(opt.value)}
-                  class="px-[10px] py-[6px] text-[10px] text-slate-700 bg-white hover:bg-[#f3f4f6] cursor-pointer whitespace-nowrap"
-                  classList={{ 'bg-[#E6F2FD] text-primary font-medium': opt.value === props.value }}
+                  class={`octo-dropdown-item${opt.value === props.value ? ' octo-dropdown-item-active' : ''}`}
                 >
-                  {opt.label}
-                </div>
+                  <span>{opt.label}</span>
+                </button>
               )}
             </For>
           </div>

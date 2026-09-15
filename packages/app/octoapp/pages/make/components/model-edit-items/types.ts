@@ -1,5 +1,6 @@
 import type { ManualEditKind, ManualEditPatch } from "../../edit-mode/source-patches"
 import type { ColorToken } from "../../../pattern/modules/preview/property-editor-popup/hui-color-tokens"
+import type { AssetFile } from "../../components/addon-menu/asset-library"
 
 export type { ManualEditKind }
 
@@ -140,4 +141,24 @@ export type ModelEditConfig = {
   colors?: ColorToken[]
   onChange?: (args: OnChangeArgs) => void
   iconConfig?: IconConfig
+  assetConfig?: AssetConfig
+}
+
+export type AssetState = {
+  name?: string
+  icon?: string
+  id?: string
+}
+
+export type AssetConfirmArgs = {
+  dom: ModelEditElement
+  filePath: string
+  folderpath: string
+  data: AssetFile
+}
+
+export type AssetConfig = {
+  showConfig?: (dom: ModelEditElement) => boolean
+  getInitialState?: (dom: ModelEditElement) => AssetState
+  onConfirm: (args: AssetConfirmArgs) => string | Promise<string>
 }
