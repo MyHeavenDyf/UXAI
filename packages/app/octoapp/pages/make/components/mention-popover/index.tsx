@@ -15,6 +15,7 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetIconByExtension,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -844,7 +845,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        // type 40 缩略图按 fileName 后缀取图标;type 30 用 inferKindFromUrl 文件图标
+                        const FileIcon = file.type === 40
+                          ? undefined
+                          : getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        const extIcon = file.type === 40 ? getAssetIconByExtension(file.fileName) : undefined
                         return (
                           <button
                             type="button"
@@ -896,7 +901,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
-                            <FileIcon size={20} />
+                            <Show when={extIcon} fallback={FileIcon ? <FileIcon size={20} /> : null}>
+                              <img class="asset-grid-icon" src={extIcon} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: contain;" />
+                            </Show>
                             <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
                           </button>
                         )
@@ -948,13 +955,25 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         >
           <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
           <div class="mention-asset-preview-image">
-            <img
-              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
-              alt={assetPreview()!.fileName}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <Show
+              when={assetPreview()!.type === 40}
+              fallback={
+                <img
+                  src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
+                  alt={assetPreview()!.fileName}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none'
+                  }}
+                />
+              }
+            >
+              {/* type 40:预览窗显示后缀图标 */}
+              <img
+                src={getAssetIconByExtension(assetPreview()!.fileName)}
+                alt={assetPreview()!.fileName}
+                style="width: 48px; height: 48px; object-fit: contain;"
+              />
+            </Show>
           </div>
         </div>
       </Show>

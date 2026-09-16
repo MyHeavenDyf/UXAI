@@ -5,6 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { EdmUtil } from "@/utils/edmUtil"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -4115,20 +4116,21 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file via its versionInfo download path
-   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
-   * into the current session's uploads directory (or tmps if no session yet).
-   * ZIP files are extracted into the uploads dir and the archive deleted;
-   * the returned path is the extracted folder in that case.
+   * Download a product-asset-library file into the current session's uploads
+   * directory (or tmps if no session yet), by type (spec line 71-85):
+   * - type 30: fetch from baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName
+   * - type 40: EdmUtil.download([{ name, size, docId }]) (callback-based, wrapped as Promise)
+   * ZIP files (by download name suffix) are extracted into the uploads dir and the
+   * archive is not kept; the returned path is the extracted folder in that case.
    * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
     file: {
+      type?: number
       fileName: string
-      snapshot: string
-      s3BaseUrl: string
-      convertHtmlUrl: string
+      docId?: string
+      fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
     },
     onProgress: (pct: number) => void,
@@ -4140,27 +4142,36 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    const version = file.versionInfo?.[0]
-    if (!version) throw new Error("缺少版本信息,无法下载")
-
-    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
-    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
-    const remotePath = `/main${version.filePath}/${version.fileName}`
-    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
-
     onProgress(0)
-    const response = await fetch(fileUrl, { signal })
-    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
-    const blob = await response.blob()
+    let buffer: ArrayBuffer
+    let downloadName: string
+    if (file.type === 40) {
+      // type 40: EDM 下载(回调式,包装为 Promise;单元素数组返回原文件,多个才返回 zip)
+      if (!file.docId) throw new Error("缺少 docId,无法下载")
+      downloadName = file.fileName
+      buffer = await edmDownloadAsBuffer(file, signal)
+    } else {
+      // type 30: versionInfo 下载路径(baseUrl + '/main' + filePath + '/' + fileName)
+      const version = file.versionInfo?.[0]
+      if (!version) throw new Error("缺少版本信息,无法下载")
+      downloadName = version.fileName
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+      const remotePath = `/main${version.filePath}/${version.fileName}`
+      const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
+    }
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
-    const buffer = await blob.arrayBuffer()
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
 
-    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+    const isZip = downloadName.toLowerCase().endsWith(".zip")
 
     if (isZip) {
       try {
@@ -4196,10 +4207,14 @@ if (dsId) {
       }
     }
 
-    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
-    const dot = version.fileName.lastIndexOf(".")
-    const ext = dot > 0 ? version.fileName.slice(dot) : ""
-    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    // Non-ZIP: type 40 saves as file.fileName (has extension); type 30 appends version's extension
+    let saveName = file.fileName
+    if (file.type !== 40) {
+      const dot = downloadName.lastIndexOf(".")
+      const ext = dot > 0 ? downloadName.slice(dot) : ""
+      saveName = `${file.fileName}${ext}`
+    }
+    const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -4207,6 +4222,40 @@ if (dsId) {
     onProgress(100)
     setFilesRefreshKey(k => k + 1)
     return destPath
+  }
+
+  /** EdmUtil.download(回调式)包装为 Promise,解析出文件二进制 */
+  function edmDownloadAsBuffer(
+    file: { fileName: string; fileSize?: number; docId?: string },
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
+      if (signal?.aborted) {
+        onAbort()
+        return
+      }
+      signal?.addEventListener("abort", onAbort, { once: true })
+      EdmUtil.download(
+        [{ name: file.fileName, size: file.fileSize ?? 0, docId: file.docId ?? "" }],
+        {
+          onFinish: (_taskId, data) => {
+            signal?.removeEventListener("abort", onAbort)
+            if (data instanceof ArrayBuffer) {
+              resolve(data)
+            } else if (data instanceof Blob) {
+              data.arrayBuffer().then(resolve).catch(() => reject(new Error("下载数据解析失败")))
+            } else {
+              reject(new Error("不支持的下载结果类型"))
+            }
+          },
+          onError: (_taskId, err) => {
+            signal?.removeEventListener("abort", onAbort)
+            reject(new Error((err as any)?.message || "下载失败"))
+          },
+        },
+      )
+    })
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {

@@ -1,4 +1,10 @@
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
+import excelIconUrl from "../../icons/Excel.svg"
+import imgIconUrl from "../../icons/img.svg"
+import htmlIconUrl from "../../icons/html.svg"
+import pdfIconUrl from "../../icons/PDF.svg"
+import pptIconUrl from "../../icons/ppt.svg"
+import zipIconUrl from "../../icons/zip.svg"
 
 /**
  * 产品资源库数据获取层
@@ -29,10 +35,17 @@ export interface AssetVersionInfo {
 export interface AssetFile {
   /** 资产唯一 id(服务端返回);chip 的唯一标识优先用它 */
   id?: number | string
+  /** 资产类型:30 = 带版本信息的 HTML 容器(versionInfo 下载);40 = 普通文件(docId EDM 下载) */
+  type?: number
   fileName: string
-  snapshot: string
-  s3BaseUrl: string
-  convertHtmlUrl: string
+  /** type 30:缩略图路径(s3BaseUrl + snapshot);type 40 无此项,缩略图用后缀图标 */
+  snapshot?: string
+  s3BaseUrl?: string
+  convertHtmlUrl?: string
+  /** type 40:EDM 下载所需的文档 id */
+  docId?: string
+  /** type 40:文件字节数(EDM 下载参数) */
+  fileSize?: number
   versionInfo?: AssetVersionInfo[] | null
 }
 
@@ -104,22 +117,42 @@ const MOCK_TEAM_TREE: AssetFolder[] = [
 
 const MOCK_FILES: AssetFile[] = [
   {
+    type: 30,
     id: 1111,
     fileName: "容器1",
     snapshot: "image/ad270bbc7e41f8772b3d0bcc7be511fa53149cc8.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
+    docId: "ASSET_421",
+    fileSize: 1111,
     versionInfo: [
       { filePath: "/a/b", fileName: "source.zip", fileSize: 111111 },
     ],
   },
   {
+    type: 30,
     id: 2222,
     fileName: "容器2",
+    docId: "ASSET_421",
+    fileSize: 1111,
     snapshot: "image/Iconolor.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
     versionInfo: null,
+  },
+  {
+    type: 40,
+    id: 3333,
+    fileName: "数据报表.xlsx",
+    docId: "ASSET_999",
+    fileSize: 20480,
+  },
+  {
+    type: 40,
+    id: 4444,
+    fileName: "设计稿.zip",
+    docId: "ASSET_1000",
+    fileSize: 409600,
   },
 ]
 
@@ -148,8 +181,8 @@ export function encodeAssetUrl(url: string): string {
  * Join a base URL and a path segment, ensuring exactly one "/" between them.
  * Handles cases where base has trailing "/" or path has leading "/".
  */
-export function joinUrl(base: string, path: string): string {
-  if (!base) return path
+export function joinUrl(base: string | null | undefined, path: string | null | undefined): string {
+  if (!base) return path || ""
   if (!path) return base
   if (base.endsWith("/")) {
     return base + path.replace(/^\/+/, "")
@@ -204,18 +237,46 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
  * 获取某文件夹下的文件列表。
  * 非登录态: 返回 mock 文件(任何 teamId 都返回同一份)。
  * 登录态: GET assetFile/getList?teamId=folderId
- * 筛选掉没有 versionInfo 或该属性为空/空数组的项(spec line 67)
+ * 筛选(spec line 92-93):type 40 直接保留;type 30 筛掉没有 versionInfo 或该属性为空/空数组的项
  */
 export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
-  const filterByVersion = (files: AssetFile[]): AssetFile[] =>
-    files.filter((f) => Array.isArray(f.versionInfo) && f.versionInfo.length > 0)
+  const filterByType = (files: AssetFile[]): AssetFile[] =>
+    files.filter((f) => f.type === 40 || (Array.isArray(f.versionInfo) && f.versionInfo.length > 0))
   if (!isLoggedIn()) {
-    return filterByVersion(MOCK_FILES)
+    return filterByType(MOCK_FILES)
   }
   const base = getBaseUrl()
   const resp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
   )
   const files = (resp?.content as AssetFile[]) ?? []
-  return filterByVersion(files)
+  return filterByType(files)
+}
+
+// ── type 40 文件的后缀图标(spec line 74-80)──
+const EXT_ICON_MAP: Record<string, string> = {
+  xlsx: excelIconUrl,
+  xlsm: excelIconUrl,
+  xls: excelIconUrl,
+  gif: imgIconUrl,
+  png: imgIconUrl,
+  jpeg: imgIconUrl,
+  jpg: imgIconUrl,
+  svg: imgIconUrl,
+  html: htmlIconUrl,
+  key: pdfIconUrl,
+  pdf: pdfIconUrl,
+  ppt: pptIconUrl,
+  pptx: pptIconUrl,
+  zip: zipIconUrl,
+  rar: zipIconUrl,
+}
+
+/** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀返回 undefined */
+export function getAssetIconByExtension(fileName: string): string | undefined {
+  const clean = fileName.split("?")[0].split("#")[0]
+  const dot = clean.lastIndexOf(".")
+  if (dot < 0 || dot === clean.length - 1) return undefined
+  const ext = clean.slice(dot + 1).toLowerCase()
+  return EXT_ICON_MAP[ext]
 }

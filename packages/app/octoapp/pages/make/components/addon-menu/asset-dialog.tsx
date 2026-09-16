@@ -10,6 +10,7 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetIconByExtension,
   type AssetFolder,
   type AssetFile,
 } from "./asset-library"
@@ -319,13 +320,25 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                             onMouseEnter={(e) => handleStageEnter(e, file)}
                             onMouseLeave={handleStageLeave}
                           >
-                            <Show when={file.snapshot}>
-                              <img
-                                class="asset-grid-thumb"
-                                src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
-                                alt=""
-                                draggable={false}
-                              />
+                            <Show when={file.type === 40} fallback={
+                              <Show when={file.snapshot}>
+                                <img
+                                  class="asset-grid-thumb"
+                                  src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
+                            }>
+                              {/* type 40:缩略图按 fileName 后缀取对应图标 */}
+                              <Show when={getAssetIconByExtension(file.fileName)}>
+                                <img
+                                  class="asset-grid-icon"
+                                  src={getAssetIconByExtension(file.fileName)}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
                             </Show>
                             <div class={`mention-checkbox asset-grid-checkbox ${selected() ? "mention-checkbox--checked" : ""}`}>
                               <Show when={selected()}>
@@ -374,12 +387,25 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                 <div class="addon-menu-asset-preview-name">{previewFile()!.fileName}</div>
                 <div class="addon-menu-asset-preview-stage">
                   <Show
-                    when={previewFile()!.snapshot}
-                    fallback={<span class="addon-menu-empty-state-text">无预览</span>}
+                    when={previewFile()!.type === 40}
+                    fallback={
+                      <Show
+                        when={previewFile()!.snapshot}
+                        fallback={<span class="addon-menu-empty-state-text">无预览</span>}
+                      >
+                        <img
+                          class="addon-menu-asset-preview-img"
+                          src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
+                          alt=""
+                          draggable={false}
+                        />
+                      </Show>
+                    }
                   >
+                    {/* type 40:预览窗显示后缀图标 */}
                     <img
-                      class="addon-menu-asset-preview-img"
-                      src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
+                      class="asset-grid-icon"
+                      src={getAssetIconByExtension(previewFile()!.fileName)}
                       alt=""
                       draggable={false}
                     />

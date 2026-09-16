@@ -377,6 +377,13 @@
   object-fit: scale-down;
 }
 
+/* type 40 文件的后缀图标(网格缩略图/预览窗) */
+.asset-grid-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
 .asset-grid-checkbox {
   position: absolute;
   top: 8px;
