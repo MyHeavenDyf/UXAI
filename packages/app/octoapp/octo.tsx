@@ -57,6 +57,7 @@ import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
 import { InsightQueueRunner } from "@/pages/insight/queue-runner"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
+import { MakeGroupsProvider } from "@/context/make-groups"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { UpdateChecker } from "@/components/update-checker"
 import { WelcomePage } from "@/components/welcome-page"
@@ -272,7 +273,9 @@ function PatternSidebarLayout(props: ParentProps) {
 function MakeSidebarLayout(props: ParentProps) {
   return (
     <MakeLayoutProvider>
-      <MakeSidebarArea>{props.children}</MakeSidebarArea>
+      <MakeGroupsProvider>
+        <MakeSidebarArea>{props.children}</MakeSidebarArea>
+      </MakeGroupsProvider>
     </MakeLayoutProvider>
   )
 }

@@ -1,13 +1,28 @@
 import { createEffect, on } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { migrateLocalGroupsToDB } from "./migrate-groups"
 
 export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
+// Module-level singleton store per namespace (see use-make-groups.ts for the
+// rationale): survives navigation/unmount so mappings don't vanish and stays
+// shared across sidebar + header.
+type MappingStore = { mapping: SessionGroupMapping; setMapping: SetStoreFunction<SessionGroupMapping> }
+const mappingStores = new Map<string, MappingStore>()
+function getMappingStore(namespace: string): MappingStore {
+  let s = mappingStores.get(namespace)
+  if (!s) {
+    const [mapping, setMapping] = createStore<SessionGroupMapping>({})
+    s = { mapping, setMapping }
+    mappingStores.set(namespace, s)
+  }
+  return s
+}
+
 export function useSessionGroups(dir: () => string | undefined, namespace: string = "make") {
   const globalSDK = useGlobalSDK()
-  const [mapping, setMapping] = createStore<SessionGroupMapping>({})
+  const { mapping, setMapping } = getMappingStore(namespace)
 
   createEffect(
     on(dir, async (d) => {
@@ -15,6 +30,9 @@ export function useSessionGroups(dir: () => string | undefined, namespace: strin
         setMapping(reconcile({}))
         return
       }
+      // Clear stale mapping immediately so a previous project's mappings are not
+      // visible while the new list is loading.
+      setMapping(reconcile({}))
       const client = globalSDK.createClient({ directory: d })
       await migrateLocalGroupsToDB({ dir: d, namespace, client })
       const result = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
