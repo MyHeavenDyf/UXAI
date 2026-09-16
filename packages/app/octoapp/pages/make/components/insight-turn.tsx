@@ -629,6 +629,8 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  compactDisabled?: boolean
+  onCompact?: () => void
   hasQuestionRequest?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
@@ -1628,6 +1630,17 @@ const stateStatus = state.status as string | undefined
         >
           <Show when={assistantError()!.message}>
             <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+          </Show>
+          <Show when={assistantError()!.name === "ContextOverflowError" && props.onCompact}>
+            <button
+              type="button"
+              class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ color: "#0a59f7", font: "inherit" }}
+              disabled={props.compactDisabled}
+              onClick={props.onCompact}
+            >
+              上下文压缩
+            </button>
           </Show>
         </MakeErrorNotice>
       </Show>

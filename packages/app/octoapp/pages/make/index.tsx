@@ -1205,20 +1205,19 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  function compactContext() {
-    const sessionID = params.id
+  function compactContext(sessionID: string) {
     const model = currentModel()
     if (!sessionID || !model || contextCompactionDisabled()) return
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
-      agent: "octo_make",
+      agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
       model: `${model.provider.id}/${model.id}`,
     })
   }
 
-  function confirmCompactContext() {
+  function confirmCompactContext(sessionID: string) {
     if (contextCompactionDisabled()) return
     dialog.show(() => (
       <Dialog title="压缩上下文" fit class="delete-dialog">
@@ -1236,7 +1235,7 @@ const sessionMessagesLoaded = createMemo(() => {
               class="delete-dialog-btn delete-dialog-btn-primary"
               onClick={() => {
                 dialog.close()
-                void compactContext()
+                void compactContext(sessionID)
               }}
             >
               确认压缩
@@ -4813,7 +4812,10 @@ if (dsId) {
                           padding: "0",
                         }}
                         disabled={contextCompactionDisabled()}
-                        onClick={confirmCompactContext}
+                        onClick={() => {
+                          const sessionID = params.id
+                          if (sessionID) confirmCompactContext(sessionID)
+                        }}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
                         <ContextUsageCircle percentage={contextUsage()} />
@@ -5179,6 +5181,8 @@ onPreview={(url) => {
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => setPrompt(text)}
+                        compactDisabled={contextCompactionDisabled()}
+                        onCompact={() => confirmCompactContext(userMessages()[0].sessionID || params.id!)}
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
@@ -5207,6 +5211,8 @@ onPreview={(url) => {
                             onChildSession={ensureChildSession}
                             deltaLog={deltaLog()}
                             onFormSubmit={(text) => setPrompt(text)}
+                            compactDisabled={contextCompactionDisabled()}
+                            onCompact={() => confirmCompactContext(messageSessionID)}
                             hasQuestionRequest={!!questionRequest()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
