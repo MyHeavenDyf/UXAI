@@ -7,6 +7,7 @@ import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { useLanguage } from "@/context/language"
 import { mcpQueryKey } from "@/context/global-sync"
+import { directoryKey } from "@/context/global-sync/utils"
 
 const statusLabels = {
   connected: "mcp.status.connected",
@@ -32,7 +33,7 @@ export const DialogSelectMcp: Component = () => {
       if (sync.data.mcp[name]?.status === "connected") await sdk.client.mcp.disconnect({ name })
       else await sdk.client.mcp.connect({ name })
     },
-    onSuccess: () => queryClient.refetchQueries({ queryKey: mcpQueryKey(sync.directory) }),
+    onSuccess: () => queryClient.refetchQueries({ queryKey: mcpQueryKey(directoryKey(sync.directory)) }),
   }))
 
   const enabledCount = createMemo(() => items().filter((i) => i.status === "connected").length)

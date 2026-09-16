@@ -1,6 +1,7 @@
 import { Show, For, Match, Switch, createEffect, createSignal, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
@@ -54,12 +55,16 @@ export type SessionListItemProps = {
   isActive: boolean
   onClick?: () => void
   onContextMenu?: (e: MouseEvent) => void
+  /** Action (three-dots) click handler. When provided, shows an ellipsis button on hover. */
+  onActionClick?: (e: MouseEvent) => void
   /** Additional class for the button */
   class?: string
   /** Additional class when context menu is targeting this item */
   isContextTarget?: boolean
+  /** When true, hover background applies even on the active (selected) item, overriding the active bg */
+  hoverOnActive?: boolean
   /** Ref callback for scroll-into-view */
-  ref?: (el: HTMLButtonElement) => void
+  ref?: (el: HTMLElement) => void
   /** Rename state: pass the ID of the session being renamed */
   renamingId?: string | null
   /** Current rename draft text */
@@ -70,6 +75,20 @@ export type SessionListItemProps = {
   onRenameSave?: () => void
   /** Callback when rename is cancelled (Escape) */
   onRenameCancel?: () => void
+  /** Whether this item is draggable */
+  draggable?: boolean
+  /** Whether this item is currently being dragged */
+  isDragging?: boolean
+  /** Whether this item is the current drop target */
+  isDropTarget?: boolean
+  /** Drop indicator position */
+  dropIndicator?: "before" | "after" | null
+  /** DnD event handlers */
+  onDragStart?: (e: DragEvent) => void
+  onDragEnd?: (e: DragEvent) => void
+  onDragOver?: (e: DragEvent) => void
+  onDragLeave?: (e: DragEvent) => void
+  onDrop?: (e: DragEvent) => void
 }
 
 export function SessionListItem(props: SessionListItemProps) {
@@ -78,6 +97,7 @@ export function SessionListItem(props: SessionListItemProps) {
   const title = () => sessionTitle(props.session.title) || "无标题"
 
   const [isTruncated, setIsTruncated] = createSignal(false)
+  const [isHovered, setIsHovered] = createSignal(false)
   let titleRef: HTMLSpanElement | undefined
   let titleResizeObserver: ResizeObserver | undefined
   const checkTruncation = () => {
@@ -124,7 +144,7 @@ export function SessionListItem(props: SessionListItemProps) {
       fallback={
         <div
           class="w-full rounded-[8px] flex items-center"
-          style={{ height: "36px", padding: "0 24px 0 44px" }}
+          style={{ height: "36px", padding: "0 24px 0 40px" }}
         >
           <input
             value={props.renameDraft ?? ""}
@@ -149,30 +169,58 @@ export function SessionListItem(props: SessionListItemProps) {
         </div>
       }
     >
-      <button
+      <div
         data-session-id={props.session.id}
-        ref={props.ref}
-        type="button"
+        ref={(el) => {
+          if (props.draggable) el.setAttribute("draggable", "true")
+          props.ref?.(el)
+        }}
+        role="button"
+        tabindex="0"
         onClick={() => {
           props.onClick?.()
           notification.session.markViewed(props.session.id)
         }}
         onContextMenu={(e) => { e.preventDefault(); props.onContextMenu?.(e) }}
-        onMouseEnter={enterTrigger}
-        onMouseLeave={leaveTrigger}
-        class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+        onMouseEnter={() => { setIsHovered(true); enterTrigger() }}
+        onMouseLeave={() => { setIsHovered(false); leaveTrigger() }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onClick?.(); notification.session.markViewed(props.session.id) } }}
+        draggable={props.draggable}
+        onDragStart={props.onDragStart}
+        onDragEnd={props.onDragEnd}
+        onDragOver={props.onDragOver}
+        onDragLeave={props.onDragLeave}
+        onDrop={props.onDrop}
+        class="group w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
         style={{
           height: "36px",
-          padding: "0 24px 0 44px",
+          padding: "0 24px 0 40px",
           color: props.isActive ? "#0A59F7" : undefined,
+          "-webkit-user-drag": props.draggable ? "element" : undefined,
+          cursor: props.draggable ? "grab" : undefined,
         }}
         classList={{
           "bg-[rgba(10,89,247,0.08)]": props.isActive,
-          "hover:bg-surface-base-hover": !props.isActive && !props.isContextTarget,
+          "hover:bg-surface-base-hover": (!props.isActive || props.hoverOnActive) && !props.isContextTarget,
           "bg-[rgba(0,0,0,0.06)]": props.isContextTarget,
+          "opacity-40": props.isDragging,
+          "cursor-grabbing": props.isDragging,
         }}
       >
-        <Show when={props.isActive}>
+        <Show when={props.isDropTarget && props.dropIndicator}>
+          <div
+            class="absolute left-[8px] right-[8px] pointer-events-none"
+            style={{
+              height: "2px",
+              background: "#0A59F7",
+              "border-radius": "1px",
+              "z-index": "10",
+              top: props.dropIndicator === "before" ? "0" : undefined,
+              bottom: props.dropIndicator === "after" ? "0" : undefined,
+            }}
+          />
+        </Show>
+        <Show when={props.isActive && !(props.hoverOnActive && isHovered())}>
           <span
             class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
             style={{
@@ -192,11 +240,31 @@ export function SessionListItem(props: SessionListItemProps) {
             titleResizeObserver.observe(el)
             queueMicrotask(() => checkTruncation())
           }}
-          class="flex-1 min-w-0 truncate"
+          class="flex-1 min-w-0"
+          style={{
+            overflow: "hidden",
+            "white-space": "nowrap",
+            "text-overflow": "clip",
+            "mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
+            "-webkit-mask-image": "linear-gradient(to right, #000 calc(100% - 36px), transparent)",
+            "mask-size": "100% 100%",
+            "-webkit-mask-size": "100% 100%",
+            "mask-repeat": "no-repeat",
+            "-webkit-mask-repeat": "no-repeat",
+          }}
         >
           {title()}
         </span>
-      </button>
+        <Show when={props.onActionClick}>
+          <div
+            class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[rgba(0,0,0,0.06)]"
+            style={{ width: "20px", height: "20px", "border-radius": "4px", transition: "opacity 150ms" }}
+            onClick={(e) => { if (!isHovered()) return; e.stopPropagation(); e.preventDefault(); props.onActionClick?.(e) }}
+          >
+            <Icon name="ellipsis" size="small" style={{ color: "rgba(0,0,0,0.6)", transform: "rotate(90deg)" }} />
+          </div>
+        </Show>
+      </div>
       <Show when={showTooltip()}>
         <Portal>
           <div
@@ -232,6 +300,8 @@ export type SessionListProps = {
   onSessionClick?: (session: Session) => void
   /** Right-click handler for session item */
   onSessionContextMenu?: (session: Session, e: MouseEvent) => void
+  /** Action (three-dots) click handler for session items. When provided, shows an ellipsis button on hover. */
+  onSessionActionClick?: (session: Session, e: MouseEvent) => void
   /** Whether there are more sessions to load */
   hasMore?: boolean
   /** Load more handler */
@@ -241,9 +311,11 @@ export type SessionListProps = {
   /** Custom render for each session item (for rename, etc.) */
   renderItem?: (session: Session) => JSX.Element
   /** Ref callback for session items (for scroll-into-view) */
-  itemRef?: (session: Session, el: HTMLButtonElement) => void
+  itemRef?: (session: Session, el: HTMLElement) => void
   /** Check if context menu is targeting this session */
   isContextTarget?: (session: Session) => boolean
+  /** When true, hover background applies even on the active (selected) item, overriding the active bg */
+  hoverOnActive?: boolean
   /** ID of the session currently being renamed */
   renamingId?: string | null
   /** Current rename draft text */
@@ -254,6 +326,28 @@ export type SessionListProps = {
   onRenameSave?: () => void
   /** Callback when rename is cancelled (Escape) */
   onRenameCancel?: () => void
+  /** DnD: whether items are draggable */
+  itemsDraggable?: boolean
+  /** DnD: ID of session being dragged */
+  draggingSessionId?: string | null
+  /** DnD: ID of session being hovered over */
+  dragOverSessionId?: string | null
+  /** DnD: drop position for hovered session */
+  sessionDropPosition?: "before" | "after" | null
+  /** DnD: drag start handler */
+  onSessionDragStart?: (session: Session) => void
+  /** DnD: drag end handler */
+  onSessionDragEnd?: () => void
+  /** DnD: drag over handler */
+  onSessionDragOver?: (e: DragEvent, session: Session) => void
+  /** DnD: drag leave handler */
+  onSessionDragLeave?: (e: DragEvent, session: Session) => void
+  /** DnD: drop handler */
+  onSessionDrop?: (e: DragEvent, session: Session) => void
+  /** DnD: drop on empty area handler */
+  onEmptyDrop?: (e: DragEvent) => void
+  /** When true, render the empty drop zone as plain text instead of the dashed placeholder box (still droppable) */
+  plainEmptyDropZone?: boolean
 }
 
 /**
@@ -286,9 +380,35 @@ export function SessionList(props: SessionListProps) {
         <Show
           when={props.sessions.length > 0}
           fallback={
-            <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-              {props.isOnboarding ? "请先选择项目目录" : (props.emptyText ?? "暂无对话")}
-            </div>
+            <Show
+              when={props.itemsDraggable && !props.isOnboarding}
+              fallback={
+                <div class="pl-[40px] pr-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                  {props.isOnboarding ? "请先选择项目目录" : (props.emptyText ?? "暂无对话")}
+                </div>
+              }
+            >
+              <div
+                class={props.plainEmptyDropZone
+                  ? "pl-[40px] pr-[8px] py-[5px] text-[12px] leading-[20px]"
+                  : "flex items-center justify-center rounded-[8px] transition-colors"}
+                style={props.plainEmptyDropZone
+                  ? { color: "var(--octo-text-secondary, #777777)" }
+                  : { height: "36px", border: "1px dashed rgba(10,89,247,0.25)", margin: "2px 0" }}
+                onDragOver={(e) => {
+                  if (props.draggingSessionId) {
+                    e.preventDefault()
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                  }
+                }}
+                onDrop={(e) => { e.preventDefault(); props.onEmptyDrop?.(e) }}
+              >
+                {props.plainEmptyDropZone
+                  ? (props.emptyText ?? "暂无对话")
+                  : <span class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>拖拽到此处</span>
+                }
+              </div>
+            </Show>
           }
         >
           <For each={props.sessions}>
@@ -305,13 +425,31 @@ export function SessionList(props: SessionListProps) {
                   isActive={props.activeSessionId === session.id}
                   onClick={() => props.onSessionClick?.(session)}
                   onContextMenu={props.onSessionContextMenu ? (e) => props.onSessionContextMenu!(session, e) : undefined}
+                  onActionClick={props.onSessionActionClick ? (e) => props.onSessionActionClick!(session, e) : undefined}
                   isContextTarget={props.isContextTarget?.(session)}
+                  hoverOnActive={props.hoverOnActive}
                   ref={props.itemRef ? (el) => props.itemRef!(session, el) : undefined}
                   renamingId={props.renamingId}
                   renameDraft={props.renameDraft}
                   onRenameInput={props.onRenameInput}
                   onRenameSave={props.onRenameSave}
                   onRenameCancel={props.onRenameCancel}
+                  draggable={props.itemsDraggable}
+                  isDragging={props.draggingSessionId === session.id}
+                  isDropTarget={props.dragOverSessionId === session.id}
+                  dropIndicator={props.dragOverSessionId === session.id ? props.sessionDropPosition : null}
+                  onDragStart={(e) => {
+                    if (e.dataTransfer) {
+                      e.dataTransfer.effectAllowed = "move"
+                      e.dataTransfer.setData("application/x-session-id", session.id)
+                      e.dataTransfer.setData("text/plain", session.id)
+                    }
+                    props.onSessionDragStart?.(session)
+                  }}
+                  onDragEnd={() => props.onSessionDragEnd?.()}
+                  onDragOver={(e) => props.onSessionDragOver?.(e, session)}
+                  onDragLeave={(e) => props.onSessionDragLeave?.(e, session)}
+                  onDrop={(e) => props.onSessionDrop?.(e, session)}
                 />
               )
             }}
@@ -322,7 +460,7 @@ export function SessionList(props: SessionListProps) {
               disabled={props.loadingMore}
               onClick={props.onLoadMore}
               class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center hover:bg-surface-base-hover disabled:opacity-60"
-              style={{ height: "36px", padding: "0 24px 0 44px", color: "rgba(0,0,0,0.6)" }}
+              style={{ height: "36px", padding: "0 24px 0 40px", color: "rgba(0,0,0,0.6)" }}
             >
               {props.loadingMore ? "加载中…" : "加载更多"}
             </button>

@@ -1235,12 +1235,12 @@ const stateStatus = state.status as string | undefined
   }, { defer: true }))
 
   // Track whether we've seen artifacts during streaming (effect, not memo)
+  // Fix 5: 不在 showGenerating() flip 时重置缓存。
+  // session.status 翻 busy→idle→busy 时 showGenerating() 会瞬变 false,
+  // 原逻辑会清空 hasSeenCount/lastSeenCards 导致 stableStreamingCards 返回 []
+  // 出现内容闪烁。重置职责已由上方 session/message 切换 effect 覆盖。
   createEffect(() => {
-    if (!showGenerating()) {
-      setHasSeenCount(0)
-      setLastSeenCards([])
-      return
-    }
+    if (!showGenerating()) return
     const cards = streamingArtifacts()
     if (cards.length > 0) {
       setHasSeenCount(cards.length)

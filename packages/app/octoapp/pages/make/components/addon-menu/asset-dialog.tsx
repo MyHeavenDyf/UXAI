@@ -14,6 +14,7 @@ import {
   type AssetFile,
 } from "./asset-library"
 import { FolderIcon } from "./icons"
+import emptyPng from "../../icons/empty.png"
 
 interface AssetDialogProps {
   open: boolean
@@ -40,9 +41,9 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
 
   // 弹窗位置(标题栏拖动,不持久化)
   const [dialogPos, setDialogPos] = createSignal<{ left: number; top: number } | null>(null)
-  // 左侧宽度 200-400 / 右侧宽度 190-790(拖拽,不持久化)
+  // 左侧宽度 200-400 / 右侧宽度 202-802(拖拽,不持久化; +12 补偿 ScrollView 浮动滚动条)
   const [leftWidth, setLeftWidth] = createSignal(200)
-  const [rightWidth, setRightWidth] = createSignal(400)
+  const [rightWidth, setRightWidth] = createSignal(412)
 
   // hover 预览(预览窗左上角对展示区右上角)
   const [previewFile, setPreviewFile] = createSignal<AssetFile | null>(null)
@@ -63,7 +64,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     setFiles([])
     setDialogPos(null)
     setLeftWidth(200)
-    setRightWidth(400)
+    setRightWidth(412)
     fetchTeamTree(props.productId)
       .then((folders) => {
         setTree(folders)
@@ -191,7 +192,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const startWidth = rightWidth()
     const onMove = (ev: MouseEvent) => {
       // 把手在弹窗右缘:鼠标向右拖 = 右缘右移 = 变宽(左缘已固定为像素)
-      const next = Math.min(790, Math.max(190, startWidth + (ev.clientX - startX)))
+      const next = Math.min(802, Math.max(202, startWidth + (ev.clientX - startX)))
       setRightWidth(next)
     }
     const onUp = () => {
@@ -302,7 +303,10 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                   <div class="asset-dialog-empty">加载中...</div>
                 </Show>
                 <Show when={!filesLoading() && files().length === 0}>
-                  <div class="asset-dialog-empty">暂无内容</div>
+                  <div class="addon-menu-empty-state">
+                    <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                    <span class="addon-menu-empty-state-text">暂无内容</span>
+                  </div>
                 </Show>
                 <div class="asset-dialog-grid">
                   <For each={files()}>
@@ -402,7 +406,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
           }}
         >
           <span class="addon-menu-item-icon"><FolderIcon /></span>
-          <span class="addon-menu-item-text">{props.folder.name}</span>
+          <span class="addon-menu-item-text" title={props.folder.name}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <Icon
               name="chevron-right"

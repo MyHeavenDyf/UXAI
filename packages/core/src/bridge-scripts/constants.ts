@@ -806,6 +806,25 @@ function eb_stopTrack() {
   }
 }
 
+function eb_forwardToNestedIframes(d) {
+  var iframes = document.querySelectorAll('iframe[data-od-me-injected]');
+  for (var i = 0; i < iframes.length; i++) {
+    try { iframes[i].contentWindow.postMessage(d, '*'); } catch(e) {}
+  }
+}
+
+// Relay messages from nested iframes to parent
+window.addEventListener('message', function(ev) {
+  var d = ev && ev.data;
+  if (!d) return;
+  if (ev.source !== window.parent && ev.source !== window) {
+    if (d.type === 'od:edit-selected' || d.type === 'od:rect-update') {
+      window.parent.postMessage(d, '*');
+      return;
+    }
+  }
+}, true);
+
 window.addEventListener('message',function(ev){
   var d=ev&&ev.data;
   if(!d)return;
@@ -854,13 +873,7 @@ window.addEventListener('message',function(ev){
         ok:true
       },'*');
     }else{
-      window.parent.postMessage({
-        type:'od:edit-preview-style-applied',
-        id:d.id||'',
-        version:d.version||0,
-        ok:false,
-        error:'Target not found'
-      },'*');
+      eb_forwardToNestedIframes(d);
     }
     return;
   }
@@ -873,22 +886,30 @@ window.addEventListener('message',function(ev){
       }else{
         el.textContent=d.value;
       }
-    }
+    } else { eb_forwardToNestedIframes(d); }
+    return;
   }
   if(d.type==='od:edit-attr'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
     if(el&&ATTR_PROPS.includes(d.attr))el.setAttribute(d.attr,d.value);
+    else eb_forwardToNestedIframes(d);
+    return;
   }
   if(d.type==='od:edit-style'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
     if(el)el.style.setProperty(d.prop,d.value,'important');
+    else eb_forwardToNestedIframes(d);
+    return;
   }
   if(d.type==='od:track-rect'){
-    eb_startTrack(d.elementId);
+    var trackEl=document.querySelector('[data-od-id="'+d.elementId+'"]');
+    if(trackEl) eb_startTrack(d.elementId);
+    else eb_forwardToNestedIframes(d);
     return;
   }
   if(d.type==='od:stop-track-rect'){
     eb_stopTrack();
+    eb_forwardToNestedIframes(d);
     return;
   }
 });
