@@ -197,6 +197,11 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  const [compactedContextEstimate, setCompactedContextEstimate] = createSignal<{
+    sessionID: string
+    tokens: number
+    limit: number
+  }>()
 
   function findMultimodalModel() {
     const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
@@ -824,6 +829,8 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "session.compaction.estimated") {
+        setCompactedContextEstimate(e.properties)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -1140,6 +1147,8 @@ const sessionMessagesLoaded = createMemo(() => {
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
   const contextLimit = createMemo(() => {
+    const estimate = compactedContextEstimate()
+    if (contextMetrics()?.message.summary && estimate && estimate.sessionID === params.id) return estimate.limit
     if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
     if (contextMetrics()?.limit) return contextMetrics()!.limit!
@@ -1147,7 +1156,11 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextTokens = createMemo(() => {
     const context = contextMetrics()
     if (!context) return 0
-    if (context.message.summary) return context.output
+    if (context.message.summary) {
+      const estimate = compactedContextEstimate()
+      if (estimate && estimate.sessionID === params.id) return estimate.tokens
+      return context.output
+    }
     return context.total
   })
   const contextUsage = createMemo(() => {

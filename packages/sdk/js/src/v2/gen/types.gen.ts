@@ -31,6 +31,7 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
+  | EventSessionCompactionEstimated
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -806,6 +807,7 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
+    | EventSessionCompactionEstimated
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -2603,6 +2605,16 @@ export type EventSessionCompacted = {
   type: "session.compacted"
   properties: {
     sessionID: string
+  }
+}
+
+export type EventSessionCompactionEstimated = {
+  id: string
+  type: "session.compaction.estimated"
+  properties: {
+    sessionID: string
+    tokens: number
+    limit: number
   }
 }
 

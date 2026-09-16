@@ -22,6 +22,7 @@ import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { CompactionSummary } from "./compaction-summary"
+import { NonNegativeInt } from "@/util/schema"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -30,6 +31,14 @@ export const Event = {
     "session.compacted",
     Schema.Struct({
       sessionID: SessionID,
+    }),
+  ),
+  Estimated: BusEvent.define(
+    "session.compaction.estimated",
+    Schema.Struct({
+      sessionID: SessionID,
+      tokens: NonNegativeInt,
+      limit: NonNegativeInt,
     }),
   ),
 }

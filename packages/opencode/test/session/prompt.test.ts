@@ -2191,12 +2191,23 @@ it.live(
             parts: [{ type: "text", text: "hello" }],
           })
           yield* llm.text(compactionSummary)
+          const estimates: Array<{ tokens: number; limit: number }> = []
+          const estimateReady = defer<void>()
+          const unsubscribe = yield* Bus.Service.use((bus) =>
+            bus.subscribeCallback(SessionCompaction.Event.Estimated, (event) => {
+              if (event.properties.sessionID !== chat.id) return
+              estimates.push(event.properties)
+              estimateReady.resolve()
+            }),
+          )
 
           const result = yield* prompt.command({
             sessionID: chat.id,
             command: "compact",
             arguments: "",
           })
+          yield* Effect.promise(() => estimateReady.promise)
+          unsubscribe()
 
           expect(result.info.role).toBe("assistant")
           if (result.info.role === "assistant") expect(result.info.summary).toBe(true)
@@ -2213,6 +2224,9 @@ it.live(
           if (summary && summary.info.role === "assistant") {
             expect(summary.info.finish).toBeTruthy()
             expect(summary.info.error).toBeUndefined()
+            expect(estimates).toHaveLength(1)
+            expect(estimates[0]?.tokens).toBeGreaterThan(summary.info.tokens.output)
+            expect(estimates[0]?.limit).toBeGreaterThan(0)
           }
         }),
       { git: true, config: providerCfg },
