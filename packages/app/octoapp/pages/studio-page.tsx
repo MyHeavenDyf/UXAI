@@ -130,8 +130,6 @@ type PendingScrollRequest = {
   sessionID?: string
 }
 
-const STUDIO_PERMISSION_PRIORITY_WINDOW_MS = 300
-
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 const STUDIO_TEMPLATE_SAVE_ERROR = "保存失败，请检查网络"
@@ -306,20 +304,11 @@ export default function StudioPage() {
 
   const projectDir = useProjectDir({ mode: "config" })
   const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
-  const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
-  onMount(() => {
-    const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
-    onCleanup(() => clearTimeout(timer))
-  })
-  createEffect(() => {
-    if (studioPermissionStatus() === "loading") return
-    setStudioColdStartReleased(true)
-  })
   createEffect(() => {
     const directory = projectDir()
-    if (!directory || !studioColdStartReleased()) return
+    if (!directory || studioPermissionStatus() === "loading") return
     globalSync.child(directory, { bootstrap: true })
   })
   const studioSessions = createMemo(() =>
@@ -510,13 +499,15 @@ export default function StudioPage() {
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
+  const [permissionRetryVersion, setPermissionRetryVersion] = createSignal(0)
+  let permissionRequestVersion = 0
   onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
     () => {
       const current = server.current
       const directory = projectDir()
-      if (!studioColdStartReleased() || !current || !directory) return
+      if (studioPermissionStatus() === "loading" || !current || !directory) return
       return { current, directory }
     },
     async ({ current, directory }) => {
@@ -545,7 +536,10 @@ export default function StudioPage() {
   )
   createEffect(() => {
     const current = server.current
+    const uid = uiplusUserAccount()
+    permissionRetryVersion()
     if (!current) return
+    const requestVersion = ++permissionRequestVersion
     const controller = new AbortController()
     batch(() => {
       setCanGenerateVideo(false)
@@ -566,11 +560,12 @@ export default function StudioPage() {
     void fetch(new URL("/global/studio/permissions/check", current.http.url), {
       method: "POST",
       headers,
-      body: JSON.stringify({ uid: uiplusUserAccount() }),
+      body: JSON.stringify({ uid }),
       signal: controller.signal,
     })
       .then(async (response) => {
         const bodyText = await response.text()
+        if (requestVersion !== permissionRequestVersion) return
         if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
         const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
         const permissionData = Array.isArray(result.data) ? result.data : []
@@ -585,6 +580,7 @@ export default function StudioPage() {
       })
       .catch((error) => {
         if (controller.signal.aborted) return
+        if (requestVersion !== permissionRequestVersion) return
         batch(() => {
           setCanGenerateVideo(false)
           setCanUseSeedream(false)
@@ -4662,7 +4658,8 @@ export default function StudioPage() {
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
-                  permissionLoading={studioPermissionStatus() === "loading" || !imageSettingStoreSanitized()}
+                  permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
+                  onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
                   styleModel={styleModel()}
                   maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
@@ -4893,7 +4890,8 @@ if (!headerTitle.pendingRename) return
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
-            permissionLoading={studioPermissionStatus() === "loading" || !imageSettingStoreSanitized()}
+            permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
+            onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
             styleModel={styleModel()}
             maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
