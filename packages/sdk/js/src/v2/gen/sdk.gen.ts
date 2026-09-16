@@ -81,8 +81,6 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
-  GlobalStudioPermissionsCheckErrors,
-  GlobalStudioPermissionsCheckResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InsightChatMigrationPreviewErrors,
@@ -236,6 +234,8 @@ import type {
   StudioGenerationsGetResponses,
   StudioGenerationsRebootErrors,
   StudioGenerationsRebootResponses,
+  StudioPermissionsCheckErrors,
+  StudioPermissionsCheckResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
@@ -630,43 +630,6 @@ export class Config extends HeyApiClient {
   }
 }
 
-export class Permissions extends HeyApiClient {
-  /**
-   * Check Studio permission
-   *
-   * Checks Studio capabilities without initializing a workspace instance.
-   */
-  public check<ThrowOnError extends boolean = false>(
-    parameters?: {
-      uid?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "uid" }] }])
-    return (options?.client ?? this.client).post<
-      GlobalStudioPermissionsCheckResponses,
-      GlobalStudioPermissionsCheckErrors,
-      ThrowOnError
-    >({
-      url: "/global/studio/permissions/check",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
-export class Studio extends HeyApiClient {
-  private _permissions?: Permissions
-  get permissions(): Permissions {
-    return (this._permissions ??= new Permissions({ client: this.client }))
-  }
-}
-
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -731,11 +694,6 @@ export class Global extends HeyApiClient {
   private _config?: Config
   get config(): Config {
     return (this._config ??= new Config({ client: this.client }))
-  }
-
-  private _studio?: Studio
-  get studio(): Studio {
-    return (this._studio ??= new Studio({ client: this.client }))
   }
 }
 
@@ -5995,6 +5953,49 @@ export class PromptTags extends HeyApiClient {
   }
 }
 
+export class Permissions extends HeyApiClient {
+  /**
+   * Check Studio permission
+   *
+   * Checks whether the current user can access the internal Studio entry.
+   */
+  public check<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      uid?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "uid" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPermissionsCheckResponses,
+      StudioPermissionsCheckErrors,
+      ThrowOnError
+    >({
+      url: "/studio/permissions/check",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class PromptGen extends HeyApiClient {
   /**
    * Generate prompt from reference image
@@ -6701,10 +6702,15 @@ export class EditorEntries extends HeyApiClient {
   }
 }
 
-export class Studio2 extends HeyApiClient {
+export class Studio extends HeyApiClient {
   private _promptTags?: PromptTags
   get promptTags(): PromptTags {
     return (this._promptTags ??= new PromptTags({ client: this.client }))
+  }
+
+  private _permissions?: Permissions
+  get permissions(): Permissions {
+    return (this._permissions ??= new Permissions({ client: this.client }))
   }
 
   private _promptGen?: PromptGen
@@ -7202,9 +7208,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._tui ??= new Tui({ client: this.client }))
   }
 
-  private _studio?: Studio2
-  get studio(): Studio2 {
-    return (this._studio ??= new Studio2({ client: this.client }))
+  private _studio?: Studio
+  get studio(): Studio {
+    return (this._studio ??= new Studio({ client: this.client }))
   }
 
   private _insight?: Insight

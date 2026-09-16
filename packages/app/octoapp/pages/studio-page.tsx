@@ -536,6 +536,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -543,7 +544,7 @@ export default function StudioPage() {
         password: current.http.password,
       })}`
     }
-    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
+    void fetch(new URL("/studio/permissions/check", current.http.url), {
       method: "POST",
       headers,
       body: JSON.stringify({ uid: uiplusUserAccount() }),
