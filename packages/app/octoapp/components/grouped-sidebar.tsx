@@ -6,6 +6,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups } from "@/hooks/use-session-groups"
+import { useMakeGroupsContext } from "@/context/make-groups"
 import { AgentSidebar, type AgentSidebarProps, type BeforeSectionApi } from "@/components/agent-sidebar"
 import { SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList, ScrollableText } from "@/components/session-list"
@@ -22,7 +23,7 @@ import folderOpenedPng from "@/pages/_shell/icons/ic_bpit_floder_opened.png"
 export type GroupedSidebarProps = Omit<
   AgentSidebarProps,
   "directory" | "activeSessionId" | "groups" | "sessionGroupMapping" |
-  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "onReorderGroupSessions" | "beforeSection"
+  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "onReorderGroupSessions" | "onSessionClick" | "beforeSection"
 > & {
   /** Namespace for group DB queries (e.g. "make", "insight") */
   namespace: string
@@ -43,8 +44,6 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   const [recentCollapsed, setRecentCollapsed] = createSignal(false)
   const [groupExpanded, setGroupExpanded] = createSignal(groupExpandedByNamespace.get(props.namespace) ?? false)
   createEffect(() => groupExpandedByNamespace.set(props.namespace, groupExpanded()))
-  const [expandedGroups, setExpandedGroups] = createSignal<Set<string>>(new Set(expandedGroupsByNamespace.get(props.namespace)))
-  createEffect(() => expandedGroupsByNamespace.set(props.namespace, expandedGroups()))
   const [selectedGroupId, setSelectedGroupId] = createSignal<string | null>(null)
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
   const [menuOpenId, setMenuOpenId] = createSignal<string | null>(null)
@@ -54,8 +53,22 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   const [dropPosition, setDropPosition] = createSignal<"before" | "after">("before")
   const [sessionDragOverGroup, setSessionDragOverGroup] = createSignal<string | null>(null)
   let sectionApi: BeforeSectionApi | undefined
-  const { groups, addGroup, renameGroup, removeGroup, moveGroup } = useMakeGroups(() => resolvedDir(), props.namespace)
-  const { mapping: sessionGroupMapping, moveSessionToGroup, removeSessionFromGroup, clearGroup, reorderGroupSessions } = useSessionGroups(() => resolvedDir(), props.namespace)
+  // Reuse the shared MakeGroupsContext store when one is provided for this
+  // namespace (make/insight routes both wrap their tree in MakeGroupsProvider),
+  // so optimistic group/mapping updates stay in sync with the header kebab
+  // menus. If no provider is present, fall back to local hook instances.
+  const sharedGroupsCtx = useMakeGroupsContext()
+  const shared = sharedGroupsCtx && sharedGroupsCtx.namespace === props.namespace ? sharedGroupsCtx : undefined
+  const { groups, addGroup, renameGroup, removeGroup, moveGroup } = shared ?? useMakeGroups(() => resolvedDir(), props.namespace)
+  const { mapping: sessionGroupMapping, moveSessionToGroup, removeSessionFromGroup, clearGroup, reorderGroupSessions } = shared ?? useSessionGroups(() => resolvedDir(), props.namespace)
+
+  // Expanded-group set: shared (module-level singleton) when a provider is
+  // present so the header kebab's "移动到分组" can expand the target group in
+  // the sidebar; otherwise a local signal persisted to the module Map.
+  const [localExpandedGroups, setLocalExpandedGroups] = createSignal<Set<string>>(new Set(expandedGroupsByNamespace.get(props.namespace)))
+  createEffect(() => { if (!shared) expandedGroupsByNamespace.set(props.namespace, localExpandedGroups()) })
+  const expandedGroups = shared?.expandedGroups ?? localExpandedGroups
+  const setExpandedGroups = shared?.setExpandedGroups ?? setLocalExpandedGroups
 
   const toggleGroup = (id: string) => {
     if (expandedGroups().has(id)) {
@@ -126,6 +139,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       {...props}
       directory={resolvedDir()}
       activeSessionId={activeSessionId}
+      onSessionClick={() => setSelectedGroupId(null)}
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
       onMoveToGroup={(session, groupId) => {
