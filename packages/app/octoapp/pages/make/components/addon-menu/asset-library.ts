@@ -236,8 +236,8 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
 /**
  * 获取某文件夹下的文件列表。
  * 非登录态: 返回 mock 文件(任何 teamId 都返回同一份)。
- * 登录态: GET assetFile/getList?teamId=folderId
- * 筛选(spec line 92-93):type 40 直接保留;type 30 筛掉没有 versionInfo 或该属性为空/空数组的项
+ * 登录态: GET assetFile/getAll?teamId=folderId&sortKey=createTime&sortType=desc(spec line 93)
+ * 筛选(spec line 94):type 40 直接保留;type 30 筛掉没有 versionInfo 或该属性为空/空数组的项
  */
 export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   const filterByType = (files: AssetFile[]): AssetFile[] =>
@@ -247,7 +247,7 @@ export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   }
   const base = getBaseUrl()
   const resp = await getJson(
-    `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
+    `${base}/pipeline/rest.root/assetManagement/assetFile/getAll?teamId=${teamId}&sortKey=createTime&sortType=desc`,
   )
   const files = (resp?.content as AssetFile[]) ?? []
   return filterByType(files)
