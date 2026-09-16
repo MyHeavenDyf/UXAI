@@ -41,7 +41,7 @@ export function useMakeGroups(dir: () => string | undefined, namespace: string =
     const g = result.data
     if (!g) return
     const group: MakeGroup = { id: g.id, name: g.name, created_at: g.time_created as number }
-    setGroups(produce((draft) => { draft.push(group) }))
+    setGroups(produce((draft) => { draft.unshift(group) }))
     return group.id
   }
 
