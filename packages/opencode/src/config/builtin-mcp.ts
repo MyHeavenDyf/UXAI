@@ -17,6 +17,13 @@ export const BUILTIN_MCP_SERVERS: Record<string, ConfigMCP.Info> = {
     // 显式 proxy: false 强制绕过代理，避免 Proxy response (504) when HTTP Tunneling。
     proxy: false,
   },
+  // Pixso 设计工具本地 MCP 服务。127.0.0.1 被 isPrivateUrl 识别为私有地址，无需显式 proxy: false。
+  "pixso": {
+    type: "remote",
+    url: "http://127.0.0.1:3667/mcp",
+    enabled: true,
+    timeout: 30000,
+  },
 }
 
 export const BUILTIN_MCP_KEYS = new Set(Object.keys(BUILTIN_MCP_SERVERS))

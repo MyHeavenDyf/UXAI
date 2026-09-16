@@ -1,13 +1,13 @@
 import { createSignal, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { PlatformAssets } from "./platform-assets"
-import { ProjectAssets } from "./project-assets"
+import { ProductAssets } from "./product-assets"
 
-type Scope = "platform" | "project"
+type Scope = "platform" | "product"
 
 const SCOPES: { key: Scope; label: string }[] = [
   { key: "platform", label: "平台资产" },
-  { key: "project", label: "项目资产" },
+  { key: "product", label: "产品资产" },
 ]
 
 export function AssetsContent(): JSX.Element {
@@ -34,6 +34,7 @@ export function AssetsContent(): JSX.Element {
                   style={{
                     background: isActive() ? "var(--octo-brand-subtle, #EFF6FF)" : "transparent",
                     color: isActive() ? "var(--octo-brand, #0a59f7)" : "var(--octo-text-primary, #191919)",
+                    "font-weight": isActive() ? "600" : "400",
                     padding: "4px 12px",
                     height: "32px",
                     "margin-right": "16px",
@@ -54,8 +55,8 @@ export function AssetsContent(): JSX.Element {
         <Show when={scope() === "platform"}>
           <PlatformAssets />
         </Show>
-        <Show when={scope() === "project"}>
-          <ProjectAssets />
+        <Show when={scope() === "product"}>
+          <ProductAssets />
         </Show>
       </div>
     </div>

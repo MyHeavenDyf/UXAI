@@ -49,6 +49,7 @@ const RateMapping: MappingDef = {
       const val = props.value;
       if (val && typeof val === "object" && val.type === "binding") {
         // DataBinding → ComputedValue + useState
+        // extractor 取 onClick 第二参：eview-ui Rating 的 onClick 签名为 (e: MouseEvent, value: number)
         outputProps.value = Value.computed({
           path: val.path,
           pathType: val.pathType ?? "absolute",
@@ -56,17 +57,17 @@ const RateMapping: MappingDef = {
           containsJSX: false,
           useState: {
             event: "onClick",
-            extractor: (setter) => `(val) => ${setter}(val)`,
+            extractor: (setter) => `(_, val) => ${setter}(val)`,
           },
           transform: (raw) => Number(raw) ?? 0,
         });
       } else {
-        // 字面量 → LiteralValue + useState
+        // 字面量 → LiteralValue + useState（extractor 同样取 onClick 第二参 value）
         outputProps.value = Value.literal({
           value: val ?? 0,
           useState: {
             event: "onClick",
-            extractor: (setter) => `(val) => ${setter}(val)`,
+            extractor: (setter) => `(_, val) => ${setter}(val)`,
           },
         });
       }

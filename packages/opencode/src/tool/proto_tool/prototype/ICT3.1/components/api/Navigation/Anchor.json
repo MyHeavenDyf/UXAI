@@ -1,0 +1,108 @@
+{
+  "name": "Anchor",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/anchorItems",
+            "/form/sections"
+          ]
+        }
+      }
+    },
+    "SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    },
+    "AnchorItem": {
+      "type": "object",
+      "description": "A single anchor link item.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Unique identifier of the anchor item."
+        },
+        "href": {
+          "type": "string",
+          "description": "Target element id to scroll to, e.g. '#section-1'."
+        },
+        "title": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Raw text content (e.g. 'Basic Usage')."
+            },
+            { "$ref": "#/$defs/DataBinding" },
+            { "$ref": "#/$defs/SlotNode" }
+          ]
+        },
+        "target": {
+          "type": "string",
+          "description": "Target window for the anchor link."
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AnchorItem" },
+          "description": "Nested anchor items."
+        }
+      },
+      "required": ["key", "href", "title"]
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Anchor"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "offsetTop": {
+          "type": "number",
+          "description": "Pixels to offset from top when calculating scroll position. Maps to Element Plus Anchor's offset prop.",
+          "default": 0
+        },
+        "container": {
+          "type": "string",
+          "description": "CSS selector of the scroll container (e.g. '#content'). When omitted, defaults to window;"
+        },
+        "items": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/AnchorItem" }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The anchor link item list."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["items"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

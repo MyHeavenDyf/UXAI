@@ -12,7 +12,7 @@
  * | color: default/primary/danger（枚举） | status: default/primary/risk | 值映射（schema 已收敛为枚举，无色板/HEX） |
  * | size: medium | size: normal | 值映射 |
  * | size: large/small | 透传 | 不变 |
- * | shape: circle | style.borderRadius: '50%' | transform 转换 |
+ * | shape: circle | — | 丢弃不处理 |
  * | icon（字面量） | leftIcon / rightIcon | ctx.resolveIcon() → BuildNode 直出 |
  * | icon（DataBinding） | leftIcon / rightIcon | **ComputedValue** + containsJSX:true，编译期 resolveIcon |
  * | iconPlacement: end | → rightIcon | 位置分流 |
@@ -116,7 +116,7 @@ export function createButtonMapping(pkg: string): MappingDef {
         // 这些透传给 resolveIcon（产出 IconPlus），不再转 IconButton 的 status/style。
         // Button.size → iconSize（数字），一并传给 resolveIcon。
         // ⚠️ Button.shape（default/circle/round，按钮圆角）≠ Icon.shape（outline/fill/square/circle），
-        //    不能传给 resolveIcon——Button.shape 走下面的 style.borderRadius。
+        //    不能传给 resolveIcon；Button.shape 一律丢弃不处理。
         const iconProps: Record<string, any> = {}
         // link 按钮（types=link）→ icon 用品牌色 brand（与普通 Button 分支一致：
         //   link 是文本样式，icon 应品牌色，覆盖 props.color）。非 link 时用 props.color。
@@ -215,11 +215,7 @@ export function createButtonMapping(pkg: string): MappingDef {
         outputProps.size = props.size // large / small 透传
       }
 
-      // 5. shape: circle → style.borderRadius: '50%'
-      if (props.shape === 'circle') {
-        const existingStyle = outputProps.style ? { ...(outputProps.style as any) } : {}
-        outputProps.style = { ...existingStyle, borderRadius: '50%' } as any
-      }
+      // 5. shape: circle —— 丢弃不处理（不再转 style.borderRadius）
 
       // 6. disabled 透传（schema 为 boolean 字面量，无 DataBinding）
       if (props.disabled !== undefined) {

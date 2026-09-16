@@ -12,6 +12,7 @@ import { createEffect, createMemo, createSignal, For, Show, Switch, Match, on, b
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useSDK } from "@/context/sdk"
+import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -49,12 +50,14 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
-import { ALLOWED_EXT, getExt } from "../../lib/upload"
+import { ALLOWED_EXT, getExt, validateFileForExternal } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Breadcrumb } from "./breadcrumb"
 import { folderRelativeDir, joinSubPath, resolveFolderName } from "./folder-upload-utils"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { showInsightNotice } from "../insight-notice"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
 
@@ -153,12 +156,30 @@ function FileManagerInner(props: {
   onFilesRefresh?: () => void
 }): JSX.Element {
   const sdk = useSDK()
+  const local = useLocal()
   const dialog = useDialog()
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
+
+  // 外网模型上传风险确认:点击「上传」或拖入文件时,若当前模型为外网(isExternal),先弹风险提示弹框,
+  // 确认后才执行上传。内网模型不拦截。
+  const { request, gate } = useUploadRiskGate()
+  const requestUploadFile = () => request(() => fileInputRef?.click())
+  const requestUploadFolder = () => request(() => folderInputRef?.click())
+
+  // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+  function checkExternalFile(file: File): boolean {
+    if (!local.model.current()?.isExternal) return true
+    const err = validateFileForExternal(file)
+    if (err) {
+      showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+      return false
+    }
+    return true
+  }
 
   // 切会话 / 切路径 → 重置并刷新。sessionId 变化时清掉路径/筛选/两段文件,避免残留。
   createEffect(on(
@@ -316,6 +337,7 @@ function FileManagerInner(props: {
   }
 
   async function uploadSingleFile(file: File) {
+    if (!checkExternalFile(file)) return
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     try {
       const streamed = await tryStreamUpload(file, currentPath)
@@ -331,7 +353,7 @@ function FileManagerInner(props: {
     }
   }
 
-  async function handleUpload(files: FileList) {
+  async function handleUpload(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       await uploadSingleFile(file)
     }
@@ -353,7 +375,7 @@ function FileManagerInner(props: {
       return
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const entries = Array.from(files).map((file) => ({
+    const entries = Array.from(files).filter(checkExternalFile).map((file) => ({
       file,
       relativePath: file.webkitRelativePath.slice(folderName.length + 1),
     }))
@@ -411,20 +433,28 @@ function FileManagerInner(props: {
     e.preventDefault()
     setIsDragOver(false)
     if (!isExternalFileDrag(e)) return
+    // 同步从 DataTransfer 取出 entry/file 引用:drop 结束后 DataTransfer 会被清空,必须在此同步取出;
+    // 取出的 FileSystemEntry / File 对象本身仍有效,可留到风险确认后再处理。
     const items = e.dataTransfer?.items
+    let entries: FileSystemEntry[] | undefined
+    let files: File[] | undefined
     if (items) {
-      const entries: FileSystemEntry[] = []
+      const list: FileSystemEntry[] = []
       for (const item of Array.from(items)) {
         if (item.kind === "file") {
           const entry = (item as any).webkitGetAsEntry?.() as FileSystemEntry | null
-          if (entry) entries.push(entry)
+          if (entry) list.push(entry)
         }
       }
-      void processEntries(entries)
+      entries = list
     } else {
-      const files = e.dataTransfer?.files
-      if (files && files.length > 0) void handleUpload(files)
+      const fs = e.dataTransfer?.files
+      if (fs && fs.length > 0) files = Array.from(fs)
     }
+    request(() => {
+      if (entries) void processEntries(entries)
+      else if (files) void handleUpload(files)
+    })
   }
   async function processEntries(entries: FileSystemEntry[]) {
     for (const entry of entries) {
@@ -456,23 +486,25 @@ function FileManagerInner(props: {
     // 没有 catch —— 仍需在此收住 getFileFromEntry 的潜在失败 + 回退分支的 readFileAsBase64 reject。
     try {
       for (const entry of dirEntries) await collectFiles(entry)
-      // 空文件夹不再提前 return:entries=[] → tryStreamFolderUpload 返回 null → 回退
+      // 外网模型:过滤不合规文件(checkExternalFile 已 toast 提示)
+      const filteredEntries = entries.filter((e) => checkExternalFile(e.file))
+      // 空文件夹不再提前 return:filteredEntries=[] → tryStreamFolderUpload 返回 null → 回退
       // uploadInsightFolder(folderName, [], ...) → 服务端 ensureDir 建空目录(与 base64 对称)。
-      const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
+      const streamed = await tryStreamFolderUpload(filteredEntries, folderName, currentPath)
       if (streamed) {
-        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
+        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, filteredEntries.length, streamed.errors)
         await refresh()
         props.onFilesRefresh?.()
         return
       }
       // 回退 base64 + uploadInsightFolder 单请求(非桌面 / 剪贴板 blob)。
       const fileEntries: InsightFolderUploadFile[] = []
-      for (const e of entries) {
+      for (const e of filteredEntries) {
         const base64 = await readFileAsBase64(e.file)
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showFolderUploadResult(result.name, result.fileCount, entries.length, [])
+      showFolderUploadResult(result.name, result.fileCount, filteredEntries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -657,8 +689,8 @@ function FileManagerInner(props: {
         <FileManagerToolbar
           fileStore={fileStore}
           onRefresh={refresh}
-          onUploadFile={() => fileInputRef?.click()}
-          onUploadFolder={() => folderInputRef?.click()}
+          onUploadFile={requestUploadFile}
+          onUploadFolder={requestUploadFolder}
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
         />
@@ -717,8 +749,8 @@ function FileManagerInner(props: {
         <Match when={!showHeader()}>
           <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
             <EmptyFilesState
-              onUploadFile={() => fileInputRef?.click()}
-              onUploadFolder={() => folderInputRef?.click()}
+              onUploadFile={requestUploadFile}
+              onUploadFolder={requestUploadFolder}
             />
           </div>
         </Match>
@@ -733,8 +765,8 @@ function FileManagerInner(props: {
               <Show when={hasAnyFiles()} fallback={
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">
                   <EmptyFilesState
-                    onUploadFile={() => fileInputRef?.click()}
-                    onUploadFolder={() => folderInputRef?.click()}
+                    onUploadFile={requestUploadFile}
+                    onUploadFolder={requestUploadFolder}
                   />
                 </div>
               }>
@@ -764,6 +796,9 @@ function FileManagerInner(props: {
         open={archiveDialogOpen()}
         onClose={() => setArchiveDialogOpen(false)}
       />
+
+      {/* 外网模型上传风险确认(与切换模型同款弹框):确认后才执行上传动作 */}
+      {gate}
     </div>
   )
 }

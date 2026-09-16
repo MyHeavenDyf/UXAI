@@ -1,4 +1,5 @@
-.studio-video-risk-overlay {
+.studio-video-risk-overlay,
+.studio-style-template-delete-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;

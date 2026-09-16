@@ -1,7 +1,7 @@
 import { Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "@/pages/make/components/octo-toast"
 
 interface Props {
   open: boolean
@@ -15,10 +15,10 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
   const handleCopyLink = () => {
     if (props.shareLink) {
       navigator.clipboard.writeText(props.shareLink)
-        .then(() => showToast({ title: "链接已复制" }))
-        .catch(() => showToast({ title: "复制失败", variant: "error" }))
+        .then(() => showOctoToast({ title: "链接已复制" }))
+        .catch(() => showOctoToast({ title: "复制失败", variant: "error" }))
     } else {
-      showToast({ title: "暂无分享链接" })
+      showOctoToast({ title: "暂无分享链接" })
     }
   }
 

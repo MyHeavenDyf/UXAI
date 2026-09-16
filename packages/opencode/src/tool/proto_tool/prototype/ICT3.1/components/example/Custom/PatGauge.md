@@ -1,6 +1,6 @@
-# Gauge | 仪表盘
+# Gauge | 仪表盘 示例
 
-### Example: Basic Gauge
+## Example: Basic Gauge
 - 传入 value 和 max，自动渲染半圆仪表盘
 
 ```json
@@ -14,7 +14,7 @@
 }
 ```
 
-### Example: With DataBinding
+## Example: With DataBinding
 - 绑定 state 中的动态数据
 
 ```json

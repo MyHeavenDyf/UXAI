@@ -73,6 +73,12 @@
         "format": {
           "type": "string"
         },
+        "disabled": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/DataBinding" }
+          ]
+        },
         "className": {
           "type": "string",
           "description": "Tailwind CSS classes for the component."

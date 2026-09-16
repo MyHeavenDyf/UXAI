@@ -10,6 +10,7 @@ import { dirname, extname, join, basename, resolve as resolvePath, sep } from "n
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
+import { applyEdits, modify } from "jsonc-parser"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import log from "electron-log/main.js"
@@ -32,7 +33,10 @@ import type {
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import * as FastuiDevServer from "./fastui-devserver"
+import * as FastuiExport from "./fastui-export"
 import { getStore } from "./store"
+import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
 import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
@@ -217,6 +221,28 @@ function readZipComment(zipPath: string): string {
 
 export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
+
+  // fastui dev server 由主进程持有(SPEC-DES-001 §8.6.1):
+  // skill 脚本是短命的,它起的进程在 Windows 下活不过本次调用 —— 整条链在同一个
+  // Job Object 里,shell 工具收尾时被连坐。约定为「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-devserver-ensure", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiDevServer.ensure(sessionDir),
+  )
+  // 建会话时调这个:会话状态文件还没写出来,挂着等它出现。
+  // 等不到就是普通(非 fastui)会话,超时静默放弃 —— 对其他 Design 用法零影响。
+  ipcMain.handle("fastui-devserver-arm", (_event: IpcMainInvokeEvent, sessionDir: string) => {
+    FastuiDevServer.ensureWhenReady(sessionDir)
+    return true
+  })
+  ipcMain.handle("fastui-devserver-stop", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiDevServer.stop(sessionDir),
+  )
+  // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
+  // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
+  // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string) =>
+    FastuiExport.exportZip(sessionDir),
+  )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
     return deps.awaitInitialization(send)
@@ -274,6 +300,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -287,7 +316,6 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
   ipcMain.handle(
     "open-file-picker",
     async (
@@ -304,7 +332,6 @@ export function registerIpcHandlers(deps: Deps) {
       return opts?.multiple ? result.filePaths : result.filePaths[0]
     },
   )
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
 
   ipcMain.handle(
     "save-file-picker",
@@ -434,6 +461,41 @@ export function registerIpcHandlers(deps: Deps) {
         // 拷贝失败不阻断 MCP 主流程(调用方 catch),本地能力线对该文件不可用。
         console.error("[octo:worktree] upload-copy failed", {
           srcPath,
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // SPEC-INS-014 §4.1 的字节版兄弟:同落点 <baseDir>/.octo/tmps/、同 landingName 清洗、同
+  // collisionFreePath 撞名规则,唯一区别是源从「磁盘路径 copyFile」换成「渲染进程传来的
+  // ArrayBuffer 直接 writeFile」——服务剪贴板粘贴的内存 blob(截图/复制的文件),它们
+  // getPathForFile 拿不到源路径(2026-09 insight 图片去 S3 后必须有本地路径,见
+  // octoapp/pages/insight/index.tsx copySourceToWorktree)。布局 SOT 仍是 SPEC-INS-014 §2,
+  // 改落点需同步渲染端 worktree-layout.ts 与 copy-file-to-worktree(见其上方注释)。
+  ipcMain.handle(
+    "write-file-to-worktree",
+    async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, baseDir: string, filename: string) => {
+      const dir = join(baseDir, ".octo", "tmps")
+      await ensureWorktreeDir(dir)
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] write-name-rejected", { filename, reason })
+        console.error("[octo:worktree] write-name-rejected", { filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
+      try {
+        await writeFile(dest, Buffer.from(buffer))
+        console.log("[octo:worktree] write-blob ok", { dest, bytes: buffer.byteLength })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] write-blob failed", {
           dest,
           reason: err instanceof Error ? err.message : String(err),
         })
@@ -683,7 +745,7 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       const s = await stat(path)
       if (!s.isFile()) return null
-      return { size: s.size }
+      return { size: s.size, mtimeMs: s.mtimeMs }
     } catch {
       return null
     }
@@ -722,6 +784,15 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("file-exists", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       return (await stat(path)).isFile()
+    } catch {
+      return false
+    }
+  })
+
+  // 目录存在性检查:仅当目标是一个存在的目录时返回 true(与 file-exists 对称)
+  ipcMain.handle("dir-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isDirectory()
     } catch {
       return false
     }
@@ -1024,6 +1095,59 @@ export function registerIpcHandlers(deps: Deps) {
       await shell.openPath(octoSkillDir)
     }
   })
+
+  // ── 设置-MCP 页:编辑全局配置文件的 mcp 段 ──────────────────────────────
+  // jsonc modify/applyEdits 保留注释(先例 cli/cmd/mcp.ts addMcpToConfig)。
+  // 内置 MCP 名单与服务端 builtin-mcp.ts BUILTIN_MCP_KEYS 同步,内置条目不经此通道管理。
+  // 写入后由 renderer 调 global.dispose 重建实例重读配置(见 packages/app settings-mcp.tsx)。
+  const BUILTIN_MCP_KEYS = new Set(["uxr-tool", "pixso"])
+
+  // 复刻 opencode config.ts globalConfigFile():先 ~/.config/octo 后 ~/.config/opencode,
+  // 目录内 octo.json > octo.jsonc > opencode.json > opencode.jsonc > config.json,默认前者 octo.json。
+  function globalMcpConfigFile() {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+    const names = ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc", "config.json"]
+    for (const dir of [join(xdgConfig, "octo"), join(xdgConfig, "opencode")]) {
+      for (const name of names) {
+        const file = join(dir, name)
+        if (existsSync(file)) return file
+      }
+    }
+    return join(xdgConfig, "octo", names[0])
+  }
+
+  ipcMain.handle(
+    "mcp-config-write",
+    (
+      _event: IpcMainInvokeEvent,
+      arg: { op: "set" | "remove"; name: string; value?: Record<string, unknown> },
+    ) => {
+      try {
+        if (!/^[a-zA-Z0-9_-]+$/.test(arg.name)) {
+          throw new Error(`Invalid MCP server name: ${arg.name}`)
+        }
+        if (BUILTIN_MCP_KEYS.has(arg.name)) {
+          throw new Error(`Built-in MCP server "${arg.name}" is managed by octo and cannot be modified`)
+        }
+        if (arg.op === "set" && (!arg.value || typeof arg.value !== "object" || Array.isArray(arg.value))) {
+          throw new Error("MCP config value must be an object")
+        }
+        const file = globalMcpConfigFile()
+        let text = "{}"
+        if (existsSync(file)) text = readFileSync(file, "utf-8")
+        // jsonc-parser 约定:value 传 undefined 即删除该 key
+        const edits = modify(text, ["mcp", arg.name], arg.op === "set" ? arg.value : undefined, {
+          formattingOptions: { tabSize: 2, insertSpaces: true },
+        })
+        const result = applyEdits(text, edits)
+        mkdirSync(dirname(file), { recursive: true })
+        writeFileSync(file, result, "utf-8")
+      } catch (err) {
+        console.error("mcp-config-write failed", err)
+        throw new Error(`Failed to write MCP config: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+  )
 
   ipcMain.handle("html-to-pdf", async (_event: IpcMainInvokeEvent, html: string) => {
     const win = new BrowserWindow({
@@ -1349,18 +1473,81 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
-  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+  ipcMain.handle("get-proxy-config", () => {
+    const configFile = proxyConfigFile()
+    if (!existsSync(configFile)) return null
+
+    try {
+      const config: unknown = JSON.parse(readFileSync(configFile, "utf-8"))
+      if (!config || typeof config !== "object" || !("http_proxy" in config)) return null
+      if (typeof config.http_proxy !== "string") return null
+
+      const proxyUrl = new URL(config.http_proxy)
+      if (!proxyUrl.username || !proxyUrl.password) return null
+
+      return {
+        account: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+        proxyHost: proxyUrl.host,
+        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
+      }
+    } catch (error) {
+      log.warn("[get-proxy-config] 读取代理配置失败", {
+        configFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  })
+
+  // Proxy 配置: 验证代理连通性后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
+  const PROXY_HOSTS = new Set([
+    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+  ])
+
+  // 配置失败时的 curl 对照诊断：区分「代理本身不通」和「Node 证书校验失败(代理 MITM)」。
+  // 调用时 env 仍指向待验证的新代理，curl 能真实走新代理。
+  const collectProxyDiagnostics = (target: string): string => {
+    const probe = (insecure: boolean) => {
+      try {
+        return execSync(`curl ${insecure ? "-k " : ""}-sS --connect-timeout 10 "${target}"`, {
+          timeout: 15000,
+          stdio: "pipe",
+          encoding: "utf-8",
+        })
+          .toString()
+          .trim()
+          .slice(0, 120)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e)
+        return `<失败: ${msg}>`
+      }
+    }
+    const strict = probe(false)
+    const insecure = probe(true)
+    let hint = ""
+    if (strict.startsWith("<失败") && !insecure.startsWith("<失败")) {
+      hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    }
+    return `curl 对照诊断 — 严格证书: ${strict || "<空响应>"} | 跳过证书(-k): ${insecure || "<空响应>"}${hint}`
+  }
+
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
+    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
+    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+    const encodedAccount = encodeURIComponent(account)
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
     // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
-    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const noProxy = noProxyInput?.trim() || defaultNoProxy
     const curlTarget = "https://ifconfig.me/ip"
 
-    log.info("[configure-proxy] 开始配置代理")
+    log.info("[configure-proxy] 开始配置代理", { proxyHost, proxy: maskProxyUrl(proxyUrl), noProxy })
 
-    // 先注入环境变量，确保 curl 能走代理
+    // 先注入环境变量
     const prevEnv: Record<string, string | undefined> = {}
     for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
       prevEnv[key] = process.env[key]
@@ -1374,45 +1561,53 @@ export function registerIpcHandlers(deps: Deps) {
 
     log.info("[configure-proxy] 环境变量已注入")
 
+    // setGlobalProxyFromEnv 返回 restore 函数，验证失败时用于还原全局 dispatcher
+    let restoreDispatcher: unknown
     try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
-
-      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
-      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
-        timeout: 20000,
-        stdio: "pipe",
-        encoding: "utf-8",
-      }).toString().trim()
-
-      if (!curlOutput.startsWith("119.")) {
-        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      // 与 webfetch 同栈验证：主进程 Node fetch(undici 全局 dispatcher) + setGlobalProxyFromEnv，
+      // 证书正常校验。旧实现用 curl -k 会跳过证书校验——代理对 HTTPS 做证书替换(MITM)时
+      // 验证通过但 sidecar 里 webfetch 实际失败。
+      try {
+        restoreDispatcher = (http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        throw new Error(`setGlobalProxyFromEnv 调用失败: ${e instanceof Error ? e.message : String(e)}`)
       }
 
-      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
+      log.info("[configure-proxy] 执行 Node fetch 验证(与 webfetch 同栈)", { curlTarget, timeout: 20000 })
 
-      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
+      const res = await fetch(curlTarget, { signal: AbortSignal.timeout(20000) })
+      const verifyOutput = (await res.text()).trim()
 
-      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
-      const configDir = getOctoConfigPath()
-      const configFile = join(configDir, "proxy_config.json")
-      mkdirSync(configDir, { recursive: true })
+      if (!verifyOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${verifyOutput.slice(0, 100)}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: verifyOutput })
+
+      log.info("[configure-proxy] 验证通过, 写入配置文件")
+
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验；
+      // 路径必须与 proxy-config.ts 统一，不跟随 XDG_CONFIG_HOME）
+      const configFile = proxyConfigFile()
+      mkdirSync(dirname(configFile), { recursive: true })
 
       writeFileSync(configFile, JSON.stringify({
         http_proxy: proxyUrl,
         https_proxy: proxyUrl,
         no_proxy: noProxy,
+        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
 
-      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
-      try {
-        ;(http as any).setGlobalProxyFromEnv()
-      } catch (e) {
-        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
-      }
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效（dispatcher 已在验证前设置）
 
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+
+      // curl 对照诊断要趁 env 还指向新代理时执行
+      const diagnostics = collectProxyDiagnostics(curlTarget)
+
       // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
         const val = prevEnv[key]
@@ -1422,9 +1617,13 @@ export function registerIpcHandlers(deps: Deps) {
           process.env[key] = val
         }
       }
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      log.error("[configure-proxy] 配置失败", { error: errorMessage })
-      return { success: false, curlUrl: curlTarget, error: errorMessage }
+      if (typeof restoreDispatcher === "function") {
+        try {
+          ;(restoreDispatcher as () => void)()
+        } catch {}
+      }
+      log.error("[configure-proxy] 配置失败", { error: errorMessage, diagnostics })
+      return { success: false, curlUrl: curlTarget, error: diagnostics ? `${errorMessage}\n${diagnostics}` : errorMessage }
     }
   })
 

@@ -9,7 +9,14 @@ import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
-import { isOverflow, preflight, usable } from "./overflow"
+import {
+  AUTOMATIC_COMPACTION_ENABLED,
+  CONTEXT_OVERFLOW_MESSAGE,
+  exceedsContext,
+  isOverflow,
+  preflight,
+  usable,
+} from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
@@ -141,6 +148,16 @@ export const layer: Layer.Layer<
           providerID: input.model.providerID,
           aborted,
         })
+
+      const recordEstimatedInputUsage = () => {
+        ctx.assistantMessage.tokens.input = Math.max(ctx.assistantMessage.tokens.input, ctx.estimatedInputTokens)
+        ctx.assistantMessage.tokens.total =
+          ctx.assistantMessage.tokens.input +
+          ctx.assistantMessage.tokens.output +
+          ctx.assistantMessage.tokens.reasoning +
+          ctx.assistantMessage.tokens.cache.read +
+          ctx.assistantMessage.tokens.cache.write
+      }
 
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
         const done = ctx.toolcalls[toolCallID]?.done
@@ -472,6 +489,21 @@ export const layer: Layer.Layer<
                 output: Token.estimateChars(ctx.estimatedOutputChars),
               },
             })
+            const contextTokens = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+            const contextLimit = ctx.model.limit.input ?? ctx.model.limit.context
+            const contextExceeded =
+              !AUTOMATIC_COMPACTION_ENABLED &&
+              !ctx.assistantMessage.summary &&
+              exceedsContext({ model: ctx.model, input: contextTokens })
+            slog.info("context usage", {
+              providerID: ctx.model.providerID,
+              modelID: ctx.model.id,
+              input: contextTokens,
+              output: usage.tokens.output + usage.tokens.reasoning,
+              total: usage.tokens.total,
+              limit: contextLimit,
+              percent: contextLimit ? Math.round((contextTokens / contextLimit) * 10_000) / 100 : null,
+            })
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               EventV2.run(SessionEvent.Step.Ended.Sync, {
@@ -483,9 +515,14 @@ export const layer: Layer.Layer<
                 timestamp: DateTime.makeUnsafe(Date.now()),
               })
             }
-            ctx.assistantMessage.finish = value.finishReason
+            ctx.assistantMessage.finish = contextExceeded ? "error" : value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            if (contextExceeded) {
+              ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                message: CONTEXT_OVERFLOW_MESSAGE,
+              }).toObject()
+            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.finishReason,
@@ -497,6 +534,12 @@ export const layer: Layer.Layer<
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
+            if (contextExceeded) {
+              yield* bus.publish(Session.Event.Error, {
+                sessionID: ctx.sessionID,
+                error: ctx.assistantMessage.error!,
+              })
+            }
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {
@@ -518,6 +561,7 @@ export const layer: Layer.Layer<
               })
               .pipe(Effect.ignore, Effect.forkIn(scope))
             if (
+              AUTOMATIC_COMPACTION_ENABLED &&
               !ctx.assistantMessage.summary &&
               isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
             ) {
@@ -663,8 +707,21 @@ export const layer: Layer.Layer<
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
-          ctx.needsCompaction = true
-          yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+          if (AUTOMATIC_COMPACTION_ENABLED) {
+            ctx.needsCompaction = true
+            yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+            return
+          }
+          recordEstimatedInputUsage()
+          ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+            message: CONTEXT_OVERFLOW_MESSAGE,
+          }).toObject()
+          ctx.assistantMessage.finish = "error"
+          yield* bus.publish(Session.Event.Error, {
+            sessionID: ctx.sessionID,
+            error: ctx.assistantMessage.error,
+          })
+          yield* status.set(ctx.sessionID, { type: "idle" })
           return
         }
         if (!ctx.assistantMessage.summary) {
@@ -679,6 +736,7 @@ export const layer: Layer.Layer<
           })
         }
         ctx.assistantMessage.error = error
+        if (ctx.assistantMessage.summary) ctx.assistantMessage.finish = "error"
         yield* bus.publish(Session.Event.Error, {
           sessionID: ctx.assistantMessage.sessionID,
           error: ctx.assistantMessage.error,
@@ -698,12 +756,17 @@ export const layer: Layer.Layer<
         const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
         const preflightResult = ctx.assistantMessage.summary
           ? "send"
-          : preflight({
-              cfg,
-              model: ctx.model,
-              estimatedInput: ctx.estimatedInputTokens,
-              unavoidableInput: unavoidableInputTokens,
-            })
+          : !AUTOMATIC_COMPACTION_ENABLED
+            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+              ? "reject"
+              : "send"
+            : preflight({
+                cfg,
+                model: ctx.model,
+                estimatedInput: ctx.estimatedInputTokens,
+                unavoidableInput: unavoidableInputTokens,
+                compactionAttempted: streamInput.compactionAttempted,
+              })
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
@@ -716,8 +779,13 @@ export const layer: Layer.Layer<
                 providerID: ctx.model.providerID,
               })
               if (preflightResult === "reject") {
+                recordEstimatedInputUsage()
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
-                  message: `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                  message: !AUTOMATIC_COMPACTION_ENABLED
+                    ? CONTEXT_OVERFLOW_MESSAGE
+                    : streamInput.compactionAttempted
+                      ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
+                      : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
                 }).toObject()
                 ctx.assistantMessage.finish = "error"
                 yield* session.updateMessage(ctx.assistantMessage)
@@ -737,7 +805,7 @@ export const layer: Layer.Layer<
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              Stream.takeUntil(() => ctx.needsCompaction || !!ctx.assistantMessage.error),
               Stream.runDrain,
             )
           }).pipe(

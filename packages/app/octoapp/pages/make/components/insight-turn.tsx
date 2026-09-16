@@ -15,6 +15,7 @@ import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
+import { shouldShowTurnError } from "@/components/context-usage-warning"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -25,8 +26,10 @@ import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
 
 function renderMentionText(text: string): JSX.Element {
-  const parts = text.split(/(@[^\s@]+)/g)
-  
+  // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
+  // getDocTextWithMentions 在 chip 前后各插入一个 ​ 作为边界标记。
+  const parts = text.split(/(@[^​@]+)/g)
+
   return (
     <>
       {parts.map((part) => {
@@ -40,6 +43,62 @@ function renderMentionText(text: string): JSX.Element {
         return part
       })}
     </>
+  )
+}
+
+export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Element; class?: string }) {
+  return (
+    <div
+      role="alert"
+      class={`px-4 py-3 ${props.class ?? ""}`}
+      style={{
+        "border-radius": "8px",
+        background: "rgba(254, 231, 232, 1)",
+        color: "#191919",
+        "font-size": "14px",
+        "line-height": "22px",
+      }}
+    >
+      <div class="flex items-start gap-2">
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" class="mt-1 shrink-0" aria-hidden="true">
+          <path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128" />
+          <path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round" />
+        </svg>
+        <div class="min-w-0 flex-1">
+          <Show when={props.title}>
+            <div class="font-medium">{props.title}</div>
+          </Show>
+          {props.children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ContextOverflowNotice(props: {
+  tokens: number
+  limit: number
+  locale: string
+  class?: string
+  disabled?: boolean
+  onCompact?: () => void
+}) {
+  return (
+    <MakeErrorNotice class={props.class}>
+      当前对话 Session 上下文已超过100% ({props.tokens.toLocaleString(props.locale)} / {props.limit.toLocaleString(props.locale)})。
+      <br />
+      请进行
+      <button
+        type="button"
+        class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ color: "#0a59f7", font: "inherit" }}
+        disabled={props.disabled}
+        onClick={props.onCompact}
+      >
+        上下文压缩
+      </button>
+      ，或新建对话。
+    </MakeErrorNotice>
   )
 }
 
@@ -687,6 +746,49 @@ export function InsightTurn(props: {
     return result
   })
 
+  // ict_pattern agent 的 turn：弱模型可能输出纯文字而非 <pattern-match>/<module-list> 标签，
+  // 这类文字应作为"思考过程"（reasoning）展示，而非常规 prose 回复
+  const isPatternAgentTurn = createMemo(() =>
+    assistantMsgs().some((m) => (m as Record<string, unknown>).agent === "ict_pattern"),
+  )
+
+  const isLatestTurn = createMemo(() => {
+    const messages = msgStore?.[props.sessionID] ?? []
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
+    return lastUser?.id === props.messageID
+  })
+
+  // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
+  // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
+  const isCompactionTurn = createMemo(() => {
+    const parts = partStore?.[props.messageID] ?? []
+    return parts.some((p) => p.type === "compaction")
+  })
+
+  // 压缩完成 = 摘要 assistant 消息(summary: true)已 finish 且无 error,与标准 session-turn 判定一致
+  const compacted = createMemo(() =>
+    isCompactionTurn() && assistantMsgs().some((m) => m.summary === true && !!m.finish && !m.error),
+  )
+
+  const compactionFailed = createMemo(() =>
+    isCompactionTurn() && !compacted() && assistantMsgs().some((m) => !!m.error),
+  )
+
+  // 兜底:压缩 turn 不再活跃(已不是最新 turn 或 session 已 idle)但既未成功也无 error 标记
+  // —— 典型场景是模型超时/中断导致 processor 未产出 summary 消息,assistantMsgs 为空。
+  const compactionStalled = createMemo(() =>
+    isCompactionTurn() && !compacted() && !compactionFailed() && (!isLatestTurn() || !props.active),
+  )
+
   const isAborted = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
@@ -700,6 +802,7 @@ export function InsightTurn(props: {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
+      if (!shouldShowTurnError(err.name as string)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }
@@ -739,22 +842,21 @@ export function InsightTurn(props: {
         if (reasoning) texts.push(reasoning)
       }
     }
-    return texts
-  })
-
-  const isLatestTurn = createMemo(() => {
-    const messages = msgStore?.[props.sessionID] ?? []
-    let lastUser: Message | undefined
-    let lastUserTime = -1
-    for (const m of messages) {
-      if (m.role !== "user") continue
-      const t = (m as { time?: { created?: number } }).time?.created ?? 0
-      if (t >= lastUserTime) {
-        lastUserTime = t
-        lastUser = m
+    // ict_pattern agent：输出中的非标签文字（标签外的额外说明、或弱模型未按格式输出的纯文字）
+    // 一律作为"思考过程"展示，prose 只保留引导提示语
+    if (isPatternAgentTurn()) {
+      const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+      if (textPart?.text) {
+        const cleaned = textPart.text
+          .replace(/<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/gi, "")
+          .replace(/<module-list[^>]*>[\s\S]*?<\/module-list>/gi, "")
+          .replace(/<pattern-match[^>]*>[\s\S]*$/gi, "")
+          .replace(/<module-list[^>]*>[\s\S]*$/gi, "")
+          .trim()
+        if (cleaned) texts.push(cleaned)
       }
     }
-    return lastUser?.id === props.messageID
+    return texts
   })
 
   const showGenerating = createMemo(() => props.active && isLatestTurn())
@@ -1013,14 +1115,36 @@ const stateStatus = state.status as string | undefined
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
+    // pattern 模式结构化标签 <pattern-match> / <module-list> 的 JSON 由
+    // pattern-sub-scanner 解析用于 IntentConfirmCard，不应作为 prose 显示。
+    // agent 仅输出标签时，输出一段引导文字，类似进入策略模式时的文字回复。
+    const raw = textPart.text
+    const hasPatternMatch = /<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/i.test(raw)
+    const hasModuleList = /<module-list[^>]*>[\s\S]*?<\/module-list>/i.test(raw)
+    const cleaned = raw
+      .replace(/<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/gi, "")
+      .replace(/<module-list[^>]*>[\s\S]*?<\/module-list>/gi, "")
+      .replace(/<pattern-match[^>]*>[\s\S]*$/gi, "")
+      .replace(/<module-list[^>]*>[\s\S]*$/gi, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleaned)) {
       if (ev.type === "text") prose += ev.delta
     }
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
-    return prose.trim()
+    prose = prose.trim()
+    // ict_pattern agent：标签内容由 scanner 解析，prose 只输出引导提示语；
+    // 标签外的额外文字（含弱模型未按格式输出的纯文字）归入 reasoningTexts
+    if (isPatternAgentTurn()) {
+      if (hasModuleList) return "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+      if (hasPatternMatch) return "已根据你的需求匹配到候选页面布局，请在上方选择最合适的典型页面模板。"
+      return ""
+    }
+    if (prose) return prose
+    if (hasModuleList) return "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+    if (hasPatternMatch) return "已根据你的需求匹配到候选页面布局，请在下方选择最合适的典型页面模板。"
+    return ""
   })
 
   // ── NEW: prose segments (split on <question-form> blocks) ──
@@ -1111,12 +1235,12 @@ const stateStatus = state.status as string | undefined
   }, { defer: true }))
 
   // Track whether we've seen artifacts during streaming (effect, not memo)
+  // Fix 5: 不在 showGenerating() flip 时重置缓存。
+  // session.status 翻 busy→idle→busy 时 showGenerating() 会瞬变 false,
+  // 原逻辑会清空 hasSeenCount/lastSeenCards 导致 stableStreamingCards 返回 []
+  // 出现内容闪烁。重置职责已由上方 session/message 切换 effect 覆盖。
   createEffect(() => {
-    if (!showGenerating()) {
-      setHasSeenCount(0)
-      setLastSeenCards([])
-      return
-    }
+    if (!showGenerating()) return
     const cards = streamingArtifacts()
     if (cards.length > 0) {
       setHasSeenCount(cards.length)
@@ -1265,6 +1389,54 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
+      {/* 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容 */}
+      <Show when={isCompactionTurn()}>
+        <Show when={!compacted() && !compactionFailed() && !compactionStalled()}>
+          <div
+            class="mx-3 px-4 py-2 flex items-center gap-2"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(200, 200, 200, 0.2)",
+              background: "rgba(200, 200, 200, 0.05)",
+            }}
+          >
+            <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+            <span class="text-sm" style={{ color: "#6e737a" }}>正在压缩上下文…</span>
+          </div>
+        </Show>
+        <Show when={compacted()}>
+          <div data-slot="session-turn-compaction">
+            <MessageDivider label={i18n.t("ui.messagePart.compaction")} />
+          </div>
+        </Show>
+        <Show when={compactionFailed()}>
+          <div
+            class="mx-3 px-4 py-2 text-sm"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              background: "rgba(254, 231, 232, 1)",
+              color: "#191919",
+            }}
+          >
+            上下文压缩失败
+          </div>
+        </Show>
+        <Show when={compactionStalled()}>
+          <div
+            class="mx-3 px-4 py-2 text-sm"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(234, 179, 8, 0.3)",
+              background: "rgba(255, 247, 224, 1)",
+              color: "#7a4f00",
+            }}
+          >
+            上下文压缩未完成（可能已超时或中断）
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={!isCompactionTurn()}>
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
@@ -1473,25 +1645,14 @@ const stateStatus = state.status as string | undefined
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
-        <div
-          class="mx-3 px-4 py-3 text-xs leading-relaxed"
-          style={{
-            "border-radius": "8px",
-            background: "rgba(254, 231, 232, 1)",
-            color: "#191919",
-          }}
+        <MakeErrorNotice
+          class="mx-3"
+          title={assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
         >
-          <div class="flex items-center gap-2 mb-1 font-size-[14px]">
-            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 14 14" width="14.000000" height="14.000000" fill="none">
-              <rect id="高危_面性_镂空" width="14.000000" height="14.000000" x="0.000000" y="0.000000"/>
-              <path id="path" d="M0.319885 10.3644L5.32281 1.69897C5.42523 1.52173 5.5484 1.36713 5.69232 1.23517C5.80209 1.13458 5.92392 1.04714 6.0578 0.972961C6.19095 0.899151 6.3288 0.842205 6.47137 0.802124C6.64093 0.754517 6.81708 0.730713 6.99994 0.730713C7.33673 0.730713 7.65082 0.811462 7.9422 0.972961C8.25165 1.14453 8.49664 1.38654 8.67706 1.69897L13.68 10.3644C13.8604 10.6768 13.9474 11.01 13.9413 11.3638C13.9355 11.6969 13.8483 12.0093 13.68 12.3009C13.5117 12.5925 13.2846 12.8242 12.9991 12.9957C12.8679 13.0746 12.7313 13.1364 12.5893 13.1812C12.4031 13.2398 12.2076 13.2692 12.0029 13.2692L1.99701 13.2692C1.79233 13.2692 1.59695 13.2398 1.41083 13.1812C1.26898 13.1365 1.13199 13.0745 1.00079 12.9957C0.715271 12.8242 0.48822 12.5925 0.319885 12.3009C0.15155 12.0093 0.0643921 11.6969 0.0586548 11.3638C0.0524292 11.01 0.139465 10.6768 0.319885 10.3644ZM6.99994 3.80017C7.27997 3.80017 7.49994 4.02014 7.49994 4.30017L7.49994 8.38342C7.49994 8.66342 7.27997 8.88342 6.99994 8.88342C6.71991 8.88342 6.49994 8.66342 6.49994 8.38342L6.49994 4.30017C6.49994 4.02014 6.71991 3.80017 6.99994 3.80017ZM6.41656 10.0461C6.41656 9.72397 6.6778 9.46277 6.99994 9.46277C7.32208 9.46277 7.58331 9.72397 7.58331 10.0461C7.58331 10.3683 7.32208 10.6295 6.99994 10.6295C6.6778 10.6295 6.41656 10.3683 6.41656 10.0461Z" fill="rgb(224,33,40)" fill-rule="evenodd"/>
-            </svg>
-            {assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
-          </div>
           <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text",  "padding-left": "22px"}}>{assistantError()!.message}</div>
+            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
           </Show>
-        </div>
+        </MakeErrorNotice>
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}
@@ -1633,6 +1794,7 @@ const stateStatus = state.status as string | undefined
             </div>
           )
         })()}
+      </Show>
       </Show>
     </div>
   )

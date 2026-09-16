@@ -1,23 +1,31 @@
-import { createResource, Show, Switch, Match, createSignal, createEffect, onCleanup } from "solid-js"
+import { createResource, Show, Switch, Match, createSignal, createEffect, createMemo, onCleanup } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { fetchArtifactContent, getArtifactServeUrl, pathToLocalUrl, isElectronDesktop, formatFileSize, formatTimeAgo } from "../../utils/artifact-file-api"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
+import { highlightCode, getLanguageFromFilename } from "../../utils/code-highlight"
 
 interface Props {
   file: ArtifactFile
   sdkUrl: string
   sdkDirectory: string
+  width: number
   onClose: () => void
   onOpen: () => void
   onDownload: () => void
 }
 
+const MAX_CODE_PREVIEW_BYTES = 512 * 1024
+
 export function PreviewPane(props: Props): JSX.Element {
+  const isCodeKind = () => props.file.kind === "code" || props.file.mime.startsWith("application/") || props.file.mime === "text/plain"
+  const isOversizedCode = () => isCodeKind() && props.file.size > MAX_CODE_PREVIEW_BYTES
+
   const [content] = createResource(
     () => props.file.path,
     async (path) => {
+      if (isOversizedCode()) return { content: "", mimeType: "" }
       try {
         const result = await fetchArtifactContent(props.sdkUrl, props.sdkDirectory, path)
         return result
@@ -27,19 +35,16 @@ export function PreviewPane(props: Props): JSX.Element {
     },
   )
 
-  const [previewHeight, setPreviewHeight] = createSignal(0)
+  const [containerWidth, setContainerWidth] = createSignal(0)
   let containerRef: HTMLDivElement | undefined
 
-  const updatePreviewHeight = () => {
-    if (containerRef) {
-      const width = containerRef.offsetWidth
-      setPreviewHeight(Math.floor(width * 0.6))
-    }
+  const updateContainerWidth = () => {
+    if (containerRef) setContainerWidth(containerRef.offsetWidth)
   }
 
   createEffect(() => {
-    updatePreviewHeight()
-    const resizeObserver = new ResizeObserver(updatePreviewHeight)
+    updateContainerWidth()
+    const resizeObserver = new ResizeObserver(updateContainerWidth)
     if (containerRef) resizeObserver.observe(containerRef)
     onCleanup(() => resizeObserver.disconnect())
   })
@@ -49,7 +54,19 @@ export function PreviewPane(props: Props): JSX.Element {
   const isAudio = () => props.file.mime.startsWith("audio/")
   const isHtml = () => props.file.mime === "text/html" || props.file.kind === "html"
   const isMarkdown = () => props.file.mime === "text/markdown" || props.file.kind === "markdown"
-  const isCode = () => props.file.kind === "code" || props.file.mime.startsWith("application/") || props.file.mime === "text/plain"
+  const isCode = isCodeKind
+
+  const previewHeight = createMemo(() => {
+    const w = containerWidth()
+    if (w <= 0) return 0
+    if (isHtml()) return Math.floor((w * 1080) / 1920)
+    return Math.floor(w * 0.6)
+  })
+
+  const htmlScale = createMemo(() => {
+    const w = containerWidth()
+    return w > 0 ? w / 1920 : 1
+  })
 
   const base64Content = () => {
     const c = content()
@@ -62,8 +79,8 @@ export function PreviewPane(props: Props): JSX.Element {
   return (
     <div
       ref={containerRef}
-      class="shrink w-[30%] min-w-0 flex flex-col overflow-hidden border-l"
-      style={{ "border-color": "var(--octo-border-divider)", background: "var(--octo-surface-page)" }}
+      class="shrink-0 flex flex-col overflow-hidden"
+      style={{ width: `${props.width}px`, background: "var(--octo-surface-page)" }}
     >
       {/* 头部：关闭按钮 */}
       <div
@@ -134,14 +151,32 @@ export function PreviewPane(props: Props): JSX.Element {
                   <iframe
                     src={getArtifactServeUrl(props.sdkUrl, props.sdkDirectory, props.file.sessionId, props.file.relativePath)}
                     sandbox="allow-scripts"
-                    class="w-full h-full border-0"
+                    style={{
+                      position: "absolute",
+                      top: "0",
+                      left: "0",
+                      width: "1920px",
+                      height: "1080px",
+                      border: "0",
+                      transform: `scale(${htmlScale()})`,
+                      "transform-origin": "top left",
+                    }}
                   />
                 }
               >
                 <iframe
                   src={pathToLocalUrl(props.file.path)}
                   sandbox="allow-scripts"
-                  class="w-full h-full border-0"
+                  style={{
+                    position: "absolute",
+                    top: "0",
+                    left: "0",
+                    width: "1920px",
+                    height: "1080px",
+                    border: "0",
+                    transform: `scale(${htmlScale()})`,
+                    "transform-origin": "top left",
+                  }}
                 />
               </Show>
             </Match>
@@ -153,15 +188,29 @@ export function PreviewPane(props: Props): JSX.Element {
             </Match>
 
             <Match when={isCode()}>
-              <pre
-                class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full"
-                style={{
-                  background: "var(--octo-surface-base)",
-                  color: "var(--octo-text-primary)",
-                }}
+              <Show
+                when={!isOversizedCode()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center gap-2 p-6 text-center">
+                    <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
+                      文件过大（{formatFileSize(props.file.size)}），无法预览
+                    </span>
+                    <span class="text-[12px]" style={{ color: "var(--octo-text-tertiary)" }}>
+                      请点击下方"下载"查看完整内容
+                    </span>
+                  </div>
+                }
               >
-                {content()?.content ?? ""}
-              </pre>
+                <pre
+                  class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full m-0"
+                  style={{
+                    background: "var(--octo-surface-base)",
+                    color: "var(--octo-text-primary)",
+                  }}
+                >
+                  <code innerHTML={highlightCode(content()?.content ?? "", getLanguageFromFilename(props.file.name))} />
+                </pre>
+              </Show>
             </Match>
           </Switch>
         </Show>

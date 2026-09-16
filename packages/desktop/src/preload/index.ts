@@ -57,6 +57,10 @@ const api: ElectronAPI = {
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
+  fastuiDevServerEnsure: (sessionDir) => ipcRenderer.invoke("fastui-devserver-ensure", sessionDir),
+  fastuiDevServerStop: (sessionDir) => ipcRenderer.invoke("fastui-devserver-stop", sessionDir),
+  fastuiDevServerArm: (sessionDir) => ipcRenderer.invoke("fastui-devserver-arm", sessionDir),
+  fastuiExportZip: (sessionDir) => ipcRenderer.invoke("fastui-export-zip", sessionDir),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。
@@ -70,6 +74,10 @@ const api: ElectronAPI = {
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
   copyFileToWorktree: (srcPath, baseDir, filename) =>
     ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // copyFileToWorktree 的字节版:剪贴板粘贴的内存 blob(截图等)拿不到源路径,把字节直接写进
+  // 同一落点,落地/清洗/撞名规则与 copy-file-to-worktree 同一套;返回落地绝对路径。
+  writeFileToWorktree: (buffer, baseDir, filename) =>
+    ipcRenderer.invoke("write-file-to-worktree", buffer, baseDir, filename),
   // SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/。
   movePendingUploadToSession: (srcPath, baseDir, sessionId) =>
     ipcRenderer.invoke("move-pending-upload-to-session", srcPath, baseDir, sessionId),
@@ -90,9 +98,23 @@ const api: ElectronAPI = {
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
+  onUpdateDownloadProgress: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, percent: number) => callback(percent)
+    ipcRenderer.on("update-download-progress", handler)
+    return () => ipcRenderer.removeListener("update-download-progress", handler)
+  },
+  onResume: (callback) => {
+    ipcRenderer.on("power-resume", callback)
+    return () => ipcRenderer.removeListener("power-resume", callback)
+  },
+  onReopen: (callback) => {
+    ipcRenderer.on("app-reopen", callback)
+    return () => ipcRenderer.removeListener("app-reopen", callback)
+  },
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
+  mcpConfigWrite: (input) => ipcRenderer.invoke("mcp-config-write", input),
   getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
   // jk-j60099994-replace-with-60062650-preload-index-1-end
@@ -110,6 +132,7 @@ const api: ElectronAPI = {
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   statFile: (path) => ipcRenderer.invoke("stat-file", path),
   fileExists: (path) => ipcRenderer.invoke("file-exists", path),
+  dirExists: (path) => ipcRenderer.invoke("dir-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   renameFile: (srcPath, destPath) => ipcRenderer.invoke("rename-file", srcPath, destPath),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
@@ -135,7 +158,8 @@ const api: ElectronAPI = {
   getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
-  configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),
+  getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
+  configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) => ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
 }
 
 contextBridge.exposeInMainWorld("api", api)

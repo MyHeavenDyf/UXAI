@@ -209,3 +209,114 @@
    --shadow-l-base: -2px 0 12px 0 rgba(0, 0, 0, 0.08);
    --shadow-l-md: -2px 0 24px 0 rgba(0, 0, 0, 0.08);
 }
+
+/* ==========================================================================
+  Tag 样式覆盖
+  eview-ui Tag 默认 type 生成 .eui_tag，color 生成 .eui_tag_{color}
+  .filled className 由映射层追加（variant: filled/outlined），对应 eview-react 的 ev_tag_fill
+  ========================================================================== */
+
+/* --- 默认（solid/实心）样式 --- */
+.eui_tag.eui_tag_default {
+  color: var(--gray-70) !important;
+  background: rgb(from var(--gray-90) r g b / 0.05) !important;
+}
+.eui_tag.eui_tag_info {
+  color: var(--gray-0) !important;
+  background: var(--blue-50) !important;
+}
+.eui_tag.eui_tag_error {
+  color: var(--gray-0) !important;
+  background: var(--red-50) !important;
+}
+.eui_tag.eui_tag_alert {
+  color: var(--gray-0) !important;
+  background: var(--orange-50) !important;
+}
+.eui_tag.eui_tag_warning {
+  color: var(--gray-0) !important;
+  background: var(--yellow-50) !important;
+}
+.eui_tag.eui_tag_success {
+  color: var(--gray-0) !important;
+  background: var(--mint-50) !important;
+}
+.eui_tag.eui_tag_disabled {
+  color: var(--gray-0) !important;
+  background: var(--gray-30) !important;
+}
+.eui_tag.eui_tag_green {
+  color: var(--gray-0) !important;
+  background: var(--green-50) !important;
+}
+.eui_tag.eui_tag_rose {
+  color: var(--gray-0) !important;
+  background: var(--rose-50) !important;
+}
+.eui_tag.eui_tag_pink {
+  color: var(--gray-0) !important;
+  background: var(--pink-50) !important;
+}
+.eui_tag.eui_tag_purple {
+  color: var(--gray-0) !important;
+  background: var(--purple-50) !important;
+}
+.eui_tag.eui_tag_indigo {
+  color: var(--gray-0) !important;
+  background: var(--indigo-50) !important;
+}
+.eui_tag.eui_tag_cyan {
+  color: var(--gray-0) !important;
+  background: var(--cyan-50) !important;
+}
+
+/* --- filled（outline/淡底）样式 --- */
+/* default 颜色不受 variant 影响，无 .eui_tag.filled.eui_tag_default */
+.eui_tag.filled.eui_tag_info {
+  color: var(--brand-60) !important;
+  background: var(--brand-05) !important;
+}
+.eui_tag.filled.eui_tag_error {
+  color: var(--red-60) !important;
+  background: var(--red-05) !important;
+}
+.eui_tag.filled.eui_tag_alert {
+  color: var(--orange-70) !important;
+  background: var(--orange-10) !important;
+}
+.eui_tag.filled.eui_tag_warning {
+  color: var(--yellow-80) !important;
+  background: rgb(from var(--yellow-30) r g b / 0.6) !important;
+}
+.eui_tag.filled.eui_tag_success {
+  color: var(--mint-70) !important;
+  background: rgb(from var(--mint-10) r g b / 0.6) !important;
+}
+.eui_tag.filled.eui_tag_disabled {
+  color: var(--gray-70) !important;
+  background: rgb(from var(--gray-90) r g b / 0.05) !important;
+}
+.eui_tag.filled.eui_tag_green {
+  color: var(--mint-70) !important;
+  background: var(--green-10) !important;
+}
+.eui_tag.filled.eui_tag_rose {
+  color: var(--rose-60) !important;
+  background: var(--rose-05) !important;
+}
+.eui_tag.filled.eui_tag_pink {
+  color: var(--pink-60) !important;
+  background: var(--pink-05) !important;
+}
+.eui_tag.filled.eui_tag_purple {
+  color: var(--purple-60) !important;
+  background: rgb(from var(--purple-10) r g b / 0.6) !important;
+}
+.eui_tag.filled.eui_tag_indigo {
+  color: var(--indigo-80) !important;
+  background: rgb(from var(--indigo-10) r g b / 0.6) !important;
+}
+.eui_tag.filled.eui_tag_cyan {
+  color: var(--cyan-80) !important;
+  background: rgb(from var(--cyan-60) r g b / 0.15) !important;
+}

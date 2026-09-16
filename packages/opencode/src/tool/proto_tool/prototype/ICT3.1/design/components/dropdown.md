@@ -5,7 +5,8 @@
 ## 使用规则
 
 - 必须设置 `menu`，每项必须包含 `menu.label` 和唯一 `menu.key`；仅在图标帮助识别时设置 `menu.icon`。
-- 非默认触发方式才设置 `trigger`；浮层位置通过 `placement=bottom | bottomLeft | bottomRight | top | topLeft | topRight` 选择。
+- 存在层级时使用 `menu[].children` 嵌套子菜单，子菜单项结构与顶级一致（`label`/`key` 必填，`icon`/`children` 可选）；仅在确有层级时使用，建议不超过两层。
+- 非默认触发方式才设置 `trigger`；浮层位置通过 `placement=top | left | right | bottom | topLeft | topRight | bottomLeft | bottomRight | leftTop | leftBottom | rightTop | rightBottom` 选择。
 - 更多操作、导出、下载、复制和行操作使用 Dropdown；选择表单值使用 Select。
 - 菜单项使用短动词或名词短语，同组语法保持一致。
 
@@ -17,5 +18,6 @@
 ## Don't
 
 - 不要用 Dropdown 替代 Select、主导航或复杂层级选择。
+- 不要用嵌套子菜单承担主导航或多于两层的层级结构。
 - 不要在菜单项内放表单、图表或长段说明。
-- 不要写 API 表未定义的 trigger 枚举值。
+- 不要写 API 表未定义的 trigger/placement 枚举值。

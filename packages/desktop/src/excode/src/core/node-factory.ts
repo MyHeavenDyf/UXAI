@@ -77,6 +77,14 @@ export const Node = {
     params?: string
     loopVar?: string
     route?: ExtractRoute
+    /**
+     * inline 模式：模板不抽离成独立文件，body 直接在 .map 回调里渲染
+     * （如 eview-ui Dropdown overlay 的 Menu.Item 循环——Menu.Item 必须留在
+     * 父 Menu 作用域内以复用 dotted access 的 default import）。
+     * tree-finalizer routeLoopNode 对 inline:true 走当前 draft、不注册 extractedFiles；
+     * jsx-emitter emitLoop forceInline 直接渲染 body。
+     */
+    inline?: boolean
   }): LoopNode {
     return {
       __node: true,

@@ -14,6 +14,7 @@ import {
   injectResourceCollectorBridge,
   injectSnapshotBridge,
   injectCustomBridge,
+  injectModelEditBridge,
   decodeHtmlBytes,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
@@ -422,6 +423,10 @@ export function registerLocalProtocol() {
         if (bridgeConfig.injectEdit) {
           htmlStr = injectEditBridgeStyle(htmlStr)
           htmlStr = injectEditBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectModelEdit) {
+          htmlStr = injectModelEditBridge(htmlStr)
         }
 
         if (bridgeConfig.injectComment) {

@@ -1,15 +1,20 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
+import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
-import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon } from "./icons"
+import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
+import { assetFileId, type AssetFile } from "./asset-library"
+import { AssetDialog } from "./asset-dialog"
+import { tracker } from "@/utils/tracker"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -27,15 +32,22 @@ interface AddonMenuProps {
   onDeselect: (selection: MentionSelection) => void
   onAddAttachment: () => void
   onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<void>
+  onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (filename: string, path: string) => void
+  productId?: number
   onEnterDesignStrategy?: () => void
   planActive?: boolean
+  onEnterPatternPage?: () => void
+  patternPageActive?: boolean
   onOpen?: () => void
   disabled: boolean
 }
 
 export function AddonMenu(props: AddonMenuProps): JSX.Element {
+  const { request, gate } = useUploadRiskGate()
+
   const [open, setOpen] = createSignal(false)
-  const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | null>(null)
+  const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
   const [skillsCategory, setSkillsCategory] = createSignal<'platform' | 'custom'>('platform')
   const [urlDialogOpen, setUrlDialogOpen] = createSignal(false)
   const [urlValue, setUrlValue] = createSignal("")
@@ -44,8 +56,74 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const [urlStepText, setUrlStepText] = createSignal("Step 1 - 接收数据")
   const [urlError, setUrlError] = createSignal<string | null>(null)
   const [urlCancelled, setUrlCancelled] = createSignal(false)
+  const [assetDownloadOpen, setAssetDownloadOpen] = createSignal(false)
+  const [assetDownloadCancelled, setAssetDownloadCancelled] = createSignal(false)
+  let assetDownloadAbortController: AbortController | undefined
+  // 设计文件项 hover 预览(图片用 img,html 用 iframe,其它不显示)
+  const [designFilePreview, setDesignFilePreview] = createSignal<ArtifactFile | null>(null)
+  const [designPreviewLeft, setDesignPreviewLeft] = createSignal<number>(0)
+  const [designPreviewBottom, setDesignPreviewBottom] = createSignal<number | null>(null)
+  const [designPreviewTop, setDesignPreviewTop] = createSignal<number | null>(null)
+  let designPreviewTimer: ReturnType<typeof setTimeout> | undefined
+
+  // 设计文件预览:图片(svg/image)用 img,html 用 iframe,其它显示"暂不支持预览"空状态
+  const designPreviewKind = (file: ArtifactFile): "image" | "html" | "unsupported" => {
+    if (file.kind === "svg" || file.kind === "image") return "image"
+    if (file.kind === "html") return "html"
+    return "unsupported"
+  }
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+  }
+
+  const handleDesignFileMouseEnter = (e: MouseEvent, file: ArtifactFile) => {
+    if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+    const target = e.currentTarget as HTMLElement
+    const itemRect = target.getBoundingClientRect()
+    const containerRect = filesSecondaryRef!.getBoundingClientRect()
+    setDesignFilePreview(file)
+    const previewWidth = 256
+    const defaultLeft = itemRect.right - containerRect.left + 12
+    const rightEdge = containerRect.left + defaultLeft + previewWidth
+    let left: number
+    if (rightEdge > window.innerWidth - 16) {
+      left = itemRect.left - containerRect.left - previewWidth - 12
+      if (containerRect.left + left < 16) {
+        left = 16 - containerRect.left
+      }
+    } else {
+      left = defaultLeft
+    }
+    setDesignPreviewLeft(left)
+    const previewHeight = 330
+    const bottomOffset = containerRect.bottom - itemRect.bottom
+    const panelTopIfBottom = itemRect.bottom - previewHeight
+    if (panelTopIfBottom < 16) {
+      setDesignPreviewTop(itemRect.top - containerRect.top)
+      setDesignPreviewBottom(null)
+    } else {
+      setDesignPreviewBottom(bottomOffset)
+      setDesignPreviewTop(null)
+    }
+  }
+
+  const handleDesignFileMouseLeave = () => {
+    designPreviewTimer = setTimeout(() => {
+      setDesignFilePreview(null)
+      setDesignPreviewBottom(null)
+      setDesignPreviewTop(null)
+    }, 100)
+  }
+  let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
+  // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
+  const [assetDialogOpen, setAssetDialogOpen] = createSignal(false)
+  // 打开弹窗时的 chip id 快照;取消/关闭时移除快照之外(本次新增)的 chip
+  let assetChipSnapshot = new Set<string>()
 
   let triggerRef: HTMLButtonElement | undefined
   let menuRef: HTMLDivElement | undefined
@@ -72,7 +150,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const isFileSelectedLocal = (selection: MentionSelection) => {
     return localFileSelections().some(s =>
-      s.type === 'file' && s.path === (selection as any).path
+      s.type === 'file' && s.filename === (selection as any).filename
     )
   }
 
@@ -107,23 +185,91 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
+      tracker.interaction({ module: "design", name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
     }
   }
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
     if (isFileSelectedLocal(selection)) {
-      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.path === file.path)))
+      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.filename === file.name)))
       props.onDeselect(selection)
     } else {
       setLocalFileSelections(prev => [...prev, selection])
       props.onSelect(selection)
+      tracker.interaction({ module: "design", name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
     }
   }
 
+  // 批量下载所有选中的产品资源库文件(弹窗确认时触发)
+  const downloadSelectedAssetFiles = async (selected: AssetFile[]) => {
+    if (selected.length === 0) return
+    setAssetDownloadCancelled(false)
+    assetDownloadAbortController = new AbortController()
+    setAssetDownloadOpen(true)
+    try {
+      for (const file of selected) {
+        if (assetDownloadCancelled()) break
+        const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
+        if (assetDownloadCancelled()) break
+        // Fill chip path with the local saved path
+        if (localPath) {
+          props.onUpdateMentionPath?.(assetFileId(file), localPath)
+        }
+      }
+      setAssetDownloadOpen(false)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setAssetDownloadOpen(false)
+        return
+      }
+      console.warn("[addon-menu] asset download failed", err)
+      setAssetDownloadOpen(false)
+    } finally {
+      assetDownloadAbortController = undefined
+    }
+  }
+
+  // 弹窗确认:关闭弹窗 + 批量下载选中的文件(行为同原"触发附件面板关闭")
+  const handleAssetDialogConfirm = (selectedFiles: AssetFile[]) => {
+    setAssetDialogOpen(false)
+    if (selectedFiles.length > 0) {
+      void downloadSelectedAssetFiles(selectedFiles)
+    }
+  }
+
+  // 弹窗取消/关闭:移除本次新增的 chip(id 不在快照中)并关闭弹窗
+  const handleAssetDialogCancel = () => {
+    for (const sel of props.selections) {
+      if (sel.type !== "file") continue
+      const id = (sel as any).id as string | undefined
+      if (id && !assetChipSnapshot.has(id)) {
+        props.onDeselect(sel)
+      }
+    }
+    setAssetDialogOpen(false)
+  }
+
+  const closeAssetDownload = () => {
+    setAssetDownloadCancelled(true)
+    assetDownloadAbortController?.abort()
+    setAssetDownloadOpen(false)
+    // Remove chips not yet downloaded (path === id means the local path hasn't been filled in)
+    for (const sel of props.selections) {
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (sel.type === 'file' && id && path && path === id) {
+        props.onDeselect(sel)
+      }
+    }
+    // TODO: delete already-downloaded local files (need to track downloaded paths)
+  }
+
   const handleAddAttachment = () => {
-    closeMenu()
-    props.onAddAttachment()
+    request(() => {
+      closeMenu()
+      props.onAddAttachment()
+    })
   }
 
   // Click-outside handling
@@ -134,6 +280,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       if (target.closest(".addon-menu-container")) return
       if (target.closest(".addon-menu-trigger")) return
       if (target.closest(".addon-menu-url-overlay")) return
+      if (target.closest(".make-model-risk-overlay")) return
       closeMenu()
     }
     document.addEventListener("mousedown", handler)
@@ -143,9 +290,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   // Update secondary panel positioning (bottom-aligned with clicked item)
   createEffect(() => {
     if (!open() || !activeSecondary() || !menuRef) return
-    const itemClass = activeSecondary() === 'skills' ? '.addon-menu-item--skills' : '.addon-menu-item--files'
-    const itemEl = menuRef.querySelector(itemClass) as HTMLElement | null
-    const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef : filesSecondaryRef
+    const cls = activeSecondary() === 'skills' ? '.addon-menu-item--skills'
+      : '.addon-menu-item--files'
+    const itemEl = menuRef.querySelector(cls) as HTMLElement | null
+    const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef
+      : filesSecondaryRef
     if (!itemEl || !secondaryRef) return
     const containerRect = menuRef.getBoundingClientRect()
     const itemRect = itemEl.getBoundingClientRect()
@@ -175,7 +324,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     // secondary panel width: skills=200, files=200 (files tertiary is 400 but positioned relative to secondary)
     const panelWidth = 200
     const spaceRight = window.innerWidth - rect.right
-    const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef : filesSecondaryRef
+    const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef
+      : filesSecondaryRef
     if (!secondaryRef) return
     if (spaceRight < panelWidth + 16) {
       secondaryRef.style.left = 'auto'
@@ -293,8 +443,28 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 }
               }}
             >
-              <span class="addon-menu-item-icon"><PlatformSkillIcon /></span>
+              <span class="addon-menu-item-icon"><SkillsIcon /></span>
               <span class="addon-menu-item-text">技能库</span>
+              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+            </button>
+
+            {/* 产品资源库 */}
+            <button
+              type="button"
+              class="addon-menu-item"
+              onClick={() => {
+                request(() => {
+                  // 快照当前 chip id,取消/关闭时移除本次新增的
+                  assetChipSnapshot = new Set(
+                    props.selections.map(s => (s as any).id as string).filter(Boolean),
+                  )
+                  closeMenu()
+                  setAssetDialogOpen(true)
+                })
+              }}
+            >
+              <span class="addon-menu-item-icon"><AssetsIcon /></span>
+              <span class="addon-menu-item-text">产品资产库</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
 
@@ -303,14 +473,16 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               type="button"
               class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
               onClick={() => {
-                if (activeSecondary() === 'files') {
-                  setActiveSecondary(null)
-                } else {
-                  setActiveSecondary('files')
-                }
+                request(() => {
+                  if (activeSecondary() === 'files') {
+                    setActiveSecondary(null)
+                  } else {
+                    setActiveSecondary('files')
+                  }
+                })
               }}
             >
-              <span class="addon-menu-item-icon"><DesignAssetIcon /></span>
+              <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
               <span class="addon-menu-item-text">设计文件</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
@@ -319,7 +491,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <button
               type="button"
               class="addon-menu-item"
-              disabled={props.planActive}
+              disabled={props.planActive || props.patternPageActive}
               onClick={() => {
                 closeMenu()
                 props.onEnterDesignStrategy?.()
@@ -329,8 +501,22 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               <span class="addon-menu-item-text">进入设计策略模式</span>
             </button>
 
-            {/* 接收设计资产链接URL */}
+             {/* 进入patternPage模式 */}
             <button
+              type="button"
+              class="addon-menu-item"
+              disabled={props.planActive || props.patternPageActive}
+              onClick={() => {
+                closeMenu()
+                props.onEnterPatternPage?.()
+              }}
+            >
+              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+              <span class="addon-menu-item-text">进入Pattern模式</span>
+            </button>
+
+            {/* 接收设计资产链接URL — 暂时隐藏 */}
+            {/* <button
               type="button"
               class="addon-menu-item"
               onClick={() => {
@@ -340,7 +526,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             >
               <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
               <span class="addon-menu-item-text">接收设计资产链接URL</span>
-            </button>
+            </button> */}
 
             {/* 添加附件 */}
             <button
@@ -474,6 +660,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               type="button"
                               class={`addon-menu-tertiary-item ${isFileSelectedLocal(sel) ? 'addon-menu-tertiary-item--selected' : ''}`}
                               onClick={() => handleFileClick(file)}
+                              onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                              onMouseLeave={handleDesignFileMouseLeave}
                             >
                               <div class={`mention-checkbox ${isFileSelectedLocal(sel) ? 'mention-checkbox--checked' : ''}`}>
                                 <Show when={isFileSelectedLocal(sel)}>
@@ -499,6 +687,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               type="button"
                               class={`addon-menu-tertiary-item ${isFileSelectedLocal(sel) ? 'addon-menu-tertiary-item--selected' : ''}`}
                               onClick={() => handleFileClick(file)}
+                              onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                              onMouseLeave={handleDesignFileMouseLeave}
                             >
                               <div class={`mention-checkbox ${isFileSelectedLocal(sel) ? 'mention-checkbox--checked' : ''}`}>
                                 <Show when={isFileSelectedLocal(sel)}>
@@ -515,6 +705,52 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                     </Show>
                   </div>
                 </div>
+                {/* 设计文件 hover 预览弹窗 — 图片用 img,html 用 iframe(居中) */}
+                <Show when={designFilePreview()}>
+                  <div
+                    class="addon-menu-asset-preview"
+                    style={{
+                      left: `${designPreviewLeft()}px`,
+                      bottom: designPreviewBottom() !== null ? `${designPreviewBottom()}px` : undefined,
+                      top: designPreviewTop() !== null ? `${designPreviewTop()}px` : undefined,
+                    }}
+                    onMouseEnter={() => {
+                      if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+                    }}
+                    onMouseLeave={() => {
+                      setDesignFilePreview(null)
+                      setDesignPreviewBottom(null)
+                      setDesignPreviewTop(null)
+                    }}
+                  >
+                    <div class="addon-menu-asset-preview-name">{designFilePreview()!.name}</div>
+                    <div class="addon-menu-asset-preview-size">文件大小: {formatFileSize(designFilePreview()!.size)}</div>
+                    <div class="addon-menu-asset-preview-stage">
+                      <Show when={designPreviewKind(designFilePreview()!) === "image"}>
+                        <img
+                          src={pathToLocalUrl(designFilePreview()!.path)}
+                          alt=""
+                          class="addon-menu-asset-preview-img"
+                          draggable={false}
+                        />
+                      </Show>
+                      <Show when={designPreviewKind(designFilePreview()!) === "html"}>
+                        <div class="addon-menu-asset-preview-html">
+                          <iframe
+                            src={pathToLocalUrl(designFilePreview()!.path)}
+                            sandbox="allow-scripts"
+                          />
+                        </div>
+                      </Show>
+                      <Show when={designPreviewKind(designFilePreview()!) === "unsupported"}>
+                        <div class="addon-menu-asset-preview-unsupported">
+                          <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                          <span class="addon-menu-asset-preview-unsupported-text">当前文件格式暂不支持预览</span>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
               </div>
             </Show>
           </div>
@@ -588,6 +824,46 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           </div>
         </Portal>
       </Show>
+
+      {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
+      <Show when={assetDownloadOpen()}>
+        <Portal>
+          <div class="addon-menu-url-overlay">
+            <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
+              <div class="addon-menu-url-header">
+                <h3 class="addon-menu-url-title">从产品资产库接收</h3>
+                <button type="button" class="addon-menu-url-close" onClick={closeAssetDownload} aria-label="关闭">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+              <div class="addon-menu-url-loading">
+                <div class="addon-menu-spinner">
+                  <For each={Array.from({ length: 8 }, (_, i) => i)}>
+                    {() => <span class="addon-menu-spinner-dot" />}
+                  </For>
+                  <span class="addon-menu-spinner-arc" />
+                </div>
+                <div class="addon-menu-step-text">资源下载中</div>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      </Show>
+
+      {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}
+      <AssetDialog
+        open={assetDialogOpen()}
+        productId={props.productId}
+        selections={props.selections}
+        onSelect={props.onSelect}
+        onDeselect={props.onDeselect}
+        onConfirm={handleAssetDialogConfirm}
+        onCancel={handleAssetDialogCancel}
+      />
+
+      {gate}
     </>
   )
 }

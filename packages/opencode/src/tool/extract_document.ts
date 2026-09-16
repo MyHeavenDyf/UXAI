@@ -5,6 +5,7 @@ import * as Tool from "./tool"
 import * as Truncate from "./truncate"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "@/session/session"
+import SPREADSHEETS_SKILL_RAW from "@/agent/skills/octo_insight/spreadsheets/SKILL.md"
 
 // extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
 // SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
@@ -35,7 +36,16 @@ export const Parameters = Schema.Struct({
 const SUPPORTED = ["docx", "xlsx", "pdf", "pptx", "txt", "md"] as const
 type Supported = (typeof SUPPORTED)[number]
 
-type ExtractDetail = { pages?: number; sheets?: number; slides?: number; fallback?: boolean }
+const XLSX_SKILL_AGENTS = new Set(["octo_insight", "insight_reader"])
+const SPREADSHEETS_SKILL = SPREADSHEETS_SKILL_RAW.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/, "").trim()
+
+type ExtractDetail = {
+  pages?: number
+  sheets?: number
+  slides?: number
+  fallback?: boolean
+  worksheetRows?: Array<{ name: string; nonEmptyRows: number }>
+}
 
 type ExtractMetadata = {
   path: string
@@ -50,9 +60,32 @@ type ExtractMetadata = {
   inlined?: boolean
   /** docx 走了二级抽取(结构不规范,mammoth 读不了)——正文质量降级,表格摊平、版式丢失。 */
   fallback?: boolean
+  /** 超出单次通读量时切成了几段(SPEC-INS-032 §2.4 v3);未切段时缺省。 */
+  segments?: number
   pages?: number
   sheets?: number
   slides?: number
+  worksheetRows?: Array<{ name: string; nonEmptyRows: number }>
+}
+
+function xlsxGuidance(format: string, detail: ExtractDetail, agent: string) {
+  if (format !== "xlsx") return ""
+  const rows = detail.worksheetRows ?? []
+  const summary = [
+    "工作表行数（解析器按源工作簿统计，Markdown 自动折行不会增加行数）：",
+    ...rows.map((sheet) => `- ${sheet.name}: ${sheet.nonEmptyRows} 个非空行（包含可能存在的表头）`),
+    "回答数据行数时，先判断每张工作表的第一行是否为表头；若是，每张表分别减 1。",
+  ].join("\n")
+  if (!XLSX_SKILL_AGENTS.has(agent)) return summary
+  return [
+    summary,
+    "",
+    '<skill_content name="spreadsheets" auto_injected="true">',
+    "# Skill: spreadsheets",
+    "",
+    SPREADSHEETS_SKILL,
+    "</skill_content>",
+  ].join("\n")
 }
 
 /** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
@@ -61,6 +94,42 @@ const EXTRACTED_DIR = "extracted"
 // 上溯到会话树根的深度上限(SPEC-INS-032 §6)。正常只有 1 层(父 → task 子会话),留足余量;
 // 超过即认定数据异常(成环 / 脏数据),退化为按当前会话落盘而不是无限爬。
 const MAX_PARENT_DEPTH = 8
+
+// ── 单份超量时的确定性切段(SPEC-INS-032 §2.4 v3)────────────────────────────
+//
+// 一份材料的正文超过子代理一次能通读的量时,**不拒绝、不让用户拆文件**——本工具精确知道字数、
+// 落盘正文又是折行的(≤500 字符/行),按行切段是纯算术。工具只负责算出段落边界并如实列出,
+// 派活仍归父代理、读仍归子代理,不新增任何机制。
+//
+// ⚠️ 两处常量同源不同仓:前端 `build-prompt-parts.ts` 的 SINGLE_DOC_LIMIT 是同一个数
+// (它在发送前按源文件字节预判、决定文案怎么写),这里按**抽取后的真实字节**判。改一处要同步另一处。
+const SINGLE_READTHROUGH_BYTES = 150 * 1024
+// 每段目标体量。取 100KB 而不是贴着上界:子代理读完还要产出结论,留出余量;
+// 且 read 单次上限 50KB,一段 = 2 次 read,段数不会被切得太碎(段越多,父代理二次汇总的损失越大)。
+const SEGMENT_BYTES = 100 * 1024
+
+// 落盘正文前面有几行不是正文:persist() 写的是 `<!-- source… -->` + 空行 + 正文。
+// 段落 offset 必须把它算进去 —— 模型 read 的是**落盘文件**,不是内存里的 text。
+// 差这 2 行的后果是每段都往前偏、最后一段读不到结尾(静默丢尾巴,正是本 spec 要消灭的那类 bug)。
+const PERSIST_HEADER_LINES = 2
+
+/** 按行把正文切成 ≤SEGMENT_BYTES 的段,返回每段的 read 参数(offset 为 1 基,与 read.ts 一致)。 */
+function planSegments(text: string): Array<{ offset: number; limit: number; bytes: number }> {
+  const lines = text.split("\n")
+  const segments: Array<{ offset: number; limit: number; bytes: number }> = []
+  let startLine = 0
+  let bytes = 0
+  for (let i = 0; i < lines.length; i++) {
+    bytes += Buffer.byteLength(lines[i], "utf-8") + 1
+    // 满一段就切;最后一行无论如何都要收口
+    if (bytes >= SEGMENT_BYTES || i === lines.length - 1) {
+      segments.push({ offset: PERSIST_HEADER_LINES + startLine + 1, limit: i - startLine + 1, bytes })
+      startLine = i + 1
+      bytes = 0
+    }
+  }
+  return segments
+}
 // 内联阈值 = 通用 Truncate 限额 − 首部预算。目标只有一个:**加上我们自己拼的首部之后,总输出
 // 仍不触发那层兜底**——所以扣的应该是首部的实际大小,不是一个拍出来的百分比。
 // 首部是我们自己生成的、长度可控:元信息一行(文件名 + 字数 + token + 落盘路径,最坏几百字节)
@@ -212,17 +281,26 @@ async function extractXlsx(buf: Buffer) {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buf as unknown as ArrayBuffer)
   const parts: string[] = []
+  const worksheetRows: Array<{ name: string; nonEmptyRows: number }> = []
   for (const sheet of workbook.worksheets) {
     const rows: string[] = []
     sheet.eachRow({ includeEmpty: false }, (row) => {
       const cells: string[] = []
       // cell.text 已把公式结果 / 日期 / 富文本统一成显示文本;TSV 一行一记录。
       row.eachCell({ includeEmpty: true }, (cell) => cells.push(cell.text ?? ""))
-      rows.push(cells.join("\t").trimEnd())
+      // ExcelJS 仍会枚举空字符串、结果为 "" 的公式行；只统计实际显示了内容的行。
+      if (cells.some((cell) => cell.trim() !== "")) rows.push(cells.join("\t").trimEnd())
     })
-    parts.push(`# 工作表:${sheet.name}\n${rows.join("\n")}`)
+    parts.push(`# 工作表:${sheet.name}\n<!-- non_empty_rows: ${rows.length} -->\n${rows.join("\n")}`)
+    worksheetRows.push({ name: sheet.name, nonEmptyRows: rows.length })
   }
-  return { text: parts.join("\n\n"), detail: { sheets: workbook.worksheets.length } }
+  return {
+    text: parts.join("\n\n"),
+    detail: {
+      sheets: workbook.worksheets.length,
+      worksheetRows,
+    },
+  }
 }
 
 // pptx 抽取 = zip + slide XML 直取 <a:t> 文本节点(officeparser / python-pptx / unstructured 同一套业界做法)。
@@ -360,6 +438,7 @@ export const ExtractDocumentTool = Tool.define(
           // 会分叉——那是比截断更难查的 bug。(折行只插换行,不影响非空白字符数。)
           const text = wrapLongLines(result.text)
           const { chars, tokenEstimate } = measure(text)
+          const guidance = xlsxGuidance(format, result.detail, ctx.agent)
 
           if (chars === 0) {
             console.log("[octo:extract] ok", { path, format, chars, tokenEstimate, ms: Date.now() - started })
@@ -411,9 +490,12 @@ export const ExtractDocumentTool = Tool.define(
           // 一行一记录,几千行的表格可能字节还没超、行数已经爆了。Math.max 兜住用户把 config
           // 里的 tool_output 设得比首部预算还小的情况(算出负阈值会让一切都走落盘)。
           const limits = yield* truncate.limits()
+          const guidanceLines = guidance === "" ? 0 : guidance.split("\n").length
+          const guidanceBytes = Buffer.byteLength(guidance, "utf-8")
           const fits =
-            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES) &&
-            Buffer.byteLength(text, "utf-8") <= Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES)
+            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES - guidanceLines) &&
+            Buffer.byteLength(text, "utf-8") <=
+              Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES - guidanceBytes)
           // 落盘失败时无论多大都只能内联(退回 v1 行为,交给通用 Truncate 兜底)。
           const inlined = savedPath === undefined || fits
 
@@ -451,20 +533,46 @@ export const ExtractDocumentTool = Tool.define(
             const saved = savedPath
               ? `全文已保存到:${savedPath}`
               : `注意:全文未能保存到本地,本次仅返回以下正文。`
-            return { title, output: `${measured}${saved}${degraded}\n---\n${text}`, metadata }
+            return {
+              title,
+              output: [measured + saved + degraded, guidance, "---", text].filter(Boolean).join("\n"),
+              metadata,
+            }
           }
+
+          // 超出单次通读量时给出**确定性的切段清单**(SPEC-INS-032 §2.4 v3)。
+          // 这是本工具唯一"越过读取、指导编排"的输出,理由:段落边界是算术,交给模型估必然出错;
+          // 而不给清单的话,它要么半读硬答(静默丢数据),要么把问题甩回给用户(让人去拆文件)。
+          const textBytes = Buffer.byteLength(text, "utf-8")
+          const segments = savedPath && textBytes > SINGLE_READTHROUGH_BYTES ? planSegments(text) : []
+          const segmentNote =
+            segments.length > 1
+              ? [
+                  ``,
+                  `本文超出一次通读的量,已按行切成 ${segments.length} 段(每段约 ${Math.round(SEGMENT_BYTES / 1024)} KB):`,
+                  ...segments.map(
+                    (seg, i) => `- 第 ${i + 1}/${segments.length} 段:read offset=${seg.offset} limit=${seg.limit}`,
+                  ),
+                  `若你被指派了某一段,只读该段并只就该段作结论;若没被指派,把这份切段清单原样回传给发起方,由它按段派活。`,
+                  `按段读完即可 —— 每一段都会读到,不会漏。`,
+                ].join("\n")
+              : ""
 
           return {
             title,
             output: [
               measured + degraded,
+              guidance,
               `正文过长,未直接返回;全文已保存到:${savedPath}`,
               `需要定位具体内容,用 grep 搜关键词;需要通读,用 read 按 offset/limit 分段读(单次上限 2000 行 / 50KB)。`,
+              segmentNote,
               `以下为开头预览:`,
               `---`,
               text.slice(0, PREVIEW_CHARS),
-            ].join("\n"),
-            metadata,
+            ]
+              .filter((line) => line !== "")
+              .join("\n"),
+            metadata: segments.length > 1 ? { ...metadata, segments: segments.length } : metadata,
           }
         }).pipe(Effect.orDie),
     }

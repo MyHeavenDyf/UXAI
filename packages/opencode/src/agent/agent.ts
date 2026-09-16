@@ -15,10 +15,10 @@ import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_INSIGHT_READER from "./prompt/insight_reader.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
-import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
+import PROMPT_ICT_PATTERN from "./prompt/ict_pattern.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import {
@@ -380,7 +380,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["html-prototype"],
-            mcp: ["prototype-dev"],
+            mcp: ["pixso"],
           },
           octo_make_plan: {
             name: "octo_make_plan",
@@ -392,6 +392,9 @@ export const layer = Layer.effect(
                 "*": "deny",
                 read: "ask",
                 websearch: "allow",
+                // "*" deny 已隐含禁用 skill 工具,显式声明使意图可见,且 prompt.ts 的
+                // command() 分支据此拦截 session.command 的 skill 模板注入
+                skill: "deny",
               }),
               user,
             ),
@@ -399,17 +402,6 @@ export const layer = Layer.effect(
             mode: "primary",
             native: true,
             hidden: true,
-          },
-          octo_design: {
-            name: "octo_design",
-            description: "UI design specialist. Generates and edits .pix design files using Pixso MCP tools.",
-            prompt: PROMPT_OCTO_DESIGN,
-            permission: Permission.merge(defaults, user),
-            options: {},
-            mode: "primary",
-            native: false,
-            skills: ["design-basics"],
-            mcp: ["pixso-design"],
           },
           octo_studio: {
             name: "octo_studio",
@@ -441,6 +433,17 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             hidden: true,
+          },
+          ict_pattern: {
+            name: "ict_pattern",
+            description:
+              "ICT Pattern specialist. Single agent, two stages routed by an input marker: plain page description input runs stage 1 (match Pattern layouts, output results); input starting with the [模块匹配] marker (assembled by the caller after the user picks a pattern in the UI) runs stage 2 (generate module description list, output modules).",
+            prompt: PROMPT_ICT_PATTERN,
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
           },
           compaction: {
             name: "compaction",

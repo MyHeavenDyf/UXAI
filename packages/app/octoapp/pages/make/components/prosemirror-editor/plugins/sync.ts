@@ -6,7 +6,7 @@ export const syncPluginKey = new PluginKey("sync")
 
 export function createSyncPlugin(
   onChange: (mentions: MentionAttrs[], isEmpty: boolean) => void,
-  onContentChange?: (text: string) => void
+  onContentChange?: (docJSON: any, text: string) => void
 ) {
   return new Plugin({
     key: syncPluginKey,
@@ -14,7 +14,7 @@ export function createSyncPlugin(
       return {
         update(view, prevState) {
           const { state } = view
-          
+
           if (!prevState.doc.eq(state.doc)) {
             const mentions: MentionAttrs[] = []
             state.doc.descendants((node) => {
@@ -28,13 +28,13 @@ export function createSyncPlugin(
                 })
               }
             })
-            
+
             const text = getDocTextWithMentions(state.doc)
             const isEmpty = text.trim().length === 0
             onChange(mentions, isEmpty)
-            
+
             if (onContentChange) {
-              onContentChange(text)
+              onContentChange(state.doc.toJSON(), text)
             }
           }
         },

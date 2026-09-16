@@ -36,7 +36,7 @@ type InternalImageEndpointPreset = {
 }
 type InternalTaskType = "txt2img" | "img2img"
 type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
-type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
+type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9" | "21:9"
 type InternalStyleConfig = {
   taskType: string
   tagName: string
@@ -177,6 +177,7 @@ type QueryTaskResponse = {
     status?: number
     order?: number
     progress?: number
+    error_message?: unknown
     results?: string[]
     results_clean_bg?: string[]
     results_v2?: Array<{
@@ -712,6 +713,12 @@ function isFailureResponse(response: QueryTaskResponse): boolean {
   return ![0, 1, 2, 6].includes(status)
 }
 
+export function queryTaskFailureMessage(response: QueryTaskResponse) {
+  const message = response.result?.error_message
+  if (typeof message === "string" && message.trim()) return message.trim()
+  return "生成任务失败"
+}
+
 function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery["status"] {
   if (isSuccessResponse(response)) return "succeeded"
   if (isFailureResponse(response)) return "failed"
@@ -1169,7 +1176,7 @@ function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | un
     input.aspectRatio ??
     (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
     input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
-  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"].includes(value ?? "")) return value as StudioAspectRatio
+  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].includes(value ?? "")) return value as StudioAspectRatio
   return undefined
 }
 
@@ -1233,6 +1240,7 @@ export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioA
 }
 
 function buildPrompt(input: ImageGenerateInput) {
+  if (buildTemplateArgs(input)) return input.prompt
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
       ? input.extra.conversationContext.trim()
@@ -1247,6 +1255,18 @@ function buildPrompt(input: ImageGenerateInput) {
   ]
     .filter((item): item is string => Boolean(item))
     .join("\n")
+}
+
+function buildTemplateArgs(input: ImageGenerateInput) {
+  const template = input.extra?.template
+  if (!template || typeof template !== "object" || Array.isArray(template)) return
+  const record = template as JsonRecord
+  if (typeof record.id !== "string" && typeof record.id !== "number") return
+  if (!record.prompt || typeof record.prompt !== "object" || Array.isArray(record.prompt)) return
+  return {
+    id: record.id,
+    prompt: record.prompt as JsonRecord,
+  }
 }
 
 export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
@@ -1322,6 +1342,7 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
 }
 
 async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const template = buildTemplateArgs(input)
   const refImgList = (await Promise.all(
     (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
   ))
@@ -1347,6 +1368,7 @@ async function buildTextToImageRequestBody(input: ImageGenerateInput, context: I
       ref_img_list: refImgList,
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),
+      ...(template ? { template } : {}),
     },
   }
 }
@@ -1404,9 +1426,15 @@ function getVideoMode(input: ImageGenerateInput) {
   return value === "pro" ? "pro" : "std"
 }
 
+function getVideoResolution(input: ImageGenerateInput) {
+  const value = extraString(input, "resolution")
+  if (value === "480p" || value === "720p" || value === "1080p" || value === "4k") return value
+  return "480p"
+}
+
 function getVideoAspectRatio(input: ImageGenerateInput) {
   const aspectRatio = getStudioAspectRatio(input)
-  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9") return aspectRatio
+  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9" || aspectRatio === "21:9" || aspectRatio === "4:3" || aspectRatio === "3:4") return aspectRatio
   return "16:9"
 }
 
@@ -1432,6 +1460,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     duration: getVideoDuration(input),
     count: getStudioCount(input),
     mode: getVideoMode(input),
+    resolution: getVideoResolution(input),
   }
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")
@@ -1746,6 +1775,7 @@ export async function queryInternalGeneration(task: ImageGenerationTask): Promis
     rawStatus: getTaskStatus(queryJson),
     progress: getTaskProgress(queryJson),
     order: getTaskOrder(queryJson),
+    error: status === "failed" ? queryTaskFailureMessage(queryJson) : undefined,
     images: [
       ...images.map((url) => ({ kind: "image" as const, url })),
       ...videos.map((url) => ({ kind: "video" as const, url })),
@@ -1767,15 +1797,13 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     if (query.status === "succeeded") return query
 
     if (query.status === "failed") {
-      throw new Error(
-        [
-          "query_task returned failure.",
-          `taskId=${task.taskId}`,
-          `status=${query.rawStatus}`,
-          `progress=${query.progress}`,
-          `response=${JSON.stringify(query.raw, null, 2)}`,
-        ].join("\n"),
-      )
+      console.error("[studio.internel] query_task returned failure", {
+        taskId: task.taskId,
+        status: query.rawStatus,
+        progress: query.progress,
+        response: query.raw,
+      })
+      throw new Error(query.error ?? "生成任务失败")
     }
 
     if (i < maxPollCount) {

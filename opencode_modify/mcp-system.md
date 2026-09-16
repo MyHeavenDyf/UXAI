@@ -31,3 +31,15 @@ MCP 生命周期诊断日志、tools() 首次调用时序竞争修复、内网 M
 - `src/config/mcp.ts`：Remote schema 添加 `proxy` 可选字段
 - `src/mcp/index.ts`：新增 `noProxyFetch`、`isPrivateUrl`、`mcpFetch`，transport 使用动态 fetch
 - 详见 `mcp-proxy-strategy.md`
+
+### 当前未提交：内置 pixso MCP（本地 HTTP 服务，绑定 octo_make）
+
+- `src/config/builtin-mcp.ts`：`BUILTIN_MCP_SERVERS` 新增 `pixso`——`type: "remote"`（HTTP 传输，指协议而非物理位置），url `http://127.0.0.1:3667/mcp`，enabled，timeout 30000。`127.0.0.1` 被 `isPrivateUrl` 识别为私有地址，自动绕过系统代理，无需显式 `proxy: false`
+- `src/agent/agent.ts`：octo_make 的 `mcp` 字段最终为 `["pixso"]`（原 `["prototype-dev"]` 中的 prototype-dev 为悬空绑定，已一并移除，见下条）
+- 行为说明：pixso 为 remote 类型且绑定 octo_make → 每次 octo_make 对话开始时 `waitForAgentMcpReady` 预检连接；本地服务未启动时触发最多 3 次快速重连（ECONNREFUSED 立即失败，不阻塞 60s 上限），失败后正常继续对话但该轮无 pixso 工具
+
+### 当前未提交：移除 prototype-dev 悬空绑定
+
+- `prototype-dev` 只存在于 `octo_make` 的 `mcp` 数组和 `test/config/builtin-mcp.test.ts` 的过滤逻辑 fixture 字符串中，无任何配置定义（不在 `BUILTIN_MCP_SERVERS`、无 url/command、无文档提及部署）
+- 删除绑定无副作用：若用户在 opencode.json 自配了同名 server，其工具经 `toolsForAgent` 的 `customServerNames` 通道仍对包括 octo_make 在内的所有 agent 可见，`agent.mcp` 字段只是内置 MCP 的准入门槛
+- test fixture 中的 `prototype-dev_generate_html` 字符串保留——自包含过滤算法测试，不依赖真实 agent 配置

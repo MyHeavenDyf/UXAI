@@ -1,7 +1,7 @@
 /**
  * TabItem → TabItem 映射（新架构）
  *
- * A2UI TabItem → eview-react TabItem（named export from '@nce/eview-react/Tab'）。
+ * A2UI TabItem → eview-ui TabItem（named export from '@cloudsop/eview-ui/Tab'）。
  *
  * ## Props 对照
  *
@@ -95,7 +95,7 @@ export function createTabItemMapping(pkg: string): MappingDef {
         outputProps.disabled = props.disabled
       }
 
-      // ─── closable 透传（A2UI schema 字段，由 TabItem 自身声明；eview-react TabItem 支持。只改名，字面量与 BindingValue 均直接赋值） ───
+      // ─── closable 透传（A2UI schema 字段，由 TabItem 自身声明；eview-ui TabItem 支持。只改名，字面量与 BindingValue 均直接赋值） ───
       if (props.closable !== undefined) {
         outputProps.closable = props.closable
       }

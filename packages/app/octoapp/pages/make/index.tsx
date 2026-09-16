@@ -1,9 +1,11 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
+import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
-import { OctoToast, showOctoToast } from "./components/octo-toast"
+import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -21,9 +23,9 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll, useFilteredList } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
@@ -41,7 +43,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
+import { closePrototypePanels, onPrototypeQuickFix, onPrototypeCtxMenu } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -58,15 +60,22 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionPin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogCreateGroup } from "@/components/dialog-create-group"
+import { SessionContextMenu } from "@/components/session-context-menu"
+import { useMakeGroupsContext } from "@/context/make-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { importFileToWorktree } from "../insight/utils/worktree-import"
+import { encodeFilePath } from "@/context/file/path"
+import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -74,22 +83,33 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
+import {
+  ContextUsageWarning,
+  isContextAtLimit,
+  shouldShowContextWarning,
+} from "@/components/context-usage-warning"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "./make-model-risk-dialog"
+import { ComplianceNotice } from "@/components/compliance-notice"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
+import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
+import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -101,6 +121,14 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
+import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
+import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
+import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
+
+// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
+const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -172,13 +200,14 @@ function MakeContent() {
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
   const projectDir = useProjectDir()
+  const projectSelection = useProjectSelection()
 
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
 
   function findMultimodalModel() {
-    const recent = local.model.recent()
+    const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
     for (const m of recent) {
       if (m?.capabilities?.input?.image === true) return m
     }
@@ -209,6 +238,7 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
+  const SPEC_SELECTOR_VISIBLE = false
   const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
   const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
@@ -216,6 +246,7 @@ function MakeContent() {
 
   // 获取存量配置并设置状态
   function fetchAndSetConfig() {
+    if (!SPEC_SELECTOR_VISIBLE) return
     const api = getDesktopApi()
     if (!api?.getAssetsConfig) return
     api.getAssetsConfig()
@@ -375,7 +406,6 @@ function MakeContent() {
     editing: false,
     draft: "",
     menuOpen: false,
-    pendingRename: false,
   })
   let titleRef: HTMLInputElement | undefined
 
@@ -430,6 +460,92 @@ function MakeContent() {
     const id = params.id
     if (!id) return
     dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id)} />)
+  }
+
+  // ── 会话区三点菜单（与左侧栏 session 右键菜单一致）──
+  const groupsCtx = useMakeGroupsContext()
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+
+  const menuSession = () => sessionInfoMirror()
+  const menuHasMessages = () => {
+    const s = sessionInfoMirror()
+    return !!s && s.time.updated > s.time.created
+  }
+
+  function closeMenu() {
+    setTitleState("menuOpen", false)
+  }
+
+  const { togglePin: togglePinSession } = useSessionPin()
+
+  /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
+  async function togglePinCurrent(session: Session) {
+    const newPinned = !session.pinned
+    setSessionInfoMirror((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        pinned: newPinned,
+        sort_order: newPinned ? -1 : (prev.time.updated ?? 0),
+      }
+    })
+    try {
+      await togglePinSession(session.id, newPinned, sdk.directory)
+    } catch (err) {
+      setSessionInfoMirror((prev) => {
+        if (!prev) return prev
+        return { ...prev, pinned: session.pinned, sort_order: session.sort_order }
+      })
+      throw err
+    }
+    void refetchSession()
+  }
+
+  function handleMenuRename() {
+    closeMenu()
+    openTitleEditor()
+  }
+
+  function handleMenuTogglePin(session: Session) {
+    closeMenu()
+    void togglePinCurrent(session)
+  }
+
+  function handleMenuDelete() {
+    closeMenu()
+    handleDeleteSession()
+  }
+
+  function handleMenuMoveToGroup(session: Session, groupId: string) {
+    closeMenu()
+    tracker.interaction({ module: "design", name: "move-session-to-group" })
+    if (session.pinned) void togglePinCurrent(session)
+    void groupsCtx?.moveSessionToGroup(session.id, groupId)
+    groupsCtx?.expandGroup(groupId)
+  }
+
+  function handleMenuRemoveFromGroup(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "design", name: "remove-session-from-group" })
+    void groupsCtx?.removeSessionFromGroup(session.id)
+  }
+
+  function handleMenuCreateGroupForSession(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "design", name: "create-group-for-session" })
+    if (session.pinned) void togglePinCurrent(session)
+    dialog.show(() => (
+      <DialogCreateGroup
+        existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
+      onCreate={async (name) => {
+        const id = await groupsCtx?.addGroup(name)
+        if (id) {
+          await groupsCtx?.moveSessionToGroup(session.id, id)
+          groupsCtx?.expandGroup(id)
+        }
+      }}
+      />
+    ))
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -494,18 +610,28 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setComposing(false)
-        setDeltaLog([])
 
-        if (sendingNavigation) {
-          sendingNavigation = false
-        } else {
-          setAttachments([])
-        }
+        // Fix 6: setDeltaLog([]) 已移至下方 params.id 切换 effect。
+        // 此 effect 的依赖 () => [params.id, sync.data.message?.[...] === undefined]
+        // 每次 Sync store 更新（如模型回复追加 message）都会触发,原逻辑会误清
+        // streaming 期间累积的 deltaLog,导致 WaitingPill 预览闪烁。
+
+        // 附件清空不在此处理：同上,Sync store 任何更新都会触发本 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
+
+  // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
+  // 同时关闭 prototype 局部编辑浮层（mask/属性编辑器/右键菜单）：它们是挂在
+  // ResultViewer 层级的单例,不随 tab 卸载而消失,需显式关闭。
+  // Fix 6: setDeltaLog([]) 也在 session 切换时清空,而非每次 store 更新时。
+  createEffect(on(() => params.id, () => {
+    setAttachments([])
+    setDeltaLog([])
+    closePrototypePanels()
+  }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
   // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
@@ -569,25 +695,18 @@ const sessionMessagesLoaded = createMemo(() => {
               mime: 'image/png',
               size: file.size,
               status: 'uploading',
-              source: 'external',
+              source: 'pending',
               previewUrl
             }])
 
-            try {
-              const result = await uploadFile(file)
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-              await sendMessage(sessionId, messageText, modelKey)
-              setAttachments([])
-              setPrompt("")
-            } catch (err) {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
+            const ok = await doImageImport(id, file, file.name)
+            if (!ok) {
               setPrompt(messageText)
+              return
             }
+            await sendMessage(sessionId, messageText, modelKey)
+            setAttachments([])
+            setPrompt("")
           } else {
             await new Promise(resolve => setTimeout(resolve, 100))
             const att = attachments().find(a => a.id === filesById.keys().next().value)
@@ -604,29 +723,18 @@ const sessionMessagesLoaded = createMemo(() => {
           const id = crypto.randomUUID()
           const previewUrl = URL.createObjectURL(file)
           filesById.set(id, file)
-          
+
           setAttachments(prev => [...prev, {
             id,
             filename: file.name,
             mime: 'image/png',
             size: file.size,
             status: 'uploading',
-            source: 'external',
+            source: 'pending',
             previewUrl
           }])
-          
-          uploadFile(file)
-            .then(result => {
-              setAttachments(prev => prev.map(a => 
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-            })
-            .catch(err => {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
-            })
+
+          void doImageImport(id, file, file.name)
         }
         
         if (messageText) {
@@ -661,7 +769,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       try {
-        await sendMessage(sessionId, detail.text, modelKey)
+        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
         tracker.interaction({
           module: 'design',
           name: 'send-text-event',
@@ -682,6 +790,26 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener(SEND_TEXT_EVENT, handleSendText))
   })
 
+  // ── Append-to-composer event listener (from model-edit-area-dialog "下一项" / "确认") ──
+  createEffect(() => {
+    const handleAppend = (e: Event) => {
+      const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
+      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      ref?.appendDoc?.(detail.docJSON, detail.prefix)
+    }
+    window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
+    onCleanup(() => window.removeEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend))
+  })
+
+  // ── Submit-composer event listener (from model-edit-area-dialog "确认") ──
+  createEffect(() => {
+    const handleSubmitEvent = () => {
+      void handleSubmit()
+    }
+    window.addEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent)
+    onCleanup(() => window.removeEventListener(SUBMIT_COMPOSER_EVENT, handleSubmitEvent))
+  })
+
   // 调试日志：打印当前 session 相关的 SSE 事件
   createEffect(() => {
     const sid = params.id
@@ -690,15 +818,19 @@ const sessionMessagesLoaded = createMemo(() => {
       const e = evt.details
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
-      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      const activePlanID = activePlanSessionId()
+      const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
         setBlockTime(0)
         
         // 记录首次回复时间（只记录第一次）
+        // fallback 到 sid (params.id)：plan 子 session 的事件 eventSessionID=planSid，
+        // 但 timing 存在 params.id 下，需要 fallback 才能命中
         const targetSessionID = eventSessionID ?? sid
-        const timing = messageTimingMap.get(targetSessionID)
+        const timing = messageTimingMap.get(targetSessionID) ?? messageTimingMap.get(sid)
         if (timing && !timing.firstTokenTime) {
           timing.firstTokenTime = Date.now()
         }
@@ -796,12 +928,59 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [planChildSessionIDs, setPlanChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
   const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
+  const PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX = "octo_make_plan_skill_handoff:"
+
+  type PlanSkillHandoff = {
+    childSessionId: string
+    skills: Array<{ name: string; label: string }>
+  }
+
+  function readPlanSkillHandoff(sessionId: string): PlanSkillHandoff | null {
+    const value = localStorage.getItem(PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId)
+    if (!value) return null
+    try {
+      const parsed = JSON.parse(value) as PlanSkillHandoff
+      if (!parsed.childSessionId || !Array.isArray(parsed.skills)) return null
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  function savePlanSkillHandoff(sessionId: string, childSessionId: string, skills: Array<{ name: string; label: string }>) {
+    if (skills.length === 0) {
+      clearPlanSkillHandoff(sessionId)
+      return
+    }
+    localStorage.setItem(
+      PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId,
+      JSON.stringify({ childSessionId, skills } satisfies PlanSkillHandoff),
+    )
+  }
+
+  function clearPlanSkillHandoff(sessionId: string) {
+    localStorage.removeItem(PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId)
+  }
+
+  /** 当前输入框中的设计规划胶囊状态，仅用于初始页待提交意图 */
+  const [planComposerCapsule, setPlanComposerCapsule] = createSignal(false)
+  const planComposerActive = () => !params.id && planComposerCapsule()
+
+  function clearPlanComposerCapsule() {
+    setPlanComposerCapsule(false)
+  }
+
+  function handleCancelPlanComposer() {
+    clearPlanComposerCapsule()
+    setOptimisticIntentResolved(false)
+  }
 
   /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
   const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
@@ -810,12 +989,48 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
 
-  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
-  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(false)
+  /** 设计规划是否已结束（退出或确认），per-session 隔离，用于控制 plan 视图只读模式 */
+  const [planEndedMap, setPlanEndedMap] = createSignal<Record<string, boolean>>(
+    params.id ? { [params.id]: !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id) } : {},
+  )
+  const currentSessionPlanEnded = createMemo(() => {
+    const sid = params.id
+    return sid ? !!planEndedMap()[sid] : false
+  })
 
-  /** 两步走工作流：当前阶段 */
-  const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
+  /** 两步走工作流：当前阶段，per-session 隔离 */
+  const [planPhaseMap, setPlanPhaseMap] = createSignal<Record<string, "strategy" | "generate">>({})
+  const currentSessionPlanPhase = createMemo(() => {
+    const sid = params.id
+    return sid ? (planPhaseMap()[sid] ?? "strategy") : "strategy"
+  })
+
+  // ── PatternPage 模式状态（子 session 模式，类 plan 流程） ───
+  const PATTERN_SUB_CHILD_LS = "ict_pattern_child:"
+  const PATTERN_SUB_ENDED_LS = "ict_pattern_ended:"
+  const PATTERN_SUB_USER_INPUT_LS = "ict_pattern_user_input:"
+  const PATTERN_SUB_STEP_LS = "ict_pattern_step:"
+  const [activePatternSessionId, setActivePatternSessionId] = createSignal<string | null>(null)
+  const [patternSubParentSessionId, setPatternSubParentSessionId] = createSignal<string | null>(null)
+  const [patternSubPhase, setPatternSubPhase] = createSignal<"match" | "module">("match")
+  const _patternSubChildCache: Record<string, string> = {}
+  const [showPatternPageConfirm, setShowPatternPageConfirm] = createSignal(false)
+  const [patternMatches, setPatternMatches] = createSignal<IntentConfirmResult | null>(null)
+  const [patternSubEnriching, setPatternSubEnriching] = createSignal(false)
+  const [patternBlockMatches, setPatternBlockMatches] = createSignal<BlockModuleItem[]>([])
+  const [patternBlockMatching, setPatternBlockMatching] = createSignal(false)
+  const [patternBlockMatchError, setPatternBlockMatchError] = createSignal(false)
+  const [patternUserInput, setPatternUserInput] = createSignal("")
+  const [optimisticPatternIntent, setOptimisticPatternIntent] = createSignal(false)
+  const [patternEnded, setPatternEnded] = createSignal(false)
+  // 已 enrich 过的 match / module-list 消息 id：复用已结束子 session 继续对话时，
+  // 跳过历史中已处理过的 <pattern-match>/<module-list>，避免旧匹配弹窗重新弹出。
+  // 新建子 session 或恢复活跃子 session 时清空（恢复时需重新 enrich）。
+  let lastEnrichedPatternMatchMsgId: string | null = null
+  let lastEnrichedModuleListMsgId: string | null = null
+  /** 输入框中的 PatternPage 胶囊状态，用户提交后才创建子 session */
+  const [patternPageCapsule, setPatternPageCapsule] = createSignal(false)
+  const patternPageCapsuleActive = () => patternPageCapsule() && !activePatternSessionId() && !patternEnded()
 
   // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
   const [userChangedPhase, setUserChangedPhase] = createSignal(false)
@@ -823,9 +1038,14 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
   const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
 
+  const activePlanForCurrentSession = createMemo(() => {
+    const planSid = activePlanSessionId()
+    return params.id && planParentSessionId() === params.id ? planSid : null
+  })
+
   const strategyFormData = createMemo(() => {
     // 优先从活跃的子 session 获取
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const messages = sync.data.message?.[activePlanSid]
       const parts = sync.data.part
@@ -858,14 +1078,37 @@ const sessionMessagesLoaded = createMemo(() => {
    */
   const [hasChildPlanSession, setHasChildPlanSession] = createSignal(false)
   async function detectChildPlanSession(sid: string): Promise<string | null> {
-    if (!sdk.directory) return null
+    if (!sdk.directory || params.id !== sid) return null
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
-      const child = sessions.find((s: any) => s.parentID === sid && s.agent === "octo_make_plan" && !s.time?.archived)
-      if (child) {
+      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived && (s.agent === "octo_make_plan" || s.agent === "ict_pattern"))
+      const planChild = children.find((s: any) => s.agent === "octo_make_plan")
+
+      for (const child of children) {
+        if (params.id !== sid) return null
+        await sync.session.sync(child.id)
+        if (params.id !== sid) return null
+        loadedChildSessions.add(child.id)
+        setChildSessionIDs((prev) => {
+          const next = new Set(prev)
+          next.add(child.id)
+          return next
+        })
+        if (child.agent === "octo_make_plan") {
+          setPlanChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(child.id)
+            return next
+          })
+        }
+      }
+
+      if (params.id !== sid) return null
+      if (planChild) {
         setHasChildPlanSession(true)
-        return child.id
+        return planChild.id
       }
     } catch {
       // 静默失败
@@ -873,45 +1116,101 @@ const sessionMessagesLoaded = createMemo(() => {
     return null
   }
 
+  async function detectChildPatternSubSession(sid: string): Promise<string | null> {
+    if (!sdk.directory) return null
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
+      const child = sessions.find((s: any) => s.parentID === sid && s.agent === "ict_pattern" && !s.time?.archived)
+      if (child) {
+        loadedChildSessions.add(child.id)
+        setChildSessionIDs((prev) => { const n = new Set(prev); n.add(child.id); return n })
+        await sync.session.sync(child.id)
+        return child.id
+      }
+    } catch { /* 静默失败 */ }
+    return null
+  }
+
   /** 加载子会话数据 */
   async function ensureChildSession(subSessionID: string) {
-    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
-    
-    // 防护：检查主 session 是否仍然有效（属于当前 sync.data）
-    const mainSessionId = params.id
-    if (!mainSessionId) return
-    const hasMainSession = Binary.search(sync.data.session, mainSessionId, (s) => s.id).found
-    if (!hasMainSession) return
-    
+    const ownerSessionID = params.id
+    if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
+
     loadedChildSessions.add(subSessionID)
-    setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
-    
-    // 子 session 可能属于不同项目，sync 失败时静默忽略
     try {
       await sync.session.sync(subSessionID)
+      if (params.id !== ownerSessionID) {
+        loadedChildSessions.delete(subSessionID)
+        return
+      }
+      setChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(subSessionID)
+        return next
+      })
     } catch {
-      // 忽略跨项目 session sync 错误
+      loadedChildSessions.delete(subSessionID)
     }
   }
+
+  const discoverChildSessions = async (sid: string) => {
+    if (!sdk.directory || params.id !== sid) return
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
+      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      const children = (res.data ?? []).filter((s: any) =>
+        s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
+      )
+      const discovered = new Set<string>()
+      const discoveredPlans = new Set<string>()
+      for (const child of children) {
+        if (params.id !== sid) return
+        await sync.session.sync(child.id)
+        if (params.id !== sid) return
+        discovered.add(child.id)
+        if (child.agent === "octo_make_plan") discoveredPlans.add(child.id)
+      }
+      if (params.id !== sid) return
+      if (discovered.size > 0) {
+        setChildSessionIDs((prev) => new Set([...prev, ...discovered]))
+        setPlanChildSessionIDs((prev) => new Set([...prev, ...discoveredPlans]))
+      }
+    } catch {
+      // 静默失败
+    }
+  }
+
+  const sortMessages = (messages: Message[]) => messages.sort((a, b) => {
+    const aTime = (a as any).time?.created ?? 0
+    const bTime = (b as any).time?.created ?? 0
+    if (aTime !== bTime) return aTime - bTime
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
 
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
-    const childIds = childSessionIDs()
+    const visible = (message: Message) => {
+      const parts = sync.data.part[message.id] ?? []
+      if (message.role !== "user" || parts.length === 0) return false
+      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
+      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
+      if (parts.some((part) => part.type === "compaction")) {
+        return parts.some((part) => part.type === "text")
+      }
+      return true
+    }
+    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
-    for (const childId of childIds) {
-      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+    for (const childId of childSessionIDs()) {
+      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
-    // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
-    // 否则在框选编辑等异步发送路径下,新消息可能因 Binary.search 插入位置异常而停留在顶部。
-    return allMsgs.sort((a, b) => {
-      const aTime = (a as any).time?.created ?? 0
-      const bTime = (b as any).time?.created ?? 0
-      if (aTime !== bTime) return aTime - bTime
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-    })
+    return sortMessages(allMsgs)
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
@@ -932,6 +1231,32 @@ const sessionMessagesLoaded = createMemo(() => {
   )
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const contextMetrics = createMemo(
+    () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
+  )
+  const contextLimit = createMemo(() => {
+    if (currentModel()?.limit.input) return currentModel()!.limit.input!
+    if (currentModel()?.limit.context) return currentModel()!.limit.context
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+  })
+  const contextTokens = createMemo(() => {
+    const context = contextMetrics()
+    if (!context) return 0
+    if (context.message.summary) return context.output
+    return context.total
+  })
+  const contextUsage = createMemo(() => {
+    const limit = contextLimit()
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+  })
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+
+  createEffect(() => {
+    if (contextUsage() >= 80) return
+    if (ignoredContextWarningSession() !== params.id) return
+    setIgnoredContextWarningSession(undefined)
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -941,16 +1266,95 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
-  // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
-  // 同时检测主 session 和子 session 的 busy 状态
   const childBusy = createMemo(() => {
-    const childId = activePlanSessionId()
-    if (!childId) return false
-    const status = sync.data.session_status[childId]
-    return status?.type === "busy"
+    const planSid = activePlanForCurrentSession()
+    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
-  const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  // pattern 子 session 是否正在工作（agent 处理 [模块匹配] 请求期间）
+  // 切换 session 后 patternBlockMatching 本地信号会被清零，
+  // 但 agent 可能仍在运行，用 session_status 派生真实忙碌状态
+  const patternChildBusy = createMemo(() => {
+    const sid = activePatternSessionId()
+    return !!sid && sync.data.session_status[sid]?.type === "busy"
+  })
+
+  const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
+  const contextWarningVisible = createMemo(
+    () =>
+      !contextSendBlocked() &&
+      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
+  )
+  const contextCompactionDisabled = effectiveBusy
+
+  async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
+    try {
+      const result = await sdk.client.session.command(input)
+      if (input.command !== "compact" && input.command !== "summarize") return
+
+      const info = result.data?.info
+      if (info && info.summary === true && info.finish && !info.error) {
+        showOctoToast({ title: "上下文压缩完成" })
+        return
+      }
+      const error = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
+      showOctoToast({
+        title: "上下文压缩失败",
+        description: error?.data?.message ?? error?.message ?? "请稍后重试",
+        variant: "error",
+      })
+    } catch (error) {
+      console.error(`[MakePage] command /${input.command} failed`, error)
+      if (input.command !== "compact" && input.command !== "summarize") return
+      showOctoToast({
+        title: "上下文压缩失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "error",
+      })
+    }
+  }
+
+  function compactContext() {
+    const sessionID = params.id
+    const model = currentModel()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+    return executeSessionCommand({
+      sessionID,
+      command: "compact",
+      arguments: "",
+      agent: "octo_make",
+      model: `${model.provider.id}/${model.id}`,
+    })
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">
+            当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              class="delete-dialog-btn delete-dialog-btn-primary"
+              onClick={() => {
+                dialog.close()
+                void compactContext()
+              }}
+            >
+              确认压缩
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
 
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -1051,41 +1455,23 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
-    const line = text ? `[选中元素: ${id}] ${text};` : ""
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    if (text) {
-      ref?.clear?.()
-      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-    }
-    void handleSubmit()
-  })
-  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
-    const line = `[选中元素: ${id}] ${text};`
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    const prev = ref?.getText?.() ?? ""
-    ref?.clear?.()
-    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
-  })
-  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  const hasSessionView = () => !!params.id
   // During session transition, keep split layout to avoid flash (messages not yet loaded)
-  const gridHasContent = () => hasContent() || !!(params.id && !sessionMessagesLoaded())
+  const gridHasContent = () => hasSessionView() || !!(params.id && !sessionMessagesLoaded())
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
-  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; getDocJSON: () => any; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void; appendDoc: (json: any, prefix?: string) => void; closeMention: () => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; getDocJSON: () => any; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void; appendDoc: (json: any, prefix?: string) => void; closeMention: () => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1142,7 +1528,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!state) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (!target.closest(".mention-popover-container")) {
+      if (!target.closest(".mention-popover-container") && !target.closest(".make-model-risk-overlay")) {
         setMentionState(null)
       }
     }
@@ -1153,6 +1539,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Skills Config (from skill_config.json) ──
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
+  const [skillsLoaded, setSkillsLoaded] = createSignal(false)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -1182,12 +1569,13 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
+      setSkillsLoaded(true)
     }
   }
   
   // 组件挂载时预加载 skill 配置
   createEffect(() => {
-    if (params.id && !skillConfig().skill) {
+    if (params.id && !skillsLoaded()) {
       loadSkillConfig()
     }
   })
@@ -1300,36 +1688,50 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
     api.writeFileBuffer(outputsInitPath, buffer)
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
+    // fastui dev server:挂着等 skill 写出 .octo-fastui.json,出现即由主进程起服务并持有
+    // (SPEC-DES-001 §8.6.1)。skill 脚本是短命的,它自己起的进程在 Windows 下活不过本次调用。
+    // 非 fastui 会话等不到那个文件,超时静默放弃,对其他 Design 用法零影响。
+    api.fastuiDevServerArm?.([dir, ".octo", id].join(sep))
+      .catch((err: unknown) => console.warn("[MakePage] failed to arm fastui dev server", err))
   }))
 
-  // 保存 prompt 到 localStorage
-  function savePromptToStorage(sessionId: string | undefined, text: string) {
-    if (!sessionId) return
-    const key = PROMPT_KEY_PREFIX + sessionId
-    if (text.trim()) localStorage.setItem(key, text)
-    else localStorage.removeItem(key)
+  // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
+  // 新建对话（无 sid）用固定 __draft__ key 持久化草稿
+  function loadDocJSONFromStorage(sessionId: string | undefined): any {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    const raw = localStorage.getItem(key)
+    if (!raw) return undefined
+    if (raw.startsWith("{")) {
+      try { return JSON.parse(raw).doc } catch { return undefined }
+    }
+    // 旧字符串格式迁移
+    return docJSONFromPlainText(raw)
   }
-  // 加载 prompt from localStorage
-  function loadPromptFromStorage(sessionId: string | undefined): string {
-    if (!sessionId) return ""
-    return localStorage.getItem(PROMPT_KEY_PREFIX + sessionId) ?? ""
+  function saveDocJSONToStorage(sessionId: string | undefined, docJSON: any) {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    if (docJSON?.content?.length) {
+      localStorage.setItem(key, JSON.stringify({ v: 2, doc: docJSON }))
+    } else {
+      localStorage.removeItem(key)
+    }
   }
 
-  // 追踪当前 session ID 用于保存 prompt
+  // promptDoc: ProseMirror doc JSON，权威源（持久化用）
+  const [promptDoc, setPromptDoc] = createSignal<any>(loadDocJSONFromStorage(params.id))
   let currentSessionIdForPrompt: string | undefined = params.id
-  // prompt 变化时立即保存到当前 session
-  createEffect(on(prompt, (text) => {
-    savePromptToStorage(currentSessionIdForPrompt, text)
+  // doc 变化时立即保存到当前 session
+  createEffect(on(promptDoc, (json) => {
+    saveDocJSONToStorage(currentSessionIdForPrompt, json)
   }, { defer: true }))
-  // 切换 session 时：更新追踪 ID 并加载新 prompt
+  // 切换 session：加载新 doc + 让 editor 重建
   createEffect(on(() => params.id, (newId) => {
     currentSessionIdForPrompt = newId
-    setPrompt(loadPromptFromStorage(newId))
-    setMentionSelections([])
+    const json = loadDocJSONFromStorage(newId)
+    setPromptDoc(json)
     requestAnimationFrame(() => {
-      const ref = proseMirrorRef1 ?? proseMirrorRef2
-      if (ref?.isAlive()) {
-        ref.clear()
+      const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+      if (ref) {
+        ref.replaceDoc(json ?? { type: "doc", content: [{ type: "paragraph" }] })
       }
     })
   }, { defer: true }))
@@ -1367,11 +1769,16 @@ const sessionMessagesLoaded = createMemo(() => {
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
 
+  createEffect(on(() => resultViewMode(), (mode) => {
+    if (mode !== "tabs") layout.focusMode.set(false)
+  }, { defer: true }))
+
   const historyController = createHistoryController({
     setVersionList: (updater) => setVersionList(updater),
     setCurrentVersionId: (updater) => setCurrentVersionId(updater),
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+    isActiveTab: (id) => tabStore.activeId() === id,
   })
 
   /** 刷新版本快照列表 */
@@ -1396,22 +1803,47 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
   // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
-  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // 用 beginWrite/endWrite 包住，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  // detail.history=true（源于 commitA2uiDoc 属性编辑/拖拽）才记 user 版本；
+  // history=false（状态同步 A2UI_STATE_CHANGE / od:a2ui-state-snapshot / 退出 flush）
+  // 仅落盘保活，不产生历史，但仍推进 lastFileHash 防止 onFileRefresh 误记 agent。
   createEffect(() => {
     const handler = async (e: Event) => {
-      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      const detail = (e as CustomEvent<{ filePath: string; history?: boolean }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target || target.subtype !== "prototype") return
       historyController.beginWrite(target.id)
       try {
-        await historyController.onUserEdit(target)
+        if (detail.history) {
+          await historyController.onUserEdit(target)
+        } else {
+          await historyController.syncFileHash(target)
+        }
       } finally {
         historyController.endWrite(target.id)
       }
     }
     window.addEventListener("prototype:a2ui-persisted", handler)
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
+  })
+
+  // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
+  // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
+  // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
+  // design（纯 HTML）页面同理：sandbox allow-same-origin 后点击 iframe 不触发 parent
+  // 的 window.blur，由 html-renderer 在选中元素时派发 design:element-selected，此处监听关闭。
+  createEffect(() => {
+    const close = () => setShowHistoryPanel(false)
+    const unsubQuickFix = onPrototypeQuickFix(close)
+    const unsubCtxMenu = onPrototypeCtxMenu(close)
+    const onElementSelected = () => close()
+    window.addEventListener("design:element-selected", onElementSelected)
+    onCleanup(() => {
+      unsubQuickFix()
+      unsubCtxMenu()
+      window.removeEventListener("design:element-selected", onElementSelected)
+    })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
@@ -1421,8 +1853,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 只在活跃的 plan 模式下回退到主 session 扫描，
   // 避免主 session 中 agent 输出的 design-plan artifact 被重复捕获。
   const planCard = createMemo(() => {
-    // 优先从活跃的子 session 扫描
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
       if (card) return card
@@ -1446,7 +1877,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
     // 从 planCard 对应的 session 检测确认状态
-    const planSid = planCard()?.id?.split(":")[1] || activePlanSessionId() || params.id
+    const planSid = planCard()?.id?.split(":")[1] || activePlanForCurrentSession() || params.id
     if (!planSid) return false
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
@@ -1485,8 +1916,6 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 确认后等待主 agent 响应的过渡状态
   const [planConfirmPending, setPlanConfirmPending] = createSignal(false)
-  // confirm-plan 发送时的界面显示文本（仅显示指令，不显示方案内容）
-  let _confirmPlanDisplayText: string | undefined
 
   // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
   const [phase2Pending, setPhase2Pending] = createSignal(false)
@@ -1508,11 +1937,11 @@ const sessionMessagesLoaded = createMemo(() => {
   // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
-      const currentPhase = planPhase()
+      const currentPhase = currentSessionPlanPhase()
       // 如果已经是 generate 阶段，不需要再检测
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
@@ -1528,14 +1957,80 @@ const sessionMessagesLoaded = createMemo(() => {
       return null
     },
     (phase) => {
-      if (phase === "generate") setPlanPhase("generate")
+      if (phase === "generate") setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
     },
     { defer: true }
   ))
 
+  // ── ict_pattern 子 session memos + effects ──────────────
+  const patternSubMatchScanned = createMemo(() => {
+    const sid = activePatternSessionId(); if (!sid) return null
+    return scanPatternMatchFromMessages(sync.data.message?.[sid], sync.data.part)
+  })
+  const moduleListScanned = createMemo(() => {
+    const sid = activePatternSessionId(); if (!sid) return null
+    return scanModuleListFromMessages(sync.data.message?.[sid], sync.data.part)
+  })
+  // <module-list> 出现时自动切到 module 阶段
+  createEffect(on(() => {
+    const sid = activePatternSessionId(); if (!sid || patternSubPhase() === "module") return null
+    return moduleListScanned()
+  }, (ml) => {
+    if (!ml) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    setPatternSubPhase("module")
+  }, { defer: true }))
+  // [模块匹配] 已发送但 agent 未响应时，也恢复到 module 阶段
+  // 覆盖场景：用户点"跳过"/"下一步"进入 Phase 2 后切换 session 或刷新页面，
+  // agent 仍在处理中（无 <module-list> 输出），用 user 消息中的 [模块匹配] 标记恢复阶段
+  // 只看最后一条用户消息：复用已结束子 session 继续对话时，历史中的旧 [模块匹配]
+  // 不应再把 phase 拉回 module，避免新一轮 <pattern-match> 弹窗从「模块」步起
+  createEffect(on(() => {
+    const sid = activePatternSessionId()
+    if (!sid || patternSubPhase() === "module") return false
+    const msgs = sync.data.message?.[sid]
+    if (!msgs || msgs.length === 0) return false
+    let lastUser: Message | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") { lastUser = msgs[i]; break }
+    }
+    if (!lastUser) return false
+    const text = (sync.data.part?.[lastUser.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+    return text?.includes("[模块匹配]") ?? false
+  }, (hasPrompt) => { if (hasPrompt) setPatternSubPhase("module") }, { defer: true }))
+  // <pattern-match> 扫描到后 enrich file/preview
+  createEffect(on(() => patternSubMatchScanned(), async (scanned, prev) => {
+    if (!scanned || scanned === prev) return
+    if (scanned.results.length === 0) { setPatternMatches(null); return }
+    if (scanned.matchedMessageId && scanned.matchedMessageId === lastEnrichedPatternMatchMsgId) return
+    lastEnrichedPatternMatchMsgId = scanned.matchedMessageId ?? null
+    // 新一轮匹配：重置到 match 阶段，避免复用继续对话时历史 [模块匹配] 把 phase 拉回 module 导致弹窗从「模块」步起
+    setPatternSubPhase("match")
+    setPatternSubEnriching(true)
+    try {
+      const enriched = await getPagePatternResource({ results: scanned.results })
+      setPatternMatches({ results: enriched.results as any, current_step: "intent_confirm" })
+    } catch (err) { console.error("[MakePage] enrich pattern match failed", err); setPatternMatches({ results: scanned.results as any, current_step: "intent_confirm" }) }
+    finally { setPatternSubEnriching(false) }
+  }, { defer: true }))
+  // <module-list> 扫描到后调 getBlockPatternResource 搜索向量库补全预览图
+  createEffect(on(() => moduleListScanned(), async (ml, prev) => {
+    if (!ml || ml === prev) return
+    if (ml.matchedMessageId && ml.matchedMessageId === lastEnrichedModuleListMsgId) return
+    lastEnrichedModuleListMsgId = ml.matchedMessageId ?? null
+    setPatternBlockMatching(true)
+    setPatternBlockMatchError(false)
+    setPatternBlockMatches([])
+    try {
+      const result = await getBlockPatternResource({ modules: ml.modules })
+      setPatternBlockMatches(result.results ?? [])
+    } catch (err) { console.error("[MakePage] block pattern resource failed", err); setPatternBlockMatchError(true) }
+    finally { setPatternBlockMatching(false) }
+  }, { defer: true }))
+
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
@@ -1544,18 +2039,18 @@ const sessionMessagesLoaded = createMemo(() => {
     sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
       setIsGenerating(false)  // 失败时恢复
-      setPlanPhase("strategy")  // 失败时回滚到策略准备阶段
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
     })
     setUserChangedPhase(false)  // 重置手动切换标记
-    setPlanPhase("generate")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
     // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
     if (planSid && key) {
@@ -1564,12 +2059,16 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
-  function handleConfirmPlan(identifier?: string) {
-    const planSid = activePlanSessionId()
+  async function handleConfirmPlan(identifier?: string) {
+    const planSid = activePlanForCurrentSession()
     const modelKey = activeModelKey()
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
     if (planButtonDisabled()) return   // 防重复
+    // 立即持久化"已结束"标记 + 设置 planEnded，防止用户在 await 期间切换 session 后切回时 plan 恢复为可交互
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    setPlanEndedForSession(mainSid)
+    setPlanEndedMap(prev => ({ ...prev, [mainSid]: true }))
     setOptimisticConfirmed(true)
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
@@ -1580,26 +2079,68 @@ const sessionMessagesLoaded = createMemo(() => {
     const message = planContent
       ? `${cmd}\n\n以下是已确认的设计方案，请基于此方案生成 HTML：\n\n${planContent}`
       : cmd
+    const handoff = readPlanSkillHandoff(mainSid)
 
-    // 向主 session 发送确认指令 + 方案内容：界面只显示 [confirm-plan]，方案内容作为隐藏上下文传给模型
-    _confirmPlanDisplayText = cmd
-    sendMessage(mainSid, message, modelKey).catch((err) => {
+    // 确认后的首轮生成消息直发主会话，绕过了 sendMessage 的每轮注入；
+    // 补上 [Artifact Folder]，主 agent 生成 HTML 时不再依赖历史消息里碰巧存在的目录上下文。
+    const artifactFolderPrefix = await buildArtifactFolderPrefix(mainSid)
+
+    try {
+      if (handoff && handoff.childSessionId === planSid && handoff.skills.length > 0) {
+        const model = `${modelKey.providerID}/${modelKey.modelID}`
+        const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
+        // 与 sendMessage 命令路径同款：前缀作为 synthetic part，服务端排在模板 parts 之后，
+        // 渲染端只取第一个 text part（skill 模板文本），前缀不会显示。
+        let prefixInjected = false
+        for (const skill of handoff.skills) {
+          // 记录发送开始时间（每次 skill 命令前重新设置，支持多 skill 逐条追踪）
+          messageTimingMap.set(mainSid, {
+            startTime: Date.now(),
+            inputText: cmd.slice(0, 30)
+          })
+          await sdk.client.session.command({
+            sessionID: mainSid,
+            command: skill.name,
+            arguments: skillPrompt,
+            agent: "octo_make",
+            model,
+            parts: !prefixInjected && artifactFolderPrefix
+              ? [{ type: "text" as const, text: artifactFolderPrefix, synthetic: true }]
+              : undefined,
+          })
+          prefixInjected = true
+        }
+      } else {
+        // 无 Skill 时走普通 prompt；避免确认消息被 command 分支误拆。
+        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取——
+        // 产物目录前缀拼进 text 与方案内容走同一条隐藏通道，气泡仍只显示 [confirm-plan xxx]。
+        const promptText = artifactFolderPrefix ? artifactFolderPrefix + "\n" + message : message
+        await sdk.client.session.prompt({
+          sessionID: mainSid,
+          agent: "octo_make",
+          model: modelKey,
+          parts: [{ type: "text", text: promptText, metadata: { displayText: cmd } }],
+        })
+      }
+    } catch (err) {
       console.error("[MakePage] confirm plan to main session failed", err)
-    })
+      setOptimisticConfirmed(false)
+      setPlanConfirmPending(false)
+      return
+    }
+
+    clearPlanSkillHandoff(mainSid)
+    clearPlanComposerCapsule()
 
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
-    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
-    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
-    const currentPhase = planPhase()
-    setPlanEndedForSession(mainSid)
-    setPlanEnded(true)
+    const currentPhase = currentSessionPlanPhase()
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setPlanPhase(currentPhase)
+    setPlanPhaseMap(prev => ({ ...prev, [mainSid]: currentPhase }))
     // 不切视图：保持 plan 模式，让用户看到按钮已禁用的状态
     // 等到主 agent 进入 busy 状态后再自动切回 files 视图
   }
@@ -1612,7 +2153,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
-    const currentChildId = activePlanSessionId()
+    const currentChildId = activePlanForCurrentSession()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
@@ -1623,106 +2164,279 @@ const sessionMessagesLoaded = createMemo(() => {
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
     setResultViewMode("files")
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setSending(false)
-    setPlanEnded(true)
+    // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
+    // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
+    setPlanEndedMap(prev => ({ ...prev, [params.id!]: true }))
+    const mainSid = params.id
+    if (mainSid) {
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    }
+    clearPlanComposerCapsule()
     // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
     // 保留子 session 的引用以便跨重启恢复和消息历史查看
     // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
+  // ── PatternPage 模式（子 session 模式，agent = ict_pattern） ──
+  // AddonMenu → 直接创建 ict_pattern 子 session（无确认弹窗）
+  // Phase 1 (match): ict_pattern 输出 <pattern-match> → enrich → IntentConfirmCard Step 1
+  // Phase 2 (module): 前端发 [模块匹配] + 页面规范 → ict_pattern 输出 <module-list> → getBlockPatternResource → IntentConfirmCard Step 2
+  // 确认 → [confirm-pattern-page] + 模块列表 + block 内容发给主 agent
+
+  /** AddonMenu「进入patternPage模式」→ 显示输入框胶囊，用户提交后才创建子 session */
+  function handleOpenPatternPageConfirm() {
+    if (activePatternSessionId() || patternPageCapsule()) return
+    setPatternEnded(false)
+    const sid = params.id
+    if (sid) localStorage.removeItem(PATTERN_SUB_ENDED_LS + sid)
+    setPatternPageCapsule(true)
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
+  function handleCancelPatternPageComposer() {
+    setPatternPageCapsule(false)
+    setOptimisticPatternIntent(false)
+  }
+
+  /** 用户点击 [进入] → 创建 ict_pattern 子 session */
+  async function handleEnterPatternPage() {
+    const sid = params.id
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
+    if (optimisticPatternIntent()) return
+    setOptimisticPatternIntent(true)
+    setPatternEnded(false)
+    if (sid) localStorage.removeItem(PATTERN_SUB_ENDED_LS + sid)
+    try {
+      const dir = sdk.directory
+      if (!dir) throw new Error("No directory")
+      const userMsgs = userMessages()
+      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      const rawText = lastUserMsg ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") : ""
+      const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
+      setPatternUserInput(userInput)
+      if (userInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + sid, userInput)
+
+      const result = await sdk.client.session.create({ directory: dir, parentID: sid, agent: "ict_pattern" })
+      const childSession = result.data as Session | undefined
+      if (!childSession) throw new Error("Failed to create ict_pattern session")
+      loadedChildSessions.add(childSession.id)
+      setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childSession.id); return n })
+      setActivePatternSessionId(childSession.id)
+      localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, childSession.id)
+      _patternSubChildCache[sid] = childSession.id
+      setPatternSubParentSessionId(sid)
+      setPatternSubPhase("match")
+      localStorage.setItem(PATTERN_SUB_STEP_LS + sid, "patterns")
+      setPatternMatches(null)
+      setPatternBlockMatches([])
+      setPatternBlockMatching(false)
+      sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync ict_pattern child failed", err))
+
+      // 有输入直接发，无输入等用户提交
+      if (userInput) {
+        sdk.client.session.prompt({ sessionID: childSession.id, agent: "ict_pattern", model: modelKey, parts: [{ type: "text", text: userInput }] })
+          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false) })
+      } else {
+        requestAnimationFrame(() => textareaRef?.focus())
+      }
+    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false) }
+  }
+
+  /** IntentConfirmCard onMatchPattern：用户选定 Pattern → 拉页面规范 MD → 发 [模块匹配] */
+  async function handleMatchPattern(selectedItem: any) {
+    const subSid = activePatternSessionId()
+    const mk = activeModelKey()
+    if (!subSid || !mk) return
+    setPatternSubPhase("module")
+    setPatternBlockMatching(true)
+    setPatternBlockMatchError(false)
+    setPatternBlockMatches([])
+    let pageSpecMd = ""
+    if (selectedItem?.file) {
+      const mdResult = await readPagePatternMd(selectedItem.file)
+      if (mdResult.success && mdResult.content) {
+        // 输入完整数据
+        const sepIdx = mdResult.content.indexOf('\n---\n');
+        if(sepIdx === -1) {
+          pageSpecMd = mdResult.content
+        } else {
+          const firstPart = mdResult.content.slice(0, sepIdx + 5);
+          const rest = mdResult.content.slice(sepIdx + 5);
+          pageSpecMd = firstPart + rest.replaceAll('\n---\n', '')
+        }
+      } 
+    }
+    const ui = patternUserInput() || selectedItem?.name || ""
+    const prompt = `[模块匹配]\n\nPattern: ${selectedItem?.name ?? ""} (ID: ${selectedItem?.id ?? ""})\n\n【1.典型页面规范】\n${pageSpecMd || "（未获取到页面规范，请基于 Pattern 名称自行推演）"}\n\n【2.用户业务需求描述】\n${ui}`
+    sendMessage(subSid, prompt, mk).catch((err) => { console.error("[MakePage] select pattern sub failed", err); setPatternBlockMatching(false); setPatternSubPhase("match") })
+  }
+
+  /** IntentConfirmCard onConfirm：用户选定 block → 下载 content → 保存 pattern 数据到 outputs（不生成 HTML） */
+  async function handleConfirmPatternPage(_answers?: IntentConfirmAnswers, _enrichedInput?: string, selectedBlocks?: BlockModuleItem[]) {
+    const mainSid = patternSubParentSessionId() ?? params.id
+    // 立即关闭弹框
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
+    if (!mainSid) { handleEndPatternPage(); return }
+    let blocksToSend: BlockModuleItem[] = []
+    if (selectedBlocks && selectedBlocks.length > 0) {
+      try { blocksToSend = (await getBlockContent({ results: selectedBlocks }, mainSid)).results } catch (err) { console.error("[MakePage] getBlockContent failed", err) }
+    }
+    // 保存 pattern 数据到 session 的 outputs 目录（不生成 HTML，不调用 agent）
+    const folderProjDir = projectDir()
+    if (folderProjDir) {
+      const api = getDesktopApi()
+      if (api?.writeFileBuffer) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const outputsDir = [folderProjDir, ".octo", mainSid, "outputs"].join(sep)
+        const encoder = new TextEncoder()
+        const payload = JSON.stringify({
+          blocks: blocksToSend.map(({ id: _id, file: _file, preview: _preview, ...rest }) => rest),
+        }, null, 2)
+        try {
+          const filePath = [outputsDir, "pattern.json"].join(sep)
+          const buffer = encoder.encode(payload).buffer as ArrayBuffer
+          await api.writeFileBuffer(filePath, buffer)
+        } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
+      }
+    }
+    // 保存完成后刷新右侧文件管理页面，显示新生成的 pattern.json
+    setFilesRefreshKey(k => k + 1)
+    void historyController.onFileRefresh(tabStore.tabs())
+    // 结束 pattern 模式流程并退出
+    handleEndPatternPage()
+  }
+
+  /** 用户点击 [退出] → 中止子 session + 退出 */
+  function handleEndPatternPage() {
+    const subSid = activePatternSessionId()
+    if (subSid) sdk.client.session.abort({ sessionID: subSid }).catch(() => {})
+    setActivePatternSessionId(null)
+    setPatternSubParentSessionId(null)
+    setPatternSubPhase("match")
+    setOptimisticPatternIntent(false)
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
+    setPatternBlockMatchError(false)
+    setPatternSubEnriching(false)
+    setPatternEnded(true)
+    setShowPatternPageConfirm(false)
+    const sid = params.id
+    if (sid) {
+      localStorage.setItem(PATTERN_SUB_ENDED_LS + sid, "true")
+      localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + sid)
+      localStorage.removeItem(PATTERN_SUB_STEP_LS + sid)
+    }
+  }
+
   // ── 设计规划阶段引导 ─────────────────────────────
   // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
-  //（已移除 agent sentinel → PlanEntryBanner 引导流程）
 
-  // 乐观锁:进入规划后立即置位,防止重复创建子 session。
-  // 避免 sendMessage 飞行期间用户连点重复发送。
+  // 进入规划后立即置位，防止 API 请求期间重复创建子 session。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
   // 记录用户已结束该 session 的规划状态,防止下次 AddonMenu 重新进入
   const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
-  // 控制确认弹窗是否显示（内联渲染在输入框上方）
+  // 控制已有 session 的确认弹窗是否显示
   const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
+    setOptimisticPatternIntent(false)
+    if (params.id) clearPlanComposerCapsule()
   }, { defer: true }))
 
-  /** AddonMenu「进入设计规划」→ 弹出确认弹窗，用户确认后才真正进入 */
+  /** AddonMenu「进入设计规划」→ 初始页显示胶囊，已有 session 显示确认弹窗 */
   function handleOpenPlanConfirm() {
-    if (activePlanSessionId()) return  // 已在规划中，按钮已禁用，双保险
+    if (!activeModelKey()) return
+    if (!params.id) {
+      if (planComposerActive()) return
+      setPlanComposerCapsule(true)
+      return
+    }
+    if (activePlanSessionId() || optimisticIntentResolved()) return
     setShowPlanConfirm(true)
   }
 
-  /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
+  /** 用户确认进入规划 → 创建已有主 session 的规划子 session */
+  // 跟踪 handleEnterPlan 是否正在进行中，防止 sync.data.session 更新触发 effect 错误清除状态
+  let _enteringPlan = false
+
   async function handleEnterPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
+
+    const editor = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined
+    const skills = editor?.getMentions?.().filter((mention) => mention.type === "skill") ?? []
+    const composerText = editor?.getText?.() ?? ""
+
     setOptimisticIntentResolved(true)
-    setPlanEnded(false)
-    if (sid) localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
+    setPlanEndedMap(prev => ({ ...prev, [sid]: false }))
+    localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
       const dir = sdk.directory
       if (!dir) throw new Error("No directory")
 
-      // 1. 获取用户最近的输入作为初始 prompt
       const userMsgs = userMessages()
       const lastUserMsg = userMsgs[userMsgs.length - 1]
       const rawText = lastUserMsg
-        ? (sync.data.part[lastUserMsg.id] ?? [])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text)
-            .join("\n")
-        : ""
-      // 去掉[Artifact Folder]等系统注入前缀:取最后一个"---\n"之后的内容
+        ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+        : composerText
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       const initialPrompt = userInput
         ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
         : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
 
-      // 2. 创建子 session
-      const result = await sdk.client.session.create({
-        directory: dir,
-        parentID: sid,
-        agent: "octo_make_plan",
-      })
+      const result = await sdk.client.session.create({ directory: dir, parentID: sid, agent: "octo_make_plan" })
       const childSession = result.data as Session | undefined
       if (!childSession) throw new Error("Failed to create plan session")
 
-      // 3. 注册子 session
-      loadedChildSessions.add(childSession.id)
-      setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
+      await sync.session.sync(childSession.id)
+      _enteringPlan = true
+      setChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(childSession.id)
+        return next
+      })
+      setPlanChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(childSession.id)
+        return next
+      })
       setActivePlanSessionId(childSession.id)
       localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
       _planChildSessionCache[sid] = childSession.id
       setPlanParentSessionId(sid)
+      _enteringPlan = false
+      savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
-      // 4. 切换到 plan 模式
       setResultViewMode("plan")
-      setPlanPhase("strategy")
+      setPlanPhaseMap(prev => ({ ...prev, [sid]: "strategy" }))
       setUserChangedPhase(false)
       setManualStrategyFormData({})
-
-      // 5. 同步子 session 数据并发送 prompt
-      sync.session.sync(childSession.id).catch((err: any) => {
-        console.warn("[MakePage] sync child session failed", err)
+      sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync child session failed", err))
+      sdk.client.session.prompt({
+        sessionID: childSession.id,
+        agent: "octo_make_plan",
+        model: modelKey,
+        parts: [{ type: "text", text: initialPrompt }],
+      }).catch((err: any) => {
+        console.error("[MakePage] prompt child agent failed", err)
+        setOptimisticIntentResolved(false)
       })
-
-      if (modelKey) {
-        sdk.client.session.prompt({
-          sessionID: childSession.id,
-          agent: "octo_make_plan",
-          model: modelKey,
-          parts: [{ type: "text", text: initialPrompt }],
-        }).catch((err: any) => {
-          console.error("[MakePage] prompt child agent failed", err)
-          setOptimisticIntentResolved(false)
-        })
-      }
     } catch (err) {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
+      setActivePlanSessionId(null)
+      setPlanParentSessionId(null)
+      setPlanChildSessionIDs(new Set<string>())
+      setHasChildPlanSession(false)
     }
   }
 
@@ -1739,11 +2453,29 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!newSid) {
         if (prevSid) {
           setActivePlanSessionId(null)
+          setPlanParentSessionId(null)
+          clearPlanComposerCapsule()
+          setChildSessionIDs(new Set<string>())
+          loadedChildSessions.clear()
+          setPlanChildSessionIDs(new Set<string>())
           setHasChildPlanSession(false)
           setResultViewMode("files")
-          setPlanPhase("strategy")
+          if (prevSid) setPlanPhaseMap(prev => ({ ...prev, [prevSid]: "strategy" }))
           setManualStrategyFormData({})
           setPhase2Pending(false)
+          // 清理 patternPage 状态
+          setActivePatternSessionId(null)
+          setPatternSubParentSessionId(null)
+          setPatternSubPhase("match")
+          setPatternMatches(null)
+          setPatternBlockMatches([])
+          setPatternBlockMatching(false)
+          setPatternBlockMatchError(false)
+          setPatternSubEnriching(false)
+          setPatternEnded(false)
+          setPatternPageCapsule(false)
+          setOptimisticPatternIntent(false)
+          setShowPatternPageConfirm(false)
         }
         return
       }
@@ -1753,165 +2485,262 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
-      if (newSid !== prevSid) {
+      // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
+      if (newSid !== prevSid && _enteringPlan) {
+        setPatternEnded(false)
+        setPatternPageCapsule(false)
+        setOptimisticPatternIntent(false)
+        setActivePatternSessionId(null)
+        setPatternSubParentSessionId(null)
+        setPatternSubPhase("match")
+        setPatternMatches(null)
+        setPatternBlockMatches([])
+        setPatternBlockMatching(false)
+        setPatternBlockMatchError(false)
+        setPatternSubEnriching(false)
+      }
+      if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + prevSid, activePlanSessionId()!)
         }
+        // 缓存前一个 session 的 patternPage 子 session，切回时立即恢复
+        if (prevSid && activePatternSessionId()) {
+          _patternSubChildCache[prevSid] = activePatternSessionId()!
+          localStorage.setItem(PATTERN_SUB_CHILD_LS + prevSid, activePatternSessionId()!)
+          // 缓存用户输入，切回时恢复 patternPage 匹配弹窗所需的状态
+          const cachedInput = patternUserInput()
+          if (cachedInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + prevSid, cachedInput)
+          else localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + prevSid)
+        }
         // 清理前一个 session 的子 session 记录
         setChildSessionIDs(new Set<string>())
         loadedChildSessions.clear()
         setActivePlanSessionId(null)
+        setPlanParentSessionId(null)
+        clearPlanComposerCapsule()
+        setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
-        setPlanPhase("strategy")
+        setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
-        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
+        // 清理 patternPage 状态
+        setActivePatternSessionId(null)
+        setPatternSubParentSessionId(null)
+        setPatternSubPhase("match")
+        setPatternMatches(null)
+        setPatternBlockMatches([])
+        setPatternBlockMatching(false)
+        setPatternBlockMatchError(false)
+        setPatternSubEnriching(false)
+        setPatternEnded(false)
+        setShowPatternPageConfirm(false)
+        setPatternPageCapsule(false)
+        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
-      // 尝试恢复当前主 session 的设计规划子 session
+      // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
-      // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
-      if (newSid && _planChildSessionCache[newSid]) {
-        restoredPlanSid = _planChildSessionCache[newSid]
-      }
-      // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
-      // 只恢复非归档的活跃子 session
-      if (allSessions) {
-        for (const s of allSessions) {
-          if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
-            loadedChildSessions.add(s.id)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
-            sync.session.sync(s.id).catch(() => {})
-            restoredPlanSid = s.id
-            break
+      if (newSid !== prevSid) {
+        // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
+        if (newSid && _planChildSessionCache[newSid]) {
+          restoredPlanSid = _planChildSessionCache[newSid]
+        }
+        // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
+        // 只恢复非归档的活跃子 session
+        if (allSessions) {
+          for (const s of allSessions) {
+            if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
+              loadedChildSessions.add(s.id)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
+              sync.session.sync(s.id).catch(() => {})
+              restoredPlanSid = s.id
+              break
+            }
           }
         }
-      }
-      if (restoredPlanSid) {
-        // 检查是否已被用户退出（持久化标记）
-        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
-        if (isEnded) {
-          // 已退出：只保留历史记录，不恢复为活跃状态
-          if (!loadedChildSessions.has(restoredPlanSid)) {
-            loadedChildSessions.add(restoredPlanSid)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-            sync.session.sync(restoredPlanSid).catch(() => {})
+        if (restoredPlanSid) {
+          // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
+          setPlanEndedForSession(null)
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))
+          const planSid = restoredPlanSid
+          // 检查是否已被用户退出（持久化标记）
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            // 已退出：只保留历史记录，不恢复为活跃状态
+            if (!loadedChildSessions.has(planSid)) {
+              loadedChildSessions.add(planSid)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+              sync.session.sync(planSid).catch(() => {})
+            }
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            return
           }
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          return
-        }
 
-        if (!loadedChildSessions.has(restoredPlanSid)) {
-          loadedChildSessions.add(restoredPlanSid)
-          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-          sync.session.sync(restoredPlanSid).catch(() => {})
-        }
-        // 检测子 session 是否已被确认
-        // 已确认的子 session 只保留历史记录，不恢复为活跃状态
-        const childMessages = sync.data.message?.[restoredPlanSid]
-        const childParts = sync.data.part
+          if (!loadedChildSessions.has(planSid)) {
+            loadedChildSessions.add(planSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+            sync.session.sync(planSid).catch(() => {})
+          }
+          // 检测子 session 是否已被确认
+          // 已确认的子 session 只保留历史记录，不恢复为活跃状态
+          const childMessages = sync.data.message?.[planSid]
+          const childParts = sync.data.part
 
-        // 扫描 design-plan artifact
-        const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, restoredPlanSid)
-        const planIdent = planArtifact?.artifactIdentifier
+          // 扫描 design-plan artifact
+          const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, planSid)
+          const planIdent = planArtifact?.artifactIdentifier
 
-        // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
-        const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+          // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
+          // [confirm-plan] 发送给主 session，需同时检查主 session 消息流
+          let isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+          if (!isConfirmed && planIdent && newSid) {
+            isConfirmed = isPlanConfirmed(sync.data.message?.[newSid], sync.data.part, planIdent)
+          }
 
-        // 检测子 session 消息流中是否已有 design-plan artifact
-        const hasDesignPlan = childMessages?.some((m: any) => {
-          if (m.role !== "assistant") return false
-          const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"')
-        })
+          // 检测子 session 消息流中是否已有 design-plan artifact
+          const hasDesignPlan = childMessages?.some((m: any) => {
+            if (m.role !== "assistant") return false
+            const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes('type="text/design-plan"')
+          })
 
-        if (isConfirmed) {
-          // 已确认：只保留历史记录，不设为活跃
-          setHasChildPlanSession(false)
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
-          // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-          // 清理 localStorage 缓存
-          localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
-          delete _planChildSessionCache[newSid]
-        } else {
-          // 未确认：恢复为活跃状态
-          setActivePlanSessionId(restoredPlanSid)
-          setHasChildPlanSession(true)
-          setResultViewMode("plan")
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+          if (isConfirmed) {
+            // 已确认：只保留历史记录，不设为活跃
+            setPlanChildSessionIDs(new Set<string>())
+            setHasChildPlanSession(false)
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
+            // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
+            // 清理 localStorage 缓存
+            localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
+            delete _planChildSessionCache[newSid]
+          } else {
+            // 未确认：恢复为活跃状态
+            setActivePlanSessionId(planSid)
+            setPlanParentSessionId(newSid)
+            setHasChildPlanSession(true)
+            setResultViewMode("plan")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
+          }
         }
       }
       setMentionState(null)
       setSlashState(null)
 
-      // 第二阶段：同步扫描未找到时,异步从 API 全量拉取检测子 session（跨重启恢复）
+      // ── ict_pattern 子 session 恢复 ──────────────────
+      let restoredPatternSubSid: string | null = null
+      if (newSid && _patternSubChildCache[newSid]) restoredPatternSubSid = _patternSubChildCache[newSid]
+      // 从 sync.data.session 同步扫描
+      if (allSessions) {
+        for (const s of allSessions) {
+          if ((s as any).parentID === newSid && (s as any).agent === "ict_pattern" && !(s as any).time?.archived) {
+            loadedChildSessions.add((s as any).id)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add((s as any).id); return n })
+            sync.session.sync((s as any).id).catch(() => {})
+            restoredPatternSubSid = (s as any).id
+            break
+          }
+        }
+      }
+      if (restoredPatternSubSid) {
+        // 检查是否已被用户退出（持久化标记）
+        const isPatternEnded = !!localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)
+        if (isPatternEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态（仍同步子 session 消息供查看）
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
+          setPatternEnded(true)
+        } else {
+          // 确保子 session 消息已同步（类似 plan 模式恢复逻辑），
+          // 这样 patternSubMatchScanned / moduleListScanned memo 才能重新计算，
+          // 进而触发 enrich effect 恢复页面匹配弹窗 / 模块匹配弹窗数据
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
+          setActivePatternSessionId(restoredPatternSubSid)
+          setPatternSubParentSessionId(newSid)
+          // 恢复用户输入（handleMatchPattern Phase 2 拼装所需）
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
+          const subMsgs = sync.data.message?.[restoredPatternSubSid]
+          const hasModuleList = subMsgs?.some((m: any) => {
+            if (m.role !== "assistant") return false
+            const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes("<module-list>")
+          })
+          // agent 未响应 <module-list> 时，检查用户是否已发过 [模块匹配] 请求
+          // 如果已发送（用户点"跳过"/"下一步"进入 Phase 2），也应恢复到 module 阶段
+          const hasModuleMatchPrompt = subMsgs?.some((m: any) => {
+            if (m.role !== "user") return false
+            const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes("[模块匹配]")
+          })
+          setPatternSubPhase(hasModuleList || hasModuleMatchPrompt ? "module" : "match")
+        }
+      }
+
+      // 第一阶段：主 session 数据同步完成后，通过 API 发现并同步全部子 session。
+      // sync.data.session 只包含根 session，不能用它发现子 session。
+      const capturedSid = newSid
+      setPhase2Pending(true)
+      void discoverChildSessions(capturedSid).then(() => {
+        if (params.id !== capturedSid) return
+        setPhase2Pending(false)
+      }).catch(() => {
+        if (params.id === capturedSid) setPhase2Pending(false)
+      })
+
+      // 根据已缓存的规划 session 立即恢复视图；子 session 数据由 discovery 负责同步。
       if (!restoredPlanSid) {
-        setPhase2Pending(true)  // 阻止 async 间隙中 banner 闪现
-        const capturedSid = newSid
+        setPhase2Pending(true)
         detectChildPlanSession(newSid).then((childId) => {
-          setPhase2Pending(false)
-          // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
-          if (!childId || activePlanSessionId() || params.id !== capturedSid) return
-          // 检查是否已被用户退出（持久化标记）
-          if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
-            setPlanEndedForSession(capturedSid)
-            setPlanEnded(true)
-            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
-            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
-            loadedChildSessions.add(childId)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
-            sync.session.sync(childId).catch(() => {})
-            setPlanPhase("generate")
+          if (params.id !== newSid || !childId) return
+          // 检查是否已被用户确认结束（持久化标记），防止策略执行后切回时内容仍可交互
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             return
           }
-          loadedChildSessions.add(childId)
-          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
-          sync.session.sync(childId).catch(() => {})
-          // sync 完成后在子 session 消息流中检测确认状态
-          // 先同步消息，再检测
-          const checkConfirmed = () => {
-            const msgs = sync.data.message?.[childId]
-            if (!msgs) {
-              // 消息还没同步完，等下一个 tick
-              requestAnimationFrame(checkConfirmed)
-              return
-            }
-            const planArtifact = scanDesignPlanFromMessages(msgs, sync.data.part, childId)
-            const planIdent = planArtifact?.artifactIdentifier
-            const isConfirmed = planIdent ? isPlanConfirmed(msgs, sync.data.part, planIdent) : false
-            const hasDesignPlan = msgs.some((m: any) => {
-              if (m.role !== "assistant") return false
-              const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-              return text?.includes('type="text/design-plan"')
-            })
-
-            if (isConfirmed) {
-              // 已确认：不设为活跃，只保留历史记录
-              setHasChildPlanSession(false)
-              setPlanEndedForSession(capturedSid)
-              setPlanEnded(true)
-              localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid, "true")
-              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-            } else {
-              // 未确认：恢复为活跃状态
-              setHasChildPlanSession(true)
-              setActivePlanSessionId(childId)
-              setResultViewMode("plan")
-              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-            }
-          }
-          checkConfirmed()
-        }).catch(() => {
-          setPhase2Pending(false)
+          setActivePlanSessionId(childId)
+          setPlanParentSessionId(newSid)
+          setHasChildPlanSession(true)
+          setResultViewMode("plan")
+          setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
+        }).finally(() => {
+          if (params.id === newSid) setPhase2Pending(false)
         })
       }
+
+      // ict_pattern 子 session 异步恢复（跨重启 fallback）
+      if (!restoredPatternSubSid) {
+        detectChildPatternSubSession(newSid).then((childId) => {
+          if (!childId || activePatternSessionId() || params.id !== newSid) return
+          if (localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)) { setPatternEnded(true); return }
+          loadedChildSessions.add(childId)
+          setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childId); return n })
+          sync.session.sync(childId).catch(() => {})
+          lastEnrichedPatternMatchMsgId = null
+          lastEnrichedModuleListMsgId = null
+          setActivePatternSessionId(childId)
+          setPatternSubParentSessionId(newSid)
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
+        }).catch(() => {})
+      }
+      return
+
     },
   ))
 
@@ -1951,10 +2780,12 @@ const sessionMessagesLoaded = createMemo(() => {
             localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
             delete _planChildSessionCache[mainSid]
           }
-          setHasChildPlanSession(false)
+          setPlanChildSessionIDs(new Set<string>())
+        setHasChildPlanSession(false)
           setPlanEndedForSession(mainSid)
+          clearPlanComposerCapsule()
           if (activePlanSessionId() === childId) {
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -1977,9 +2808,10 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
-        setPlanEnded(true)
+        setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
+        setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setManualStrategyFormData({})
         setResultViewMode("files")
@@ -1991,20 +2823,20 @@ const sessionMessagesLoaded = createMemo(() => {
     // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       return planSid ? sync.data.session_status[planSid]?.type : null
     },
     (statusType) => {
       if (statusType === "idle" && isGenerating()) {
         // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
         // 检查是否确实没有 planCard
-        const planSid = activePlanSessionId()
+        const planSid = activePlanForCurrentSession()
         if (!planSid) return
         const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
         if (!card) {
           // 无有效 plan，安全复位
           setIsGenerating(false)
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
           setUserChangedPhase(true)
         }
       }
@@ -2084,6 +2916,7 @@ const sessionMessagesLoaded = createMemo(() => {
   async function handleHistorySwitch(entry: VersionEntry) {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
+    tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
     await historyController.switchVersion(entry, tab)
   }
 
@@ -2126,31 +2959,118 @@ const sessionMessagesLoaded = createMemo(() => {
     return undefined
   }
 
+  /**
+   * 构建 [Artifact Folder] 上下文前缀：目标会话产物目录绝对路径 + 当前会话已有产物文件列表（供 edit 工具使用）。
+   * 文件列表每次调用都重新扫盘，保证新鲜。
+   * sendMessage 每轮注入；handleConfirmPlan 直发 prompt/command 绕过 sendMessage，同样用此函数补注入。
+   */
+  async function buildArtifactFolderPrefix(sessionId: string): Promise<string> {
+    const folderProjDir = projectDir()
+    if (!folderProjDir || !sessionId) return ""
+    const sep = folderProjDir.includes("\\") ? "\\" : "/"
+    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    let existingList = ""
+    try {
+      const relPath = `.octo/${sessionId}/outputs`
+      const result = await sdk.client.file.list({ path: relPath })
+      const files = (result.data ?? []).filter((n) => n.type === "file")
+      if (files.length > 0) {
+        const lines = files.map((n) => `- ${n.absolute}`)
+        existingList = [
+          ``,
+          `[Existing artifacts in this session]`,
+          ...lines,
+          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+        ].join("\n")
+      }
+    } catch {
+      // 目录可能还没创建(还没生成过产物),忽略
+    }
+    return [
+      `[Artifact Folder]: ${artifactFolder}`,
+      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      existingList,
+      `---`,
+      ``,
+    ].filter(Boolean).join("\n")
+  }
+
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
+      // For file chips whose path is in tmps (new-conversation pending downloads), rename the
+      // local file into the session's uploads directory and update the chip path before processing.
+      const selections = mentions ?? []
+      // 设计规划模式:目标会话是规划子会话。skill 不在规划会话执行(octo_make_plan 已禁用 skill),
+      // 暂存进 handoff,等 [confirm-plan] 确认后在主会话(octo_make)统一执行。
+      const inPlanSession = sessionId === activePlanSessionId()
+      const planSkillStash: Array<{ name: string; label: string }> = []
+      const baseDir = projectDir()
+      const api = getDesktopApi()
+      if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
+        const sep = baseDir.includes("\\") ? "\\" : "/"
+        const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
+        const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
+        for (const sel of selections) {
+          if (sel.type !== "file" && sel.type !== "folder") continue
+          const p = sel.path
+          if (!p || !p.includes(tmpsMarker)) continue
+          try {
+            const isFolder = sel.type === "folder"
+            const filename = p.split(sep).pop() || sel.name
+            let candidate = filename
+            let i = 1
+            if (isFolder) {
+              // Folders: dedup with dirExists (fs.rename fails if target exists)
+              while (await api.dirExists?.([uploadsDir, candidate].join(sep))) {
+                candidate = `${filename} (${i})`
+                i++
+              }
+            } else {
+              // Files: dedup with fileExists
+              const dot = filename.lastIndexOf(".")
+              const base = dot > 0 ? filename.slice(0, dot) : filename
+              const ext = dot > 0 ? filename.slice(dot) : ""
+              while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+                candidate = `${base} (${i})${ext}`
+                i++
+              }
+            }
+            const newPath = [uploadsDir, candidate].join(sep)
+            await api.renameFile!(p, newPath)
+            const ref = proseMirrorRef1 ?? proseMirrorRef2
+            ref?.updateMentionPath?.(sel.id ?? sel.name, newPath)
+            sel.path = newPath
+          } catch (err) {
+            console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+          }
+        }
+      }
+
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const selections = mentions ?? []
-      
-      console.log("[sendMessage] mentions:", mentions)
-      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
-          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          if (inPlanSession) {
+            planSkillStash.push({ name: sel.name, label: sel.label })
+          } else {
+            processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          }
           // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
           // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
           if (sel.label && sel.label !== sel.name) {
             displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
           }
         } else {
-          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
+          const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
+          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
         }
       }
-      // Clean up extra spaces
-      processedText = processedText.replace(/  +/g, ' ').trim()
+      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
+      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
+      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2159,18 +3079,39 @@ const sessionMessagesLoaded = createMemo(() => {
       setMentionSelections([])
       
       const done = attachments().filter(a => a.status === "done")
-      
-      // 本地文件 → [附件] 清单
-      const localFiles = done.filter(a => a.source === "local" && a.path)
-      const localManifest = localFiles.map(a => ({ filename: a.filename, path: a.path! }))
-      
-      // 外部文件 → FilePart
-      const externalFiles = done.filter(a => a.source === "external")
-      const fileParts: FilePartInput[] = externalFiles.map(a => ({
+
+      // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
+      const movedPaths = new Map<string, string>()
+      {
+        const api = getDesktopApi()
+        const baseDir = projectDir()
+        if (baseDir && typeof api?.movePendingUploadToSession === "function" && sessionId) {
+          const pendingFiles = done.filter(a => a.source === 'pending' && a.path)
+          await Promise.all(pendingFiles.map(async a => {
+            try {
+              const newPath = await api.movePendingUploadToSession!(a.path!, baseDir, sessionId)
+              movedPaths.set(a.id, newPath)
+            } catch (err) {
+              console.warn("[octo:make] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+            }
+          }))
+          if (movedPaths.size > 0) {
+            setAttachments(prev => prev.map(x => movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id)!, source: 'local' as const } : x))
+          }
+        }
+      }
+      const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
+      // 非图片（有 path）→ [附件] 清单；图片（有 path）→ vision FilePart{url:file://…}
+      const localFiles = done.filter(a => !isImageFile(a.filename) && a.path)
+      const localManifest = localFiles.map(a => ({ filename: a.filename, path: resolvedPath(a) }))
+
+      const imageFiles = done.filter(a => isImageFile(a.filename) && a.path)
+      const fileParts: FilePartInput[] = imageFiles.map(a => ({
         type: "file",
-        mime: a.mime,
+        mime: a.mime || imageMimeFor(a.filename, "image/png"),
         filename: a.filename,
-        url: a.url ?? a.dataUrl!,
+        url: `file://${encodeFilePath(resolvedPath(a))}`,
       }))
 
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
@@ -2178,80 +3119,106 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
 
       // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
-      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
-      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
-      let artifactFolderPrefix = ""
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-        artifactFolderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-      }
+      const artifactFolderPrefix = await buildArtifactFolderPrefix(sessionId)
 
       // ── Multi-slash-command detection ──
-      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
-      // execute each via session.command(). Each command gets the text between itself
-      // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
+      // If skills are matched, extract the entire remaining prompt (excluding all /cmd patterns)
+      // and supply it as arguments to each skill command.
       console.log("[MakePage] slash-detect input:", {
         processedText,
         cmdCount: sync.data?.command?.length ?? 0,
         cmdNames: sync.data?.command?.map((c) => `${c.name}(${c.source})`) ?? [],
       })
-      const segments = processedText.split(/(?=\/\S)/)
-      const cmdSegments: { cmd: string; args: string }[] = []
-      let hasCommand = false
-      for (const seg of segments) {
-        const trimmed = seg.trim()
-        if (!trimmed) continue
-        const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
-        if (m) {
-          const cmdName = m[1]
-          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
-          if (cmdName && matched) {
-            console.log("[MakePage] slash-detect matched command:", {
-              cmdName,
-              source: matched.source,
-              args: m[2].trim(),
-            })
-            cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
-            hasCommand = true
-            continue
+
+      // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
+      // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
+      const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
+
+      // 扫描 processedText 中所有合法命令的起始与结束位置
+      interface CommandMatch {
+        cmd: typeof sortedCommands[number]
+        start: number
+        end: number
+      }
+
+      const matches: CommandMatch[] = []
+      for (let i = 0; i < processedText.length; i++) {
+        if (processedText[i] === '/') {
+          // 边界检查：必须是字符串开头或者前一个字符是空白字符，避免误判 URL 路径等
+          if (i === 0 || /\s/.test(processedText[i - 1])) {
+            let matched: typeof sortedCommands[number] | undefined
+            let matchedLen = 0
+            for (const c of sortedCommands) {
+              const fullCmd = `/${c.name}`
+              if (processedText.startsWith(fullCmd, i)) {
+                const nextChar = processedText[i + fullCmd.length]
+                if (nextChar === undefined || /\s/.test(nextChar)) {
+                  matched = c
+                  matchedLen = fullCmd.length
+                  break
+                }
+              }
+            }
+            if (matched) {
+              matches.push({ cmd: matched, start: i, end: i + matchedLen })
+              i += matchedLen - 1
+            }
           }
-          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-            cmdName,
-            fallbackToPrompt: !hasCommand,
-          })
-        }
-        // Non-command segment: only keep if no commands found (for prompt fallback)
-        if (!hasCommand) {
-          cmdSegments.push({ cmd: "", args: trimmed })
         }
       }
-      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
+
+      // 提取“除了所有识别到的命令以外的全部完整提示词”作为参数
+      let cleanPrompt = ""
+      let lastIndex = 0
+      for (const m of matches) {
+        cleanPrompt += processedText.slice(lastIndex, m.start)
+        let nextIndex = m.end
+        // 如果命令后紧跟空格，跳过一个空格，避免残留多余空格
+        if (processedText[nextIndex] === ' ') {
+          nextIndex++
+        }
+        lastIndex = nextIndex
+      }
+      cleanPrompt += processedText.slice(lastIndex)
+      cleanPrompt = cleanPrompt.replace(/​/g, '').replace(/  +/g, ' ').trim()
+
+      const cmdSegments: { cmd: string; args: string }[] = []
+      let hasCommand = false
+
+      for (const m of matches) {
+        // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
+        if (inPlanSession && m.cmd.source === "skill") {
+          console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: m.cmd.name, args: cleanPrompt })
+          planSkillStash.push({ name: m.cmd.name, label: m.cmd.name })
+          continue
+        }
+        console.log("[MakePage] slash-detect matched command:", {
+          cmdName: m.cmd.name,
+          source: m.cmd.source,
+          args: cleanPrompt,
+        })
+        cmdSegments.push({ cmd: m.cmd.name, args: cleanPrompt })
+        hasCommand = true
+      }
+
+      // 如果有识别到命令但在规划模式下全部被拦截（或没有可执行命令），则将 processedText 规整为 cleanPrompt 走 prompt 兜底
+      if (matches.length > 0 && !hasCommand) {
+        processedText = cleanPrompt
+      }
+
+      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments, cleanPrompt })
+
+      // 规划模式:@选择 或 手输 /skill 的技能都不进规划子会话,统一暂存 handoff
+      // (与初始页进入规划时的 savePlanSkillHandoff 同源),由 handleConfirmPlan
+      // 在确认方案后发到主会话(octo_make)执行
+      if (inPlanSession && planSkillStash.length > 0 && params.id) {
+        const existing = readPlanSkillHandoff(params.id)
+        const merged = [...(existing?.skills ?? []), ...planSkillStash].filter(
+          (s, i, arr) => arr.findIndex((x) => x.name === s.name) === i,
+        )
+        savePlanSkillHandoff(params.id, sessionId, merged)
+      }
 
       if (hasCommand) {
         const modelStr = `${modelKey.providerID}/${modelKey.modelID}`
@@ -2268,7 +3235,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const manifestPart = localManifest.length > 0 
           ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
           : null
-        
+
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
 
@@ -2293,18 +3260,22 @@ const sessionMessagesLoaded = createMemo(() => {
             isFirstSkillCommand = false
           }
           
-          try {
-            await sdk.client.session.command({
-              sessionID: sessionId,
-              command: seg.cmd,
-              arguments: seg.args,
-              agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
-              model: modelStr,
-              parts: cmdParts.length > 0 ? cmdParts : undefined,
-            })
-          } catch (err) {
-            console.error(`[MakePage] command /${seg.cmd} failed`, err)
-          }
+          // 记录发送开始时间（每次命令前重新设置，支持多 skill chip 逐条追踪）
+          // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+          // 与 busy→idle 读取端一致
+          messageTimingMap.set(params.id ?? sessionId, {
+            startTime: Date.now(),
+            inputText: (fullDisplayText || text).slice(0, 30)
+          })
+
+          await executeSessionCommand({
+            sessionID: sessionId,
+            command: seg.cmd,
+            arguments: seg.args,
+            agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
+            model: modelStr,
+            parts: cmdParts.length > 0 ? cmdParts : undefined,
+          })
         }
 
         setAttachments([])
@@ -2314,8 +3285,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
       // Store display text for rendering (user's visible text with @mentions)
       const hasMentions = selections.length > 0
-      const userDisplayText = _confirmPlanDisplayText ?? (hasMentions ? displayText : undefined)
-      _confirmPlanDisplayText = undefined
+      const userDisplayText = hasMentions ? displayText : undefined
 
       let promptText = processedText
 
@@ -2432,22 +3402,33 @@ const sessionMessagesLoaded = createMemo(() => {
       parts.push(...fileParts)
       
       // 记录发送开始时间
-      messageTimingMap.set(sessionId, {
+      // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+      // 与 busy→idle 读取端一致
+      messageTimingMap.set(params.id ?? sessionId, {
         startTime: Date.now(),
         inputText: text.slice(0, 30)
       })
       
-      await sdk.client.session.prompt({
+      // 不 await 整个 stream:session.prompt 是 streaming API,await 在 stream 完成才 resolve。
+      // 若 await,sending 会一直 true 到模型回复结束,输入框被全程禁用。
+      // fire-and-forget + .catch:sendMessage 立即返回,handleSubmit 的 finally 把 sending 重置,
+      // 模型回复期间靠 effectiveBusy() (handleSubmit 入口处 early-return) 防重入。
+      void sdk.client.session.prompt({
         sessionID: sessionId,
-        agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
+        agent: sessionId === activePlanSessionId() ? "octo_make_plan" : sessionId === activePatternSessionId() ? "ict_pattern" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
+      }).catch(err => {
+        console.error("[MakePage] prompt failed", err)
+        showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
       })
-      setAttachments([])
+      // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
+      // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
+      // "streaming 期间用户添加的新附件"。失败时也保留附件便于用户重试。
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
-      setAttachments([])
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
 
@@ -2465,10 +3446,19 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
+    if (contextSendBlocked()) {
+      showOctoToast({
+        title: "上下文已达到上限",
+        description: "请先压缩上下文，或新建对话。",
+        variant: "error",
+      })
+      return
+    }
+
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
-    if (specName && specDisplay) {
+    if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
@@ -2486,25 +3476,134 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (!text.trim()) return
 
+    const shouldStartInitialPlan = !params.id && planComposerActive()
+    const shouldStartPatternPage = patternPageCapsuleActive()
     setSending(true)
     setPrompt("")
+    if (shouldStartInitialPlan) clearPlanComposerCapsule()
+    if (shouldStartPatternPage) setPatternPageCapsule(false)
+    setPatternUserInput(text.replace(/^[\s\S]*?---\n/, "").trim())
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
+    // 新建 session 时立即清除规划子 session 状态，防止旧 plan 会话的 SID 泄漏到新会话
+    if (!params.id) {
+      setActivePlanSessionId(null)
+      setPlanParentSessionId(null)
+      setChildSessionIDs(new Set<string>())
+      loadedChildSessions.clear()
+    }
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
-    const submitSessionId = planSid || params.id
+    const patternSubSid = activePatternSessionId() && patternSubParentSessionId() === params.id ? activePatternSessionId() : null
+    const submitSessionId = planSid || patternSubSid || params.id
+    // patternPage 模式：记录用户输入用于后续 Phase 2 拼装
+    if (patternSubSid) {
+      setPatternUserInput(text)
+      if (params.id) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + params.id, text)
+    }
     try {
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-      const session = result.data as Session | undefined
-      if (!session) return
-      
-      await movePendingUploadsToSession(session.id)
-      
+        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+        const session = result.data as Session | undefined
+        if (!session) return
+
+        if (shouldStartInitialPlan) {
+          const dir = sdk.directory
+          const skills = mentions
+            .filter((mention) => mention.type === "skill")
+            .map((skill) => ({ name: skill.name, label: skill.label }))
+          const userInput = text.replace(/^[\s\S]*?---\n/, "").trim()
+          const initialPrompt = userInput
+            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
+            : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
+
+          await movePendingUploadsToSession(session.id)
+          await moveAssetsConfigToSession(session.id)
+
+          const planResult = await sdk.client.session.create({
+            directory: dir,
+            parentID: session.id,
+            agent: "octo_make_plan",
+          })
+          const childSession = planResult.data as Session | undefined
+          if (!childSession) throw new Error("Failed to create plan session")
+
+          loadedChildSessions.add(childSession.id)
+          _enteringPlan = true
+          setChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(childSession.id)
+            return next
+          })
+          setPlanChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(childSession.id)
+            return next
+          })
+          setActivePlanSessionId(childSession.id)
+          setPlanParentSessionId(session.id)
+          setPlanEndedForSession(null)
+          setPlanEndedMap(prev => ({ ...prev, [session.id]: false }))
+          localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
+          setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
+          localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
+          _planChildSessionCache[session.id] = childSession.id
+          savePlanSkillHandoff(session.id, childSession.id, skills)
+          setResultViewMode("plan")
+          setPlanPhaseMap(prev => ({ ...prev, [session.id]: "strategy" }))
+          setUserChangedPhase(false)
+          setManualStrategyFormData({})
+          _enteringPlan = false
+
+          local.session.promote(sdk.directory, session.id)
+          await sync.session.sync(childSession.id)
+          navigate(`/make/${session.id}`)
+          await sdk.client.session.prompt({
+            sessionID: childSession.id,
+            agent: "octo_make_plan",
+            model: capturedModelKey,
+            parts: [{ type: "text", text: initialPrompt }],
+          })
+          return
+        }
+
+        // 无 session + PatternPage 胶囊：创建主 session + ict_pattern 子 session
+        if (shouldStartPatternPage) {
+          const dir2 = sdk.directory
+          const userInput2 = text.replace(/^[\s\S]*?---\n/, "").trim()
+          const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
+          const patternChildSession = patternChild.data as Session | undefined
+          if (patternChildSession) {
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
+            loadedChildSessions.add(patternChildSession.id)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+            setActivePatternSessionId(patternChildSession.id)
+            setPatternSubParentSessionId(session.id)
+            localStorage.setItem(PATTERN_SUB_CHILD_LS + session.id, patternChildSession.id)
+            _patternSubChildCache[session.id] = patternChildSession.id
+            if (userInput2) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + session.id, userInput2)
+            setPatternSubPhase("match")
+            setPatternMatches(null)
+            await sync.session.sync(patternChildSession.id)
+          }
+          local.session.promote(sdk.directory, session.id)
+          navigate(`/make/${session.id}`)
+          if (patternChildSession && userInput2) {
+            await sdk.client.session.prompt({
+              sessionID: patternChildSession.id, agent: "ict_pattern", model: capturedModelKey,
+              parts: [{ type: "text", text: userInput2 }],
+            })
+          }
+          return
+        }
+
+        await movePendingUploadsToSession(session.id)
+
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpecDisplay()) {
+      if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {
@@ -2533,23 +3632,67 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       }
       
       await moveAssetsConfigToSession(session.id)
-      
+
       local.session.promote(sdk.directory, session.id)
       const dsId = selectedDesignSystem()
 if (dsId) {
           localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
         }
-        sendingNavigation = true
         navigate(`/make/${session.id}`)
         sid = session.id
       }
       autoScroll.forceScrollToBottom()
-      await sendMessage(sid, text, capturedModelKey, mentions)
+      // 有 session + PatternPage 胶囊：优先复用上一次已结束的 ict_pattern 子 session，
+      // 保留会话上下文不清空历史，继续在下面输入输出；首次进入才创建新子 session。
+      if (shouldStartPatternPage && sid && !shouldStartInitialPlan) {
+        const dir2 = sdk.directory
+        if (dir2) {
+          // 复用本 session 上一次的 ict_pattern 子 session（已结束但未归档），保留会话上下文继续在下面输入输出
+          const existingChildId = _patternSubChildCache[sid] ?? localStorage.getItem(PATTERN_SUB_CHILD_LS + sid) ?? null
+          if (existingChildId) {
+            if (!loadedChildSessions.has(existingChildId)) {
+              loadedChildSessions.add(existingChildId)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(existingChildId); return n })
+              sync.session.sync(existingChildId).catch(() => {})
+            }
+            setActivePatternSessionId(existingChildId)
+            setPatternSubParentSessionId(sid)
+            setPatternSubPhase("match")
+            setPatternMatches(null)
+            setPatternBlockMatches([])
+            setPatternBlockMatching(false)
+            // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
+            // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
+            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+          } else {
+            // 首次进入：创建新的 ict_pattern 子 session
+            lastEnrichedPatternMatchMsgId = null
+            lastEnrichedModuleListMsgId = null
+            const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
+            const patternChildSession = patternChild.data as Session | undefined
+            if (patternChildSession) {
+              loadedChildSessions.add(patternChildSession.id)
+              setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+              setActivePatternSessionId(patternChildSession.id)
+              setPatternSubParentSessionId(sid)
+              localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
+              _patternSubChildCache[sid] = patternChildSession.id
+              setPatternSubPhase("match")
+              setPatternMatches(null)
+              sync.session.sync(patternChildSession.id).catch(() => {})
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+            }
+          }
+        }
+      } else {
+        await sendMessage(sid, text, capturedModelKey, mentions)
+      }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     } finally {
       // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
-      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid)) {
+      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid) || (patternSubSid && activePatternSessionId() === patternSubSid)) {
         setSending(false)
       }
     }
@@ -2557,7 +3700,7 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
-    const childId = activePlanSessionId()
+    const childId = activePlanForCurrentSession()
     if (childId && childBusy()) {
       tracker.interaction({ module: "design", name: "stop-generation" })
       await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
@@ -2734,6 +3877,10 @@ if (dsId) {
     getAliveEditor()?.removeMention(selection)
   }
 
+  function handleAddonUpdateMentionPath(id: string, path: string) {
+    getAliveEditor()?.updateMentionPath(id, path)
+  }
+
   /** Pick a Design Files file and add as attachment */
   async function pickMention(file: ArtifactFile) {
     const state = mentionState()
@@ -2805,11 +3952,23 @@ if (dsId) {
   let fileInputRef!: HTMLInputElement
 
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    const isExternal = !!local.model.current()?.isExternal
+    const accepted = isExternal
+      ? files.filter((file) => {
+          const err = validateFileForExternal(file)
+          if (err) {
+            showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+            return false
+          }
+          return true
+        })
+      : files
     const slots = 5 - attachments().length
-    if (files.length > slots) {
+    if (accepted.length > slots) {
       showOctoToast({ title: "最多添加5个附件" })
     }
-    const toAdd = files.slice(0, slots)
+    const toAdd = accepted.slice(0, slots)
     for (const file of toAdd) {
       tracker.interaction({ 
         module: "design", 
@@ -2829,27 +3988,56 @@ if (dsId) {
     const id = crypto.randomUUID()
     const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
-    
+
+    const imageErr = file.size > MAKE_IMAGE_MAX
+      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
+      : null
+    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    if (validationErr) {
+      setAttachments(prev => [...prev, {
+        id, filename: file.name,
+        mime: file.type || imageMimeFor(file.name),
+        size: file.size, status: 'error', source: 'pending',
+        error: validationErr.message, retriable: false,
+      }])
+      return
+    }
+
     setAttachments(prev => [...prev, {
-      id,
-      filename: file.name,
-      mime: file.type || 'image/png',
-      size: file.size,
-      status: 'uploading',
-      source: 'external',
-      previewUrl
+      id, filename: file.name,
+      mime: file.type || imageMimeFor(file.name),
+      size: file.size, status: 'uploading', source: 'pending', previewUrl,
     }])
-    
+
+    void doImageImport(id, file, file.name)
+  }
+
+  async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
     try {
-      const result = await uploadFile(file)
-      setAttachments(prev => prev.map(a => 
-        a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-      ))
-    } catch (err) {
-      const message = err instanceof UploadError ? err.message : '上传失败'
+      const dest = await importFileToWorktree(
+        { filename, file: rawFile },
+        { baseDir: projectDir(), api: getDesktopApi() },
+      )
+      if (!dest) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error', error: '当前环境无法导入该图片，请从文件选择器选择文件', retriable: false } : a
+        ))
+        tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
+        return false
+      }
+      const landedName = dest.split(/[\\/]/).pop()
       setAttachments(prev => prev.map(a =>
-        a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+        a.id === id ? { ...a, status: 'done', source: 'pending', path: dest, filename: landedName || a.filename, error: undefined } : a
       ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: true, kind: "image" }) })
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '导入失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error', error: message, retriable: true } : a
+      ))
+      tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: false, kind: "image" }) })
+      return false
     }
   }
 
@@ -3022,6 +4210,117 @@ if (dsId) {
     showOctoToast({ title: "已添加附件", description: filename })
   }
 
+  /**
+   * Download a product-asset-library file via its versionInfo download path
+   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
+   * into the current session's uploads directory (or tmps if no session yet).
+   * ZIP files are extracted into the uploads dir and the archive deleted;
+   * the returned path is the extracted folder in that case.
+   * Does NOT add as attachment — only downloads. Chip insertion is handled
+   * separately by AddonMenu via insertMention.
+   */
+  async function downloadProductAsset(
+    file: {
+      fileName: string
+      snapshot: string
+      s3BaseUrl: string
+      convertHtmlUrl: string
+      versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
+    },
+    onProgress: (pct: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const sid = params.id
+    const projectDirValue = projectDir()
+    if (!projectDirValue) throw new Error("未选择项目目录")
+    const api = getDesktopApi()
+    if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
+
+    const version = file.versionInfo?.[0]
+    if (!version) throw new Error("缺少版本信息,无法下载")
+
+    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
+    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+    const remotePath = `/main${version.filePath}/${version.fileName}`
+    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
+
+    onProgress(0)
+    const response = await fetch(fileUrl, { signal })
+    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+    const blob = await response.blob()
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+    const buffer = await blob.arrayBuffer()
+
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const dir = sid
+      ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
+      : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
+
+    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+
+    if (isZip) {
+      try {
+        // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+        const JSZip = (await import("jszip")).default
+        const zip = await JSZip.loadAsync(buffer)
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+        let folderName = file.fileName
+        let counter = 1
+        if (api.dirExists) {
+          while (await api.dirExists([dir, folderName].join(sep))) {
+            folderName = `${file.fileName} (${counter})`
+            counter++
+          }
+        }
+        const folderPath = [dir, folderName].join(sep)
+
+        for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+          if (zipEntry.dir) continue
+          const normalized = relativePath.replace(/\//g, sep)
+          const content = await zipEntry.async("uint8array")
+          await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
+        }
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+        onProgress(100)
+        setFilesRefreshKey(k => k + 1)
+        return folderPath
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err
+        // Not a valid ZIP — fall through to save as regular file
+      }
+    }
+
+    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
+    const dot = version.fileName.lastIndexOf(".")
+    const ext = dot > 0 ? version.fileName.slice(dot) : ""
+    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    const destPath = [dir, finalName].join(sep)
+    await api.writeFileBuffer(destPath, buffer)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    onProgress(100)
+    setFilesRefreshKey(k => k + 1)
+    return destPath
+  }
+
+  async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
+    const api = getDesktopApi()
+    if (!api?.fileExists) return filename
+    const dot = filename.lastIndexOf(".")
+    const base = dot > 0 ? filename.slice(0, dot) : filename
+    const ext = dot > 0 ? filename.slice(dot) : ""
+    const sep = dir.includes("\\") ? "\\" : "/"
+    let candidate = filename
+    let i = 1
+    while (await api.fileExists([dir, candidate].join(sep))) {
+      candidate = `${base} (${i})${ext}`
+      i++
+    }
+    return candidate
+  }
+
   function handlePaste(e: ClipboardEvent) {
     const files = Array.from(e.clipboardData?.items ?? [])
       .filter(item => item.kind === "file")
@@ -3029,30 +4328,20 @@ if (dsId) {
       .filter((file): file is File => Boolean(file))
     if (files.length === 0) return
     e.preventDefault()
-    handleAddFiles(files, "paste")
+    request(() => handleAddFiles(files, "paste"))
   }
 
   function retryUpload(id: string) {
     const file = filesById.get(id)
     const att = attachments().find(a => a.id === id)
     if (!file || !att) return
-    
-    setAttachments(prev => prev.map(a => 
+
+    setAttachments(prev => prev.map(a =>
       a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
     ))
-    
-    uploadFile(file)
-      .then(result => {
-        setAttachments(prev => prev.map(a => 
-          a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-        ))
-      })
-      .catch(err => {
-        const message = err instanceof UploadError ? err.message : '上传失败'
-        setAttachments(prev => prev.map(a =>
-          a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-        ))
-      })
+
+    tracker.interaction({ module: "design", name: "attachment-retry", extend: JSON.stringify({ filename: att.filename }) })
+    void doImageImport(id, file, att.filename)
   }
 
   function removeAttachment(id: string) {
@@ -3111,26 +4400,29 @@ if (dsId) {
   async function movePendingUploadsToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.movePendingUploadToSession && !api?.readFileBuffer) return
+
     const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
-    
+
     for (const att of pendingAttachments) {
       try {
-        const sep = projectDirValue.includes("\\") ? "\\" : "/"
-        
-        const tempPath = att.path!
-        const buffer = await api.readFileBuffer(tempPath)
-        if (!buffer) continue
-        
-        const finalPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
-        await api.writeFileBuffer(finalPath, buffer)
-        
-        setAttachments(prev => prev.map(a => 
-          a.id === att.id ? { ...a, path: finalPath, source: 'local' as const } : a
-        ))
+        let newPath: string | null = null
+        if (api.movePendingUploadToSession) {
+          newPath = await api.movePendingUploadToSession(att.path!, projectDirValue, sessionId)
+        } else if (api.readFileBuffer && api.writeFileBuffer) {
+          const buffer = await api.readFileBuffer(att.path!)
+          if (!buffer) continue
+          const sep = projectDirValue.includes("\\") ? "\\" : "/"
+          newPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
+          await api.writeFileBuffer(newPath, buffer)
+        }
+        if (newPath) {
+          setAttachments(prev => prev.map(a =>
+            a.id === att.id ? { ...a, path: newPath, source: 'local' as const } : a
+          ))
+        }
       } catch (err) {
         console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
       }
@@ -3140,21 +4432,20 @@ if (dsId) {
   async function moveAssetsConfigToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
+
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const tempPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-    
+    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
     try {
-      const buffer = await api.readFileBuffer(tempPath)
-      if (!buffer) return
-      
-      const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+      const info = await api.getAssetsConfig() as AssetsConfig
+      const encoder = new TextEncoder()
+      const buffer = encoder.encode(JSON.stringify(info)).buffer as ArrayBuffer
       await api.writeFileBuffer(finalPath, buffer)
     } catch (err) {
-      console.error("[moveAssetsConfigToSession] Failed to move assets_config.json:", err)
+      console.error("[moveAssetsConfigToSession] Failed:", err)
     }
   }
 
@@ -3176,11 +4467,14 @@ if (dsId) {
     setIsDragOver(false)
   }
 
+  const { request, gate } = useUploadRiskGate()
+
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) handleAddFiles(files, "drop")
+    if (files.length === 0) return
+    request(() => handleAddFiles(files, "drop"))
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
@@ -3212,6 +4506,13 @@ if (dsId) {
       if (!linkContent) return
 
       if (/^https?:\/\//i.test(linkContent)) {
+        // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
+        const existingUrl = tabStore.tabs().find(t => t.type === "html" && t.filePath === linkContent)
+        if (existingUrl) {
+          tabStore.activate(existingUrl.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url", reused: true }) })
+          return
+        }
         const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
         tabStore.openTab({
           id: tabId,
@@ -3244,6 +4545,29 @@ if (dsId) {
         absolutePath += normalizedPath
       }
       absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
+      // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
+      // 注意:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),而 absolutePath 已归一化为正斜杠,需两侧统一再比较
+      const existingLocal = tabStore.tabs().find(t => {
+        if (!t.filePath || t.type === "design-plan") return false
+        return t.filePath.replace(/\\/g, "/") === absolutePath
+      })
+      if (existingLocal) {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent && fileContent !== existingLocal.content) {
+            tabStore.updateTabContent(existingLocal.id, fileContent)
+            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          }
+        }
+        tabStore.activate(existingLocal.id)
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        return
+      }
 
       const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
       const inferredType = inferOutputType(absolutePath)
@@ -3284,13 +4608,30 @@ if (dsId) {
         }
       }
     }
+
+    // ★ Step -0.5: 等待文件落盘。
+    if (!isUrl && card.filePath) {
+      const api = getDesktopApi()
+      if (api?.fileExists) {
+        for (let i = 0; i < 20; i++) {
+          if (await api.fileExists(card.filePath)) break
+          await new Promise((r) => setTimeout(r, 150))
+        }
+      }
+    }
     
     // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
+      // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
+      // Design Files 保留原始反斜杠),两侧统一后再比较
+      const normalizedCardPath = card.filePath.replace(/\\/g, "/")
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "html" && isUrl) return t.filePath === card.filePath
-        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
-        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        if (!t.filePath) return false
+        const normalizedTPath = t.filePath.replace(/\\/g, "/")
+        if (t.type === "html" && isUrl) return normalizedTPath === normalizedCardPath
+        if (t.type === "html" || t.type === "svg") return normalizedTPath === normalizedCardPath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return normalizedTPath === normalizedCardPath
         return false
       })
       if (existingTab) {
@@ -3474,7 +4815,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -3500,7 +4841,7 @@ if (dsId) {
             onDrop={handleDrop}
           >
             {/* 标题栏 */}
-            <Show when={hasContent()}>
+            <Show when={hasSessionView()}>
               <div style={{ position: "relative" }}>
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
                   <div
@@ -3563,43 +4904,92 @@ if (dsId) {
                       {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfoMirror()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
-                </div>
-                <DropdownMenu
-                  gutter={4}
-                  placement="bottom-end"
-                  open={titleState.menuOpen}
-                  onOpenChange={(open) => setTitleState("menuOpen", open)}
-                >
-                  <DropdownMenu.Trigger
-                    as="button"
-                    class="make-icon-btn flex items-center justify-center size-4"
-                    aria-label={language.t("common.moreOptions")}
-                  >
-                    <Icon name="ellipsis" class="size-4" />
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      style={{ "min-width": "104px" }}
-                      onCloseAutoFocus={(event) => {
-                        if (titleState.pendingRename) {
-                          event.preventDefault()
-                          setTitleState("pendingRename", false)
-                          openTitleEditor()
-                        }
-                      }}
+                  <Show when={!titleState.editing && params.id}>
+                    <Tooltip
+                      placement="top"
+                      gutter={8}
+                      arrow
+                      interactive
+                      contentClass="make-token-tooltip"
+                      value={
+                        <div class="make-token-tooltip-copy">
+                          <p>
+                            当前对话 Session 上下文
+                            {contextSendBlocked()
+                              ? "已超过100%"
+                              : contextUsage() >= 80
+                                ? "已超过80%"
+                                : `已使用${contextUsage()}%`}{" "}
+                            (
+                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
+                              {contextTokens().toLocaleString(language.intl())}
+                            </span>{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
+                          </p>
+                          <p>
+                            建议点击“
+                            <button
+                              type="button"
+                              class="make-token-tooltip-action"
+                              disabled={contextCompactionDisabled()}
+                              onClick={confirmCompactContext}
+                            >
+                              上下文压缩
+                            </button>
+                            ”以继续对话。
+                          </p>
+                        </div>
+                      }
                     >
-                      <DropdownMenu.Item
-                        onSelect={() => setTitleState({ pendingRename: true, menuOpen: false })}
+                      <button
+                        type="button"
+                        class="shrink-0 flex items-center justify-center"
+                        classList={{
+                          "cursor-pointer": !contextCompactionDisabled(),
+                          "cursor-not-allowed": contextCompactionDisabled(),
+                        }}
+                        style={{
+                          "--border-weak-base": "rgba(0,0,0,0.1)",
+                          background: "transparent",
+                          border: "none",
+                          padding: "0",
+                        }}
+                        disabled={contextCompactionDisabled()}
+                        onClick={confirmCompactContext}
+                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
-                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item onSelect={handleDeleteSession}>
-                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
+                        <ContextUsageCircle percentage={contextUsage()} />
+                      </button>
+                    </Tooltip>
+                  </Show>
+                </div>
+                <button
+                  type="button"
+                  class="make-icon-btn flex items-center justify-center size-4"
+                  aria-label={language.t("common.moreOptions")}
+                  onClick={(e) => {
+                    setMenuPos({ x: e.clientX, y: e.clientY })
+                    setTitleState("menuOpen", true)
+                  }}
+                >
+                  <Icon name="ellipsis" class="size-4" />
+                </button>
+                <SessionContextMenu
+                  show={titleState.menuOpen && !!menuSession()}
+                  x={menuPos().x}
+                  y={menuPos().y}
+                  session={menuSession()}
+                  hasMessages={menuHasMessages()}
+                  groups={groupsCtx?.groups}
+                  sessionGroupMapping={groupsCtx?.mapping}
+                  onClose={closeMenu}
+                  onRename={handleMenuRename}
+                  onTogglePin={handleMenuTogglePin}
+                  onDelete={handleMenuDelete}
+                  onMoveToGroup={handleMenuMoveToGroup}
+                  onRemoveFromGroup={handleMenuRemoveFromGroup}
+                  onCreateGroupForSession={handleMenuCreateGroupForSession}
+                />
                 <button
                   type="button"
                   data-drawer-toggle="make-right"
@@ -3613,8 +5003,8 @@ if (dsId) {
               </div>
               </div>
             </Show>
-            <Show when={hasContent()} fallback={
-              <Show when={sessionMessagesLoaded()} fallback={
+              <Show when={hasSessionView()} fallback={
+                <Show when={sessionMessagesLoaded()} fallback={
                 <div class="size-full flex items-center justify-center">
                   <div class="octo-spinner" />
                 </div>
@@ -3642,8 +5032,25 @@ if (dsId) {
                       )}
                     </Show>
 
-                   <div
-                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+                    {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 - empty state */}
+                    <Show when={patternMatches() && !patternEnded()}>
+                      <div class="ic-card-overlay">
+                        <IntentConfirmCard
+                          sessionId={params.id ?? ""}
+                          result={patternMatches()!}
+                          blockMatches={patternBlockMatches()}
+                          blockMatching={patternBlockMatching() || patternChildBusy()}
+                          blockMatchError={patternBlockMatchError()}
+                          initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
+                          onMatchPattern={handleMatchPattern}
+                          onConfirm={handleConfirmPatternPage}
+                          onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
+                        />
+                      </div>
+                    </Show>
+
+                    <div
+                      class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
@@ -3660,6 +5067,24 @@ if (dsId) {
                       "min-height": "150px",
                     }}
                   >
+                    <Show when={planComposerActive()}>
+                      <div class="make-plan-capsule-row">
+                        <button type="button" class="make-plan-capsule" onClick={handleCancelPlanComposer}>
+                          <span class="make-plan-capsule-icon">✦</span>
+                          <span>设计策略模式</span>
+                          <span class="make-plan-capsule-close">×</span>
+                        </button>
+                      </div>
+                    </Show>
+                    <Show when={patternPageCapsuleActive()}>
+                      <div class="make-plan-capsule-row">
+                        <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
+                          <span class="make-plan-capsule-icon">✦</span>
+                          <span>Pattern 模式</span>
+                          <span class="make-plan-capsule-close">×</span>
+                        </button>
+                      </div>
+                    </Show>
                     {/* Slash Command Popover（新建对话） */}
                     <Show when={slashState() && filteredSlash().length > 0}>
                       <div class="slash-popover">
@@ -3700,7 +5125,7 @@ if (dsId) {
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
 <ProseMirrorEditor
-                        sessionId={params.id!}
+                        sessionId={params.id ?? ""}
                         skillConfig={skillConfig() ?? {}}
                         artifactFiles={artifactFilesMirror()}
                         mentionSelections={mentionSelections()}
@@ -3709,7 +5134,8 @@ if (dsId) {
                         busy={effectiveBusy()}
                         autofocus
                         onTriggerMention={loadSkillConfig}
-                        onContentChange={setPrompt}
+                        onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                        initialDocJSON={promptDoc()}
                         onSubmit={() => void handleSubmit()}
                         onPaste={handlePaste}
                         onSlashTrigger={(query) => {
@@ -3717,13 +5143,16 @@ if (dsId) {
                           setSlashIndex(0)
                         }}
                         onSlashClose={() => setSlashState(null)}
-                       onPreview={(url) => {
-                         handleOpenLocalFile(url)
-                         proseMirrorRef1?.clear()
-                         proseMirrorRef2?.clear()
-                       }}
-                       ref={(el) => { proseMirrorRef1 = el }}
-                     />
+onPreview={(url) => {
+                          handleOpenLocalFile(url)
+                          proseMirrorRef1?.clear()
+                          proseMirrorRef2?.clear()
+                        }}
+                        ref={(el) => { proseMirrorRef1 = el }}
+                        productId={projectSelection()?.product?.id}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                      />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -3754,49 +5183,62 @@ if (dsId) {
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                           onAddAttachmentFromUrl={downloadUrlToSession}
+                          onDownloadProductAsset={downloadProductAsset}
+                          onUpdateMentionPath={handleAddonUpdateMentionPath}
+                          productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={activePlanSessionId() !== null}
+                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                          onEnterPatternPage={handleOpenPatternPageConfirm}
+                          patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
 <ModelSelectorPopover
                            model={local.model}
+                           riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
                            triggerProps={{
-                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden focus-visible:outline-none`,
                               "data-action": "prompt-model",
                             }}
                            onClose={(cause) => {
-                             if (cause === "select") {
-                               const m = currentModel()
-                               if (m) {
-                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                               }
-                             }
-                           }}
+                              if (cause === "select") {
+                                const m = currentModel()
+                                if (m) {
+                                  console.log("[design] select model", m.id, m.provider.id)
+                                  tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                                }
+                              }
+                            }}
                          >
-                          <span class="truncate">
-                            {currentModel()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-                        </ModelSelectorPopover>
-                      </div>
-<IconButton
-                         data-action="prompt-submit"
-                         type="submit"
-                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                          <ModelTriggerLabel model={local.model} />
+                         </ModelSelectorPopover>
+                       </div>
+ <IconButton
+                          data-action="prompt-submit"
+                          type="submit"
+                          icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                         aria-label={effectiveBusy() ? "停止生成" : undefined}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         aria-label={
+                           effectiveBusy()
+                             ? "停止生成"
+                             : contextSendBlocked()
+                               ? "上下文已达到上限，请先压缩上下文"
+                               : undefined
+                         }
 />
                     </div>
                    </div>
+                   <Show when={local.model.current()?.isExternal}>
+                     <ComplianceNotice />
+                   </Show>
                  </div>
                </div>
              </Show>
            }>
-              {/* 消息列表 —— 已移除 PlanEntryBanner（进入设计策略模式仅保留 AddonMenu 入口） */}
+              {/* 消息列表：消息按主 session 与所有子 session 的创建时间统一排序 */}
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
@@ -3806,7 +5248,56 @@ if (dsId) {
                 onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
-                    {/* 第一条消息 */}
+                    <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
+                      <div
+                        class="flex items-center justify-between mx-3"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          "border-style": "solid",
+                          "border-color": "rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
+                      >
+                        <div class="flex items-center gap-[8px]">
+                          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+                            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337Z" fill="rgb(10,89,247)" />
+                            <path d="M13.6664 9.55337C13.6531 9.50892 13.6353 9.48448 13.6131 9.48003C13.5953 9.47559 13.5775 9.48003 13.5598 9.49337C13.542 9.51114 13.5286 9.53114 13.5198 9.55337C13.4442 9.91337 13.2753 10.2245 13.0131 10.4867C12.7553 10.7489 12.4398 10.9223 12.0664 11.0067C12.0309 11.02 12.0109 11.0356 12.0064 11.0534C12.002 11.0756 12.0042 11.0978 12.0131 11.12C12.0264 11.1423 12.0442 11.1534 12.0664 11.1534C12.4264 11.2378 12.7398 11.4111 13.0064 11.6734C13.2731 11.9356 13.4442 12.2423 13.5198 12.5934C13.5286 12.6245 13.5442 12.6445 13.5664 12.6534C13.5886 12.6667 13.6109 12.6667 13.6331 12.6534C13.6553 12.6445 13.6664 12.6245 13.6664 12.5934C13.7509 12.2289 13.9242 11.9156 14.1864 11.6534C14.4442 11.3956 14.7553 11.2289 15.1198 11.1534C15.1509 11.1534 15.1731 11.14 15.1864 11.1134C15.1953 11.0867 15.1953 11.0623 15.1864 11.04C15.1731 11.0178 15.1509 11.0067 15.1198 11.0067C14.7553 10.9311 14.4442 10.76 14.1864 10.4934C13.9242 10.2267 13.7509 9.91337 13.6664 9.55337Z" fill="rgb(10,89,247)" />
+                            <path d="M10.3864 12.5734C10.3731 12.5334 10.3531 12.5156 10.3264 12.52C10.2998 12.5245 10.282 12.5423 10.2731 12.5734C10.2286 12.8311 10.1131 13.0534 9.92642 13.24C9.73976 13.4267 9.51309 13.5467 9.24642 13.6C9.21531 13.6089 9.20198 13.6267 9.20642 13.6534C9.21087 13.68 9.2242 13.6934 9.24642 13.6934C9.5042 13.7467 9.72864 13.8711 9.91976 14.0667C10.1109 14.2578 10.2286 14.4756 10.2731 14.72C10.282 14.7645 10.2998 14.7823 10.3264 14.7734C10.3531 14.7689 10.3731 14.7511 10.3864 14.72C10.4398 14.4623 10.5598 14.24 10.7464 14.0534C10.9331 13.8667 11.1531 13.7467 11.4064 13.6934C11.4375 13.6934 11.4531 13.68 11.4531 13.6534C11.4531 13.6267 11.4375 13.6089 11.4064 13.6C11.1531 13.5467 10.9331 13.4267 10.7464 13.24C10.5598 13.0534 10.4398 12.8311 10.3864 12.5734Z" fill="rgb(10,89,247)" />
+                            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8531 4.54669 13.8531 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669ZM11.0401 3.18669C11.1467 3.08003 11.269 3.02669 11.4067 3.02669C11.5445 3.02669 11.6623 3.08003 11.7601 3.18669L12.6401 4.06669C12.7467 4.16003 12.8001 4.28003 12.8001 4.42669C12.8001 4.56892 12.7467 4.68892 12.6401 4.78669L11.4534 5.92003L9.88673 4.33336L11.0401 3.18669Z" fill="rgb(10,89,247)" />
+                          </svg>
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>进入设计策略模式</span>
+                        </div>
+                        <button type="button" onClick={handleEndPlan} class="shrink-0 transition-colors cursor-pointer" style={{ "font-size": "14px", "line-height": "22px", color: "#0a59f7", background: "transparent", border: "none" }}>
+                          退出
+                        </button>
+                      </div>
+                    </Show>
+
+                    {/* Pattern 匹配模式 banner — 退出按钮才退出 pattern 模式 */}
+                    <Show when={activePatternSessionId() && !patternEnded()}>
+                      <div
+                        class="flex items-center justify-between mx-3"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
+                      >
+                        <div class="flex items-center gap-[8px]">
+                          <span style={{ "font-size": "16px" }}>✦</span>
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>Pattern 匹配模式</span>
+                        </div>
+                        <button type="button" onClick={handleEndPatternPage} class="shrink-0 transition-colors cursor-pointer" style={{ "font-size": "14px", "line-height": "22px", color: "#0a59f7", background: "transparent", border: "none" }}>
+                          退出
+                        </button>
+                      </div>
+                    </Show>
+
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
                         sessionID={userMessages()[0].sessionID || params.id!}
@@ -3822,9 +5313,7 @@ if (dsId) {
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
-                        onFormSubmit={(text) => {
-                          setPrompt(text)
-                        }}
+                        onFormSubmit={(text) => setPrompt(text)}
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
@@ -3834,72 +5323,36 @@ if (dsId) {
                         skillConfig={skillConfig()}
                       />
                     </Show>
-                    {/* 设计策略模式气泡 */}
-                    <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
-                      <div
-                        class="flex items-center justify-between mx-3"
-                        style={{
-                          height: "48px",
-                          padding: "0 16px",
-                          "border-radius": "12px",
-                          border: "1px solid rgba(0,0,0,0.1)",
-                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
-                        }}
-                      >
-                        <div class="flex items-center gap-[8px]">
-                          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
-                            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337ZM13.6664 9.55337C13.6531 9.50892 13.6353 9.48448 13.6131 9.48003C13.5953 9.47559 13.5775 9.48003 13.5598 9.49337C13.542 9.51114 13.5286 9.53114 13.5198 9.55337C13.4442 9.91337 13.2753 10.2245 13.0131 10.4867C12.7553 10.7489 12.4398 10.9223 12.0664 11.0067C12.0309 11.02 12.0109 11.0356 12.0064 11.0534C12.002 11.0756 12.0042 11.0978 12.0131 11.12C12.0264 11.1423 12.0442 11.1534 12.0664 11.1534C12.4264 11.2378 12.7398 11.4111 13.0064 11.6734C13.2731 11.9356 13.4442 12.2423 13.5198 12.5934C13.5286 12.6245 13.5442 12.6445 13.5664 12.6534C13.5886 12.6667 13.6109 12.6667 13.6331 12.6534C13.6553 12.6445 13.6664 12.6245 13.6664 12.5934C13.7509 12.2289 13.9242 11.9156 14.1864 11.6534C14.4442 11.3956 14.7553 11.2289 15.1198 11.1534C15.1509 11.1534 15.1731 11.14 15.1864 11.1134C15.1953 11.0867 15.1953 11.0623 15.1864 11.04C15.1731 11.0178 15.1509 11.0067 15.1198 11.0067C14.7553 10.9311 14.4442 10.76 14.1864 10.4934C13.9242 10.2267 13.7509 9.91337 13.6664 9.55337ZM10.3864 12.5734C10.3731 12.5334 10.3531 12.5156 10.3264 12.52C10.2998 12.5245 10.282 12.5423 10.2731 12.5734C10.2286 12.8311 10.1131 13.0534 9.92642 13.24C9.73976 13.4267 9.51309 13.5467 9.24642 13.6C9.21531 13.6089 9.20198 13.6267 9.20642 13.6534C9.21087 13.68 9.2242 13.6934 9.24642 13.6934C9.5042 13.7467 9.72864 13.8711 9.91976 14.0667C10.1109 14.2578 10.2286 14.4756 10.2731 14.72C10.282 14.7645 10.2998 14.7823 10.3264 14.7734C10.3531 14.7689 10.3731 14.7511 10.3864 14.72C10.4398 14.4623 10.5598 14.24 10.7464 14.0534C10.9331 13.8667 11.1531 13.7467 11.4064 13.6934C11.4375 13.6934 11.4531 13.68 11.4531 13.6534C11.4531 13.6267 11.4375 13.6089 11.4064 13.6C11.1531 13.5467 10.9331 13.4267 10.7464 13.24C10.5598 13.0534 10.4398 12.8311 10.3864 12.5734Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
-                            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8534 4.54669 13.8534 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669ZM10.7667 6.67336L5.20007 12.2067L2.96007 13.12C2.90673 13.1289 2.85785 13.1267 2.8134 13.1134C2.7734 13.0956 2.74229 13.0623 2.72007 13.0134C2.69785 12.9689 2.69785 12.9245 2.72007 12.88L3.64673 10.56L9.1534 5.07336L10.7667 6.67336ZM11.0401 3.18669C11.1467 3.08003 11.269 3.02669 11.4067 3.02669C11.5445 3.02669 11.6623 3.08003 11.7601 3.18669L12.6401 4.06669C12.7467 4.16003 12.8001 4.28003 12.8001 4.42669C12.8001 4.56892 12.7467 4.68892 12.6401 4.78669L11.4534 5.92003L9.88673 4.33336L11.0401 3.18669Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
-                          </svg>
-                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
-                            进入设计策略模式
-                          </span>
-                        </div>
-                        <button
-                          onClick={handleEndPlan}
-                          class="shrink-0 transition-colors cursor-pointer"
-                          style={{
-                            "font-size": "14px",
-                            "line-height": "22px",
-                            color: "#0a59f7",
-                            background: "transparent",
-                            border: "none",
-                          }}
-                        >
-                          退出
-                        </button>
-                      </div>
-                    </Show>
-                    {/* 剩余消息 */}
                     <For each={userMessages().slice(1)}>
-                    {(msg) => (
-                      <InsightTurn
-                        sessionID={msg.sessionID || params.id!}
-                        messageID={msg.id}
-                        status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
-                        active={sync.data.session_status[msg.sessionID ?? params.id!]?.type === "busy"}
-                        elapsedText={elapsedText()}
-                        blockTime={blockTime()}
-                        onAbort={halt}
-                        onOpenResult={handleOpenResult}
-                        onOpenLocalFile={handleOpenLocalFile}
-                        projectDir={projectDir()}
-                        onContinue={handleContinue}
-                        onChildSession={ensureChildSession}
-                        deltaLog={deltaLog()}
-                        onFormSubmit={(text) => {
-                          setPrompt(text)
-                        }}
-                        hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => {
-                          setFilesRefreshKey(k => k + 1)
-                          void historyController.onFileRefresh(tabStore.tabs())
-                        }}
-                        skillToolCalls={skillToolCalls()}
-                        skillConfig={skillConfig()}
-                      />
-                    )}
-                  </For>
+                      {(msg) => {
+                        const messageSessionID = msg.sessionID || params.id!
+                        return (
+                          <InsightTurn
+                            sessionID={messageSessionID}
+                            messageID={msg.id}
+                            status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
+                            active={sync.data.session_status[messageSessionID]?.type === "busy"}
+                            elapsedText={elapsedText()}
+                            blockTime={blockTime()}
+                            onAbort={halt}
+                            onOpenResult={handleOpenResult}
+                            onOpenLocalFile={handleOpenLocalFile}
+                            projectDir={projectDir()}
+                            onContinue={handleContinue}
+                            onChildSession={ensureChildSession}
+                            deltaLog={deltaLog()}
+                            onFormSubmit={(text) => setPrompt(text)}
+                            hasQuestionRequest={!!questionRequest()}
+                            onFilesRefresh={() => {
+                              setFilesRefreshKey(k => k + 1)
+                              void historyController.onFileRefresh(tabStore.tabs())
+                            }}
+                            skillToolCalls={skillToolCalls()}
+                            skillConfig={skillConfig()}
+                          />
+                        )
+                      }}
+                    </For>
                 </div>
               </ScrollView>
               <div
@@ -3912,19 +5365,66 @@ if (dsId) {
               </div>
 
               {/* 输入区 */}
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+              <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
-                <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
-                  <PlanEntryBanner
-                    onEnter={() => { setShowPlanConfirm(false); handleEnterPlan() }}
-                    onSkip={() => setShowPlanConfirm(false)}
-                  />
-                </Show>
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
-                {/* Permission dock - 权限授权 UI */}
-                <Show when={permissionRequest()} keyed>
-                  {(request) => (
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
+                  <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
+                    <PlanEntryBanner
+                      onEnter={() => { setShowPlanConfirm(false); void handleEnterPlan() }}
+                      onSkip={() => setShowPlanConfirm(false)}
+                    />
+                  </Show>
+
+                  {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 */}
+                  <Show when={patternMatches() && !patternEnded()}>
+                    <div class="ic-card-overlay">
+                      <IntentConfirmCard
+                        sessionId={params.id ?? ""}
+                        result={patternMatches()!}
+                        blockMatches={patternBlockMatches()}
+                        blockMatching={patternBlockMatching() || patternChildBusy()}
+                        blockMatchError={patternBlockMatchError()}
+                        initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
+                        onMatchPattern={handleMatchPattern}
+                        onConfirm={handleConfirmPatternPage}
+                        onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
+                      />
+                    </div>
+                  </Show>
+
+                  {/* Permission dock - 权限授权 UI */}
+                  <Show when={permissionRequest()} keyed>
+                    {(request) => (
                     <div class="w-full max-w-[800px] mx-auto pb-3">
                       <SessionPermissionDock
                         request={request}
@@ -3979,6 +5479,16 @@ if (dsId) {
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                   }}
                 >
+                  {/* PatternPage 模式胶囊 */}
+                  <Show when={patternPageCapsuleActive()}>
+                    <div class="make-plan-capsule-row">
+                      <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
+                        <span class="make-plan-capsule-icon">✦</span>
+                        <span>Pattern 模式</span>
+                        <span class="make-plan-capsule-close">×</span>
+                      </button>
+                    </div>
+                  </Show>
                   {/* Slash Command Popover */}
                   <Show when={slashState() && filteredSlash().length > 0}>
                     <div class="slash-popover">
@@ -4018,7 +5528,7 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                       sessionId={params.id!}
+                       sessionId={params.id ?? ""}
                        skillConfig={skillConfig() ?? {}}
                        artifactFiles={artifactFilesMirror()}
                        mentionSelections={mentionSelections()}
@@ -4027,7 +5537,8 @@ if (dsId) {
                        busy={effectiveBusy()}
                        autofocus
                        onTriggerMention={loadSkillConfig}
-                      onContentChange={setPrompt}
+                      onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                      initialDocJSON={promptDoc()}
                       onSubmit={() => void handleSubmit()}
                       onPaste={handlePaste}
  onSlashTrigger={(query) => {
@@ -4035,13 +5546,16 @@ if (dsId) {
                          setSlashIndex(0)
                        }}
                        onSlashClose={() => setSlashState(null)}
-                      onPreview={(url) => {
-                        handleOpenLocalFile(url)
-                        proseMirrorRef1?.clear()
-                        proseMirrorRef2?.clear()
-                      }}
-                      ref={(el) => { proseMirrorRef2 = el }}
-                   />
+onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef2 = el }}
+                       productId={projectSelection()?.product?.id}
+                       onDownloadProductAsset={downloadProductAsset}
+                       onUpdateMentionPath={handleAddonUpdateMentionPath}
+                    />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
@@ -4071,31 +5585,35 @@ if (dsId) {
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                         onAddAttachmentFromUrl={downloadUrlToSession}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                        productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={activePlanSessionId() !== null}
+                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                        onEnterPatternPage={handleOpenPatternPageConfirm}
+                        patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
 <ModelSelectorPopover
                          model={local.model}
+                         riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
                          triggerProps={{
-                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden`,
                            "data-action": "prompt-model",
                          }}
                          onClose={(cause) => {
-                           if (cause === "select") {
-                             const m = currentModel()
-                             if (m) {
-                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                             }
-                           }
-                         }}
+                            if (cause === "select") {
+                              const m = currentModel()
+                              if (m) {
+                                console.log("[design] select model", m.id, m.provider.id)
+                                tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                              }
+                            }
+                          }}
                        >
-                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                          {currentModel()?.name ?? "选择模型"}
-                        </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                       </ModelSelectorPopover>
                     </div>
 <IconButton
@@ -4105,11 +5623,20 @@ if (dsId) {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       aria-label={
+                         effectiveBusy()
+                           ? "停止生成"
+                           : contextSendBlocked()
+                             ? "上下文已达到上限，请先压缩上下文"
+                             : undefined
+                       }
                      />
                   </div>
                 </div>
+                <Show when={local.model.current()?.isExternal}>
+                  <ComplianceNotice />
+                </Show>
               </div>
             </Show>
 
@@ -4198,11 +5725,13 @@ if (dsId) {
                 onModeChange={(mode) => {
                   if (mode === "edit") setShowHistoryPanel(false)
                 }}
+                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)
                   }
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
                   setShowHistoryPanel(!showHistoryPanel())
                 }}
                 onCollapseDrawer={
@@ -4219,7 +5748,7 @@ if (dsId) {
                   void historyController.onFileRefresh(tabStore.tabs())
                 }}
                 planCard={planCard()}
-                planPhase={planPhase()}
+                planPhase={currentSessionPlanPhase()}
                 strategyFormData={strategyFormData()}
                 onStrategyFieldChange={(field, value) => {
                   setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
@@ -4229,10 +5758,16 @@ if (dsId) {
                 isGenerating={isGenerating()}
                 planConfirmPending={planConfirmPending()}
                 childPlanConfirmed={childPlanConfirmed()}
-                childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
+                childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
-                planEnded={planEnded()}
-                planActive={activePlanSessionId() !== null}
+                planEnded={currentSessionPlanEnded()}
+                planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                disabled={effectiveBusy()}
+                skillConfig={skillConfig() ?? {}}
+                artifactFiles={artifactFilesMirror()}
+                productId={projectSelection()?.product?.id}
+                onDownloadProductAsset={downloadProductAsset}
+                onUpdateMentionPath={handleAddonUpdateMentionPath}
               />
             </div>
             <Show when={showVersionPanel()}>
@@ -4263,8 +5798,9 @@ if (dsId) {
         </div>
         </Show>
       </div>
-      <OctoToast />
+
+      {gate}
+      <InsightNoticeHost />
     </DataProvider>
   )
 }
-

@@ -1,9 +1,9 @@
 import type { PrototypeModifyData, PrototypeSession } from "./types"
 import { getSession } from "./session"
-import { commitA2ui } from "./a2ui"
+import { commitA2uiDoc, findDocByElementId } from "./a2ui"
 
 /** 按原值类型把 string/boolean 转成 boolean/number，避免把 "true" 字符串塞进布尔/数字字段 */
-function coercePropValue(prev: unknown, val: string | boolean): string | boolean | number {
+export function coercePropValue(prev: unknown, val: string | boolean | number | object): string | boolean | number | object {
   if (typeof prev === "boolean" && typeof val === "string") return val === "true"
   if (typeof prev === "number") {
     const n = Number(val)
@@ -17,20 +17,21 @@ function isStateBound(v: unknown): v is { path: string } {
   return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
 }
 
-/** 沿 path（如 /a/b/c）遍历 doc.state，把 value 写到目标叶子（按原值类型转换）；路径不存在则放弃 */
-function writeStateBinding(state: Record<string, unknown> | undefined, path: string, value: string | boolean) {
+/** 沿 path（如 /a/b/c）遍历 doc.state，把 value 写到目标叶子（按原值类型转换）；中间路径不存在时自动创建。 */
+export function writeStateBinding(state: Record<string, unknown> | undefined, path: string, value: string | boolean | number | object) {
   if (!state || typeof state !== "object") return
   const parts = path.replace(/^\//, "").split("/").filter(Boolean)
   let target: Record<string, unknown> = state
   for (let i = 0; i < parts.length - 1; i++) {
-    const next = target[parts[i]]
-    if (!next || typeof next !== "object" || Array.isArray(next)) return
-    target = next as Record<string, unknown>
+    const key = parts[i]
+    const next = target[key]
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      target[key] = {}
+    }
+    target = target[key] as Record<string, unknown>
   }
   const lastKey = parts[parts.length - 1]
-  if (lastKey in target) {
-    target[lastKey] = coercePropValue(target[lastKey], value)
-  }
+  target[lastKey] = coercePropValue(target[lastKey], value)
 }
 
 /** 转义字符串使其可安全嵌入 RegExp 字面量（用于把 componentId 拼进 id 匹配正则）。 */
@@ -120,14 +121,17 @@ function writeLoopBindings(
 
 /** 应用一次属性编辑到当前 prototype 的 A2UI JSON 并 od:a2ui-update 回推重渲染。
  *  循环实例（elementId 含 :N 后缀）：绑定字段写入 state 中对应数组项；普通字段改模板 props。
- *  非循环：绑定字段按 path 直写 state；普通字段改元素 props。 */
+ *  非循环：绑定字段按 path 直写 state；普通字段改元素 props。
+ *  混合页多 doc：按 elementId 定位到所属 entry 再改。 */
 export function applyPrototypeModify(data: PrototypeModifyData) {
   const session = getSession()
   if (!session) return
-  const ctx = session.ctx
-  const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
-  if (!filePath) return
-  const current = session.a2ui?.doc
+  const entry = findDocByElementId(session.a2uiDocs, data.elementId)
+  if (!entry) {
+    console.warn("[applyPrototypeModify] no doc for elementId", data.elementId, "(a2uiDocs:", session.a2uiDocs.length, session.a2uiDocs.map((e) => e.rootId), ")")
+    return
+  }
+  const current = entry.doc
   if (!current || typeof current !== "object") return
   const doc = JSON.parse(JSON.stringify(current)) as {
     state?: Record<string, unknown>
@@ -142,16 +146,22 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
   el.props = el.props || {}
 
   const bindings: { path: string; value: string | boolean }[] = []
-  const applyProp = (key: string, prev: unknown, value: string | boolean) => {
+  const applyProp = (key: string, prev: unknown, value: string | boolean | object) => {
     if (isStateBound(prev)) {
-      if (value !== "[object Object]") bindings.push({ path: prev.path, value })
+      if (value !== "[object Object]") bindings.push({ path: prev.path, value: value as string | boolean })
       return
     }
     el.props![key] = coercePropValue(prev, value)
   }
 
-  if (data.className) applyProp("className", el.props.className, data.className)
-  if (data.textContent) applyProp("value", el.props.value, data.textContent)
+  // 空字符串是有效写入（如取消"填充宽度"后重建出的 className 为空，需清掉之前的 w-full），
+  // 不能当"未修改"跳过：只要有新值或旧值存在就应用。但空值写入仅限 prev 为静态字符串——
+  // prev 是 state 绑定（{path}）时写入空串会把绑定值清空，必须跳过（旧 `if (data.className)`
+  // 行为）。value 同理：仅在旧值是非空静态字符串时允许清空，避免误清 state 绑定值。
+  if (data.className || (el.props.className !== undefined && !isStateBound(el.props.className))) {
+    applyProp("className", el.props.className, data.className)
+  }
+  if (data.textContent || (typeof el.props.value === "string" && el.props.value !== "")) applyProp("value", el.props.value, data.textContent)
   if (data.componentProps) {
     for (const key of Object.keys(data.componentProps)) {
       applyProp(key, el.props[key], data.componentProps[key])
@@ -168,17 +178,16 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
     }
   }
 
-  commitA2ui(session, filePath, doc)
+  commitA2uiDoc(session, entry, doc)
 }
 
 /** 拖拽换序：在 A2UI JSON 中重排同级 children（静态 string[] 或循环 {path,componentId}）并 od:a2ui-update 回推 */
 export function applyPrototypeReorder(elementId: string, targetSiblingId: string, position: "before" | "after") {
   const session = getSession()
   if (!session) return
-  const ctx = session.ctx
-  const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
-  if (!filePath) return
-  const current = session.a2ui?.doc
+  const entry = findDocByElementId(session.a2uiDocs, elementId)
+  if (!entry) return
+  const current = entry.doc
   if (!current || typeof current !== "object") return
   const doc = JSON.parse(JSON.stringify(current)) as {
     state?: Record<string, unknown>
@@ -213,7 +222,7 @@ export function applyPrototypeReorder(elementId: string, targetSiblingId: string
 
   for (const el of elements) {
     if (el.children && !Array.isArray(el.children) && reorderLoopChildren(el.children as { path: string; componentId: string })) {
-      commitA2ui(session, filePath, doc)
+      commitA2uiDoc(session, entry, doc)
       return
     }
     if (!Array.isArray(el.children)) continue
@@ -225,7 +234,7 @@ export function applyPrototypeReorder(elementId: string, targetSiblingId: string
     const idx = filtered.indexOf(targetId)
     filtered.splice(position === "before" ? idx : idx + 1, 0, sourceId)
     el.children = filtered
-    commitA2ui(session, filePath, doc)
+    commitA2uiDoc(session, entry, doc)
     return
   }
   console.warn("[prototype] reorder: no matching parent found for", elementId, "->", targetSiblingId)

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
+import {
+  assembleInsightParts,
+  decideInlineStrategy,
+  DOC_COUNT_THRESHOLD,
+  DOC_SINGLE_BYTES,
+  INLINE_BUDGET,
+  SINGLE_DOC_LIMIT,
+} from "./build-prompt-parts"
 
 /**
  * SPEC-INS-027：正常发送与排队 drain 共用的 parts 组装骨架单测。
@@ -87,20 +94,35 @@ describe("assembleInsightParts", () => {
     expect(parts.filter((p) => p.type === "file").map((p) => p.filename)).toEqual(["a.md", "b.md"])
   })
 
-  test("图片 → vision file part{url}，mime 缺省 image/png；imageParts 单独返回", () => {
+  test("图片 → vision file part{url:file://…}，mime 缺省按扩展名查表；imageParts 单独返回", () => {
     const { parts, imageParts } = assembleInsightParts({
       text: "hi",
       imageFiles: [
-        { filename: "c.png", url: "https://s3/c.png", mime: "image/png" },
-        { filename: "d.jpg", url: "https://s3/d.jpg" },
+        { filename: "c.png", path: "/p/c.png", mime: "image/png" },
+        { filename: "d.jpg", path: "/p/d.jpg" },
+        { filename: "e.gif", path: "/p/e.gif" },
       ],
     })
     expect(imageParts).toEqual([
-      { type: "file", mime: "image/png", url: "https://s3/c.png", filename: "c.png" },
-      { type: "file", mime: "image/png", url: "https://s3/d.jpg", filename: "d.jpg" },
+      { type: "file", mime: "image/png", url: "file:///p/c.png", filename: "c.png" },
+      // mime 缺省按扩展名精确兜底(jpg→jpeg),不能笼统给 image/png(否则 media_type 与字节不符)
+      { type: "file", mime: "image/jpeg", url: "file:///p/d.jpg", filename: "d.jpg" },
+      { type: "file", mime: "image/gif", url: "file:///p/e.gif", filename: "e.gif" },
     ])
     // parts 尾部即 imageParts
-    expect(parts.slice(-2)).toEqual(imageParts)
+    expect(parts.slice(-3)).toEqual(imageParts)
+  })
+
+  // 2026-09 去 S3:图片本地路径的编码与 txt/md 内联同款 encodeFilePath,
+  // Windows 反斜杠/盘符/中文与空格是主战场,锁死编码契约。
+  test("图片路径编码：Windows 反斜杠/盘符 → file:///C:/…，中文与空格被编码", () => {
+    const { imageParts } = assembleInsightParts({
+      text: "hi",
+      imageFiles: [{ filename: "图 1.png", path: "C:\\Users\\y\\.octo\\ses_x\\uploads\\图 1.png" }],
+    })
+    expect(imageParts[0]?.url).toBe(
+      "file:///C:/Users/y/.octo/ses_x/uploads/%E5%9B%BE%201.png",
+    )
   })
 
   test("完整顺序：text → synthetic → txt/md → 图片", () => {
@@ -108,7 +130,7 @@ describe("assembleInsightParts", () => {
       text: "T",
       syntheticTexts: ["S1", "S2"],
       textInlineFiles: [{ filename: "a.md", path: "/a.md" }],
-      imageFiles: [{ filename: "c.png", url: "u" }],
+      imageFiles: [{ filename: "c.png", path: "/p/c.png" }],
     })
     expect(parts.map((p) => (p.type === "text" ? p.text : `file:${p.filename}`))).toEqual([
       "T",
@@ -128,6 +150,63 @@ describe("assembleInsightParts", () => {
  */
 describe("decideInlineStrategy", () => {
   const f = (filename: string, bytes: number, path = `/p/${filename}`) => ({ filename, path, bytes })
+  const doc = (filename: string, bytes = 1024, path = `/p/${filename}`) => ({ filename, path, bytes })
+
+  // ── SPEC-INS-032 §2.6：office / pdf 的份数口径 ────────────────────────────
+  // 这类文件发送前只有二进制大小、拿不到正文体量，故不并入字节预算，按份数判。
+  // 用例写成相对 DOC_COUNT_THRESHOLD / DOC_SINGLE_BYTES，调阈值不用改用例。
+
+  test("office 少于阈值份数且不大 → inline（父代理自己读更快）", () => {
+    const files = Array.from({ length: DOC_COUNT_THRESHOLD - 1 }, (_, i) => doc(`访谈${i}.docx`))
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("inline")
+    expect(d.docs).toHaveLength(DOC_COUNT_THRESHOLD - 1)
+    expect(d.reasons).toEqual([])
+  })
+
+  test("office 达到阈值份数 → dispatch（doc-count）", () => {
+    const files = Array.from({ length: DOC_COUNT_THRESHOLD }, (_, i) => doc(`访谈${i}.docx`))
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toContain("doc-count")
+  })
+
+  test("单份 office 超二进制兜底 → dispatch（doc-size），哪怕只有一份", () => {
+    const d = decideInlineStrategy([doc("超大.docx", DOC_SINGLE_BYTES + 1)])
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toEqual(["doc-size"])
+    expect(d.largeDocs.map((x) => x.filename)).toEqual(["超大.docx"])
+  })
+
+  test("office 的字节**不**计入文本预算（两套口径互不污染）", () => {
+    // 一份巨大的 docx + 一个很小的 md：文本预算只看那个 md
+    const d = decideInlineStrategy([doc("大.docx", DOC_SINGLE_BYTES + 1), f("小.md", 100)])
+    expect(d.totalBytes).toBe(100)
+    expect(d.files.map((x) => x.filename)).toEqual(["小.md"])
+    expect(d.reasons).toEqual(["doc-size"])
+  })
+
+  test("混合命中两条判据 → reasons 都记上，仍是整批 dispatch", () => {
+    const files = [
+      f("长文.md", INLINE_BUDGET + 1),
+      ...Array.from({ length: DOC_COUNT_THRESHOLD }, (_, i) => doc(`访谈${i}.docx`)),
+    ]
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toContain("text-budget")
+    expect(d.reasons).toContain("doc-count")
+  })
+
+  test("图片两个口径都不参与", () => {
+    const d = decideInlineStrategy([
+      { filename: "截图.png", path: "/p/截图.png", bytes: DOC_SINGLE_BYTES + 1 },
+      f("小.md", 100),
+    ])
+    expect(d.mode).toBe("inline")
+    expect(d.docs).toEqual([])
+    expect(d.files.map((x) => x.filename)).toEqual(["小.md"])
+  })
+
 
   test("总字节在预算内 → inline，行为与 v2 之前一致", () => {
     const d = decideInlineStrategy([f("a.md", 1000), f("b.txt", 2000)])
@@ -167,6 +246,43 @@ describe("decideInlineStrategy", () => {
     expect(d.totalBytes).toBe(1000)
   })
 
+  test("Windows 同一路径忽略大小写与斜杠差异去重", () => {
+    const d = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\Materials\\A.docx", bytes: 1000 },
+      { filename: "a.docx", path: "d:/materials/a.docx", bytes: 1000 },
+    ])
+    expect(d.docs).toHaveLength(1)
+  })
+
+  test("Windows 同一路径消解点段，UNC 的正反斜杠写法等价", () => {
+    const drive = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\docs\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\.\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\sub\\..\\a.docx", bytes: 1000 },
+    ])
+    const unc = decideInlineStrategy([
+      { filename: "a.txt", path: "\\\\server\\share\\a.txt", bytes: 17 * 1024 },
+      { filename: "a.txt", path: "//server/share/a.txt", bytes: 17 * 1024 },
+    ])
+    expect(drive.docs).toHaveLength(1)
+    expect(drive.mode).toBe("inline")
+    expect(unc.files).toHaveLength(1)
+    expect(unc.mode).toBe("inline")
+  })
+
+  test("macOS 同一路径按 POSIX 等价写法去重，但保留大小写差异", () => {
+    const decision = decideInlineStrategy([
+      { filename: "a.md", path: "/Users/test/Documents/./materials//a.md", bytes: 1000 },
+      { filename: "a.md", path: "/Users/test/Documents/materials/a.md", bytes: 1000 },
+      { filename: "A.md", path: "/Users/test/Documents/materials/A.md", bytes: 1000 },
+    ])
+    expect(decision.files.map((file) => file.path)).toEqual([
+      "/Users/test/Documents/./materials//a.md",
+      "/Users/test/Documents/materials/A.md",
+    ])
+    expect(decision.totalBytes).toBe(2000)
+  })
+
   test("单份超 SINGLE_DOC_LIMIT → 进 oversized，且整批必然 dispatch", () => {
     const d = decideInlineStrategy([f("huge.md", SINGLE_DOC_LIMIT + 1), f("a.md", 10)])
     expect(d.mode).toBe("dispatch")
@@ -198,7 +314,7 @@ describe("assembleInsightParts × 内联分层（SPEC-INS-032）", () => {
     const { parts, imageParts } = assembleInsightParts({
       text: "hi",
       textInlineFiles: [big("a.md"), big("b.md")],
-      imageFiles: [{ filename: "s.png", url: "https://s3/s.png" }],
+      imageFiles: [{ filename: "s.png", path: "/p/s.png" }],
     })
     expect(imageParts).toHaveLength(1)
     expect(parts.filter((p) => p.type === "file")).toHaveLength(1)

@@ -90,6 +90,8 @@ export function fromRow(row: SessionRow, category?: string): Info {
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
     },
+    sort_order: row.sort_order,
+    pinned: row.pinned === 1,
   }
 }
 
@@ -195,6 +197,8 @@ export const Info = Schema.Struct({
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
   revert: optionalOmitUndefined(Revert),
+  sort_order: Schema.Number,
+  pinned: Schema.Boolean,
 })
   .annotate({ identifier: "Session" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -301,6 +305,8 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  sort_order: Schema.optional(Schema.NullOr(Schema.Number)),
+  pinned: Schema.optional(Schema.NullOr(Schema.Boolean)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -463,6 +469,8 @@ export interface Interface {
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: Permission.Ruleset }) => Effect.Effect<void>
+  readonly setSortOrder: (input: { sessionID: SessionID; sortOrder: number }) => Effect.Effect<void>
+  readonly setPinned: (input: { sessionID: SessionID; pinned: boolean }) => Effect.Effect<void>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -540,6 +548,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           created: Date.now(),
           updated: Date.now(),
         },
+        sort_order: 0,
+        pinned: false,
       }
       log.info("created", result)
 
@@ -728,6 +738,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* patch(input.sessionID, { permission: input.permission, time: { updated: Date.now() } })
     })
 
+    const setSortOrder = Effect.fn("Session.setSortOrder")(function* (input: { sessionID: SessionID; sortOrder: number }) {
+      yield* patch(input.sessionID, { sort_order: input.sortOrder })
+    })
+
+    const setPinned = Effect.fn("Session.setPinned")(function* (input: { sessionID: SessionID; pinned: boolean }) {
+      yield* patch(input.sessionID, { pinned: input.pinned })
+    })
+
     const setRevert = Effect.fn("Session.setRevert")(function* (input: {
       sessionID: SessionID
       revert: Info["revert"]
@@ -814,6 +832,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       setTitle,
       setArchived,
       setPermission,
+      setSortOrder,
+      setPinned,
       setRevert,
       clearRevert,
       setSummary,

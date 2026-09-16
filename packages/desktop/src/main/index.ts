@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, session } from "electron"
+import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -53,9 +53,14 @@ import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-index-1-start
 // jk-j60099994-replace-with-index-1-end
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-start
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import * as FastuiDevServer from "./fastui-devserver"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
+import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
+import { normalizeReleaseNotes } from "./normalize-release-notes"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
@@ -177,6 +182,9 @@ function setupApp() {
   })
 
   app.on("will-quit", () => {
+    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-001 §8.6.1)——
+    // 不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
+    FastuiDevServer.stopAll()
     void killSidecar()
   })
 
@@ -206,6 +214,9 @@ function setupApp() {
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
+    powerMonitor.on("resume", () => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
+    })
     await initialize()
   })
 }
@@ -219,27 +230,29 @@ function useSystemCertificates() {
 }
 
 function useEnvProxy() {
+  // 先注入 ~/.config/octo/proxy_config.json 的代理，再 setGlobalProxyFromEnv()：
+  // 后者读取调用时刻的 env，顺序反了首次调用就是 no-op（旧实现依赖 setupApp 补调第二次）
+  const config = readProxyConfig()
+  if (config) {
+    for (const key of ["http_proxy", "https_proxy", "no_proxy"] as const) {
+      const value = config[key]
+      if (!value) continue
+      process.env[key] = value
+      process.env[key.toUpperCase()] = value
+    }
+    logger.log("octo proxy config loaded", {
+      file: proxyConfigFile(),
+      http_proxy: maskProxyUrl(config.http_proxy),
+      https_proxy: maskProxyUrl(config.https_proxy),
+      no_proxy: config.no_proxy,
+    })
+  }
+
   try {
-    // Electron 41.2 runs Node 24.14.1; latest @types/node@24 is 24.12.2.
+    // Electron 42 runs Node 24.15.0 (Electron 41.2 为 24.14.1，均含该 API)。
     ;(http as any).setGlobalProxyFromEnv()
   } catch (error) {
     logger.warn("failed to load proxy environment", error)
-  }
-
-  // 从 ~/.config/octo/proxy_config.json 读取代理配置并注入环境变量
-  try {
-    const configFile = join(homedir(), ".config", "octo", "proxy_config.json")
-    if (existsSync(configFile)) {
-      const config = JSON.parse(readFileSync(configFile, "utf-8"))
-      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
-        const value = config[key]
-        if (!value) continue
-        process.env[key] = value
-        process.env[key.toUpperCase()] = value
-      }
-    }
-  } catch (error) {
-    logger.warn("failed to load octo proxy config", error)
   }
 }
 
@@ -250,9 +263,10 @@ function emitDeepLinks(urls: string[]) {
 }
 
 function focusMainWindow() {
-  if (!mainWindow) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.show()
   mainWindow.focus()
+  mainWindow.webContents.send("app-reopen")
 }
 
 function setInitStep(step: InitStep) {
@@ -354,6 +368,10 @@ async function initialize() {
     app.exit(1)
     return
   }
+
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-end
+  
   setInitStep({ phase: "done" })
 
   if (overlay) {
@@ -497,6 +515,9 @@ function setupAutoUpdater() {
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on("download-progress", (progress) => {
+    BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update-download-progress", progress.percent))
+  })
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -505,15 +526,23 @@ function setupAutoUpdater() {
   })
 }
 
+let availableUpdateVersion: string | undefined
+let availableUpdateReleaseNotes: string | undefined
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate() {
+async function downloadUpdate(version: string) {
+  await autoUpdater.downloadUpdate()
+  logger.log("update download completed", { version })
+  downloadedUpdateVersion = version
+}
+
+async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
       version: downloadedUpdateVersion,
     })
-    return { updateAvailable: true, version: downloadedUpdateVersion }
+    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
   }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
@@ -524,10 +553,12 @@ async function checkUpdate() {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
+      releaseNotes: releaseNotes ?? null,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -545,10 +576,12 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    downloadedUpdateVersion = version
-    return { updateAvailable: true, version }
+    availableUpdateVersion = version
+    availableUpdateReleaseNotes = releaseNotes
+    if (download) {
+      await downloadUpdate(version)
+    }
+    return { updateAvailable: true, version, releaseNotes }
   } catch (error) {
     logger.error("update check failed", error)
     return { updateAvailable: false, failed: true }
@@ -556,6 +589,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (!downloadedUpdateVersion && availableUpdateVersion) {
+    logger.log("downloading update before install", { version: availableUpdateVersion })
+    await downloadUpdate(availableUpdateVersion)
+  }
   if (!downloadedUpdateVersion) {
     logger.log("install update skipped", {
       reason: "no downloaded update ready",
@@ -572,7 +609,7 @@ async function installUpdate() {
 async function checkForUpdates(alertOnFail: boolean) {
   if (!UPDATER_ENABLED) return
   logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
+  const result = await checkUpdate(true)
   if (!result.updateAvailable) {
     if (result.failed) {
       logger.log("no update decision", { reason: "update check failed" })

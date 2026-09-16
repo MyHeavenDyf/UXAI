@@ -1,8 +1,8 @@
-# LineChart | 折线图
+# LineChart | 折线图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Line Chart
+## Example: Basic Line Chart
 - Use `xAxis.data` to specify the field name for X-axis
 - `yAxisTitle` is the Y-axis visible label (required)
 
@@ -24,7 +24,7 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"smooth": true` — smooth curve display
 - `"step": true` — step line display
 - `"stack": true` — stacked lines

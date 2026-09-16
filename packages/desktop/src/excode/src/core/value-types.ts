@@ -112,6 +112,27 @@ export interface BindingValue {
 
 // ─── ComputedValue（BindingValue 超集 + 数据转换） ───
 
+/**
+ * transform 旁路 store：transform 往此写需改写的所属节点字段，state-builder 在 transform
+ * 跑完后把字段应用到 owning node。opt-in——不写则节点不变，既有 mapping 行为零影响。
+ *
+ * transform 的 return 主路照走（进 const/state），override 是与之正交的纯旁路，二者互不干扰。
+ * 支持 tag/import（改 component）+ renameProps/deleteProps（改 props）；由 applyOverrideToNode
+ * 应用到 owning node（deleteProps 先于 renameProps，避免改名后被误删）。绝对路径（调用点 1，
+ * consumeValue）+ 相对路径（调用点 2，applyScopedCV 透传 ownerNode/store）两处都已接通。
+ */
+export interface OverrideStore {
+  /** 覆盖所属节点的 tag（组件名，如 DropDown → PopUpMenu） */
+  tag?: string
+  /** 覆盖所属节点的 import（模块路径） */
+  import?: string
+  /** 改名节点 prop 键（如 data → options）。oldKey 必须已存在才改；应用在 deleteProps 之后 */
+  renameProps?: Record<string, string>
+  /** 删除节点 prop 键（如 PopUpMenu 丢弃 trigger / DropDown 专属 placement）。
+   *  应用在 renameProps 之前，避免改名后被误删 */
+  deleteProps?: string[]
+}
+
 export interface ComputedTransformCtx {
   /** 原始 state（绝对路径直接用） */
   rawState: Record<string, any>
@@ -128,6 +149,12 @@ export interface ComputedTransformCtx {
   resolveValueFromPath: (path: string) => any
   /** 图标名称 → BuildNode（用于 containsJSX 的 transform 中 resolve 图标） */
   resolveIcon: (iconName: string, iconProps?: Record<string, any>) => any
+  /**
+   * 旁路 store：transform 往此写需改写的所属节点字段（tag/import），state-builder 在
+   * transform 跑完后应用到 owning node。opt-in，不写则节点不变。
+   * 由 state-builder 在每次调 transform 前注入一个空对象，transform 内 `ctx.override.tag = ...` 赋值。
+   */
+  override?: OverrideStore
 }
 
 export interface ComputedValue extends Omit<BindingValue, 'type'> {

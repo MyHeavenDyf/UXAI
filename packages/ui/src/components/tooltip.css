@@ -72,3 +72,7 @@
   /*   } */
   /* } */
 }
+
+[data-component="tooltip"][data-interactive="true"] {
+  pointer-events: auto !important;
+}

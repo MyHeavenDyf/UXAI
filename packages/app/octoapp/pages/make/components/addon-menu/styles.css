@@ -5,7 +5,6 @@
   --octo-border-default: #E5E7EB;
   position: fixed;
   width: 200px;
-  height: 248px;
   background: var(--octo-surface-page);
   border: 1px solid var(--octo-border-default);
   border-radius: 12px;
@@ -75,7 +74,8 @@
 }
 
 .addon-menu-item-text {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 14px;
   line-height: 22px;
   color: inherit;
@@ -129,16 +129,23 @@
   overflow-y: auto;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar {
+.addon-menu-tertiary-content::-webkit-scrollbar,
+.addon-menu-secondary::-webkit-scrollbar,
+.addon-menu-asset-root::-webkit-scrollbar {
   width: 4px;
+  display: block;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 2px;
+.addon-menu-tertiary-content::-webkit-scrollbar-thumb,
+.addon-menu-secondary::-webkit-scrollbar-thumb,
+.addon-menu-asset-root::-webkit-scrollbar-thumb {
+  background-color: #dbdbdb;
+  border-radius: 9999px;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar-track {
+.addon-menu-tertiary-content::-webkit-scrollbar-track,
+.addon-menu-secondary::-webkit-scrollbar-track,
+.addon-menu-asset-root::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -158,6 +165,7 @@
   transition: background-color 150ms ease;
   flex-shrink: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .addon-menu-tertiary-item:not(.addon-menu-tertiary-item--selected):hover {
@@ -175,7 +183,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .addon-menu-files-header {
@@ -210,6 +219,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  min-height: 275px;
   padding: 24px 0;
 }
 
@@ -217,6 +228,332 @@
   margin-top: 18px;
   font-size: 14px;
   color: #777777;
+}
+
+/* ── 产品资产库弹窗(spec line 85-122)── */
+.asset-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+}
+
+.asset-dialog {
+  position: absolute;
+  background: #ffffff;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  font-family: "HarmonyOS Sans SC";
+  /* width is set inline: leftWidth + rightWidth + splitter(4 + 8*2 margins) + padding(24*2) */
+  max-height: 650px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.asset-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.asset-dialog-title-text {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.asset-dialog-close {
+  cursor: pointer;
+}
+
+.asset-dialog-middle {
+  display: flex;
+  align-items: stretch;
+  /* basis auto: height follows content (clamped by children max-height), min 275.
+     flex-basis 0 would lock the dialog to its minimum height. */
+  flex: 1 1 auto;
+  min-height: 275px;
+  overflow: hidden;
+}
+
+.asset-dialog-left {
+  /* scroll handled by ScrollView (native scrollbar hidden, floating thumb on hover) */
+}
+
+.asset-dialog-split {
+  --octo-split-handle: true;
+  width: 4px;
+  margin-left: 8px;
+  margin-right: 8px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  border-radius: 2px;
+  position: relative;
+}
+
+/* Extend the hit area 8px into each margin so the 4px handle is hoverable */
+.asset-dialog-split::before {
+  content: "";
+  position: absolute;
+  inset: 0 -8px;
+}
+
+.asset-dialog-split:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.asset-dialog-right {
+  min-height: 275px;
+  padding: 1px;
+  position: relative;
+}
+
+.asset-dialog-right-handle {
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  right: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.asset-dialog-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 14px;
+  color: #777777;
+}
+
+/* 左侧树节点:样式同原子菜单文件夹项,缩进用 padding-left(项宽不变) */
+.asset-tree-item {
+  cursor: pointer;
+}
+
+.asset-tree-arrow {
+  transition: transform 150ms ease;
+}
+
+/* 右侧文件网格 */
+.asset-dialog-grid {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 16px;
+  /* 1px breathing room so the first item's hover outline isn't clipped by the scroll viewport */
+  padding: 1px;
+}
+
+.asset-grid-item {
+  width: 88px;
+  cursor: pointer;
+}
+
+.asset-grid-stage {
+  width: 100%;
+  height: 88px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  position: relative;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.asset-grid-stage:hover {
+  outline: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.asset-grid-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+.asset-grid-checkbox {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  border-radius: 2px;
+}
+
+/* 白底仅用于未选中态,避免覆盖 mention-checkbox--checked 的蓝底 */
+.asset-grid-checkbox:not(.mention-checkbox--checked) {
+  background: #fff;
+}
+
+.asset-grid-name {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  font-weight: 400;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+/* 下方按钮区(样式参照文件管理删除弹窗按钮) */
+.asset-dialog-footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.asset-dialog-btn {
+  width: 88px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 0;
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+.asset-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}
+
+/* 弹窗内预览窗:top 定位,覆盖原子菜单的 bottom: 0 */
+.asset-dialog-preview {
+  bottom: auto;
+  z-index: 20;
+}
+
+/* 产品资源库:多级文件夹层叠面板 */
+.addon-menu-secondary--assets {
+  /* Container is .addon-menu-secondary (position: absolute; left: 100%).
+     Subsequent levels inside use absolute positioning relative to this container. */
+}
+
+.addon-menu-asset-root {
+  /* Root level: plain flex column inside the secondary panel, no border/shadow/padding.
+     The outer .addon-menu-secondary--assets provides the panel chrome. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 产品资源库文件 hover 预览弹窗 */
+.addon-menu-asset-preview {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 256px;
+  height: 330px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+
+.addon-menu-asset-preview-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addon-menu-asset-preview-size {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 8px 0;
+}
+
+.addon-menu-asset-preview-stage {
+  margin-top: 8px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.addon-menu-asset-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+.addon-menu-asset-preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* HTML preview: iframe 1920x1080 scaled to fit, vertically centered in stage */
+.addon-menu-asset-preview-html {
+  position: relative;
+  width: 240px;
+  height: 135px; /* 240 * 1080/1920 = 135 (scaled iframe height) */
+  flex-shrink: 0;
+}
+
+.addon-menu-asset-preview-html iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform: scale(0.125);
+  transform-origin: top left;
+}
+
+.addon-menu-asset-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.addon-menu-asset-preview-unsupported-text {
+  font-size: 14px;
+  color: #777777;
+  margin-top: 20px;
+}
+
+.octo-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #0a59f7;
+  border-radius: 50%;
+  animation: octo-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes octo-spinner-rotate {
+  to { transform: rotate(360deg); }
 }
 
 /* URL Dialog */

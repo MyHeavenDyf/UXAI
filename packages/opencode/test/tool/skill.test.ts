@@ -2,7 +2,6 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Effect, Layer } from "effect"
 import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
 import type { Tool } from "@/tool/tool"
 import { Instance } from "../../src/project/instance"
@@ -36,6 +35,7 @@ describe("tool.skill", () => {
       (dir) =>
         Effect.gen(function* () {
           const skill = path.join(dir, ".opencode", "skill", "tool-skill")
+          yield* Effect.promise(() => Bun.write(path.join(skill, "references", "guide.md"), "guide"))
           yield* Effect.promise(() =>
             Bun.write(
               path.join(skill, "SKILL.md"),
@@ -87,8 +87,10 @@ Use this skill.
           expect(requests[0].always).toContain("tool-skill")
           expect(result.metadata.dir).toBe(skill)
           expect(result.output).toContain(`<skill_content name="tool-skill">`)
-          expect(result.output).toContain(`Base directory for this skill: ${pathToFileURL(skill).href}`)
+          expect(result.output).toContain(`Skill directory (absolute path): ${skill}`)
+          expect(result.output).not.toContain("file list is sampled")
           expect(result.output).toContain(`<file>${file}</file>`)
+          expect(result.output).toContain(`<file>${path.resolve(skill, "references", "guide.md")}</file>`)
         }),
       { git: true },
     ),

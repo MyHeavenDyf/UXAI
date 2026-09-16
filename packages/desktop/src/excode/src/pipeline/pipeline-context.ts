@@ -9,6 +9,7 @@
  * registry           Step 0: 创建时注入
  * config             配置对象
  * targetLib          目标组件库名
+ * theme              主题（light/dark），默认 light；来自 options.theme
  *
  * pagesData           Step 1: 读 A2UI 数据
  * builtPages          Step 2: BuildTrees 产出
@@ -47,6 +48,13 @@ export interface MappedPage {
 export interface GeneratedFile {
   path: string
   content: string
+  /**
+   * 仅 .tsx/.jsx 产物文件有：该文件 emitted 的 A2UI 元素基础 id 列表。
+   * 用于设计平台「框选节点 → 定位产物文件」映射（见 PLAN-manifest.md）。
+   * 存的是基础 id（不含循环展开的 `:index` 后缀），由 file-assembler 走树收集。
+   * state.ts / .less / config.ts / 模板复制文件不带此字段。
+   */
+  nodeIds?: string[]
 }
 
 /** 管线执行期错误（单页隔离收集，由 GenerateReport 汇总输出） */
@@ -66,6 +74,8 @@ export class PipelineContext {
   config: Record<string, any>
   registry: ComponentRegistry
   targetLib: string
+  /** 主题（'light' | 'dark'），默认 'light'；来自 options.theme，当前仅供 GenerateThemeConfig 生成 config.ts 使用 */
+  theme: string
 
   // ── Step 2: ReadPages ──
   pagesData: any[]
@@ -102,6 +112,7 @@ export class PipelineContext {
     this.config = config
     this.registry = registry
     this.targetLib = config.targetLib || 'eview-react'
+    this.theme = config.theme || 'light'
 
     this.pagesData = []
     this.builtPages = []

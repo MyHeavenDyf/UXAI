@@ -2,7 +2,7 @@
  * resource-path — 本地资源路径泛路改写
  *
  * A2UI JSON 中本地上传资源以 `/uploads/{file}`（可选 `/history/ses_{session}` 前缀）形式引用；
- * make 侧 prototype.html 属性编辑器上传的图片以相对 `uploads/{file}`（无前导斜杠）形式引用。
+ * make 侧 prototype.html 属性编辑器上传的图片以相对 `uploads/{file}`（无前导斜杠）形式引用。 
  * 管线产出 React 项目时统一改写为 `/assets/{file}`——zip 打包时资源文件落到 `assets/` 目录
  * （资源文件本身由 Electron 打包处理，管线只改引用路径，不回传资源清单）。
  *

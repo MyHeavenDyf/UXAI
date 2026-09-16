@@ -201,6 +201,10 @@
         "rowClassName": {
           "type": "string"
         },
+        "size": {
+					"type": "string",
+					"enum": ["large", "medium", "small"]
+				},
         "className": {
           "type": "string"
         }

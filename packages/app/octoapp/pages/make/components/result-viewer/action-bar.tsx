@@ -13,6 +13,7 @@ import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { DownloadCancelledError } from "../../subtype-handlers/default"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
 import { usePixsoTransport, type UploadZipOptions, type PixsoAction } from "@/utils/useZipTransport"
@@ -21,6 +22,7 @@ import { HistoryPanel } from "./history-panel"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
+import { TaskStore } from "@/context/task"
 import { useParams } from "@solidjs/router"
 
 // Responsive breakpoints for action bar
@@ -51,18 +53,18 @@ function stripExtension(title: string, ext: string): string {
   return title
 }
 
-async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
   const api = getDesktopApi()
 
   if (api?.saveFilePicker && api?.writeFileBuffer) {
     const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
-    if (!chosen) return
+    if (!chosen) return false
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
     showOctoToast({ title: "已下载" })
-    return
+    return true
   }
 
   const url = URL.createObjectURL(blob)
@@ -74,6 +76,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
   showOctoToast({ title: "已下载" })
+  return true
 }
 
 function markdownTableToCSV(md: string): string {
@@ -265,6 +268,7 @@ function CanvasEditDropdown(props: {
   sessionId?: string
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
@@ -310,6 +314,7 @@ function CanvasEditDropdown(props: {
         observedUrlsGetter: props.observedUrlsGetter,
         usePixsoTransport,
         sdkDirectory: props.sdkDirectory,
+        onFilesRefresh: props.onFilesRefresh,
       }
       
       const result = await handler.handleCanvasEdit(ctx)
@@ -479,6 +484,7 @@ export function ActionBar(props: {
     palette?: PaletteId | null
     inspecting?: boolean
     editing?: boolean
+    modelEditing?: boolean
     drawing?: boolean
     commenting?: boolean
     archiving?: boolean
@@ -489,6 +495,7 @@ export function ActionBar(props: {
     onPaletteChange?: (palette: PaletteId | null) => void
     onInspectToggle?: () => void
     onEditToggle?: () => void
+    onModelEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
@@ -502,6 +509,7 @@ export function ActionBar(props: {
     sessionId?: string
     sdkDirectory?: string
     postMessageToIframe?: (data: unknown) => void
+    onFilesRefresh?: () => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -510,12 +518,49 @@ export function ActionBar(props: {
 
   async function handleDownload(option?: string) {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
-    
-    const handler = getSubtypeHandler(props.tab.subtype)
-    if (handler?.handleDownload) {
-      const m = local.model.current()
-      const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
-      const ctx = {
+
+    const taskId = `download-${Date.now()}`
+    TaskStore.add([{
+      key: taskId,
+      taskId,
+      type: "download",
+      serviceType: "octo_download",
+      name: props.tab.title,
+      size: 0,
+      status: "in_progress",
+      hasProgress: false,
+      canCancel: false,
+      createdAt: Date.now(),
+    }])
+
+    try {
+      const handler = getSubtypeHandler(props.tab.subtype)
+      if (handler?.handleDownload) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx = {
+          tab: props.tab,
+          showOctoToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: props.observedResourceUrls,
+          usePixsoTransport,
+          sdk,
+          modelKey,
+          sync,
+          sessionId: params.id,
+        }
+
+        const handled = await handler.handleDownload(ctx, option)
+        if (handled === true) {
+          TaskStore.finish([{ key: taskId, status: "completed" }])
+          return
+        }
+      }
+
+      const defaultHandler = getSubtypeHandler('_default')
+      await defaultHandler?.handleDownload?.({
         tab: props.tab,
         showOctoToast,
         tracker,
@@ -523,36 +568,21 @@ export function ActionBar(props: {
         extractCodeBlock,
         observedUrlsGetter: props.observedResourceUrls,
         usePixsoTransport,
-        sdk,
-        modelKey,
-        sync,
-        sessionId: params.id,
-      }
-      
-      try {
-        const handled = await handler.handleDownload(ctx, option)
-        if (handled === true) return
-      } catch (error) {
-        showOctoToast({ 
-          title: "下载失败", 
-          description: error instanceof Error ? error.message : String(error),
-          variant: "error"
-        })
+      })
+      TaskStore.finish([{ key: taskId, status: "completed" }])
+    } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        const item = TaskStore.items().find(i => i.key === taskId)
+        if (item) TaskStore.remove(item)
         return
       }
+      TaskStore.error([{ key: taskId, status: "error" }])
+      showOctoToast({
+        title: "下载失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error"
+      })
     }
-    
-    // 如果 handler 未定义或返回 false，使用 default handler
-    const defaultHandler = getSubtypeHandler('_default')
-    await defaultHandler?.handleDownload?.({
-      tab: props.tab,
-      showOctoToast,
-      tracker,
-      getDesktopApi,
-      extractCodeBlock,
-      observedUrlsGetter: props.observedResourceUrls,
-      usePixsoTransport,
-    })
   }
 
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
@@ -570,6 +600,7 @@ export function ActionBar(props: {
   const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
   const showRefreshButton = () => featureVisible(config().features.refresh)
   const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
   const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
   const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
   const showComment = () => featureVisible(config().features.comment) && showViewport()
@@ -649,6 +680,10 @@ export function ActionBar(props: {
       observedUrlsGetter: props.observedResourceUrls,
       usePixsoTransport,
       postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
+      // 会话上下文:自定义按钮要定位会话目录时用(如 fastui 导出代码包)。
+      // 与 handleDownload 的 ctx 取法一致 —— sessionId 走路由参数。
+      sessionId: props.sessionId ?? params.id,
+      sdkDirectory: props.sdkDirectory,
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -750,6 +785,18 @@ export function ActionBar(props: {
               <span>局部修改</span>
             </button>
           )}
+          {showModelEdit() && props.onModelEditToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
+              onClick={props.onModelEditToggle}
+              title="局部修改"
+            >
+              <IconLocalModify size={16} />
+              <span>局部修改</span>
+            </button>
+          )}
           {showDrawEdit() && props.onDrawToggle && (
             <button
               type="button"
@@ -768,6 +815,7 @@ export function ActionBar(props: {
               sessionId={props.sessionId}
               sdkDirectory={props.sdkDirectory}
               observedUrlsGetter={props.observedResourceUrls}
+              onFilesRefresh={props.onFilesRefresh}
             />
           )}
           <Show when={shouldShowCopy()}>
@@ -1027,7 +1075,7 @@ function DownloadButton(props: {
         <button
           ref={btnRef}
           type="button"
-          class="octo-dropdown-trigger"
+          class="octo-action-btn"
           classList={{ "octo-dropdown-open": open() }}
           style={{ width: "auto" }}
           onClick={() => setOpen(!open())}

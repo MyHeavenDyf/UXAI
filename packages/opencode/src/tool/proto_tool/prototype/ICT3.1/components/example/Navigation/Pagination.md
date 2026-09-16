@@ -1,6 +1,6 @@
-# Pagination | 分页
+# Pagination | 分页 示例
 
-### Example: Pagination basic
+## Example: Pagination basic
 
 ```json
 {
@@ -13,7 +13,7 @@
 }
 ```
 
-### Example: Pagination with data binding
+## Example: Pagination with data binding
 
 ```json
 {

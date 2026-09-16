@@ -1,10 +1,9 @@
 // 上传服务客户端 + 附件清单格式：spec 见 docs/specs/infra/insight-file-passing.md、file-upload.md
 //
-// SPEC-INS-015 路由后,前端的 uploadFile 只服务 **③ 图片**（change 即传 S3 → vision FilePart{url}）：
-//   - 图片必然要上传(模型无法理解本地路径的图),故选/粘当下就传,与"是否调 MCP"无关。
-//   - 非图片文件(④ 喂 MCP)的 S3 上传**不在前端**——下沉到 server 端 octo-upload-inject 插件,
-//     模型真调 MCP 工具时才按需上传(见 insight-file-passing.md §3)。
-// 本文件保留:客户端校验 + 图片 uploadFile + [附件] 清单 format/parse。
+// 2026-09 起 insight 图片改走本地路径（去 S3）：选/粘当下与 Excel 同链路导入 worktree，
+// 发送时产出 vision FilePart{url:file://…}，server 端 prompt.ts resolvePart 读盘转 base64 落库。
+// 非图片文件(④ 喂 MCP)的 S3 上传本就不在前端——server 端 octo-upload-inject 插件按需上传。
+// 本文件的 uploadFile **只服务 make 页**（仍走 S3）；insight 侧只用客户端校验 + 分类谓词 + [附件] 清单 format/parse。
 //
 // 设计要点：
 // - form 里只发 file 一个字段，不组 S3 路径（路径策略是服务端的事）
@@ -17,7 +16,7 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-// 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
+ // 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
 // - txt/md → FilePart 内联（路由 ①）；docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
 //   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
 //   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
@@ -82,6 +81,12 @@ function hasEmptyBaseName(filename: string): boolean {
 // 原始文件名拼进返回 URL、特殊字符致 MCP 取文件失败」的防御性补丁。字符集安全改由服务端
 // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部 2026-07-03 修订提案）。
 
+// 外网模型上传限制(数据安全):仅允许轻量文本 + 常见图片格式,单文件 ≤ 2MB。
+// 外网模型有数据安全要求,需限制可上传的文件类型与体量,防止敏感信息外泄。
+// 与 ALLOWED_EXT 的区别:.html 放开(设计稿常见)、docx/xlsx/pdf/pptx/gif/webp 收紧。
+export const EXTERNAL_ALLOWED_EXT = ["txt", "html", "md", "png", "jpg", "jpeg"] as const
+export const EXTERNAL_MAX_UPLOAD_SIZE = 2 * 1024 * 1024
+
 export function validateFile(file: File): UploadError | null {
   if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
   if (file.size > MAX_UPLOAD_SIZE) {
@@ -97,6 +102,29 @@ export function validateFile(file: File): UploadError | null {
   const ext = getExt(file.name)
   if (!ALLOWED_EXT.includes(ext as (typeof ALLOWED_EXT)[number])) {
     return new UploadError("EXT_NOT_ALLOWED", `不支持的格式 .${ext || "(无扩展名)"}`)
+  }
+  return null
+}
+
+// 外网模型专属校验:格式 + 大小都更严格。.html 在 ALLOWED_EXT 之外,故不能复用 validateFile
+// (会被 EXT_NOT_ALLOWED 误拒),本函数独立判定,含空文件 / 空文件名检查。
+export function validateFileForExternal(file: File): UploadError | null {
+  if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
+  if (file.size > EXTERNAL_MAX_UPLOAD_SIZE) {
+    return new UploadError(
+      "FILE_TOO_LARGE",
+      `文件超过 ${Math.round(EXTERNAL_MAX_UPLOAD_SIZE / 1024 / 1024)}MB 上限`,
+    )
+  }
+  if (hasEmptyBaseName(file.name)) {
+    return new UploadError("FILENAME_EMPTY", "文件名为空，请重命名文件后重新上传")
+  }
+  const ext = getExt(file.name)
+  if (!EXTERNAL_ALLOWED_EXT.includes(ext as (typeof EXTERNAL_ALLOWED_EXT)[number])) {
+    return new UploadError(
+      "EXT_NOT_ALLOWED",
+      `外网模型仅支持 ${EXTERNAL_ALLOWED_EXT.map((e) => `.${e}`).join("、")} 格式`,
+    )
   }
   return null
 }
@@ -215,12 +243,29 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
-// 图片扩展名(ALLOWED_EXT 的子集)。SPEC-INS-015 路由 ③:图片走 vision FilePart{url:S3},
-// 与非图片文件(进 [附件] 清单 + 本地读 / MCP)分流。前端按文件名判定走哪条。
+// 图片扩展名(ALLOWED_EXT 的子集)。SPEC-INS-015 路由 ③(2026-09 起):图片与非图片同链路导入
+// worktree 拿本地 path,发送时产出 vision FilePart{url:file://…},server 端读盘转 base64。
+// 前端按文件名判定走哪条(图片不进 [附件] 清单、不占内联预算)。
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp"])
 
 export function isImageFile(filename: string): boolean {
   return IMAGE_EXT.has(getExt(filename))
+}
+
+// 图片扩展名 → mime 映射:粘贴/部分拖拽源的 File.type 为空时,按**扩展名**兜底精确 mime,
+// 不能笼统给 image/png——jpg/gif/webp 被错标成 png 会落库 `data:image/png;base64,<jpeg 字节>`,
+// media_type 与实际字节不符,provider 侧可能解析失败或拒绝(P2 修复,2026-09)。
+export const IMAGE_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
+
+/** 图片文件名 → 精确 mime;非图片扩展名返回 fallback(默认 octet-stream)。 */
+export function imageMimeFor(filename: string, fallback = "application/octet-stream"): string {
+  return IMAGE_MIME[getExt(filename)] ?? fallback
 }
 
 // 可被 opencode 直接内联正文的文件(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
@@ -231,18 +276,35 @@ export function isImageFile(filename: string): boolean {
 // **我们有专门通道的**格式,其余一律交给 read 自己判定 —— 这样上传格式放开(如 json / csv)时
 // 无需再同步一次内联清单,判定口径也与 opencode 原生一致。
 //   - office / pdf → `extract_document`(read 对 office 显式拒绝、对 pdf 内容嗅探判二进制)
-//   - 图片        → vision FilePart{url:S3}(路由 ③)
+//   - 图片        → vision FilePart{url:file://…}(路由 ③,server 端读盘转 base64)
 // 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
 // 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
+/** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
+export const EXTRACT_DOC_EXTENSIONS = ["docx", "xlsx", "pptx", "pdf"] as const
+const EXTRACT_DOC_EXT = new Set<string>(EXTRACT_DOC_EXTENSIONS)
+// 旧版 Office 二进制格式当前不在 extract_document 能力面内。仍要阻止它们被当成
+// text/plain 内联，但不能计入「可抽取文档」的份数，否则会先触发分治、再在子代理中必然读取失败。
+const UNSUPPORTED_LEGACY_OFFICE_EXT = new Set(["doc", "xls", "ppt"])
+
 const NON_INLINE_EXT = new Set([
-  // extract_document 负责的文档类(SPEC-INS-015 路由 ②)
-  "docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf",
+  ...EXTRACT_DOC_EXT,
+  ...UNSUPPORTED_LEGACY_OFFICE_EXT,
   // 图片走 vision(路由 ③)
   ...IMAGE_EXT,
 ])
 
 export function isTextInlineFile(filename: string): boolean {
   return !NON_INLINE_EXT.has(getExt(filename))
+}
+
+/**
+ * 是否走 `extract_document` 的文档类。与 isTextInlineFile 不是简单互补 —— 图片两边都不算
+ * (它走 vision,既不占内联预算,也不进分治判定的份数)。
+ * 用途:SPEC-INS-032 §2.6 的**份数口径**——这类文件发送前只有二进制大小、拿不到正文字节,
+ * 无法并入 INLINE_BUDGET 的字节预算,故按份数判分治。
+ */
+export function isExtractableDocFile(filename: string): boolean {
+  return EXTRACT_DOC_EXT.has(getExt(filename))
 }
 
 // 按 SPEC-INS-015 §2 拼「附件清单」段落:每行 `- <文件名>: <本地绝对路径>`。
@@ -257,7 +319,7 @@ export function isTextInlineFile(filename: string): boolean {
 //   - 喂 MCP(④):模型被 prompt 约束「文件参数只填文件名」,server 端 octo-upload-inject 插件在工具
 //     执行前按文件名找到本地路径、**按需**上传 S3、把文件名换成精确 URL。模型全程不接触 URL。
 //   格式契约与该插件 parseManifest 同源,改格式需两处同步。
-// 注:图片不进本清单(走 ③ FilePart{url})。
+// 注:图片不进本清单(走 ③ FilePart{url:file://…},由非图片的 isImageFile 过滤天然保证)。
 export function formatUploadsForPrompt(files: Array<{ filename: string; path: string }>): string {
   if (files.length === 0) return ""
   const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
@@ -277,20 +339,29 @@ export const DISPATCH_NOTE_HEADER = "[材料体量]"
 export function formatDispatchNote(input: {
   count: number
   totalBytes: number
+  docCount: number
   oversized: Array<{ filename: string; bytes: number }>
 }): string {
   const kb = (b: number) => `${Math.round(b / 1024)} KB`
+  // 两类材料的说法要分开：文本类给得出确切体量（字节就是进上下文的量），
+  // 文档类只给份数（发送前拿不到正文体量，见 SPEC-INS-032 §2.6）。说不知道的数会把模型带偏。
+  const parts: string[] = []
+  if (input.count > 0) parts.push(`${input.count} 份文本材料（合计约 ${kb(input.totalBytes)}）`)
+  if (input.docCount > 0) parts.push(`${input.docCount} 份文档（docx / pdf / xlsx / pptx）`)
+
   const paragraphs = [
-    `${DISPATCH_NOTE_HEADER} 本轮共 ${input.count} 份文本材料(含 [附件] 与 [引用文件]),合计约 ${kb(input.totalBytes)},` +
-      `超出单轮内联上限,正文**未**随本条消息进入你的上下文——你现在只有文件名和路径,材料内容一个字都没有。`,
-    `请**逐份**派 insight_reader 子代理通读:每份材料单独发一个 task,把该文件的绝对路径和这次要提炼什么写进去,` +
-      `收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
+    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（已按本地路径去重）。` +
+      `这批材料的正文**未**随本条消息进入你的上下文——你现在只有文件名和路径，材料内容一个字都没有。`,
+    `请**逐份**派 insight_reader 子代理通读：每份材料单独发一个 task，把该文件的绝对路径和这次要提炼什么写进去，` +
+      `**一份回来了再派下一份**，收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
   ]
   if (input.oversized.length > 0) {
     const names = input.oversized.map((f) => `「${f.filename}」(${kb(f.bytes)})`).join("、")
     paragraphs.push(
-      `例外:${names} 单份就超出了子代理的通读容量,派子代理也读不完。` +
-        `**不要为它派通读任务**,请在回复里告诉用户这份材料需要拆分后重新上传。`,
+      // 只给正面指令：这轮的说明就贴在材料旁边，写「不要让用户拆分文件」反而是把那个词递到它眼前。
+      // 明确的禁止留在常驻提示词里（那是针对已发生过的错误行为的长期约束）。
+      `其中 ${names} 单份就超出了子代理一次能通读的量。**照样派子代理**——` +
+        `子代理调 extract_document 时会拿到一份切段清单，按段分几次派完即可，每段一个 task。`,
     )
   }
   return paragraphs.join("\n")

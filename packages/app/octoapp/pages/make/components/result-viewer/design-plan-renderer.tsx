@@ -298,7 +298,7 @@ export function DesignPlanRenderer(props: {
       </div>
 
       {/* Content */}
-      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px" }}>
+      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px", "pointer-events": props.disabled ? "none" : "auto" }}>
         <Show
           when={!isEditing()}
           fallback={

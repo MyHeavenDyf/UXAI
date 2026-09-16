@@ -50,6 +50,12 @@ const runIn = Effect.fn("ExtractDocumentTest.runIn")(function* (dir: string, fil
   return yield* provideInstance(dir)(tool.execute({ path: file }, ctx))
 })
 
+const runAs = Effect.fn("ExtractDocumentTest.runAs")(function* (dir: string, file: string, agent: string) {
+  const info = yield* ExtractDocumentTool
+  const tool = yield* info.init()
+  return yield* provideInstance(dir)(tool.execute({ path: file }, { ...ctx, agent }))
+})
+
 const run = Effect.fn("ExtractDocumentTest.run")(function* (file: string) {
   const dir = yield* tmpdirScoped()
   return yield* runIn(dir, file)
@@ -67,6 +73,55 @@ async function seed(dir: string, name: string, content: string) {
 }
 
 describe("extract_document", () => {
+  // SPEC-INS-032 §2.4 v3：单份超出一次通读的量时，工具给出**确定性的切段清单**（段落边界是算术，
+  // 交给模型估必然出错），而不是拒绝、也不是让用户去拆文件。
+  it.live("超长正文：返回切段清单，offset/limit 连续覆盖全文且不重叠", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 造一份 ~300KB 的中文正文（远超单次通读量），每行短、行数多
+      const line = "受访者说：我们希望导出更快一些，现在等待时间太长了。"
+      const bytesPerLine = Buffer.byteLength(line + "\n", "utf-8")
+      const lineCount = Math.ceil((300 * 1024) / bytesPerLine)
+      const file = yield* Effect.promise(() => seed(dir, "超长访谈.txt", Array(lineCount).fill(line).join("\n")))
+      const result = yield* runIn(dir, file)
+
+      expect(result.output).toContain("已按行切成")
+      expect(result.metadata.segments as number).toBeGreaterThan(1)
+      // 不许出现「让用户拆分」这条死路（v2 曾经是这么做的，回归锁）
+      expect(result.output).not.toContain("拆分")
+
+      // 解析清单里的 read 参数，断言它们连续、无缝、覆盖到最后一行
+      const rows = [...result.output.matchAll(/read offset=(\d+) limit=(\d+)/g)].map((m) => ({
+        offset: Number(m[1]),
+        limit: Number(m[2]),
+      }))
+      expect(rows.length).toBe(result.metadata.segments as number)
+      // 第一段从正文第一行开始 —— 不是文件第 1 行:落盘件前两行是 source 注释与空行
+      expect(rows[0].offset).toBe(3)
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i].offset).toBe(rows[i - 1].offset + rows[i - 1].limit)
+      }
+      const saved = result.metadata.savedPath as string
+      const persisted = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+      // 落盘文件 = source 注释行 + 空行 + 正文 + 末尾换行,故 split 后最后一个元素是空串,
+      // 最后一段应当正好收在**最后一行正文**上(-1 就是刨掉那个空串)
+      const last = rows[rows.length - 1]
+      expect(last.offset + last.limit - 1).toBe(persisted.split("\n").length - 1)
+    }),
+  )
+
+  it.live("正文没超上界：不给切段清单（普通大文件只回预览 + 路径）", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const line = "一段普通的访谈内容。"
+      const lineCount = Math.ceil((80 * 1024) / Buffer.byteLength(line + "\n", "utf-8"))
+      const file = yield* Effect.promise(() => seed(dir, "普通访谈.txt", Array(lineCount).fill(line).join("\n")))
+      const result = yield* runIn(dir, file)
+      expect(result.output).not.toContain("已按行切成")
+      expect(result.metadata.segments).toBeUndefined()
+    }),
+  )
+
   // SPEC-INS-032 §6:一个会话树 = 一个工作区。task 子代理跑在子 session 里,解析件必须落到
   // **根会话**的 extracted/,否则 N 份材料的解析件会散在 N 个子会话目录,父代理事后无从 grep。
   it.live("子会话:解析件落到会话树根会话的 extracted/", () =>
@@ -117,7 +172,90 @@ describe("extract_document", () => {
       expect(result.output).toContain("# 工作表:访谈记录")
       expect(result.output).toContain("问题\tseverity")
       expect(result.output).toContain("搜索入口太深\t3")
+      expect(result.output).toContain("<!-- non_empty_rows: 2 -->")
+      expect(result.output).toContain("访谈记录: 2 个非空行（包含可能存在的表头）")
       expect(result.metadata.sheets).toBe(1)
+      expect(result.metadata.worksheetRows).toEqual([{ name: "访谈记录", nonEmptyRows: 2 }])
+    }),
+  )
+
+  it.live("xlsx: Insight 和只读子代理自动注入 spreadsheets 技能", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(FIXTURES, "sample.xlsx")
+      const insight = yield* runAs(dir, file, "octo_insight")
+      const reader = yield* runAs(dir, file, "insight_reader")
+      const unrelated = yield* runAs(dir, file, "build")
+
+      for (const result of [insight, reader]) {
+        expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+        expect(result.output).toContain("Never count physical lines in the extracted Markdown or TSV")
+        expect(result.output).toContain("even when the user only asks to read or summarize the workbook")
+      }
+      expect(unrelated.output).not.toContain('<skill_content name="spreadsheets"')
+      expect(unrelated.output).toContain("访谈记录: 2 个非空行（包含可能存在的表头）")
+    }),
+  )
+
+  it.live("xlsx: 自动注入内容计入内联阈值，避免工具结果被二次截断", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "near-limit.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("长内容")
+      sheet.addRow(["说明"])
+      sheet.addRow(["长内容。".repeat(Math.ceil((46 * 1024) / Buffer.byteLength("长内容。", "utf8")))])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runAs(dir, file, "octo_insight")
+
+      expect(result.metadata.inlined).toBe(false)
+      expect((result.metadata as Record<string, unknown>).truncated).toBe(false)
+      expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+      expect(result.output).toContain("正文过长,未直接返回")
+    }),
+  )
+
+  it.live("xlsx: 长行软折行不改变工作表的权威行数", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "long-row.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("任务单")
+      sheet.addRow(["事项", "说明"])
+      sheet.addRow(["第一项", "长内容。".repeat(180)])
+      sheet.addRow(["第二项", "完成"])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runIn(dir, file)
+      const saved = result.metadata.savedPath as string
+      const extracted = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+
+      expect(extracted).toContain("<!-- non_empty_rows: 3 -->")
+      expect(result.metadata.worksheetRows).toEqual([{ name: "任务单", nonEmptyRows: 3 }])
+      expect(extracted.split("\n").filter((line) => line.includes("长内容。")).length).toBeGreaterThan(1)
+    }),
+  )
+
+  it.live("xlsx: 空字符串和显示为空的公式不计入非空行", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "display-empty-rows.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("记录")
+      sheet.addRow(["名称"])
+      sheet.addRow([""])
+      sheet.addRow([{ formula: "A99", result: "" }])
+      sheet.addRow(["有效记录"])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runIn(dir, file)
+
+      expect(result.output).toContain("<!-- non_empty_rows: 2 -->")
+      expect(result.metadata.worksheetRows).toEqual([{ name: "记录", nonEmptyRows: 2 }])
     }),
   )
 

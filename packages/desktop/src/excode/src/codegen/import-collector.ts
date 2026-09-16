@@ -57,7 +57,10 @@ function addImport(map: ImportMap, source: string, named: boolean, tag: string):
   if (named) {
     entry.named.add(tag)
   } else if (!entry.default) {
-    entry.default = tag
+    // dotted tag（如 'DatePicker.RangePicker'）→ 取左半部分作为 default import 名，
+    // JSX emitter 会用完整 dotted 名 <DatePicker.RangePicker />，import 只需左边部分
+    const importName = tag.includes('.') ? tag.split('.')[0] : tag
+    entry.default = importName
   }
 }
 

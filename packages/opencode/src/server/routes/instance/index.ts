@@ -21,6 +21,7 @@ import { QuestionRoutes } from "./question"
 import { PermissionRoutes } from "./permission"
 import { ProjectRoutes } from "./project"
 import { SessionRoutes } from "./session"
+import { SessionGroupRoutes } from "./session-group"
 import { PtyRoutes } from "./pty"
 import { McpRoutes } from "./mcp"
 import { FileRoutes } from "./file"
@@ -203,6 +204,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
     .route("/config", ConfigRoutes())
     .route("/experimental", ExperimentalRoutes())
     .route("/session", SessionRoutes())
+    .route("/session-group", SessionGroupRoutes())
     .route("/permission", PermissionRoutes())
     .route("/question", QuestionRoutes())
     .route("/provider", ProviderRoutes())

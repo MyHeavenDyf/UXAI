@@ -165,7 +165,7 @@ To indicate semantic states (error, warning, success, info), apply the respectiv
 
 ### Side Navigation
 
-- 默认使用亮色 `bg-surface-container-highest`；展开宽度 `15.5rem`，折叠宽度 `3rem`。
+- 默认使用亮色 `bg-surface-container-highest`；展开宽度 `256px`，折叠宽度 `48px`。
 - 折叠态保留图标、Tooltip 和当前选中状态；仅在真实信息架构需要时使用多级导航。
 
 ## 4. Global Constraints

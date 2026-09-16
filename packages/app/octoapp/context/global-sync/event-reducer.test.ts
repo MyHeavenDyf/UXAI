@@ -263,7 +263,7 @@ describe("applyDirectoryEvent", () => {
         todo: { [dropped.id]: [] },
         permission: { [dropped.id]: [] },
         question: { [dropped.id]: [] },
-        session_status: { [dropped.id]: { type: "busy" } },
+        session_status: { [dropped.id]: { type: "idle" } },
       }),
     )
 
@@ -289,6 +289,36 @@ describe("applyDirectoryEvent", () => {
     expect(store.question[dropped.id]).toBeUndefined()
     expect(store.session_status[dropped.id]).toBeUndefined()
     expect(todos).toEqual([dropped.id])
+  })
+
+  test("protects busy session caches from trim cleanup", () => {
+    const dropped = rootSession({ id: "ses_b" })
+    const kept = rootSession({ id: "ses_a" })
+    const message = userMessage("msg_1", dropped.id)
+    const [store, setStore] = createStore(
+      baseState({
+        limit: 1,
+        session: [dropped],
+        message: { [dropped.id]: [message] },
+        part: { [message.id]: [textPart("prt_1", dropped.id, message.id)] },
+        session_status: { [dropped.id]: { type: "busy" } },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: { type: "session.created", properties: { info: kept } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    // busy session 的缓存应被保留,不被 trim/cleanup 误删
+    expect(store.session.map((x) => x.id)).toEqual([kept.id])
+    expect(store.message[dropped.id]).toEqual([message])
+    expect(store.part[message.id]).toEqual([textPart("prt_1", dropped.id, message.id)])
+    expect(store.session_status[dropped.id]).toEqual({ type: "busy" })
   })
 
   test("cleanupDroppedSessionCaches clears part-only orphan state", () => {
@@ -421,6 +451,133 @@ describe("applyDirectoryEvent", () => {
     })
 
     expect(store.part[messageID]).toBeUndefined()
+  })
+
+  test("buffers deltas for missing parts and replays them on part.updated", () => {
+    const sessionID = "ses_delta"
+    const messageID = "msg_delta"
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.delta",
+        properties: { messageID, partID: "prt_1", field: "text", delta: " world" },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    // parts 缺失期间 delta 应进入缓冲,不应凭空创建 part 数组
+    expect(store.part[messageID]).toBeUndefined()
+
+    // 快照早于缓冲 delta(未包含)→ 回放追加
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: { ...textPart("prt_1", sessionID, messageID), text: "hello" } as Part },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.part[messageID]?.[0]).toMatchObject({ id: "prt_1", text: "hello world" })
+  })
+
+  test("skips delta replay when snapshot already includes buffered text", () => {
+    const sessionID = "ses_delta2"
+    const messageID = "msg_delta2"
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.delta",
+        properties: { messageID, partID: "prt_1", field: "text", delta: " world" },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    // SSE 保序:晚于缓冲 delta 的快照必然已包含它们,回放会造成文本重复
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: { ...textPart("prt_1", sessionID, messageID), text: "hello world" } as Part },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.part[messageID]?.[0]).toMatchObject({ id: "prt_1", text: "hello world" })
+  })
+
+  test("drops buffered deltas when the message is removed", () => {
+    const sessionID = "ses_delta3"
+    const messageID = "msg_delta3"
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.delta",
+        properties: { messageID, partID: "prt_1", field: "text", delta: " world" },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: { type: "message.removed", properties: { sessionID, messageID } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: { ...textPart("prt_1", sessionID, messageID), text: "hello" } as Part },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.part[messageID]?.[0]).toMatchObject({ id: "prt_1", text: "hello" })
+  })
+
+  test("keeps longer local text when part.updated snapshot lags behind", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_lag"
+    const [store, setStore] = createStore(
+      baseState({
+        part: { [messageID]: [{ ...textPart("prt_1", sessionID, messageID), text: "hello world!" } as Part] },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: { ...textPart("prt_1", sessionID, messageID), text: "hello world" } as Part },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.part[messageID]?.[0]).toMatchObject({ id: "prt_1", text: "hello world!" })
   })
 
   test("tracks permission and question request lifecycles", () => {

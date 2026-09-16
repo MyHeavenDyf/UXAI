@@ -11,6 +11,7 @@
  * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn + A2UI 列定义（title/width/align/sort...）→ 字面量数组，propRoute module-top |
  * | columns（DataBinding） | columns | **ComputedValue**（containsJSX:true）逐项 zip：state 列元数据 + 编译期 render fn，产物形态同字面量 |
  * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免 eview-react 默认开排序） |
+ * | colDef.filters | col.filter.component | `filter:{ component: <TableFilter data={filters} onFilter={(value)=>{}}/> }`（`@/shared` 共享组件，data 透传、onFilter 占位空函数，见 AGENTS §6.11） |
  * | rowKey | rowKey | 透传 |
  * | pagination: true/false | enablePagination + recordCount | false→enablePagination:false；其他（含缺省）→true + recordCount=dataset.length |
  * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |

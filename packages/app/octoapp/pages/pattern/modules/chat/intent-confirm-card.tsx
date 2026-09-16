@@ -16,6 +16,7 @@ export function IntentConfirmCard(props: {
   initialStep?: "patterns" | "blocks"
   onMatchPattern: (selectedItem: IntentConfirmDimension | null) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
+  onStepChange?: (step: "patterns" | "blocks") => void
 }): JSX.Element {
   // 匹配到的 page pattern 列表
   const hasResults = createMemo(() => props.result.results.length > 0)
@@ -46,7 +47,14 @@ export function IntentConfirmCard(props: {
       }
     }
     props.onMatchPattern(selected)
+    props.onStepChange?.("blocks")
     setStep("blocks")
+  }
+
+  // 「重试」：用当前选中的 page pattern 重新请求模块匹配数据（不读 md，由父级 handleMatchPattern 读取）
+  function handleRetryBlockMatch() {
+    const found = props.result.results.find(r => r.id === selectedPatternId()) ?? null
+    props.onMatchPattern(found)
   }
 
   function toggleBlock(category: string, id: string) {
@@ -199,15 +207,15 @@ export function IntentConfirmCard(props: {
         </div>
 
         <div class="ic-card-foot">
-          <button class="ic-card-next-btn" onClick={() => setStep("patterns")} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={() => { props.onStepChange?.("patterns"); setStep("patterns") }} disabled={props.blockMatching}>
             上一步
           </button>
-          <button class="ic-card-next-btn" onClick={() => props.onMatchPattern(null)} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={handleRetryBlockMatch} disabled={props.blockMatching}>
             重试
           </button>
           <Show when={!props.blockMatching}>
             <button class="ic-card-submit-btn" onClick={handleConfirm}>
-              {props.blockMatchError || props.blockMatches.length === 0 ? "跳过" : "下一步"}
+              {props.blockMatchError || props.blockMatches.length === 0 ? "跳过" : "保存本地"}
             </button>
           </Show>
         </div>

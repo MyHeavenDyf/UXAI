@@ -23,6 +23,7 @@ interface ToastItem {
 
 const [toasts, setToasts] = createSignal<ToastItem[]>([])
 const [expanded, setExpanded] = createSignal(true)
+const [everMultiple, setEverMultiple] = createSignal(false)
 let nextId = 1
 
 const activeKeys = new Set<string>()
@@ -46,6 +47,7 @@ export function showOctoToast(options: OctoToastOptions | string): number {
   }
 
   setToasts((list) => [...list, item])
+  if (toasts().length >= 2) setEverMultiple(true)
   setExpanded(true)
   return id
 }
@@ -59,12 +61,14 @@ export function dismissOctoToast(id: number) {
     }
     return list.filter((t) => t.id !== id)
   })
+  if (toasts().length === 0) setEverMultiple(false)
 }
 
 export function clearAllOctoToasts() {
   toasts().forEach((t) => t.timer && clearTimeout(t.timer))
   activeKeys.clear()
   setToasts([])
+  setEverMultiple(false)
 }
 
 export interface OctoPromiseToastOptions<T, U = unknown> {
@@ -143,80 +147,106 @@ export function OctoToast(): JSX.Element {
     }
   }
   const total = () => toasts().length
+  const showHeader = () => everMultiple() || total() >= 2
 
   const variantList: OctoToastVariant[] = ["default", "error", "warn"]
 
   return (
     <Portal>
       <Show when={total() > 0}>
-        <div class="octo-toast-container" data-expanded={expanded()}>
-          <div class="octo-toast-header">
-            <button
-              type="button"
-              class="octo-toast-toggle"
-              onClick={() => setExpanded(!expanded())}
-              title={expanded() ? "收起" : "展开"}
-            >
-              <IconDropdownChevron
-                size={16}
-                style={{
-                  transform: expanded() ? "rotate(0deg)" : "rotate(-90deg)",
-                  transition: "transform 0.15s ease",
-                }}
-              />
-              <span>{expanded() ? "收起" : "展开"}</span>
-            </button>
+        <Show
+          when={showHeader()}
+          fallback={
+            <For each={toasts()}>
+              {(item) => {
+                const text = [item.title, item.description].filter(Boolean).join("：")
+                return (
+                  <div class="octo-toast-item octo-toast-solo" data-variant={item.variant}>
+                    <VariantIcon variant={item.variant} size={14} />
+                    <span class="octo-toast-text" title={text}>{text}</span>
+                    <button
+                      type="button"
+                      class="octo-toast-close"
+                      onClick={() => dismissOctoToast(item.id)}
+                      title="关闭"
+                    >
+                      <CloseIcon size={16} />
+                    </button>
+                  </div>
+                )
+              }}
+            </For>
+          }
+        >
+          <div class="octo-toast-container" data-expanded={expanded()}>
+            <div class="octo-toast-header">
+              <button
+                type="button"
+                class="octo-toast-toggle"
+                onClick={() => setExpanded(!expanded())}
+                title={expanded() ? "收起" : "展开"}
+              >
+                <IconDropdownChevron
+                  size={16}
+                  style={{
+                    transform: expanded() ? "rotate(0deg)" : "rotate(-90deg)",
+                    transition: "transform 0.15s ease",
+                  }}
+                />
+                <span>{expanded() ? "收起" : "展开"}</span>
+              </button>
 
-            <div class="octo-toast-counts">
-              <For each={variantList}>
-                {(v) => (
-                  <Show when={counts()[v] > 0}>
-                    <span class="octo-toast-count-item">
-                      <VariantIcon variant={v} size={14} />
-                      <span>{counts()[v]}</span>
-                    </span>
-                  </Show>
-                )}
-              </For>
-            </div>
-
-            <button
-              type="button"
-              class="octo-toast-close-all"
-              onClick={clearAllOctoToasts}
-              title="关闭全部"
-            >
-              <CloseIcon size={16} />
-              <span>关闭全部</span>
-            </button>
-          </div>
-
-          <Show when={expanded()}>
-            <div class="octo-toast-body">
-              <For each={toasts()}>
-                {(item) => {
-                  const text = [item.title, item.description].filter(Boolean).join("：")
-                  return (
-                    <div class="octo-toast-item" data-variant={item.variant}>
-                      <VariantIcon variant={item.variant} size={14} />
-                      <span class="octo-toast-text" title={text}>
-                        {text}
+              <div class="octo-toast-counts">
+                <For each={variantList}>
+                  {(v) => (
+                    <Show when={counts()[v] > 0}>
+                      <span class="octo-toast-count-item">
+                        <VariantIcon variant={v} size={14} />
+                        <span>{counts()[v]}</span>
                       </span>
-                      <button
-                        type="button"
-                        class="octo-toast-close"
-                        onClick={() => dismissOctoToast(item.id)}
-                        title="关闭"
-                      >
-                        <CloseIcon size={16} />
-                      </button>
-                    </div>
-                  )
-                }}
-              </For>
+                    </Show>
+                  )}
+                </For>
+              </div>
+
+              <button
+                type="button"
+                class="octo-toast-close-all"
+                onClick={clearAllOctoToasts}
+                title="关闭全部"
+              >
+                <CloseIcon size={16} />
+                <span>关闭全部</span>
+              </button>
             </div>
-          </Show>
-        </div>
+
+            <Show when={expanded()}>
+              <div class="octo-toast-body">
+                <For each={toasts()}>
+                  {(item) => {
+                    const text = [item.title, item.description].filter(Boolean).join("：")
+                    return (
+                      <div class="octo-toast-item" data-variant={item.variant}>
+                        <VariantIcon variant={item.variant} size={14} />
+                        <span class="octo-toast-text" title={text}>
+                          {text}
+                        </span>
+                        <button
+                          type="button"
+                          class="octo-toast-close"
+                          onClick={() => dismissOctoToast(item.id)}
+                          title="关闭"
+                        >
+                          <CloseIcon size={16} />
+                        </button>
+                      </div>
+                    )
+                  }}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
       </Show>
     </Portal>
   )

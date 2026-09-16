@@ -1,0 +1,241 @@
+/**
+ * Tabs → Tab 映射（eview-ui 本地副本）
+ *
+ * A2UI Tabs → eview-ui Tab 组件。
+ *
+ * ## Props 对照
+ *
+ * | A2UI prop | eview-ui prop | 处理方式 |
+ * |-----------|--------------|---------|
+ * | activeKey（字面量） | selectedIndex | 编译期 key→index 匹配 → **LiteralValue.useState**，event: 'onClick' 自动注入 |
+ * | activeKey（DataBinding） | selectedIndex | **ComputedValue.useState**，event: 'onClick' 自动注入 |
+ * | types: line | type: main | 值映射 |
+ * | types: card | type: sub | 值映射 |
+ * | types: separator | type: main | 值映射（eview-ui 暂不支持 separator 形态，先映射为 main） |
+ * | types（DataBinding） | type | **ComputedValue** 值映射（card→sub，其余→main） |
+ * | tabPlacement: top/end/bottom/start | position: top/right/bottom/left | 值映射 |
+ * | tabPlacement（DataBinding） | position | **ComputedValue** 值映射 |
+ * | maxVisible | — | 丢弃（eview-ui Tab 不支持 maxVisible） |
+ * | size | — | 丢弃（eview-ui Tab 不支持 size） |
+ * | className | className | 透传 |
+ * | — | lazyLoad | `defaults: true` |
+ * | — | onClick | 由 selectedIndex 的 useState.event 自动生成，无需手动占位 |
+ *
+ * ## 与 eview-react 差异
+ *
+ * - **onClick extractor**：eview-ui `onClick(index: string, title, e)`，index 类型为 string，
+ *   需在回调中 `Number(index)` 转换后再传给 setter；
+ *   eview-react `onClick(index: number)` 直接透传。
+ * - **types / tabPlacement DataBinding**：eview-ui 补齐了 DataBinding 双形态支持
+ *   （eview-react 侧未补齐，静默丢弃）。
+ *
+ * ## 特殊逻辑
+ *
+ * - activeKey（string）→ selectedIndex（number），匹配来源：
+ *   - 静态 children → 遍历 RegularNode[].props.key
+ *   - 循环 children → 从 LoopNode.data 取数据数组，遍历 item.key
+ * - activeKey 可以为字面量或 DataBinding，均需匹配后产生 useState
+ * - 无 activeKey 时，不输出 selectedIndex（走组件默认值 0）
+ * - types: separator → eview-ui 暂不支持，先映射为 type:main
+ * - TabItem 的 closable / disabled 由 TabItem 映射自行处理；Tabs 不改写 children
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
+ */
+
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue, BindingValue } from '../../../src/core/value-types'
+import { Value } from '../../../src/core/value-factory'
+import type { LoopNode } from '../../../src/core/node-types'
+
+// ─── 工具 ───
+
+/**
+ * 从静态 children（RegularNode[]）中遍历查找 activeKey 对应的索引
+ */
+function findIndexInStaticChildren(
+  children: any[] | null | undefined,
+  activeKeyVal: string,
+): number {
+  if (!Array.isArray(children)) return -1
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]
+    if (child?.kind === 'component' && child.props?.key === activeKeyVal) {
+      return i
+    }
+  }
+  return -1
+}
+
+/**
+ * 从循环数据数组中遍历查找 activeKey 对应的索引
+ */
+function findIndexInRawData(rawData: any[], activeKeyVal: string): number {
+  if (!Array.isArray(rawData)) return -1
+  for (let i = 0; i < rawData.length; i++) {
+    const item = rawData[i]
+    if (item?.key === activeKeyVal) return i
+  }
+  return -1
+}
+
+/**
+ * 从循环数据中查找索引（保留兼容，字面量场景用）
+ */
+function findIndexInLoopData(
+  loop: LoopNode,
+  activeKeyVal: string,
+  ctx: TransformContext,
+): number {
+  const data = loop.data as BindingValue
+  const rawData: any[] = data?.path
+    ? (ctx.resolveAbsoluteStateValue(data.path) ?? [])
+    : []
+  return findIndexInRawData(rawData, activeKeyVal)
+}
+
+// ─── 值映射常量 ───
+
+/** tabPlacement → position 映射表 */
+const PLACEMENT_MAP: Record<string, string> = {
+  top: 'top',
+  end: 'right',
+  bottom: 'bottom',
+  start: 'left',
+}
+
+// ─── Tabs 映射定义 ───
+
+export function createTabsMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Tab',
+    import: `${pkg}/Tab`,
+
+    defaults: {
+      lazyLoad: true,
+    },
+
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+
+      // 显性处理每个 A2UI prop：A2UI Tabs 的 props 是封闭集合
+      // (activeKey/types/maxVisible/tabPlacement/className/size)，不做兜底透传。
+
+      // ─── 判定 children 形态 ───
+      const children = node.children
+      const isLoop = children && typeof children === 'object' && children.kind === 'loop'
+      const staticChildren = isLoop ? [] : (Array.isArray(children) ? children : [])
+
+      // ─── activeKey → selectedIndex（useState，双形态） ───
+      //   字面量 → Value.literal（编译期算索引 hardcode）
+      //   DataBinding → Value.computed + useState（transform 内算索引，cvCtx 读循环数据，path 直传无需 resolveValueFromPath）
+      //
+      //   ⚠️ eview-ui 差异：onClick(index: string) 而非 onClick(index: number)，
+      //   extractor 需 Number(index) 转换后再传给 setter。
+      const hasActiveKey = Object.prototype.hasOwnProperty.call(props, 'activeKey')
+      if (hasActiveKey) {
+        const activeKeyRaw = props.activeKey
+        const extractor = (setter: string) => `(index) => ${setter}(Number(index))`
+
+        if (activeKeyRaw && typeof activeKeyRaw === 'object' && activeKeyRaw.type === 'binding') {
+          // DataBinding → ComputedValue.useState
+          // 闭包捕获 staticChildren / loop（编译期已知），transform 内用 cvCtx 读循环数据算索引
+          const staticChildrenCapture = staticChildren
+          const loopCapture = isLoop ? (children as LoopNode) : null
+          outputProps.selectedIndex = Value.computed({
+            path: activeKeyRaw.path,
+            pathType: activeKeyRaw.pathType ?? 'absolute',
+            accessPath: activeKeyRaw.accessPath,
+            containsJSX: false,
+            useState: { event: 'onClick', extractor },
+            transform: (rawActiveKey: any, cvCtx?: any) => {
+              const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
+              if (!activeKeyVal || activeKeyVal === '') return 0
+              let idx = findIndexInStaticChildren(staticChildrenCapture, activeKeyVal)
+              if (idx === -1 && loopCapture) {
+                const data = loopCapture.data as BindingValue
+                const rawData = data?.path && cvCtx
+                  ? (cvCtx.resolveValueFromPath(data.path) ?? [])
+                  : []
+                idx = findIndexInRawData(rawData, activeKeyVal)
+              }
+              return idx !== -1 ? idx : 0
+            },
+          })
+        } else {
+          // 字面量 → Value.literal.useState（编译期算索引）
+          const activeKeyVal = typeof activeKeyRaw === 'string' ? activeKeyRaw : ''
+          let selectedIndex = 0
+          if (activeKeyVal && activeKeyVal !== '') {
+            let idx = -1
+            if (isLoop) {
+              idx = findIndexInLoopData(children as LoopNode, activeKeyVal, ctx)
+            } else {
+              idx = findIndexInStaticChildren(staticChildren, activeKeyVal)
+            }
+            if (idx !== -1) selectedIndex = idx
+          }
+          outputProps.selectedIndex = Value.literal({
+            value: selectedIndex,
+            useState: { event: 'onClick', extractor },
+          })
+        }
+      }
+
+      // ─── types → type：双形态值映射 ───
+      //   eview-ui 暂不支持 separator 形态，映射为 main
+      if (props.types && typeof props.types === 'object' && props.types.type === 'binding') {
+        // DataBinding → ComputedValue（运行时按值映射）
+        outputProps.type = Value.computed({
+          path: props.types.path,
+          pathType: props.types.pathType ?? 'absolute',
+          accessPath: props.types.accessPath,
+          containsJSX: false,
+          transform: (raw: any) => {
+            const v = String(raw ?? 'line')
+            return v === 'card' ? 'sub' : 'main'
+          },
+        })
+      } else if (props.types === 'line' || props.types === 'separator') {
+        outputProps.type = 'main'
+      } else if (props.types === 'card') {
+        outputProps.type = 'sub'
+      }
+
+      // ─── tabPlacement → position：双形态值映射 ───
+      if (props.tabPlacement && typeof props.tabPlacement === 'object' && props.tabPlacement.type === 'binding') {
+        // DataBinding → ComputedValue（运行时按值映射）
+        outputProps.position = Value.computed({
+          path: props.tabPlacement.path,
+          pathType: props.tabPlacement.pathType ?? 'absolute',
+          accessPath: props.tabPlacement.accessPath,
+          containsJSX: false,
+          transform: (raw: any) => PLACEMENT_MAP[String(raw)] ?? 'top',
+        })
+      } else if (props.tabPlacement in PLACEMENT_MAP) {
+        outputProps.position = PLACEMENT_MAP[props.tabPlacement]
+      }
+
+      // ─── maxVisible — 丢弃（eview-ui Tab 不支持 maxVisible） ───
+
+      // ─── size — 丢弃（eview-ui Tab 不支持 size） ───
+
+      // ─── className 透传 ───
+      if (props.className) {
+        outputProps.className = props.className
+      }
+
+      // ─── onClick 由 selectedIndex 的 useState.event 自动注入，不手动占位 ───
+
+      // 不做剩余兜底透传：A2UI Tabs 的 props 已逐项显性处理。
+
+      // TabItem 的 closable / disabled 由 TabItem 映射自行处理；Tabs 不改写 children。
+      // 原始 children（静态数组 / 循环模板）透传给 NodeMapper 递归映射（transform 返回
+      // children: undefined → 管线保留 node.children，见 node-mapper.ts#resolveComponent）。
+
+      return {
+        props: outputProps,
+      }
+    },
+  }
+}

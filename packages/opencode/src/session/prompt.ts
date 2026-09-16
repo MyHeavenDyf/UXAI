@@ -67,6 +67,8 @@ import * as ArtifactStore from "@/tracking/store"
 import { mcpFact, taskInfo } from "@/tracking/facts"
 import { ArtifactTracking } from "@/tracking"
 import { ArtifactScanner } from "@/tracking/scanner"
+import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
+import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -232,7 +234,7 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          messages: [{ role: "user", content: "请简短描述用户的需求，生成一个中文标题，标题必须严格不超过10个字，超过10个字即为错误：\n" }, ...msgs],
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
@@ -240,15 +242,10 @@ export const layer = Layer.effect(
           Stream.mkString,
           Effect.orDie,
         )
-      const cleaned = text
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
+      const cleaned = cleanTitleText(text)
       if (!cleaned) return
-      const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
       yield* sessions
-        .setTitle({ sessionID: input.session.id, title: t })
+        .setTitle({ sessionID: input.session.id, title: cleaned })
         .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
     })
 
@@ -1039,10 +1036,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: part.id ? PartID.make(part.id) : PartID.ascending(),
       })
 
+      // Insight 的 chat.message 分治插件在 resolvePart 之后执行；如果等到该钩子才判定，
+      // text/plain FilePart 已经被 Read 展开进父上下文。这里仅对包含本地文本 FilePart 的
+      // 普通 Insight 轮次前置判定，命中分治后保留原 FilePart 供插件取路径，但跳过正文展开。
+      const deferInsightLocalTextReads =
+        info.agent === "octo_insight" &&
+        info.tools?.task !== false &&
+        (yield* Effect.promise(() => shouldDeferInsightLocalTextReads(input.parts)))
+
       const resolvePart: (part: PromptInput["parts"][number]) => Effect.Effect<Draft<MessageV2.Part>[]> = Effect.fn(
         "SessionPrompt.resolveUserPart",
       )(function* (part) {
         if (part.type === "file") {
+          if (deferInsightLocalTextReads && part.mime === "text/plain" && part.url.startsWith("file:")) {
+            return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          }
           if (part.source?.type === "resource") {
             const { clientName, uri } = part.source
             log.info("mcp resource", { clientName, uri, mime: part.mime })
@@ -1561,6 +1569,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (task?.type === "compaction") {
+            if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
@@ -1569,6 +1578,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               overflow: task.overflow,
             })
             if (result === "stop") break
+            if (!task.auto) break
             continue
           }
 
@@ -1589,8 +1599,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (
+            AUTOMATIC_COMPACTION_ENABLED &&
             lastFinished &&
             lastFinished.summary !== true &&
+            lastFinished.providerID === model.providerID &&
+            lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
@@ -1691,6 +1704,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
+              .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
+              .flatMap((name) => {
+                const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`
+                const names = Object.keys(activeTools)
+                  .filter((toolName) => toolName.startsWith(prefix))
+                  .map((toolName) => toolName.slice(prefix.length))
+                return names.length ? [`- ${name}: ${names.join(", ")}`] : []
+              })
+            if (userMcpSummary.length) {
+              system.push(
+                [
+                  "<available_user_mcp_tools>",
+                  "These user-configured MCP servers and methods are connected and available in this request:",
+                  ...userMcpSummary,
+                  "This live list replaces every MCP inventory mentioned earlier in the conversation. Never infer current MCP availability from previous messages, previous tool calls, or configuration files, and never report a user MCP server absent from this list as currently available.",
+                  "When the user asks about one of these MCP servers, use its listed tools instead of searching configuration files or claiming the server is unavailable.",
+                  "</available_user_mcp_tools>",
+                ].join("\n"),
+              )
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -1704,6 +1738,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tools: activeTools,
               model,
               toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
+              compactionAttempted:
+                lastUserMsg?.parts.some(
+                  (part) =>
+                    "metadata" in part &&
+                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
+                ) ?? false,
             })
 
             if (structured !== undefined) {
@@ -1727,6 +1767,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
@@ -1759,8 +1800,38 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       },
     )
 
+    // /make 等客户端走 session.command,无法直接调 session.summarize(TUI/ACP 是特判直接调)。
+    // 这里在 commands.get 之前拦截 compact/summarize,按 summarize 路由同样的逻辑触发会话压缩:
+    // 清理待撤销消息、解析 model、创建压缩用户消息,再 loop 执行真实摘要。
+    const compactCommand = Effect.fn("SessionPrompt.compactCommand")(function* (input: CommandInput) {
+      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      yield* revert.cleanup(session)
+      const msgs = yield* sessions.messages({ sessionID: input.sessionID })
+      const defaultAgent = yield* agents.defaultAgent()
+      const currentAgent = msgs.findLast((m) => m.info.role === "user")?.info.agent ?? defaultAgent
+
+      const model = input.model
+        ? Provider.parseModel(input.model)
+        : yield* lastModel(input.sessionID)
+
+      const trimmedArgs = input.arguments.trim()
+      const displayText = trimmedArgs ? `/${input.command} ${trimmedArgs}` : `/${input.command}`
+
+      yield* compaction.create({
+        sessionID: input.sessionID,
+        agent: currentAgent,
+        model,
+        auto: false,
+        message: displayText,
+      })
+      return yield* loop({ sessionID: input.sessionID })
+    })
+
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
       yield* elog.info("command", { sessionID: input.sessionID, command: input.command, agent: input.agent })
+      if (input.command === "compact" || input.command === "summarize") {
+        return yield* compactCommand(input)
+      }
       const cmd = yield* commands.get(input.command)
       if (!cmd) {
         const available = (yield* commands.list()).map((c) => c.name)
@@ -1827,6 +1898,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
         const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
         const error = new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` })
+        yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
+
+      // skill 命令的模板注入不走工具调用,若不在此检查,agent 层禁用的 skill 权限会被
+      // session.command 绕过(如 octo_make_plan 已 "*" deny,skill 内容仍可整份注入规划会话)
+      if (cmd.source === "skill" && Permission.disabled(["skill"], agent.permission).has("skill")) {
+        const error = new NamedError.Unknown({
+          message: `Skill "${input.command}" is not available for agent "${agentName}".`,
+        })
         yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
         throw error
       }
@@ -2018,6 +2099,34 @@ export function readActivatedSkills(extra: PromptInput["extra"]): string[] {
   const raw = (extra as Record<string, unknown> | undefined)?.["skills"]
   if (!Array.isArray(raw)) return []
   return raw.filter((name): name is string => typeof name === "string" && name.length > 0)
+}
+
+/**
+ * 清洗标题模型输出:剥离 thinking 块后取首个非空行,失败返回 undefined。
+ *
+ * 事件层已丢弃 reasoning-delta,但 openai-compatible 网关(本部署全部 provider)未分离
+ * reasoning 时思考会混进 content 文本流,仅靠本函数兜底。处理顺序必须先剥闭合块、再对
+ * 残留的开标签删到结尾,否则未闭合规则会误杀闭合块之后的正文。
+ *
+ * 清洗后首行超过 30 字符视为思考泄漏/失败输出,返回 undefined 放弃本次标题(title.txt
+ * 要求 ≤10 字,30 给 3 倍容错),会话保持默认标题,无害。
+ *
+ * @internal Exported for testing
+ */
+export function cleanTitleText(text: string): string | undefined {
+  let t = text
+  t = t.replace(/<(think|thinking)\s*>([\s\S]*?)<\/\1\s*>/gi, "")
+  t = t.replace(/^\s*<\/(think|thinking)\s*>\s*/i, "")
+  t = t.replace(/<(think|thinking)\s*>[\s\S]*$/i, "")
+  t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*?```/gi, "")
+  t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*$/i, "")
+  const line = t
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  if (!line) return undefined
+  if (line.length > 30) return undefined
+  return line
 }
 
 /** @internal Exported for testing */
