@@ -1,4 +1,6 @@
 import * as Tool from "./tool"
+import * as ArtifactStore from "@/tracking/store"
+import { ArtifactTracking } from "@/tracking"
 import DESCRIPTION from "./task.txt"
 import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
@@ -141,6 +143,7 @@ export const TaskTool = Tool.define(
         () =>
           Effect.gen(function* () {
             const parts = yield* ops.resolvePromptParts(params.prompt)
+            yield* ArtifactTracking.safe(Effect.sync(() => ArtifactStore.inheritTurn(ctx.messageID, nextSession.id, messageID)))
             const result = yield* ops.prompt({
               messageID,
               sessionID: nextSession.id,

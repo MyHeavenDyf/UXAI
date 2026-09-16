@@ -6,6 +6,10 @@ declare module "*?raw" {
 interface ImportMetaEnv {
   readonly OCTO_CHANNEL: string
   readonly OCTO_KB_BASE_URL: string
+  readonly OCTO_REPORT_BASE_URL: string
+  readonly OCTO_ARTIFACT_TRACKING: string
+  readonly OCTO_ARTIFACT_SUCCESS: string
+  readonly OCTO_ARTIFACT_SCRIPTS: string
   readonly OCTO_UXR_MCP_URL: string
   readonly OCTO_UPLOAD_ENDPOINT: string
 }

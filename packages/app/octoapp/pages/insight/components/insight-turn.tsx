@@ -21,6 +21,7 @@ import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
 import type { OutputCardType } from "../utils/output-type"
+import { legacyArtifactParts } from "../utils/artifact-tracking"
 
 // OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
 export type { OutputCardType } from "../utils/output-type"
@@ -480,7 +481,7 @@ export function InsightTurn(props: {
   // 不上报——避免刷新/切回会话重挂 turn 时把历史产物当成新事件重报。之后新到达的产物才上报。
   let artifactFileBaselineTaken = false
   createEffect(() => {
-    const parts = turnAssistantParts()
+    const parts = legacyArtifactParts(turnAssistantParts(), turnParts())
     const generating = showGenerating()
     const writes = findWriteOnlyCards(parts)
     const edits = findEditCards(parts)
@@ -533,7 +534,7 @@ export function InsightTurn(props: {
   // 不上报——避免刷新/切回会话重挂 turn 时把历史 MCP 返回文件当成新事件重报。之后新到达的 link 才上报。
   let artifactMcpBaselineTaken = false
   createEffect(() => {
-    const parts = turnAssistantParts()
+    const parts = legacyArtifactParts(turnAssistantParts(), turnParts())
     const generating = showGenerating()
     const links = findResourceLinks(parts)
 

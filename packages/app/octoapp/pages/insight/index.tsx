@@ -71,6 +71,7 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
 import { currentAccount } from "./utils/account"
+import { artifactIdentityExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -1494,8 +1495,8 @@ function InsightContent() {
         //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
         //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
         //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        // 产物统计还会固定透传本轮 uid/version（可能为空对象），用于服务端持久化原始归属。
+        extra: { ...promptExtra, ...artifactIdentityExtra() },
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {

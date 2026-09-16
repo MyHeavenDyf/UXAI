@@ -1,5 +1,6 @@
 import { execFile, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { recordArtifactSource } from "./artifact-source"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
@@ -586,7 +587,10 @@ export function registerIpcHandlers(deps: Deps) {
         throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       }
       const buf = Buffer.from(await res.arrayBuffer())
+      const artifactDigest = persistent ? createHash("sha256").update(buf).digest("hex") : undefined
+      if (artifactDigest) await recordArtifactSource(destPath, artifactDigest, true).catch(() => log.warn("[octo:artifact] download source record unavailable"))
       await writeFile(destPath, buf)
+      if (artifactDigest) await recordArtifactSource(destPath, artifactDigest, false).catch(() => log.warn("[octo:artifact] download source receipt unavailable"))
       materializedByNamespace.set(cacheKey, destPath)
       if (persistent) recordMaterialized(dir, namespace, basename(destPath))
       console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })

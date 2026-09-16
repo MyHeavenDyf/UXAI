@@ -283,6 +283,15 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
     env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
+  const artifactEnv = {
+    OCTO_REPORT_BASE_URL: import.meta.env.OCTO_REPORT_BASE_URL,
+    OCTO_ARTIFACT_TRACKING: import.meta.env.OCTO_ARTIFACT_TRACKING,
+    OCTO_ARTIFACT_SUCCESS: import.meta.env.OCTO_ARTIFACT_SUCCESS,
+    OCTO_ARTIFACT_SCRIPTS: import.meta.env.OCTO_ARTIFACT_SCRIPTS,
+  }
+  for (const [key, value] of Object.entries(artifactEnv)) {
+    if (env[key] === undefined && value) env[key] = value
+  }
   return env
 }
 
