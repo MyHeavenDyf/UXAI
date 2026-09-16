@@ -515,6 +515,7 @@ function TemplateVisibleUserSelect(props: {
 
 function TemplateCreatorTextarea(props: {
   label?: string
+  required?: boolean
   value: string
   placeholder: string
   onInput: (value: string) => void
@@ -538,7 +539,12 @@ function TemplateCreatorTextarea(props: {
     <div class="studio-template-creator-textarea-block">
       <Show when={props.label}>
         <div class="studio-template-creator-textarea-head">
-          <span class="studio-template-creator-textarea-label">{props.label}</span>
+          <span class="studio-template-creator-textarea-label">
+            {props.label}
+            <Show when={props.required}>
+              <RequiredMark />
+            </Show>
+          </span>
           <span class="studio-template-creator-textarea-count">{props.value.length}/{maxLength()}</span>
         </div>
       </Show>
@@ -660,7 +666,7 @@ function TemplateImageUploader(props: {
         <div class="studio-template-creator-upload-grid">
           <Show when={canAddImage()}>
             <button type="button" class="studio-template-creator-upload-more" onClick={triggerPicker}>
-              <span class="studio-template-creator-upload-plus" aria-hidden="true" />
+              <img src="/studio/studio_public_plus.svg" class="studio-template-creator-upload-plus" alt="" />
               <span>继续上传</span>
             </button>
           </Show>
@@ -768,6 +774,7 @@ function StyleDescriptionSection(props: {
       <div class="studio-template-creator-description-panel">
         <TemplateCreatorTextarea
           label="概览："
+          required
           value={props.overview}
           placeholder="描述图片的整体风格定性、风格流派标签、核心视觉特征"
           onInput={props.onOverview}

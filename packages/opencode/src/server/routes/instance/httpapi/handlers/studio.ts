@@ -16,14 +16,14 @@ import {
 } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance, type InstanceContext } from "@/project/instance"
-import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
+import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { Effect, Queue, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
@@ -373,16 +373,6 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)
-      .handle("checkPermission", (ctx: { payload: typeof StudioPermissionPayload.Type }) =>
-        Effect.tryPromise({
-          try: () => checkStudioPermission(ctx.payload.uid),
-          catch: (error) =>
-            new ApiStudioGenerationError({
-              name: "StudioGenerationError",
-              data: { message: error instanceof Error ? error.message : String(error) },
-            }),
-        })
-      )
       .handle("listPromptTags", () =>
         Effect.tryPromise({
           try: () => fetchPromptTags(),

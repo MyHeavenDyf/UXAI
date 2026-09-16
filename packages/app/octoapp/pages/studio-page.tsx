@@ -130,6 +130,8 @@ type PendingScrollRequest = {
   sessionID?: string
 }
 
+const STUDIO_PERMISSION_PRIORITY_WINDOW_MS = 300
+
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 const STUDIO_TEMPLATE_SAVE_ERROR = "保存失败，请检查网络"
@@ -303,9 +305,23 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
+  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
-  globalSync.child(projectDir(), { bootstrap: true })
+  onMount(() => {
+    const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
+    onCleanup(() => clearTimeout(timer))
+  })
+  createEffect(() => {
+    if (studioPermissionStatus() === "loading") return
+    setStudioColdStartReleased(true)
+  })
+  createEffect(() => {
+    const directory = projectDir()
+    if (!directory || !studioColdStartReleased()) return
+    globalSync.child(directory, { bootstrap: true })
+  })
   const studioSessions = createMemo(() =>
     syncStore.session
       .filter((session) => session.agent === "octo_studio" && !session.parentID && !session.time.archived)
@@ -378,7 +394,6 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const setStudioPrompt = (value: string) => setPrompt(value.trim() === "" ? "" : value)
-  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
   const [imageSettingStore, setImageSettingStore, , imageSettingStoreReady] = persisted(
     Persist.global("studio.image.settings"),
     createStore({
@@ -498,11 +513,16 @@ export default function StudioPage() {
   onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
-    () => server.current,
-    async (current: any) => {
+    () => {
+      const current = server.current
+      const directory = projectDir()
+      if (!studioColdStartReleased() || !current || !directory) return
+      return { current, directory }
+    },
+    async ({ current, directory }) => {
       const headers: Record<string, string> = {
         accept: "application/json",
-        ...directoryHeader(projectDir()),
+        ...directoryHeader(directory),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -536,7 +556,6 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
-      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -544,7 +563,7 @@ export default function StudioPage() {
         password: current.http.password,
       })}`
     }
-    void fetch(new URL("/studio/permissions/check", current.http.url), {
+    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
       method: "POST",
       headers,
       body: JSON.stringify({ uid: uiplusUserAccount() }),

@@ -339,7 +339,23 @@ export async function fetchPromptTags(): Promise<unknown> {
   return parseJson(text)
 }
 
-export async function checkStudioPermission(userIdx?: string): Promise<unknown> {
+export type StudioPermissionTiming = {
+  vendorDurationMs: number
+  totalDurationMs: number
+  timedOut: boolean
+}
+
+export function studioPermissionServerTiming(timing: StudioPermissionTiming | undefined, handlerDurationMs: number) {
+  return [
+    timing ? `vendor;dur=${timing.vendorDurationMs}` : undefined,
+    `handler;dur=${Math.round(handlerDurationMs)}`,
+  ].filter((item): item is string => item !== undefined).join(", ")
+}
+
+export async function checkStudioPermission(
+  userIdx?: string,
+  onTiming?: (timing: StudioPermissionTiming) => void,
+): Promise<unknown> {
   const url = env("IMAGE_CHECK_PERMISSION_URL") ?? DEFAULT_CHECK_PERMISSION_URL
   if (!url) {
     log.warn("permission check skipped", { reason: "permission URL is not configured" })
@@ -350,6 +366,7 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
   const routeStartedAt = performance.now()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), STUDIO_PERMISSION_TIMEOUT_MS)
+  const timing: { vendorDurationMs: number } = { vendorDurationMs: 0 }
   log.info("route_enter", { requestID, uidHash: permissionUIDHash(uid) })
 
   try {
@@ -386,17 +403,24 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
       }
       return parseJson(text)
     } finally {
+      timing.vendorDurationMs = Math.round(performance.now() - vendorStartedAt)
       log.info("vendor_end", {
         requestID,
-        vendorDurationMs: Math.round(performance.now() - vendorStartedAt),
+        vendorDurationMs: timing.vendorDurationMs,
         timedOut: controller.signal.aborted,
       })
     }
   } finally {
     clearTimeout(timeout)
+    const totalDurationMs = Math.round(performance.now() - routeStartedAt)
+    onTiming?.({
+      vendorDurationMs: timing.vendorDurationMs,
+      totalDurationMs,
+      timedOut: controller.signal.aborted,
+    })
     log.info("route_end", {
       requestID,
-      totalDurationMs: Math.round(performance.now() - routeStartedAt),
+      totalDurationMs,
     })
   }
 }

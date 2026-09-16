@@ -32,12 +32,7 @@ export const StudioPaths = {
   templateList: `${root}/template-list`,
   templateDetail: `${root}/template-detail/:templateID`,
   templateUserSearch: `${root}/template-user-search`,
-  permission: `${root}/permissions/check`,
 } as const
-
-export const StudioPermissionPayload = Schema.Struct({
-  uid: Schema.optional(Schema.String),
-})
 
 export const StudioPromptGenPayload = Schema.Struct({
   base64img: Schema.String,
@@ -271,17 +266,6 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.prompt-tags.list",
             summary: "Get prompt tags",
             description: "Returns prompt tag categories from the internal image API.",
-          }),
-        ),
-        HttpApiEndpoint.post("checkPermission", StudioPaths.permission, {
-          payload: StudioPermissionPayload,
-          success: described(Schema.Unknown, "Studio permission result"),
-          error: ApiStudioGenerationError,
-        }).annotateMerge(
-          OpenApi.annotations({
-            identifier: "studio.permissions.check",
-            summary: "Check Studio permission",
-            description: "Checks whether the current user can access the internal Studio entry.",
           }),
         ),
         HttpApiEndpoint.post("createPromptGen", StudioPaths.promptGen, {
