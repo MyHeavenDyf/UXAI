@@ -77,15 +77,19 @@ export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Ele
 
 export function ContextOverflowNotice(props: {
   tokens: number
-  limit: number
+  limit?: number
   locale: string
+  message?: string
   class?: string
   disabled?: boolean
   onCompact?: () => void
 }) {
   return (
     <MakeErrorNotice class={props.class}>
-      当前对话 Session 上下文已超过100% ({props.tokens.toLocaleString(props.locale)} / {props.limit.toLocaleString(props.locale)})。
+      {props.message ?? "当前对话上下文已超出模型限制。"}
+      <Show when={props.limit}>
+        {(limit) => <>（{props.tokens.toLocaleString(props.locale)} / {limit().toLocaleString(props.locale)}）</>}
+      </Show>
       <br />
       请进行
       <button

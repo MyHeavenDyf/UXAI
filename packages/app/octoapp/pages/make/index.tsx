@@ -87,11 +87,6 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
-import {
-  ContextUsageWarning,
-  isContextAtLimit,
-  shouldShowContextWarning,
-} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -119,6 +114,7 @@ import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { parseContextOverflowEvent } from "./utils/context-overflow"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
@@ -126,7 +122,6 @@ import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubC
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
-const DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED = false
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -203,6 +198,7 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  const [contextOverflow, setContextOverflow] = createSignal<{ sessionID: string; message: string }>()
 
   function findMultimodalModel() {
     const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
@@ -728,8 +724,10 @@ const sessionMessagesLoaded = createMemo(() => {
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       const activePlanID = activePlanSessionId()
+      const activePatternID = activePatternSessionId()
       const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
-      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
+      const isCurrentPatternChild = !!activePatternID && eventSessionID === activePatternID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild && !isCurrentPatternChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -829,6 +827,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
       } else {
+        const overflow = parseContextOverflowEvent(e.type, props)
+        if (overflow) setContextOverflow(overflow)
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
       }
@@ -1158,16 +1158,13 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
-  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
-  const contextSendBlocked = createMemo(
-    () => DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED && isContextAtLimit(contextTokens(), contextLimit(), params.id),
-  )
-
-  createEffect(() => {
-    if (contextUsage() >= 80) return
-    if (ignoredContextWarningSession() !== params.id) return
-    setIgnoredContextWarningSession(undefined)
+  const contextSendBlocked = createMemo(() => {
+    const overflow = contextOverflow()
+    if (!overflow) return false
+    return [params.id, activePlanSessionId(), activePatternSessionId()].includes(overflow.sessionID)
   })
+
+  createEffect(on(() => params.id, () => setContextOverflow(undefined), { defer: true }))
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -1191,12 +1188,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
-  const contextWarningVisible = createMemo(
-    () =>
-      DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED &&
-      !contextSendBlocked() &&
-      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
-  )
   const contextCompactionDisabled = effectiveBusy
 
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
@@ -1206,6 +1197,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
       const info = result.data?.info
       if (info && info.summary === true && info.finish && !info.error) {
+        setContextOverflow(undefined)
         showOctoToast({ title: "上下文压缩完成" })
         return
       }
@@ -2909,6 +2901,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
+    if (contextSendBlocked()) throw new Error(contextOverflow()?.message ?? "当前对话上下文已超出模型限制。")
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -4817,34 +4810,14 @@ if (dsId) {
                       gutter={8}
                       arrow
                       interactive
-                      inactive={!DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED && contextUsage() >= 80}
                       contentClass="make-token-tooltip"
                       value={
                         <div class="make-token-tooltip-copy">
                           <p>
-                            当前对话 Session 上下文
-                            {contextSendBlocked()
-                              ? "已超过100%"
-                              : contextUsage() >= 80
-                                ? "已超过80%"
-                                : `已使用${contextUsage()}%`}{" "}
+                            当前对话 Session 上下文已使用{contextUsage()}% {" "}
                             (
-                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
-                              {contextTokens().toLocaleString(language.intl())}
-                            </span>{" "}
+                            {contextTokens().toLocaleString(language.intl())}{" "}
                             / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
-                          </p>
-                          <p>
-                            建议点击“
-                            <button
-                              type="button"
-                              class="make-token-tooltip-action"
-                              disabled={contextCompactionDisabled()}
-                              onClick={confirmCompactContext}
-                            >
-                              上下文压缩
-                            </button>
-                            ”以继续对话。
                           </p>
                         </div>
                       }
@@ -5284,34 +5257,18 @@ onPreview={(url) => {
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
 
-                  <Show when={contextSendBlocked() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextOverflowNotice
-                          class="w-full"
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
+                  <Show when={contextSendBlocked()}>
+                    <div class="make-context-warning-wrap">
+                      <ContextOverflowNotice
+                        class="w-full"
+                        tokens={contextTokens()}
+                        limit={contextLimit()}
+                        locale={language.intl()}
+                        message={contextOverflow()?.message}
+                        disabled={contextCompactionDisabled()}
+                        onCompact={confirmCompactContext}
+                      />
+                    </div>
                   </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
