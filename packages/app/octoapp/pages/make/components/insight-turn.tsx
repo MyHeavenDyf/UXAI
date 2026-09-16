@@ -1628,19 +1628,28 @@ const stateStatus = state.status as string | undefined
                 : "生成出错"
           }
         >
-          <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
-          </Show>
-          <Show when={assistantError()!.name === "ContextOverflowError" && props.onCompact}>
-            <button
-              type="button"
-              class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ color: "#0a59f7", font: "inherit" }}
-              disabled={props.compactDisabled}
-              onClick={props.onCompact}
-            >
-              上下文压缩
-            </button>
+          <Show
+            when={assistantError()!.name === "ContextOverflowError"}
+            fallback={
+              <Show when={assistantError()!.message}>
+                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+              </Show>
+            }
+          >
+            <div style={{ "user-select": "text" }}>系统的单次处理能力已满。</div>
+            <div>
+              请进行“
+              <button
+                type="button"
+                class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ color: "#0a59f7", font: "inherit" }}
+                disabled={props.compactDisabled}
+                onClick={props.onCompact}
+              >
+                上下文压缩
+              </button>
+              ”，或新建对话。
+            </div>
           </Show>
         </MakeErrorNotice>
       </Show>
