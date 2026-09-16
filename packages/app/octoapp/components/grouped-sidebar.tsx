@@ -22,7 +22,7 @@ import folderOpenedPng from "@/pages/_shell/icons/ic_bpit_floder_opened.png"
 export type GroupedSidebarProps = Omit<
   AgentSidebarProps,
   "directory" | "activeSessionId" | "groups" | "sessionGroupMapping" |
-  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "onReorderGroupSessions" | "beforeSection"
+  "onMoveToGroup" | "onRemoveFromGroup" | "onCreateGroupForSession" | "onReorderGroupSessions" | "onSessionClick" | "beforeSection"
 > & {
   /** Namespace for group DB queries (e.g. "make", "insight") */
   namespace: string
@@ -126,6 +126,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       {...props}
       directory={resolvedDir()}
       activeSessionId={activeSessionId}
+      onSessionClick={() => setSelectedGroupId(null)}
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
       onMoveToGroup={(session, groupId) => {

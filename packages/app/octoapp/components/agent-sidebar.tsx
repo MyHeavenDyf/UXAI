@@ -24,6 +24,7 @@ import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
 import arrowRightFolderCirclePng from "@/pages/_shell/icons/arrow_right_folder_circle.png"
 import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
+import checkmarkPng from "@/pages/_shell/icons/checkmark.png"
 
 export type SidebarGroup = { id: string; name: string }
 
@@ -86,6 +87,9 @@ export type AgentSidebarProps = {
   /** Rendered above the main section. Receives the full session list and handlers so callers can render grouped sessions. */
   beforeSection?: (api: BeforeSectionApi) => JSX.Element
   inlineBeforeSection?: boolean
+
+  /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
+  onSessionClick?: (session: Session) => void
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -617,6 +621,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   function handleSessionClick(s: Session) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "select-session" })
+    props.onSessionClick?.(s)
     navigate(props.buildSessionRoute(s))
   }
 
@@ -796,6 +801,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 "flex-direction": "column",
                 gap: "4px",
                 overflow: "visible",
+                "background-color": "#fff",
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -875,6 +881,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                         "flex-direction": "column",
                         gap: "4px",
                         overflow: "auto",
+                        "background-color": "#fff",
                       }}
                       onMouseEnter={showSubmenuNow}
                       onMouseLeave={scheduleHideSubmenu}
@@ -902,7 +909,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                       <img src={folderLineClosePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
                                 <ScrollableText text={group.name} hovered={hoveredGroupId() === group.id} />
                                 <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id]?.groupId === group.id}>
-                                  <Icon name="check-small" size="small" style={{ color: "#0A59F7" }} />
+                                  <img src={checkmarkPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
                                 </Show>
                               </button>
                             )}
