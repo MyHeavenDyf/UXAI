@@ -99,6 +99,11 @@ export type ElectronAPI = {
   fastuiDevServerStop: (sessionDir: string) => Promise<boolean>
   /** 建会话时调:挂着等 skill 写出会话状态文件,出现即起 dev server;非 fastui 会话超时静默放弃 */
   fastuiDevServerArm: (sessionDir: string) => Promise<boolean>
+  /** 预览挂载前问归属:这个端口上跑的是不是本会话的服务,SPEC-DES-004 §4.1 */
+  fastuiPreviewOwner: (
+    sessionDir: string,
+    port: number,
+  ) => Promise<{ owner: "self" | "other" | "none" | "unknown"; port: number; actualPort?: number }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (
     sessionDir: string,

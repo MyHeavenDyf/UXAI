@@ -60,6 +60,7 @@ const api: ElectronAPI = {
   fastuiDevServerEnsure: (sessionDir) => ipcRenderer.invoke("fastui-devserver-ensure", sessionDir),
   fastuiDevServerStop: (sessionDir) => ipcRenderer.invoke("fastui-devserver-stop", sessionDir),
   fastuiDevServerArm: (sessionDir) => ipcRenderer.invoke("fastui-devserver-arm", sessionDir),
+  fastuiPreviewOwner: (sessionDir, port) => ipcRenderer.invoke("fastui-preview-owner", sessionDir, port),
   fastuiExportZip: (sessionDir) => ipcRenderer.invoke("fastui-export-zip", sessionDir),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),

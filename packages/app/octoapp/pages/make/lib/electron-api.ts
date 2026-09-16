@@ -37,6 +37,21 @@ export type DesktopApi = {
    */
   fastuiDevServerArm?: (sessionDir: string) => Promise<boolean>
   fastuiDevServerStop?: (sessionDir: string) => Promise<boolean>
+  /** 起(或复用)本会话的 dev server;预览判定为「端口属于别的会话」时用它重新起一个 */
+  fastuiDevServerEnsure?: (
+    sessionDir: string,
+  ) => Promise<{ ok: true; port: number; pid: number; logPath: string; reused: boolean } | { ok: false; error: string }>
+  /**
+   * 预览挂载前问归属(SPEC-DES-004 §4.1):这个端口上跑的是不是本会话的服务。
+   *
+   * 预览卡片是历史消息里的静态文本,唯一身份就是端口号,而端口会被回收复用
+   * (宿主的 MAX_SERVERS LRU 自己就会释放)—— 不问一句就会「点前一个对话的卡片,
+   * 看到后一个对话的页面」。`actualPort` 是本会话当前真正在跑的端口,可用于自愈。
+   */
+  fastuiPreviewOwner?: (
+    sessionDir: string,
+    port: number,
+  ) => Promise<{ owner: "self" | "other" | "none" | "unknown"; port: number; actualPort?: number }>
   /**
    * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
    * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。

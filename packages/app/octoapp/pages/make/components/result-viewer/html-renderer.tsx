@@ -24,7 +24,7 @@ import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-arch
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { dirname, basename, joinPath } from "../../utils/references"
-import { isLocalPreviewUrl } from "../../utils/fastui-export"
+import { isLocalPreviewUrl, sessionDirOf } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
@@ -1039,19 +1039,76 @@ createEffect(() => {
   const [previewReady, setPreviewReady] = createSignal(false)
   const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
 
+  // 端口通了不等于「通的是你的服务」(SPEC-DES-004 §4.1)。
+  //
+  // 预览链接是历史消息里的静态文本,唯一身份就是端口号;而端口是会被回收复用的全机资源 ——
+  // 宿主自己的 LRU(MAX_SERVERS)就会主动关掉最旧的 dev server 把端口还回去。于是
+  // 「点前一个对话的卡片,看到的是后一个对话的页面」。上面那道门禁只问「通了吗」,
+  // 这里补上「是你的吗」—— 判定在主进程内完成(dev server 都是它 spawn 并持有的)。
+  const [portTakenByOther, setPortTakenByOther] = createSignal(false)
+  // 本会话真正在跑的端口。宿主发现原端口被占时会换一个并回写状态文件,于是卡片上的端口会过期
+  const [overridePort, setOverridePort] = createSignal<number | null>(null)
+  const [switchingPreview, setSwitchingPreview] = createSignal(false)
+
+  const previewSessionDir = createMemo(() => sessionDirOf(props.sdkDirectory, props.sessionId))
+  const portOf = (url?: string | null) => {
+    try {
+      return Number(new URL(url!).port) || null
+    } catch {
+      return null
+    }
+  }
+
+  /** 把链接里的端口换成本会话真正在跑的那个 */
+  const withPort = (url: string, port: number) => {
+    try {
+      const u = new URL(url)
+      u.port = String(port)
+      return u.toString()
+    } catch {
+      return url
+    }
+  }
+
+  /**
+   * 切到本会话自己的预览:先确保 dev server 起着(幂等,已在跑就直接返回现有端口),
+   * 再把链接的端口换成它真正在听的那个。
+   */
+  const switchToOwnPreview = async () => {
+    const dir = previewSessionDir()
+    if (!dir || switchingPreview()) return
+    setSwitchingPreview(true)
+    try {
+      const result = await getDesktopApi()?.fastuiDevServerEnsure?.(dir)
+      if (result?.ok) {
+        setOverridePort(result.port)
+        setPortTakenByOther(false)
+        setPreviewReady(false)
+        setPreviewTimedOut(false)
+      } else {
+        console.warn("[fastui] 重新启动本会话的 dev server 失败", result)
+      }
+    } finally {
+      setSwitchingPreview(false)
+    }
+  }
+
   // 首次编译 1–3 分钟(§8.6.1),上限取同量级
   const PROBE_INTERVAL_MS = 1000
   const PROBE_TIMEOUT_MS = 3 * 60 * 1000
   const PROBE_ATTEMPT_TIMEOUT_MS = 5000
 
-  createEffect(on([needsReadyGate, () => props.filePath], ([gate, url]) => {
-    if (!gate || !url) {
+  createEffect(on([needsReadyGate, () => props.filePath, overridePort], ([gate, rawUrl, port]) => {
+    if (!gate || !rawUrl) {
       setPreviewReady(true)
       setPreviewTimedOut(false)
+      setPortTakenByOther(false)
       return
     }
+    const url = port ? withPort(rawUrl, port) : rawUrl
     setPreviewReady(false)
     setPreviewTimedOut(false)
+    setPortTakenByOther(false)
 
     let disposed = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -1060,6 +1117,35 @@ createEffect(() => {
 
     const probe = async () => {
       if (disposed) return
+
+      // 先问归属,再问通不通 —— 顺序不能反:端口通了但通的是别人的服务时,
+      // 先 fetch 会直接判定 ready 并把别人的页面挂上去,正是要防的那件事。
+      const sessionDir = previewSessionDir()
+      const probePort = portOf(url)
+      if (sessionDir && probePort && getDesktopApi()?.fastuiPreviewOwner) {
+        try {
+          const own = await getDesktopApi()!.fastuiPreviewOwner!(sessionDir, probePort)
+          if (disposed) return
+          if (own.owner === "other") {
+            // 停止轮询并交给用户处理 —— 继续等没有意义,对方不会把端口让出来
+            console.warn("[fastui] 预览端口属于其他会话,不挂载", { url, port: probePort, actualPort: own.actualPort })
+            setPortTakenByOther(true)
+            return
+          }
+          if (own.owner === "none" && own.actualPort && own.actualPort !== probePort) {
+            // 本会话确实在跑,只是换了端口(宿主发现原端口被占时会换一个并回写状态文件,
+            // 而卡片是历史消息里的静态文本,跟不动)。这里没有歧义,直接切过去 ——
+            // 否则就是干等到探测超时,最后挂上一个必然连不上的地址。
+            console.info("[fastui] 预览端口已变更,切到本会话实际在听的端口", { was: probePort, now: own.actualPort })
+            setOverridePort(own.actualPort)
+            return
+          }
+          // self / none(还没起,接着等)/ unknown(降级路径起的,无从判定,按尽力而为放行)
+        } catch {
+          /* 主进程没这个通道(旧版本 / 非 Electron)—— 退回只探连通性,行为与改动前一致 */
+        }
+      }
+
       const controller = new AbortController()
       inflight = controller
       // 端口开着但不回应时 fetch 会一直挂,不设上限就再也不会重试
@@ -1098,17 +1184,23 @@ createEffect(() => {
 
   const externalUrl = createMemo(() => {
     if (!shouldUseExternalUrl()) return undefined
+    // 端口属于别的会话时**一律不挂** —— 这一条不走"超时后降级放行"那条路:
+    // 放行的结果是确定地显示别人的页面,比白屏更糟(SPEC-DES-004 §4.1)。
+    if (needsReadyGate() && portTakenByOther()) return undefined
     // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
     // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
     if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
+    // 宿主换过端口时,卡片上那个已经过期,用它真正在听的那个
+    const port = overridePort()
+    const base = port && props.filePath ? withPort(props.filePath, port) : props.filePath
     const key = props.refreshKey ?? 0
-    if (key === 0) return props.filePath
+    if (key === 0) return base
     try {
-      const u = new URL(props.filePath!)
+      const u = new URL(base!)
       u.searchParams.set("_octo_v", String(key))
       return u.toString()
     } catch {
-      return props.filePath
+      return base
     }
   })
 
@@ -1757,7 +1849,7 @@ return (
     >
       {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
           超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
-      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>
+      <Show when={props.mode === "preview" && needsReadyGate() && !portTakenByOther() && !previewReady() && !previewTimedOut()}>
         <div
           style={{
             position: "absolute",
@@ -1775,6 +1867,45 @@ return (
           <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
             服务就绪后会自动加载，首次启动可能需要几分钟。
           </div>
+        </div>
+      </Show>
+      {/* 端口属于别的会话:这里不能降级放行 —— 放行等于确定地显示另一个对话的页面
+          (SPEC-DES-004 §4.1)。给一条自愈路径,而不是让用户对着别人的页面发懵 */}
+      <Show when={props.mode === "preview" && needsReadyGate() && portTakenByOther()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "10px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>预览端口已被其他对话占用</div>
+          <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "340px" }}>
+            该链接指向的本地端口当前由另一个对话的服务在使用，为避免显示错误的页面，此处不加载。
+          </div>
+          <button
+            type="button"
+            disabled={switchingPreview()}
+            onClick={() => void switchToOwnPreview()}
+            style={{
+              "margin-top": "2px",
+              padding: "6px 14px",
+              "font-size": "12px",
+              "border-radius": "var(--octo-radius-md, 6px)",
+              border: "1px solid var(--octo-border-base, #d9d9d9)",
+              background: "var(--octo-bg-elevated, #ffffff)",
+              color: "var(--octo-text-primary)",
+              cursor: switchingPreview() ? "wait" : "pointer",
+            }}
+          >
+            {switchingPreview() ? "正在启动…" : "启动本对话的预览"}
+          </button>
         </div>
       </Show>
       {props.mode === "preview" ? (

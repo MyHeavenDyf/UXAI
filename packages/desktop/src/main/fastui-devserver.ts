@@ -14,6 +14,7 @@
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
 import { closeSync, existsSync, openSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs"
+import net from "node:net"
 import { join } from "node:path"
 
 import log from "electron-log/main.js"
@@ -62,6 +63,69 @@ function readState(sessionDir: string): SessionState | null {
   }
 }
 
+/** 把新端口写回会话状态文件 —— verify / export-zip 都从这里读,不回写它们就还盯着旧端口 */
+function writeBackPort(sessionDir: string, port: number) {
+  const file = join(sessionDir, ".octo-fastui.json")
+  try {
+    const state = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>
+    state.port = port
+    state.updatedAt = new Date().toISOString()
+    writeFileSync(file, JSON.stringify(state, null, 2))
+  } catch (error) {
+    // 写不回去不阻断启动:dev server 照样能起,只是 verify 那边可能对不上端口
+    log.warn("[fastui] 回写会话状态文件的端口失败", { sessionDir, port, error: String(error) })
+  }
+}
+
+/** 端口空闲? 只探环回 —— dev server 也只监听这里 */
+function portFree(port: number) {
+  return new Promise<boolean>((resolve) => {
+    const srv = net.createServer()
+    srv.once("error", () => resolve(false))
+    srv.once("listening", () => srv.close(() => resolve(true)))
+    srv.listen(port, "127.0.0.1")
+  })
+}
+
+async function findFreePortFrom(start: number, tries = 200) {
+  for (let p = start; p < start + tries; p++) if (await portFree(p)) return p
+  return null
+}
+
+const isAlive = (r: Running) => !r.child.killed && r.child.exitCode === null
+
+export type PreviewOwnership =
+  /** 就是本会话的服务,可以挂 */
+  | { owner: "self"; port: number }
+  /** 这个端口属于别的会话 —— 绝不能挂,挂上去就是「点 A 的卡片看到 B 的页面」 */
+  | { owner: "other"; port: number; actualPort?: number }
+  /** 没人在跑 */
+  | { owner: "none"; port: number; actualPort?: number }
+  /** 有人在听,但不是宿主起的(skill 自管的降级路径 / 用户手工 yarn serve) */
+  | { owner: "unknown"; port: number }
+
+/**
+ * 这个端口上跑的服务属于谁(SPEC-DES-004 §4.1)。
+ *
+ * 预览卡片是历史消息里的静态文本,它唯一的身份就是端口号 —— 而端口是会被回收复用的
+ * 全机资源(宿主自己的 `MAX_SERVERS` LRU 就会主动释放)。于是「前一个对话的卡片点进去
+ * 变成后一个对话的页面」。**卡片不能被信任,挂载前必须问一次这里。**
+ *
+ * 判定全在主进程内部完成:dev server 都是这里 spawn 并持有的,`running` 就是权威,
+ * 不需要让 dev server 自证身份(那条路要么改内网模板加中间件、要么过 CORS,都是白花的力气)。
+ */
+export async function ownerOf(sessionDir: string, port: number): Promise<PreviewOwnership> {
+  const mine = running.get(sessionDir)
+  const actualPort = mine && isAlive(mine) ? mine.port : undefined
+  if (actualPort === port) return { owner: "self", port }
+
+  for (const r of running.values()) {
+    if (r.port === port && r.sessionDir !== sessionDir && isAlive(r)) return { owner: "other", port, actualPort }
+  }
+  // 宿主起的进程里没人认领这个端口 —— 端口上还有人在听的话,那是降级路径起的,无从判定归属
+  return (await portFree(port)) ? { owner: "none", port, actualPort } : { owner: "unknown", port }
+}
+
 /** 关掉最旧的,直到运行数低于上限 */
 function enforceLimit() {
   while (running.size >= MAX_SERVERS) {
@@ -77,9 +141,9 @@ function enforceLimit() {
  * 起(或复用)一个会话的 dev server。
  * 幂等:同一个 sessionDir 重复调用直接返回已有的。
  */
-export function ensure(sessionDir: string): EnsureResult {
+export async function ensure(sessionDir: string): Promise<EnsureResult> {
   const existing = running.get(sessionDir)
-  if (existing && !existing.child.killed && existing.child.exitCode === null) {
+  if (existing && isAlive(existing)) {
     return { ok: true, port: existing.port, pid: existing.pid, logPath: join(sessionDir, "devserver.log"), reused: true }
   }
 
@@ -97,6 +161,24 @@ export function ensure(sessionDir: string): EnsureResult {
 
   enforceLimit()
 
+  // **起之前先确认这个端口还是不是我们的**(SPEC-DES-004 §4.3)。
+  //
+  // `state.port` 是 new-session 当初分配的,而它**永不失效**;真实监听却会被回收 ——
+  // 上面的 enforceLimit 自己就会关掉最旧的 dev server 把端口还给系统。于是一个被 LRU
+  // 淘汰过的会话再被打开时,它记着的端口可能已经归了别的对话:照着 spawn 的结果是
+  // `EADDRINUSE` 秒退(`exit` 钩子顺手删掉 .devserver.json),而用户那边看到的是
+  // **自己的卡片显示着别人的页面**,全程没有一条可见的报错。
+  //
+  // 被占就换一个,并把新端口回写状态文件 —— 从这一刻起宿主也是端口分配的一方。
+  let port = state.port
+  if (!(await portFree(port))) {
+    const next = await findFreePortFrom(port + 1)
+    if (!next) return { ok: false, error: `端口 ${port} 被占用,且从 ${port + 1} 起找不到空闲端口` }
+    log.info("[fastui] 会话记的端口已被占用,改用新端口", { sessionDir, was: port, now: next })
+    port = next
+    writeBackPort(sessionDir, port)
+  }
+
   // 日志路径固定为 .octo/<sid>/devserver.log —— verify 靠读它做编译判定,换地方它就只能超时
   const logPath = join(sessionDir, "devserver.log")
   let logFd: number
@@ -112,7 +194,7 @@ export function ensure(sessionDir: string): EnsureResult {
       cwd: portalDir,
       // OCTO_DEPS 缺了 copy-webpack-plugin 找不到拷贝源会 Failed to compile;
       // OCTO_PORT 缺了会回落 8081,多会话必撞(SPEC-DES-001 §2.2)
-      env: { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(state.port) },
+      env: { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(port) },
       windowsHide: true,
       stdio: ["ignore", logFd, logFd],
     })
@@ -145,7 +227,7 @@ export function ensure(sessionDir: string): EnsureResult {
   const entry: Running = {
     sessionDir,
     projectDir: state.projectDir,
-    port: state.port,
+    port,
     pid: child.pid,
     child,
     startedAt: Date.now(),
@@ -270,7 +352,9 @@ export function list() {
 export function ensureWhenReady(sessionDir: string, timeoutMs = 10 * 60 * 1000) {
   if (running.has(sessionDir) || pending.has(sessionDir)) return
   if (existsSync(join(sessionDir, ".octo-fastui.json"))) {
-    ensure(sessionDir)
+    void ensure(sessionDir).then((result) => {
+      if (!result.ok) log.warn("[fastui] 自动启动 dev server 失败", { sessionDir, error: result.error })
+    })
     return
   }
   // 注意:这里**不能**因为会话目录还不存在就放弃 —— 前端建目录用的 writeFileBuffer 是异步的
@@ -289,8 +373,9 @@ export function ensureWhenReady(sessionDir: string, timeoutMs = 10 * 60 * 1000) 
   const check = () => {
     if (!existsSync(join(sessionDir, ".octo-fastui.json"))) return
     done()
-    const result = ensure(sessionDir)
-    if (!result.ok) log.warn("[fastui] 自动启动 dev server 失败", { sessionDir, error: result.error })
+    void ensure(sessionDir).then((result) => {
+      if (!result.ok) log.warn("[fastui] 自动启动 dev server 失败", { sessionDir, error: result.error })
+    })
   }
 
   let watcher: FSWatcher | undefined
