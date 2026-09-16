@@ -1049,6 +1049,7 @@ createEffect(() => {
   // 本会话真正在跑的端口。宿主发现原端口被占时会换一个并回写状态文件,于是卡片上的端口会过期
   const [overridePort, setOverridePort] = createSignal<number | null>(null)
   const [switchingPreview, setSwitchingPreview] = createSignal(false)
+  const [switchFailed, setSwitchFailed] = createSignal<string | null>(null)
 
   const previewSessionDir = createMemo(() => sessionDirOf(props.sdkDirectory, props.sessionId))
 
@@ -1094,17 +1095,29 @@ createEffect(() => {
   const switchToOwnPreview = async () => {
     const dir = previewSessionDir()
     if (!dir || switchingPreview()) return
+    setSwitchFailed(null)
     setSwitchingPreview(true)
     try {
-      const result = await getDesktopApi()?.fastuiDevServerEnsure?.(dir)
-      if (result?.ok) {
-        setOverridePort(result.port)
-        setPortTakenByOther(false)
-        setPreviewReady(false)
-        setPreviewTimedOut(false)
-      } else {
+      const api = getDesktopApi()
+      const result = await api?.fastuiDevServerEnsure?.(dir)
+      if (!result?.ok) {
         console.warn("[fastui] 重新启动本会话的 dev server 失败", result)
+        setSwitchFailed("启动失败，请查看主进程日志")
+        return
       }
+      // **起回来的未必是这张卡片对应的那个产物工程。** `ensure()` 以 sessionDir 为键、
+      // 拿到活着的条目就直接返回 —— 同一对话里有两个工程时,它给的是"当前那个",
+      // 直接切过去就又是一次「卡片 A 显示 B 的页面」。所以再问一次归属,确认了才切。
+      const name = previewProjectName()
+      const own = await api?.fastuiPreviewOwner?.(dir, result.port, name)
+      if (own && own.owner !== "self") {
+        setSwitchFailed("本对话的另一个产物正在预览中，同一时间只能预览一个")
+        return
+      }
+      setOverridePort(result.port)
+      setPortTakenByOther(false)
+      setPreviewReady(false)
+      setPreviewTimedOut(false)
     } finally {
       setSwitchingPreview(false)
     }
@@ -1928,6 +1941,11 @@ return (
           >
             {switchingPreview() ? "正在启动…" : "启动本对话的预览"}
           </button>
+          <Show when={switchFailed()}>
+            <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "340px" }}>
+              {switchFailed()}
+            </div>
+          </Show>
         </div>
       </Show>
       {props.mode === "preview" ? (
