@@ -438,48 +438,24 @@ export const ProseMirrorEditor = (props: Props) => {
     v.setProps({ ...v.props, editable: () => !props.disabled })
   })
 
-  // Close popover when clicking outside
-  createEffect(() => {
-    const state = triggerState()
-    if (!state?.active) return
-    
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      
-      // Don't close if clicking on editor (let ProseMirror handle it)
-      if (target.closest(".pm-editor")) return
-      
-      // Don't close if clicking on the upload risk gate dialog
-      if (target.closest(".make-model-risk-overlay")) return
-      
-      if (!target.closest(".mention-popover-container")) {
-        console.log("[click-outside] closing popover")
-        const v = view()
-        const trigger = triggerState()
-        
-        if (v && trigger) {
-          // Delete @abc search text
-          // 确保 position 在文档范围内
-          const from = Math.min(trigger.from, v.state.doc.content.size)
-          const to = Math.min(trigger.to, v.state.doc.content.size)
-          if (from < to) {
-            const tr = v.state.tr.delete(from, to)
-            v.dispatch(tr)
-          }
-        }
-        
-        if (v) {
-          const tr = v.state.tr.setMeta(mentionTriggerKey, null)
-          v.dispatch(tr)
-        }
-        
-        setTriggerState(null)
+  // Close popover via overlay click
+  const closeMention = () => {
+    const v = view()
+    const trigger = triggerState()
+    if (v && trigger) {
+      const from = Math.min(trigger.from, v.state.doc.content.size)
+      const to = Math.min(trigger.to, v.state.doc.content.size)
+      if (from < to) {
+        const tr = v.state.tr.delete(from, to)
+        v.dispatch(tr)
       }
     }
-    
-    document.addEventListener("mousedown", handler)
-    onCleanup(() => document.removeEventListener("mousedown", handler))
-  })
+    if (v) {
+      const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+      v.dispatch(tr)
+    }
+    setTriggerState(null)
+  }
 
   // Close slash popover when clicking outside
   createEffect(() => {
@@ -600,26 +576,20 @@ export const ProseMirrorEditor = (props: Props) => {
       
       <Show when={triggerState()?.active && popoverPosition()}>
         <Portal>
-          <div 
+          <div class="mention-popover-overlay" onClick={closeMention} />
+          <div
             style={{
               position: "fixed",
               left: `${popoverPosition()!.left}px`,
               bottom: `${popoverPosition()!.bottom + 1}px`,
               "z-index": 1000,
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             <MentionPopover
               query={triggerState()!.query}
               sessionId={props.sessionId}
-              onClose={() => {
-                const v = view()
-                const trigger = triggerState()
-                if (v && trigger) {
-                  const tr = v.state.tr.delete(trigger.from, trigger.to)
-                  v.dispatch(tr)
-                }
-                setTriggerState(null)
-              }}
+              onClose={closeMention}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
               selections={props.mentionSelections}

@@ -16,6 +16,12 @@ export const Local = Schema.Struct({
   timeout: Schema.optional(PositiveInt).annotate({
     description: "Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified.",
   }),
+  homepage: Schema.optional(Schema.String).annotate({
+    description: "Homepage URL of the MCP server (display metadata for UI)",
+  }),
+  docs: Schema.optional(Schema.String).annotate({
+    description: "Documentation URL of the MCP server (display metadata for UI)",
+  }),
 })
   .annotate({ identifier: "McpLocalConfig" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -54,6 +60,16 @@ export const Remote = Schema.Struct({
   }),
   proxy: Schema.optional(Schema.Boolean).annotate({
     description: "Force proxy usage (true) or bypass proxy (false). Auto-detected from URL if not set.",
+  }),
+  transport: Schema.optional(Schema.Literals(["http", "sse"])).annotate({
+    description:
+      "Force a specific transport protocol: 'http' for Streamable HTTP only, 'sse' for legacy SSE only. If not set, Streamable HTTP is tried first with SSE fallback.",
+  }),
+  homepage: Schema.optional(Schema.String).annotate({
+    description: "Homepage URL of the MCP server (display metadata for UI)",
+  }),
+  docs: Schema.optional(Schema.String).annotate({
+    description: "Documentation URL of the MCP server (display metadata for UI)",
   }),
 })
   .annotate({ identifier: "McpRemoteConfig" })

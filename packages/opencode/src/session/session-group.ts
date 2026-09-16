@@ -91,9 +91,9 @@ export const layer = Layer.effect(
         Effect.sync(() => {
           const now = Date.now()
           const id = crypto.randomUUID()
-          const maxPosRow = Database.use((db) =>
+          const minPosRow = Database.use((db) =>
             db
-              .select({ max: SessionGroupTable.position })
+              .select({ min: SessionGroupTable.position })
               .from(SessionGroupTable)
               .where(
                 and(
@@ -103,7 +103,7 @@ export const layer = Layer.effect(
               )
               .all(),
           )
-          const maxPos = maxPosRow?.reduce((acc, r) => Math.max(acc, r.max ?? -1), -1) ?? -1
+          const minPos = minPosRow?.reduce((acc, r) => Math.min(acc, r.min ?? 0), 0) ?? 0
           Database.use((db) =>
             db
               .insert(SessionGroupTable)
@@ -113,7 +113,7 @@ export const layer = Layer.effect(
                 directory: input.directory,
                 namespace: input.namespace,
                 name: input.name,
-                position: maxPos + 1,
+                position: minPos - 1,
                 time_created: now,
                 time_updated: now,
               })
@@ -126,7 +126,7 @@ export const layer = Layer.effect(
             directory: input.directory,
             namespace: input.namespace,
             name: input.name,
-            position: maxPos + 1,
+            position: minPos - 1,
             time_created: now,
             time_updated: now,
           }

@@ -1,6 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
-import type { ModelEditConfig, ModelEditElement, OnChangeArgs, IconConfig, IconConfirmArgs } from '../components/model-edit-items/types'
+import type { ModelEditConfig, ModelEditElement, OnChangeArgs, IconConfig, IconConfirmArgs, AssetConfig } from '../components/model-edit-items/types'
 import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
 import { serializeEffects, type EffectEntry } from '../edit-mode/source-patches'
@@ -293,6 +293,17 @@ const directModelEditConfig: ModelEditConfig = {
       return ''
     },
   } satisfies IconConfig,
+  assetConfig: {
+    showConfig: () => true,
+    getInitialState: () => ({ name: '未选择' }),
+    onConfirm: ({ dom, filePath, folderpath }) => {
+      return [
+        `[文件: ${filePath}]`,
+        `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
+        `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
+      ].join('\n')
+    },
+  } satisfies AssetConfig,
 }
 
 export { directModelEditConfig }

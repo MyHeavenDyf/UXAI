@@ -2,7 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, For, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, For, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
@@ -16,7 +16,7 @@ import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
-import { SessionList } from "@/components/session-list"
+import { SessionList, ScrollableText } from "@/components/session-list"
 import { Icon } from "@opencode-ai/ui/icon"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
@@ -150,7 +150,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
-  const [hasPinned, setHasPinned] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
@@ -160,7 +159,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const pinnedSessions = createMemo(() =>
     sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
   )
-  createEffect(() => { if (pinnedSessions().length > 0) setHasPinned(true) })
   const recentSessions = createMemo(() =>
     sessionList
       .filter(s => !s.pinned && !props.sessionGroupMapping?.[s.id])
@@ -182,11 +180,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const idx = sessionList.findIndex(s => s.id === id)
     if (idx < 0) return
     const newVal = !sessionList[idx].pinned
-    setSessionList(idx, "pinned", newVal)
     const d = resolvedDir()
     if (!d) return
     const client = globalSDK.createClient({ directory: d })
-    await client.session.update({ sessionID: id, pinned: newVal })
+    if (newVal) {
+      const pinnedIds = pinnedSessions().map(s => s.id).filter(pid => pid !== id)
+      const newOrder = [id, ...pinnedIds]
+      batch(() => {
+        setSessionList(idx, "sort_order", -1)
+        setSessionList(idx, "pinned", true)
+      })
+      await client.session.update({ sessionID: id, pinned: true, directory: d })
+      await client.session.reorder({ ids: newOrder, directory: d })
+    } else {
+      setSessionList(idx, "pinned", false)
+      await client.session.update({ sessionID: id, pinned: false, directory: d })
+    }
   }
 
   async function reorderPinned(sourceId: string, targetId: string, position: "before" | "after") {
@@ -423,6 +432,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   // ── Context menu submenu ("移动到分组") ──
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
+  const [hoveredGroupId, setHoveredGroupId] = createSignal<string | null>(null)
+  const [submenuVertical, setSubmenuVertical] = createSignal<"down" | "up">("down")
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
   const showSubmenuNow = () => { clearTimeout(submenuHideTimer); setShowGroupSubmenu(true) }
   const scheduleHideSubmenu = () => { clearTimeout(submenuHideTimer); submenuHideTimer = setTimeout(() => setShowGroupSubmenu(false), 200) }
@@ -431,6 +442,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!showGroupSubmenu()) return "right"
     const menuLeft = parseFloat(menuStyle().left) || 0
     return menuLeft + 175 * 2 + 24 > window.innerWidth ? "left" : "right"
+  })
+
+  createEffect(() => {
+    if (!showGroupSubmenu()) { setSubmenuVertical("down"); return }
+    requestAnimationFrame(() => {
+      const menu = contextMenuRef()
+      if (!menu) return
+      const trigger = menu.querySelector<HTMLButtonElement>('[data-submenu-trigger]')
+      if (!trigger) return
+      const triggerRect = trigger.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const minMargin = 24
+      const submenuMaxHeight = 200
+      setSubmenuVertical(triggerRect.top + submenuMaxHeight > viewportHeight - minMargin ? "up" : "down")
+    })
   })
 
   function handleMoveToGroup(groupId: string) {
@@ -626,7 +652,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       beforeSection={() => (
         <>
-          <Show when={pinnedSessions().length > 0 || hasPinned()}>
+          <Show when={pinnedSessions().length > 0 || draggingSessionId()}>
             <div
               onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
@@ -640,6 +666,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 activeSessionId={props.activeSessionId()}
                 stable={stable()}
                 hoverOnActive
+                useIndex
                 onSessionClick={handleSessionClick}
                 onSessionContextMenu={handleSessionContextMenu}
                 onSessionActionClick={handleSessionContextMenu}
@@ -817,6 +844,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 >
                   <button
                     data-slot="dropdown-menu-item"
+                    data-submenu-trigger
                     class="flex items-center gap-2 w-full"
                     style={{ "justify-content": "space-between" }}
                     onMouseEnter={showSubmenuNow}
@@ -836,7 +864,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
                         ...(submenuSide() === "right"
                           ? { left: "calc(100% + 4px)" }
                           : { right: "calc(100% + 4px)" }),
-                        top: "-4px",
+                        ...(submenuVertical() === "down"
+                          ? { top: "-4px" }
+                          : { bottom: "-4px" }),
                         width: "175px",
                         "max-height": "200px",
                         "min-height": "40px",
@@ -865,10 +895,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
                                 data-slot="dropdown-menu-item"
                                 class="flex items-center gap-2"
                                 style={{ height: "36px", "flex-shrink": "0" }}
+                                onMouseEnter={() => setHoveredGroupId(group.id)}
+                                onMouseLeave={() => setHoveredGroupId(null)}
                                 onClick={() => handleMoveToGroup(group.id)}
                               >
                       <img src={folderLineClosePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                                <span data-slot="dropdown-menu-item-label" class="flex-1" style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{group.name}</span>
+                                <ScrollableText text={group.name} hovered={hoveredGroupId() === group.id} />
                                 <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id]?.groupId === group.id}>
                                   <Icon name="check-small" size="small" style={{ color: "#0A59F7" }} />
                                 </Show>

@@ -230,7 +230,7 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "请总结用户需求，生成一个不超过10个字的中文标题：\n" }, ...msgs],
+          messages: [{ role: "user", content: "请简短描述用户的需求，生成一个中文标题，标题必须严格不超过10个字，超过10个字即为错误：\n" }, ...msgs],
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
@@ -238,15 +238,10 @@ export const layer = Layer.effect(
           Stream.mkString,
           Effect.orDie,
         )
-      const cleaned = text
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
+      const cleaned = cleanTitleText(text)
       if (!cleaned) return
-      const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
       yield* sessions
-        .setTitle({ sessionID: input.session.id, title: t })
+        .setTitle({ sessionID: input.session.id, title: cleaned })
         .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
     })
 
@@ -1683,6 +1678,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
+              .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
+              .flatMap((name) => {
+                const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`
+                const names = Object.keys(activeTools)
+                  .filter((toolName) => toolName.startsWith(prefix))
+                  .map((toolName) => toolName.slice(prefix.length))
+                return names.length ? [`- ${name}: ${names.join(", ")}`] : []
+              })
+            if (userMcpSummary.length) {
+              system.push(
+                [
+                  "<available_user_mcp_tools>",
+                  "These user-configured MCP servers and methods are connected and available in this request:",
+                  ...userMcpSummary,
+                  "This live list replaces every MCP inventory mentioned earlier in the conversation. Never infer current MCP availability from previous messages, previous tool calls, or configuration files, and never report a user MCP server absent from this list as currently available.",
+                  "When the user asks about one of these MCP servers, use its listed tools instead of searching configuration files or claiming the server is unavailable.",
+                  "</available_user_mcp_tools>",
+                ].join("\n"),
+              )
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -2057,6 +2073,34 @@ export function readActivatedSkills(extra: PromptInput["extra"]): string[] {
   const raw = (extra as Record<string, unknown> | undefined)?.["skills"]
   if (!Array.isArray(raw)) return []
   return raw.filter((name): name is string => typeof name === "string" && name.length > 0)
+}
+
+/**
+ * 清洗标题模型输出:剥离 thinking 块后取首个非空行,失败返回 undefined。
+ *
+ * 事件层已丢弃 reasoning-delta,但 openai-compatible 网关(本部署全部 provider)未分离
+ * reasoning 时思考会混进 content 文本流,仅靠本函数兜底。处理顺序必须先剥闭合块、再对
+ * 残留的开标签删到结尾,否则未闭合规则会误杀闭合块之后的正文。
+ *
+ * 清洗后首行超过 30 字符视为思考泄漏/失败输出,返回 undefined 放弃本次标题(title.txt
+ * 要求 ≤10 字,30 给 3 倍容错),会话保持默认标题,无害。
+ *
+ * @internal Exported for testing
+ */
+export function cleanTitleText(text: string): string | undefined {
+  let t = text
+  t = t.replace(/<(think|thinking)\s*>([\s\S]*?)<\/\1\s*>/gi, "")
+  t = t.replace(/^\s*<\/(think|thinking)\s*>\s*/i, "")
+  t = t.replace(/<(think|thinking)\s*>[\s\S]*$/i, "")
+  t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*?```/gi, "")
+  t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*$/i, "")
+  const line = t
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  if (!line) return undefined
+  if (line.length > 30) return undefined
+  return line
 }
 
 /** @internal Exported for testing */

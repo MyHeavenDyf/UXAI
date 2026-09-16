@@ -162,7 +162,7 @@ export function IconCategorySelect(props: {
   return (
     <div class="relative flex-1">
       <button ref={btnRef} type="button" onClick={() => setOpen(!open())}
-        class="flex h-9 w-full items-center rounded-[36px] border border-transparent bg-[#F2F3F5] px-3 text-left text-[12px] text-[#333333] outline-none">
+        class="flex h-9 w-full items-center rounded-[36px] border border-transparent hover:border-[#c9c9c9] bg-[#F2F3F5] px-3 text-left text-[12px] text-[#333333] outline-none">
         <span class="flex-1 truncate">{props.label}</span>
         <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>

@@ -1,5 +1,13 @@
 /* Mention Popover Styles - @ Panel Redesign */
 
+/* Transparent overlay — clicks close the popover */
+.mention-popover-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
 /* Main popover container — rendered via Portal (outside .octo-make scope),
    so re-declare the tokens it needs locally, matching .octo-dropdown-menu. */
 .mention-popover-container {
@@ -258,6 +266,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
   padding: 24px 0;
 }
 

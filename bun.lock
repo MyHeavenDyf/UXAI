@@ -259,6 +259,7 @@
         "electron-updater": "^6",
         "electron-window-state": "^5.0.3",
         "jsdom": "^26.0.0",
+        "jsonc-parser": "3.3.1",
         "marked": "^15",
         "semver": "catalog:",
         "shell-path": "3.1.0",

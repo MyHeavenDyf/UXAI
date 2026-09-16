@@ -234,11 +234,15 @@ export function mapColorToId(
   return found?.id ?? list[0]?.id
 }
 
-/** tags 数组 → tab 列表，末尾固定追加"自定义"（先剔除已存在的"自定义"） */
+const TAB_ORDER = ['基础图标', '质感图标', '2.5D图标', '智慧图标', '天气', '拓扑图标']
+
+/** tags 数组 → tab 列表，按固定顺序过滤，未在列表中的按原顺序追加，末尾固定追加"自定义" */
 export function buildTabsFromTags(items: string[]): TabItem[] {
-  const tabs = items
-    .filter(t => t && t !== "自定义")
-    .map(t => ({ label: t, value: t }))
+  const filtered = items.filter(t => t && t !== "自定义")
+  const set = new Set(filtered)
+  const ordered = TAB_ORDER.filter(t => set.has(t))
+  const rest = filtered.filter(t => !TAB_ORDER.includes(t))
+  const tabs = [...ordered, ...rest].map(t => ({ label: t, value: t }))
   tabs.push({ label: "自定义", value: "自定义" })
   return tabs
 }
