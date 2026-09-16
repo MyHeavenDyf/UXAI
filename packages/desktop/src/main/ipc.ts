@@ -239,8 +239,10 @@ export function registerIpcHandlers(deps: Deps) {
   // 预览挂载前问一次「这个端口上跑的是谁的服务」(SPEC-DES-004 §4.1)。
   // 预览卡片是历史消息里的静态文本,唯一身份就是端口号,而端口会被回收复用 ——
   // 不问一句就会出现「点前一个对话的卡片,看到的是后一个对话的页面」。
-  ipcMain.handle("fastui-preview-owner", (_event: IpcMainInvokeEvent, sessionDir: string, port: number) =>
-    FastuiDevServer.ownerOf(sessionDir, port),
+  ipcMain.handle(
+    "fastui-preview-owner",
+    (_event: IpcMainInvokeEvent, sessionDir: string, port: number, projectName?: string) =>
+      FastuiDevServer.ownerOf(sessionDir, port, projectName),
   )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),

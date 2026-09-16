@@ -15,7 +15,7 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
 import { closeSync, existsSync, openSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs"
 import net from "node:net"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 
 import log from "electron-log/main.js"
 
@@ -95,14 +95,61 @@ async function findFreePortFrom(start: number, tries = 200) {
 const isAlive = (r: Running) => !r.child.killed && r.child.exitCode === null
 
 export type PreviewOwnership =
-  /** 就是本会话的服务,可以挂 */
+  /** 就是本会话(本产物工程)的服务,可以挂 */
   | { owner: "self"; port: number }
   /** 这个端口属于别的会话 —— 绝不能挂,挂上去就是「点 A 的卡片看到 B 的页面」 */
   | { owner: "other"; port: number; actualPort?: number }
   /** 没人在跑 */
   | { owner: "none"; port: number; actualPort?: number }
   /** 有人在听,但不是宿主起的(skill 自管的降级路径 / 用户手工 yarn serve) */
-  | { owner: "unknown"; port: number }
+  | { owner: "unknown"; port: number; actualPort?: number }
+
+/** 供判定用的最小快照,便于单测(真实调用从 `running` 现拿) */
+export type OwnershipEntry = { sessionDir: string; projectDir: string; port: number }
+
+const projectNameOf = (projectDir: string) => basename(projectDir)
+
+/**
+ * 归属判定的纯逻辑部分(可单测)。
+ *
+ * **身份的单位是产物工程,不是会话。** 一个对话里 `new-session --name` 换个值就是另一个
+ * projectDir,而会话状态文件只有一份、会被后者覆盖 —— 于是「同一对话的两张卡片指向两个
+ * 工程」是可能的。只按 sessionDir 认领会在这种情况下稳定地显示错页面。
+ *
+ * `projectName` 来自卡片标题(skill 的 PREVIEW_CARD 把产物文件夹名写在 title 上)。
+ * 拿不到(老卡片的标题是 `127.0.0.1:8081`)时按**保守**处理:不认作 self、也不回 actualPort,
+ * 于是前端不会自动切 —— 宁可让用户看到「起不来」,也不能给他看另一个工程的页面。
+ */
+export function resolveOwnership(params: {
+  entries: OwnershipEntry[]
+  sessionDir: string
+  port: number
+  projectName?: string
+  portIsFree: boolean
+}): PreviewOwnership {
+  const { entries, sessionDir, port, projectName, portIsFree } = params
+
+  // 本会话在跑的条目里,挑出与卡片同一个产物工程的那个
+  const mine = entries.filter((e) => e.sessionDir === sessionDir)
+  const sameProject = projectName ? mine.find((e) => projectNameOf(e.projectDir) === projectName) : undefined
+  // 没给产物名时只能按会话认 —— 但仅在「本会话只有一个工程在跑」时才没有歧义
+  const fallback = !projectName && mine.length === 1 ? mine[0] : undefined
+  const own = sameProject ?? fallback
+  const actualPort = own?.port
+
+  if (actualPort === port) return { owner: "self", port }
+
+  const takenByOther = entries.some((e) => e.port === port && e.sessionDir !== sessionDir)
+  if (takenByOther) return { owner: "other", port, actualPort }
+
+  // 同一个会话、但是**另一个产物工程**占着这个端口 —— 对卡片来说一样是别人的
+  const takenByOtherProject = entries.some(
+    (e) => e.port === port && e.sessionDir === sessionDir && (!own || e.projectDir !== own.projectDir),
+  )
+  if (takenByOtherProject) return { owner: "other", port, actualPort }
+
+  return portIsFree ? { owner: "none", port, actualPort } : { owner: "unknown", port, actualPort }
+}
 
 /**
  * 这个端口上跑的服务属于谁(SPEC-DES-004 §4.1)。
@@ -114,16 +161,11 @@ export type PreviewOwnership =
  * 判定全在主进程内部完成:dev server 都是这里 spawn 并持有的,`running` 就是权威,
  * 不需要让 dev server 自证身份(那条路要么改内网模板加中间件、要么过 CORS,都是白花的力气)。
  */
-export async function ownerOf(sessionDir: string, port: number): Promise<PreviewOwnership> {
-  const mine = running.get(sessionDir)
-  const actualPort = mine && isAlive(mine) ? mine.port : undefined
-  if (actualPort === port) return { owner: "self", port }
-
-  for (const r of running.values()) {
-    if (r.port === port && r.sessionDir !== sessionDir && isAlive(r)) return { owner: "other", port, actualPort }
-  }
-  // 宿主起的进程里没人认领这个端口 —— 端口上还有人在听的话,那是降级路径起的,无从判定归属
-  return (await portFree(port)) ? { owner: "none", port, actualPort } : { owner: "unknown", port }
+export async function ownerOf(sessionDir: string, port: number, projectName?: string): Promise<PreviewOwnership> {
+  const entries: OwnershipEntry[] = [...running.values()]
+    .filter(isAlive)
+    .map((r) => ({ sessionDir: r.sessionDir, projectDir: r.projectDir, port: r.port }))
+  return resolveOwnership({ entries, sessionDir, port, projectName, portIsFree: await portFree(port) })
 }
 
 /** 关掉最旧的,直到运行数低于上限 */

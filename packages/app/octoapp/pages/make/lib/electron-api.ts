@@ -51,6 +51,8 @@ export type DesktopApi = {
   fastuiPreviewOwner?: (
     sessionDir: string,
     port: number,
+    /** 产物文件夹名,来自卡片标题 —— 身份的单位是产物工程,不是会话(同一对话可以有两个工程) */
+    projectName?: string,
   ) => Promise<{ owner: "self" | "other" | "none" | "unknown"; port: number; actualPort?: number }>
   /**
    * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,

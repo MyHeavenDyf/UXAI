@@ -103,6 +103,7 @@ export type ElectronAPI = {
   fastuiPreviewOwner: (
     sessionDir: string,
     port: number,
+    projectName?: string,
   ) => Promise<{ owner: "self" | "other" | "none" | "unknown"; port: number; actualPort?: number }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (

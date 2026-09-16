@@ -1051,6 +1051,23 @@ createEffect(() => {
   const [switchingPreview, setSwitchingPreview] = createSignal(false)
 
   const previewSessionDir = createMemo(() => sessionDirOf(props.sdkDirectory, props.sessionId))
+
+  /**
+   * 卡片对应的产物文件夹名 —— 归属判定的真正单位。
+   *
+   * 一个对话里 `new-session --name` 换个值就是另一个产物工程,而会话状态文件只有一份、
+   * 会被后者覆盖。只按会话认领,同一对话的两张卡片会稳定地互相显示对方的页面。
+   *
+   * skill 的 `PREVIEW_CARD` 把产物名写在卡片 title 上;**老卡片的标题是 `127.0.0.1:8081`
+   * 这种 host 兜底值**,那不是产物名 —— 原样传过去只会让宿主匹配不上而放弃自愈,
+   * 所以这里识别出来传 undefined,让宿主在「本会话只有一个工程在跑」时仍能按会话认。
+   */
+  const previewProjectName = createMemo(() => {
+    const t = props.tabTitle?.trim()
+    if (!t) return undefined
+    if (/^[\d.]+(:\d+)?$/.test(t) || /^localhost(:\d+)?$/i.test(t)) return undefined
+    return t
+  })
   const portOf = (url?: string | null) => {
     try {
       return Number(new URL(url!).port) || null
@@ -1124,20 +1141,25 @@ createEffect(() => {
       const probePort = portOf(url)
       if (sessionDir && probePort && getDesktopApi()?.fastuiPreviewOwner) {
         try {
-          const own = await getDesktopApi()!.fastuiPreviewOwner!(sessionDir, probePort)
+          const own = await getDesktopApi()!.fastuiPreviewOwner!(sessionDir, probePort, previewProjectName())
           if (disposed) return
-          if (own.owner === "other") {
-            // 停止轮询并交给用户处理 —— 继续等没有意义,对方不会把端口让出来
-            console.warn("[fastui] 预览端口属于其他会话,不挂载", { url, port: probePort, actualPort: own.actualPort })
-            setPortTakenByOther(true)
+          // actualPort 是宿主明确知道的「这张卡片对应的那个产物工程当前真正在听的端口」。
+          // 它存在就说明没有歧义,直接切 —— 卡片那个端口现在是空着(none)、被别人占着
+          // (other)还是有个来路不明的服务(unknown)都一样,继续盯着它没有意义。
+          // 宿主在拿不准是哪个工程时不会回这个字段,所以这里不会切到另一个工程上去。
+          if (own.actualPort && own.actualPort !== probePort) {
+            console.info("[fastui] 预览端口已变更,切到本工程实际在听的端口", {
+              was: probePort,
+              now: own.actualPort,
+              owner: own.owner,
+            })
+            setOverridePort(own.actualPort)
             return
           }
-          if (own.owner === "none" && own.actualPort && own.actualPort !== probePort) {
-            // 本会话确实在跑,只是换了端口(宿主发现原端口被占时会换一个并回写状态文件,
-            // 而卡片是历史消息里的静态文本,跟不动)。这里没有歧义,直接切过去 ——
-            // 否则就是干等到探测超时,最后挂上一个必然连不上的地址。
-            console.info("[fastui] 预览端口已变更,切到本会话实际在听的端口", { was: probePort, now: own.actualPort })
-            setOverridePort(own.actualPort)
+          if (own.owner === "other") {
+            // 停止轮询并交给用户处理 —— 继续等没有意义,对方不会把端口让出来
+            console.warn("[fastui] 预览端口属于其他会话,不挂载", { url, port: probePort })
+            setPortTakenByOther(true)
             return
           }
           // self / none(还没起,接着等)/ unknown(降级路径起的,无从判定,按尽力而为放行)
