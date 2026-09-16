@@ -726,7 +726,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const activePlanID = activePlanSessionId()
       const activePatternID = activePatternSessionId()
       const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
-      const isCurrentPatternChild = !!activePatternID && eventSessionID === activePatternID
+      const isCurrentPatternChild = !!activePatternID && patternSubParentSessionId() === sid && eventSessionID === activePatternID
       if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild && !isCurrentPatternChild) return
       
       if (e.type === "message.part.delta") {
@@ -1158,10 +1158,12 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
-  const contextSendBlocked = createMemo(() => {
+  const contextOverflowVisible = createMemo(() => {
     const overflow = contextOverflow()
     if (!overflow) return false
-    return [params.id, activePlanSessionId(), activePatternSessionId()].includes(overflow.sessionID)
+    const planID = planParentSessionId() === params.id ? activePlanSessionId() : null
+    const patternID = patternSubParentSessionId() === params.id ? activePatternSessionId() : null
+    return [params.id, planID, patternID].includes(overflow.sessionID)
   })
 
   createEffect(on(() => params.id, () => setContextOverflow(undefined), { defer: true }))
@@ -2901,7 +2903,6 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
-    if (contextSendBlocked()) throw new Error(contextOverflow()?.message ?? "当前对话上下文已超出模型限制。")
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -3351,15 +3352,6 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
-    if (contextSendBlocked()) {
-      showOctoToast({
-        title: "上下文已达到上限",
-        description: "请先压缩上下文，或新建对话。",
-        variant: "error",
-      })
-      return
-    }
-
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
@@ -5110,13 +5102,11 @@ onPreview={(url) => {
                           icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                          aria-label={
                            effectiveBusy()
                              ? "停止生成"
-                             : contextSendBlocked()
-                               ? "上下文已达到上限，请先压缩上下文"
-                               : undefined
+                             : undefined
                          }
 />
                     </div>
@@ -5257,7 +5247,7 @@ onPreview={(url) => {
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
 
-                  <Show when={contextSendBlocked()}>
+                  <Show when={contextOverflowVisible()}>
                     <div class="make-context-warning-wrap">
                       <ContextOverflowNotice
                         class="w-full"
@@ -5497,13 +5487,11 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                        aria-label={
                          effectiveBusy()
                            ? "停止生成"
-                           : contextSendBlocked()
-                             ? "上下文已达到上限，请先压缩上下文"
-                             : undefined
+                           : undefined
                        }
                      />
                   </div>
