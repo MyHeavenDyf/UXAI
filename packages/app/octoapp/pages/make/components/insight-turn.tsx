@@ -164,9 +164,11 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
 // 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
 //             "D:\\dir\\a.shadcn.html" → "a.shadcn"
 //             "D:\\dir\\report.pdf"    → "report"
-function extractLinkTitle(content: string): string {
+// fromHost = 这个标题只是 host 兜底出来的（URL 里根本没有文件名可取），调用方据此决定
+// 要不要让位给模型声明的 title —— 见下面 mappedType === "link" 那段
+function extractLinkTitle(content: string): { title: string; fromHost: boolean } {
   const trimmed = (content ?? "").trim()
-  if (!trimmed) return ""
+  if (!trimmed) return { title: "", fromHost: false }
 
   if (/^https?:\/\//i.test(trimmed)) {
     try {
@@ -174,9 +176,13 @@ function extractLinkTitle(content: string): string {
       const segments = u.pathname.split("/").filter(Boolean)
       if (segments.length > 0) {
         const last = segments[segments.length - 1]
-        try { return decodeURIComponent(last) } catch { return last }
+        try {
+          return { title: decodeURIComponent(last), fromHost: false }
+        } catch {
+          return { title: last, fromHost: false }
+        }
       }
-      return u.host
+      return { title: u.host, fromHost: true }
     } catch {
       // fall through to path handling
     }
@@ -185,8 +191,8 @@ function extractLinkTitle(content: string): string {
   const parts = trimmed.split(/[/\\]/).filter(Boolean)
   const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
   const lastDot = filename.lastIndexOf(".")
-  if (lastDot > 0) return filename.slice(0, lastDot)
-  return filename
+  if (lastDot > 0) return { title: filename.slice(0, lastDot), fromHost: false }
+  return { title: filename, fromHost: false }
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -301,13 +307,19 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
-        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // link 类型:优先从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
         // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
         // 模型声明的 title 可能带后缀或含异常字符,不可靠
+        //
+        // **例外:派生不出文件名、只能拿 host 兜底时,让位给模型的 title**(SPEC-DES-004 §4.5)。
+        // 本地预览链接 `http://127.0.0.1:8081` 没有 path,派生的结果就是 `127.0.0.1:8081` ——
+        // 一排卡片全长一个样,既认不出是哪个页面,预览串台时也看不出不对。那条"标题应为文件名"
+        // 的依据在没有文件名可取时本来就不成立,所以这里是收窄,不是推翻:凡是能派生出文件名的
+        // (磁盘路径、带路径的 URL)行为一个字都没变。
         let resolvedTitle = startEvent.title
         if (mappedType === "link") {
           const fromContent = extractLinkTitle(fullContent)
-          if (fromContent) resolvedTitle = fromContent
+          if (fromContent.title && !(fromContent.fromHost && startEvent.title)) resolvedTitle = fromContent.title
         }
         results.push({
           title: resolvedTitle || mappedType,
