@@ -15,7 +15,6 @@ import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
-import { shouldShowTurnError } from "@/components/context-usage-warning"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -72,37 +71,6 @@ export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Ele
         </div>
       </div>
     </div>
-  )
-}
-
-export function ContextOverflowNotice(props: {
-  tokens: number
-  limit?: number
-  locale: string
-  message?: string
-  class?: string
-  disabled?: boolean
-  onCompact?: () => void
-}) {
-  return (
-    <MakeErrorNotice class={props.class}>
-      {props.message ?? "当前对话上下文已超出模型限制。"}
-      <Show when={props.limit}>
-        {(limit) => <>（{props.tokens.toLocaleString(props.locale)} / {limit().toLocaleString(props.locale)}）</>}
-      </Show>
-      <br />
-      请进行
-      <button
-        type="button"
-        class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ color: "#0a59f7", font: "inherit" }}
-        disabled={props.disabled}
-        onClick={props.onCompact}
-      >
-        上下文压缩
-      </button>
-      ，或新建对话。
-    </MakeErrorNotice>
   )
 }
 
@@ -806,7 +774,6 @@ export function InsightTurn(props: {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
-      if (!shouldShowTurnError(err.name as string)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }
@@ -1651,7 +1618,13 @@ const stateStatus = state.status as string | undefined
       <Show when={assistantError()}>
         <MakeErrorNotice
           class="mx-3"
-          title={assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
+          title={
+            assistantError()!.name === "ProviderAuthError"
+              ? "认证失败"
+              : assistantError()!.name === "ContextOverflowError"
+                ? "上下文超出提示"
+                : "生成出错"
+          }
         >
           <Show when={assistantError()!.message}>
             <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>

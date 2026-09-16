@@ -72,7 +72,7 @@ import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentS
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { encodeFilePath } from "@/context/file/path"
-import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -114,7 +114,6 @@ import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
-import { parseContextOverflowEvent } from "./utils/context-overflow"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
@@ -198,7 +197,6 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
-  const [contextOverflow, setContextOverflow] = createSignal<{ sessionID: string; message: string }>()
 
   function findMultimodalModel() {
     const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
@@ -827,8 +825,6 @@ const sessionMessagesLoaded = createMemo(() => {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
       } else {
-        const overflow = parseContextOverflowEvent(e.type, props)
-        if (overflow) setContextOverflow(overflow)
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
       }
@@ -1158,16 +1154,6 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
-  const contextOverflowVisible = createMemo(() => {
-    const overflow = contextOverflow()
-    if (!overflow) return false
-    const planID = planParentSessionId() === params.id ? activePlanSessionId() : null
-    const patternID = patternSubParentSessionId() === params.id ? activePatternSessionId() : null
-    return [params.id, planID, patternID].includes(overflow.sessionID)
-  })
-
-  createEffect(on(() => params.id, () => setContextOverflow(undefined), { defer: true }))
-
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
@@ -1199,7 +1185,6 @@ const sessionMessagesLoaded = createMemo(() => {
 
       const info = result.data?.info
       if (info && info.summary === true && info.finish && !info.error) {
-        setContextOverflow(undefined)
         showOctoToast({ title: "上下文压缩完成" })
         return
       }
@@ -5246,20 +5231,6 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
-
-                  <Show when={contextOverflowVisible()}>
-                    <div class="make-context-warning-wrap">
-                      <ContextOverflowNotice
-                        class="w-full"
-                        tokens={contextTokens()}
-                        limit={contextLimit()}
-                        locale={language.intl()}
-                        message={contextOverflow()?.message}
-                        disabled={contextCompactionDisabled()}
-                        onCompact={confirmCompactContext}
-                      />
-                    </div>
-                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
