@@ -809,6 +809,9 @@ const sessionMessagesLoaded = createMemo(() => {
               delta: partText,
             }
           ])
+        } else if (partType === "tool") {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
         }
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
@@ -1345,13 +1348,36 @@ const sessionMessagesLoaded = createMemo(() => {
     lastBusyState = busy
   }, { defer: true }))
 
+  // 检测当前 session 及子 session 中是否有正在执行的工具（pending/running）
+  // 用于阻塞检测排除：工具执行期间不应显示"模型响应较慢"
+  const hasRunningTool = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const sessions = [sid, ...childSessionIDs()]
+    for (const id of sessions) {
+      const messages = (sync.data.message?.[id] ?? []) as Message[]
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (msg.role === "user") break
+        if (msg.role !== "assistant") continue
+        const parts = (sync.data.part?.[msg.id] ?? []) as Array<Record<string, unknown>>
+        for (const p of parts) {
+          if (p.type !== "tool") continue
+          const status = (p.state as Record<string, unknown> | undefined)?.status
+          if (status === "running" || status === "pending") return true
+        }
+      }
+    }
+    return false
+  })
+
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (effectiveBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion && !hasRunningTool()) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -5277,6 +5303,7 @@ onPreview={(url) => {
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => setPrompt(text)}
                         hasQuestionRequest={!!questionRequest()}
+                        hasRunningTool={hasRunningTool()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
                           void historyController.onFileRefresh(tabStore.tabs())
@@ -5305,6 +5332,7 @@ onPreview={(url) => {
                             deltaLog={deltaLog()}
                             onFormSubmit={(text) => setPrompt(text)}
                             hasQuestionRequest={!!questionRequest()}
+                            hasRunningTool={hasRunningTool()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
                               void historyController.onFileRefresh(tabStore.tabs())

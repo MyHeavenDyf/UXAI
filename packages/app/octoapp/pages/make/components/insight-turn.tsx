@@ -658,6 +658,7 @@ export function InsightTurn(props: {
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
   hasQuestionRequest?: boolean
+  hasRunningTool?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
@@ -1764,8 +1765,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
+      {/* 阻塞提示 — 渐进式显示（question 状态或工具执行时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest && !props.hasRunningTool}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 180

@@ -131,21 +131,24 @@
 
 .addon-menu-tertiary-content::-webkit-scrollbar,
 .addon-menu-secondary::-webkit-scrollbar,
-.addon-menu-asset-root::-webkit-scrollbar {
+.addon-menu-asset-root::-webkit-scrollbar,
+.asset-selected-list::-webkit-scrollbar {
   width: 4px;
   display: block;
 }
 
 .addon-menu-tertiary-content::-webkit-scrollbar-thumb,
 .addon-menu-secondary::-webkit-scrollbar-thumb,
-.addon-menu-asset-root::-webkit-scrollbar-thumb {
+.addon-menu-asset-root::-webkit-scrollbar-thumb,
+.asset-selected-list::-webkit-scrollbar-thumb {
   background-color: #dbdbdb;
   border-radius: 9999px;
 }
 
 .addon-menu-tertiary-content::-webkit-scrollbar-track,
 .addon-menu-secondary::-webkit-scrollbar-track,
-.addon-menu-asset-root::-webkit-scrollbar-track {
+.addon-menu-asset-root::-webkit-scrollbar-track,
+.asset-selected-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -365,6 +368,9 @@
   position: relative;
   margin-bottom: 8px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .asset-grid-stage:hover {
@@ -413,9 +419,167 @@
 .asset-dialog-footer {
   margin-top: 24px;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
   flex-shrink: 0;
+}
+
+.asset-dialog-footer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 已选 n 项触发按钮 */
+.asset-selected-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  padding: 4px 8px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.asset-selected-trigger:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.asset-selected-trigger--active,
+.asset-selected-trigger--active:hover {
+  background: rgba(10, 89, 247, 0.1);
+  color: #0a59f7;
+}
+
+.asset-selected-trigger-arrow {
+  transition: transform 150ms ease;
+}
+
+/* 已选项管理弹窗(覆盖在内容区上方,与中间区域同宽左对齐) */
+.asset-selected-popover {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 64px; /* footer(32px) + 间距 32px */
+  min-height: 98px;
+  max-height: 400px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0px 1px 6px 0px rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.asset-selected-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.asset-selected-popover-count,
+.asset-selected-clear {
+  color: rgb(119, 119, 119);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 32px;
+}
+
+.asset-selected-clear {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.asset-selected-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.asset-selected-item {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin-top: 8px;
+}
+
+.asset-selected-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-selected-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+/* type 40 图标在 32px 缩略区内略小 */
+.asset-selected-item .asset-grid-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.asset-selected-name {
+  line-height: 32px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.9);
+  margin-left: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-selected-remove {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.asset-selected-remove:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.asset-selected-item:hover .asset-selected-remove {
+  display: flex;
+}
+
+/* 空态:absolute 居中,不占布局——避免清空后列表被撑高、弹窗高度跳变 */
+.asset-selected-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .asset-dialog-btn {

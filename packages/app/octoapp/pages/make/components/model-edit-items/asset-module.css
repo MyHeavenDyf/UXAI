@@ -157,6 +157,9 @@
   position: relative;
   margin-bottom: 8px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .me-asset-grid-stage:hover {
   outline: 1px solid rgba(0, 0, 0, 0.5);
