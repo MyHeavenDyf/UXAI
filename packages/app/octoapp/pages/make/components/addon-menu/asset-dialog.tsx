@@ -348,7 +348,11 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
               <button
                 type="button"
                 class="asset-dialog-btn asset-dialog-btn-primary"
-                onClick={() => props.onConfirm(collectSelected())}
+                onClick={() => {
+                  const selected = collectSelected()
+                  tracker.interaction({ module: "design", name: "addon-confirm-product-asset", extend: JSON.stringify({ count: selected.length }) })
+                  props.onConfirm(selected)
+                }}
               >
                 确认
               </button>

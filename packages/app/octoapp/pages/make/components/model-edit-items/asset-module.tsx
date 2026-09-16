@@ -13,6 +13,7 @@ import {
 import { FolderIcon } from "../addon-menu/icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { sendTextToAgent } from "../../utils/agent-events"
+import { tracker } from "@/utils/tracker"
 import emptyPng from "../../icons/empty.png"
 import "./asset-module.css"
 
@@ -49,6 +50,7 @@ export function AssetModule(props: {
       props.onSubmitStart()
       await sendTextToAgent(prompt, { source: 'asset-confirm' })
     }
+    tracker.interaction({ module: "design", name: "confirm-asset-change" })
   }
 
   return (
