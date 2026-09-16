@@ -126,6 +126,7 @@ import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubC
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+const DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED = false
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -1158,7 +1159,9 @@ const sessionMessagesLoaded = createMemo(() => {
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
   const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+  const contextSendBlocked = createMemo(
+    () => DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED && isContextAtLimit(contextTokens(), contextLimit(), params.id),
+  )
 
   createEffect(() => {
     if (contextUsage() >= 80) return
@@ -1190,6 +1193,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
   const contextWarningVisible = createMemo(
     () =>
+      DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED &&
       !contextSendBlocked() &&
       shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
   )
@@ -4813,6 +4817,7 @@ if (dsId) {
                       gutter={8}
                       arrow
                       interactive
+                      inactive={!DESIGN_CONTEXT_LIMIT_GUARDS_ENABLED && contextUsage() >= 80}
                       contentClass="make-token-tooltip"
                       value={
                         <div class="make-token-tooltip-copy">

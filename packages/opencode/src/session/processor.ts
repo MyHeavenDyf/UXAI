@@ -490,7 +490,7 @@ export const layer: Layer.Layer<
             const contextExceeded =
               !AUTOMATIC_COMPACTION_ENABLED &&
               !ctx.assistantMessage.summary &&
-              exceedsContext({ model: ctx.model, input: contextTokens })
+              exceedsContext({ model: ctx.model, input: contextTokens, agent: ctx.assistantMessage.agent })
             slog.info("context usage", {
               providerID: ctx.model.providerID,
               modelID: ctx.model.id,
@@ -753,7 +753,11 @@ export const layer: Layer.Layer<
         const preflightResult = ctx.assistantMessage.summary
           ? "send"
           : !AUTOMATIC_COMPACTION_ENABLED
-            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+            ? exceedsContext({
+                model: ctx.model,
+                input: ctx.estimatedInputTokens,
+                agent: ctx.assistantMessage.agent,
+              })
               ? "reject"
               : "send"
             : preflight({
