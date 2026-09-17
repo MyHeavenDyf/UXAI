@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout"
+import { createSessionKeyReader, ensureSessionKey, isActiveProject, pruneSessionKeys } from "./layout"
+
+describe("layout project initialization", () => {
+  test("initializes only the currently associated directory", () => {
+    const active = "/Users/example/test222222222"
+    const projects = [active, "/Users/example/test111111111", "/Users/example/Developer"]
+
+    expect(projects.filter((directory) => isActiveProject(active, directory))).toEqual([active])
+    expect(projects.filter((directory) => isActiveProject(undefined, directory))).toEqual([])
+  })
+})
 
 describe("layout session-key helpers", () => {
   test("couples touch and scroll seed in order", () => {

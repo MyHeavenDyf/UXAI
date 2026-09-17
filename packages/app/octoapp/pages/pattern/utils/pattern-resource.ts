@@ -82,7 +82,9 @@ export const PAGE_RESOURCE_URL = "https://octo.hdesign.huawei.com/lib-resource-s
 
 export async function getResourceDetail(type = "file", dataId: string) {
   const url = `${PAGE_RESOURCE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
-  const response = await fetch(url)
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_55a6894bfa8aa976620e3fed6c61ff16" }
+  });
   if (!response.ok) {
     return { success: false, error: `HTTP error! status: ${response.status}` }
   }
@@ -101,6 +103,8 @@ export async function readPagePatternMd(mdUrl: string) {
     return { success: true, content }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
+    // 模拟假数据
+    return { success: true, content: "# DettailsPageDrawer-level_Guide\n\n---\n\n## 1.核心目标\n\n生成**极简、关键信息突出、可高校管理**的网络运维详情页。"}
   }
 }
 
@@ -137,6 +141,25 @@ export type ResourceDetailResult = {
 //   ]
 // }
 
+// 模板默认数据
+// const moduleResourceData = {
+//   "results": [[{
+//     "id": "52669",
+//     "name": "基础配置表单",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   },{
+//     "id": "52639",
+//     "name": "左侧步骤配置表单",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   },{
+//     "id": "52670",
+//     "name": "带页签标题区",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   }]]
+// }
 
 // 获取页面级数据的资源路径
 export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
@@ -159,25 +182,29 @@ export async function getPagePatternResource(inputData: { results?: Array<Record
     return { results: enrichedResults }
   } catch {
     return { results: [] }
+
+    // 模拟假数据
+    // return { results: pageResourceData.results }
   }
 }
 
 // 向量库搜索：根据 query 返回匹配的 block 资源
 async function searchResources(
-  queries: string | string[],
+  queries:  Array<{ query: string; type?: string }>,
   topK: number,
   filters: Record<string, number> = { source_id: 10, group_id: 390 },
 ) {
-  const url = `${PAGE_RESOURCE_URL}/api/vector/search`
+  const url = `${PAGE_RESOURCE_URL}/api/vector/search`;
+  const tags = queries.map(q => q.type).filter((t): t is string => Boolean(t) && t !== "all");
   const payload = {
     type: "file",
-    queries: Array.isArray(queries) ? queries : [queries],
+    queries:  queries.map(q => q.query),
     top_k: topK,
-    filters,
+    filters: { ...filters, tags }
   }
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_55a6894bfa8aa976620e3fed6c61ff16" },
     body: JSON.stringify(payload),
   })
   if (!response.ok) {
@@ -185,16 +212,21 @@ async function searchResources(
   }
   const data = await response.json()
   return { success: true, data }
+
+  // 模拟数据
+  // return { success: true, data: moduleResourceData}
 }
 
 // 根据 modules[].description 逐个搜索向量库，解析去重后返回真实 block 信息
-export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string }> }) {
+export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string; type?: string }> }) {
   try {
     const modules = modulesData.modules || []
-    const queries = modules.map(m => m.description).filter(Boolean) as string[]
+    const queries = modules
+      .filter((m): m is { description: string; type?: string } => Boolean(m.description))
+      .map(m => ({ query: m.description, type: m.type }))
     const allResults: any[] = []
     for (const query of queries) {
-      const result = await searchResources(query, 2)
+      const result = await searchResources([query], 2)
       if (result.success && result.data?.results?.[0]) {
         allResults.push(...result.data.results[0])
       }
@@ -247,10 +279,11 @@ export async function getBlockContent(inputData: { results?: BlockModuleItem[] }
       try {
         const parsed = await fetchZipContents(item.file)
         const replacements: Record<string, string> = {}
-        for (const a of parsed.assets) {
-          const url = await saveUploadImage(a.buffer, sessionId)
-          if (url) replacements[a.filename] = url
-        }
+        // 暂时不处理资源
+        // for (const a of parsed.assets) {
+        //   const url = await saveUploadImage(a.buffer, sessionId)
+        //   if (url) replacements[a.filename] = url
+        // }
         const content = replacePatternAssetPaths(parsed.dataJson, replacements)
         return { ...item, content }
       } catch {

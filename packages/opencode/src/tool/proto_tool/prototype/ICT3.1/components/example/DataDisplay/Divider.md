@@ -1,6 +1,6 @@
-# Divider
+# Divider 示例
 
-### Example: Divider value
+## Example: Divider value
 
 ```json
 {

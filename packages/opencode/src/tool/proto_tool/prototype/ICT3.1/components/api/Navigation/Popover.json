@@ -1,0 +1,105 @@
+{
+  "name": "Popover",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    },
+    "SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Popover"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Raw text content to render directly."
+            },
+            {
+              "$ref": "#/$defs/DataBinding"
+            },
+            {
+              "$ref": "#/$defs/SlotNode"
+            }
+          ],
+          "description": "Popover popup body. Can be raw literal text, a state data binding, or a structural node reference (componentId slot)."
+        },
+        "title": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DataBinding"
+            }
+          ],
+          "description": "Optional popover title text."
+        },
+        "placement": {
+          "type": "string",
+          "enum": ["top", "left", "right", "bottom", "topLeft", "topRight", "bottomLeft", "bottomRight", "leftTop", "leftBottom", "rightTop", "rightBottom"],
+          "default": "top",
+          "description": "Popup placement relative to the trigger."
+        },
+        "trigger": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["click", "hover", "contextMenu"]
+          },
+          "description": "The trigger mode for opening the popover. Defaults to hover."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["content"]
+    },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "The unique identifier for a component"
+      },
+      "description": "The element wrapped by the Popover (the trigger). A static list of child component IDs. Note: The node ID count must be exactly 1;"
+    }
+  },
+  "required": ["id", "component", "props", "children"]
+}

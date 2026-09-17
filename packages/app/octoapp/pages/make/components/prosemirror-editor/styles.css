@@ -134,6 +134,11 @@
   color: #0A59F7;
 }
 
+.pm-mention.pm-mention--folder {
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
+}
+
 .pm-mention.ProseMirror-selectednode {
   background: rgba(0, 0, 0, 0.12);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);

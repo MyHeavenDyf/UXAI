@@ -20,6 +20,57 @@ import { clearSessionSnapshots } from "@/pages/make/utils/snapshot-store"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
+// ── Pending delta buffer ──────────────────────────────────────────────
+// 当 store.part[messageID] 被 cleanup/evict 删除后,后续的 message.part.delta
+// 事件会因 if (!parts) break 被静默丢弃,导致后续模型回复不显示。
+// 此 buffer 暂存 parts 缺失期间的 delta,等 message.part.updated 重建数组后回放。
+const pendingDeltas = new Map<string, Map<string, Array<{ field: string; delta: string }>>>()
+
+function bufferDelta(messageID: string, partID: string, field: string, delta: string) {
+  let partMap = pendingDeltas.get(messageID)
+  if (!partMap) {
+    partMap = new Map()
+    pendingDeltas.set(messageID, partMap)
+  }
+  let entries = partMap.get(partID)
+  if (!entries) {
+    entries = []
+    partMap.set(partID, entries)
+  }
+  // 上限兜底:parts 始终未重建的异常流(如 SSE 中断后残留)不应无限占用内存。
+  // 正常路径下 part 结束快照到达即回放清空,远达不到此上限。
+  let total = entries.reduce((sum, e) => sum + e.delta.length, 0)
+  if (total + delta.length > 2_000_000) return
+  entries.push({ field, delta })
+}
+
+function replayDeltas(part: Part): Part {
+  const partMap = pendingDeltas.get(part.messageID)
+  if (!partMap) return part
+  const entries = partMap.get(part.id)
+  if (!entries || entries.length === 0) return part
+  const merged = { ...part }
+  // SSE 保序:缓冲 delta 之后到达的 part.updated 快照必然已包含这些 delta
+  // (服务端只在 part start/end 发全量快照,中间仅有 delta)。若快照字段已以
+  // 累积缓冲内容结尾,跳过回放,否则会拼接出重复文本。
+  const byField = new Map<string, string>()
+  for (const { field, delta } of entries) {
+    byField.set(field, (byField.get(field) ?? "") + delta)
+  }
+  for (const [field, delta] of byField) {
+    const existing = (merged as Record<string, unknown>)[field] as string | undefined
+    if (typeof existing === "string" && existing.endsWith(delta)) continue
+    ;(merged as Record<string, unknown>)[field] = (typeof existing === "string" ? existing : "") + delta
+  }
+  partMap.delete(part.id)
+  if (partMap.size === 0) pendingDeltas.delete(part.messageID)
+  return merged
+}
+
+function clearPendingDeltas(messageID: string) {
+  pendingDeltas.delete(messageID)
+}
+
 // 服务端默认标题格式:`New session - <iso>` / `Child session - <iso>`(见 opencode session.ts)
 const DEFAULT_TITLE_RE = /^(New session|Child session) - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 function isDefaultSessionTitle(title: string | undefined): boolean {
@@ -96,6 +147,14 @@ export function cleanupDroppedSessionCaches(
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void,
 ) {
   const keep = new Set(next.map((item) => item.id))
+  // 保护正在 streaming (busy) 的 session 缓存不被 trim/cleanup 误删。
+  // Make 页面会在 streaming 中创建子 session (octo_make_plan / ict_pattern),
+  // session.created 事件会触发 trimSessions → cleanupDroppedSessionCaches,
+  // 若不保护 busy session,其 store.message / store.part 会被删除,
+  // 导致 InsightTurn 内容突然清空 + 后续 delta 被静默丢弃。
+  for (const sid of Object.keys(store.session_status)) {
+    if (store.session_status[sid]?.type === "busy") keep.add(sid)
+  }
   const stale = [
     ...Object.keys(store.message),
     ...Object.keys(store.session_diff),
@@ -234,6 +293,7 @@ export function applyDirectoryEvent(input: {
     }
     case "message.removed": {
       const props = event.properties as { sessionID: string; messageID: string }
+      clearPendingDeltas(props.messageID)
       input.setStore(
         produce((draft) => {
           const messages = draft.message[props.sessionID]
@@ -251,19 +311,32 @@ export function applyDirectoryEvent(input: {
       if (SKIP_PARTS.has(part.type)) break
       const parts = input.store.part[part.messageID]
       if (!parts) {
-        input.setStore("part", part.messageID, [part])
+        // Fix 2: 重建 parts 数组时回放 buffer 中暂存的 delta
+        input.setStore("part", part.messageID, [replayDeltas(part)])
         break
       }
       const result = Binary.search(parts, part.id, (p) => p.id)
       if (result.found) {
-        input.setStore("part", part.messageID, result.index, reconcile(part))
+        const existing = parts[result.index]
+        const merged = { ...part } as Record<string, unknown>
+        // Fix 4: 保留本地更长的 delta 累积文本,避免 message.part.updated
+        // 用服务端快照(可能落后于 streaming)覆盖已累积的文本
+        const existingText = (existing as Record<string, unknown>).text
+        const partText = (part as Record<string, unknown>).text
+        if (typeof existingText === "string") {
+          if (typeof partText !== "string" || existingText.length > partText.length) {
+            merged.text = existingText
+          }
+        }
+        // Fix 2: 回放 buffer 中暂存的 delta
+        input.setStore("part", part.messageID, result.index, reconcile(replayDeltas(merged as Part)))
         break
       }
       input.setStore(
         "part",
         part.messageID,
         produce((draft) => {
-          draft.splice(result.index, 0, part)
+          draft.splice(result.index, 0, replayDeltas(part))
         }),
       )
       break
@@ -290,9 +363,17 @@ export function applyDirectoryEvent(input: {
     case "message.part.delta": {
       const props = event.properties as { messageID: string; partID: string; field: string; delta: string }
       const parts = input.store.part[props.messageID]
-      if (!parts) break
+      // Fix 2: parts 缺失时 buffer delta,等 message.part.updated 重建后回放,
+      // 而非静默丢弃(原 if (!parts) break 会导致后续回复永久丢失)
+      if (!parts) {
+        bufferDelta(props.messageID, props.partID, props.field, props.delta)
+        break
+      }
       const result = Binary.search(parts, props.partID, (p) => p.id)
-      if (!result.found) break
+      if (!result.found) {
+        bufferDelta(props.messageID, props.partID, props.field, props.delta)
+        break
+      }
       const part = parts[result.index]
       const field = props.field as keyof typeof part
       const existing = part[field] as string | undefined

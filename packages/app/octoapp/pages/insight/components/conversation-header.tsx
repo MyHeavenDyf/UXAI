@@ -1,12 +1,12 @@
-import { createMemo, createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
@@ -16,9 +16,15 @@ import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionPin } from "@/hooks/use-session-pin"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useSettings } from "@/context/settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogCreateGroup } from "@/components/dialog-create-group"
+import { SessionContextMenu } from "@/components/session-context-menu"
+import { useMakeGroupsContext } from "@/context/make-groups"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -32,13 +38,27 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
  * 视觉走 insight 的 --octo token，保持页面自包含。
  */
 
-export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelToggle?: JSX.Element } = {}) {
+export function ConversationHeader(
+  props: {
+    sidebarToggle?: JSX.Element
+    panelToggle?: JSX.Element
+    context?: {
+      tokens: number
+      limit?: number
+      usage: number
+      blocked: boolean
+      disabled: boolean
+      onCompact: () => void
+    }
+  } = {},
+) {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sync = useSync()
   const sdk = useSDK()
   const dialog = useDialog()
   const layout = useLayout()
+  const settings = useSettings()
   const language = useLanguage()
   const removeSession = useSessionDelete()
 
@@ -62,7 +82,22 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
     return sync.data.session_status[id]?.type === "busy"
   })
 
-  const [title, setTitle] = createStore({ draft: "", editing: false, menuOpen: false, pendingRename: false })
+  const [progress, setProgress] = createStore({ visible: false })
+  const working = createMemo(() => {
+    const id = sessionID()
+    const status = id ? sync.data.session_status[id]?.type : undefined
+    return status === "busy" || status === "retry"
+  })
+  createEffect(() => {
+    if (working()) {
+      setProgress("visible", true)
+      return
+    }
+    const timer = setTimeout(() => setProgress("visible", false), 260)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  const [title, setTitle] = createStore({ draft: "", editing: false, menuOpen: false })
   const [pending, setPending] = createSignal(false)
   let titleRef: HTMLInputElement | undefined
 
@@ -127,13 +162,94 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
     if (params.id === id) navigate(nextSession ? `/insight/${nextSession.id}` : "/insight")
   }
 
+  // ── 会话区三点菜单（与左侧栏 session 右键菜单一致）──
+  const groupsCtx = useMakeGroupsContext()
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+
+  const menuHasMessages = () => {
+    const s = info()
+    return !!s && s.time.updated > s.time.created
+  }
+
+  function closeMenu() {
+    setTitle("menuOpen", false)
+  }
+
+  const { togglePin: togglePinSession } = useSessionPin()
+
+  /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
+  async function togglePinCurrent(session: Session) {
+    const newPinned = !session.pinned
+    await togglePinSession(session.id, newPinned, sdk.directory)
+    sync.set(
+      produce((draft) => {
+        const index = draft.session.findIndex((s) => s.id === session.id)
+        if (index === -1) return
+        draft.session[index].pinned = newPinned
+        draft.session[index].sort_order = newPinned ? -1 : (session.time.updated ?? 0)
+      }),
+    )
+  }
+
+  function handleMenuRename() {
+    closeMenu()
+    openTitleEditor()
+  }
+
+  function handleMenuTogglePin(session: Session) {
+    closeMenu()
+    void togglePinCurrent(session)
+  }
+
+  function handleMenuDelete(session: Session) {
+    closeMenu()
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(session.id)} />)
+  }
+
+  function handleMenuMoveToGroup(session: Session, groupId: string) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "move-session-to-group" })
+    if (session.pinned) void togglePinCurrent(session)
+    void groupsCtx?.moveSessionToGroup(session.id, groupId)
+    groupsCtx?.expandGroup(groupId)
+  }
+
+  function handleMenuRemoveFromGroup(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "remove-session-from-group" })
+    void groupsCtx?.removeSessionFromGroup(session.id)
+  }
+
+  function handleMenuCreateGroupForSession(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "create-group-for-session" })
+    if (session.pinned) void togglePinCurrent(session)
+    dialog.show(() => (
+      <DialogCreateGroup
+        existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
+      onCreate={async (name) => {
+        const id = await groupsCtx?.addGroup(name)
+        if (id) {
+          await groupsCtx?.moveSessionToGroup(session.id, id)
+          groupsCtx?.expandGroup(id)
+        }
+      }}
+      />
+    ))
+  }
+
   return (
     <Show when={sessionID()}>
       {(id) => (
         <div
-          class="shrink-0 h-12 flex items-center justify-between gap-2 px-4"
+          class="relative shrink-0 h-12 flex items-center justify-between gap-2 px-4"
           style={{ "border-bottom": "1px solid var(--octo-border-default, #E5E7EB)" }}
         >
+          <Show when={progress.visible && settings.general.showSessionProgressBar()}>
+            <div class="insight-session-progress" data-state={working() ? "showing" : "hiding"} aria-hidden="true">
+              <div class="insight-session-progress-bar" />
+            </div>
+          </Show>
           <div class="flex items-center gap-2 min-w-0 flex-1">
             {props.sidebarToggle}
             <Show when={busy()}>
@@ -176,43 +292,75 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
                 onBlur={() => void saveTitleEditor()}
               />
             </Show>
+            <Show when={!title.editing && props.context}>
+              {(context) => (
+                <Tooltip
+                  placement="top"
+                  gutter={8}
+                  arrow
+                  interactive
+                  contentClass="insight-token-tooltip"
+                  value={
+                    <div class="insight-token-tooltip-copy">
+                      <p>
+                        当前对话 Session 上下文
+                        {context().blocked
+                          ? "已超过100%"
+                          : context().usage >= 80
+                            ? "已超过80%"
+                            : `已使用${context().usage}%`}{" "}
+                        (<span classList={{ "is-critical": context().usage >= 80 }}>{context().tokens.toLocaleString(language.intl())}</span>{" "}
+                        / {context().limit?.toLocaleString(language.intl()) ?? "--"})，
+                      </p>
+                      <p>
+                        建议点击“<button type="button" class="insight-token-tooltip-action" disabled={context().disabled} onClick={context().onCompact}>上下文压缩</button>”以继续对话。
+                      </p>
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    class="shrink-0 flex items-center justify-center"
+                    classList={{ "cursor-pointer": !context().disabled, "cursor-not-allowed": context().disabled }}
+                    style={{ background: "transparent", border: "none", padding: "0" }}
+                    disabled={context().disabled}
+                    onClick={context().onCompact}
+                    aria-label={`上下文已使用 ${context().usage}%，点击压缩上下文`}
+                  >
+                    <ContextUsageCircle percentage={context().usage} />
+                  </button>
+                </Tooltip>
+              )}
+            </Show>
           </div>
 
-          <DropdownMenu
-            gutter={4}
-            placement="bottom-end"
-            open={title.menuOpen}
-            onOpenChange={(open) => setTitle("menuOpen", open)}
-          >
-            <DropdownMenu.Trigger
-              as={IconButton}
-              icon="ellipsis"
-              variant="ghost"
-              class="size-6 rounded-md shrink-0 cursor-pointer data-[expanded]:bg-surface-base-active"
-              aria-label="更多操作"
-            />
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                style={{ "min-width": "104px" }}
-                onCloseAutoFocus={(event) => {
-                  // 菜单关闭动画结束后再进编辑态，避免焦点被菜单抢回（与原生一致）
-                  if (title.pendingRename) {
-                    event.preventDefault()
-                    setTitle("pendingRename", false)
-                    openTitleEditor()
-                  }
-                }}
-              >
-                <DropdownMenu.Item onSelect={() => setTitle({ pendingRename: true, menuOpen: false })}>
-                  <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id())} />)}>
-                  <DropdownMenu.ItemLabel>删除</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu>
+          <IconButton
+            type="button"
+            icon="ellipsis"
+            variant="ghost"
+            class="size-6 rounded-md shrink-0 cursor-pointer"
+            aria-label="更多操作"
+            onClick={(e) => {
+              setMenuPos({ x: e.clientX, y: e.clientY })
+              setTitle("menuOpen", true)
+            }}
+          />
+          <SessionContextMenu
+            show={title.menuOpen && !!info()}
+            x={menuPos().x}
+            y={menuPos().y}
+            session={info() ?? null}
+            hasMessages={menuHasMessages()}
+            groups={groupsCtx?.groups}
+            sessionGroupMapping={groupsCtx?.mapping}
+            onClose={closeMenu}
+            onRename={handleMenuRename}
+            onTogglePin={handleMenuTogglePin}
+            onDelete={handleMenuDelete}
+            onMoveToGroup={handleMenuMoveToGroup}
+            onRemoveFromGroup={handleMenuRemoveFromGroup}
+            onCreateGroupForSession={handleMenuCreateGroupForSession}
+          />
 
           {props.panelToggle}
         </div>

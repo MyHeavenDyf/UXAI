@@ -23,7 +23,11 @@ function MakeModelRiskLink(props: { href: string; children: JSX.Element }): JSX.
   )
 }
 
-export function MakeModelRiskDialog(props: { onCancel: () => void; onConfirm: () => void }): JSX.Element {
+export function MakeModelRiskDialog(props: {
+  onCancel: () => void
+  onConfirm: () => void
+  content?: JSX.Element
+}): JSX.Element {
   let dialogRef!: HTMLElement
   let confirmRef!: HTMLButtonElement
 
@@ -76,9 +80,13 @@ export function MakeModelRiskDialog(props: { onCancel: () => void; onConfirm: ()
           </button>
         </header>
         <div class="make-model-risk-content">
-        请遵守
-          <MakeModelRiskLink href={AI_MANAGEMENT_GUIDE_URL}>《业务生产与办公生成式人工智能管理指引》</MakeModelRiskLink>
-          ，按公司要求不能向外部网站上传内部文档、内部代码及内部信息。
+          {props.content ?? (
+            <>
+              请遵守
+              <MakeModelRiskLink href={AI_MANAGEMENT_GUIDE_URL}>《业务生产与办公生成式人工智能管理指引》</MakeModelRiskLink>
+              ，按公司要求不能向外部网站上传内部文档、内部代码及内部信息。
+            </>
+          )}
         </div>
         <footer class="make-model-risk-actions">
           <button

@@ -15,7 +15,7 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
 
-type ProviderSource = "env" | "api" | "config" | "custom"
+type ProviderSource = "env" | "api" | "config" | "custom" | "remote"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
 const CUSTOM_PROVIDER_MARKER = "__octo_custom_provider"
 
@@ -74,8 +74,8 @@ export const SettingsProviders: Component = () => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
     return providers
       .connected()
-      .filter((p) => p.id === "w3" || !disabled.has(p.id))
-      .sort((a, b) => Number(b.id === "w3") - Number(a.id === "w3"))
+      .filter((p) => p.source === "remote" || !disabled.has(p.id))
+      .sort((a, b) => Number(b.source === "remote") - Number(a.source === "remote"))
   })
 
   const popular = createMemo(() => {
@@ -84,13 +84,6 @@ export const SettingsProviders: Component = () => {
       .popular()
       .filter((p) => !connectedIDs.has(p.id))
       .slice()
-    // 预置供应商被 disable 后会从后端列表消失，补充合成条目让用户可以重新连接
-    const ids = new Set(items.map((p) => p.id))
-    for (const pid of ["opencode", "bpit"]) {
-      if (!connectedIDs.has(pid) && !ids.has(pid)) {
-        items.push({ id: pid, name: pid === "opencode" ? "Octo AI" : pid } as ProviderItem)
-      }
-    }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items
   })
@@ -98,13 +91,14 @@ export const SettingsProviders: Component = () => {
   const source = (item: ProviderItem): ProviderSource | undefined => {
     if (!("source" in item)) return
     const value = item.source
-    if (value === "env" || value === "api" || value === "config" || value === "custom") return value
+    if (value === "env" || value === "api" || value === "config" || value === "custom" || value === "remote")
+      return value
     return
   }
 
   const type = (item: ProviderItem) => {
-    if (item.id === "w3") return language.t("common.default")
     const current = source(item)
+    if (current === "remote") return language.t("common.default")
     if (current === "env") return language.t("settings.providers.tag.environment")
     if (current === "api") return language.t("provider.connect.method.apiKey")
     if (current === "config") {
@@ -181,15 +175,36 @@ export const SettingsProviders: Component = () => {
 
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
-      <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 24px), transparent);">
-        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
+      <div
+        class="sticky top-0 z-10"
+        style="background: linear-gradient(to bottom, #fff calc(100% - 24px), transparent);"
+      >
+        <div
+          style={{
+            "font-size": "14px",
+            "line-height": "22px",
+            color: "rgba(0, 0, 0, 0.9)",
+            "font-weight": "bold",
+            padding: "12px 0",
+          }}
+        >
           {language.t("settings.providers.title")}
         </div>
       </div>
 
       <div class="flex flex-col gap-8">
         <div class="flex flex-col gap-1" data-component="connected-providers-section">
-          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.connected")}</div>
+          <div
+            style={{
+              "font-size": "14px",
+              "line-height": "22px",
+              color: "rgba(0, 0, 0, 0.9)",
+              "font-weight": "bold",
+              padding: "12px 0",
+            }}
+          >
+            {language.t("settings.providers.section.connected")}
+          </div>
           <SettingsList>
             <Show
               when={connected().length > 0}
@@ -201,10 +216,24 @@ export const SettingsProviders: Component = () => {
             >
               <For each={connected()}>
                 {(item) => (
-                  <div class="group" style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                  <div
+                    class="group"
+                    style={{
+                      display: "flex",
+                      "flex-wrap": "wrap",
+                      "align-items": "center",
+                      "justify-content": "space-between",
+                      gap: "4px",
+                      padding: "12px 16px",
+                      background: "rgba(0, 0, 0, 0.03)",
+                      "border-radius": "8px",
+                    }}
+                  >
                     <div style={{ display: "flex", "align-items": "center", gap: "12px", "min-width": 0 }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                        {item.name}
+                      </span>
                       <Tag>{type(item)}</Tag>
                     </div>
                     <Show when={item.id === "opencode"}>
@@ -216,10 +245,22 @@ export const SettingsProviders: Component = () => {
                             onClick={() => {
                               dialog.show(() => <DialogConnectProvider provider="opencode" />)
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                            onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
-                            onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                            onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "#fff")
+                              e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                            }}
+                            onMouseDown={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseUp={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
                           >
                             {language.t("common.connect")}
                           </button>
@@ -240,21 +281,31 @@ export const SettingsProviders: Component = () => {
                         </Show>
                       </div>
                     </Show>
-                    <Show when={item.id !== "opencode" && item.id !== "w3"}>
+                    <Show when={item.id !== "opencode" && source(item) !== "remote"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Show when={isConfigCustom(item)}>
                           <button
                             type="button"
                             style={whiteBtn}
                             onClick={() =>
-                              dialog.show(() => (
-                                <DialogCustomProvider back="close" providerID={item.id} />
-                              ))
+                              dialog.show(() => <DialogCustomProvider back="close" providerID={item.id} />)
                             }
-                            onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                            onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
-                            onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                            onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "#fff")
+                              e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                            }}
+                            onMouseDown={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseUp={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
                           >
                             {language.t("common.edit")}
                           </button>
@@ -292,15 +343,38 @@ export const SettingsProviders: Component = () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.popular")}</div>
+          <div
+            style={{
+              "font-size": "14px",
+              "line-height": "22px",
+              color: "rgba(0, 0, 0, 0.9)",
+              "font-weight": "bold",
+              padding: "12px 0",
+            }}
+          >
+            {language.t("settings.providers.section.popular")}
+          </div>
           <SettingsList>
             <For each={popular()}>
               {(item) => (
-                <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    "flex-wrap": "wrap",
+                    "align-items": "center",
+                    "justify-content": "space-between",
+                    gap: "4px",
+                    padding: "12px 16px",
+                    background: "rgba(0, 0, 0, 0.03)",
+                    "border-radius": "8px",
+                  }}
+                >
                   <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
                     <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                        {item.name}
+                      </span>
                       <Show when={item.id === "opencode"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
@@ -309,7 +383,18 @@ export const SettingsProviders: Component = () => {
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
-                      {(key) => <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>{language.t(key())}</span>}
+                      {(key) => (
+                        <span
+                          style={{
+                            "font-size": "12px",
+                            "line-height": "20px",
+                            color: "rgba(0, 0, 0, 0.6)",
+                            "margin-top": "4px",
+                          }}
+                        >
+                          {language.t(key())}
+                        </span>
+                      )}
                     </Show>
                   </div>
                   <button
@@ -318,10 +403,22 @@ export const SettingsProviders: Component = () => {
                     onClick={() => {
                       dialog.show(() => <DialogConnectProvider provider={item.id} />)
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                    onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
-                    onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                    onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "#fff")
+                      e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
                   >
                     {language.t("common.connect")}
                   </button>
@@ -330,16 +427,34 @@ export const SettingsProviders: Component = () => {
             </For>
 
             <div
-              style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px", "flex-wrap": "wrap" }}
+              style={{
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "space-between",
+                gap: "4px",
+                padding: "12px 16px",
+                background: "rgba(0, 0, 0, 0.03)",
+                "border-radius": "8px",
+                "flex-wrap": "wrap",
+              }}
               data-component="custom-provider-section"
             >
               <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
                 <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", gap: "12px" }}>
                   <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
-                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{language.t("provider.custom.title")}</span>
+                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                    {language.t("provider.custom.title")}
+                  </span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>
+                <span
+                  style={{
+                    "font-size": "12px",
+                    "line-height": "20px",
+                    color: "rgba(0, 0, 0, 0.6)",
+                    "margin-top": "4px",
+                  }}
+                >
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>
@@ -349,10 +464,22 @@ export const SettingsProviders: Component = () => {
                 onClick={() => {
                   dialog.show(() => <DialogCustomProvider back="close" />)
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
-                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
-                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "#fff")
+                  e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                }}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
+                onMouseUp={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
               >
                 {language.t("common.connect")}
               </button>

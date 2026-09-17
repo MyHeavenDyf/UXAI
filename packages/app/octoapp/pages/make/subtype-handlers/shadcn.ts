@@ -153,7 +153,7 @@ export default {
   },
 
   async handleCanvasEdit(ctx) {
-    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, onFilesRefresh } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
@@ -237,7 +237,8 @@ export default {
               }
             }
             
-            showOctoToast({ title: "已保存", description: folderName })
+            showOctoToast({ title: "已解压", description: folderName })
+            onFilesRefresh?.()
             return
           }
           

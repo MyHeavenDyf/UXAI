@@ -57,6 +57,10 @@ const api: ElectronAPI = {
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
+  fastuiDevServerEnsure: (sessionDir) => ipcRenderer.invoke("fastui-devserver-ensure", sessionDir),
+  fastuiDevServerStop: (sessionDir) => ipcRenderer.invoke("fastui-devserver-stop", sessionDir),
+  fastuiDevServerArm: (sessionDir) => ipcRenderer.invoke("fastui-devserver-arm", sessionDir),
+  fastuiExportZip: (sessionDir) => ipcRenderer.invoke("fastui-export-zip", sessionDir),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。
@@ -103,6 +107,10 @@ const api: ElectronAPI = {
     ipcRenderer.on("power-resume", callback)
     return () => ipcRenderer.removeListener("power-resume", callback)
   },
+  onReopen: (callback) => {
+    ipcRenderer.on("app-reopen", callback)
+    return () => ipcRenderer.removeListener("app-reopen", callback)
+  },
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
@@ -124,6 +132,7 @@ const api: ElectronAPI = {
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   statFile: (path) => ipcRenderer.invoke("stat-file", path),
   fileExists: (path) => ipcRenderer.invoke("file-exists", path),
+  dirExists: (path) => ipcRenderer.invoke("dir-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   renameFile: (srcPath, destPath) => ipcRenderer.invoke("rename-file", srcPath, destPath),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),

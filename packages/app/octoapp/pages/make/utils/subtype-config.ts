@@ -6,6 +6,7 @@ export type SubtypeCapabilities = {
     modeToggle: FeatureFlag
     viewport: FeatureFlag
     localEdit: FeatureFlag
+    modelEdit: FeatureFlag
     drawEdit: FeatureFlag
     canvasEdit: FeatureFlag
     comment: FeatureFlag
@@ -31,7 +32,8 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: true,
-      drawEdit: { enabled: true, editOnly: true },
+      modelEdit: false,
+      drawEdit: false,
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
       archive: { enabled: true, editOnly: true },
@@ -52,6 +54,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: false,
       viewport: false,
       localEdit: false,
+      modelEdit: false,
       drawEdit: false,
       canvasEdit: false,
       comment: false,
@@ -68,6 +71,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: { enabled: true, editOnly: true },
+      modelEdit: false,
       drawEdit: false,
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
@@ -81,12 +85,76 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
   },
 
+  components: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+    },
+    rendering: {
+      customBridges: ['components-theme'],
+    },
+  },
+
   _default: {
     features: {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: { enabled: true, editOnly: true },
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+    },
+  },
+
+  demo: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: { enabled: true, editOnly: true },
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+    },
+  },
+
+  demoedit: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
       drawEdit: { enabled: true, editOnly: true },
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },

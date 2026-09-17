@@ -19,7 +19,7 @@
  * | size: medium | size: normal | 值映射（普通 Button） |
  * | shape: circle | — | 丢弃不处理 |
  * | className | className | 透传 |
- * | — | onClick | 注入占位 (e) => {} |
+ * | onClick（Action） | onClick | 透传 Action → emitValue 产 setSharedState（弹窗等场景：Button 写 open 路径、Modal/Drawer 的 open 经 useState 读同路径，跨组件响应式）；无 Action 则占位 (e) => {} |
  *
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
  *
@@ -91,8 +91,10 @@ const ButtonMapping: MappingDef = {
         }
       }
 
-      // onClick 占位
-      outputProps.onClick = Value.rawExpr({ value: '(e) => {}' })
+      // onClick：有 Action（build-trees 已转 ActionValue）则透传 → emitValue 产 setSharedState
+      // （弹窗场景：Button 写 open 路径、Modal/Drawer 的 open 经 useState 读同路径，跨组件响应式）；
+      // 无则占位 (e) => {} 确保事件不 undefined
+      outputProps.onClick = ('onClick' in props ? props.onClick : null) ?? Value.rawExpr({ value: '(e) => {}' })
 
       // className 透传
       if (props.className) outputProps.className = props.className
@@ -161,8 +163,10 @@ const ButtonMapping: MappingDef = {
       outputProps.className = props.className
     }
 
-    // 7. onClick 占位
-    outputProps.onClick = Value.rawExpr({ value: '(e) => {}' })
+    // 7. onClick：有 Action（build-trees 已转 ActionValue）则透传 → emitValue 产 setSharedState
+    //    （弹窗场景：Button 写 open 路径、Modal/Drawer 的 open 经 useState 读同路径，跨组件响应式）；
+    //    无则占位 (e) => {} 确保事件不 undefined
+    outputProps.onClick = ('onClick' in props ? props.onClick : null) ?? Value.rawExpr({ value: '(e) => {}' })
 
     // 不做剩余兜底透传：A2UI Button 的 props 已逐项显性处理。
 

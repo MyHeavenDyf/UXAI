@@ -4,20 +4,93 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
-import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
+import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation, STUDIO_VIDEO_RESOLUTION } from "./studio-shared"
 import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
+import {
+  StudioTemplateCreator,
+  type StudioCanvasView,
+  type StudioStyleDescriptionGenerateHandlers,
+  type StudioStyleDescriptionGenerateInput,
+  type StudioTemplatePublishInput,
+  type StudioTemplateWorkspace,
+  type StudioTemplateUserSearchInput,
+  type StudioTemplateVisibleUser,
+} from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
 
+function StudioUserBubbleText(props: { text: string; mentionImages: Record<string, string> }) {
+  const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
+  const segments = createMemo(() => {
+    const text = props.text
+    const result: { mention?: string; text?: string }[] = []
+    const regex = /@[^@\u200B]*\u200B/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index > last) result.push({ text: text.slice(last, m.index).replace(/\u200B/g, "") })
+      result.push({ mention: m[0].slice(1, -1) })
+      last = m.index + m[0].length
+    }
+    if (last < text.length) result.push({ text: text.slice(last).replace(/\u200B/g, "") })
+    return result
+  })
+  const handleMentionEnter = (e: MouseEvent, mention: string, src: string) => {
+    const target = e.currentTarget as HTMLElement
+    const img = target.querySelector("img")
+    const rect = (img ?? target).getBoundingClientRect()
+    const size = 140
+    let left = rect.left + rect.width / 2 - size / 2
+    let top = rect.top - size - 8
+    left = Math.max(8, Math.min(left, window.innerWidth - size - 8))
+    if (top < 8) top = 8
+    setRefPreview({ src, name: mention, left, top })
+  }
+  return (
+    <span>
+      <For each={segments()}>
+        {(seg) =>
+          seg.mention !== undefined
+            ? <span
+                class="studio-user-bubble-mention"
+                onMouseEnter={(e) => {
+                  const src = props.mentionImages[seg.mention!]
+                  if (src) handleMentionEnter(e, seg.mention!, src)
+                }}
+                onMouseLeave={() => setRefPreview(null)}
+              >
+                <Show when={props.mentionImages[seg.mention]}>
+                  {(src) => <img src={src()} alt={seg.mention} />}
+                </Show>
+                <span class="studio-user-bubble-mention-name">{seg.mention}</span>
+              </span>
+            : <span>{seg.text}</span>
+        }
+      </For>
+      <Show when={refPreview()}>
+        {(p) => (
+          <Portal>
+            <div class="studio-composer-ref-preview" style={{ left: `${p().left}px`, top: `${p().top}px` }}>
+              <img src={p().src} alt={p().name} />
+              <span class="studio-composer-ref-preview-name">{p().name}</span>
+            </div>
+          </Portal>
+        )}
+      </Show>
+    </span>
+  )
+}
+
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
+  mentionImages: Record<string, string>
   sdkUrl: string
   directory: string
   busy: boolean
@@ -91,7 +164,7 @@ export function StudioConversation(props: {
                 </div>
               </Show>
               <div class="studio-user-bubble">
-                {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
+                <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
               </div>
               <Show when={turn.editCapability} fallback={
                 <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
@@ -231,6 +304,19 @@ export function StudioResultCanvas(props: {
   canGenerateVideo?: boolean
   sessionID?: string
   fileManagerGenPending?: boolean
+  canvasView: StudioCanvasView
+  templateCreatorTabOpen: boolean
+  templateWorkspaces: readonly StudioTemplateWorkspace[]
+  activeTemplateWorkspaceKey?: string
+  onGenerateStyleDescription?: (
+    input: StudioStyleDescriptionGenerateInput,
+    handlers: StudioStyleDescriptionGenerateHandlers,
+  ) => Promise<void>
+  onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
+  onSaveTemplate?: (templateID: number, input: StudioTemplatePublishInput) => Promise<void>
+  onSearchTemplateUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
+  onTemplateCreatorClick: (key: string) => void
+  onTemplateCreatorClose: (key: string) => void
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
@@ -245,9 +331,10 @@ export function StudioResultCanvas(props: {
     return props.image
   })
   const shouldShowCanvas = createMemo(() => {
+    if (props.canvasView === "template-creator") return true
     // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
     if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
-    return !!showImage() || (props.showFileManager === true && !fileManagerLoading())
+    return !!showImage() || (props.showFileManager === true && !fileManagerLoading()) || props.templateCreatorTabOpen
   })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
@@ -340,7 +427,7 @@ export function StudioResultCanvas(props: {
               <Show when={props.showFileManagerTab}>
                 <span
                   class="studio-canvas-tab studio-canvas-tab-locked"
-                  classList={{ active: props.showFileManager }}
+                  classList={{ active: props.canvasView === "file-manager" }}
                   onClick={() => props.onFileManagerClick?.()}
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "margin-right": "4px", "flex-shrink": "0" }} aria-hidden="true">
@@ -348,13 +435,39 @@ export function StudioResultCanvas(props: {
                   </svg>
                   <span class="studio-canvas-label-text">文件管理</span>
                 </span>
-                <Show when={(props.tabImages && props.tabImages.length > 0) || (!props.showFileManager && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
+                <Show when={props.templateCreatorTabOpen || (props.tabImages && props.tabImages.length > 0) || (props.canvasView === "canvas" && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
                   <span class="studio-canvas-tab-divider" />
                 </Show>
               </Show>
-              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              <For each={props.templateWorkspaces}>
+                {(workspace) => {
+                  const label = () => workspace.mode === "edit" ? `编辑模板-${workspace.templateTitle}` : "创建模板"
+                  return (
+                    <span
+                      class="studio-canvas-tab"
+                      classList={{
+                        active: props.canvasView === "template-creator" && props.activeTemplateWorkspaceKey === workspace.key,
+                      }}
+                      onClick={() => props.onTemplateCreatorClick(workspace.key)}
+                      title={label()}
+                    >
+                      <span class="studio-canvas-label-text">{label()}</span>
+                      <span
+                        class="studio-canvas-tab-close"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          props.onTemplateCreatorClose(workspace.key)
+                        }}
+                        aria-label={`关闭${label()}`}
+                        title={`关闭${label()}`}
+                      />
+                    </span>
+                  )
+                }}
+              </For>
+              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
-                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager ? [props.result!.images[0]] : [])
+                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" ? [props.result!.images[0]] : [])
                   const [isTabTruncated, setIsTabTruncated] = createSignal(false)
                   let tabLabelRef!: HTMLSpanElement
                   let tabResizeObserver: ResizeObserver | undefined
@@ -396,7 +509,7 @@ export function StudioResultCanvas(props: {
                   return (
                     <span
                       class="studio-canvas-tab"
-                      classList={{ active: !props.showFileManager && ((props.tabImages && props.tabImages.length > 0)
+                      classList={{ active: props.canvasView === "canvas" && ((props.tabImages && props.tabImages.length > 0)
                         ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
                         : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id))
                       }}
@@ -430,6 +543,8 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
+              <Show when={props.canvasView === "template-creator"} fallback={
+                <>
               <div style={{ display: props.showFileManager && !props.fileManagerDetailView ? "contents" : "none" }}>
                 <StudioFileManager
                   studioCenterWidth={props.studioCenterWidth}
@@ -566,6 +681,43 @@ export function StudioResultCanvas(props: {
               </div>
               </div>
               {props.children}
+              </Show>
+                </>
+              }>
+                <For each={props.templateWorkspaces}>
+                  {(workspace) => (
+                    <div
+                      class="studio-template-workspace-panel"
+                      classList={{ active: props.activeTemplateWorkspaceKey === workspace.key }}
+                    >
+                      <Show
+                        when={workspace.mode === "create" || !workspace.loading}
+                        fallback={<div class="studio-template-creator-state">模板加载中...</div>}
+                      >
+                        <Show
+                          when={workspace.mode === "create" || !workspace.error}
+                          fallback={
+                            <div class="studio-template-creator-state error">
+                              <span>{workspace.mode === "edit" ? workspace.error : "模板加载失败"}</span>
+                              <button type="button" onClick={() => props.onTemplateCreatorClose(workspace.key)}>取消</button>
+                            </div>
+                          }
+                        >
+                          <StudioTemplateCreator
+                            mode={workspace.mode}
+                            templateID={workspace.mode === "edit" ? workspace.templateID : undefined}
+                            initialValue={workspace.mode === "edit" ? workspace.initialValue : undefined}
+                            onGenerateStyleDescription={props.onGenerateStyleDescription}
+                            onPublishTemplate={props.onPublishTemplate}
+                            onSaveTemplate={props.onSaveTemplate}
+                            onSearchUsers={props.onSearchTemplateUsers}
+                            onCancel={() => props.onTemplateCreatorClose(workspace.key)}
+                          />
+                        </Show>
+                      </Show>
+                    </div>
+                  )}
+                </For>
               </Show>
             </div>
           </>
@@ -743,6 +895,9 @@ export function StudioDetails(props: {
           <InfoRow label="分辨率" value={resolution()} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
+        <Show when={isVideoResult()}>
+          <InfoRow label="分辨率" value={props.result.videoQualityMode ? STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode].toUpperCase() : "-"} />
+        </Show>
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>
       <section class="studio-detail-section">

@@ -9,12 +9,14 @@
  * |-----------|--------------|------|
  * | value（DataBinding，非 range） | value | ComputedValue.useState（受控），event: onChange |
  * | value（字面量 string，非 range） | value | LiteralValue.useState（受控），event: onChange |
- * | value（DataBinding，range 模式） | range | ComputedValue.useState（受控），event: onChange |
- * | value（字面量 array，range 模式） | range | LiteralValue.useState（受控），event: onChange |
- * | placeholder（DataBinding） | placeholder | ComputedValue（数组→首项） |
- * | placeholder（string/array） | placeholder | 数组取首项后透传 |
+ * | value（DataBinding，range 模式） | value | ComputedValue.useState（受控），event: onChange；tag 切换为 DatePicker.RangePicker |
+ * | value（字面量 array，range 模式） | value | LiteralValue.useState（受控），event: onChange；tag 切换为 DatePicker.RangePicker |
+ * | placeholder（DataBinding，非 range） | placeholder | ComputedValue（数组→首项） |
+ * | placeholder（string/array，非 range） | placeholder | 数组取首项后透传 |
+ * | placeholder（DataBinding，range 模式） | placeholder | ComputedValue（保持数组） |
+ * | placeholder（string/array，range 模式） | placeholder | 保持数组形式 |
  * | picker | type | 同名透传 |
- * | range（literal true） | — | 作为模式开关消费；值由 value→range 映射 |
+ * | range（literal true） | — | 作为模式开关消费；tag→DatePicker.RangePicker |
  * | range（DataBinding） | — | 丢弃（无法静态决定模式） |
  * | size | — | 丢弃 |
  * | format（moment 风格） | format | **直接透传**（eview-ui 用 moment 风格，与 A2UI 一致） |
@@ -41,14 +43,84 @@ const DatePickerMapping: MappingDef = {
     // 只处理 literal true 的 range；DataBinding 无法静态决定模式，回退为非 range
     const isRangeMode = props.range === true
 
-    // ─── value → value（非 range）/ range（range 模式），useState 受控 ───
+    // ─── range 模式 → DatePicker.RangePicker ───
+    if (isRangeMode) {
+      // value → value（RangePicker 用 value prop）
+      if ('value' in props) {
+        const val = props.value
+        if (val && typeof val === 'object' && val.type === 'binding') {
+          outputProps.value = Value.computed({
+            path: val.path,
+            pathType: val.pathType ?? 'absolute',
+            accessPath: val.accessPath,
+            containsJSX: false,
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(dateString) => ${setter}(dateString)`,
+            },
+            transform: (raw) => Array.isArray(raw) ? raw : [raw],
+          })
+        } else {
+          outputProps.value = Value.literal({
+            value: Array.isArray(val) ? val : [],
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(dateString) => ${setter}(dateString)`,
+            },
+          })
+        }
+      }
+
+      // placeholder → 数组形式（RangePicker 需要数组占位符）
+      if ('placeholder' in props) {
+        const ph = props.placeholder
+        if (ph && typeof ph === 'object' && ph.type === 'binding') {
+          outputProps.placeholder = Value.computed({
+            path: ph.path,
+            pathType: ph.pathType ?? 'absolute',
+            accessPath: ph.accessPath,
+            containsJSX: false,
+            transform: (raw) => Array.isArray(raw) ? raw : [raw],
+          })
+        } else if (Array.isArray(ph)) {
+          outputProps.placeholder = ph
+        } else if (typeof ph === 'string') {
+          outputProps.placeholder = [ph, ph]
+        }
+      }
+      // A2UI 未提供 placeholder 时不设默认
+
+      // picker → type（同名透传）
+      if (props.picker) {
+        outputProps.type = props.picker
+      }
+
+      // format：直接透传（eview-ui 用 moment 风格，与 A2UI 一致，不转换）
+      if (props.format !== undefined) {
+        outputProps.format = props.format as PropValue
+      }
+
+      // className 透传
+      if (props.className) {
+        outputProps.className = props.className
+      }
+
+      return {
+        tag: 'DatePicker.RangePicker',
+        props: outputProps,
+        children: null,
+        selfClosing: true,
+      }
+    }
+
+    // ─── 非 range 模式 ───
+
+    // ─── value → value，useState 受控 ───
     if ('value' in props) {
       const val = props.value
-      const targetProp = isRangeMode ? 'range' : 'value'
-
       if (val && typeof val === 'object' && val.type === 'binding') {
         // DataBinding → ComputedValue + useState
-        outputProps[targetProp] = Value.computed({
+        outputProps.value = Value.computed({
           path: val.path,
           pathType: val.pathType ?? 'absolute',
           accessPath: val.accessPath,
@@ -57,17 +129,12 @@ const DatePickerMapping: MappingDef = {
             event: 'onChange',
             extractor: (setter) => `(dateString) => ${setter}(dateString)`,
           },
-          transform: (raw) => {
-            if (isRangeMode) {
-              return Array.isArray(raw) ? raw : [raw]
-            }
-            return raw ?? ''
-          },
+          transform: (raw) => raw ?? '',
         })
       } else {
         // 字面量 → LiteralValue + useState
-        outputProps[targetProp] = Value.literal({
-          value: isRangeMode ? (Array.isArray(val) ? val : []) : (val ?? ''),
+        outputProps.value = Value.literal({
+          value: val ?? '',
           useState: {
             event: 'onChange',
             extractor: (setter) => `(dateString) => ${setter}(dateString)`,

@@ -720,6 +720,7 @@ it.live(
           expect(value).toBe("stop")
           expect(yield* llm.calls).toBe(0)
           expect(handle.message.error?.name).toBe("ContextOverflowError")
+          expect(handle.message.tokens.input).toBeGreaterThanOrEqual(80)
           expect(JSON.stringify(handle.message.error)).toContain("current request is too large")
         }),
       { git: true, config: (url) => providerCfg(url) },
@@ -882,7 +883,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
   ),
 )
 
-it.live("session.processor effect tests record aborted errors and idle state", () =>
+it.live("session.processor effect tests mark aborted summaries as terminal", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -896,6 +897,9 @@ it.live("session.processor effect tests record aborted errors and idle state", (
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "abort")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        msg.summary = true
+        msg.finish = undefined
+        yield* session.updateMessage(msg)
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
         const errs: string[] = []
         const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
@@ -946,6 +950,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {
           expect(stored.info.error?.name).toBe("MessageAbortedError")
+          expect(stored.info.finish).toBe("error")
         }
         expect(state).toMatchObject({ type: "idle" })
         expect(errs).toContain("MessageAbortedError")

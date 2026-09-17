@@ -10,6 +10,7 @@
  * | open（DataBinding） | isOpen | **ComputedValue.useState**（event:onClose）；shared→useSharedState，非共享→局部 useState |
  * | onClose（Action） | — | 丢弃（onClose 回调由 open 的 useState extractor 生成，closeVal 取自 Action.value，数据驱动） |
  * | mask（boolean，默认 true） | modal | 改名透传（语义一致：遮罩/模态） |
+ * | width（number\|string） | width | 同名透传（number 为 px，string 为 CSS size；schema 默认 520，映射不注入） |
  * | title（字面量 string） | title | 同名透传 |
  * | title（DataBinding） | title | BindingValue 同名透传 |
  * | footer（SlotNode） | — | resolve 后追加到 children（Dialog 无独立 footer slot，内容合并到 body） |
@@ -46,7 +47,7 @@ export function createModalMapping(pkg: string): MappingDef {
       const outputProps: Record<string, PropValue> = {}
 
       // 显性处理每个 A2UI prop：A2UI Modal 的 props 是封闭集合
-      // (open/onClose/mask/title/footer/className)，不做兜底透传。
+      // (open/onClose/mask/width/title/footer/className)，不做兜底透传。
 
       // ─── open → isOpen（DataBinding + useState 受控，共享/非共享由 shared 标记自适应） ───
       // open 是 DataBinding（schema 无字面量形态），Dialog 是受控组件，产生 useState：
@@ -92,6 +93,12 @@ export function createModalMapping(pkg: string): MappingDef {
       // ─── title（同名透传，支持字面量 / DataBinding） ───
       if ('title' in props) {
         outputProps.title = props.title
+      }
+
+      // ─── width（number|string 同名透传） ───
+      // A2UI schema 默认 520（advisory，映射不注入，缺省走 Dialog 运行时默认）。
+      if ('width' in props) {
+        outputProps.width = props.width
       }
 
       // ─── footer（SlotNode → 追加到 children） ───

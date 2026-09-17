@@ -576,14 +576,16 @@ export function serializeEffects(effects: EffectEntry[]): { boxShadow: string; f
   const layerBlurs = effects.filter(e => e.type === 'layer-blur' && e.visible)
   const bgBlurs = effects.filter(e => e.type === 'background-blur' && e.visible)
 
-  const boxShadow = dropShadows.map(e => {
-    const rgb = hexToRgbTuple(e.color) || [0, 0, 0]
-    const alpha = (e.opacity / 100).toFixed(2)
-    return `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`
-  }).join(', ')
+  const boxShadow = dropShadows.length > 0
+    ? dropShadows.map(e => {
+        const rgb = hexToRgbTuple(e.color) || [0, 0, 0]
+        const alpha = (e.opacity / 100).toFixed(2)
+        return `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`
+      }).join(', ')
+    : 'none'
 
-  const filter = layerBlurs.map(e => `blur(${e.layerBlur}px)`).join(' ')
-  const backdropFilter = bgBlurs.map(e => `blur(${e.bgBlur}px)`).join(' ')
+  const filter = layerBlurs.length > 0 ? layerBlurs.map(e => `blur(${e.layerBlur}px)`).join(' ') : 'none'
+  const backdropFilter = bgBlurs.length > 0 ? bgBlurs.map(e => `blur(${e.bgBlur}px)`).join(' ') : 'none'
 
   return { boxShadow, filter, backdropFilter }
 }

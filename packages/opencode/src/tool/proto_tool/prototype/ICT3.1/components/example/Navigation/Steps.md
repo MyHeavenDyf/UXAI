@@ -1,6 +1,14 @@
-# Steps
+# Steps 示例
 
-### Steps Example: Demonstrating the Component Composition between Steps and StepItem, featuring Slot Syntax for flexible content distribution within individual items.
+## Usage constraints for child node ids
+
+- Each child node id must be owned by exactly one parent component and one child or slot position.
+- Do not reuse the same node id in multiple `children` arrays or multiple `{ "componentId": "..." }` slot/template references.
+- Do not reuse a loop template `componentId` as another static child or as another parent's template.
+- If two structures look similar, create separate child nodes such as `projectOverviewPanel` and `userOverviewPanel` instead of sharing `overviewPanel`.
+- Component-specific keys such as `props.key` can reuse the same semantic value in different components, but the node `id` must still be unique per usage.
+
+## Steps Example: Demonstrating the Component Composition between Steps and StepItem, featuring Slot Syntax for flexible content distribution within individual items.
 
 ```json
 {
@@ -35,7 +43,7 @@
 }
 ```
 
-### Example: Applicable to asymmetric attribute structures, not applicable to loops, and tiles all items.Slot Syntax (`componentId`) works in static tiling mode too, enabling complex component composition.
+## Example: Applicable to asymmetric attribute structures, not applicable to loops, and tiles all items.Slot Syntax (`componentId`) works in static tiling mode too, enabling complex component composition.
 
 ```json
 

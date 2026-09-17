@@ -1,6 +1,6 @@
-# Rate | 评分
+# Rate | 评分 示例
 
-### Example: Rate basic
+## Example: Rate basic
 
 ```json
 {

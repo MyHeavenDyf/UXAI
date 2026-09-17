@@ -328,7 +328,9 @@ function emitComponent(node: ComponentNode, opts: Required<EmitOptions>): string
     return `{/* ${node.commentPlaceholder} */}`
   }
   const tag = node.tag ?? node.component
-  const idAttr = opts.emitId && node.id ? ` id="${escapeJSX(node.id)}"` : ''
+  // keepId：被锚点 href 引用的目标元素（build-trees 预扫打标），config.id=false 时也强制输出 id，
+  // 使锚点 href="#xxx" 不致变死链。config.id=true 时 emitId 已覆盖、keepId 冗余无影响。
+  const idAttr = (opts.emitId || node.keepId) && node.id ? ` id="${escapeJSX(node.id)}"` : ''
   // className 整体由 emitProps → emitClassName 走（含自动基类合并 + CSS Modules 转换）
 
   const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '', classNameProp: node.classNameProp ?? 'className' })
@@ -369,7 +371,8 @@ function emitComponent(node: ComponentNode, opts: Required<EmitOptions>): string
 
 function emitHtml(node: HtmlNode, opts: Required<EmitOptions>): string {
   const tag = node.tag
-  const idAttr = opts.emitId && node.id ? ` id="${escapeJSX(node.id)}"` : ''
+  // keepId：被锚点 href 引用的目标元素，config.id=false 时也强制输出 id（见 emitComponent 同款注释）。
+  const idAttr = (opts.emitId || node.keepId) && node.id ? ` id="${escapeJSX(node.id)}"` : ''
 
   const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '', classNameProp: 'className' })
   const allAttrs = [idAttr, propsStr].filter(Boolean).join(' ').trim()

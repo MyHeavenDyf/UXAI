@@ -1,5 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { ManualEditTarget } from "../edit-mode/source-patches"
+import type { ModelEditConfig } from "../components/model-edit-items/types"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -37,6 +38,8 @@ export interface SubtypeHandlerContext {
   /** 当前会话 ID（用于定位 uploads 目录） */
   sessionId?: string
   sdkDirectory?: string
+  /** 文件管理刷新回调 */
+  onFilesRefresh?: () => void
 }
 
 export type LocalEditChange =
@@ -81,7 +84,7 @@ export interface SubtypeHandler {
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
    */
-  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ blob: Blob; fileName: string } | null>
+  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ files: { path: string; content: string | Uint8Array }[] } | null>
 
   /**
    * 下载下拉选项
@@ -97,13 +100,18 @@ export interface SubtypeHandler {
    * 返回要记录的文件相对路径数组，或 null 表示本次不记录
    * actor（init/user/agent）由调用方根据事件类型决定
    */
-  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => string[] | null
+  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => Promise<string[] | null> | string[] | null
 
   /**
    * 历史恢复
    * 接收版本的文件列表，由 handler 决定如何应用（如复制回原始路径、更新 tab 等）
    */
   applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
+
+  /**
+   * Model Edit 配置（组件感知属性面板）
+   */
+  modelEditConfig?: ModelEditConfig
 
   /**
    * UI 配置（配置方式）

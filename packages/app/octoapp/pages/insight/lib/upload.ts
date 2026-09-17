@@ -81,6 +81,12 @@ function hasEmptyBaseName(filename: string): boolean {
 // 原始文件名拼进返回 URL、特殊字符致 MCP 取文件失败」的防御性补丁。字符集安全改由服务端
 // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部 2026-07-03 修订提案）。
 
+// 外网模型上传限制(数据安全):仅允许轻量文本 + 常见图片格式,单文件 ≤ 2MB。
+// 外网模型有数据安全要求,需限制可上传的文件类型与体量,防止敏感信息外泄。
+// 与 ALLOWED_EXT 的区别:.html 放开(设计稿常见)、docx/xlsx/pdf/pptx/gif/webp 收紧。
+export const EXTERNAL_ALLOWED_EXT = ["txt", "html", "md", "png", "jpg", "jpeg"] as const
+export const EXTERNAL_MAX_UPLOAD_SIZE = 2 * 1024 * 1024
+
 export function validateFile(file: File): UploadError | null {
   if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
   if (file.size > MAX_UPLOAD_SIZE) {
@@ -96,6 +102,29 @@ export function validateFile(file: File): UploadError | null {
   const ext = getExt(file.name)
   if (!ALLOWED_EXT.includes(ext as (typeof ALLOWED_EXT)[number])) {
     return new UploadError("EXT_NOT_ALLOWED", `不支持的格式 .${ext || "(无扩展名)"}`)
+  }
+  return null
+}
+
+// 外网模型专属校验:格式 + 大小都更严格。.html 在 ALLOWED_EXT 之外,故不能复用 validateFile
+// (会被 EXT_NOT_ALLOWED 误拒),本函数独立判定,含空文件 / 空文件名检查。
+export function validateFileForExternal(file: File): UploadError | null {
+  if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
+  if (file.size > EXTERNAL_MAX_UPLOAD_SIZE) {
+    return new UploadError(
+      "FILE_TOO_LARGE",
+      `文件超过 ${Math.round(EXTERNAL_MAX_UPLOAD_SIZE / 1024 / 1024)}MB 上限`,
+    )
+  }
+  if (hasEmptyBaseName(file.name)) {
+    return new UploadError("FILENAME_EMPTY", "文件名为空，请重命名文件后重新上传")
+  }
+  const ext = getExt(file.name)
+  if (!EXTERNAL_ALLOWED_EXT.includes(ext as (typeof EXTERNAL_ALLOWED_EXT)[number])) {
+    return new UploadError(
+      "EXT_NOT_ALLOWED",
+      `外网模型仅支持 ${EXTERNAL_ALLOWED_EXT.map((e) => `.${e}`).join("、")} 格式`,
+    )
   }
   return null
 }
@@ -251,10 +280,15 @@ export function imageMimeFor(filename: string, fallback = "application/octet-str
 // 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
 // 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
 /** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
-const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf"])
+export const EXTRACT_DOC_EXTENSIONS = ["docx", "xlsx", "pptx", "pdf"] as const
+const EXTRACT_DOC_EXT = new Set<string>(EXTRACT_DOC_EXTENSIONS)
+// 旧版 Office 二进制格式当前不在 extract_document 能力面内。仍要阻止它们被当成
+// text/plain 内联，但不能计入「可抽取文档」的份数，否则会先触发分治、再在子代理中必然读取失败。
+const UNSUPPORTED_LEGACY_OFFICE_EXT = new Set(["doc", "xls", "ppt"])
 
 const NON_INLINE_EXT = new Set([
   ...EXTRACT_DOC_EXT,
+  ...UNSUPPORTED_LEGACY_OFFICE_EXT,
   // 图片走 vision(路由 ③)
   ...IMAGE_EXT,
 ])
@@ -316,7 +350,7 @@ export function formatDispatchNote(input: {
   if (input.docCount > 0) parts.push(`${input.docCount} 份文档（docx / pdf / xlsx / pptx）`)
 
   const paragraphs = [
-    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（含 [附件] 与 [引用文件]）。` +
+    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（已按本地路径去重）。` +
       `这批材料的正文**未**随本条消息进入你的上下文——你现在只有文件名和路径，材料内容一个字都没有。`,
     `请**逐份**派 insight_reader 子代理通读：每份材料单独发一个 task，把该文件的绝对路径和这次要提炼什么写进去，` +
       `**一份回来了再派下一份**，收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,

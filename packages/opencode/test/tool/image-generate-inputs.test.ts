@@ -8,6 +8,7 @@ import {
   getTargetSizeForAspectRatio,
   getTaskType,
   isCancelTaskSuccess,
+  queryTaskFailureMessage,
   resolveReferenceImages as resolveInternelReferenceImages,
 } from "@/tool/internel_image_generate"
 
@@ -30,6 +31,20 @@ describe("internal image create task failures", () => {
       "任务创建失败，请检查网络或稍后再试",
     )
     expect(createTaskFailureMessage()).toBe("任务创建失败，请检查网络或稍后再试")
+  })
+})
+
+describe("internal image query task failures", () => {
+  test("uses the provider result error message", () => {
+    expect(queryTaskFailureMessage({
+      result: { status: 3, error_message: " 内容审核未通过 " },
+    })).toBe("内容审核未通过")
+  })
+
+  test("uses a friendly fallback for missing or empty provider messages", () => {
+    expect(queryTaskFailureMessage({ result: { status: 3 } })).toBe("生成任务失败")
+    expect(queryTaskFailureMessage({ result: { status: 3, error_message: "  " } })).toBe("生成任务失败")
+    expect(queryTaskFailureMessage({ result: { status: 3, error_message: null } })).toBe("生成任务失败")
   })
 })
 

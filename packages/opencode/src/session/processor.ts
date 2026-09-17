@@ -147,6 +147,16 @@ export const layer: Layer.Layer<
           aborted,
         })
 
+      const recordEstimatedInputUsage = () => {
+        ctx.assistantMessage.tokens.input = Math.max(ctx.assistantMessage.tokens.input, ctx.estimatedInputTokens)
+        ctx.assistantMessage.tokens.total =
+          ctx.assistantMessage.tokens.input +
+          ctx.assistantMessage.tokens.output +
+          ctx.assistantMessage.tokens.reasoning +
+          ctx.assistantMessage.tokens.cache.read +
+          ctx.assistantMessage.tokens.cache.write
+      }
+
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
         const done = ctx.toolcalls[toolCallID]?.done
         delete ctx.toolcalls[toolCallID]
@@ -698,6 +708,7 @@ export const layer: Layer.Layer<
             yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
             return
           }
+          recordEstimatedInputUsage()
           ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
             message: CONTEXT_OVERFLOW_MESSAGE,
           }).toObject()
@@ -721,6 +732,7 @@ export const layer: Layer.Layer<
           })
         }
         ctx.assistantMessage.error = error
+        if (ctx.assistantMessage.summary) ctx.assistantMessage.finish = "error"
         yield* bus.publish(Session.Event.Error, {
           sessionID: ctx.assistantMessage.sessionID,
           error: ctx.assistantMessage.error,
@@ -763,6 +775,7 @@ export const layer: Layer.Layer<
                 providerID: ctx.model.providerID,
               })
               if (preflightResult === "reject") {
+                recordEstimatedInputUsage()
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
                   message: !AUTOMATIC_COMPACTION_ENABLED
                     ? CONTEXT_OVERFLOW_MESSAGE
@@ -788,7 +801,7 @@ export const layer: Layer.Layer<
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              Stream.takeUntil(() => ctx.needsCompaction || !!ctx.assistantMessage.error),
               Stream.runDrain,
             )
           }).pipe(

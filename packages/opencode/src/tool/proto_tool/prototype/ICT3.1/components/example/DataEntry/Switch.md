@@ -1,6 +1,6 @@
-# Switch | 开关
+# Switch | 开关 示例
 
-### Example: Switch basic
+## Example: Switch basic
 
 ```json
 {
@@ -12,7 +12,7 @@
 }
 ```
 
-### Example: Switch with text
+## Example: Switch with text
 
 ```json
 {
@@ -26,7 +26,7 @@
 }
 ```
 
-### Example: Switch with icons
+## Example: Switch with icons
 
 ```json
 {
@@ -40,7 +40,7 @@
 }
 ```
 
-### Example: Switch size
+## Example: Switch size
 
 ```json
 {

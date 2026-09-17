@@ -1,6 +1,6 @@
-# Badge
+# Badge 示例
 
-### Example: Badge basic
+## Example: Badge basic
 
 ```json
 {

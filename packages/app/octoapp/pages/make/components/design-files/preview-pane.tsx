@@ -16,10 +16,16 @@ interface Props {
   onDownload: () => void
 }
 
+const MAX_CODE_PREVIEW_BYTES = 512 * 1024
+
 export function PreviewPane(props: Props): JSX.Element {
+  const isCodeKind = () => props.file.kind === "code" || props.file.mime.startsWith("application/") || props.file.mime === "text/plain"
+  const isOversizedCode = () => isCodeKind() && props.file.size > MAX_CODE_PREVIEW_BYTES
+
   const [content] = createResource(
     () => props.file.path,
     async (path) => {
+      if (isOversizedCode()) return { content: "", mimeType: "" }
       try {
         const result = await fetchArtifactContent(props.sdkUrl, props.sdkDirectory, path)
         return result
@@ -48,7 +54,7 @@ export function PreviewPane(props: Props): JSX.Element {
   const isAudio = () => props.file.mime.startsWith("audio/")
   const isHtml = () => props.file.mime === "text/html" || props.file.kind === "html"
   const isMarkdown = () => props.file.mime === "text/markdown" || props.file.kind === "markdown"
-  const isCode = () => props.file.kind === "code" || props.file.mime.startsWith("application/") || props.file.mime === "text/plain"
+  const isCode = isCodeKind
 
   const previewHeight = createMemo(() => {
     const w = containerWidth()
@@ -182,15 +188,29 @@ export function PreviewPane(props: Props): JSX.Element {
             </Match>
 
             <Match when={isCode()}>
-              <pre
-                class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full m-0"
-                style={{
-                  background: "var(--octo-surface-base)",
-                  color: "var(--octo-text-primary)",
-                }}
+              <Show
+                when={!isOversizedCode()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center gap-2 p-6 text-center">
+                    <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
+                      文件过大（{formatFileSize(props.file.size)}），无法预览
+                    </span>
+                    <span class="text-[12px]" style={{ color: "var(--octo-text-tertiary)" }}>
+                      请点击下方"下载"查看完整内容
+                    </span>
+                  </div>
+                }
               >
-                <code innerHTML={highlightCode(content()?.content ?? "", getLanguageFromFilename(props.file.name))} />
-              </pre>
+                <pre
+                  class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full m-0"
+                  style={{
+                    background: "var(--octo-surface-base)",
+                    color: "var(--octo-text-primary)",
+                  }}
+                >
+                  <code innerHTML={highlightCode(content()?.content ?? "", getLanguageFromFilename(props.file.name))} />
+                </pre>
+              </Show>
             </Match>
           </Switch>
         </Show>

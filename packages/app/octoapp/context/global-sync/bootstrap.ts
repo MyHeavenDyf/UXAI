@@ -63,6 +63,23 @@ export function isBootstrapRecent(input: { booting: boolean; bootedAt: number; n
   return input.booting || input.bootedAt === 0 || (input.now ?? Date.now()) - input.bootedAt < 1500
 }
 
+export function mergeSessionStatusSnapshot(input: {
+  before: Record<string, string | undefined>
+  current: State["session_status"]
+  incoming: State["session_status"]
+}) {
+  return Object.entries(input.current).reduce<State["session_status"]>(
+    (result, [sessionID, status]) => {
+      const incoming = input.incoming[sessionID]
+      const changed = JSON.stringify(status) !== input.before[sessionID]
+      if (!changed && (status.type !== "busy" || incoming?.type === "busy")) return result
+      result[sessionID] = status
+      return result
+    },
+    { ...input.incoming },
+  )
+}
+
 export function clearProviderRev(directory: string) {
   providerRev.delete(directory)
 }
@@ -243,6 +260,9 @@ export async function bootstrapDirectory(input: {
 
   const rev = (providerRev.get(input.directory) ?? 0) + 1
   providerRev.set(input.directory, rev)
+  const sessionStatusBefore = Object.fromEntries(
+    Object.entries(input.store.session_status).map(([sessionID, status]) => [sessionID, JSON.stringify(status)]),
+  )
   const slow = [
     () => Promise.resolve(input.loadSessions(input.directory)),
     () =>
@@ -251,7 +271,22 @@ export async function bootstrapDirectory(input: {
         .then((data) => input.setStore("agent", data)),
     () =>
       retry(() => input.sdk.config.get().then((x) => input.setStore("config", reconcile(x.data!, { merge: false })))),
-    () => retry(() => input.sdk.session.status().then((x) => input.setStore("session_status", x.data!))),
+    () =>
+      retry(() =>
+        input.sdk.session.status().then((x) =>
+          input.setStore(
+            "session_status",
+            reconcile(
+              mergeSessionStatusSnapshot({
+                before: sessionStatusBefore,
+                current: input.store.session_status,
+                incoming: x.data!,
+              }),
+              { merge: false },
+            ),
+          ),
+        ),
+      ),
     !seededProject &&
       (() => retry(() => input.sdk.project.current()).then((x) => input.setStore("project", x.data!.id))),
     !seededPath &&

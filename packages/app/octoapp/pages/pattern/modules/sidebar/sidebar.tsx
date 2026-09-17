@@ -13,6 +13,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
+import { UpdateButton } from "@/components/update-button"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { useLayout } from "@/context/layout"
@@ -458,7 +459,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         </button>
       </div>
 
-      <div class="shrink-0 px-[12px] pb-[24px]">
+      <div class="relative shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"
           title="设置"
@@ -483,6 +484,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           </span>
           <span class="truncate">设置</span>
         </button>
+        <UpdateButton />
       </div>
       <Show when={contextMenu.show && contextMenu.session}>
         <Portal>

@@ -246,6 +246,43 @@ describe("decideInlineStrategy", () => {
     expect(d.totalBytes).toBe(1000)
   })
 
+  test("Windows 同一路径忽略大小写与斜杠差异去重", () => {
+    const d = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\Materials\\A.docx", bytes: 1000 },
+      { filename: "a.docx", path: "d:/materials/a.docx", bytes: 1000 },
+    ])
+    expect(d.docs).toHaveLength(1)
+  })
+
+  test("Windows 同一路径消解点段，UNC 的正反斜杠写法等价", () => {
+    const drive = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\docs\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\.\\a.docx", bytes: 1000 },
+      { filename: "a.docx", path: "D:\\docs\\sub\\..\\a.docx", bytes: 1000 },
+    ])
+    const unc = decideInlineStrategy([
+      { filename: "a.txt", path: "\\\\server\\share\\a.txt", bytes: 17 * 1024 },
+      { filename: "a.txt", path: "//server/share/a.txt", bytes: 17 * 1024 },
+    ])
+    expect(drive.docs).toHaveLength(1)
+    expect(drive.mode).toBe("inline")
+    expect(unc.files).toHaveLength(1)
+    expect(unc.mode).toBe("inline")
+  })
+
+  test("macOS 同一路径按 POSIX 等价写法去重，但保留大小写差异", () => {
+    const decision = decideInlineStrategy([
+      { filename: "a.md", path: "/Users/test/Documents/./materials//a.md", bytes: 1000 },
+      { filename: "a.md", path: "/Users/test/Documents/materials/a.md", bytes: 1000 },
+      { filename: "A.md", path: "/Users/test/Documents/materials/A.md", bytes: 1000 },
+    ])
+    expect(decision.files.map((file) => file.path)).toEqual([
+      "/Users/test/Documents/./materials//a.md",
+      "/Users/test/Documents/materials/A.md",
+    ])
+    expect(decision.totalBytes).toBe(2000)
+  })
+
   test("单份超 SINGLE_DOC_LIMIT → 进 oversized，且整批必然 dispatch", () => {
     const d = decideInlineStrategy([f("huge.md", SINGLE_DOC_LIMIT + 1), f("a.md", 10)])
     expect(d.mode).toBe("dispatch")

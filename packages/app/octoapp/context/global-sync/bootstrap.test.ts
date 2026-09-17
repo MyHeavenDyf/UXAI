@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { OpencodeClient, Path, Project, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
-import { bootstrapDirectory, isBootstrapRecent } from "./bootstrap"
+import { bootstrapDirectory, isBootstrapRecent, mergeSessionStatusSnapshot } from "./bootstrap"
 import type { State, VcsCache } from "./types"
 
 describe("global sync bootstrap", () => {
@@ -11,6 +11,29 @@ describe("global sync bootstrap", () => {
     expect(isBootstrapRecent({ booting: true, bootedAt: 1_000, now: 10_000 })).toBe(true)
     expect(isBootstrapRecent({ booting: false, bootedAt: 9_000, now: 10_000 })).toBe(true)
     expect(isBootstrapRecent({ booting: false, bootedAt: 1_000, now: 10_000 })).toBe(false)
+  })
+
+  test("does not overwrite a status changed while the snapshot request was in flight", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        before: {},
+        current: { ses_new: { type: "busy" } },
+        incoming: { ses_new: { type: "idle" }, ses_existing: { type: "busy" } },
+      }),
+    ).toEqual({
+      ses_new: { type: "busy" },
+      ses_existing: { type: "busy" },
+    })
+  })
+
+  test("does not overwrite an existing busy status with an older idle snapshot", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        before: { ses_new: JSON.stringify({ type: "busy" }) },
+        current: { ses_new: { type: "busy" } },
+        incoming: { ses_new: { type: "idle" } },
+      }),
+    ).toEqual({ ses_new: { type: "busy" } })
   })
 
   test("waits for directory requests before completing", async () => {

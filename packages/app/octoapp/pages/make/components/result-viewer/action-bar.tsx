@@ -268,6 +268,7 @@ function CanvasEditDropdown(props: {
   sessionId?: string
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
@@ -313,6 +314,7 @@ function CanvasEditDropdown(props: {
         observedUrlsGetter: props.observedUrlsGetter,
         usePixsoTransport,
         sdkDirectory: props.sdkDirectory,
+        onFilesRefresh: props.onFilesRefresh,
       }
       
       const result = await handler.handleCanvasEdit(ctx)
@@ -482,6 +484,7 @@ export function ActionBar(props: {
     palette?: PaletteId | null
     inspecting?: boolean
     editing?: boolean
+    modelEditing?: boolean
     drawing?: boolean
     commenting?: boolean
     archiving?: boolean
@@ -492,6 +495,7 @@ export function ActionBar(props: {
     onPaletteChange?: (palette: PaletteId | null) => void
     onInspectToggle?: () => void
     onEditToggle?: () => void
+    onModelEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
@@ -505,6 +509,7 @@ export function ActionBar(props: {
     sessionId?: string
     sdkDirectory?: string
     postMessageToIframe?: (data: unknown) => void
+    onFilesRefresh?: () => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -595,6 +600,7 @@ export function ActionBar(props: {
   const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
   const showRefreshButton = () => featureVisible(config().features.refresh)
   const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
   const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
   const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
   const showComment = () => featureVisible(config().features.comment) && showViewport()
@@ -674,6 +680,10 @@ export function ActionBar(props: {
       observedUrlsGetter: props.observedResourceUrls,
       usePixsoTransport,
       postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
+      // 会话上下文:自定义按钮要定位会话目录时用(如 fastui 导出代码包)。
+      // 与 handleDownload 的 ctx 取法一致 —— sessionId 走路由参数。
+      sessionId: props.sessionId ?? params.id,
+      sdkDirectory: props.sdkDirectory,
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -775,6 +785,18 @@ export function ActionBar(props: {
               <span>局部修改</span>
             </button>
           )}
+          {showModelEdit() && props.onModelEditToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
+              onClick={props.onModelEditToggle}
+              title="局部修改"
+            >
+              <IconLocalModify size={16} />
+              <span>局部修改</span>
+            </button>
+          )}
           {showDrawEdit() && props.onDrawToggle && (
             <button
               type="button"
@@ -793,6 +815,7 @@ export function ActionBar(props: {
               sessionId={props.sessionId}
               sdkDirectory={props.sdkDirectory}
               observedUrlsGetter={props.observedResourceUrls}
+              onFilesRefresh={props.onFilesRefresh}
             />
           )}
           <Show when={shouldShowCopy()}>
@@ -1052,7 +1075,7 @@ function DownloadButton(props: {
         <button
           ref={btnRef}
           type="button"
-          class="octo-dropdown-trigger"
+          class="octo-action-btn"
           classList={{ "octo-dropdown-open": open() }}
           style={{ width: "auto" }}
           onClick={() => setOpen(!open())}

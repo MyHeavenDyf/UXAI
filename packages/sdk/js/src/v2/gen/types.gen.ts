@@ -765,6 +765,8 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  pinned: boolean
 }
 
 export type Prompt = {
@@ -1326,7 +1328,7 @@ export type Model = {
 export type Provider = {
   id: string
   name: string
-  source: "env" | "config" | "custom" | "api"
+  source: "env" | "config" | "custom" | "api" | "remote"
   env: Array<string>
   key?: string
   options: {
@@ -1420,6 +1422,8 @@ export type GlobalSession = {
     snapshot?: string
     diff?: string
   }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  pinned: boolean
   project: ProjectSummary | null
 }
 
@@ -1796,6 +1800,101 @@ export type ChatMigrationError = {
   }
 }
 
+export type Session9 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  agent?: string
+  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+  sort_order: number | "NaN" | "Infinity" | "-Infinity"
+  pinned: boolean
+}
+
+export type SyncEventSessionUpdated11 = {
+  type: "sync"
+  name: "session.updated.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    sessionID: string
+    info: {
+      id?: string
+      slug?: string
+      projectID?: string
+      workspaceID?: string
+      directory?: string
+      path?: string
+      parentID?: string
+      summary?: {
+        additions: number
+        deletions: number
+        files: number
+        diffs?: Array<SnapshotFileDiff>
+      }
+      share?: {
+        url?: string
+      }
+      title?: string
+      agent?: string
+      model?: {
+        id: string
+        providerID: string
+        variant?: string
+      }
+      version?: string
+      time?: {
+        created?: number
+        updated?: number
+        compacting?: number
+        archived?: number
+      }
+      permission?: PermissionRuleset
+      revert?: {
+        messageID: string
+        partID?: string
+        snapshot?: string
+        diff?: string
+      }
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity"
+      pinned?: boolean
+    }
+  }
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -1904,6 +2003,8 @@ export type SyncEventSessionUpdated = {
         snapshot?: string
         diff?: string
       } | null
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | null
+      pinned?: boolean | null
     }
   }
 }
@@ -5888,6 +5989,8 @@ export type SessionUpdateData = {
     time?: {
       archived?: number
     }
+    sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    pinned?: boolean
   }
   path: {
     sessionID: string
@@ -6177,6 +6280,36 @@ export type SessionMessageResponses = {
 }
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
+
+export type SessionReorderData = {
+  body?: {
+    ids: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/reorder"
+}
+
+export type SessionReorderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionReorderError = SessionReorderErrors[keyof SessionReorderErrors]
+
+export type SessionReorderResponses = {
+  /**
+   * Successfully reordered sessions
+   */
+  200: boolean
+}
+
+export type SessionReorderResponse = SessionReorderResponses[keyof SessionReorderResponses]
 
 export type SessionForkData = {
   body?: {
@@ -6719,6 +6852,308 @@ export type PartUpdateResponses = {
 }
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
+
+export type SessionGroupListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    namespace: "make" | "insight"
+  }
+  url: "/session-group"
+}
+
+export type SessionGroupListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupListError = SessionGroupListErrors[keyof SessionGroupListErrors]
+
+export type SessionGroupListResponses = {
+  /**
+   * Groups and mappings
+   */
+  200: {
+    groups: Array<{
+      id: string
+      project_id: string
+      directory: string
+      namespace: "make" | "insight"
+      name: string
+      position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    mapping: {
+      [key: string]: {
+        groupId: string
+        position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+    }
+  }
+}
+
+export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGroupListResponses]
+
+export type SessionGroupCreateData = {
+  body?: {
+    namespace: "make" | "insight"
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group"
+}
+
+export type SessionGroupCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupCreateError = SessionGroupCreateErrors[keyof SessionGroupCreateErrors]
+
+export type SessionGroupCreateResponses = {
+  /**
+   * Created group
+   */
+  200: {
+    id: string
+    project_id: string
+    directory: string
+    namespace: "make" | "insight"
+    name: string
+    position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionGroupCreateResponse = SessionGroupCreateResponses[keyof SessionGroupCreateResponses]
+
+export type SessionGroupRemoveData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/{id}"
+}
+
+export type SessionGroupRemoveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupRemoveError = SessionGroupRemoveErrors[keyof SessionGroupRemoveErrors]
+
+export type SessionGroupRemoveResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupRemoveResponse = SessionGroupRemoveResponses[keyof SessionGroupRemoveResponses]
+
+export type SessionGroupRenameData = {
+  body?: {
+    name: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/{id}"
+}
+
+export type SessionGroupRenameErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupRenameError = SessionGroupRenameErrors[keyof SessionGroupRenameErrors]
+
+export type SessionGroupRenameResponses = {
+  /**
+   * Renamed
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupRenameResponse = SessionGroupRenameResponses[keyof SessionGroupRenameResponses]
+
+export type SessionGroupReorderData = {
+  body?: {
+    ids: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/reorder"
+}
+
+export type SessionGroupReorderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupReorderError = SessionGroupReorderErrors[keyof SessionGroupReorderErrors]
+
+export type SessionGroupReorderResponses = {
+  /**
+   * Reordered
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupReorderResponse = SessionGroupReorderResponses[keyof SessionGroupReorderResponses]
+
+export type SessionGroupMapSessionData = {
+  body?: {
+    sessionId: string
+    groupId: string
+    position?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/mapping"
+}
+
+export type SessionGroupMapSessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupMapSessionError = SessionGroupMapSessionErrors[keyof SessionGroupMapSessionErrors]
+
+export type SessionGroupMapSessionResponses = {
+  /**
+   * Mapped
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupMapSessionResponse = SessionGroupMapSessionResponses[keyof SessionGroupMapSessionResponses]
+
+export type SessionGroupUnmapSessionData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/mapping/{sessionID}"
+}
+
+export type SessionGroupUnmapSessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGroupUnmapSessionError = SessionGroupUnmapSessionErrors[keyof SessionGroupUnmapSessionErrors]
+
+export type SessionGroupUnmapSessionResponses = {
+  /**
+   * Removed
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupUnmapSessionResponse =
+  SessionGroupUnmapSessionResponses[keyof SessionGroupUnmapSessionResponses]
+
+export type SessionGroupReorderSessionsData = {
+  body?: {
+    groupId: string
+    sessionIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session-group/reorder-sessions"
+}
+
+export type SessionGroupReorderSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionGroupReorderSessionsError =
+  SessionGroupReorderSessionsErrors[keyof SessionGroupReorderSessionsErrors]
+
+export type SessionGroupReorderSessionsResponses = {
+  /**
+   * Reordered
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionGroupReorderSessionsResponse =
+  SessionGroupReorderSessionsResponses[keyof SessionGroupReorderSessionsResponses]
 
 export type SyncStartData = {
   body?: never
@@ -7548,6 +7983,327 @@ export type StudioPromptGenCreateResponses = {
   200: unknown
 }
 
+export type StudioStyleDescriptionGenCreateData = {
+  body?: {
+    style_keywords: string
+    style_images: Array<{
+      url: string
+    }>
+    style_dimensions: Array<
+      | "tonal"
+      | "composition"
+      | "volume"
+      | "surface"
+      | "color"
+      | "linework"
+      | "shape_structure"
+      | "role_design"
+      | "lettering"
+      | "post_processing"
+    >
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/style-description-gen"
+}
+
+export type StudioStyleDescriptionGenCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioStyleDescriptionGenCreateError =
+  StudioStyleDescriptionGenCreateErrors[keyof StudioStyleDescriptionGenCreateErrors]
+
+export type StudioStyleDescriptionGenCreateResponses = {
+  /**
+   * Success
+   */
+  200: string
+}
+
+export type StudioStyleDescriptionGenCreateResponse =
+  StudioStyleDescriptionGenCreateResponses[keyof StudioStyleDescriptionGenCreateResponses]
+
+export type StudioTemplatePublishCreateData = {
+  body?:
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        template_type: "extract_style"
+        style_description: {
+          overview: string
+          tonal?: string
+          composition?: string
+          volume?: string
+          surface?: string
+          color?: string
+          linework?: string
+          shape_structure?: string
+          role_design?: string
+          lettering?: string
+          post_processing?: string
+        }
+        style_images: Array<{
+          url: string
+        }>
+        style_keywords: string
+      }
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        template_type: "preset_recipe"
+        fixed_reference_images: Array<{
+          url: string
+        }>
+        play_description: string
+      }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/template-publish"
+}
+
+export type StudioTemplatePublishCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplatePublishCreateError =
+  StudioTemplatePublishCreateErrors[keyof StudioTemplatePublishCreateErrors]
+
+export type StudioTemplatePublishCreateResponses = {
+  /**
+   * Studio template publish result
+   */
+  200: unknown
+}
+
+export type StudioTemplateUpdateUpdateData = {
+  body?:
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        idx: number
+        template_type: "extract_style"
+        style_description: {
+          overview: string
+          tonal?: string
+          composition?: string
+          volume?: string
+          surface?: string
+          color?: string
+          linework?: string
+          shape_structure?: string
+          role_design?: string
+          lettering?: string
+          post_processing?: string
+        }
+        style_images: Array<{
+          url: string
+        }>
+        style_keywords: string
+      }
+    | {
+        allowed_user_ids: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        idx: number
+        template_type: "preset_recipe"
+        fixed_reference_images: Array<{
+          url: string
+        }>
+        play_description: string
+      }
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-update/{templateID}"
+}
+
+export type StudioTemplateUpdateUpdateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateUpdateUpdateError = StudioTemplateUpdateUpdateErrors[keyof StudioTemplateUpdateUpdateErrors]
+
+export type StudioTemplateUpdateUpdateResponses = {
+  /**
+   * Studio template update result
+   */
+  200: unknown
+}
+
+export type StudioTemplateDeleteDeleteData = {
+  body?: never
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-delete/{templateID}"
+}
+
+export type StudioTemplateDeleteDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateDeleteDeleteError = StudioTemplateDeleteDeleteErrors[keyof StudioTemplateDeleteDeleteErrors]
+
+export type StudioTemplateDeleteDeleteResponses = {
+  /**
+   * Studio template delete result
+   */
+  200: unknown
+}
+
+export type StudioTemplateListListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+    only_public: string
+    page: string
+    page_size: string
+  }
+  url: "/studio/template-list"
+}
+
+export type StudioTemplateListListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateListListError = StudioTemplateListListErrors[keyof StudioTemplateListListErrors]
+
+export type StudioTemplateListListResponses = {
+  /**
+   * Studio template list result
+   */
+  200: unknown
+}
+
+export type StudioTemplateDetailGetData = {
+  body?: never
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-detail/{templateID}"
+}
+
+export type StudioTemplateDetailGetErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateDetailGetError = StudioTemplateDetailGetErrors[keyof StudioTemplateDetailGetErrors]
+
+export type StudioTemplateDetailGetResponses = {
+  /**
+   * Studio template detail result
+   */
+  200: unknown
+}
+
+export type StudioTemplateUserSearchCreateData = {
+  body?: {
+    query: string
+    size: 3
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/template-user-search"
+}
+
+export type StudioTemplateUserSearchCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateUserSearchCreateError =
+  StudioTemplateUserSearchCreateErrors[keyof StudioTemplateUserSearchCreateErrors]
+
+export type StudioTemplateUserSearchCreateResponses = {
+  /**
+   * Studio template user search result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -7626,8 +8382,8 @@ export type StudioGenerationsCreateResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
-    videoQualityMode?: "std" | "pro"
+    duration?: string
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -7739,8 +8495,8 @@ export type StudioGenerationsCancelResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
-    videoQualityMode?: "std" | "pro"
+    duration?: string
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -7815,8 +8571,8 @@ export type StudioGenerationsRebootResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
-    videoQualityMode?: "std" | "pro"
+    duration?: string
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"
@@ -7891,8 +8647,8 @@ export type StudioGenerationsGetResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
-    videoQualityMode?: "std" | "pro"
+    duration?: string
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
     images: Array<{
       id: string
       kind?: "image" | "video"

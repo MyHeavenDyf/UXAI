@@ -6,14 +6,67 @@ import type { ElementRect, ContainerSize, ModifyElementData } from "./types"
 import {
   TEXT_ELEMENTS, LABEL_MAP, COMPONENT_ENUMS, ENUM_DEFAULTS, COMPONENT_PROPS,
   TW_FONT_SIZES, FW_TO_TW,
-  GRID_POSITIONS, BOOL_PROP_KEY_SET,
+  GRID_POSITIONS, BOOL_PROP_KEY_SET, ICON_PICKER_PROP_KEYS,
 } from "./constants"
-import { normalizeCssKeys, toHex } from "./utils"
+import { normalizeCssKeys, toHex, stripImportant, hasImportant, renameRowField } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
-import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
+import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, matchShadowToken, effectsSignature } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
+import { IconPickerPopup, type IconPickerMode } from "./icon-picker-popup"
+import { LUCIDE_ICONS } from "./lucide-icons"
+import { iconColors } from "./icon-colors"
+import { getDesktopApi } from "../../../utils/desktop-api"
+
+/** 图标触发器预览：自定义图标（custom）按 src（uploads/文件名）+ htmlFilePath 读本地文件原样 img 展示；
+ *  云端 url 有颜色时用 mask 技法染色，无颜色直接 img；均失败时回退本地 lucide 按名渲染 */
+function IconFieldPreview(props: { name?: string; url?: string; color?: string; custom?: boolean; src?: string; htmlFilePath?: string }) {
+  const [failed, setFailed] = createSignal(false)
+  const [fileUrl, setFileUrl] = createSignal<string | null>(null)
+  createEffect(() => {
+    /** url/name 变化（如图标弹窗确认换图标）也要重置 failed：否则上一次 img 加载失败的锁死状态会挡住新 url 的展示 */
+    props.custom; props.src; props.htmlFilePath; props.url; props.name; setFailed(false); setFileUrl(null)
+    if (!props.custom || !props.src || !props.htmlFilePath) return
+    const api = getDesktopApi()
+    const base = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '')
+    api?.readFileBuffer?.(`${base}/${props.src}`).then((buf) => {
+      setFileUrl(buf ? URL.createObjectURL(new Blob([buf])) : null)
+    }).catch(() => setFileUrl(null))
+  })
+  return (
+    <Show when={props.custom && fileUrl()} fallback={
+      <Show when={props.url && !failed()} fallback={
+        (() => {
+          const d = LUCIDE_ICONS.find(i => i.name === props.name)
+          return d
+            ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" innerHTML={d.svg} class="shrink-0" style={{ stroke: props.color || '#191919' }} />
+            : null
+        })()
+      }>
+        <Show when={props.color} fallback={
+          <img src={props.url} alt="" loading="lazy" decoding="async"
+            class="h-4 w-4 shrink-0 object-contain" onError={() => setFailed(true)} />
+        }>
+          <div class="h-4 w-4 shrink-0" style={{
+            'background-color': props.color,
+            '-webkit-mask-image': `url("${props.url}")`,
+            'mask-image': `url("${props.url}")`,
+            '-webkit-mask-repeat': 'no-repeat',
+            'mask-repeat': 'no-repeat',
+            '-webkit-mask-position': 'center',
+            'mask-position': 'center',
+            '-webkit-mask-size': 'contain',
+            'mask-size': 'contain',
+          }} />
+        </Show>
+      </Show>
+    }>
+      <img src={fileUrl()!} alt="" class="h-4 w-4 shrink-0 object-contain" />
+    </Show>
+  )
+}
+
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -109,6 +162,9 @@ export function PropertyEditorPopup(props: {
   const [editOpacity, setEditOpacity] = createSignal(100)
   const [foundOpacity, setFoundOpacity] = createSignal(false)
   const [cornerOpen, setCornerOpen] = createSignal(false)
+  const [iconPickerOpen, setIconPickerOpen] = createSignal(false)
+  const [iconPickerKey, setIconPickerKey] = createSignal<string>()
+  const [iconPickerAnchor, setIconPickerAnchor] = createSignal<HTMLElement>()
   const [editRadiusTl, setEditRadiusTl] = createSignal(0)
   const [editRadiusTr, setEditRadiusTr] = createSignal(0)
   const [editRadiusBr, setEditRadiusBr] = createSignal(0)
@@ -161,6 +217,13 @@ export function PropertyEditorPopup(props: {
   let menuNodeIdCounter = 0
   const [menuPanelOpen, setMenuPanelOpen] = createSignal(false)
   let menuPanelRef!: HTMLDivElement
+  /** 菜单项图标选择弹窗：parent=顶层项索引，child=-1 表示顶层项本身、>=0 表示其子项索引；
+   *  渲染端菜单图标仅按 name 解析，走 embedded 模式只回传名称 */
+  const [menuIconPicker, setMenuIconPicker] = createSignal<{ parent: number; child: number; anchor?: HTMLElement } | null>(null)
+  /** 面板/编辑器关闭时清掉弹窗状态：否则残留的 target 会让下次打开菜单面板时图标弹窗自动弹出 */
+  createEffect(() => {
+    if (!props.show || !menuPanelOpen()) setMenuIconPicker(null)
+  })
 
   type TableColumn = {
     id: number; title: string; dataIndex: string; align: string
@@ -178,30 +241,88 @@ export function PropertyEditorPopup(props: {
   const [dataPanelOpen, setDataPanelOpen] = createSignal(false)
   let dataPanelRef!: HTMLDivElement
 
-  const SHADOW_TOKEN_MAP: [string, string][] = [
-    ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
-    ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
-    ["0px 8px 24px 0px rgba(0,0,0,0.16)", "popover"],
-    ["0px 16px 48px 0px rgba(0,0,0,0.16)", "modal"],
-  ]
-
-  function matchShadowToken(effect: typeof effects[number]): string | null {
-    if (effect.type !== 'drop-shadow') return null
-    const hex = effect.color.replace('#', '')
-    const r = parseInt(hex.slice(0, 2), 16)
-    const g = parseInt(hex.slice(2, 4), 16)
-    const b = parseInt(hex.slice(4, 6), 16)
-    const alpha = effect.opacity / 100
-    const cssVal = `${effect.offsetX}px ${effect.offsetY}px ${effect.blur}px 0px rgba(${r},${g},${b},${alpha})`
-    for (const [val, token] of SHADOW_TOKEN_MAP) {
-      if (val === cssVal) return token
-    }
-    return null
-  }
-
   const [editProps, setEditProps] = createStore<Record<string, string>>({})
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
+  const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
+
+  /** 图标类组件：图标属性由图标弹窗接管（name 标签、shape/color 行、宽高组的展示随之调整）。仅 Icon 组件类型本身适用；Button/Tag 等带 icon 属性的组件不算图标类组件 */
+  const isIconComponent = () => props.componentType === 'Icon'
+
+  /** 图标扩展键（如 nameId/nameUrl/nameSrc/src 等）：随元素透传但不在属性面板展示为行 */
+  const isIconExtraKey = (k: string) => {
+    if (k === 'src') return ICON_PICKER_PROP_KEYS.has(`${props.componentType}.name`)
+    for (const base of ['icon', 'name', 'prefix', 'suffix', 'expandIcon', 'closeIcon']) {
+      if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${base}`)) continue
+      if (/^(Id|Url|Custom|Size|Style|Color|Src)$/.test(k.slice(base.length))) return true
+    }
+    return false
+  }
+
+  /** 某图标 key 当前是否为自定义图标：优先 nameCustom==='1'，兼容带 uploads src 或旧 custom: id 的数据 */
+  const iconCustomFlag = (k: string) => {
+    const p = editProps as Record<string, string>
+    return p[`${k}Custom`] === '1' || !!p[`${k}Src`] || (p[`${k}Id`] ?? '').startsWith('custom:')
+  }
+
+  /** 图标弹窗模式解析（与 icon-picker-popup 的 IconPickerMode 一一对应）：
+   *  standalone —— 独立图标组件（Icon.name，图标即元素本体）：全功能（官方+自定义、筛选、全量参数回传）；
+   *  embedded   —— 组件内嵌图标入口（Button.icon/Tag.icon/Input.prefix 等，渲染端仅按 name 解析）：只换名称。
+   *  后续新增第三种入口形态时在此按 组件/键 映射新成员即可 */
+  const iconPickerMode = (k: string): IconPickerMode =>
+    props.componentType === 'Icon' && k === 'name' ? 'standalone' : 'embedded'
+
+  /** 图标弹窗确认：写回图标名与各入口专属参数（${key}Id/Url/Custom/Src/Size/Style/Color），按模式走 if/else 分支 */
+  function handleIconPick(pick: { name: string; id?: string; url?: string; src?: string; isCustom?: boolean; size?: string; style?: string; color?: string }) {
+    const key = iconPickerKey()!
+    const prevProps = editProps as Record<string, string>
+    updateEditProp(key, pick.name)
+
+    if (iconPickerMode(key) === 'embedded') {
+      // —— 组件内嵌图标入口：只换名称。保留 Id/Url（触发器小图预览与弹窗回显高亮用，渲染端仍只按 name 解析），
+      //    其余参数清空（Custom/Src 残留会误判自定义，Size/Style/Color 渲染端不消费）——
+      updateEditProp(`${key}Id`, pick.id ?? '')
+      updateEditProp(`${key}Url`, pick.url ?? (prevProps[`${key}Url`] ?? ''))
+      for (const suffix of ['Custom', 'Src', 'Size', 'Style', 'Color']) updateEditProp(`${key}${suffix}`, '')
+      return
+    }
+
+    // —— 独立图标组件（Icon.name）：写回全量参数 ——
+    /** id 无条件写入（自定义图标不带，置空以免残留）；url 仅在换图标/换自定义时覆盖——
+     *  只改线性/大小/颜色再确认时 pick.url 为空（当前图标不在搜索结果里），保留原 url 供回显与渲染 */
+    updateEditProp(`${key}Id`, pick.id ?? '')
+    updateEditProp(`${key}Url`, pick.url ?? (pick.isCustom ? '' : (prevProps[`${key}Url`] ?? '')))
+    updateEditProp(`${key}Custom`, pick.isCustom ? '1' : '')
+    /** src：自定义图标 → uploads/文件名；普通图标 → 空串（随元素下发以清除渲染端 src） */
+    updateEditProp(`${key}Src`, pick.src ?? '')
+    updateEditProp(`${key}Size`, pick.size ?? '')
+    updateEditProp(`${key}Style`, pick.style ?? '')
+    updateEditProp(`${key}Color`, pick.color ?? '')
+    /** 尺寸写元素宽高仅限 Icon 组件（图标即元素本体）；Button/Input 等带图标组件不能被图标尺寸改写自身宽高 */
+    const px = Number(pick.size)
+    if (px > 0 && props.componentType === 'Icon') {
+      setFillWidth(false); setHugWidth(false)
+      setEditWidth(''); setEditWidthPx(px); setFoundWidthPx(true); setDirtyPropKeys('width', true)
+      setFillHeight(false); setHugHeight(false)
+      setEditHeightPx(px); setFoundHeightPx(true); setDirtyPropKeys('height', true)
+    }
+    // shape/color 仅同步到"本身就是图标枚举"的组件字段（Icon.shape ⊆ outline/two-tone/square/circle、Icon.color ⊆ iconColors）。
+    // Button.shape(default/circle/round)/Button.color(default/primary/danger) 是按钮自身外观，图标筛选的撞名值不得覆盖
+    const compShapeValues = COMPONENT_ENUMS[`${props.componentType}.shape`]?.map(o => o.value) ?? []
+    if (pick.style && compShapeValues.length && compShapeValues.every(v => ['outline', 'two-tone', 'square', 'circle'].includes(v)) && compShapeValues.includes(pick.style)) {
+      updateEditProp('shape', pick.style)
+    }
+    const compColorValues = COMPONENT_ENUMS[`${props.componentType}.color`]?.map(o => o.value) ?? []
+    const colorKey = pick.color ? Object.keys(iconColors).find(k => iconColors[k].color.split(',')[0].trim() === pick.color) : undefined
+    if (colorKey && compColorValues.length && compColorValues.every(v => v in iconColors) && compColorValues.includes(colorKey)) {
+      updateEditProp('color', colorKey)
+    }
+  }
+
+  function updateEditProp(key: string, val: string) {
+    setEditProps(key, val)
+    setDirtyPropKeys(key, true)
+  }
 
   const dataFields = createMemo(() => {
     const set: string[] = []
@@ -339,7 +460,7 @@ export function PropertyEditorPopup(props: {
   }
 
   function classifyClassGroup(c: string): string | null {
-    const s = c.startsWith('!') ? c.slice(1) : c
+    const s = stripImportant(c)
     if (s === 'text-left' || s === 'text-center' || s === 'text-right' || s === 'text-justify') return 'textAlign'
     if (s.startsWith('text-[#')) return 'textColor'
     if (/^text-hui-/.test(s)) return 'textColor'
@@ -384,6 +505,53 @@ export function PropertyEditorPopup(props: {
     return dirty
   }
 
+  // 取消"填充/适应 宽高"勾选，分两种情况：
+  // 1) 该勾选是用户本次会话点选的（打开时未勾选）→ 恢复整组到打开时状态（originalSnapshot），
+  //    找回被互斥清掉的另一半及原 px/百分比值。
+  // 2) 该勾选打开时就存在（元素原始 class 本来就有 w-full/h-auto 等）→ 恢复是原地踏步，
+  //    用户的意图是"移除这个宽/高约束"，此时清空整组而非恢复，否则 signal 不变、不触发提交，
+  //    checkbox 与 signal 脱钩，元素样式也回不去。
+  // 提交交给 autoSave effect 的 300ms 防抖：恢复后快照与最近提交基线不同会自动提交；
+  // 相同则说明 doc 未被改过（如 300ms 内快速勾选又取消），无需提交。旧实现的强制
+  // handleConfirm 会与 effect 补排的定时器产生一次空 dirty 的重复提交，已移除。
+  function revertGroup(group: 'width' | 'height', box: 'fill' | 'hug') {
+    // originalSnapshot 尚未生成（tailwindToCss IPC 还在途，autoSave effect 未初始化）时，
+    // 恢复语义不可用（原始值还没解析出来）。此时直接清空整组：signal 与 DOM checkbox
+    // 保持一致，初始化完成时 applyCssVariables 会按原始 class 重设这些 signal（与面板
+    // "初始化前的编辑被覆盖"的既有行为一致）。若在此 early return，DOM 已取消勾选而
+    // signal 不变，二者脱钩，之后的 setFillWidth(true)（值未变）也不会把 DOM 拉回。
+    let initSnap: Record<string, unknown> | null = null
+    if (originalSnapshotJson) {
+      try { initSnap = JSON.parse(originalSnapshotJson) as Record<string, unknown> } catch { initSnap = null }
+    }
+    if (group === 'width') {
+      const origFill = initSnap ? Boolean(initSnap.fillWidth) : false
+      const origHug = initSnap ? Boolean(initSnap.hugWidth) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditWidth(''); setEditWidthPx(0); setFoundWidthPx(false)
+        setFillWidth(false); setHugWidth(false)
+      } else {
+        setEditWidth(String(initSnap?.width ?? ''))
+        setEditWidthPx(Number(initSnap?.widthPx ?? 0))
+        setFoundWidthPx(Boolean(initSnap?.foundWidthPx))
+        setFillWidth(origFill)
+        setHugWidth(origHug)
+      }
+    } else {
+      const origFill = initSnap ? Boolean(initSnap.fillHeight) : false
+      const origHug = initSnap ? Boolean(initSnap.hugHeight) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditHeightPx(0); setFoundHeightPx(false)
+        setFillHeight(false); setHugHeight(false)
+      } else {
+        setEditHeightPx(Number(initSnap?.heightPx ?? 0))
+        setFoundHeightPx(Boolean(initSnap?.foundHeightPx))
+        setFillHeight(origFill)
+        setHugHeight(origHug)
+      }
+    }
+  }
+
   function buildClassName(dirtyGroups?: Set<string> | null) {
     const parts = parsedClasses.filter(c => {
       const g = classifyClassGroup(c)
@@ -403,7 +571,7 @@ export function PropertyEditorPopup(props: {
     }
     if (isDirty('fontFamily') && editFontFamily()) parts.push(`font-${editFontFamily()}`)
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
-    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
+    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing()}px]`)
     if (isDirty('textAlign') && editAlign()) parts.push(`text-${editAlign()}`)
     if (isDirty('vAlign') && editVAlign()) parts.push(`items-${editVAlign()}`)
 
@@ -530,11 +698,11 @@ export function PropertyEditorPopup(props: {
     if (v.fontWeight) { setEditFontWeight(px(v.fontWeight)); setFoundFontWeight(true) }
     if (v.fontFamily) setEditFontFamily(v.fontFamily)
     if (v.textAlign) setEditAlign(v.textAlign)
-    if (v.lineHeight) setEditLineHeight(v.lineHeight)
+    if (v.lineHeight) setEditLineHeight(v.lineHeight === 'normal' ? 'auto' : v.lineHeight)
     if (v.letterSpacing) {
       const ls = String(v.letterSpacing)
       const n = parseFloat(ls)
-      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') ? Math.round(n * 100) : n)
+      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') || ls.endsWith('rem') ? Math.round(n * 16 * 100) / 100 : n)
     }
 
     if (v.padding) {
@@ -874,6 +1042,7 @@ export function PropertyEditorPopup(props: {
     const defKeys = COMPONENT_PROPS[props.componentType] || []
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => {
       if (k.startsWith('__bind_') || k === 'inlineCollapsed' || k === 'preview' || k === 'url' || k === 'items' || k === 'open' || k === 'footer') return false
+      if (isIconExtraKey(k)) return false
       const v = parsed[k]
       if (v == null) return true
       if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true
@@ -881,6 +1050,14 @@ export function PropertyEditorPopup(props: {
       return false
     })
     setPropKeys(allKeys)
+    // 图标扩展键不展示为属性行，但需写入 editProps（弹窗重开回显 Url/Size/Style/Color、触发器预览 Url）
+    for (const k of Object.keys(parsed)) {
+      if (!isIconExtraKey(k)) continue
+      const v = parsed[k]
+      if (v == null || isStateBoundValue(v)) continue
+      // 自定义图标渲染端把 name 的 Src 参数存为元素 prop "src"（见透传），读回时归位到 nameSrc 供触发器/弹窗回显使用
+      setEditProps(k === 'src' && ICON_PICKER_PROP_KEYS.has(`${props.componentType}.name`) ? 'nameSrc' : k, v.toString())
+    }
     for (const k of allKeys) {
       const parsedVal = parsed[k]
       const raw = isStateBoundValue(parsedVal) ? '' : (parsedVal ?? '').toString()
@@ -951,7 +1128,15 @@ export function PropertyEditorPopup(props: {
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
+  let confirmInFlight = false
+  let confirmAgain = false
+  let editGeneration = 0
+  let initializedForElement = ''
+  let lastSubmittedClassName = ''
+  /** 最近一次提交时的快照（脏组检测基线，每次 handleConfirm 后推进） */
   let initialSnapshotJson = ''
+  /** 打开面板那一刻的快照（永不推进），revertGroup 取消勾选时恢复到它 */
+  let originalSnapshotJson = ''
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
@@ -981,6 +1166,7 @@ export function PropertyEditorPopup(props: {
     setMenuTree([])
     setTableColumns([])
     setTableData([])
+    setDirtyPropKeys(reconcile({}))
     preservedCssVars = {}
   }
 
@@ -989,19 +1175,24 @@ export function PropertyEditorPopup(props: {
       setReady(false)
       apiCalled = false
       initialized = false
+      confirmInFlight = false
+      confirmAgain = false
+      initializedForElement = ''
+      lastSubmittedClassName = ''
       initialSnapshotJson = ''
+      originalSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
+    const eid = props.elementId
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
     const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
     const rawCls = parsedClassName || props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    const allClasses = rawCls.split(/\s+/).filter(Boolean)
+    parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
     importantSet = new Set(
-      rawCls.split(/\s+/)
-        .filter(c => c.startsWith('!') && !c.startsWith('!el-'))
-        .map(c => c.slice(1))
+      allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
     )
     const cleanCls = parsedClasses.join(' ')
 
@@ -1009,8 +1200,10 @@ export function PropertyEditorPopup(props: {
 
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
 
-    if (!apiCalled) {
+    if (!apiCalled || initializedForElement !== eid) {
       apiCalled = true
+      initializedForElement = eid
+      editGeneration++
       resetEditorSignals()
       setInitialPos('right', 5)
       setInitialPos('top', 50)
@@ -1040,7 +1233,7 @@ export function PropertyEditorPopup(props: {
             if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
           setDragOffset({ x: 0, y: 0 })
-          initialEffectsJson = JSON.stringify(effects)
+          initialEffectsJson = effectsSignature(effects)
           setReady(true)
         })
       } else {
@@ -1052,7 +1245,7 @@ export function PropertyEditorPopup(props: {
           if (f) setEditBgColor(f.color)
         }
         setDragOffset({ x: 0, y: 0 })
-        initialEffectsJson = JSON.stringify(effects)
+        initialEffectsJson = effectsSignature(effects)
         setReady(true)
       }
     }
@@ -1097,7 +1290,13 @@ export function PropertyEditorPopup(props: {
   createEffect(() => {
     if (!menuPanelOpen()) return
     const handler = (ev: MouseEvent) => {
-      if (menuPanelRef && !menuPanelRef.contains(ev.target as Node)) setMenuPanelOpen(false)
+      const t = ev.target as HTMLElement
+      if (menuPanelRef?.contains(t)) return
+      /** 图标弹窗经 Portal 挂在 body 下（不在面板 DOM 内），其内部点击不算"面板外"；
+       *  其下拉列表（data-custom-select-list）同理，否则点菜单项图标弹窗会把整个编辑菜单关掉 */
+      if (t?.closest?.('[data-icon-picker-popup]')) return
+      if (t?.closest?.('[data-custom-select-list]')) return
+      setMenuPanelOpen(false)
     }
     document.addEventListener('mousedown', handler)
     onCleanup(() => document.removeEventListener('mousedown', handler))
@@ -1167,7 +1366,7 @@ export function PropertyEditorPopup(props: {
       tag: editTag(),
       fills: fills.map(f => `${f.id}:${f.color}:${f.opacity}:${f.visible}`),
       strokes: strokes.map(s => `${s.id}:${s.color}:${s.visible}:${s.width}:${s.position}:${s.individualOpen}:${s.widthTop}:${s.widthRight}:${s.widthBottom}:${s.widthLeft}`),
-      effects: effects.map(e => `${e.id}:${e.type}:${e.visible}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`),
+      effects: effectsSignature(effects),
       menuTree: JSON.stringify(menuTree),
       menuErrCount: menuErrors().filter(e => e.type === 'error').length,
       tableColumns: JSON.stringify(tableColumns),
@@ -1183,12 +1382,22 @@ export function PropertyEditorPopup(props: {
     if (!ready()) return
     if (!initialized) {
       initialized = true
-      initialSnapshotJson = JSON.stringify(snap)
+      originalSnapshotJson = JSON.stringify(snap)
+      initialSnapshotJson = originalSnapshotJson
       return
     }
-    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 先清掉上一次排程的提交：快速勾选又取消（<300ms）时快照回到基线，
+    // 之前排程的提交不应再触发。
     clearTimeout(autoUpdateTimer)
-    autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
+    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 300ms 防抖：拖拽实时预览用（mousemove 高频需合并）。键盘输入由 DragInput 的
+    // onBlur/Enter 触发 setValue，这里同样 300ms 防抖合并连续多字段编辑。
+    autoUpdateTimer = setTimeout(() => {
+      // 触发时二次校验：等待期间快照可能已回到基线（如取消勾选恢复原值），
+      // 此时无需（也不应）再提交。
+      if (JSON.stringify(autoSnapshot()) === initialSnapshotJson) return
+      handleConfirm(true)
+    }, 300)
   })
 
   function updateDims() {
@@ -1203,6 +1412,8 @@ export function PropertyEditorPopup(props: {
     right: `${initialPos.right + dragOffset.x}px`,
     top: `${initialPos.top + dragOffset.y}px`,
     'max-height': `${maxPopupH()}px`,
+    /** 最小高度：Icon 等行数少的组件面板过矮，展开内外边距设置时内容超出会出滚动条；给个下限留出空间（不超过最大高度） */
+    'min-height': `${Math.min(280, maxPopupH())}px`,
   }))
 
   function startDrag(e: MouseEvent) {
@@ -1274,7 +1485,7 @@ export function PropertyEditorPopup(props: {
     if (isDirty('fontFamily') && editFontFamily()) css['font-family'] = editFontFamily()
     if (isDirty('textAlign') && editAlign()) css['text-align'] = editAlign()
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
-    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
+    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = editLetterSpacing() + 'px'
 
     if (isDirty('textColor') && editTextColor()) css['color'] = editTextColor()
 
@@ -1402,7 +1613,19 @@ export function PropertyEditorPopup(props: {
   }
 
   async function handleConfirm(skipChangeCheck?: boolean) {
+    if (confirmInFlight) { confirmAgain = true; return }
+    confirmInFlight = true
+    const gen = ++editGeneration
+    if (lastSubmittedClassName) {
+      const allClasses = lastSubmittedClassName.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant))
+    }
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
+    // 提交时刻的快照：css 部分在 await 前读取，基线必须推进到"本次实际提交的状态"。
+    // 若用 await 之后的快照推进（旧实现），用户在 IPC await 窗口内的编辑会被吞进基线，
+    // autoSave effect 排程的定时器触发时发现 snapshot === baseline 而跳过，编辑丢失。
+    const snapAtSubmit = JSON.stringify(autoSnapshot())
     let className = props.currentClass || ''
     if (hasClassEditor()) {
       const dirtyGroups = computeDirtyGroups()
@@ -1439,8 +1662,8 @@ export function PropertyEditorPopup(props: {
         const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
         if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
         if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
-        const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
-        const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged = effectsSignature(effects) === initialEffectsJson
+        const originalShadowTokens = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged && originalShadowTokens.length > 0) {
@@ -1454,8 +1677,8 @@ export function PropertyEditorPopup(props: {
         }
       } else {
         className = buildClassName(dirtyGroups)
-        const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
-        const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged2 = effectsSignature(effects) === initialEffectsJson
+        const origShadows = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged2 && origShadows.length > 0) {
@@ -1490,11 +1713,14 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    className = className.split(/\s+/).filter(c => c && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => {
-      const stripped = c.startsWith('!') ? c.slice(1) : c
+    className = [...new Set(className.split(/\s+/).filter(Boolean))].join(' ')
+    className = className.split(/\s+/).filter(c => c && !stripImportant(c).startsWith('el-')).map(c => {
+      const stripped = stripImportant(c)
       const shouldImportant = importantSet.has(stripped)
-      const hasImportant = c.startsWith('!')
-      return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
+      const isImportant = hasImportant(c)
+      if (shouldImportant && !isImportant) return c + '!'
+      if (!shouldImportant && isImportant) return stripped
+      return c
     }).join(' ')
 
     const componentProps: Record<string, string | boolean | object> = {}
@@ -1503,12 +1729,33 @@ export function PropertyEditorPopup(props: {
         if (key === 'className') continue
         if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
-        const isEnum = getEnumOptions(key).length > 0
-        const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
-        if (isEnum || val || hasRaw) {
+        const rawVal = (rawProps as Record<string, string>)[key]
+        const hasRaw = rawVal !== undefined
+        if (dirtyPropKeys[key] || (hasRaw && val !== String(rawVal ?? ''))) {
           componentProps[key] = BOOL_PROP_KEY_SET.has(key)
             ? val === 'true'
             : val
+        }
+      }
+      // 图标专属参数随元素透传。自定义图标渲染端只需 name+nameCustom+src（src 即 uploads/文件名），
+      // 不再下发 nameId/nameUrl（曾含整段 base64 造成数据膨胀）/nameSize/Style/Color（对自定义无意义）；
+      // 官方图标则下发 Url/Custom/Id/Size/Style/Color/Src 用于回显。Url/Custom/Src 支持"空串清除"。
+      for (const key of propKeys()) {
+        if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) continue
+        const isCustom = iconCustomFlag(key)
+        const suffixes = isCustom
+          ? ['Url', 'Custom', 'Id', 'Src']
+          : ['Url', 'Custom', 'Id', 'Size', 'Style', 'Color', 'Src']
+        for (const suffix of suffixes) {
+          const propName = suffix === 'Src' && key === 'name' ? 'src' : `${key}${suffix}`
+          const extra = (editProps as Record<string, string>)[`${key}${suffix}`]
+          // Url/Custom/Id/Src 支持"空串清除"——本次为空而元素原有值时下发空串，避免残留上次选择
+          // （Src 对所有图标键生效：name→src、icon→iconSrc…；内嵌入口只换名称时 Id 一并清空，避免重开误判回显）
+          if (suffix === 'Url' || suffix === 'Custom' || suffix === 'Src' || suffix === 'Id') {
+            if (extra || (rawProps as Record<string, string>)[propName] !== undefined) componentProps[propName] = extra
+            continue
+          }
+          if (extra) componentProps[propName] = extra
         }
       }
       if (props.componentType === 'Menu') {
@@ -1585,8 +1832,24 @@ export function PropertyEditorPopup(props: {
       if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: String(componentProps[key] ?? '') })
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
-    props.onConfirm(confirmData)
-    initialSnapshotJson = JSON.stringify(autoSnapshot())
+    if (gen === editGeneration) {
+      props.onConfirm(confirmData)
+      initialSnapshotJson = snapAtSubmit
+      lastSubmittedClassName = className
+      const allClasses = className.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(
+        allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
+      )
+      initialEffectsJson = effectsSignature(effects)
+      initialBgUrl = editBgUrl()
+    }
+    confirmInFlight = false
+    if (confirmAgain && gen === editGeneration) {
+      confirmAgain = false
+      const cur = autoSnapshot()
+      if (cur && JSON.stringify(cur) !== initialSnapshotJson) void handleConfirm(true)
+    }
   }
 
   function confirmMenuItems() {
@@ -1609,6 +1872,18 @@ export function PropertyEditorPopup(props: {
     void handleConfirm(true)
   }
 
+  // 关闭面板：若 300ms 防抖窗内仍有未提交的改动，立即 flush，
+  // 再调 onCancel。handleConfirm 在 props.show 仍为 true 时同步执行
+  // （捕获快照 + computeDirtyGroups），await 部分异步完成时 signals 仍有效。
+  function closePopup() {
+    clearTimeout(autoUpdateTimer)
+    if (initialized && initialSnapshotJson) {
+      const snap = autoSnapshot()
+      if (snap && JSON.stringify(snap) !== initialSnapshotJson) void handleConfirm(true)
+    }
+    props.onCancel()
+  }
+
   type TrblInput = {
     value: Accessor<number>
     setValue: (v: number) => void
@@ -1616,6 +1891,8 @@ export function PropertyEditorPopup(props: {
     found: Accessor<boolean>
     placeholder: string
     icon?: string | JSX.Element
+    /** 透传给 DragInput 的 min；不传则走默认 0（padding/圆角/描边）。margin 需要负值时传负数。 */
+    min?: number
   }
 
   function renderTrblGrid(
@@ -1623,8 +1900,8 @@ export function PropertyEditorPopup(props: {
   ) {
     const row = (a: TrblInput, b: TrblInput) => (
       <div class="flex items-center gap-1.5 w-full min-w-0">
-        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} />
-        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} />
+        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} min={a.min} />
+        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} min={b.min} />
         {hasSpacer ? <div class="w-6 shrink-0" /> : null}
       </div>
     )
@@ -1640,7 +1917,7 @@ export function PropertyEditorPopup(props: {
     <Show when={props.show}>
       <div
         class="property-editor-overlay"
-        onClick={() => props.onCancel()}
+        onClick={closePopup}
         onContextMenu={(e) => e.preventDefault()}
       />
       <div
@@ -1653,7 +1930,7 @@ export function PropertyEditorPopup(props: {
           <span class="text-xs text-slate-400 ml-2 truncate">{props.elementId}</span>
           <button
             type="button"
-            onClick={() => props.onCancel()}
+            onClick={closePopup}
             class="ml-auto flex items-center justify-center w-5 h-5 rounded-sm text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
             id="popup-header-close-btn"
           >
@@ -1678,10 +1955,10 @@ export function PropertyEditorPopup(props: {
             </div>
           </Show>
 
-          <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
+          <Show when={!isTextElement() && propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color'))).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
-              <For each={propKeys().filter(k => k !== 'className' || !hasClassEditor())}>
+              <For each={propKeys().filter(k => (k !== 'className' || !hasClassEditor()) && !(isIconComponent() && (k === 'shape' || k === 'color')))}>
                 {(key) => (
                   <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
@@ -1693,13 +1970,42 @@ export function PropertyEditorPopup(props: {
                     <Show
                       when={getEnumOptions(key).length > 0}
                       fallback={
-                        <div class="flex items-center gap-1 flex-1 min-w-0">
-                          <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            onInput={(e) => setEditProps(key, e.currentTarget.value)}
-                            type="text" placeholder={key}
-                  class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                          <div class="flex items-center gap-1 flex-1 min-w-0 w-full">
+                          <Show
+                            when={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
+                            fallback={
+                              <input value={(editProps as Record<string, string>)[key] ?? ''}
+                                onInput={(e) => updateEditProp(key, e.currentTarget.value)}
+                                type="text" placeholder={key}
+                                class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                            }>
+                            {/* 图标属性：下拉样式触发器（图标16px + 名称 + 下拉箭头），点击打开图标弹窗。
+                                文本用绝对定位脱离文档流，超长必然截断为省略号，不会顶开容器 */}
+                            <button type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setIconPickerKey(key)
+                                setIconPickerAnchor(e.currentTarget)
+                                setIconPickerOpen(true)
+                              }}
+                              class="h-6 w-full cursor-pointer rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                              style={{ position: 'relative', overflow: 'hidden' }}>
+                              <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}>
+              <IconFieldPreview
+                                name={(editProps as Record<string, string>)[key]}
+                                url={(editProps as Record<string, string>)[`${key}Url`]}
+                                custom={iconCustomFlag(key)}
+                                color={(editProps as Record<string, string>)[`${key}Color`]}
+                                src={(editProps as Record<string, string>)[`${key}Src`]}
+                                htmlFilePath={props.htmlFilePath} />
+                              </div>
+                              <div class="text-left text-slate-600"
+                                style={{ position: 'absolute', left: '40px', right: '26px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{(editProps as Record<string, string>)[key] || '选择图标'}</div>
+                              <svg style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            </button>
+                          </Show>
                           <Show when={key === 'src'}>
-                            <button onClick={() => pickAndUploadImage((url) => setEditProps('src', url))}
+                            <button onClick={() => pickAndUploadImage((url) => updateEditProp('src', url))}
                               class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
                             </button>
@@ -1710,7 +2016,7 @@ export function PropertyEditorPopup(props: {
                       <CustomSelect
                         value={(editProps as Record<string, string>)[key] ?? ''}
                         options={getEnumOptions(key)}
-                        onChange={(v) => setEditProps(key, v)}
+                        onChange={(v) => updateEditProp(key, v)}
                         class="flex-1 min-w-0"
                       />
                     </Show>
@@ -1759,8 +2065,14 @@ export function PropertyEditorPopup(props: {
 
           <Show when={menuPanelOpen()}>
             <Portal>
-              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
-                onMouseDown={() => setMenuPanelOpen(false)}>
+              <div class="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={(e) => {
+                  /** 仅"直接点在遮罩空白处"才关面板：e.target 校验挡住一切子元素/弹层冒泡上来的 mousedown
+                   *  （含图标弹窗搜索框原生清除按钮等异常路径）；图标弹窗打开时点遮罩只关弹窗，不关面板 */
+                  if (e.target !== e.currentTarget) return
+                  if (menuIconPicker()) { setMenuIconPicker(null); return }
+                  setMenuPanelOpen(false)
+                }}>
                 <div ref={menuPanelRef} class="flex flex-col gap-2 w-[440px] max-w-[92vw] p-3"
                   style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
                   onMouseDown={(e) => e.stopPropagation()}>
@@ -1794,10 +2106,18 @@ export function PropertyEditorPopup(props: {
                                 onInput={(e) => setMenuTree(i(), 'title', e.currentTarget.value)}
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!n.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                              <input value={n.icon}
-                                onInput={(e) => setMenuTree(i(), 'icon', e.currentTarget.value)}
-                                type="text" placeholder="图标"
-                                class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              {/* 菜单项图标：下拉触发器（小预览+名称+箭头），点击打开图标弹窗（embedded，只回传名称） */}
+                              <button type="button"
+                                onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: -1, anchor: e.currentTarget }) }}
+                                class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                style={{ position: 'relative', overflow: 'hidden' }}>
+                                <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                  <IconFieldPreview name={n.icon} />
+                                </span>
+                                <span class="text-left text-slate-600"
+                                  style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{n.icon || '图标'}</span>
+                                <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                              </button>
                               <button onClick={() => setMenuTree(menuTree.filter(x => x.id !== n.id))}
                                 class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                 <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -1819,10 +2139,18 @@ export function PropertyEditorPopup(props: {
                                           onInput={(e) => setMenuTree(i(), 'children', ci(), 'title', e.currentTarget.value)}
                                           type="text" placeholder="子项标题"
                                           class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
-                                        <input value={c.icon}
-                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'icon', e.currentTarget.value)}
-                                          type="text" placeholder="图标"
-                                          class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                        {/* 子项图标：同顶层项，embedded 模式只回传名称 */}
+                                        <button type="button"
+                                          onClick={(e) => { e.stopPropagation(); setMenuIconPicker({ parent: i(), child: ci(), anchor: e.currentTarget }) }}
+                                          class="flex h-6 w-[92px] shrink-0 cursor-pointer items-center rounded-sm border border-transparent bg-[#F4F4F5] text-[12px] outline-none shadow-none hover:border-[#3D99FF]"
+                                          style={{ position: 'relative', overflow: 'hidden' }}>
+                                          <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
+                                            <IconFieldPreview name={c.icon} />
+                                          </span>
+                                          <span class="text-left text-slate-600"
+                                            style={{ position: 'absolute', left: '26px', right: '14px', top: '50%', transform: 'translateY(-50%)', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{c.icon || '图标'}</span>
+                                          <svg style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)' }} class="h-3 w-3 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        </button>
                                         <button onClick={() => setMenuTree(i(), 'children', (menuTree[i()].children ?? []).filter(x => x.id !== c.id))}
                                           class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
@@ -1863,6 +2191,24 @@ export function PropertyEditorPopup(props: {
                   </button>
                 </div>
               </div>
+              {/* 菜单项图标弹窗：挂在菜单面板 Show 内（随面板卸载），embedded 模式只回传名称写入对应菜单项 */}
+              <Show when={menuIconPicker()}>
+                <IconPickerPopup
+                  mode="embedded"
+                  current={(menuIconPicker()!.child >= 0
+                    ? menuTree[menuIconPicker()!.parent]?.children?.[menuIconPicker()!.child]?.icon
+                    : menuTree[menuIconPicker()!.parent]?.icon) ?? ''}
+                  anchor={menuIconPicker()!.anchor}
+                  sessionId={props.sessionId}
+                  htmlFilePath={props.htmlFilePath}
+                  onPick={(pick) => {
+                    const t = menuIconPicker()!
+                    if (t.child >= 0) setMenuTree(t.parent, 'children', t.child, 'icon', pick.name)
+                    else setMenuTree(t.parent, 'icon', pick.name)
+                    setMenuIconPicker(null)
+                  }}
+                  onClose={() => setMenuIconPicker(null)} />
+              </Show>
             </Portal>
           </Show>
 
@@ -1907,7 +2253,17 @@ export function PropertyEditorPopup(props: {
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <input value={c.dataIndex}
-                                onInput={(e) => setTableColumns(i(), 'dataIndex', e.currentTarget.value)}
+                                onInput={(e) => {
+                                  const idx = i()
+                                  const oldField = tableColumns[idx].dataIndex
+                                  const newField = e.currentTarget.value
+                                  setTableColumns(idx, 'dataIndex', newField)
+                                  if (oldField && oldField !== newField && newField) {
+                                    setTableData(tableData.map(r =>
+                                      oldField in r.row ? { ...r, row: renameRowField([r.row], oldField, newField)[0] } : r
+                                    ))
+                                  }
+                                }}
                                 type="text" placeholder="字段"
                                 class={`w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.dataIndex ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <button onClick={() => setTableColumns(tableColumns.filter(x => x.id !== c.id))}
@@ -2212,7 +2568,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" icon={MarginIcon()} />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -2220,19 +2576,19 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMr} setValue={(v) => { setEditMr(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMr(v); setFoundMl(v) }}
-                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} />
+                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} min={-9999} />
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMb(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMb(v) }}
-                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} />
+                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'trbl'}>
                 {renderTrblGrid(
-                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑" },
-                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→" },
-                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓" },
-                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←" },
+                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑", min: -9999 },
+                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→", min: -9999 },
+                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓", min: -9999 },
+                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←", min: -9999 },
                 )}
               </Show>
             </div>
@@ -2241,35 +2597,38 @@ export function PropertyEditorPopup(props: {
 
             </div> */}
 
-            <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-semibold text-slate-500">宽高</span>
-              <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
-                <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+            {/* 宽高组：图标类组件不展示（宽高由图标弹窗确认时写入），其余组件保持原样 */}
+            <Show when={!isIconComponent()}>
+              <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
+                <span class="text-[12px] font-semibold text-slate-500">宽高</span>
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
+                  <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
+                </div>
+                <div class="grid grid-cols-2 gap-x-2 gap-y-1">
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
+                    <span class="text-[10px] text-slate-500">填充高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应宽度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
+                    <span class="text-[10px] text-slate-500">适应高度</span>
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer col-span-2">
+                    <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
+                    <span class="text-[10px] text-slate-500">裁剪内容</span>
+                  </label>
+                </div>
               </div>
-              <div class="grid grid-cols-2 gap-x-2 gap-y-1">
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { setFillWidth(e.currentTarget.checked); if (e.currentTarget.checked) setHugWidth(false) }} />
-                  <span class="text-[10px] text-slate-500">填充宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { setFillHeight(e.currentTarget.checked); if (e.currentTarget.checked) setHugHeight(false) }} />
-                  <span class="text-[10px] text-slate-500">填充高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { setHugWidth(e.currentTarget.checked); if (e.currentTarget.checked) setFillWidth(false) }} />
-                  <span class="text-[10px] text-slate-500">适应宽度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { setHugHeight(e.currentTarget.checked); if (e.currentTarget.checked) setFillHeight(false) }} />
-                  <span class="text-[10px] text-slate-500">适应高度</span>
-                </label>
-                <label class="flex items-center gap-1 cursor-pointer col-span-2">
-                  <input type="checkbox" checked={clipContent()} onChange={(e) => setClipContent(e.currentTarget.checked)} />
-                  <span class="text-[10px] text-slate-500">裁剪内容</span>
-                </label>
-              </div>
-            </div>
+            </Show>
 
             <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
@@ -2338,12 +2697,12 @@ export function PropertyEditorPopup(props: {
                     { label: 'Extra Bold', value: '800' },
                     { label: 'Black', value: '900' },
                   ]}
-                  onChange={(v) => setEditFontWeight(Number(v))}
+                  onChange={(v) => { setEditFontWeight(Number(v)); setFoundFontWeight(true) }}
                 />
               </div>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <span class="text-[10px] text-slate-400 w-8 shrink-0">字号</span>
-                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
+                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={setFoundFontSize} found={foundFontSize} placeholder="字号" icon={"S"} />
               </div>
 
               <ColorPicker value={editTextColor()} onChange={setEditTextColor} onTokenChange={setTextColorToken} label="文字色" tokens={TEXT_COLOR_TOKENS} />
@@ -2351,7 +2710,7 @@ export function PropertyEditorPopup(props: {
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">行高</span>
-                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : Number(editLineHeight()) || 0} setValue={(v) => setEditLineHeight(String(v))} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
+                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : parseFloat(editLineHeight()) || 0} setValue={(v) => { const suf = (editLineHeight().match(/(px|rem|em)$/) ?? [])[1] ?? ''; setEditLineHeight(v + suf) }} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
                 </div>
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">字间距</span>
@@ -2560,6 +2919,26 @@ export function PropertyEditorPopup(props: {
               </For>
             </div>
             </Show>
+          </Show>
+
+          <Show when={iconPickerOpen() && iconPickerKey()}>
+            <IconPickerPopup
+              current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
+              currentId={(editProps as Record<string, string>)[`${iconPickerKey()!}Id`]}
+              currentCustom={iconCustomFlag(iconPickerKey()!)}
+              mode={iconPickerMode(iconPickerKey()!)}
+              sessionId={props.sessionId}
+              htmlFilePath={props.htmlFilePath}
+              initialSize={(editProps as Record<string, string>)[`${iconPickerKey()!}Size`]
+                ?? (editHeightPx() || editWidthPx() ? String(editHeightPx() || editWidthPx()) : undefined)
+                ?? (editProps as Record<string, string>)['size']
+                ?? '24'}
+              initialStyle={(editProps as Record<string, string>)[`${iconPickerKey()!}Style`] ?? (editProps as Record<string, string>)['shape']}
+              initialColor={(editProps as Record<string, string>)[`${iconPickerKey()!}Color`] ?? (editProps as Record<string, string>)['color']}
+              anchor={iconPickerAnchor()}
+              onPick={handleIconPick}
+              onClose={() => setIconPickerOpen(false)}
+            />
           </Show>
 
         </div>

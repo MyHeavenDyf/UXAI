@@ -3,7 +3,7 @@ import { Schema, Node as PMNode } from "prosemirror-model"
 export interface MentionAttrs {
   id: string | null
   name: string
-  type: "skill" | "file"
+  type: "skill" | "file" | "folder"
   label: string
   path?: string
 }
@@ -44,7 +44,7 @@ export const mentionNodeSpec = {
       getAttrs: (dom: HTMLElement) => ({
         id: dom.getAttribute("data-id"),
         name: dom.getAttribute("data-name") || "",
-        type: (dom.getAttribute("data-type") as "skill" | "file") || "skill",
+        type: (dom.getAttribute("data-type") as "skill" | "file" | "folder") || "skill",
         label: dom.getAttribute("data-label") || "",
         path: dom.getAttribute("data-path") || "",
       }),
