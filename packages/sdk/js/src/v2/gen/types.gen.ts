@@ -31,6 +31,7 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
+  | EventSessionCompactionEstimated
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -700,6 +701,10 @@ export type CompactionPart = {
   auto: boolean
   overflow?: boolean
   tail_start_id?: string
+  estimated_tokens?: number
+  estimated_limit?: number
+  estimated_provider_id?: string
+  estimated_model_id?: string
 }
 
 export type Part =
@@ -806,6 +811,7 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
+    | EventSessionCompactionEstimated
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -1082,6 +1088,8 @@ export type McpLocalConfig = {
   }
   enabled?: boolean
   timeout?: number
+  homepage?: string
+  docs?: string
 }
 
 export type McpOAuthConfig = {
@@ -1110,6 +1118,9 @@ export type McpRemoteConfig = {
   oauth?: McpOAuthConfig | false
   timeout?: number
   proxy?: boolean
+  transport?: "http" | "sse"
+  homepage?: string
+  docs?: string
 }
 
 /**
@@ -2610,6 +2621,19 @@ export type EventSessionCompacted = {
   type: "session.compacted"
   properties: {
     sessionID: string
+  }
+}
+
+export type EventSessionCompactionEstimated = {
+  id: string
+  type: "session.compaction.estimated"
+  properties: {
+    sessionID: string
+    messageID: string
+    tokens: number
+    limit: number
+    providerID: string
+    modelID: string
   }
 }
 

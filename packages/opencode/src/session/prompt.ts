@@ -65,6 +65,7 @@ import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
+import { Token } from "@/util/token"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -572,6 +573,102 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
 
       return tools
+    })
+
+    const prepareRequest = Effect.fn("SessionPrompt.prepareRequest")(function* (input: {
+      messages: MessageV2.WithParts[]
+      lastUser: MessageV2.User
+      agent: Agent.Info
+      session: Session.Info
+      model: Provider.Model
+      processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+      onStructuredOutput: (output: unknown) => void
+    }) {
+      const lastUserMsg = input.messages.findLast((message) => message.info.role === "user")
+      const tools = yield* resolveTools({
+        agent: input.agent,
+        session: input.session,
+        model: input.model,
+        tools: input.lastUser.tools,
+        processor: input.processor,
+        bypassAgentCheck: lastUserMsg?.parts.some((part) => part.type === "agent") ?? false,
+        messages: input.messages,
+      })
+      const studioImageGeneration =
+        input.agent.name === "octo_studio" &&
+        Object.entries(input.lastUser.tools ?? {}).some(
+          ([name, enabled]) => enabled !== false && STUDIO_IMAGE_TOOLS.has(name),
+        )
+      const activeTools = studioImageGeneration
+        ? Object.fromEntries(Object.entries(tools).filter(([name]) => name === "invalid" || STUDIO_IMAGE_TOOLS.has(name)))
+        : tools
+      const format = input.lastUser.format ?? { type: "text" as const }
+      if (format.type === "json_schema") {
+        activeTools["StructuredOutput"] = createStructuredOutputTool({
+          schema: format.schema,
+          onSuccess: input.onStructuredOutput,
+        })
+      }
+
+      yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
+      const [skills, env, instructions, modelMsgs] = yield* Effect.all([
+        sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
+        sys.environment(input.model),
+        instruction.system().pipe(Effect.orDie),
+        MessageV2.toModelMessagesEffect(input.messages, input.model),
+      ])
+      const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+      const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
+        .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
+        .flatMap((name) => {
+          const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`
+          const names = Object.keys(activeTools)
+            .filter((toolName) => toolName.startsWith(prefix))
+            .map((toolName) => toolName.slice(prefix.length))
+          return names.length ? [`- ${name}: ${names.join(", ")}`] : []
+        })
+      if (userMcpSummary.length) {
+        system.push(
+          [
+            "<available_user_mcp_tools>",
+            "These user-configured MCP servers and methods are connected and available in this request:",
+            ...userMcpSummary,
+            "This live list replaces every MCP inventory mentioned earlier in the conversation. Never infer current MCP availability from previous messages, previous tool calls, or configuration files, and never report a user MCP server absent from this list as currently available.",
+            "When the user asks about one of these MCP servers, use its listed tools instead of searching configuration files or claiming the server is unavailable.",
+            "</available_user_mcp_tools>",
+          ].join("\n"),
+        )
+      }
+      if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+      return { activeTools, format, modelMsgs, studioImageGeneration, system }
+    })
+
+    const estimateCompactedContext = Effect.fn("SessionPrompt.estimateCompactedContext")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+    }) {
+      const messages = structuredClone(yield* MessageV2.filterCompactedEffect(input.sessionID))
+      const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+      const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+      if (!lastUser || lastUser.role !== "user") throw new Error("Compacted context has no user message")
+      if (!lastAssistant || lastAssistant.role !== "assistant") throw new Error("Compacted context has no assistant message")
+      const agent = yield* agents.get(lastUser.agent)
+      if (!agent) throw new Error(`Compacted context agent not found: ${lastUser.agent}`)
+      const request = yield* prepareRequest({
+        messages,
+        lastUser,
+        agent,
+        session: input.session,
+        model: input.model,
+        processor: {
+          message: lastAssistant,
+          updateToolCall: () => Effect.succeed(undefined),
+          completeToolCall: () => Effect.succeed(undefined),
+        },
+        onStructuredOutput: () => {},
+      })
+      return Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1482,6 +1579,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         let structured: unknown
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        let estimateAfterAutoCompaction: MessageV2.CompactionPart | undefined
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1552,7 +1650,33 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               overflow: task.overflow,
             })
             if (result === "stop") break
-            if (!task.auto) break
+            if (!task.auto) {
+              const estimated = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
+                Effect.catchCause((cause) =>
+                  elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
+                    Effect.as(undefined),
+                  ),
+                ),
+              )
+              if (estimated !== undefined) {
+                const limit = model.limit.input ?? model.limit.context
+                task.estimated_tokens = estimated
+                task.estimated_limit = limit
+                task.estimated_provider_id = model.providerID
+                task.estimated_model_id = model.id
+                yield* sessions.updatePart(task)
+                yield* bus.publish(SessionCompaction.Event.Estimated, {
+                  sessionID,
+                  messageID: task.messageID,
+                  tokens: estimated,
+                  limit,
+                  providerID: model.providerID,
+                  modelID: model.id,
+                })
+              }
+              break
+            }
+            estimateAfterAutoCompaction = task
             continue
           }
 
@@ -1619,35 +1743,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           })
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
-            const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
-            const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
-
-            const tools = yield* resolveTools({
-              agent,
-              session,
-              model,
-              tools: lastUser.tools,
-              processor: handle,
-              bypassAgentCheck,
-              messages: msgs,
-            })
-
-            const studioImageGeneration =
-              agent.name === "octo_studio" &&
-              Object.entries(lastUser.tools ?? {}).some(([name, enabled]) => enabled !== false && STUDIO_IMAGE_TOOLS.has(name))
-            const activeTools = studioImageGeneration
-              ? Object.fromEntries(Object.entries(tools).filter(([name]) => name === "invalid" || STUDIO_IMAGE_TOOLS.has(name)))
-              : tools
-
-            if (lastUser.format?.type === "json_schema") {
-              activeTools["StructuredOutput"] = createStructuredOutputTool({
-                schema: lastUser.format.schema,
-                onSuccess(output) {
-                  structured = output
-                },
-              })
-            }
-
             if (step === 1)
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
@@ -1669,49 +1764,51 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }
             }
 
-            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
-              sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
-              MessageV2.toModelMessagesEffect(msgs, model),
-            ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
-            const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
-              .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
-              .flatMap((name) => {
-                const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`
-                const names = Object.keys(activeTools)
-                  .filter((toolName) => toolName.startsWith(prefix))
-                  .map((toolName) => toolName.slice(prefix.length))
-                return names.length ? [`- ${name}: ${names.join(", ")}`] : []
+            const lastUserMsg = msgs.findLast((message) => message.info.role === "user")
+            const request = yield* prepareRequest({
+              messages: msgs,
+              lastUser,
+              agent,
+              session,
+              model,
+              processor: handle,
+              onStructuredOutput(output) {
+                structured = output
+              },
+            })
+            if (estimateAfterAutoCompaction) {
+              const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+              const limit = model.limit.input ?? model.limit.context
+              estimateAfterAutoCompaction.estimated_tokens = tokens
+              estimateAfterAutoCompaction.estimated_limit = limit
+              estimateAfterAutoCompaction.estimated_provider_id = model.providerID
+              estimateAfterAutoCompaction.estimated_model_id = model.id
+              yield* sessions.updatePart(estimateAfterAutoCompaction)
+              yield* bus.publish(SessionCompaction.Event.Estimated, {
+                sessionID,
+                messageID: estimateAfterAutoCompaction.messageID,
+                tokens,
+                limit,
+                providerID: model.providerID,
+                modelID: model.id,
               })
-            if (userMcpSummary.length) {
-              system.push(
-                [
-                  "<available_user_mcp_tools>",
-                  "These user-configured MCP servers and methods are connected and available in this request:",
-                  ...userMcpSummary,
-                  "This live list replaces every MCP inventory mentioned earlier in the conversation. Never infer current MCP availability from previous messages, previous tool calls, or configuration files, and never report a user MCP server absent from this list as currently available.",
-                  "When the user asks about one of these MCP servers, use its listed tools instead of searching configuration files or claiming the server is unavailable.",
-                  "</available_user_mcp_tools>",
-                ].join("\n"),
-              )
+              estimateAfterAutoCompaction = undefined
             }
-            const format = lastUser.format ?? { type: "text" as const }
-            if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
               user: lastUser,
               agent,
               permission: session.permission,
               sessionID,
               parentSessionID: session.parentID,
-              system,
-              messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-              tools: activeTools,
+              system: request.system,
+              messages: [
+                ...request.modelMsgs,
+                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
+              ],
+              tools: request.activeTools,
               model,
-              toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
+              toolChoice:
+                request.format.type === "json_schema" || request.studioImageGeneration ? "required" : undefined,
               compactionAttempted:
                 lastUserMsg?.parts.some(
                   (part) =>
@@ -1729,7 +1826,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
             if (finished && !handle.message.error) {
-              if (format.type === "json_schema") {
+              if (request.format.type === "json_schema") {
                 handle.message.error = new MessageV2.StructuredOutputError({
                   message: "Model did not produce structured output",
                   retries: 0,

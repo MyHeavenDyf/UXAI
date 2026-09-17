@@ -635,6 +635,16 @@ describe("session.overflow.exceedsContext", () => {
 
     expect(exceedsContext({ model, input: 100 })).toBe(true)
   })
+
+  test("allows Design agents to continue past the context limit", () => {
+    const model = createModel({ context: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 100, agent: "octo_make" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "octo_make_plan" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "ict_pattern" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "proto_replanner", parentAgent: "octo_make" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "proto_replanner", parentAgent: "proto_triage" })).toBe(true)
+  })
 })
 
 describe("session.compaction.create", () => {
@@ -1076,6 +1086,9 @@ describe("session.compaction.process", () => {
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const parent = msgs.at(-1)?.info.id
+          const sourcePart = msgs.at(-1)?.parts.find(
+            (part): part is MessageV2.CompactionPart => part.type === "compaction",
+          )
           expect(parent).toBeTruthy()
           await rt.runPromise(
             SessionCompaction.Service.use((svc) =>
@@ -1091,6 +1104,7 @@ describe("session.compaction.process", () => {
           const part = await lastCompactionPart(session.id)
           expect(part?.type).toBe("compaction")
           expect(part?.tail_start_id).toBe(keep.id)
+          expect(sourcePart?.tail_start_id).toBe(keep.id)
         } finally {
           await rt.dispose()
         }

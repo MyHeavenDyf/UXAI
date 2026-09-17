@@ -76,6 +76,7 @@ type ToolCall = {
 }
 
 interface ProcessorContext extends Input {
+  parentAgent: string | undefined
   toolcalls: Record<string, ToolCall>
   shouldBreak: boolean
   snapshot: string | undefined
@@ -124,10 +125,20 @@ export const layer: Layer.Layer<
       // may execute tools internally before emitting start-step events,
       // so capturing inside the event handler can be too late.
       const initialSnapshot = yield* snapshot.track()
+      const info = input.assistantMessage.agent === "proto_replanner"
+        ? yield* session.get(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        : undefined
+      const parentAgent = info?.parentID
+        ? yield* session.get(info.parentID).pipe(
+            Effect.map((parent) => parent.agent),
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+        : undefined
       const ctx: ProcessorContext = {
         assistantMessage: input.assistantMessage,
         sessionID: input.sessionID,
         model: input.model,
+        parentAgent,
         toolcalls: {},
         shouldBreak: false,
         snapshot: initialSnapshot,
@@ -490,7 +501,12 @@ export const layer: Layer.Layer<
             const contextExceeded =
               !AUTOMATIC_COMPACTION_ENABLED &&
               !ctx.assistantMessage.summary &&
-              exceedsContext({ model: ctx.model, input: contextTokens })
+              exceedsContext({
+                model: ctx.model,
+                input: contextTokens,
+                agent: ctx.assistantMessage.agent,
+                parentAgent: ctx.parentAgent,
+              })
             slog.info("context usage", {
               providerID: ctx.model.providerID,
               modelID: ctx.model.id,
@@ -753,7 +769,12 @@ export const layer: Layer.Layer<
         const preflightResult = ctx.assistantMessage.summary
           ? "send"
           : !AUTOMATIC_COMPACTION_ENABLED
-            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+            ? exceedsContext({
+                model: ctx.model,
+                input: ctx.estimatedInputTokens,
+                agent: ctx.assistantMessage.agent,
+                parentAgent: ctx.parentAgent,
+              })
               ? "reject"
               : "send"
             : preflight({

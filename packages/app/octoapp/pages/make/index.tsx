@@ -8,7 +8,7 @@ import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
-import { syncSessionModel } from "@/pages/session/session-model-helpers"
+import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
@@ -17,7 +17,7 @@ import {
   type ArtifactFile,
   type ArtifactFileKind,
 } from "./utils/artifact-file-api"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
@@ -75,7 +75,7 @@ import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentS
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { encodeFilePath } from "@/context/file/path"
-import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -90,11 +90,6 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
-import {
-  ContextUsageWarning,
-  isContextAtLimit,
-  shouldShowContextWarning,
-} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -121,7 +116,13 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import {
+  getSessionContextMetrics,
+  isContextEstimateForMessage,
+  isContextEstimateForModel,
+  resolveContextEstimateModel,
+  selectContextEstimateModel,
+} from "@/components/session/session-context-metrics"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
@@ -205,6 +206,14 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  const [compactedContextEstimate, setCompactedContextEstimate] = createSignal<{
+    sessionID: string
+    messageID: string
+    tokens: number
+    limit: number
+    providerID: string
+    modelID: string
+  }>()
 
   function findMultimodalModel() {
     const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
@@ -819,8 +828,10 @@ const sessionMessagesLoaded = createMemo(() => {
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       const activePlanID = activePlanSessionId()
+      const activePatternID = activePatternSessionId()
       const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
-      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
+      const isCurrentPatternChild = !!activePatternID && patternSubParentSessionId() === sid && eventSessionID === activePatternID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild && !isCurrentPatternChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -922,6 +933,8 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "session.compaction.estimated") {
+        setCompactedContextEstimate(e.properties)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -1224,10 +1237,10 @@ const sessionMessagesLoaded = createMemo(() => {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        syncSessionModel(local, msg as any)
+        syncSessionModel(local, msg as UserMessage)
         // Sync tab key so new conversations inherit this session's model.
-        if ((msg as any).model?.providerID && (msg as any).model?.modelID) {
-          local.model.set((msg as any).model, { recent: true })
+        if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
+          local.model.set((msg as UserMessage).model, { recent: true })
         }
       },
     ),
@@ -1237,7 +1250,48 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextMetrics = createMemo(
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
+  const persistedCompactedContextEstimate = createMemo(() => {
+    const context = contextMetrics()
+    if (!params.id || !context?.message.summary) return
+    const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
+    if (
+      !part ||
+      part.estimated_tokens === undefined ||
+      part.estimated_limit === undefined
+    ) return
+    const model = resolveContextEstimateModel(
+      { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
+      { providerID: context.message.providerID, modelID: context.message.modelID },
+    )
+    return {
+      sessionID: params.id,
+      tokens: part.estimated_tokens,
+      limit: part.estimated_limit,
+      providerID: model.providerID,
+      modelID: model.modelID,
+    }
+  })
+  const currentCompactedContextEstimate = createMemo(() => {
+    const current = currentModel()
+    const main = lastSessionUserMessage(sync.data.message, params.id)?.model
+    const model = selectContextEstimateModel({
+      selected: current && { providerID: current.provider.id, modelID: current.id },
+      main,
+      hasActiveChild:
+        !!activePlanForCurrentSession() || !!(activePatternSessionId() && patternSubParentSessionId() === params.id),
+    })
+    const estimate = compactedContextEstimate()
+    if (
+      estimate?.sessionID === params.id &&
+      isContextEstimateForMessage(estimate, contextMetrics()?.message.parentID) &&
+      isContextEstimateForModel(estimate, model)
+    ) return estimate
+    const persisted = persistedCompactedContextEstimate()
+    if (isContextEstimateForModel(persisted, model)) return persisted
+  })
   const contextLimit = createMemo(() => {
+    const estimate = currentCompactedContextEstimate()
+    if (contextMetrics()?.message.summary && estimate) return estimate.limit
     if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
     if (contextMetrics()?.limit) return contextMetrics()!.limit!
@@ -1245,22 +1299,18 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextTokens = createMemo(() => {
     const context = contextMetrics()
     if (!context) return 0
-    if (context.message.summary) return context.output
+    if (context.message.summary) {
+      const estimate = currentCompactedContextEstimate()
+      if (estimate) return estimate.tokens
+      return
+    }
     return context.total
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+    const tokens = contextTokens()
+    return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
-
-  createEffect(() => {
-    if (contextUsage() >= 80) return
-    if (ignoredContextWarningSession() !== params.id) return
-    setIgnoredContextWarningSession(undefined)
-  })
-
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
@@ -1283,11 +1333,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
-  const contextWarningVisible = createMemo(
-    () =>
-      !contextSendBlocked() &&
-      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
-  )
   const contextCompactionDisabled = effectiveBusy
 
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
@@ -1317,20 +1362,17 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  function compactContext() {
-    const sessionID = params.id
-    const model = currentModel()
-    if (!sessionID || !model || contextCompactionDisabled()) return
+  function compactContext(sessionID: string) {
+    if (!sessionID || contextCompactionDisabled()) return
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
-      agent: "octo_make",
-      model: `${model.provider.id}/${model.id}`,
+      agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
     })
   }
 
-  function confirmCompactContext() {
+  function confirmCompactContext(sessionID: string) {
     if (contextCompactionDisabled()) return
     dialog.show(() => (
       <Dialog title="压缩上下文" fit class="delete-dialog">
@@ -1348,7 +1390,7 @@ const sessionMessagesLoaded = createMemo(() => {
               class="delete-dialog-btn delete-dialog-btn-primary"
               onClick={() => {
                 dialog.close()
-                void compactContext()
+                void compactContext(sessionID)
               }}
             >
               确认压缩
@@ -3472,15 +3514,6 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
-    if (contextSendBlocked()) {
-      showOctoToast({
-        title: "上下文已达到上限",
-        description: "请先压缩上下文，或新建对话。",
-        variant: "error",
-      })
-      return
-    }
-
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
@@ -4964,28 +4997,10 @@ if (dsId) {
                         <div class="make-token-tooltip-copy">
                           <p>
                             当前对话 Session 上下文
-                            {contextSendBlocked()
-                              ? "已超过100%"
-                              : contextUsage() >= 80
-                                ? "已超过80%"
-                                : `已使用${contextUsage()}%`}{" "}
+                            {contextUsage() === undefined ? "用量暂不可用" : `已使用${contextUsage()}%`} {" "}
                             (
-                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
-                              {contextTokens().toLocaleString(language.intl())}
-                            </span>{" "}
-                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
-                          </p>
-                          <p>
-                            建议点击“
-                            <button
-                              type="button"
-                              class="make-token-tooltip-action"
-                              disabled={contextCompactionDisabled()}
-                              onClick={confirmCompactContext}
-                            >
-                              上下文压缩
-                            </button>
-                            ”以继续对话。
+                            {contextTokens()?.toLocaleString(language.intl()) ?? "--"}{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
                           </p>
                         </div>
                       }
@@ -5004,8 +5019,15 @@ if (dsId) {
                           padding: "0",
                         }}
                         disabled={contextCompactionDisabled()}
-                        onClick={confirmCompactContext}
-                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
+                        onClick={() => {
+                          const sessionID = params.id
+                          if (sessionID) confirmCompactContext(sessionID)
+                        }}
+                        aria-label={
+                          contextUsage() === undefined
+                            ? "上下文用量暂不可用，点击压缩上下文"
+                            : `上下文已使用 ${contextUsage()}%，点击压缩上下文`
+                        }
                       >
                         <ContextUsageCircle percentage={contextUsage()} />
                       </button>
@@ -5269,13 +5291,11 @@ onPreview={(url) => {
                           icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                          aria-label={
                            effectiveBusy()
                              ? "停止生成"
-                             : contextSendBlocked()
-                               ? "上下文已达到上限，请先压缩上下文"
-                               : undefined
+                             : undefined
                          }
 />
                     </div>
@@ -5363,6 +5383,8 @@ onPreview={(url) => {
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => setPrompt(text)}
+                        compactDisabled={contextCompactionDisabled()}
+                        onCompact={() => confirmCompactContext(userMessages()[0].sessionID || params.id!)}
                         hasQuestionRequest={!!questionRequest()}
                         hasRunningTool={hasRunningTool()}
                         onFilesRefresh={() => {
@@ -5392,6 +5414,8 @@ onPreview={(url) => {
                             onChildSession={ensureChildSession}
                             deltaLog={deltaLog()}
                             onFormSubmit={(text) => setPrompt(text)}
+                            compactDisabled={contextCompactionDisabled()}
+                            onCompact={() => confirmCompactContext(messageSessionID)}
                             hasQuestionRequest={!!questionRequest()}
                             hasRunningTool={hasRunningTool()}
                             onFilesRefresh={() => {
@@ -5417,36 +5441,6 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
-
-                  <Show when={contextSendBlocked() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextOverflowNotice
-                          class="w-full"
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
@@ -5674,13 +5668,11 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                        aria-label={
                          effectiveBusy()
                            ? "停止生成"
-                           : contextSendBlocked()
-                             ? "上下文已达到上限，请先压缩上下文"
-                             : undefined
+                           : undefined
                        }
                      />
                   </div>
