@@ -706,7 +706,7 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(() => {
     const handleAppend = (e: Event) => {
       const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
-      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
       ref?.appendDoc?.(detail.docJSON, detail.prefix)
     }
     window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
@@ -3364,11 +3364,11 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    // 基于 hasContent() 选择正确的编辑器
+    // 基于 hasSessionView() 选择正确的编辑器（与渲染逻辑一致）
     let text: string
     let mentions: MentionAttrs[]
-    
-    if (hasContent()) {
+
+    if (hasSessionView()) {
       text = proseMirrorRef2?.getText?.() || ""
       mentions = proseMirrorRef2?.getMentions?.() || []
     } else {
@@ -3781,7 +3781,7 @@ if (dsId) {
   function pickSlash(cmd: SlashCommand) {
     if (!slashState()) return
 
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
     ref?.replaceSlashCommand?.(`/${cmd.trigger} `)
 
     setSlashState(null)
