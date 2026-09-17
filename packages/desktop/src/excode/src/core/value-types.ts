@@ -56,6 +56,23 @@ export interface UseStateMarker {
    * 例：s => `${s}(e.target.value)`
    */
   extractor?: (setter: string) => string
+
+  /**
+   * 共享（外部 setState/cycleState 驱动）场景专用：path 被事件 Action 改写
+   * （state-builder 打 shared=true）时，提升为 useSharedState 后原始 store 值
+   * （key 字符串）与本组件期望值（如 Tabs 的数字 selectedIndex）类型不一致，
+   * 需运行时转换。
+   *
+   * keys = 编译期已知的 key 数组（如静态 TabItem 的 props.key，["0","1",...]）。
+   * tree-finalizer 提升时（shared && runtimeKeyMap）改产三段 const + 改写 onClick：
+   *   const [raw, setRaw] = useSharedState(key);
+   *   const <keysConst> = [...keys];
+   *   const <name> = <keysConst>.indexOf(raw);
+   *   onClick: (index) => setRaw(<keysConst>[index])   // 写回 key，store 恒为 key 字符串
+   *
+   * 仅 shared 时生效；非 shared（自驱动）走原 useState(initial) + extractor 路径，零影响。
+   */
+  runtimeKeyMap?: { keys: any[] }
 }
 
 // ─── LiteralValue（字面量值） ───
@@ -91,6 +108,14 @@ export interface BindingValue {
   accessPath: string
   /** 编译期从 state 取一次的快照值（absolute 按 accessPath 取；relative 按当前循环数据源取首项）；路径未命中写 null */
   stateValue?: any
+  /**
+   * loop（relative）className binding 专用：沿循环数据源逐项解析出的 className 串数组。
+   * build-trees 的 #collectRelativeClassNameFromLoop 收集（镜像 #collectRelativeIconFromLoop，
+   * 但返 string[]、非串/缺失项填 '' 保 idx 对齐）。tree-finalizer 据此注册 const 数组 +
+   * 替 prop 为 rawExpr；style-converter 据侧信道 __loopClassNameInfo 编 per-item 规则。
+   * 仅 relative className binding 设置；absolute className 已在 build-trees 烘焙成原串、不建 binding。
+   */
+  collectedClassStrings?: string[]
   /** 来源节点 ID（BuildTrees 构建时即填） */
   nodeId?: string
   /** 来源组件名（BuildTrees 构建时即填，用于去重） */
@@ -249,29 +274,35 @@ export interface SlotNodeValue {
   route?: ExtractRoute
 }
 
-// ─── ActionValue（事件动作：setState 写共享 state） ───
+// ─── ActionValue（事件动作：写共享 state） ───
 
 /**
  * 事件 Action（Button.onClick / Drawer.onClose / Modal.onClose 等）。
  *
- * A2UI schema：`{ action: "setState", args: { path, value } }`
- * → 事件触发时把 value 写入 state 的 path（共享 store，因 path 被多处读+写）。
+ * A2UI schema（Scenario 1/2）：`{ action: "setState", args: { path, value } }`
+ *   → 事件触发时把 value（字面量）写入 state 的 path（共享 store，因 path 被多处读+写）。
+ * A2UI schema（Scenario 3）：`{ action: "cycleState", args: { path, value: [...] } }`
+ *   → 事件触发时把 path 推进到 value 数组的下一项，末尾循环回首项。
+ *   state 初值必须是 value[0]；jsx-emitter 产函数式 setSharedState(key, prev => ...)。
  *
  * 由 build-trees #processValue 识别 `{action,args}` 形状产出（event = prop key）；
  * mapping/transform 透传到 outputProps；
- * jsx-emitter 按 type:'action' 分发为 `() => setSharedState(key, value)`。
+ * jsx-emitter 按 type:'action' 再按 action 字段分流：
+ *   setState   → `() => setSharedState(key, value)`
+ *   cycleState → `() => setSharedState(key, (prev) => { const _a = [...]; return _a[(_a.indexOf(prev) + 1) % _a.length]; })`
  *
- * value 暂只字面量（true/false/字符串/数字）；toggle/表达式/DataBinding 后续扩展。
+ * setState 的 value 暂只字面量（true/false/字符串/数字）；cycleState 的 value 是字面量数组；
+ * toggle/表达式/DataBinding 后续扩展。
  */
 export interface ActionValue {
   __node: true,
   type: 'action'
   /** 事件名（prop key，如 'onClick' / 'onClose'） */
   event: string
-  /** 动作类型（目前仅 'setState'，留扩展位） */
-  action: 'setState'
+  /** 动作类型：setState 直写字面量；cycleState 在 value 数组中轮转取下一项 */
+  action: 'setState' | 'cycleState'
   /** 写入的 state path（JSON pointer，如 '/isDetailOpen'；按协议顶层） */
   path: string
-  /** 写入值（字面量） */
+  /** 写入值：setState 为字面量；cycleState 为字面量数组（初值取 value[0]） */
   value: any
 }
