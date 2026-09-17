@@ -10,6 +10,8 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetThumb,
+  isAssetThumbImage,
   getAssetIconByExtension,
   type AssetFolder,
   type AssetFile,
@@ -388,11 +390,11 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                                 />
                               </Show>
                             }>
-                              {/* type 40:缩略图按 fileName 后缀取对应图标 */}
-                              <Show when={getAssetIconByExtension(file.fileName)}>
+                              {/* type 40:png/jpeg/jpg/svg 直接显示下载路径图片,其他后缀显示对应图标 */}
+                              <Show when={getAssetThumb(file)}>
                                 <img
-                                  class="asset-grid-icon"
-                                  src={getAssetIconByExtension(file.fileName)}
+                                  class={isAssetThumbImage(file) ? "asset-grid-thumb" : "asset-grid-icon"}
+                                  src={getAssetThumb(file)}
                                   alt=""
                                   draggable={false}
                                 />
@@ -470,7 +472,14 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                                 />
                               </Show>
                             }>
-                              <img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} />
+                              <Show when={getAssetThumb(file)} fallback={<img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} />}>
+                                <img
+                                  class={isAssetThumbImage(file) ? "asset-selected-full" : "asset-grid-icon"}
+                                  src={getAssetThumb(file)}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
                             </Show>
                           </div>
                           <span class="asset-selected-name" title={file.fileName}>{file.fileName}</span>
@@ -523,13 +532,15 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                       </Show>
                     }
                   >
-                    {/* type 40:预览窗显示后缀图标 */}
-                    <img
-                      class="asset-grid-icon"
-                      src={getAssetIconByExtension(previewFile()!.fileName)}
-                      alt=""
-                      draggable={false}
-                    />
+                    {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
+                    <Show when={getAssetThumb(previewFile()!)} fallback={<span class="addon-menu-empty-state-text">无预览</span>}>
+                      <img
+                        class={isAssetThumbImage(previewFile()!) ? "addon-menu-asset-preview-img" : "asset-grid-icon"}
+                        src={getAssetThumb(previewFile()!)}
+                        alt=""
+                        draggable={false}
+                      />
+                    </Show>
                   </Show>
                 </div>
               </div>

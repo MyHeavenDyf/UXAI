@@ -5,7 +5,6 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
-import { EdmUtil } from "@/utils/edmUtil"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -4155,6 +4154,8 @@ if (dsId) {
     file: {
       type?: number
       fileName: string
+      s3BaseUrl?: string
+      docPath?: string
       docId?: string
       fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
@@ -4172,10 +4173,15 @@ if (dsId) {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: EDM 下载(回调式,包装为 Promise;单元素数组返回原文件,多个才返回 zip)
-      if (!file.docId) throw new Error("缺少 docId,无法下载")
-      downloadName = file.fileName
-      buffer = await edmDownloadAsBuffer(file, signal)
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
+      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
+      downloadName = file.docPath
+      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
     } else {
       // type 30: versionInfo 下载路径(baseUrl + '/main' + filePath + '/' + fileName)
       const version = file.versionInfo?.[0]
@@ -4233,14 +4239,10 @@ if (dsId) {
       }
     }
 
-    // Non-ZIP: type 40 saves as file.fileName (has extension); type 30 appends version's extension
-    let saveName = file.fileName
-    if (file.type !== 40) {
-      const dot = downloadName.lastIndexOf(".")
-      const ext = dot > 0 ? downloadName.slice(dot) : ""
-      saveName = `${file.fileName}${ext}`
-    }
-    const finalName = await resolveUniqueFilename(dir, saveName)
+    // Non-ZIP: 保存名 = file.fileName + 下载名的扩展名(docPath/versionInfo 均含真实后缀)
+    const dot = downloadName.lastIndexOf(".")
+    const ext = dot > 0 ? downloadName.slice(dot) : ""
+    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -4248,40 +4250,6 @@ if (dsId) {
     onProgress(100)
     setFilesRefreshKey(k => k + 1)
     return destPath
-  }
-
-  /** EdmUtil.download(回调式)包装为 Promise,解析出文件二进制 */
-  function edmDownloadAsBuffer(
-    file: { fileName: string; fileSize?: number; docId?: string },
-    signal?: AbortSignal,
-  ): Promise<ArrayBuffer> {
-    return new Promise((resolve, reject) => {
-      const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
-      if (signal?.aborted) {
-        onAbort()
-        return
-      }
-      signal?.addEventListener("abort", onAbort, { once: true })
-      EdmUtil.download(
-        [{ name: file.fileName, size: file.fileSize ?? 0, docId: file.docId ?? "" }],
-        {
-          onFinish: (_taskId, data) => {
-            signal?.removeEventListener("abort", onAbort)
-            if (data instanceof ArrayBuffer) {
-              resolve(data)
-            } else if (data instanceof Blob) {
-              data.arrayBuffer().then(resolve).catch(() => reject(new Error("下载数据解析失败")))
-            } else {
-              reject(new Error("不支持的下载结果类型"))
-            }
-          },
-          onError: (_taskId, err) => {
-            signal?.removeEventListener("abort", onAbort)
-            reject(new Error((err as any)?.message || "下载失败"))
-          },
-        },
-      )
-    })
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {

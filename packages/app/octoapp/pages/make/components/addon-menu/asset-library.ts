@@ -5,6 +5,7 @@ import htmlIconUrl from "../../icons/html.svg"
 import pdfIconUrl from "../../icons/PDF.svg"
 import pptIconUrl from "../../icons/ppt.svg"
 import zipIconUrl from "../../icons/zip.svg"
+import txtIconUrl from "../../icons/txt.svg"
 
 /**
  * 产品资源库数据获取层
@@ -42,9 +43,11 @@ export interface AssetFile {
   snapshot?: string
   s3BaseUrl?: string
   convertHtmlUrl?: string
+  /** type 40:EDM 文档路径(下载路径 = s3BaseUrl + '/' + docPath) */
+  docPath?: string
   /** type 40:EDM 下载所需的文档 id */
   docId?: string
-  /** type 40:文件字节数(EDM 下载参数) */
+  /** type 40:文件字节数 */
   fileSize?: number
   versionInfo?: AssetVersionInfo[] | null
 }
@@ -123,6 +126,7 @@ const MOCK_FILES: AssetFile[] = [
     snapshot: "image/ad270bbc7e41f8772b3d0bcc7be511fa53149cc8.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
+    docPath: "assets/1753/2abc123123.xlsx",
     docId: "ASSET_421",
     fileSize: 1111,
     versionInfo: [
@@ -133,6 +137,7 @@ const MOCK_FILES: AssetFile[] = [
     type: 30,
     id: 2222,
     fileName: "容器2",
+    docPath: "assets/1753/2abc123123.xlsx",
     docId: "ASSET_421",
     fileSize: 1111,
     snapshot: "image/Iconolor.png",
@@ -143,16 +148,19 @@ const MOCK_FILES: AssetFile[] = [
   {
     type: 40,
     id: 3333,
-    fileName: "数据报表.xlsx",
-    docId: "ASSET_999",
+    fileName: "产品效果图",
+    docPath: "assets/1753/product-preview.png",
+    s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
   },
   {
     type: 40,
     id: 4444,
-    fileName: "设计稿.zip",
-    docId: "ASSET_1000",
-    fileSize: 409600,
+    fileName: "数据报表",
+    docPath: "assets/1753/report.xlsx",
+    snapshot: "image/report-thumb.png",
+    s3BaseUrl: "http://127.0.0.1:8080/",
+    fileSize: 20480,
   },
 ]
 
@@ -253,16 +261,13 @@ export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   return filterByType(files)
 }
 
-// ── type 40 文件的后缀图标(spec line 74-80)──
+// ── type 40 文件的后缀图标(spec line 78-86)──
 const EXT_ICON_MAP: Record<string, string> = {
+  txt: txtIconUrl,
   xlsx: excelIconUrl,
   xlsm: excelIconUrl,
   xls: excelIconUrl,
   gif: imgIconUrl,
-  png: imgIconUrl,
-  jpeg: imgIconUrl,
-  jpg: imgIconUrl,
-  svg: imgIconUrl,
   html: htmlIconUrl,
   key: pdfIconUrl,
   pdf: pdfIconUrl,
@@ -272,11 +277,42 @@ const EXT_ICON_MAP: Record<string, string> = {
   rar: zipIconUrl,
 }
 
-/** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀返回 undefined */
-export function getAssetIconByExtension(fileName: string): string | undefined {
+/** png/jpeg/jpg/svg:直接显示下载路径的图片(不走图标) */
+const IMAGE_EXT_SET = new Set(["png", "jpeg", "jpg", "svg"])
+
+function extensionOf(fileName: string): string {
   const clean = fileName.split("?")[0].split("#")[0]
   const dot = clean.lastIndexOf(".")
-  if (dot < 0 || dot === clean.length - 1) return undefined
-  const ext = clean.slice(dot + 1).toLowerCase()
+  if (dot < 0 || dot === clean.length - 1) return ""
+  return clean.slice(dot + 1).toLowerCase()
+}
+
+/**
+ * type 40 文件的缩略图(spec line 78-87):
+ * 1. snapshot 有值 → s3BaseUrl + snapshot(与 type 30 同规则)
+ * 2. snapshot 空/缺失时:png/jpeg/jpg/svg → 下载路径图片(s3BaseUrl + docPath);其他后缀 → 对应图标
+ */
+export function getAssetThumb(file: AssetFile): string | undefined {
+  if (file.type !== 40) return undefined
+  if (file.snapshot) {
+    return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))
+  }
+  const ext = extensionOf(file.fileName)
+  if (IMAGE_EXT_SET.has(ext)) {
+    return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+  }
+  return EXT_ICON_MAP[ext]
+}
+
+/** type 40 缩略图是否为真实图片(决定渲染样式:铺满 scale-down vs 居中图标) */
+export function isAssetThumbImage(file: AssetFile): boolean {
+  if (file.snapshot) return true
+  return IMAGE_EXT_SET.has(extensionOf(file.fileName))
+}
+
+/** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀/图片类返回 undefined */
+export function getAssetIconByExtension(fileName: string): string | undefined {
+  const ext = extensionOf(fileName)
+  if (IMAGE_EXT_SET.has(ext)) return undefined
   return EXT_ICON_MAP[ext]
 }

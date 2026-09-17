@@ -530,6 +530,12 @@
   object-fit: scale-down;
 }
 
+.asset-selected-full {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
 /* type 40 图标在 32px 缩略区内略小 */
 .asset-selected-item .asset-grid-icon {
   width: 24px;

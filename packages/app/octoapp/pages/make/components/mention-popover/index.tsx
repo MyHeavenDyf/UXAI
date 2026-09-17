@@ -15,7 +15,8 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
-  getAssetIconByExtension,
+  getAssetThumb,
+  isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -845,11 +846,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        // type 40 缩略图按 fileName 后缀取图标;type 30 用 inferKindFromUrl 文件图标
+                        // type 40:png/jpeg/jpg/svg 显示下载路径图片缩略,其他后缀显示对应图标;type 30 用 inferKindFromUrl 文件图标
+                        const thumbUrl = file.type === 40 ? getAssetThumb(file) : undefined
                         const FileIcon = file.type === 40
                           ? undefined
                           : getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
-                        const extIcon = file.type === 40 ? getAssetIconByExtension(file.fileName) : undefined
                         return (
                           <button
                             type="button"
@@ -901,8 +902,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
-                            <Show when={extIcon} fallback={FileIcon ? <FileIcon size={20} /> : null}>
-                              <img class="asset-grid-icon" src={extIcon} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: contain;" />
+                            <Show when={thumbUrl} fallback={FileIcon ? <FileIcon size={20} /> : null}>
+                              <img class="asset-grid-icon" src={thumbUrl} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: cover; border-radius: 4px;" />
                             </Show>
                             <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
                           </button>
@@ -967,11 +968,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 />
               }
             >
-              {/* type 40:预览窗显示后缀图标 */}
+              {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
               <img
-                src={getAssetIconByExtension(assetPreview()!.fileName)}
+                src={getAssetThumb(assetPreview()!)}
                 alt={assetPreview()!.fileName}
-                style="width: 48px; height: 48px; object-fit: contain;"
+                style={isAssetThumbImage(assetPreview()!) ? "width: 100%; height: 100%; object-fit: scale-down;" : "width: 48px; height: 48px; object-fit: contain;"}
               />
             </Show>
           </div>

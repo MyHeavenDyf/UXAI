@@ -7,7 +7,8 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
-  getAssetIconByExtension,
+  getAssetThumb,
+  isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -307,11 +308,11 @@ function AssetDialog(props: {
                               />
                             </Show>
                           }>
-                            {/* type 40:缩略图按 fileName 后缀取对应图标 */}
-                            <Show when={getAssetIconByExtension(file.fileName)}>
+                            {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
+                            <Show when={getAssetThumb(file)}>
                               <img
-                                class="asset-grid-icon"
-                                src={getAssetIconByExtension(file.fileName)}
+                                class={isAssetThumbImage(file) ? "me-asset-grid-thumb" : "asset-grid-icon"}
+                                src={getAssetThumb(file)}
                                 alt=""
                                 draggable={false}
                               />
@@ -371,13 +372,15 @@ function AssetDialog(props: {
                     </Show>
                   }
                 >
-                  {/* type 40:预览窗显示后缀图标 */}
-                  <img
-                    class="asset-grid-icon"
-                    src={getAssetIconByExtension(previewFile()!.fileName)}
-                    alt=""
-                    draggable={false}
-                  />
+                  {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
+                  <Show when={getAssetThumb(previewFile()!)} fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}>
+                    <img
+                      class={isAssetThumbImage(previewFile()!) ? "me-asset-dialog-preview-img" : "asset-grid-icon"}
+                      src={getAssetThumb(previewFile()!)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </Show>
                 </Show>
               </div>
             </div>
