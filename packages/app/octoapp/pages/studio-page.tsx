@@ -130,6 +130,8 @@ type PendingScrollRequest = {
   sessionID?: string
 }
 
+const STUDIO_PERMISSION_PRIORITY_WINDOW_MS = 1_000
+
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 const STUDIO_TEMPLATE_SAVE_ERROR = "保存失败，请检查网络"
@@ -304,11 +306,20 @@ export default function StudioPage() {
 
   const projectDir = useProjectDir({ mode: "config" })
   const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
+  onMount(() => {
+    const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
+    onCleanup(() => clearTimeout(timer))
+  })
+  createEffect(() => {
+    if (studioPermissionStatus() === "loading") return
+    setStudioColdStartReleased(true)
+  })
   createEffect(() => {
     const directory = projectDir()
-    if (!directory || studioPermissionStatus() === "loading") return
+    if (!directory || !studioColdStartReleased()) return
     globalSync.child(directory, { bootstrap: true })
   })
   const studioSessions = createMemo(() =>
@@ -507,7 +518,7 @@ export default function StudioPage() {
     () => {
       const current = server.current
       const directory = projectDir()
-      if (studioPermissionStatus() === "loading" || !current || !directory) return
+      if (!studioColdStartReleased() || !current || !directory) return
       return { current, directory }
     },
     async ({ current, directory }) => {

@@ -16,7 +16,6 @@ import * as Log from "@opencode-ai/core/util/log"
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
-const STUDIO_PERMISSION_TIMEOUT_MS = 5_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
 const DEFAULT_REBOOT_TIMEOUT_MS = 30_000
 
@@ -342,7 +341,6 @@ export async function fetchPromptTags(): Promise<unknown> {
 export type StudioPermissionTiming = {
   vendorDurationMs: number
   totalDurationMs: number
-  timedOut: boolean
 }
 
 export function studioPermissionServerTiming(timing: StudioPermissionTiming | undefined, handlerDurationMs: number) {
@@ -364,8 +362,6 @@ export async function checkStudioPermission(
   const uid = userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const requestID = crypto.randomUUID()
   const routeStartedAt = performance.now()
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), STUDIO_PERMISSION_TIMEOUT_MS)
   const timing: { vendorDurationMs: number } = { vendorDurationMs: 0 }
   log.info("route_enter", { requestID, uidHash: permissionUIDHash(uid) })
 
@@ -380,11 +376,10 @@ export async function checkStudioPermission(
           checkPermList: ["view:keling_entry", "view:jimeng_entry"],
           uid,
         }),
-        signal: controller.signal,
       }).catch((error) => {
         throw new Error(
           [
-            controller.signal.aborted ? "check_permission timed out." : "check_permission network failed.",
+            "check_permission network failed.",
             `url=${url}`,
             `error=${describeError(error)}`,
           ].join("\n"),
@@ -407,16 +402,13 @@ export async function checkStudioPermission(
       log.info("vendor_end", {
         requestID,
         vendorDurationMs: timing.vendorDurationMs,
-        timedOut: controller.signal.aborted,
       })
     }
   } finally {
-    clearTimeout(timeout)
     const totalDurationMs = Math.round(performance.now() - routeStartedAt)
     onTiming?.({
       vendorDurationMs: timing.vendorDurationMs,
       totalDurationMs,
-      timedOut: controller.signal.aborted,
     })
     log.info("route_end", {
       requestID,
