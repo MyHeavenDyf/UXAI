@@ -54,6 +54,7 @@ export function ModelEditAreaDialog(props: {
   fixedPosition?: boolean
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
+  const [hasText, setHasText] = createSignal(false)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
   const [dragPos, setDragPos] = createStore<{ left: number | null; top: number | null }>({ left: null, top: null })
   let editorRef: EditorRef | undefined
@@ -265,6 +266,8 @@ export function ModelEditAreaDialog(props: {
 
   const handleConfirm = async () => {
     if (isDisabled()) return
+    const text = editorRef?.getText?.() || ''
+    if (!text.trim()) return
     const prefix = buildPrefix()
     const docJSON = editorRef?.getDocJSON?.()
     appendToMainComposer(prefix, docJSON)
@@ -296,6 +299,7 @@ export function ModelEditAreaDialog(props: {
             disabled={isDisabled()}
             autofocus={true}
             placeholder="描述你想要的修改..."
+            onContentChange={(_docJSON, text) => setHasText(text.trim().length > 0)}
             onSubmit={handleConfirm}
             onTriggerStateChange={(active) => props.onMentionActiveChange?.(active)}
             ref={(el: EditorRef) => { editorRef = el }}
@@ -316,7 +320,7 @@ export function ModelEditAreaDialog(props: {
           <button
             type="button"
             class="model-edit-area-btn secondary"
-            disabled={isDisabled()}
+            disabled={isDisabled() || !hasText()}
             onClick={handleNext}
           >
             下一项
@@ -324,7 +328,7 @@ export function ModelEditAreaDialog(props: {
           <button
             type="button"
             class="model-edit-area-btn primary"
-            disabled={isDisabled()}
+            disabled={isDisabled() || !hasText()}
             onClick={handleConfirm}
           >
             {submitting() ? '...' : '确认'}
