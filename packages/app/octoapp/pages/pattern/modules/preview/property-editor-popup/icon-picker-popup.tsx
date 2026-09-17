@@ -145,9 +145,6 @@ const normalizeInitialColor = (v?: string) => {
   return iconCssColor('default')
 }
 
-const iconClassName = (name: string) =>
-  'Icon' + name.split(/[-_]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('')
-
 /** 空内容占位 */
 function EmptyState(props: { text: string }) {
   return (
@@ -265,7 +262,7 @@ export function IconPickerPopup(props: {
     customIcons: [] as CustomIcon[],
     selected: props.current,
     selectedId: props.currentId ?? '',
-    tip: null as { name: string; x: number; y: number } | null,
+    tip: null as { name: string; desc?: string; x: number; y: number } | null,
     uploadTip: null as { x: number; y: number; cx: number } | null,
     pos: { x: 0, y: 0 },
   })
@@ -376,13 +373,14 @@ export function IconPickerPopup(props: {
     return strokeEl(size)
   }
 
-  /** hover 图标：在图标下方弹气泡（图标名称 + 图标类名），坐标相对弹窗 */
-  const showTip = (el: HTMLElement, name: string) => {
+  /** hover 图标：在图标下方弹气泡（图标名称 + description 关键词，空则不展示第二行），坐标相对弹窗 */
+  const showTip = (el: HTMLElement, name: string, desc?: string[]) => {
     if (!popupRef) return
     const r = el.getBoundingClientRect()
     const pr = popupRef.getBoundingClientRect()
     setState('tip', {
       name,
+      desc: desc?.length ? desc.join(' ') : undefined,
       x: r.left - pr.left + r.width / 2,
       y: r.top - pr.top + r.height,
     })
@@ -447,6 +445,18 @@ export function IconPickerPopup(props: {
     if (!hit) return
     setState('selectedId', `custom:${hit.src}`)
     setState('selected', props.current)
+  })
+
+  /** 远端列表加载完后的默认选中：selectedId 命中列表（选过/已带有效 id）不动；否则取 englishName
+   *  与当前图标名一模一样的条目写入选中状态（生成元素存的图标名即 englishName，如 clound） */
+  createEffect(() => {
+    const icons = iconStore.state.icons
+    if (!icons.length || icons.some(i => String(i.icon_id) === state.selectedId)) return
+    const byName = icons.find(i => i.englishName === state.selected)
+    if (byName) {
+      setState('selectedId', String(byName.icon_id))
+      setState('selected', byName.name)
+    }
   })
 
   /** 删除已上传的自定义图标：会话文件一并删除；dataURL（web 回退）仅移出列表 */
@@ -618,8 +628,8 @@ export function IconPickerPopup(props: {
                         onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', icon.name); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': (state.selectedId || state.selected) === icon.name }}>
-                        {(state.selectedId || state.selected) === icon.name
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': icon.name === state.selectedId || icon.name === state.selected }}>
+                        {icon.name === state.selectedId || icon.name === state.selected
                           ? GridIcon(icon.svg, state.shapeKey, iconStore.state.iconColor, Number(iconStore.state.iconSize))
                           : GridIcon(icon.svg, 'outline', '#191919', Number(iconStore.state.iconSize))}
                       </button>
@@ -639,11 +649,11 @@ export function IconPickerPopup(props: {
                   <For each={iconStore.state.icons}>
                     {(icon) => (
                       <button type="button"
-                        onMouseEnter={(e) => showTip(e.currentTarget, icon.name)}
+                        onMouseEnter={(e) => showTip(e.currentTarget, icon.name, icon.description)}
                         onMouseLeave={() => setState('tip', null)}
                         onClick={() => { setState('selectedId', String(icon.icon_id)); setState('selected', icon.name) }}
                         class="flex h-[60px] w-full items-center justify-center rounded-xl bg-[#F2F3F5]"
-                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': !!state.selectedId && String(icon.icon_id) === state.selectedId }}>
+                        classList={{ 'ring-1 ring-inset ring-[#0A59F7]': String(icon.icon_id) === state.selectedId || icon.name === state.selected }}>
                         <ApiIcon url={icon.url} />
                       </button>
                     )}
@@ -731,14 +741,16 @@ export function IconPickerPopup(props: {
           </div>
         </div>
 
-        {/* 图标 hover 气泡：两行（图标名称 / 图标类名），出现在图标下方；箭头对准图标真实中心 */}
+        {/* 图标 hover 气泡：两行（图标名称 / englishName（无则图标类名）），出现在图标下方；箭头对准图标真实中心 */}
         <Show when={state.tip}>
           <span class="pointer-events-none absolute z-20 h-[8px] w-[8px] -translate-x-1/2 rotate-45"
             style={{ left: state.tip!.x + 'px', top: state.tip!.y + 'px', background: '#595959' }} />
           <div class="pointer-events-none absolute z-20 -translate-x-1/2 rounded-md px-2 py-1.5 shadow-lg"
             style={{ left: state.tip!.x + 'px', top: state.tip!.y + 4 + 'px', background: '#595959', color: '#fff' }}>
             <div class="whitespace-nowrap text-[11px]" style={{ color: '#fff', "text-align": 'center' }}>{state.tip!.name}</div>
-            <div class="whitespace-nowrap text-[10px]" style={{ color: '#fff', opacity: 0.9, "text-align": 'center' }}>{iconClassName(state.tip!.name)}</div>
+            <Show when={state.tip!.desc}>
+              <div class="whitespace-nowrap text-[10px]" style={{ color: '#fff', opacity: 0.9, "text-align": 'center' }}>{state.tip!.desc}</div>
+            </Show>
           </div>
         </Show>
         {/* 上传图标 hover 气泡：与图标气泡同款样式，展示在按钮上方，箭头指向按钮中心 */}
