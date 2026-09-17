@@ -206,7 +206,6 @@ export function ModelEditAreaDialog(props: {
         <div style={{ position: 'absolute', left: '0', top: `${ey + eh}px`, width: `${cw}px`, height: `${ch - ey - eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: '0', top: `${ey}px`, width: `${ex}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: `${ex + ew}px`, top: `${ey}px`, width: `${cw - ex - ew}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
-        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: `2px solid ${props.maskBorderColor ?? '#007bff'}`, 'border-radius': '4px', background: props.maskBgColor ?? 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
       </>
     )
   }
