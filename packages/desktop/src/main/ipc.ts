@@ -221,26 +221,20 @@ function readZipComment(zipPath: string): string {
 export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
 
-  // fastui dev server 由主进程持有(SPEC-DES-001 §8.6.1):
-  // skill 脚本是短命的,它起的进程在 Windows 下活不过本次调用 —— 整条链在同一个
-  // Job Object 里,shell 工具收尾时被连坐。约定为「返回结果对象、永不 throw」。
-  ipcMain.handle("fastui-devserver-ensure", (_event: IpcMainInvokeEvent, sessionDir: string) =>
-    FastuiDevServer.ensure(sessionDir),
+  // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
+  // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiDevServer.open(sessionDir, projectName),
   )
-  // 建会话时调这个:会话状态文件还没写出来,挂着等它出现。
-  // 等不到就是普通(非 fastui)会话,超时静默放弃 —— 对其他 Design 用法零影响。
-  ipcMain.handle("fastui-devserver-arm", (_event: IpcMainInvokeEvent, sessionDir: string) => {
-    FastuiDevServer.ensureWhenReady(sessionDir)
-    return true
-  })
-  ipcMain.handle("fastui-devserver-stop", (_event: IpcMainInvokeEvent, sessionDir: string) =>
-    FastuiDevServer.stop(sessionDir),
+  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiDevServer.restart(sessionDir, projectName),
   )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
   // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
-  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string) =>
-    FastuiExport.exportZip(sessionDir),
+  // 带产物名时导出该工程(同一对话可以有多个工程);不带时按会话状态文件里的工程导出。
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiExport.exportZip(sessionDir, projectName),
   )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)

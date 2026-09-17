@@ -84,7 +84,8 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   function isEligible(tab: ResultTab): boolean {
     if (!tab.filePath || HISTORY_SKIP_TYPES.includes(tab.type)) return false
-    if (tab.type === "link" || tab.filePath.startsWith("http")) return false
+    // fastui:// 是预览卡片的产物身份,不是磁盘文件(SPEC-DES-004)
+    if (tab.type === "link" || tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
     return true
   }
 

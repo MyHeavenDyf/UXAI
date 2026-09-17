@@ -24,8 +24,16 @@ import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-arch
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { dirname, basename, joinPath } from "../../utils/references"
-import { isLocalPreviewUrl } from "../../utils/fastui-export"
+import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
+
+type FastuiPreviewError = { phase: "error"; message: string; logTail?: string }
+/** fastui 预览面板的状态:取地址中 → 页面加载中 → 已出页面;任一步失败或超时进错误态 */
+type FastuiPreviewState =
+  | { phase: "resolving" }
+  | { phase: "loading"; url: string }
+  | { phase: "ready"; url: string }
+  | FastuiPreviewError
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
@@ -209,6 +217,8 @@ export function HtmlRenderer(props: {
   const sync = useSync()
   const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
+  /** fastui 预览卡片的产物名;null 表示不是 fastui 卡片(SPEC-DES-004) */
+  const fastuiName = createMemo(() => parseFastuiPreview(props.filePath))
   const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
@@ -274,6 +284,9 @@ export function HtmlRenderer(props: {
 
   const handleIframeLoad = () => {
     if (!iframeRef) return
+    // fastui 预览:地址挂上之后第一次 load 才算真正出了页面(SPEC-DES-004 §3.6)
+    const fu = fastui()
+    if (fu.phase === "loading" && iframeRef.getAttribute("src")) setFastui({ phase: "ready", url: fu.url })
     if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
     if (props.editing) {
       iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1018,8 +1031,78 @@ createEffect(() => {
   })
 
   const shouldUseExternalUrl = createMemo(() => {
-    return /^https?:\/\//i.test(props.filePath || "")
+    return /^https?:\/\//i.test(props.filePath || "") || fastuiName() !== null
   })
+
+  // ── fastui 预览(SPEC-DES-004)──────────────────────────────────────
+  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址:服务活着且应答
+  // 就复用,否则当场挑端口起服务。**只允许两种结局:出页面,或出明确的错误** ——
+  // 取地址与页面加载各有超时,超时一律转错误态并给「重新编译」,不允许无限转圈或白屏。
+  const [fastui, setFastui] = createSignal<FastuiPreviewState>({ phase: "resolving" })
+  const [fastuiAttempt, setFastuiAttempt] = createSignal(0)
+  /** 下一次取地址走「结束当前服务并重起」;由「重新编译」按钮置位 */
+  let fastuiRestartNext = false
+  /** 主进程自身有 90 秒起服务上限,这里再兜一层,防 IPC 本身没有回音 */
+  const FASTUI_OPEN_TIMEOUT_MS = 120_000
+  const FASTUI_LOAD_TIMEOUT_MS = 90_000
+
+  createEffect(
+    on([() => fastuiName(), () => props.refreshKey ?? 0, fastuiAttempt], ([name]) => {
+      if (name === null) return
+      const sessionDir = sessionDirOf(props.sdkDirectory, props.sessionId)
+      const api = getDesktopApi()
+      const restart = fastuiRestartNext
+      fastuiRestartNext = false
+      if (!sessionDir || !api?.fastuiPreviewOpen) {
+        setFastui({ phase: "error", message: "当前环境不支持本地预览" })
+        return
+      }
+      setFastui({ phase: "resolving" })
+      let disposed = false
+      const timer = setTimeout(() => {
+        if (!disposed) setFastui({ phase: "error", message: "预览服务长时间未响应，请重新编译" })
+      }, FASTUI_OPEN_TIMEOUT_MS)
+      const call = restart && api.fastuiPreviewRestart ? api.fastuiPreviewRestart : api.fastuiPreviewOpen
+      call(sessionDir, name || undefined)
+        .then((res) => {
+          if (disposed) return
+          clearTimeout(timer)
+          if (!res.ok) {
+            console.warn("[fastui] 预览服务不可用", { name, error: res.error })
+            setFastui({ phase: "error", message: res.error, logTail: res.logTail })
+            return
+          }
+          setFastui({ phase: "loading", url: `http://127.0.0.1:${res.port}/` })
+        })
+        .catch((error: unknown) => {
+          if (disposed) return
+          clearTimeout(timer)
+          setFastui({ phase: "error", message: `预览服务启动失败：${String(error)}` })
+        })
+      onCleanup(() => {
+        disposed = true
+        clearTimeout(timer)
+      })
+    }),
+  )
+
+  createEffect(
+    on(
+      () => fastui().phase,
+      (phase) => {
+        if (phase !== "loading") return
+        const timer = setTimeout(() => {
+          if (fastui().phase === "loading") setFastui({ phase: "error", message: "预览页面加载超时，请重新编译" })
+        }, FASTUI_LOAD_TIMEOUT_MS)
+        onCleanup(() => clearTimeout(timer))
+      },
+    ),
+  )
+
+  const recompileFastui = () => {
+    fastuiRestartNext = true
+    setFastuiAttempt((n) => n + 1)
+  }
 
   // ── 本地预览服务的就绪门禁(SPEC-DES-001 §8.6.5)─────────────────────
   // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
@@ -1035,7 +1118,10 @@ createEffect(() => {
   //
   // 门禁范围比 fastui 宽(任意 loopback URL 都走),因为"等本地服务起来再挂 iframe"
   // 对任何本地预览都成立;所以覆盖层文案保持中性,不写 fastui 专属的说法。
-  const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreviewUrl(props.filePath))
+  // fastui 卡片有自己的一套(见上),这里只管其他本地服务
+  const needsReadyGate = createMemo(
+    () => shouldUseExternalUrl() && fastuiName() === null && isLocalPreviewUrl(props.filePath),
+  )
   const [previewReady, setPreviewReady] = createSignal(false)
   const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
 
@@ -1101,14 +1187,21 @@ createEffect(() => {
     // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
     // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
     if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
+    let base = props.filePath!
+    if (fastuiName() !== null) {
+      // 地址还没取到就不挂 src:挂上去就是一次拿不回来的连接失败
+      const fu = fastui()
+      if (fu.phase !== "loading" && fu.phase !== "ready") return undefined
+      base = fu.url
+    }
     const key = props.refreshKey ?? 0
-    if (key === 0) return props.filePath
+    if (key === 0) return base
     try {
-      const u = new URL(props.filePath!)
+      const u = new URL(base)
       u.searchParams.set("_octo_v", String(key))
       return u.toString()
     } catch {
-      return props.filePath
+      return base
     }
   })
 
@@ -1755,6 +1848,78 @@ return (
       class="h-full w-full"
       style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: (pendingModelEditClose() || pendingLocalEditClose()) ? 'wait' : undefined }}
     >
+      {/* fastui 预览:编译中 / 出错两种覆盖层(SPEC-DES-004 §3.6)。出页面之前一直盖着,不让用户看到白屏 */}
+      <Show when={props.mode === "preview" && fastuiName() !== null && fastui().phase !== "ready"}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "10px",
+            padding: "24px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <Show
+            when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
+            fallback={
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
+                <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+                  首次打开需要启动本地服务，通常十几秒，请稍候。
+                </div>
+              </>
+            }
+          >
+            {(err) => (
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)", "text-align": "center", "max-width": "420px" }}>
+                  {err().message}
+                </div>
+                <Show when={err().logTail}>
+                  <pre
+                    style={{
+                      margin: "0",
+                      "max-width": "min(640px, 100%)",
+                      "max-height": "200px",
+                      overflow: "auto",
+                      padding: "8px 10px",
+                      "font-size": "11px",
+                      "line-height": "16px",
+                      "white-space": "pre-wrap",
+                      "word-break": "break-all",
+                      color: "var(--octo-text-secondary, #8a8a8a)",
+                      background: "rgba(0,0,0,0.04)",
+                      "border-radius": "6px",
+                    }}
+                  >
+                    {err().logTail}
+                  </pre>
+                </Show>
+                <button
+                  type="button"
+                  onClick={recompileFastui}
+                  style={{
+                    "margin-top": "4px",
+                    padding: "5px 14px",
+                    "font-size": "13px",
+                    "border-radius": "6px",
+                    border: "1px solid var(--octo-border, #d9d9d9)",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  重新编译
+                </button>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
       {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
           超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
       <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>
