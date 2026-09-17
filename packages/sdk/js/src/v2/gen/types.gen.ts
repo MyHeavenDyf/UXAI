@@ -701,6 +701,8 @@ export type CompactionPart = {
   auto: boolean
   overflow?: boolean
   tail_start_id?: string
+  estimated_tokens?: number
+  estimated_limit?: number
 }
 
 export type Part =
@@ -1084,6 +1086,8 @@ export type McpLocalConfig = {
   }
   enabled?: boolean
   timeout?: number
+  homepage?: string
+  docs?: string
 }
 
 export type McpOAuthConfig = {
@@ -1112,6 +1116,9 @@ export type McpRemoteConfig = {
   oauth?: McpOAuthConfig | false
   timeout?: number
   proxy?: boolean
+  transport?: "http" | "sse"
+  homepage?: string
+  docs?: string
 }
 
 /**

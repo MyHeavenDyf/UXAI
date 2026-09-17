@@ -1238,9 +1238,21 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextMetrics = createMemo(
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
-  const contextLimit = createMemo(() => {
+  const persistedCompactedContextEstimate = createMemo(() => {
+    const context = contextMetrics()
+    if (!params.id || !context?.message.summary) return
+    const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
+    if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
+    return { sessionID: params.id, tokens: part.estimated_tokens, limit: part.estimated_limit }
+  })
+  const currentCompactedContextEstimate = createMemo(() => {
     const estimate = compactedContextEstimate()
-    if (contextMetrics()?.message.summary && estimate && estimate.sessionID === params.id) return estimate.limit
+    if (estimate?.sessionID === params.id) return estimate
+    return persistedCompactedContextEstimate()
+  })
+  const contextLimit = createMemo(() => {
+    const estimate = currentCompactedContextEstimate()
+    if (contextMetrics()?.message.summary && estimate) return estimate.limit
     if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
     if (contextMetrics()?.limit) return contextMetrics()!.limit!
@@ -1249,8 +1261,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const context = contextMetrics()
     if (!context) return 0
     if (context.message.summary) {
-      const estimate = compactedContextEstimate()
-      if (estimate && estimate.sessionID === params.id) return estimate.tokens
+      const estimate = currentCompactedContextEstimate()
+      if (estimate) return estimate.tokens
       return context.output
     }
     return context.total
@@ -4903,7 +4915,7 @@ if (dsId) {
                             当前对话 Session 上下文已使用{contextUsage()}% {" "}
                             (
                             {contextTokens().toLocaleString(language.intl())}{" "}
-                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
                           </p>
                         </div>
                       }

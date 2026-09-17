@@ -1579,7 +1579,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         let structured: unknown
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
-        let estimateAfterAutoCompaction = false
+        let estimateAfterAutoCompaction: MessageV2.CompactionPart | undefined
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1659,15 +1659,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ),
               )
               if (estimated !== undefined) {
+                const limit = model.limit.input ?? model.limit.context
+                task.estimated_tokens = estimated
+                task.estimated_limit = limit
+                yield* sessions.updatePart(task)
                 yield* bus.publish(SessionCompaction.Event.Estimated, {
                   sessionID,
                   tokens: estimated,
-                  limit: model.limit.input ?? model.limit.context,
+                  limit,
                 })
               }
               break
             }
-            estimateAfterAutoCompaction = true
+            estimateAfterAutoCompaction = task
             continue
           }
 
@@ -1768,12 +1772,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               },
             })
             if (estimateAfterAutoCompaction) {
+              const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+              const limit = model.limit.input ?? model.limit.context
+              estimateAfterAutoCompaction.estimated_tokens = tokens
+              estimateAfterAutoCompaction.estimated_limit = limit
+              yield* sessions.updatePart(estimateAfterAutoCompaction)
               yield* bus.publish(SessionCompaction.Event.Estimated, {
                 sessionID,
-                tokens: Token.estimateValue([request.system, request.modelMsgs, request.activeTools]),
-                limit: model.limit.input ?? model.limit.context,
+                tokens,
+                limit,
               })
-              estimateAfterAutoCompaction = false
+              estimateAfterAutoCompaction = undefined
             }
             const result = yield* handle.process({
               user: lastUser,

@@ -2215,7 +2215,11 @@ it.live(
           const msgs = yield* sessions.messages({ sessionID: chat.id })
           const part = compactedPart(msgs)
           expect(part).toBeDefined()
-          if (part) expect(part.auto).toBe(false)
+          if (part) {
+            expect(part.auto).toBe(false)
+            expect(part.estimated_tokens).toBe(estimates[0]?.tokens)
+            expect(part.estimated_limit).toBe(estimates[0]?.limit)
+          }
           const text = compactedTextPart(msgs)
           expect(text?.text).toBe("/compact")
           expect(text?.synthetic).toBe(true)
