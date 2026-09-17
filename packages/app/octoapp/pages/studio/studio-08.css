@@ -1382,26 +1382,9 @@
 }
 
 .studio-template-creator-upload-plus {
-  position: relative;
   width: 16px;
   height: 16px;
-  color: #747476;
-}
-
-.studio-template-creator-upload-plus::before,
-.studio-template-creator-upload-plus::after {
-  content: "";
-  position: absolute;
-  top: 7.5px;
-  left: 3px;
-  width: 10px;
-  height: 1px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.studio-template-creator-upload-plus::after {
-  transform: rotate(90deg);
+  display: block;
 }
 
 .studio-template-creator-upload-thumb {
