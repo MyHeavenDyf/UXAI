@@ -25,15 +25,9 @@ import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 
-type FastuiPreviewError = { phase: "error"; message: string; logTail?: string }
-/** fastui 预览面板的状态:取地址中 → 页面加载中 → 已出页面;任一步失败或超时进错误态 */
-type FastuiPreviewState =
-  | { phase: "resolving" }
-  | { phase: "loading"; url: string }
-  | { phase: "ready"; url: string }
-  | FastuiPreviewError
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
@@ -284,9 +278,8 @@ export function HtmlRenderer(props: {
 
   const handleIframeLoad = () => {
     if (!iframeRef) return
-    // fastui 预览:地址挂上之后第一次 load 才算真正出了页面(SPEC-DES-004 §3.6)
-    const fu = fastui()
-    if (fu.phase === "loading" && iframeRef.getAttribute("src")) setFastui({ phase: "ready", url: fu.url })
+    // fastui 预览:地址挂上之后的 load 才算真正出了页面(SPEC-DES-004 §3.6)
+    if (fastuiName() !== null) fastuiPreview.frameLoaded(!!iframeRef.getAttribute("src"))
     if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
     if (props.editing) {
       iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1035,66 +1028,29 @@ createEffect(() => {
   })
 
   // ── fastui 预览(SPEC-DES-004)──────────────────────────────────────
-  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址:服务活着且应答
-  // 就复用,否则当场挑端口起服务。**只允许两种结局:出页面,或出明确的错误** ——
-  // 取地址与页面加载各有超时,超时一律转错误态并给「重新编译」,不允许无限转圈或白屏。
+  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址;状态迁移、超时与
+  // 「刷新不闪」都在 utils/fastui-preview.ts 里(有单测),这里只负责接线。
   const [fastui, setFastui] = createSignal<FastuiPreviewState>({ phase: "resolving" })
+  const fastuiPreview = createFastuiPreviewController({ onState: setFastui })
+  onCleanup(() => fastuiPreview.dispose())
   const [fastuiAttempt, setFastuiAttempt] = createSignal(0)
   /** 下一次取地址走「结束当前服务并重起」;由「重新编译」按钮置位 */
   let fastuiRestartNext = false
-  /** 主进程自身有 90 秒起服务上限,这里再兜一层,防 IPC 本身没有回音 */
-  const FASTUI_OPEN_TIMEOUT_MS = 120_000
-  const FASTUI_LOAD_TIMEOUT_MS = 90_000
 
   createEffect(
-    on([() => fastuiName(), () => props.refreshKey ?? 0, fastuiAttempt], ([name]) => {
-      if (name === null) return
-      const sessionDir = sessionDirOf(props.sdkDirectory, props.sessionId)
-      const api = getDesktopApi()
-      const restart = fastuiRestartNext
-      fastuiRestartNext = false
-      if (!sessionDir || !api?.fastuiPreviewOpen) {
-        setFastui({ phase: "error", message: "当前环境不支持本地预览" })
-        return
-      }
-      setFastui({ phase: "resolving" })
-      let disposed = false
-      const timer = setTimeout(() => {
-        if (!disposed) setFastui({ phase: "error", message: "预览服务长时间未响应，请重新编译" })
-      }, FASTUI_OPEN_TIMEOUT_MS)
-      const call = restart && api.fastuiPreviewRestart ? api.fastuiPreviewRestart : api.fastuiPreviewOpen
-      call(sessionDir, name || undefined)
-        .then((res) => {
-          if (disposed) return
-          clearTimeout(timer)
-          if (!res.ok) {
-            console.warn("[fastui] 预览服务不可用", { name, error: res.error })
-            setFastui({ phase: "error", message: res.error, logTail: res.logTail })
-            return
-          }
-          setFastui({ phase: "loading", url: `http://127.0.0.1:${res.port}/` })
-        })
-        .catch((error: unknown) => {
-          if (disposed) return
-          clearTimeout(timer)
-          setFastui({ phase: "error", message: `预览服务启动失败：${String(error)}` })
-        })
-      onCleanup(() => {
-        disposed = true
-        clearTimeout(timer)
-      })
-    }),
-  )
-
-  createEffect(
+    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
     on(
-      () => fastui().phase,
-      (phase) => {
-        if (phase !== "loading") return
-        const timer = setTimeout(() => {
-          if (fastui().phase === "loading") setFastui({ phase: "error", message: "预览页面加载超时，请重新编译" })
-        }, FASTUI_LOAD_TIMEOUT_MS)
-        onCleanup(() => clearTimeout(timer))
+      [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
+      ([name]) => {
+        if (name === null) return
+        const restart = fastuiRestartNext
+        fastuiRestartNext = false
+        fastuiPreview.request({
+          api: getDesktopApi(),
+          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          name,
+          restart,
+        })
       },
     ),
   )

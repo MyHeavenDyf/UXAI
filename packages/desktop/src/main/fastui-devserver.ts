@@ -18,6 +18,7 @@
  */
 import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process"
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -44,6 +45,11 @@ const startTimeoutMs = () => Number(process.env.OCTO_FASTUI_START_TIMEOUT_MS) ||
 /** 端口通了之后再看一眼进程还在不在 —— 探测到 listen 之间端口被别人抢了的话,我们的进程会随即退出 */
 const READY_GRACE_MS = 1000
 const REQUEST_POLL_MS = 1000
+/**
+ * 每次起服务前写进日志的标记,与 skill 的 scripts/lib/host.mjs `START_MARK` 一致。
+ * 日志按产物追加,换过进程后 verify 靠它只看新进程的输出。
+ */
+const START_MARK = "[octo-devserver] start port="
 /** 与 new-session 的 --name 校验一致:产物名不能带路径分隔符,防止拼出 outputs 以外的路径 */
 const PROJECT_NAME_RE = /^[\w.\-一-龥]+$/
 
@@ -163,8 +169,7 @@ function pidAlive(pid: number) {
   }
 }
 
-/** 端口空闲?只探 127.0.0.1 —— dev server 也只监听环回 */
-function portFree(port: number): Promise<boolean> {
+function bindable(port: number): Promise<boolean> {
   return new Promise((done) => {
     const srv = net.createServer()
     srv.once("error", () => done(false))
@@ -173,9 +178,23 @@ function portFree(port: number): Promise<boolean> {
   })
 }
 
-export function canConnect(port: number, timeoutMs = 1500): Promise<boolean> {
+/**
+ * 端口空闲?
+ *
+ * 只试绑 127.0.0.1 有盲区:监听在 0.0.0.0 / :: / ::1 上的进程看不到(macOS 上 Node 给监听设了
+ * SO_REUSEADDR,别人占着 0.0.0.0 时照样能绑上 127.0.0.1)。**不改成去试绑 0.0.0.0**:Windows 上
+ * 监听非环回地址会弹防火墙确认框。改为补连接探测 —— 发往环回地址的连接同样会落到通配地址的监听上。
+ */
+async function portFree(port: number): Promise<boolean> {
+  if (!(await bindable(port))) return false
+  if (await canConnect(port, 800)) return false
+  if (await canConnect(port, 800, "::1")) return false
+  return true
+}
+
+export function canConnect(port: number, timeoutMs = 1500, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((done) => {
-    const sock = net.connect({ port, host: "127.0.0.1" })
+    const sock = net.connect({ port, host })
     const finish = (v: boolean) => {
       sock.destroy()
       done(v)
@@ -263,6 +282,43 @@ function unregisterPid(envDir: string, pid: number) {
   }
 }
 
+function readRecord(sessionDir: string, name: string): { pid?: number; status?: string } | null {
+  try {
+    return JSON.parse(readFileSync(runtimePaths(sessionDir, name).record, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 删记录前核对 pid 是不是自己的。
+ * 记录按产物名存,新旧进程写同一个路径;旧进程退得慢(Windows 上 taskkill 是异步的)时,
+ * 新进程早已写好了记录 —— 不核对就会把新记录删掉,verify 从此找不到正在跑的服务。
+ */
+function removeRecordIfOwned(sessionDir: string, name: string, pid: number) {
+  const r = readRecord(sessionDir, name)
+  if (!r || r.pid !== pid) return
+  try {
+    rmSync(runtimePaths(sessionDir, name).record, { force: true })
+  } catch {
+    /* 删不掉不影响什么 */
+  }
+}
+
+/** 起服务失败时告诉 verify,让它立即失败,而不是白等之后在 Octo 里自己起一个关不掉的进程 */
+function writeErrorRecord(sessionDir: string, name: string, projectDir: string, result: { error: string; logTail?: string }) {
+  const { dir, record } = runtimePaths(sessionDir, name)
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      record,
+      JSON.stringify({ projectDir, status: "error", error: result.error, logTail: result.logTail, at: Date.now() }, null, 2),
+    )
+  } catch (error) {
+    log.warn("[fastui] 写失败记录失败", { projectDir, error: String(error) })
+  }
+}
+
 function writeRecord(e: Entry, logPath: string) {
   const { dir, record } = runtimePaths(e.sessionDir, e.name)
   try {
@@ -314,7 +370,13 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
     const port = await allocatePort(excluded)
     if (port === null) return { ok: false, error: "没有可用的本地端口，预览服务无法启动" }
 
+    // 写启动标记在记下偏移之后:偏移用于截取本次启动的日志末尾,标记用于 verify 跟随换进程
     const logOffset = fileSize(logPath)
+    try {
+      appendFileSync(logPath, `\n${START_MARK}${port}\n`)
+    } catch {
+      /* 写不进去下面 openSync 会报出来 */
+    }
     let fd: number
     try {
       fd = openSync(logPath, "a")
@@ -371,12 +433,9 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
       // 起步阶段的退出(端口被抢、启动失败)由 launch() 自己处理重试或报错;
       // 这里若把条目移出表,重试期间的并发请求就会另起一个
       if (e.status === "ready" && running.get(e.projectDir) === e) running.delete(e.projectDir)
-      try {
-        rmSync(runtimePaths(e.sessionDir, e.name).record, { force: true })
-      } catch {
-        /* 删不掉不影响什么 */
-      }
     })
+    // 记录的清理不受上面条目判断的限制:按 pid 核对,只删属于这个进程的那份
+    child.on("exit", () => removeRecordIfOwned(e.sessionDir, e.name, pid))
 
     const outcome = await waitReady(child, port, deadline)
     if (outcome === "ready") {
@@ -418,14 +477,22 @@ function start(sessionDir: string, projectDir: string, name: string, state: Sess
   e.ready = launch(e, state)
     .catch((error): OpenResult => ({ ok: false, error: `预览服务启动失败：${String(error)}` }))
     .then((result) => {
-      if (!result.ok && running.get(projectDir) === e) {
-        running.delete(projectDir)
+      if (!result.ok) {
+        if (running.get(projectDir) === e) running.delete(projectDir)
         if (e.pid) killTree(e.pid)
+        writeErrorRecord(sessionDir, name, projectDir, result)
       }
       return result
     })
   return e.ready
 }
+
+/**
+ * 按工程串行化「检查 → 必要时杀掉重起」。
+ * 服务卡死(活着但不应答)时,UI 点击和 skill 请求可能同时到达:两边都在等连接探测,然后各自
+ * 杀掉、各自重起 —— 先起的那个条目被覆盖,退出时 stopAll 收不到它。
+ */
+const opening = new Map<string, Promise<OpenResult>>()
 
 /**
  * 打开一个产物的预览:活着且应答就复用,否则当场起。
@@ -436,19 +503,34 @@ export async function open(sessionDir: string, name?: string): Promise<OpenResul
   if (!r.ok) return { ok: false, error: r.error }
   if (!r.state.envDir || !r.state.depsDir) return { ok: false, error: "预览工程信息不完整，请让助手重新生成预览" }
 
-  const existing = running.get(r.projectDir)
+  const inflight = opening.get(r.projectDir)
+  if (inflight) return inflight
+  const task = openResolved(sessionDir, r.projectDir, r.name, r.state).finally(() => {
+    if (opening.get(r.projectDir) === task) opening.delete(r.projectDir)
+  })
+  opening.set(r.projectDir, task)
+  return task
+}
+
+async function openResolved(sessionDir: string, projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
+  const existing = running.get(projectDir)
   if (existing) {
     if (existing.status === "starting") return existing.ready
     if (isAlive(existing)) {
-      if (await canConnect(existing.port)) return { ok: true, port: existing.port, reused: true }
+      if (await canConnect(existing.port)) {
+        // 记录可能被外部删掉过(旧版本的清理逻辑、用户清目录)—— verify 靠它找服务,复用时补齐
+        const rec = readRecord(existing.sessionDir, existing.name)
+        if (!rec || rec.pid !== existing.pid) writeRecord(existing, runtimePaths(existing.sessionDir, existing.name).log)
+        return { ok: true, port: existing.port, reused: true }
+      }
       // 进程在但不应答 —— 卡死了。杀掉当场重起,不让用户对着一个永远加载不出来的页面
-      log.warn("[fastui] dev server 不应答，重新启动", { projectDir: r.projectDir, port: existing.port })
+      log.warn("[fastui] dev server 不应答，重新启动", { projectDir, port: existing.port })
       await stopEntry(existing)
     } else {
-      running.delete(r.projectDir)
+      running.delete(projectDir)
     }
   }
-  return start(sessionDir, r.projectDir, r.name, r.state)
+  return start(sessionDir, projectDir, name, state)
 }
 
 function stopEntry(e: Entry, { sync = false }: { sync?: boolean } = {}): Promise<void> {
@@ -469,6 +551,8 @@ function stopEntry(e: Entry, { sync = false }: { sync?: boolean } = {}): Promise
 export async function restart(sessionDir: string, name?: string): Promise<OpenResult> {
   const r = resolveProject(sessionDir, name)
   if (!r.ok) return { ok: false, error: r.error }
+  // 正在进行的打开先让它有结果,避免与它交错地杀掉/起服务
+  await opening.get(r.projectDir)
   const existing = running.get(r.projectDir)
   if (existing) {
     // 正在起的那一次先等它有结果,再结束它,避免留下一个没人管的进程
@@ -586,7 +670,14 @@ function pollRequests() {
       continue
     }
     void open(v.sessionDir, v.name).then((result) => {
-      if (!result.ok) log.warn("[fastui] 按请求起服务失败", { ...v, error: result.error })
+      if (result.ok) return
+      log.warn("[fastui] 按请求起服务失败", { ...v, error: result.error })
+      // 工程解析阶段就失败时 start() 不会被调用,这里补写,让 verify 立即知道。
+      // 已有别的记录(可能是一个正在跑的服务)时不覆盖
+      const rec = readRecord(v.sessionDir, v.name)
+      if (!rec || rec.status === "error") {
+        writeErrorRecord(v.sessionDir, v.name, join(v.sessionDir, "outputs", v.name), result)
+      }
     })
   }
 }

@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -121,6 +121,31 @@ describe("open", () => {
     }
   })
 
+  test("端口被别人监听在 0.0.0.0 上时也跳过(只试绑 127.0.0.1 看不到)", async () => {
+    const blocker = net.createServer()
+    await new Promise<void>((r) => blocker.listen(8081, "0.0.0.0", () => r()))
+    try {
+      const s = session("s6b", ["alpha"])
+      const r = await Host.open(s, "alpha")
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.port).not.toBe(8081)
+    } finally {
+      blocker.close()
+    }
+  })
+
+  test("服务卡死时并发打开:只杀一次、只起一个新进程", async () => {
+    const s = session("s6c", ["alpha"])
+    writeFileSync(join(portal(s, "alpha"), "HANG_AFTER_READY"), "")
+    expect((await Host.open(s, "alpha")).ok).toBe(true)
+    await Bun.sleep(2000)
+    rmSync(join(portal(s, "alpha"), "HANG_AFTER_READY"))
+    const rs = await Promise.all([Host.open(s, "alpha"), Host.open(s, "alpha"), Host.open(s, "alpha")])
+    expect(rs.every((r) => r.ok)).toBe(true)
+    expect(new Set(rs.map((r) => (r.ok ? r.port : -1))).size).toBe(1)
+    expect(Host.list().filter((e) => e.projectDir === join(s, "outputs", "alpha")).length).toBe(1)
+  }, 15_000)
+
   test("进程因 EADDRINUSE 退出时换端口重试,最终成功", async () => {
     const s = session("s7", ["alpha"])
     writeFileSync(join(portal(s, "alpha"), "EADDRINUSE_ONCE"), "")
@@ -161,12 +186,34 @@ describe("open", () => {
     }
   }, 15_000)
 
-  test("编译崩溃:返回错误并带日志末尾", async () => {
+  test("编译崩溃:返回错误并带日志末尾,并写一份 error 记录让 verify 立即失败", async () => {
     const s = session("s10", ["alpha"])
     writeFileSync(join(portal(s, "alpha"), "CRASH"), "")
     const r = await Host.open(s, "alpha")
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.logTail).toContain("fake compile crash")
+    const rec = JSON.parse(readFileSync(join(s, "devservers", "alpha.json"), "utf8"))
+    expect(rec.status).toBe("error")
+    expect(rec.error).toBe("预览服务启动失败")
+  })
+
+  test("起服务前在日志里写启动标记(verify 靠它跟随换进程)", async () => {
+    const s = session("s11", ["alpha"])
+    const r = await Host.open(s, "alpha")
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(readFileSync(join(s, "devservers", "alpha.log"), "utf8")).toContain(`[octo-devserver] start port=${r.port}\n`)
+  })
+
+  test("复用活着的服务时,记录不在就补写", async () => {
+    const s = session("s12", ["alpha"])
+    const a = await Host.open(s, "alpha")
+    expect(a.ok).toBe(true)
+    rmSync(join(s, "devservers", "alpha.json"))
+    const b = await Host.open(s, "alpha")
+    expect(b.ok && b.reused).toBe(true)
+    const rec = JSON.parse(readFileSync(join(s, "devservers", "alpha.json"), "utf8"))
+    expect(a.ok && rec.port).toBe(a.ok ? a.port : -1)
   })
 })
 
