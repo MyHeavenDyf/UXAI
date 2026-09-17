@@ -1566,6 +1566,12 @@ createEffect(() => {
       setModelEditTarget(null)
       iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
       props.onRefreshNeeded?.()
+      /** 模型回复完成的确定时机：补一次历史检查。components 等页面的产物由构建进程重新产出，
+       *  SSE 的 tool/step 事件时点上不一定能读到新文件，导致「模型编辑」版本漏记；
+       *  index.tsx 监听后跑 onFileRefresh（hash 未变时是空操作，幂等） */
+      if (props.filePath) {
+        window.dispatchEvent(new CustomEvent("model-edit:reply-done", { detail: { filePath: props.filePath } }))
+      }
     }
     if (prev && !disabled && pendingLocalEditClose()) {
       setPendingLocalEditClose(false)
