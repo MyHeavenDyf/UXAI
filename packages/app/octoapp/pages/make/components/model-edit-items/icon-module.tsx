@@ -504,7 +504,7 @@ function IconPickerPopup(props: {
                   <div class="grid grid-cols-5 gap-2">
                     <For each={state.customIcons}>
                       {(icon, i) => (
-                        <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'ring-1 ring-inset ring-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
+                        <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'outline outline-1 outline-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
                           onMouseEnter={(e) => showTip(e.currentTarget, { name: customIconName(icon.path ?? icon.src) })} onMouseLeave={() => setState('tip', null)}
                           onClick={() => { setState('selectedId', `custom:${icon.src}`); setState('selected', customIconName(icon.path ?? icon.src)) }}>
                           <img src={icon.src} class="max-h-full max-w-full object-contain" />
