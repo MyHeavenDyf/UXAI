@@ -8,7 +8,7 @@ import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
-import { syncSessionModel } from "@/pages/session/session-model-helpers"
+import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
@@ -17,7 +17,7 @@ import {
   type ArtifactFile,
   type ArtifactFileKind,
 } from "./utils/artifact-file-api"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
@@ -116,7 +116,13 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import {
+  getSessionContextMetrics,
+  isContextEstimateForMessage,
+  isContextEstimateForModel,
+  resolveContextEstimateModel,
+  selectContextEstimateModel,
+} from "@/components/session/session-context-metrics"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
@@ -202,8 +208,11 @@ function MakeContent() {
   const currentModel = () => local.model.current()
   const [compactedContextEstimate, setCompactedContextEstimate] = createSignal<{
     sessionID: string
+    messageID: string
     tokens: number
     limit: number
+    providerID: string
+    modelID: string
   }>()
 
   function findMultimodalModel() {
@@ -1225,10 +1234,10 @@ const sessionMessagesLoaded = createMemo(() => {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        syncSessionModel(local, msg as any)
+        syncSessionModel(local, msg as UserMessage)
         // Sync tab key so new conversations inherit this session's model.
-        if ((msg as any).model?.providerID && (msg as any).model?.modelID) {
-          local.model.set((msg as any).model, { recent: true })
+        if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
+          local.model.set((msg as UserMessage).model, { recent: true })
         }
       },
     ),
@@ -1242,13 +1251,40 @@ const sessionMessagesLoaded = createMemo(() => {
     const context = contextMetrics()
     if (!params.id || !context?.message.summary) return
     const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
-    if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
-    return { sessionID: params.id, tokens: part.estimated_tokens, limit: part.estimated_limit }
+    if (
+      !part ||
+      part.estimated_tokens === undefined ||
+      part.estimated_limit === undefined
+    ) return
+    const model = resolveContextEstimateModel(
+      { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
+      { providerID: context.message.providerID, modelID: context.message.modelID },
+    )
+    return {
+      sessionID: params.id,
+      tokens: part.estimated_tokens,
+      limit: part.estimated_limit,
+      providerID: model.providerID,
+      modelID: model.modelID,
+    }
   })
   const currentCompactedContextEstimate = createMemo(() => {
+    const current = currentModel()
+    const main = lastSessionUserMessage(sync.data.message, params.id)?.model
+    const model = selectContextEstimateModel({
+      selected: current && { providerID: current.provider.id, modelID: current.id },
+      main,
+      hasActiveChild:
+        !!activePlanForCurrentSession() || !!(activePatternSessionId() && patternSubParentSessionId() === params.id),
+    })
     const estimate = compactedContextEstimate()
-    if (estimate?.sessionID === params.id) return estimate
-    return persistedCompactedContextEstimate()
+    if (
+      estimate?.sessionID === params.id &&
+      isContextEstimateForMessage(estimate, contextMetrics()?.message.parentID) &&
+      isContextEstimateForModel(estimate, model)
+    ) return estimate
+    const persisted = persistedCompactedContextEstimate()
+    if (isContextEstimateForModel(persisted, model)) return persisted
   })
   const contextLimit = createMemo(() => {
     const estimate = currentCompactedContextEstimate()
@@ -1263,13 +1299,14 @@ const sessionMessagesLoaded = createMemo(() => {
     if (context.message.summary) {
       const estimate = currentCompactedContextEstimate()
       if (estimate) return estimate.tokens
-      return context.output
+      return
     }
     return context.total
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+    const tokens = contextTokens()
+    return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -1323,14 +1360,12 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   function compactContext(sessionID: string) {
-    const model = currentModel()
-    if (!sessionID || !model || contextCompactionDisabled()) return
+    if (!sessionID || contextCompactionDisabled()) return
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
       agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
-      model: `${model.provider.id}/${model.id}`,
     })
   }
 
@@ -4912,9 +4947,10 @@ if (dsId) {
                       value={
                         <div class="make-token-tooltip-copy">
                           <p>
-                            当前对话 Session 上下文已使用{contextUsage()}% {" "}
+                            当前对话 Session 上下文
+                            {contextUsage() === undefined ? "用量暂不可用" : `已使用${contextUsage()}%`} {" "}
                             (
-                            {contextTokens().toLocaleString(language.intl())}{" "}
+                            {contextTokens()?.toLocaleString(language.intl()) ?? "--"}{" "}
                             / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
                           </p>
                         </div>
@@ -4938,7 +4974,11 @@ if (dsId) {
                           const sessionID = params.id
                           if (sessionID) confirmCompactContext(sessionID)
                         }}
-                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
+                        aria-label={
+                          contextUsage() === undefined
+                            ? "上下文用量暂不可用，点击压缩上下文"
+                            : `上下文已使用 ${contextUsage()}%，点击压缩上下文`
+                        }
                       >
                         <ContextUsageCircle percentage={contextUsage()} />
                       </button>

@@ -703,6 +703,8 @@ export type CompactionPart = {
   tail_start_id?: string
   estimated_tokens?: number
   estimated_limit?: number
+  estimated_provider_id?: string
+  estimated_model_id?: string
 }
 
 export type Part =
@@ -2620,8 +2622,11 @@ export type EventSessionCompactionEstimated = {
   type: "session.compaction.estimated"
   properties: {
     sessionID: string
+    messageID: string
     tokens: number
     limit: number
+    providerID: string
+    modelID: string
   }
 }
 

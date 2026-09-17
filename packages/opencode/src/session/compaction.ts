@@ -37,8 +37,11 @@ export const Event = {
     "session.compaction.estimated",
     Schema.Struct({
       sessionID: SessionID,
+      messageID: MessageID,
       tokens: NonNegativeInt,
       limit: NonNegativeInt,
+      providerID: ProviderID,
+      modelID: ModelID,
     }),
   ),
 }
@@ -567,10 +570,8 @@ export const layer: Layer.Layer<
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
-        yield* session.updatePart({
-          ...compactionPart,
-          tail_start_id: selected.tail_start_id,
-        })
+        compactionPart.tail_start_id = selected.tail_start_id
+        yield* session.updatePart(compactionPart)
       }
 
       if (result === "continue" && input.auto) {

@@ -1662,11 +1662,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 const limit = model.limit.input ?? model.limit.context
                 task.estimated_tokens = estimated
                 task.estimated_limit = limit
+                task.estimated_provider_id = model.providerID
+                task.estimated_model_id = model.id
                 yield* sessions.updatePart(task)
                 yield* bus.publish(SessionCompaction.Event.Estimated, {
                   sessionID,
+                  messageID: task.messageID,
                   tokens: estimated,
                   limit,
+                  providerID: model.providerID,
+                  modelID: model.id,
                 })
               }
               break
@@ -1776,11 +1781,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               const limit = model.limit.input ?? model.limit.context
               estimateAfterAutoCompaction.estimated_tokens = tokens
               estimateAfterAutoCompaction.estimated_limit = limit
+              estimateAfterAutoCompaction.estimated_provider_id = model.providerID
+              estimateAfterAutoCompaction.estimated_model_id = model.id
               yield* sessions.updatePart(estimateAfterAutoCompaction)
               yield* bus.publish(SessionCompaction.Event.Estimated, {
                 sessionID,
+                messageID: estimateAfterAutoCompaction.messageID,
                 tokens,
                 limit,
+                providerID: model.providerID,
+                modelID: model.id,
               })
               estimateAfterAutoCompaction = undefined
             }

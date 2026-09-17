@@ -2191,7 +2191,13 @@ it.live(
             parts: [{ type: "text", text: "hello" }],
           })
           yield* llm.text(compactionSummary)
-          const estimates: Array<{ tokens: number; limit: number }> = []
+          const estimates: Array<{
+            messageID: MessageID
+            tokens: number
+            limit: number
+            providerID: ProviderID
+            modelID: ModelID
+          }> = []
           const estimateReady = defer<void>()
           const unsubscribe = yield* Bus.Service.use((bus) =>
             bus.subscribeCallback(SessionCompaction.Event.Estimated, (event) => {
@@ -2219,6 +2225,9 @@ it.live(
             expect(part.auto).toBe(false)
             expect(part.estimated_tokens).toBe(estimates[0]?.tokens)
             expect(part.estimated_limit).toBe(estimates[0]?.limit)
+            expect(part.estimated_provider_id).toBe(estimates[0]?.providerID)
+            expect(part.estimated_model_id).toBe(estimates[0]?.modelID)
+            expect(estimates[0]?.messageID).toBe(part.messageID)
           }
           const text = compactedTextPart(msgs)
           expect(text?.text).toBe("/compact")
@@ -2231,6 +2240,8 @@ it.live(
             expect(estimates).toHaveLength(1)
             expect(estimates[0]?.tokens).toBeGreaterThan(summary.info.tokens.output)
             expect(estimates[0]?.limit).toBeGreaterThan(0)
+            expect(String(estimates[0]?.providerID)).toBe(summary.info.providerID)
+            expect(String(estimates[0]?.modelID)).toBe(summary.info.modelID)
           }
         }),
       { git: true, config: providerCfg },
@@ -2356,6 +2367,47 @@ it.live(
 
           expect(result.info.role).toBe("assistant")
           const msgs = yield* sessions.messages({ sessionID: chat.id })
+          const part = compactedPart(msgs)
+          const parent = msgs.find((m) => m.info.role === "user" && m.parts.includes(part!))
+          expect(parent?.info.role).toBe("user")
+          if (parent?.info.role === "user") {
+            expect(parent.info.model.providerID).toBe(ProviderID.make("test"))
+            expect(parent.info.model.modelID).toBe(ModelID.make("test-model"))
+          }
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "compact command resolves the target session model when another session uses a different model",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const main = yield* sessions.create({})
+          yield* prompt.prompt({
+            sessionID: main.id,
+            agent: "build",
+            model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test-model-2") },
+            noReply: true,
+            parts: [{ type: "text", text: "main session" }],
+          })
+
+          const target = yield* sessions.create({})
+          yield* seed(target.id, { finish: "stop" })
+          yield* llm.text(compactionSummary)
+
+          yield* prompt.command({
+            sessionID: target.id,
+            command: "compact",
+            arguments: "",
+          })
+
+          const msgs = yield* sessions.messages({ sessionID: target.id })
           const part = compactedPart(msgs)
           const parent = msgs.find((m) => m.info.role === "user" && m.parts.includes(part!))
           expect(parent?.info.role).toBe("user")

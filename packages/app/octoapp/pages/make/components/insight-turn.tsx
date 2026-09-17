@@ -771,7 +771,7 @@ export function InsightTurn(props: {
     return false
   })
 
-  const assistantError = createMemo(() => {
+  const messageError = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
@@ -782,6 +782,8 @@ export function InsightTurn(props: {
     }
     return null
   })
+  const assistantError = createMemo(() => isCompactionTurn() ? null : messageError())
+  const compactionError = createMemo(() => isCompactionTurn() ? messageError() : null)
 
   const assistantParts = createMemo(() => {
     const msgs = assistantMsgs()
@@ -1383,16 +1385,11 @@ const stateStatus = state.status as string | undefined
           </div>
         </Show>
         <Show when={compactionFailed()}>
-          <div
-            class="mx-3 px-4 py-2 text-sm"
-            style={{
-              "border-radius": "var(--octo-radius-md)",
-              background: "rgba(254, 231, 232, 1)",
-              color: "#191919",
-            }}
-          >
-            上下文压缩失败
-          </div>
+          <MakeErrorNotice class="mx-3" title="上下文压缩失败">
+            <Show when={compactionError()?.message}>
+              <div style={{ "user-select": "text" }}>{compactionError()!.message}</div>
+            </Show>
+          </MakeErrorNotice>
         </Show>
         <Show when={compactionStalled()}>
           <div
