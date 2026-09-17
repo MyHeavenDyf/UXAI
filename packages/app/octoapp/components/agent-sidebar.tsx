@@ -2,9 +2,8 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, For, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
-import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -14,16 +13,11 @@ import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionPin } from "@/hooks/use-session-pin"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
-import { Icon } from "@opencode-ai/ui/icon"
-import trashPng from "@/pages/_shell/icons/trash.png"
-import pinPng from "@/pages/_shell/icons/pin.png"
-import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
-import arrowRightFolderCirclePng from "@/pages/_shell/icons/arrow_right_folder_circle.png"
-import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
-import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
+import { SessionContextMenu } from "@/components/session-context-menu"
 
 export type SidebarGroup = { id: string; name: string }
 
@@ -86,6 +80,9 @@ export type AgentSidebarProps = {
   /** Rendered above the main section. Receives the full session list and handlers so callers can render grouped sessions. */
   beforeSection?: (api: BeforeSectionApi) => JSX.Element
   inlineBeforeSection?: boolean
+
+  /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
+  onSessionClick?: (session: Session) => void
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -150,7 +147,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
-  const [hasPinned, setHasPinned] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
@@ -160,7 +156,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const pinnedSessions = createMemo(() =>
     sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
   )
-  createEffect(() => { if (pinnedSessions().length > 0) setHasPinned(true) })
   const recentSessions = createMemo(() =>
     sessionList
       .filter(s => !s.pinned && !props.sessionGroupMapping?.[s.id])
@@ -178,15 +173,37 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   createEffect(on(resolvedDir, () => setVisibleCount(VISIBLE_BATCH), { defer: true }))
 
+  const { togglePin: togglePinSession } = useSessionPin()
+
   async function togglePin(id: string) {
     const idx = sessionList.findIndex(s => s.id === id)
     if (idx < 0) return
-    const newVal = !sessionList[idx].pinned
-    setSessionList(idx, "pinned", newVal)
+    const session = sessionList[idx]
     const d = resolvedDir()
     if (!d) return
-    const client = globalSDK.createClient({ directory: d })
-    await client.session.update({ sessionID: id, pinned: newVal })
+    const newVal = !session.pinned
+    const previousSortOrder = session.sort_order
+    if (newVal) {
+      batch(() => {
+        setSessionList(idx, "sort_order", -1)
+        setSessionList(idx, "pinned", true)
+      })
+    } else {
+      batch(() => {
+        setSessionList(idx, "pinned", false)
+        setSessionList(idx, "sort_order", session.time.updated)
+      })
+    }
+    try {
+      await togglePinSession(id, newVal, d)
+    } catch (err) {
+      // Revert optimistic update on failure
+      batch(() => {
+        setSessionList(idx, "pinned", !newVal)
+        setSessionList(idx, "sort_order", previousSortOrder)
+      })
+      throw err
+    }
   }
 
   async function reorderPinned(sourceId: string, targetId: string, position: "before" | "after") {
@@ -413,29 +430,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     hasMessages: boolean
   }>({ show: false, x: 0, y: 0, session: null, hasMessages: false })
 
-  const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
-    left: "0px",
-    top: "0px",
-    visibility: "hidden",
-  })
-
-  const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
-
-  // ── Context menu submenu ("移动到分组") ──
-  const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
-  let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
-  const showSubmenuNow = () => { clearTimeout(submenuHideTimer); setShowGroupSubmenu(true) }
-  const scheduleHideSubmenu = () => { clearTimeout(submenuHideTimer); submenuHideTimer = setTimeout(() => setShowGroupSubmenu(false), 200) }
-
-  const submenuSide = createMemo<"right" | "left">(() => {
-    if (!showGroupSubmenu()) return "right"
-    const menuLeft = parseFloat(menuStyle().left) || 0
-    return menuLeft + 175 * 2 + 24 > window.innerWidth ? "left" : "right"
-  })
-
-  function handleMoveToGroup(groupId: string) {
-    const session = contextMenu.session
-    if (!session) return
+  function handleMoveToGroup(session: Session, groupId: string) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "move-session-to-group" })
     if (session.pinned) void togglePin(session.id)
@@ -443,18 +438,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
     closeContextMenu()
   }
 
-  function handleRemoveFromGroup() {
-    const session = contextMenu.session
-    if (!session) return
+  function handleRemoveFromGroup(session: Session) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "remove-session-from-group" })
     props.onRemoveFromGroup?.(session)
     closeContextMenu()
   }
 
-  function handleCreateGroupForSession() {
-    const session = contextMenu.session
-    if (!session) return
+  function handleCreateGroupForSession(session: Session) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "create-group-for-session" })
     if (session.pinned) void togglePin(session.id)
@@ -462,38 +453,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
     closeContextMenu()
   }
 
-  createEffect(() => {
-    if (contextMenu.show && contextMenu.session) {
-      requestAnimationFrame(() => {
-        const menu = contextMenuRef()
-        if (!menu) return
-        const menuHeight = menu.offsetHeight
-        const menuWidth = menu.offsetWidth
-        const viewportHeight = window.innerHeight
-        const viewportWidth = window.innerWidth
-        const minMargin = 24
-        let top = contextMenu.y
-        if (top + menuHeight > viewportHeight - minMargin) {
-          top = Math.max(0, viewportHeight - menuHeight - minMargin)
-        }
-        let left = contextMenu.x
-        if (left + menuWidth > viewportWidth - minMargin) {
-          left = Math.max(0, viewportWidth - menuWidth - minMargin)
-        }
-        setMenuStyle({
-          left: `${left}px`,
-          top: `${top}px`,
-          visibility: "visible",
-        })
-      })
-    }
-  })
-
   function closeContextMenu() {
-    clearTimeout(submenuHideTimer)
-    setShowGroupSubmenu(false)
     setContextMenu("show", false)
-    setMenuStyle({ left: "0px", top: "0px", visibility: "hidden" })
   }
 
   // ── Rename ──
@@ -576,9 +537,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
-  function handleContextMenuDelete() {
-    const session = contextMenu.session
-    if (!session) return
+  function handleContextMenuDelete(session: Session) {
     closeContextMenu()
     dialog.show(() => (
       <DialogDeleteSession
@@ -591,6 +550,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   function handleSessionClick(s: Session) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "select-session" })
+    props.onSessionClick?.(s)
     navigate(props.buildSessionRoute(s))
   }
 
@@ -626,7 +586,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       beforeSection={() => (
         <>
-          <Show when={pinnedSessions().length > 0 || hasPinned()}>
+          <Show when={pinnedSessions().length > 0 || draggingSessionId()}>
             <div
               onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
@@ -640,6 +600,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 activeSessionId={props.activeSessionId()}
                 stable={stable()}
                 hoverOnActive
+                useIndex
                 onSessionClick={handleSessionClick}
                 onSessionContextMenu={handleSessionContextMenu}
                 onSessionActionClick={handleSessionContextMenu}
@@ -733,178 +694,34 @@ export function AgentSidebar(props: AgentSidebarProps) {
         onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
         plainEmptyDropZone
       />
-      <Show when={contextMenu.show && contextMenu.session}>
-        <Portal>
-          <div
-            class="fixed inset-0 z-50"
-            onContextMenu={(e) => {
-              e.preventDefault()
-              for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
-                const sessionEl = el.closest('[data-session-id]')
-                if (!sessionEl) continue
-                const session = sessionList.find(s => s.id === sessionEl.getAttribute('data-session-id'))
-                if (!session) continue
-                if (renamingId()) setRenamingId(null)
-                setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: session.time.updated > session.time.created })
-                return
-              }
-              closeContextMenu()
-            }}
-            onClick={closeContextMenu}
-            onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
-            tabIndex={-1}
-            ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
-          >
-            <div
-              ref={setContextMenuRef}
-              data-component="dropdown-menu-content"
-              style={{
-                position: "absolute",
-                left: menuStyle().left,
-                top: menuStyle().top,
-                visibility: menuStyle().visibility,
-                width: "175px",
-                padding: "4px",
-                display: "flex",
-                "flex-direction": "column",
-                gap: "4px",
-                overflow: "visible",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Show when={contextMenu.hasMessages}>
-                <button
-                  data-slot="dropdown-menu-item"
-                  class="flex items-center gap-2"
-                  onClick={() => {
-                    const s = contextMenu.session
-                    if (!s) return
-                    closeContextMenu()
-                    startRename(s)
-                  }}
-                >
-                  <img src={squareAndPencilPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                  <span data-slot="dropdown-menu-item-label">重命名</span>
-                </button>
-              </Show>
-              <button
-                data-slot="dropdown-menu-item"
-                class="flex items-center gap-2"
-                onClick={() => {
-                  const s = contextMenu.session
-                  if (!s) return
-                  closeContextMenu()
-                  togglePin(s.id)
-                }}
-              >
-                <img src={pinPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                <span data-slot="dropdown-menu-item-label">{contextMenu.session && contextMenu.session.pinned ? "取消置顶聊天" : "置顶"}</span>
-              </button>
-              <button
-                data-slot="dropdown-menu-item"
-                class="flex items-center gap-2"
-                onClick={handleContextMenuDelete}
-              >
-                <img src={trashPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                <span data-slot="dropdown-menu-item-label">删除</span>
-              </button>
-              <Show when={props.groups}>
-                <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0" }} />
-                <div
-                  class="relative"
-                  onMouseEnter={showSubmenuNow}
-                  onMouseLeave={scheduleHideSubmenu}
-                >
-                  <button
-                    data-slot="dropdown-menu-item"
-                    class="flex items-center gap-2 w-full"
-                    style={{ "justify-content": "space-between" }}
-                    onMouseEnter={showSubmenuNow}
-                  >
-                    <span class="flex items-center gap-2">
-                      <img src={arrowRightFolderCirclePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                      <span data-slot="dropdown-menu-item-label">移动到分组</span>
-                    </span>
-                    <Icon name="chevron-right" size="small" style={{ width: "14px", height: "14px", color: "rgba(0,0,0,0.4)" }} />
-                  </button>
-                  <Show when={showGroupSubmenu()}>
-                    <div
-                      data-component="dropdown-menu-content"
-                      class="absolute"
-                      style={{
-                        position: "absolute",
-                        ...(submenuSide() === "right"
-                          ? { left: "calc(100% + 4px)" }
-                          : { right: "calc(100% + 4px)" }),
-                        top: "-4px",
-                        width: "175px",
-                        "max-height": "200px",
-                        "min-height": "40px",
-                        padding: "4px 2px 4px 4px",
-                        display: "flex",
-                        "flex-direction": "column",
-                        gap: "4px",
-                        overflow: "auto",
-                      }}
-                      onMouseEnter={showSubmenuNow}
-                      onMouseLeave={scheduleHideSubmenu}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div class="submenu-scroll" style={{ "overflow-y": "auto", "min-height": "0" }}>
-                        <Show
-                          when={props.groups!.length}
-                          fallback={
-                            <div class="flex items-center text-[14px] leading-[20px]" style={{ height: "36px", "padding-left": "8px", color: "#777777", "flex-shrink": "0" }}>
-                              暂无可移动的分组
-                            </div>
-                          }
-                        >
-                          <For each={props.groups}>
-                            {(group) => (
-                              <button
-                                data-slot="dropdown-menu-item"
-                                class="flex items-center gap-2"
-                                style={{ height: "36px", "flex-shrink": "0" }}
-                                onClick={() => handleMoveToGroup(group.id)}
-                              >
-                      <img src={folderLineClosePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                                <span data-slot="dropdown-menu-item-label" class="flex-1" style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{group.name}</span>
-                                <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id]?.groupId === group.id}>
-                                  <Icon name="check-small" size="small" style={{ color: "#0A59F7" }} />
-                                </Show>
-                              </button>
-                            )}
-                          </For>
-                        </Show>
-                      </div>
-                      <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0", "flex-shrink": "0" }} />
-                      <button
-                        data-slot="dropdown-menu-item"
-                        class="flex items-center gap-2"
-                        style={{ height: "36px", "flex-shrink": "0" }}
-                        onClick={handleCreateGroupForSession}
-                      >
-                        <img src={folderLineClosePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                        <span data-slot="dropdown-menu-item-label">新建分组</span>
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-              <Show when={contextMenu.session && props.sessionGroupMapping?.[contextMenu.session.id] && !contextMenu.session.pinned}>
-                <button
-                  data-slot="dropdown-menu-item"
-                  class="flex items-center gap-2"
-                  onClick={handleRemoveFromGroup}
-                >
-                  <img src={folderBadgePlusPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                  <span data-slot="dropdown-menu-item-label">移出此分组</span>
-                </button>
-              </Show>
-            </div>
-          </div>
-        </Portal>
-      </Show>
+      <SessionContextMenu
+        show={contextMenu.show && !!contextMenu.session}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        session={contextMenu.session}
+        hasMessages={contextMenu.hasMessages}
+        groups={props.groups}
+        sessionGroupMapping={props.sessionGroupMapping}
+        onClose={closeContextMenu}
+        onRename={(s) => { closeContextMenu(); startRename(s) }}
+        onTogglePin={(s) => { closeContextMenu(); togglePin(s.id) }}
+        onDelete={handleContextMenuDelete}
+        onMoveToGroup={handleMoveToGroup}
+        onRemoveFromGroup={handleRemoveFromGroup}
+        onCreateGroupForSession={handleCreateGroupForSession}
+        onContextMenuBackdrop={(e) => {
+          for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+            const sessionEl = el.closest('[data-session-id]')
+            if (!sessionEl) continue
+            const session = sessionList.find(s => s.id === sessionEl.getAttribute('data-session-id'))
+            if (!session) continue
+            if (renamingId()) setRenamingId(null)
+            setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: session.time.updated > session.time.created })
+            return
+          }
+          closeContextMenu()
+        }}
+      />
     </SidebarShell>
   )
 }

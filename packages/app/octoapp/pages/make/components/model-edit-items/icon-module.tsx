@@ -12,6 +12,7 @@ import { getDesktopApi } from '../../lib/electron-api'
 import { useSDK } from '@/context/sdk'
 import { useParams } from '@solidjs/router'
 import { sendTextToAgent } from '../../utils/agent-events'
+import { tracker } from '@/utils/tracker'
 import deleteSvg from './icon-data/delete.svg?url'
 
 const PANEL_W = 380
@@ -634,6 +635,7 @@ export function IconModule(props: {
       props.onSubmitStart()
       await sendTextToAgent(prompt, { source: 'icon-confirm' })
     }
+    tracker.interaction({ module: "design", name: "confirm-icon-change" })
     setPopupOpen(false)
   }
 

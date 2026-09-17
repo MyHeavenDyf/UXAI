@@ -51,7 +51,7 @@ export function DialogRemoveGroup(props: {
           </button>
         </header>
         <div class="make-model-risk-content">
-          移除后，分组将从列表中消失，分组内的对话将回到最近列表。
+            移除后，分组将从列表中消失，分组内的对话不会删除，已生成的产物仍将保留在本地文件夹中。此操作不可撤销。
         </div>
         <footer class="make-model-risk-actions">
           <button type="button" class="make-model-risk-button make-model-risk-button-cancel" onClick={props.onCancel}>
