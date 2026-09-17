@@ -14,7 +14,6 @@ import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
 import { startStudioGenerationWorker } from "@/studio/studio-service"
 import { Instance } from "./instance"
-import { ArtifactSender } from "@/tracking/sender"
 
 export { Service } from "./bootstrap-service"
 export type { Interface } from "./bootstrap-service"
@@ -51,9 +50,6 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
       yield* Effect.sync(() => Instance.restore(ctx, startStudioGenerationWorker))
-      yield* Effect.promise(() => ArtifactSender.runtime.runPromise((s) => s.init())).pipe(
-        Effect.catchCause(() => Effect.logWarning("[octo:artifact] worker init failed")),
-      )
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })

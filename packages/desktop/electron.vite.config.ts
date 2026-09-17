@@ -99,6 +99,7 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_ARTIFACT_TRACKING": JSON.stringify(env.OCTO_ARTIFACT_TRACKING ?? "diagnostic"),
         "import.meta.env.OCTO_ARTIFACT_SUCCESS": JSON.stringify(env.OCTO_ARTIFACT_SUCCESS ?? ""),
         "import.meta.env.OCTO_ARTIFACT_SCRIPTS": JSON.stringify(env.OCTO_ARTIFACT_SCRIPTS ?? "0"),
+        "import.meta.env.OCTO_ARTIFACT_DIAGNOSTICS": JSON.stringify(env.OCTO_ARTIFACT_DIAGNOSTICS ?? "0"),
         // Insight uxr-tool MCP server 地址:由 .env[.beta/.prod] 的 OCTO_UXR_MCP_URL 提供,
         // 经 createSidecarEnv 注入 sidecar 供 builtin-mcp 读;留空则 sidecar 回落代码内默认 beta IP。
         "import.meta.env.OCTO_UXR_MCP_URL": JSON.stringify(env.OCTO_UXR_MCP_URL ?? ""),

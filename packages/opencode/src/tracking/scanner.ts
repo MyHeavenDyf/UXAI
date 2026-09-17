@@ -4,8 +4,8 @@ import { lstat, opendir, open, readFile } from "node:fs/promises"
 import { eq, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { ArtifactScanTable as Scans } from "./artifact.sql"
-import { enqueue, readTurn, type Turn } from "./store"
-import { identity, json, string, toolIs } from "./facts"
+import { enqueue, observe, readTurn, type Turn } from "./store"
+import { hash, identity, json, string, toolIs } from "./facts"
 import { resolveOutputType } from "./output-type"
 
 export const BUDGET = { files: 1000, bytes: 256 * 1024 * 1024, fileBytes: 128 * 1024 * 1024, ms: 3000 }
@@ -18,7 +18,14 @@ export type Snapshot = {
   metrics?: { bytes: number; entries: number; ms: number }
 }
 const SOURCE_PENDING_MS = 10 * 60 * 1000
-type Baseline = { snapshot: Snapshot; operation?: string; tool?: string; observed?: Snapshot; occurredAt?: number }
+type Baseline = {
+  snapshot: Snapshot
+  operation?: string
+  tool?: string
+  observed?: Snapshot
+  occurredAt?: number
+  completed?: boolean
+}
 let running = 0
 const sessions = new Map<string, { id: string; conflicted: boolean; count: number }>()
 const scans = new Map<string, Promise<Snapshot>>()
@@ -196,7 +203,7 @@ export async function before(turn: Turn | undefined, tool: string) {
   return { id, turn, tool, baseline: snap }
 }
 
-export async function after(window: Awaited<ReturnType<typeof before>>) {
+export async function after(window: Awaited<ReturnType<typeof before>>, completed = true) {
   if (!window) return
   const active = sessions.get(window.turn.root_session_id)
   try {
@@ -223,10 +230,10 @@ export async function after(window: Awaited<ReturnType<typeof before>>) {
     const occurredAt = Date.now()
     save(
       window.turn,
-      { snapshot: window.baseline, operation: window.id, tool: window.tool, observed: current, occurredAt },
+      { snapshot: window.baseline, operation: window.id, tool: window.tool, observed: current, occurredAt, completed },
       "observed",
     )
-    commitScan(window.turn, window.baseline, current, script, occurredAt)
+    commitScan(window.turn, window.baseline, current, script, occurredAt, completed)
   } finally {
     if (active) active.count--
     if (!active || active.count === 0) sessions.delete(window.turn.root_session_id)
@@ -256,6 +263,7 @@ export function commitScan(
   current: Snapshot,
   script: boolean,
   occurredAt = Date.now(),
+  completed = true,
 ) {
   if (!previous.complete || !current.complete) return
   Database.Client().transaction((db) => {
@@ -267,13 +275,24 @@ export function commitScan(
       if (source?.digest === version.digest) continue
       if (!script) continue
       const edit = !!prior || !!(source && source.digest !== previous.sources[file]?.digest)
-      enqueue(db, turn, {
-        name: edit ? "artifact-file-edit" : "artifact-file-write",
-        identity: file,
-        type: resolveOutputType(file),
-        source: "script",
-        occurredAt,
+      // A shared-directory diff cannot prove that the command, rather than a
+      // user/background process, produced the file. Keep it observable, and
+      // only retain the legacy diagnostic event while the turn is diagnostic.
+      observe(db, {
+        messageID: turn.root_message_id,
+        kind: `script-candidate:${hash(file)}`,
+        status: "observed",
+        reason: completed ? "attribution-unconfirmed" : "completion-unconfirmed",
+        detail: { operation: edit ? "edit" : "write", type: resolveOutputType(file), occurredAt },
       })
+      if (turn.owner === "diagnostic" && completed)
+        enqueue(db, turn, {
+          name: edit ? "artifact-file-edit" : "artifact-file-write",
+          identity: file,
+          type: resolveOutputType(file),
+          source: "script",
+          occurredAt,
+        })
     }
     db.insert(Scans)
       .values({
@@ -314,6 +333,7 @@ export function recoverObservedScans() {
       baseline.observed,
       ["bash", "powershell", "python"].some((name) => toolIs(baseline.tool ?? "", name)),
       baseline.occurredAt,
+      baseline.completed,
     )
   }
 }

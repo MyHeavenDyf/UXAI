@@ -17,6 +17,7 @@ import { Config } from "@/config/config"
 import { ConfigProvider } from "@/config/provider"
 import { errors } from "../error"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "../global-lifecycle"
+import { diagnostics } from "@/tracking/diagnostics"
 
 const log = Log.create({ service: "server" })
 
@@ -95,6 +96,11 @@ export const GlobalRoutes = lazy(() =>
         return c.json({ healthy: true, version: InstallationVersion })
       },
     )
+    .get("/artifact-tracking", (c) => {
+      if (process.env.OCTO_ARTIFACT_DIAGNOSTICS !== "1") return c.notFound()
+      const limit = Number(c.req.query("limit") ?? 100)
+      return c.json(diagnostics(c.req.query("messageId"), Number.isFinite(limit) ? limit : 100))
+    })
     .get(
       "/event",
       describeRoute({

@@ -289,6 +289,7 @@ function createSidecarEnv(): Record<string, string> {
     OCTO_ARTIFACT_TRACKING: import.meta.env.OCTO_ARTIFACT_TRACKING,
     OCTO_ARTIFACT_SUCCESS: import.meta.env.OCTO_ARTIFACT_SUCCESS,
     OCTO_ARTIFACT_SCRIPTS: import.meta.env.OCTO_ARTIFACT_SCRIPTS,
+    OCTO_ARTIFACT_DIAGNOSTICS: import.meta.env.OCTO_ARTIFACT_DIAGNOSTICS,
   }
   for (const [key, value] of Object.entries(artifactEnv)) {
     if (env[key] === undefined && value) env[key] = value

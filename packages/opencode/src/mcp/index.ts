@@ -70,6 +70,45 @@ function mcpFetch(proxy: boolean | undefined, url: URL): (url: string | URL, ini
   return isPrivateUrl(url) ? noProxyFetch : globalThis.fetch
 }
 
+/**
+ * Execute one remote MCP call without a conversation/agent turn. Artifact task
+ * recovery uses this after restart, before any project or session is opened.
+ */
+export async function callRemoteToolDirect(
+  clientName: string,
+  mcp: ConfigMCP.Info & { type: "remote" },
+  toolName: string,
+  args: Record<string, unknown>,
+) {
+  const url = new URL(mcp.url)
+  const transports: Array<StreamableHTTPClientTransport | SSEClientTransport> = [
+    new StreamableHTTPClientTransport(url, {
+      requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+      fetch: mcpFetch(mcp.proxy, url),
+    }),
+    new SSEClientTransport(url, {
+      requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+      fetch: mcpFetch(mcp.proxy, url),
+    }),
+  ].filter((_, index) => !mcp.transport || index === (mcp.transport === "sse" ? 1 : 0))
+  let last: unknown
+  for (const transport of transports) {
+    const client = new Client({ name: `${clientName}-artifact-worker`, version: InstallationVersion })
+    try {
+      await withTimeout(client.connect(transport), mcp.timeout ?? DEFAULT_TIMEOUT)
+      return await client.callTool({ name: toolName, arguments: args }, CallToolResultSchema, {
+        resetTimeoutOnProgress: true,
+        timeout: mcp.timeout ?? DEFAULT_TIMEOUT,
+      })
+    } catch (error) {
+      last = error
+    } finally {
+      await client.close().catch(() => {})
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last ?? `MCP server "${clientName}" unavailable`))
+}
+
 export const Resource = Schema.Struct({
   name: Schema.String,
   uri: Schema.String,

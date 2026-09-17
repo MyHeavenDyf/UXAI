@@ -8,6 +8,7 @@ import { ArtifactEventTable as Events } from "./artifact.sql"
 import { cleanup, replay } from "./store"
 import { record } from "./facts"
 import { recoverScans, recoverObservedScans } from "./scanner"
+import { pollTasks } from "./tasks"
 
 const LEASE_MS = 30_000
 
@@ -115,6 +116,9 @@ export const layer = Layer.effect(
     )
     const tick = Effect.gen(function* () {
       yield* Effect.sync(cleanup)
+      yield* Effect.promise(() => pollTasks()).pipe(
+        Effect.catchCause(() => Effect.logWarning("[octo:artifact] async task polling deferred")),
+      )
       yield* Effect.sync(() => {
         replay()
         recoverObservedScans()
@@ -146,5 +150,11 @@ export const layer = Layer.effect(
 
 export const defaultLayer = layer.pipe(Layer.provide(FetchHttpClient.layer))
 export const runtime = makeRuntime(Service, defaultLayer)
+
+let startup: Promise<void> | undefined
+export function start() {
+  startup ??= runtime.runPromise((service) => service.init())
+  return startup
+}
 
 export * as ArtifactSender from "./sender"

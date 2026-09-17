@@ -8,10 +8,13 @@ import { sql } from "drizzle-orm"
 import { Database } from "../../src/storage/db"
 import {
   ArtifactEventTable as Events,
+  ArtifactFactTable as Facts,
+  ArtifactObservationTable as Observations,
+  ArtifactTaskTable as Tasks,
   ArtifactTurnTable as Turns,
   ArtifactScanTable as Scans,
 } from "../../src/tracking/artifact.sql"
-import { artifacts, hash, identity, mcpFact, resources } from "../../src/tracking/facts"
+import { artifacts, hash, identity, mcpFact, record, resources } from "../../src/tracking/facts"
 import {
   beginTurn,
   enqueue,
@@ -29,6 +32,8 @@ import { resolveOutputType as frontendType } from "../../../app/octoapp/pages/in
 import { tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { ArtifactTracking } from "../../src/tracking"
+import { claimTask, failTask, pollTasks } from "../../src/tracking/tasks"
+import { GlobalBus } from "../../src/bus/global"
 
 const it = testEffect(FetchHttpClient.layer)
 const worker = testEffect(ArtifactSender.defaultLayer)
@@ -44,7 +49,7 @@ const turn = (directory = process.cwd(), account: string | null = "origin-accoun
   uid: "origin-uid",
   version: "test",
   owner: "server",
-    created_at: Date.now(),
+  created_at: Date.now(),
 })
 function seed(directory = process.cwd(), account: string | null = "origin-account") {
   const t = turn(directory, account)
@@ -90,6 +95,7 @@ beforeEach(() => {
     for (const table of [
       "insight_artifact_event",
       "insight_artifact_fact",
+      "insight_artifact_observation",
       "insight_artifact_task",
       "insight_artifact_turn",
       "insight_artifact_scan",
@@ -109,7 +115,7 @@ describe("artifact facts and recovery", () => {
     }
     expect(resolveOutputType("no-extension", "image/png")).toBe("image")
   })
-  test("Windows paths merge; POSIX case and URI signatures remain distinct", () => {
+  test("Windows paths merge; POSIX case remains distinct; raw resources retain signed URIs", () => {
     expect(identity("A\\..\\REPORT.md", "D:\\project", "win32")).toBe(identity("report.md", "d:\\project", "win32"))
     expect(identity("Report.md", "/tmp", "linux")).not.toBe(identity("report.md", "/tmp", "linux"))
     const list = resources({
@@ -119,6 +125,31 @@ describe("artifact facts and recovery", () => {
       ],
     })
     expect(list).toHaveLength(2)
+  })
+  test("MCP identity ignores rotating signed URIs when the stable resource ID matches", () => {
+    const part = (signature: string) => ({
+      type: "tool",
+      tool: "uxr-tool_get_task_result",
+      state: {
+        status: "completed",
+        metadata: {
+          octoArtifactResult: mcpFact({
+            structuredContent: { task_id: "same-task", status: "completed" },
+            content: [
+              {
+                type: "resource_link",
+                uri: `https://example/result?signature=${signature}`,
+                resource_id: "same-file",
+                name: "result.xlsx",
+              },
+            ],
+          }),
+        },
+      },
+    })
+    expect(artifacts(part("first"), process.cwd())[0].identity).toBe(
+      artifacts(part("second"), process.cwd())[0].identity,
+    )
   })
   test("persisted result before enqueue replays once without a completion callback", () => {
     const t = seed()
@@ -165,6 +196,7 @@ describe("artifact facts and recovery", () => {
         {
           type: "resource_link",
           uri: "https://example/x?secret=token",
+          resource_id: "result-report",
           name: "report.xlsx",
           business_type: "key_findings",
         },
@@ -184,6 +216,146 @@ describe("artifact facts and recovery", () => {
     expect(extend()[0].messageId).toBe(first.message_id)
     expect(extend()[0].files).toEqual([{ type: "file", count: 1, tool: "key_findings" }])
     expect(rows()[0].payload).not.toContain("secret")
+  })
+  test("async MCP task is persisted and polled without another conversation turn", async () => {
+    const origin = seed()
+    persist(origin, {
+      type: "tool",
+      tool: "uxr-tool_key_findings",
+      state: {
+        status: "completed",
+        metadata: {
+          octoArtifactResult: mcpFact({ structuredContent: { task_id: "task-auto", status: "processing" } }),
+        },
+        time: { end: 1000 },
+      },
+    })
+    replay()
+    Database.use((db) => db.update(Tasks).set({ next_at: 0 }).run())
+    const events: unknown[] = []
+    const listener = (event: unknown) => events.push(event)
+    GlobalBus.on("event", listener)
+    try {
+      await pollTasks(async () => ({
+        structuredContent: { task_id: "task-auto", status: "completed" },
+        content: [
+          {
+            type: "resource_link",
+            uri: "https://example/result?signature=first",
+            resource_id: "stable-result",
+            name: "result.xlsx",
+            business_type: "key_findings",
+          },
+        ],
+      }))
+    } finally {
+      GlobalBus.off("event", listener)
+    }
+    expect(rows()).toHaveLength(1)
+    const task = Database.use((db) => db.select().from(Tasks).get())!
+    expect(task.state).toBe("succeeded")
+    expect(task.result_part_id).toStartWith("prt_")
+    expect(Database.use((db) => db.get(sql`SELECT id FROM part WHERE id = ${task.result_part_id}`))).toBeDefined()
+    expect(events.some((event) => record(record(event).payload).type === "message.part.updated")).toBe(true)
+    expect(rows()[0].payload).not.toContain("signature")
+  })
+  test("MCP resources without a provider-stable ID stay diagnostic", () => {
+    const origin = seed()
+    persist(origin, {
+      type: "tool",
+      tool: "uxr-tool_key_findings",
+      state: {
+        status: "completed",
+        metadata: { octoArtifactResult: mcpFact({ structuredContent: { task_id: "unknown", status: "processing" } }) },
+      },
+    })
+    replay()
+    persist(origin, {
+      type: "tool",
+      tool: "uxr-tool_get_task_result",
+      state: {
+        status: "completed",
+        metadata: {
+          octoArtifactResult: mcpFact({
+            structuredContent: { task_id: "unknown", status: "completed" },
+            content: [{ type: "resource_link", uri: "https://example/result?signature=rotating", name: "result.xlsx" }],
+          }),
+        },
+      },
+    })
+    replay()
+    expect(rows()).toHaveLength(0)
+    expect(
+      Database.use((db) => db.select().from(Observations).all()).some((row) => row.reason === "identity-unresolved"),
+    ).toBe(true)
+  })
+  test("async task auth failures pause with retry and deadlines become terminal", () => {
+    const origin = seed()
+    persist(origin, {
+      type: "tool",
+      tool: "uxr-tool_key_findings",
+      state: {
+        status: "completed",
+        metadata: {
+          octoArtifactResult: mcpFact({ structuredContent: { task_id: "auth-task", status: "processing" } }),
+        },
+      },
+    })
+    replay()
+    Database.use((db) => db.update(Tasks).set({ next_at: 0 }).run())
+    const claimed = claimTask(1000)!
+    failTask(claimed, new Error("HTTP 401 unauthorized"), 1000)
+    const waiting = Database.use((db) => db.select().from(Tasks).get())!
+    expect(waiting.state).toBe("waiting_auth")
+    expect(claimTask(waiting.next_at - 1)).toBeUndefined()
+    expect(claimTask(waiting.next_at)?.state).toBe("waiting_auth")
+    Database.use((db) =>
+      db.update(Tasks).set({ state: "pending", lease: null, lease_until: null, deadline_at: 2000, next_at: 0 }).run(),
+    )
+    expect(claimTask(2000)).toBeUndefined()
+    expect(Database.use((db) => db.select().from(Tasks).get())?.state).toBe("timed_out")
+  })
+  test("unresolved result origin remains pending and replays after the submission mapping appears", () => {
+    const origin = seed()
+    persist(
+      origin,
+      {
+        type: "tool",
+        tool: "uxr-tool_get_task_result",
+        state: {
+          status: "completed",
+          metadata: {
+            octoArtifactResult: mcpFact({
+              structuredContent: { task_id: "late-task", status: "completed" },
+              content: [
+                { type: "resource_link", uri: "https://example/result", resource_id: "late-file", name: "result.xlsx" },
+              ],
+            }),
+          },
+        },
+      },
+      1000,
+    )
+    replay()
+    expect(Database.use((db) => db.select().from(Facts).get())?.state).toBe("pending")
+    persist(
+      origin,
+      {
+        type: "tool",
+        tool: "uxr-tool_key_findings",
+        state: {
+          status: "completed",
+          metadata: {
+            octoArtifactResult: mcpFact({ structuredContent: { task_id: "late-task", status: "processing" } }),
+          },
+        },
+      },
+      900,
+    )
+    Database.use((db) => db.update(Facts).set({ next_at: 0 }).run())
+    replay()
+    expect(rows()).toHaveLength(1)
+    expect(Database.use((db) => db.select().from(Facts).all()).every((fact) => fact.state === "processed")).toBe(true)
   })
   test("failed tools and historical turns are not new facts", () => {
     const t = seed()
@@ -284,6 +456,14 @@ describe("queue delivery", () => {
     cleanup(Date.now() + 91 * 86400_000)
     expect(rows()).toHaveLength(0)
   })
+  test("pending payload expires at 30 days and is retained for diagnosis until 90 days", () => {
+    queue(seed())
+    cleanup(Date.now() + 31 * 86400_000)
+    expect(rows()[0].state).toBe("expired")
+    expect(rows()[0].payload).not.toBeNull()
+    cleanup(Date.now() + 91 * 86400_000)
+    expect(rows()).toHaveLength(0)
+  })
   it.live("receiver accepted but response failed: retry uses same eventId for dedup", () =>
     Effect.gen(function* () {
       queue(seed())
@@ -356,11 +536,11 @@ describe("bounded non-Git scans", () => {
     )
     const downloaded = await snapshot(root)
     commitScan(t, before, downloaded, true)
-    expect(rows()).toHaveLength(2)
+    expect(rows()).toHaveLength(1)
     await writeFile(path.join(root, "download.md"), "script edit")
     commitScan(t, downloaded, await snapshot(root), true)
-    expect(rows()).toHaveLength(3)
-    expect(extend().filter((e) => e.source === "script")).toHaveLength(2)
+    expect(rows()).toHaveLength(1)
+    expect(Database.use((db) => db.select().from(Observations).all())).toHaveLength(2)
   })
   test("budget failure does not advance baseline or enqueue; unknown dotfiles counted", async () => {
     await using tmp = await tmpdir()
@@ -375,7 +555,8 @@ describe("bounded non-Git scans", () => {
     expect(rows()).toHaveLength(0)
     expect(Database.use((db) => db.select().from(Scans).all())).toHaveLength(0)
     commitScan(t, before, await snapshot(root), true)
-    expect(rows()).toHaveLength(1)
+    expect(rows()).toHaveLength(0)
+    expect(Database.use((db) => db.select().from(Observations).get())?.reason).toBe("attribution-unconfirmed")
   })
   test("junctions outside outputs are not followed; concurrent requests coalesce", async () => {
     await using tmp = await tmpdir()
@@ -470,7 +651,8 @@ describe("bounded non-Git scans", () => {
           return yield* Effect.fail(new Error("script exited nonzero"))
         }),
       ).pipe(Effect.flip)
-      expect(extend().some((e) => e.source === "script")).toBe(true)
+      expect(extend().some((e) => e.source === "script")).toBe(false)
+      expect(Database.use((db) => db.select().from(Observations).get())?.reason).toBe("completion-unconfirmed")
     }).pipe(Effect.scoped),
   )
   test("persisted observed scan can replay after restart", async () => {
@@ -494,8 +676,10 @@ describe("bounded non-Git scans", () => {
     )
     recoverScans()
     recoverScans()
-    expect(rows()).toHaveLength(1)
-    expect(extend()[0].occurredAt).toBe(new Date(2000).toISOString())
+    expect(rows()).toHaveLength(0)
+    const observations = Database.use((db) => db.select().from(Observations).all())
+    expect(observations).toHaveLength(1)
+    expect(JSON.parse(observations[0].detail!).occurredAt).toBe(2000)
   })
   test("separate processes recover on-disk tool facts and observed scans", async () => {
     await using tmp = await tmpdir()
@@ -514,7 +698,7 @@ describe("bounded non-Git scans", () => {
       return stdout
     }
     await run("seed")
-    expect(await run("recover")).toContain("recovered=2")
-    expect(await run("recover")).toContain("recovered=2")
+    expect(await run("recover")).toContain("recovered=1")
+    expect(await run("recover")).toContain("recovered=1")
   })
 })

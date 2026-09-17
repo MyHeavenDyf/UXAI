@@ -33,19 +33,33 @@ export function toolIs(tool: string, name: string) {
   return tool === name || tool.endsWith(`:${name}`) || tool.endsWith(`_${name}`)
 }
 
-export type Resource = { uri: string; name: string; mimeType?: string; business_type?: string }
+export type Resource = {
+  uri: string
+  name: string
+  mimeType?: string
+  business_type?: string
+  stableId?: string
+}
 
 export function resources(value: unknown, depth = 0): Resource[] {
   if (depth > 7) return []
   if (Array.isArray(value)) return value.flatMap((v) => resources(v, depth + 1))
   const obj = record(value)
   if (obj.type === "resource_link" && string(obj.uri)) {
+    const stableId =
+      string(obj.stableId) ??
+      string(obj.resourceId) ??
+      string(obj.resource_id) ??
+      string(obj.artifactId) ??
+      string(obj.artifact_id) ??
+      string(obj.id)
     return [
       {
         uri: String(obj.uri),
         name: string(obj.name) ?? "",
         mimeType: string(obj.mimeType),
         business_type: string(obj.business_type),
+        stableId,
       },
     ]
   }
@@ -104,6 +118,33 @@ export type Artifact = {
   occurredAt: number
 }
 
+export function mcpProvider(tool: string) {
+  const bare = [
+    "get_task_result",
+    "stop_task",
+    "key_findings",
+    "run_guide_analysis",
+    "run_usability_analysis",
+    "mindmap",
+  ].find((name) => toolIs(tool, name))
+  if (!bare) return tool
+  return tool.slice(0, -bare.length).replace(/[_:-]+$/, "") || "unknown"
+}
+
+export function stableResourceIdentity(link: Resource, tool: string, taskID?: string) {
+  if (!link.stableId) return
+  return JSON.stringify([mcpProvider(tool), taskID ?? "sync", link.stableId])
+}
+
+export function unresolvedResources(part: unknown) {
+  const p = record(part)
+  const state = record(p.state)
+  if (p.type !== "tool" || state.status !== "completed") return []
+  const tool = string(p.tool) ?? ""
+  if (toolIs(tool, "write") || toolIs(tool, "edit") || toolIs(tool, "stop_task")) return []
+  return resources(part).filter((link) => !stableResourceIdentity(link, tool, taskInfo(part).id))
+}
+
 export function artifacts(part: unknown, directory: string): Artifact[] {
   const p = record(part)
   const state = record(p.state)
@@ -131,12 +172,19 @@ export function artifacts(part: unknown, directory: string): Artifact[] {
     json(state.output).isError === true
   )
     return []
-  return resources(part).map((link) => ({
-    name: "artifact-mcp-return",
-    identity: link.uri,
-    type: resolveOutputType(link.name, link.mimeType),
-    source: "mcp",
-    tool: link.business_type ?? "unknown",
-    occurredAt,
-  }))
+  const taskID = taskInfo(part).id
+  return resources(part).flatMap((link) => {
+    const resourceIdentity = stableResourceIdentity(link, tool, taskID)
+    if (!resourceIdentity) return []
+    return [
+      {
+        name: "artifact-mcp-return" as const,
+        identity: resourceIdentity,
+        type: resolveOutputType(link.name, link.mimeType),
+        source: "mcp" as const,
+        tool: link.business_type ?? "unknown",
+        occurredAt,
+      },
+    ]
+  })
 }

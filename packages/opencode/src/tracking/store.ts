@@ -1,18 +1,77 @@
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm"
+import { and, eq, isNull, lt, lte, or, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { MessageTable, PartTable } from "@/session/session.sql"
 import {
   ArtifactEventTable as Events,
   ArtifactFactTable as Facts,
+  ArtifactObservationTable as Observations,
   ArtifactTaskTable as Tasks,
   ArtifactTurnTable as Turns,
 } from "./artifact.sql"
-import { artifacts, hash, record, string, taskInfo, toolIs, type Artifact } from "./facts"
+import {
+  artifacts,
+  hash,
+  mcpProvider,
+  record,
+  string,
+  taskInfo,
+  toolIs,
+  unresolvedResources,
+  type Artifact,
+} from "./facts"
 
 export type Turn = typeof Turns.$inferSelect
 export const QUEUE_LIMIT = 50_000
 export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 export const RECEIPT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
+export const TASK_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
+function provider(tool: string) {
+  const name = mcpProvider(tool)
+  if (["uxr-tool", "uxr_tool", "uxrtool"].includes(name)) return "uxr-tool"
+  return name
+}
+
+export function observe(
+  db: Database.TxOrDb,
+  input: {
+    messageID: string
+    toolCallID?: string
+    taskID?: string
+    kind: string
+    status: string
+    reason?: string
+    detail?: Record<string, unknown>
+  },
+) {
+  const id = hash(
+    JSON.stringify([input.toolCallID ?? input.messageID, input.kind, input.reason ?? "", input.taskID ?? ""]),
+  )
+  const now = Date.now()
+  db.insert(Observations)
+    .values({
+      id,
+      message_id: input.messageID,
+      tool_call_id: input.toolCallID ?? null,
+      task_id: input.taskID ?? null,
+      kind: input.kind,
+      status: input.status,
+      reason: input.reason ?? null,
+      detail: input.detail ? JSON.stringify(input.detail) : null,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflictDoUpdate({
+      target: Observations.id,
+      set: {
+        status: input.status,
+        reason: input.reason ?? null,
+        detail: input.detail ? JSON.stringify(input.detail) : null,
+        updated_at: now,
+      },
+    })
+    .run()
+}
 
 export function mode(): Turn["owner"] {
   // Formal sending requires an explicitly selected success contract and rollout mode.
@@ -136,7 +195,17 @@ export function resultTurn(turn: Turn, tool: string, taskID?: string) {
       .values({
         id: taskKey(turn.root_session_id, tool, taskID),
         message_id: submission.origin.message_id,
+        assistant_message_id: submission.part.message_id,
+        session_id: submission.part.session_id,
         tool: String(record(submission.part.data).tool),
+        provider: provider(String(record(submission.part.data).tool)),
+        task_id: taskID,
+        query_tool: "get_task_result",
+        query_input: JSON.stringify({ task_id: taskID }),
+        state: "pending",
+        next_at: Date.now(),
+        deadline_at: Date.now() + TASK_TIMEOUT_MS,
+        updated_at: Date.now(),
       })
       .onConflictDoNothing()
       .run(),
@@ -202,6 +271,7 @@ export function enqueue(db: Database.TxOrDb, turn: Turn, item: Artifact) {
 // No advancing time cursor: each terminal part has an atomic receipt with its events.
 // A crash after saving a tool result but before this transaction leaves it replayable.
 export function replay(limit = 100) {
+  const now = Date.now()
   const rows = Database.use((db) =>
     db
       .select({ part: PartTable, turn: Turns })
@@ -211,7 +281,7 @@ export function replay(limit = 100) {
       .leftJoin(Facts, eq(Facts.part_id, PartTable.id))
       .where(
         and(
-          isNull(Facts.part_id),
+          or(isNull(Facts.part_id), and(eq(Facts.state, "pending"), lte(Facts.next_at, now))),
           sql`json_extract(${PartTable.data}, '$.type') = 'tool'`,
           sql`json_extract(${PartTable.data}, '$.state.status') IN ('completed', 'error')`,
         ),
@@ -227,11 +297,39 @@ export function replay(limit = 100) {
       const tool = string(part.tool) ?? ""
       const task = taskInfo(part)
       const query = toolIs(tool, "get_task_result") || toolIs(tool, "stop_task")
-      if (task.id && !query)
+      if (task.id && !query) {
+        const status = ["completed", "failed", "stopped"].includes(task.status ?? "") ? task.status : "pending"
         db.insert(Tasks)
-          .values({ id: taskKey(row.turn.root_session_id, tool, task.id), message_id: row.turn.message_id, tool })
-          .onConflictDoNothing()
+          .values({
+            id: taskKey(row.turn.root_session_id, tool, task.id),
+            message_id: row.turn.message_id,
+            assistant_message_id: row.part.message_id,
+            session_id: row.part.session_id,
+            tool,
+            provider: provider(tool),
+            task_id: task.id,
+            query_tool: "get_task_result",
+            query_input: JSON.stringify({ task_id: task.id }),
+            state:
+              status === "completed"
+                ? "succeeded"
+                : status === "failed"
+                  ? "failed"
+                  : status === "stopped"
+                    ? "cancelled"
+                    : provider(tool) === "uxr-tool"
+                      ? "pending"
+                      : "unsupported",
+            next_at: now + 10_000,
+            deadline_at: now + TASK_TIMEOUT_MS,
+            updated_at: now,
+          })
+          .onConflictDoUpdate({
+            target: Tasks.id,
+            set: { updated_at: now },
+          })
           .run()
+      }
       const origin =
         query && task.id
           ? db
@@ -246,11 +344,65 @@ export function replay(limit = 100) {
       // Unknown tasks predate rollout: never assign them to the polling turn.
       if (query && !turn) {
         console.warn("[octo:artifact] unresolved-task-origin", { partId: row.part.id })
-        db.insert(Facts).values({ part_id: row.part.id, created_at: Date.now() }).onConflictDoNothing().run()
+        observe(db, {
+          messageID: row.turn.root_message_id,
+          toolCallID: row.part.id,
+          taskID: task.id,
+          kind: "tool",
+          status: "pending",
+          reason: "origin-unresolved",
+          detail: { tool },
+        })
+        db.insert(Facts)
+          .values({
+            part_id: row.part.id,
+            created_at: now,
+            state: "pending",
+            reason: "origin-unresolved",
+            next_at: now + 15_000,
+            updated_at: now,
+          })
+          .onConflictDoUpdate({
+            target: Facts.part_id,
+            set: { state: "pending", reason: "origin-unresolved", next_at: now + 15_000, updated_at: now },
+          })
+          .run()
         return
       }
-      if (turn) for (const item of artifacts(part, turn.directory)) enqueue(db, turn, item)
-      db.insert(Facts).values({ part_id: row.part.id, created_at: Date.now() }).onConflictDoNothing().run()
+      if (!turn) return
+      const found = artifacts(part, turn.directory)
+      for (const item of found) enqueue(db, turn, item)
+      const unresolved = unresolvedResources(part)
+      observe(db, {
+        messageID: turn.root_message_id,
+        toolCallID: row.part.id,
+        taskID: task.id,
+        kind: "tool",
+        status: unresolved.length ? "pending" : "processed",
+        reason: unresolved.length ? "identity-unresolved" : found.length ? "events-created" : "no-artifact",
+        detail: { tool, eventCount: found.length, unresolvedCount: unresolved.length },
+      })
+      if (query && task.id) {
+        const state =
+          toolIs(tool, "stop_task") || task.status === "stopped"
+            ? "cancelled"
+            : task.status === "completed"
+              ? "succeeded"
+              : task.status === "failed"
+                ? "failed"
+                : "pending"
+        db.update(Tasks)
+          .set({ state, next_at: state === "pending" ? now + 15_000 : 0, updated_at: now })
+          .where(eq(Tasks.id, taskKey(turn.root_session_id, tool, task.id)))
+          .run()
+      }
+      db.insert(Facts)
+        .values({ part_id: row.part.id, created_at: now, state: "processed", next_at: 0, updated_at: now })
+        .onConflictDoUpdate({
+          target: Facts.part_id,
+          set: { state: "processed", reason: null, next_at: 0, updated_at: now },
+        })
+        .run()
     })
   }
   return rows.length
@@ -259,14 +411,20 @@ export function replay(limit = 100) {
 export function cleanup(now = Date.now()) {
   Database.Client().transaction((db) => {
     db.update(Events)
-      .set({ state: "failed", reason: "retention expired", payload: null, lease: null, lease_until: null })
+      .set({ state: "expired", reason: "automatic replay window expired", lease: null, lease_until: null })
       .where(
         and(lt(Events.created_at, now - RETENTION_MS), or(eq(Events.state, "pending"), eq(Events.state, "sending"))),
       )
       .run()
     db.update(Events)
       .set({ payload: null })
-      .where(and(lt(Events.created_at, now - RETENTION_MS), sql`${Events.state} NOT IN ('pending', 'sending')`))
+      .where(
+        and(lt(Events.created_at, now - RETENTION_MS), sql`${Events.state} NOT IN ('pending', 'sending', 'expired')`),
+      )
+      .run()
+    db.update(Events)
+      .set({ payload: null })
+      .where(and(lt(Events.created_at, now - RECEIPT_RETENTION_MS), eq(Events.state, "expired")))
       .run()
     db.run(sql`DELETE FROM insight_artifact_task WHERE message_id IN (
       SELECT message_id FROM insight_artifact_turn WHERE created_at < ${now - RECEIPT_RETENTION_MS}
@@ -288,6 +446,9 @@ export function cleanup(now = Date.now()) {
     )`)
     db.delete(Events)
       .where(and(lt(Events.created_at, now - RECEIPT_RETENTION_MS), sql`${Events.state} NOT IN ('pending', 'sending')`))
+      .run()
+    db.delete(Observations)
+      .where(lt(Observations.created_at, now - RECEIPT_RETENTION_MS))
       .run()
   })
 }

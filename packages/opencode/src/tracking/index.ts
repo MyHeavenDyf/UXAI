@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Exit } from "effect"
 import * as Store from "./store"
 import * as Scanner from "./scanner"
 import { toolIs } from "./facts"
@@ -15,7 +15,7 @@ export function aroundTool<A, E, R>(messageID: string, tool: string, effect: Eff
   return Effect.acquireUseRelease(
     safe(Effect.tryPromise(() => Scanner.before(Store.assistantTurn(messageID), tool))),
     () => effect,
-    (window) => safe(Effect.tryPromise(() => Scanner.after(window))),
+    (window, exit) => safe(Effect.tryPromise(() => Scanner.after(window, Exit.isSuccess(exit)))),
   )
 }
 
