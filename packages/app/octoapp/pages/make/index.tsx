@@ -794,7 +794,7 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(() => {
     const handleAppend = (e: Event) => {
       const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
-      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
       ref?.appendDoc?.(detail.docJSON, detail.prefix)
     }
     window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
@@ -896,6 +896,9 @@ const sessionMessagesLoaded = createMemo(() => {
               delta: partText,
             }
           ])
+        } else if (partType === "tool") {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
         }
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
@@ -1432,13 +1435,36 @@ const sessionMessagesLoaded = createMemo(() => {
     lastBusyState = busy
   }, { defer: true }))
 
+  // 检测当前 session 及子 session 中是否有正在执行的工具（pending/running）
+  // 用于阻塞检测排除：工具执行期间不应显示"模型响应较慢"
+  const hasRunningTool = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const sessions = [sid, ...childSessionIDs()]
+    for (const id of sessions) {
+      const messages = (sync.data.message?.[id] ?? []) as Message[]
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (msg.role === "user") break
+        if (msg.role !== "assistant") continue
+        const parts = (sync.data.part?.[msg.id] ?? []) as Array<Record<string, unknown>>
+        for (const p of parts) {
+          if (p.type !== "tool") continue
+          const status = (p.state as Record<string, unknown> | undefined)?.status
+          if (status === "running" || status === "pending") return true
+        }
+      }
+    }
+    return false
+  })
+
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (effectiveBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion && !hasRunningTool()) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -3434,11 +3460,11 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    // 基于 hasContent() 选择正确的编辑器
+    // 基于 hasSessionView() 选择正确的编辑器（与渲染逻辑一致）
     let text: string
     let mentions: MentionAttrs[]
-    
-    if (hasContent()) {
+
+    if (hasSessionView()) {
       text = proseMirrorRef2?.getText?.() || ""
       mentions = proseMirrorRef2?.getMentions?.() || []
     } else {
@@ -3851,7 +3877,7 @@ if (dsId) {
   function pickSlash(cmd: SlashCommand) {
     if (!slashState()) return
 
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
     ref?.replaceSlashCommand?.(`/${cmd.trigger} `)
 
     setSlashState(null)
@@ -4211,20 +4237,23 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file via its versionInfo download path
-   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
-   * into the current session's uploads directory (or tmps if no session yet).
-   * ZIP files are extracted into the uploads dir and the archive deleted;
-   * the returned path is the extracted folder in that case.
+   * Download a product-asset-library file into the current session's uploads
+   * directory (or tmps if no session yet), by type (spec line 71-85):
+   * - type 30: fetch from baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName
+   * - type 40: EdmUtil.download([{ name, size, docId }]) (callback-based, wrapped as Promise)
+   * ZIP files (by download name suffix) are extracted into the uploads dir and the
+   * archive is not kept; the returned path is the extracted folder in that case.
    * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
     file: {
+      type?: number
       fileName: string
-      snapshot: string
-      s3BaseUrl: string
-      convertHtmlUrl: string
+      s3BaseUrl?: string
+      docPath?: string
+      docId?: string
+      fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
     },
     onProgress: (pct: number) => void,
@@ -4236,27 +4265,41 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    const version = file.versionInfo?.[0]
-    if (!version) throw new Error("缺少版本信息,无法下载")
-
-    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
-    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
-    const remotePath = `/main${version.filePath}/${version.fileName}`
-    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
-
     onProgress(0)
-    const response = await fetch(fileUrl, { signal })
-    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
-    const blob = await response.blob()
+    let buffer: ArrayBuffer
+    let downloadName: string
+    if (file.type === 40) {
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
+      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
+      downloadName = file.docPath
+      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
+    } else {
+      // type 30: versionInfo 下载路径(baseUrl + '/main' + filePath + '/' + fileName)
+      const version = file.versionInfo?.[0]
+      if (!version) throw new Error("缺少版本信息,无法下载")
+      downloadName = version.fileName
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+      const remotePath = `/main${version.filePath}/${version.fileName}`
+      const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
+    }
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
-    const buffer = await blob.arrayBuffer()
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
 
-    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+    const isZip = downloadName.toLowerCase().endsWith(".zip")
 
     if (isZip) {
       try {
@@ -4292,10 +4335,16 @@ if (dsId) {
       }
     }
 
-    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
-    const dot = version.fileName.lastIndexOf(".")
-    const ext = dot > 0 ? version.fileName.slice(dot) : ""
-    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    let saveName: string
+    if (file.type === 40) {
+      saveName = file.fileName
+    } else {
+      const dot = downloadName.lastIndexOf(".")
+      const ext = dot > 0 ? downloadName.slice(dot) : ""
+      saveName = `${file.fileName}${ext}`
+    }
+    const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -5315,6 +5364,7 @@ onPreview={(url) => {
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => setPrompt(text)}
                         hasQuestionRequest={!!questionRequest()}
+                        hasRunningTool={hasRunningTool()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
                           void historyController.onFileRefresh(tabStore.tabs())
@@ -5343,6 +5393,7 @@ onPreview={(url) => {
                             deltaLog={deltaLog()}
                             onFormSubmit={(text) => setPrompt(text)}
                             hasQuestionRequest={!!questionRequest()}
+                            hasRunningTool={hasRunningTool()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
                               void historyController.onFileRefresh(tabStore.tabs())
