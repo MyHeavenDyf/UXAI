@@ -5,7 +5,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 import { Database } from "@/storage/db"
 import { makeRuntime } from "@/effect/run-service"
 import { ArtifactEventTable as Events } from "./artifact.sql"
-import { cleanup, replay } from "./store"
+import { cleanup, mode, replay } from "./store"
 import { record } from "./facts"
 import { recoverScans, recoverObservedScans } from "./scanner"
 import { pollTasks } from "./tasks"
@@ -111,6 +111,13 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient
     let lastDiagnostic = ""
+    console.info("[octo:artifact] worker initialized", {
+      mode: mode(),
+      reportConfigured: !!process.env.OCTO_REPORT_BASE_URL,
+      successContract: process.env.OCTO_ARTIFACT_SUCCESS || "unset",
+      scripts: process.env.OCTO_ARTIFACT_SCRIPTS === "1",
+      diagnostics: process.env.OCTO_ARTIFACT_DIAGNOSTICS === "1",
+    })
     yield* Effect.sync(recoverScans).pipe(
       Effect.catchCause(() => Effect.logWarning("[octo:artifact] scan recovery failed")),
     )

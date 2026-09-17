@@ -8,8 +8,7 @@
 // 切换渠道：追加 --channel beta（或 dev）
 //   bun scripts/release.ts --win --channel beta
 //
-// 实现：channel 全程靠 build:<c> / package:<c> 里的 cross-env 强制注入
-// OCTO_CHANNEL（跨平台），本脚本只负责按顺序编排这两个已有命令。
+// package:<c> 自身先执行对应 build:<c>，避免单独打包时复用其他 channel 的旧 out。
 import { $ } from "bun"
 
 const argv = Bun.argv.slice(2)
@@ -31,10 +30,8 @@ if (platform.length === 0) {
   process.exit(1)
 }
 
-const buildScript = channel === "dev" ? "build" : `build:${channel}`
 const packageScript = `package:${channel}`
 
 console.log(`[release] channel=${channel}  platform=${platform.join(" ")}`)
-await $`bun run ${buildScript}`
 await $`bun run ${packageScript} ${platform}`
 console.log(`[release] 完成：${channel} ${platform.join(" ")}（产物在 dist/）`)
