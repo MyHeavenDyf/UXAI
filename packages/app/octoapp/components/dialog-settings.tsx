@@ -6,6 +6,7 @@ import { useLanguage } from "@/context/language"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
+import { SettingsMcp } from "./settings-mcp"
 
 // ── Dialog drag-to-move support ──
 // The settings dialog is a centered modal portaled to document.body. There is no
@@ -181,15 +182,18 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             transform: translateX(20px) !important;
             border: none !important;
           }
-          [data-settings-models] {
+          [data-settings-models],
+          [data-settings-mcp] {
             scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
             scrollbar-gutter: stable;
             scrollbar-width: thin;
           }
-          [data-settings-models]::-webkit-scrollbar {
+          [data-settings-models]::-webkit-scrollbar,
+          [data-settings-mcp]::-webkit-scrollbar {
             width: 6px;
           }
-          [data-settings-models]::-webkit-scrollbar-thumb {
+          [data-settings-models]::-webkit-scrollbar-thumb,
+          [data-settings-mcp]::-webkit-scrollbar-thumb {
             background: rgba(0, 0, 0, 0.24);
             border-radius: 999px;
           }
@@ -292,6 +296,18 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                 />
                 {language.t("settings.models.title")}
               </TabsTrigger>
+              <TabsTrigger value="mcp" style={triggerStyle}>
+                <div
+                  style={{
+                    ...iconBase,
+                    "mask-image": "url(/setting/mcpIcon.svg)",
+                    "mask-size": "15px 18.3167px",
+                    "-webkit-mask-image": "url(/setting/mcpIcon.svg)",
+                    "-webkit-mask-size": "15px 18.3167px",
+                  }}
+                />
+                {language.t("settings.mcp.title")}
+              </TabsTrigger>
             </div>
             <div
               style={{
@@ -320,6 +336,9 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}
           >
             <SettingsModels />
+          </TabsContent>
+          <TabsContent value="mcp" style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}>
+            <SettingsMcp />
           </TabsContent>
         </TabsRoot>
       </div>

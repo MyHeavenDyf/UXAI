@@ -3,7 +3,6 @@ import type { JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
@@ -17,10 +16,14 @@ import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionPin } from "@/hooks/use-session-pin"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogCreateGroup } from "@/components/dialog-create-group"
+import { SessionContextMenu } from "@/components/session-context-menu"
+import { useMakeGroupsContext } from "@/context/make-groups"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
 
 /**
@@ -94,7 +97,7 @@ export function ConversationHeader(
     onCleanup(() => clearTimeout(timer))
   })
 
-  const [title, setTitle] = createStore({ draft: "", editing: false, menuOpen: false, pendingRename: false })
+  const [title, setTitle] = createStore({ draft: "", editing: false, menuOpen: false })
   const [pending, setPending] = createSignal(false)
   let titleRef: HTMLInputElement | undefined
 
@@ -157,6 +160,82 @@ export function ConversationHeader(
     )
     if (layout.lastSessionPerTab.cowork()?.id === id) layout.lastSessionPerTab.clearCowork()
     if (params.id === id) navigate(nextSession ? `/insight/${nextSession.id}` : "/insight")
+  }
+
+  // ── 会话区三点菜单（与左侧栏 session 右键菜单一致）──
+  const groupsCtx = useMakeGroupsContext()
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+
+  const menuHasMessages = () => {
+    const s = info()
+    return !!s && s.time.updated > s.time.created
+  }
+
+  function closeMenu() {
+    setTitle("menuOpen", false)
+  }
+
+  const { togglePin: togglePinSession } = useSessionPin()
+
+  /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
+  async function togglePinCurrent(session: Session) {
+    const newPinned = !session.pinned
+    await togglePinSession(session.id, newPinned, sdk.directory)
+    sync.set(
+      produce((draft) => {
+        const index = draft.session.findIndex((s) => s.id === session.id)
+        if (index === -1) return
+        draft.session[index].pinned = newPinned
+        draft.session[index].sort_order = newPinned ? -1 : (session.time.updated ?? 0)
+      }),
+    )
+  }
+
+  function handleMenuRename() {
+    closeMenu()
+    openTitleEditor()
+  }
+
+  function handleMenuTogglePin(session: Session) {
+    closeMenu()
+    void togglePinCurrent(session)
+  }
+
+  function handleMenuDelete(session: Session) {
+    closeMenu()
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(session.id)} />)
+  }
+
+  function handleMenuMoveToGroup(session: Session, groupId: string) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "move-session-to-group" })
+    if (session.pinned) void togglePinCurrent(session)
+    void groupsCtx?.moveSessionToGroup(session.id, groupId)
+    groupsCtx?.expandGroup(groupId)
+  }
+
+  function handleMenuRemoveFromGroup(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "remove-session-from-group" })
+    void groupsCtx?.removeSessionFromGroup(session.id)
+  }
+
+  function handleMenuCreateGroupForSession(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "create-group-for-session" })
+    if (session.pinned) void togglePinCurrent(session)
+    dialog.show(() => (
+      <DialogCreateGroup
+        existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
+      onCreate={async (name) => {
+        const id = await groupsCtx?.addGroup(name)
+        if (id) {
+          await groupsCtx?.moveSessionToGroup(session.id, id)
+          groupsCtx?.expandGroup(id)
+        }
+      }}
+      />
+    ))
   }
 
   return (
@@ -255,41 +334,33 @@ export function ConversationHeader(
             </Show>
           </div>
 
-          <DropdownMenu
-            gutter={4}
-            placement="bottom-end"
-            open={title.menuOpen}
-            onOpenChange={(open) => setTitle("menuOpen", open)}
-          >
-            <DropdownMenu.Trigger
-              as={IconButton}
-              icon="ellipsis"
-              variant="ghost"
-              class="size-6 rounded-md shrink-0 cursor-pointer data-[expanded]:bg-surface-base-active"
-              aria-label="更多操作"
-            />
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                style={{ "min-width": "104px" }}
-                onCloseAutoFocus={(event) => {
-                  // 菜单关闭动画结束后再进编辑态，避免焦点被菜单抢回（与原生一致）
-                  if (title.pendingRename) {
-                    event.preventDefault()
-                    setTitle("pendingRename", false)
-                    openTitleEditor()
-                  }
-                }}
-              >
-                <DropdownMenu.Item onSelect={() => setTitle({ pendingRename: true, menuOpen: false })}>
-                  <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id())} />)}>
-                  <DropdownMenu.ItemLabel>删除</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu>
+          <IconButton
+            type="button"
+            icon="ellipsis"
+            variant="ghost"
+            class="size-6 rounded-md shrink-0 cursor-pointer"
+            aria-label="更多操作"
+            onClick={(e) => {
+              setMenuPos({ x: e.clientX, y: e.clientY })
+              setTitle("menuOpen", true)
+            }}
+          />
+          <SessionContextMenu
+            show={title.menuOpen && !!info()}
+            x={menuPos().x}
+            y={menuPos().y}
+            session={info() ?? null}
+            hasMessages={menuHasMessages()}
+            groups={groupsCtx?.groups}
+            sessionGroupMapping={groupsCtx?.mapping}
+            onClose={closeMenu}
+            onRename={handleMenuRename}
+            onTogglePin={handleMenuTogglePin}
+            onDelete={handleMenuDelete}
+            onMoveToGroup={handleMenuMoveToGroup}
+            onRemoveFromGroup={handleMenuRemoveFromGroup}
+            onCreateGroupForSession={handleMenuCreateGroupForSession}
+          />
 
           {props.panelToggle}
         </div>

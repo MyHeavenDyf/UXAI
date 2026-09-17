@@ -47,6 +47,7 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
+import { MakeGroupsProvider } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -148,8 +149,9 @@ export default function InsightPage() {
   return (
     <Show when={projectDir()} keyed>
       {(dir) => (
-        <SDKProvider directory={() => dir}>
-          <SyncProvider>
+        <MakeGroupsProvider namespace="insight">
+          <SDKProvider directory={() => dir}>
+            <SyncProvider>
             {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
                 会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
                 原 InsightModelSelectionProvider/隔离 store 已删除。
@@ -168,7 +170,8 @@ export default function InsightPage() {
               <InsightNoticeHost />
             </LocalProvider>
           </SyncProvider>
-        </SDKProvider>
+          </SDKProvider>
+        </MakeGroupsProvider>
       )}
     </Show>
   )
