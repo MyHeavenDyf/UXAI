@@ -148,7 +148,7 @@ const MOCK_FILES: AssetFile[] = [
   {
     type: 40,
     id: 3333,
-    fileName: "产品效果图",
+    fileName: "产品效果图.png",
     docPath: "assets/1753/product-preview.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
@@ -156,7 +156,7 @@ const MOCK_FILES: AssetFile[] = [
   {
     type: 40,
     id: 4444,
-    fileName: "数据报表",
+    fileName: "数据报表.xlsx",
     docPath: "assets/1753/report.xlsx",
     snapshot: "image/report-thumb.png",
     s3BaseUrl: "http://127.0.0.1:8080/",

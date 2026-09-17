@@ -4239,10 +4239,16 @@ if (dsId) {
       }
     }
 
-    // Non-ZIP: 保存名 = file.fileName + 下载名的扩展名(docPath/versionInfo 均含真实后缀)
-    const dot = downloadName.lastIndexOf(".")
-    const ext = dot > 0 ? downloadName.slice(dot) : ""
-    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    let saveName: string
+    if (file.type === 40) {
+      saveName = file.fileName
+    } else {
+      const dot = downloadName.lastIndexOf(".")
+      const ext = dot > 0 ? downloadName.slice(dot) : ""
+      saveName = `${file.fileName}${ext}`
+    }
+    const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
