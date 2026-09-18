@@ -83,6 +83,8 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
 const STUDIO_IMAGE_TOOLS = new Set(["jimeng_image_generate", "internel_image_generate"])
+// title.txt 要求标题 ≤10 字；清洗后首行超过 TITLE_MAX 不再弃用，先截断展示再后台压缩
+const TITLE_MAX = 30
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
@@ -175,6 +177,40 @@ export const layer = Layer.effect(
       return parts
     })
 
+    const compressTitle = Effect.fn("SessionPrompt.compressTitle")(function* (input: {
+      sessionID: SessionID
+      overlong: string
+      agent: Agent.Info
+      model: Provider.Model
+      user: MessageV2.User
+    }) {
+      const text = yield* llm
+        .stream({
+          agent: input.agent,
+          user: input.user,
+          system: [],
+          small: true,
+          tools: {},
+          model: input.model,
+          sessionID: input.sessionID,
+          retries: 1,
+          messages: [
+            {
+              role: "user",
+              content: `把下面的会话标题压缩成不超过10个字的中文标题。只输出标题本身，不要任何思考过程或解释：\n${input.overlong}`,
+            },
+          ],
+        })
+        .pipe(
+          Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
+          Stream.map((e) => e.text),
+          Stream.mkString,
+        )
+      const cleaned = cleanTitleText(text)
+      if (!cleaned || cleaned.length > TITLE_MAX) return undefined
+      return cleaned
+    })
+
     const title = Effect.fn("SessionPrompt.ensureTitle")(function* (input: {
       session: Session.Info
       history: MessageV2.WithParts[]
@@ -231,19 +267,42 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "请简短描述用户的需求，生成一个中文标题，标题必须严格不超过10个字，超过10个字即为错误：\n" }, ...msgs],
+          messages: [
+            {
+              role: "user",
+              content:
+                "请简短描述用户的需求，生成一个中文标题。直接输出标题本身，不要任何思考过程或解释；标题必须严格不超过10个字，超过10个字即为错误：\n",
+            },
+            ...msgs,
+          ],
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
           Stream.map((e) => e.text),
           Stream.mkString,
-          Effect.orDie,
         )
-      const cleaned = cleanTitleText(text)
-      if (!cleaned) return
-      yield* sessions
-        .setTitle({ sessionID: input.session.id, title: cleaned })
-        .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
+      const line = cleanTitleText(text)
+      if (!line) return
+      const applyTitle = (value: string) =>
+        sessions
+          .setTitle({ sessionID: input.session.id, title: value })
+          .pipe(Effect.catchCause((cause) => elog.error("failed to set title", { error: Cause.squash(cause) })))
+      // 超长标题先截断落库，前端立即拿到可读标题，不再因超长整体弃用
+      yield* applyTitle(line.length > TITLE_MAX ? line.slice(0, TITLE_MAX) : line)
+      if (line.length <= TITLE_MAX) return
+      // 截断版已展示，再让模型把超长标题压缩成短标题，成功则覆盖；失败或再次超长则保留截断版
+      const short = yield* compressTitle({
+        sessionID: input.session.id,
+        overlong: line,
+        agent: ag,
+        model: mdl,
+        user: firstInfo,
+      }).pipe(
+        Effect.catchCause((cause) =>
+          elog.warn("failed to compress title", { error: Cause.squash(cause) }).pipe(Effect.as(undefined)),
+        ),
+      )
+      if (short) yield* applyTitle(short)
     })
 
     const insertReminders = Effect.fn("SessionPrompt.insertReminders")(function* (input: {
@@ -2179,8 +2238,7 @@ export function readActivatedSkills(extra: PromptInput["extra"]): string[] {
  * reasoning 时思考会混进 content 文本流,仅靠本函数兜底。处理顺序必须先剥闭合块、再对
  * 残留的开标签删到结尾,否则未闭合规则会误杀闭合块之后的正文。
  *
- * 清洗后首行超过 30 字符视为思考泄漏/失败输出,返回 undefined 放弃本次标题(title.txt
- * 要求 ≤10 字,30 给 3 倍容错),会话保持默认标题,无害。
+ * 长度策略不在本函数:超长标题由 ensureTitle 截断到 TITLE_MAX 展示并二次压缩,不再弃用。
  *
  * @internal Exported for testing
  */
@@ -2191,13 +2249,10 @@ export function cleanTitleText(text: string): string | undefined {
   t = t.replace(/<(think|thinking)\s*>[\s\S]*$/i, "")
   t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*?```/gi, "")
   t = t.replace(/```\s*(?:thinking|think)\b[\s\S]*$/i, "")
-  const line = t
+  return t
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0)
-  if (!line) return undefined
-  if (line.length > 30) return undefined
-  return line
 }
 
 /** @internal Exported for testing */
