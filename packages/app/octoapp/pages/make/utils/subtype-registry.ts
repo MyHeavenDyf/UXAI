@@ -6,6 +6,7 @@ import demoHandler from "../subtype-handlers/demo"
 import demoeditHandler from "../subtype-handlers/demoedit"
 import componentsHandler from "../subtype-handlers/components"
 import urlHandler from "../subtype-handlers/url"
+import gtxHandler from "../subtype-handlers/gtx"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -26,3 +27,4 @@ registerSubtypeHandler(demoHandler)
 registerSubtypeHandler(demoeditHandler)
 registerSubtypeHandler(componentsHandler)
 registerSubtypeHandler(urlHandler)
+registerSubtypeHandler(gtxHandler)
