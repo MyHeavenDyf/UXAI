@@ -480,6 +480,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
+  function scheduleSidebarAction(delay: number, action: () => void | Promise<void>) {
+    if (useServerPagination() && pendingSessionEvents.length > 0) flushSessionEvents()
+    clearTimeout(refetchTimer)
+    refetchTimer = setTimeout(action, delay)
+  }
+
   async function backfillActiveSession() {
     if (!useServerPagination()) return
     const id = props.activeSessionId()
@@ -564,8 +570,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const activeId = props.activeSessionId()
     if (!activeId) return
     pendingScrollId = activeId
-    clearTimeout(refetchTimer)
-    refetchTimer = setTimeout(async () => {
+    scheduleSidebarAction(500, async () => {
       if (useServerPagination()) {
         if (pendingScrollId) {
           const id = pendingScrollId
@@ -580,7 +585,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           scrollToSession(id)
         }
       }
-    }, 500)
+    })
   }
   window.addEventListener("octo:session-renamed", handleSessionRenamed)
   onCleanup(() => window.removeEventListener("octo:session-renamed", handleSessionRenamed))
@@ -595,11 +600,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // Refetch on active session change (safety net for event races)
   createEffect(on(props.activeSessionId, (newId, oldId) => {
     if (newId && newId !== oldId) {
-      clearTimeout(refetchTimer)
-      refetchTimer = setTimeout(() => {
+      scheduleSidebarAction(500, () => {
         if (!useServerPagination()) void refetch()
         else void backfillActiveSession()
-      }, 500)
+      })
     }
   }))
 
