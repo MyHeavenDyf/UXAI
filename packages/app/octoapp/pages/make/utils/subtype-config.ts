@@ -65,6 +65,25 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     }
   },
 
+  // fastui 预览卡片(SPEC-DES-005):页面是 127.0.0.1 上的跨域 dev server,没有 bridge、
+  // 没有单文件源码,所以和 url 一样只留刷新 / 全屏;唯一多开的是分辨率切换(纯 CSS 缩放)
+  fastui: {
+    features: {
+      refresh: true,
+      modeToggle: false,
+      viewport: true,
+      localEdit: false,
+      modelEdit: false,
+      drawEdit: false,
+      canvasEdit: false,
+      comment: false,
+      archive: false,
+      history: false,
+      download: false,
+      fullscreen: true,
+    }
+  },
+
   prototype: {
     features: {
       refresh: true,

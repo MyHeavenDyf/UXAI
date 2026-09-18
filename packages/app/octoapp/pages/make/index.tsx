@@ -4621,7 +4621,7 @@ if (dsId) {
           id: `link-fastui-${params.id ?? ""}-${fastuiName ?? ""}`,
           title: fastuiName || card.title,
           type: "html",
-          subtype: "url",
+          subtype: "fastui",
           content: "",
           filePath: previewUrl,
           artifactIdentifier: card.artifactIdentifier,
