@@ -54,6 +54,7 @@ export function ModelEditAreaDialog(props: {
   fixedPosition?: boolean
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
+  const [hasText, setHasText] = createSignal(false)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
   const [dragPos, setDragPos] = createStore<{ left: number | null; top: number | null }>({ left: null, top: null })
   let editorRef: EditorRef | undefined
@@ -206,7 +207,6 @@ export function ModelEditAreaDialog(props: {
         <div style={{ position: 'absolute', left: '0', top: `${ey + eh}px`, width: `${cw}px`, height: `${ch - ey - eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: '0', top: `${ey}px`, width: `${ex}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
         <div style={{ position: 'absolute', left: `${ex + ew}px`, top: `${ey}px`, width: `${cw - ex - ew}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
-        <div style={{ position: 'absolute', left: `${ex}px`, top: `${ey}px`, width: `${ew}px`, height: `${eh}px`, border: `2px solid ${props.maskBorderColor ?? '#007bff'}`, 'border-radius': '4px', background: props.maskBgColor ?? 'rgba(0,123,255,0.1)', 'z-index': 10, 'pointer-events': 'none' }} />
       </>
     )
   }
@@ -266,6 +266,8 @@ export function ModelEditAreaDialog(props: {
 
   const handleConfirm = async () => {
     if (isDisabled()) return
+    const text = editorRef?.getText?.() || ''
+    if (!text.trim()) return
     const prefix = buildPrefix()
     const docJSON = editorRef?.getDocJSON?.()
     appendToMainComposer(prefix, docJSON)
@@ -297,6 +299,7 @@ export function ModelEditAreaDialog(props: {
             disabled={isDisabled()}
             autofocus={true}
             placeholder="描述你想要的修改..."
+            onContentChange={(_docJSON, text) => setHasText(text.trim().length > 0)}
             onSubmit={handleConfirm}
             onTriggerStateChange={(active) => props.onMentionActiveChange?.(active)}
             ref={(el: EditorRef) => { editorRef = el }}
@@ -317,7 +320,7 @@ export function ModelEditAreaDialog(props: {
           <button
             type="button"
             class="model-edit-area-btn secondary"
-            disabled={isDisabled()}
+            disabled={isDisabled() || !hasText()}
             onClick={handleNext}
           >
             下一项
@@ -325,7 +328,7 @@ export function ModelEditAreaDialog(props: {
           <button
             type="button"
             class="model-edit-area-btn primary"
-            disabled={isDisabled()}
+            disabled={isDisabled() || !hasText()}
             onClick={handleConfirm}
           >
             {submitting() ? '...' : '确认'}

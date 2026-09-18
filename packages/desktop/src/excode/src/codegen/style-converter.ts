@@ -264,6 +264,21 @@ function collectRulesFromNode(node: any, out: LessRule[]): void {
       const rule = toRule(cn, `.${id}`, isChart)
       if (rule) out.push(rule)
     }
+    // ★ loop className per-item binding：tree-finalizer 已把 className prop 替成 rawExpr
+    // （readPropClassName 对 rawExpr 返 null，上方 id&&cn 分支不编 .{nodeId}，正好），
+    // binding 信息经节点侧信道 __loopClassNameInfo = { prefix, collected } 传出。
+    // 逐项 toRule(collected[i], '.{prefix}Item{i}') 编 per-item 规则（CSS Modules 类名
+    // 与 const 数组 [styles.{prefix}Item0,...] 对齐）。空/非串项 collected 填 ''、跳过。
+    const clsInfo = node.__loopClassNameInfo
+    if (clsInfo && Array.isArray(clsInfo.collected)) {
+      for (let i = 0; i < clsInfo.collected.length; i++) {
+        const s = clsInfo.collected[i]
+        if (s && s.trim()) {
+          const rule = toRule(s, `.${clsInfo.prefix}Item${i}`, false)
+          if (rule) out.push(rule)
+        }
+      }
+    }
     // walk props（收嵌入 BuildNode 的 className，如 icon in iconName prop）——与 #collectRules 对齐
     if (node.props) {
       for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out)

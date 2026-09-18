@@ -178,6 +178,11 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
     }
   }
 
+  /** 无实际变更守卫：属性弹窗 300ms 自动保存可能在快照与基线出现"假差异"时自动提交（如初始化
+   *  时序造成的字段回填），提交内容与当前 doc 完全一致。此时跳过提交——不回推重渲染、
+   *  不落盘、不派发 history=true，避免凭空多出一条"用户编辑"历史记录 */
+  if (JSON.stringify(doc) === JSON.stringify(current)) return
+
   commitA2uiDoc(session, entry, doc)
 }
 

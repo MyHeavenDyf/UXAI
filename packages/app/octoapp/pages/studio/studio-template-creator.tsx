@@ -95,6 +95,9 @@ const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"])
 const ACCEPTED_IMAGE_EXTENSIONS = /\.(png|jpe?g|webp)$/i
 const TITLE_MAX_LENGTH = 10
 const TITLE_MIN_LENGTH = 2
+const STYLE_KEYWORDS_MAX_LENGTH = 300
+const USAGE_DESCRIPTION_MAX_LENGTH = 300
+const RECIPE_DESCRIPTION_MAX_LENGTH = 800
 const DESCRIPTION_ITEM_MAX_LENGTH = 300
 const DESCRIPTION_TOTAL_MAX_LENGTH = 700
 const BYTES_IN_MB = 1024 * 1024
@@ -515,6 +518,7 @@ function TemplateVisibleUserSelect(props: {
 
 function TemplateCreatorTextarea(props: {
   label?: string
+  required?: boolean
   value: string
   placeholder: string
   onInput: (value: string) => void
@@ -538,7 +542,12 @@ function TemplateCreatorTextarea(props: {
     <div class="studio-template-creator-textarea-block">
       <Show when={props.label}>
         <div class="studio-template-creator-textarea-head">
-          <span class="studio-template-creator-textarea-label">{props.label}</span>
+          <span class="studio-template-creator-textarea-label">
+            {props.label}
+            <Show when={props.required}>
+              <RequiredMark />
+            </Show>
+          </span>
           <span class="studio-template-creator-textarea-count">{props.value.length}/{maxLength()}</span>
         </div>
       </Show>
@@ -660,7 +669,7 @@ function TemplateImageUploader(props: {
         <div class="studio-template-creator-upload-grid">
           <Show when={canAddImage()}>
             <button type="button" class="studio-template-creator-upload-more" onClick={triggerPicker}>
-              <span class="studio-template-creator-upload-plus" aria-hidden="true" />
+              <img src="/studio/studio_public_plus.svg" class="studio-template-creator-upload-plus" alt="" />
               <span>继续上传</span>
             </button>
           </Show>
@@ -768,6 +777,7 @@ function StyleDescriptionSection(props: {
       <div class="studio-template-creator-description-panel">
         <TemplateCreatorTextarea
           label="概览："
+          required
           value={props.overview}
           placeholder="描述图片的整体风格定性、风格流派标签、核心视觉特征"
           onInput={props.onOverview}
@@ -821,8 +831,9 @@ function VisualStyleForm(props: {
           class="studio-template-creator-textarea standalone"
           rows={4}
           value={props.styleKeywords}
+          maxLength={STYLE_KEYWORDS_MAX_LENGTH}
           placeholder="输入你希望强调的风格特征，可以使用短词和句子，例：抽象风格壁纸、弥散渐变风格"
-          onInput={(event) => props.onStyleKeywords(event.currentTarget.value)}
+          onInput={(event) => props.onStyleKeywords(truncateValue(event.currentTarget.value, STYLE_KEYWORDS_MAX_LENGTH))}
         />
       </TemplateCreatorField>
       <TemplateImageUploader
@@ -881,8 +892,9 @@ function InspirationRecipeForm(props: {
           class="studio-template-creator-textarea standalone large"
           rows={8}
           value={props.recipeDescription}
+          maxLength={RECIPE_DESCRIPTION_MAX_LENGTH}
           placeholder={DEFAULT_RECIPE_PLACEHOLDER}
-          onInput={(event) => props.onRecipeDescription(event.currentTarget.value)}
+          onInput={(event) => props.onRecipeDescription(truncateValue(event.currentTarget.value, RECIPE_DESCRIPTION_MAX_LENGTH))}
         />
       </TemplateCreatorField>
       <TemplateImageUploader
@@ -1110,8 +1122,9 @@ function PublishTemplateForm(props: {
           class="studio-template-creator-textarea standalone usage"
           rows={6}
           value={props.usageDescription}
+          maxLength={USAGE_DESCRIPTION_MAX_LENGTH}
           placeholder="向其他用户介绍如何使用此模板"
-          onInput={(event) => props.onUsageDescription(event.currentTarget.value)}
+          onInput={(event) => props.onUsageDescription(truncateValue(event.currentTarget.value, USAGE_DESCRIPTION_MAX_LENGTH))}
         />
       </TemplateCreatorField>
       <TemplateCreatorField title="提示词设置" required>
@@ -1292,9 +1305,11 @@ export function StudioTemplateCreator(props: {
     const messages = titleValid() ? [] : [`图片模板标题需为${TITLE_MIN_LENGTH}-${TITLE_MAX_LENGTH}个字`]
     if (category() === "preset_recipe") {
       if (!recipeDescription().trim()) messages.push("请输入玩法描述")
+      if (recipeDescription().length > RECIPE_DESCRIPTION_MAX_LENGTH) messages.push(`玩法描述不能超过${RECIPE_DESCRIPTION_MAX_LENGTH}字`)
       if (recipeImages().length > 3) messages.push("固定参考图不能超过3张")
       return messages
     }
+    if (styleKeywords().length > STYLE_KEYWORDS_MAX_LENGTH) messages.push(`风格关键词不能超过${STYLE_KEYWORDS_MAX_LENGTH}字`)
     if (styleImages().length < 3) messages.push("请至少上传3张风格图")
     if (styleImages().length > 30) messages.push("风格图不能超过30张")
     if (imageTotalSize(styleImages(), sizeByUrl()) > 30 * BYTES_IN_MB) messages.push("风格图总大小不能超过30MB")
@@ -1307,6 +1322,7 @@ export function StudioTemplateCreator(props: {
   const publishValidationMessages = createMemo(() => {
     const messages = titleValid() ? [] : [`图片模板标题需为${TITLE_MIN_LENGTH}-${TITLE_MAX_LENGTH}个字`]
     if (!usageDescription().trim()) messages.push("请填写模板使用说明")
+    if (usageDescription().length > USAGE_DESCRIPTION_MAX_LENGTH) messages.push(`模板使用说明不能超过${USAGE_DESCRIPTION_MAX_LENGTH}字`)
     if (!promptSetting()) messages.push("请选择提示词设置")
     if (!referenceMode()) messages.push("请选择参考图设置")
     if (referenceMode() !== "not_supported" && referenceCount() > maxReferenceCount()) {

@@ -1,6 +1,7 @@
-import type { SubtypeHandler, CanvasEditResult } from './types'
+import type { SubtypeHandler, CanvasEditResult, SubtypeHandlerContext, HistoryTriggerEvent } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
 import { defaultModelEditConfig } from './default'
+import { demoIconConfig } from './demo'
 import type { JSX } from 'solid-js'
 import type { DesktopApi } from '../lib/electron-api'
 import { createSignal } from 'solid-js'
@@ -98,6 +99,12 @@ function wrapComponentsPrompt(filePath: string, body: string): string {
 const componentsModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
   deleteCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
+  /** 选中 svg/img 元素时开放图标弹窗替换（与 demo 一致）；确认产生的 prompt 再包一层
+   *  components 源码定位/重编译指引——index.components.html 是编译产物，改源码后 rebuild */
+  iconConfig: {
+    ...demoIconConfig,
+    onConfirm: async (args) => wrapComponentsPrompt(args.filePath, await demoIconConfig.onConfirm(args)),
+  },
 }
 
 export default {
@@ -210,7 +217,16 @@ export default {
     }
   },
 
-  async onHistoryTrigger() {
+  async onHistoryTrigger(_event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) {
+    /** '.' 必含；data.js（package-a2ui 结构产物）存在时一并纳入——components 页的图标等修改
+     *  由模型直接写 data.js，漏了它历史就检测不到内容变化（永远"内容未变"不记录） */
+    const api = ctx.getDesktopApi()
+    const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
+    if (api?.statFile && filePath) {
+      const dir = filePath.replace(/[/\\][^/\\]+$/, '')
+      const st = await api.statFile(`${dir}/data.js`).catch(() => null)
+      if (st) return ['.', 'data.js']
+    }
     return ['.']
   },
 
@@ -218,7 +234,7 @@ export default {
     const { tab, getDesktopApi, updateTabContent } = ctx
     const api = getDesktopApi()
     if (!api?.copyFileTo || !api?.readFileBuffer || !tab.filePath) return
-    for (const rel of ['.']) {
+    for (const rel of ['.', 'data.js']) {
       const id = relativePathToId(rel)
       const ext = getExt(resolveRelativePath(rel, tab.filePath))
       const vf = files.find(f => f.fileName === id + ext)

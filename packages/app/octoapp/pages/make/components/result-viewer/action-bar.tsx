@@ -1053,6 +1053,26 @@ function DownloadButton(props: {
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  /** 点击下载按钮与气泡以外的区域时关闭（气泡挂载在 body 门户，需同时校验气泡自身）。
+   *  点击落在预览 iframe 内时父文档收不到 mousedown，用 window blur 兜底（焦点切入 iframe 即触发）；
+   *  mousedown 走捕获阶段，避免被中间容器的 stopPropagation 挡住 */
+  createEffect(() => {
+    if (!open()) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef?.contains(t) || menuRef?.contains(t)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener('mousedown', onDocMouseDown, true)
+    window.addEventListener('blur', onBlur)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', onDocMouseDown, true)
+      window.removeEventListener('blur', onBlur)
+    })
+  })
 
   const hasMultiple = () => props.options.length > 1
 
@@ -1091,6 +1111,7 @@ function DownloadButton(props: {
               const rect = btnRef?.getBoundingClientRect()
               return (
                 <div
+                  ref={menuRef}
                   class="octo-dropdown-menu"
                   style={{
                     top: `${(rect?.bottom ?? 0) + 4}px`,

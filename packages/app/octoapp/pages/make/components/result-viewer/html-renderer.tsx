@@ -24,8 +24,10 @@ import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-arch
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { dirname, basename, joinPath } from "../../utils/references"
-import { isLocalPreviewUrl } from "../../utils/fastui-export"
+import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
+
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
@@ -209,6 +211,8 @@ export function HtmlRenderer(props: {
   const sync = useSync()
   const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
+  /** fastui 预览卡片的产物名;null 表示不是 fastui 卡片(SPEC-DES-004) */
+  const fastuiName = createMemo(() => parseFastuiPreview(props.filePath))
   const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
@@ -274,6 +278,8 @@ export function HtmlRenderer(props: {
 
   const handleIframeLoad = () => {
     if (!iframeRef) return
+    // fastui 预览:地址挂上之后的 load 才算真正出了页面(SPEC-DES-004 §3.6)
+    if (fastuiName() !== null) fastuiPreview.frameLoaded(!!iframeRef.getAttribute("src"))
     if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
     if (props.editing) {
       iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1018,8 +1024,41 @@ createEffect(() => {
   })
 
   const shouldUseExternalUrl = createMemo(() => {
-    return /^https?:\/\//i.test(props.filePath || "")
+    return /^https?:\/\//i.test(props.filePath || "") || fastuiName() !== null
   })
+
+  // ── fastui 预览(SPEC-DES-004)──────────────────────────────────────
+  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址;状态迁移、超时与
+  // 「刷新不闪」都在 utils/fastui-preview.ts 里(有单测),这里只负责接线。
+  const [fastui, setFastui] = createSignal<FastuiPreviewState>({ phase: "resolving" })
+  const fastuiPreview = createFastuiPreviewController({ onState: setFastui })
+  onCleanup(() => fastuiPreview.dispose())
+  const [fastuiAttempt, setFastuiAttempt] = createSignal(0)
+  /** 下一次取地址走「结束当前服务并重起」;由「重新编译」按钮置位 */
+  let fastuiRestartNext = false
+
+  createEffect(
+    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
+    on(
+      [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
+      ([name]) => {
+        if (name === null) return
+        const restart = fastuiRestartNext
+        fastuiRestartNext = false
+        fastuiPreview.request({
+          api: getDesktopApi(),
+          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          name,
+          restart,
+        })
+      },
+    ),
+  )
+
+  const recompileFastui = () => {
+    fastuiRestartNext = true
+    setFastuiAttempt((n) => n + 1)
+  }
 
   // ── 本地预览服务的就绪门禁(SPEC-DES-001 §8.6.5)─────────────────────
   // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
@@ -1035,7 +1074,10 @@ createEffect(() => {
   //
   // 门禁范围比 fastui 宽(任意 loopback URL 都走),因为"等本地服务起来再挂 iframe"
   // 对任何本地预览都成立;所以覆盖层文案保持中性,不写 fastui 专属的说法。
-  const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreviewUrl(props.filePath))
+  // fastui 卡片有自己的一套(见上),这里只管其他本地服务
+  const needsReadyGate = createMemo(
+    () => shouldUseExternalUrl() && fastuiName() === null && isLocalPreviewUrl(props.filePath),
+  )
   const [previewReady, setPreviewReady] = createSignal(false)
   const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
 
@@ -1101,14 +1143,21 @@ createEffect(() => {
     // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
     // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
     if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
+    let base = props.filePath!
+    if (fastuiName() !== null) {
+      // 地址还没取到就不挂 src:挂上去就是一次拿不回来的连接失败
+      const fu = fastui()
+      if (fu.phase !== "loading" && fu.phase !== "ready") return undefined
+      base = fu.url
+    }
     const key = props.refreshKey ?? 0
-    if (key === 0) return props.filePath
+    if (key === 0) return base
     try {
-      const u = new URL(props.filePath!)
+      const u = new URL(base)
       u.searchParams.set("_octo_v", String(key))
       return u.toString()
     } catch {
-      return props.filePath
+      return base
     }
   })
 
@@ -1566,6 +1615,12 @@ createEffect(() => {
       setModelEditTarget(null)
       iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
       props.onRefreshNeeded?.()
+      /** 模型回复完成的确定时机：补一次历史检查。components 等页面的产物由构建进程重新产出，
+       *  SSE 的 tool/step 事件时点上不一定能读到新文件，导致「模型编辑」版本漏记；
+       *  index.tsx 监听后跑 onFileRefresh（hash 未变时是空操作，幂等） */
+      if (props.filePath) {
+        window.dispatchEvent(new CustomEvent("model-edit:reply-done", { detail: { filePath: props.filePath } }))
+      }
     }
     if (prev && !disabled && pendingLocalEditClose()) {
       setPendingLocalEditClose(false)
@@ -1755,6 +1810,78 @@ return (
       class="h-full w-full"
       style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: (pendingModelEditClose() || pendingLocalEditClose()) ? 'wait' : undefined }}
     >
+      {/* fastui 预览:编译中 / 出错两种覆盖层(SPEC-DES-004 §3.6)。出页面之前一直盖着,不让用户看到白屏 */}
+      <Show when={props.mode === "preview" && fastuiName() !== null && fastui().phase !== "ready"}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "10px",
+            padding: "24px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <Show
+            when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
+            fallback={
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
+                <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+                  首次打开需要启动本地服务，通常十几秒，请稍候。
+                </div>
+              </>
+            }
+          >
+            {(err) => (
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)", "text-align": "center", "max-width": "420px" }}>
+                  {err().message}
+                </div>
+                <Show when={err().logTail}>
+                  <pre
+                    style={{
+                      margin: "0",
+                      "max-width": "min(640px, 100%)",
+                      "max-height": "200px",
+                      overflow: "auto",
+                      padding: "8px 10px",
+                      "font-size": "11px",
+                      "line-height": "16px",
+                      "white-space": "pre-wrap",
+                      "word-break": "break-all",
+                      color: "var(--octo-text-secondary, #8a8a8a)",
+                      background: "rgba(0,0,0,0.04)",
+                      "border-radius": "6px",
+                    }}
+                  >
+                    {err().logTail}
+                  </pre>
+                </Show>
+                <button
+                  type="button"
+                  onClick={recompileFastui}
+                  style={{
+                    "margin-top": "4px",
+                    padding: "5px 14px",
+                    "font-size": "13px",
+                    "border-radius": "6px",
+                    border: "1px solid var(--octo-border, #d9d9d9)",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  重新编译
+                </button>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
       {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
           超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
       <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>

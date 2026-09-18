@@ -84,7 +84,8 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   function isEligible(tab: ResultTab): boolean {
     if (!tab.filePath || HISTORY_SKIP_TYPES.includes(tab.type)) return false
-    if (tab.type === "link" || tab.filePath.startsWith("http")) return false
+    // fastui:// 是预览卡片的产物身份,不是磁盘文件(SPEC-DES-004)
+    if (tab.type === "link" || tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
     return true
   }
 
@@ -142,8 +143,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   async function onUserEdit(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
-    await trigger(tab, { type: "edit" }, "user")
+    /** 内容未变守卫：当前文件集 hash 与上次记录/同步基线一致（空提交、同一编辑的重复派发）时
+     *  不再记 user 版本——recordVersion 无内容去重，同一分钟内两条会产生"内容与时间都一样"的重复记录 */
     const hash = await getTabFileSetHash(tab)
+    if (hash && hash === lastFileHash.get(tab.filePath!)) return
+    await trigger(tab, { type: "edit" }, "user")
     if (hash) {
       lastFileHash.set(tab.filePath!, hash)
     }

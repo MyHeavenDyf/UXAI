@@ -60,7 +60,7 @@ export interface DownloadHuiCodeResult {
   files: OutputFile[]
   /**
    * 节点→文件映射 manifest（tree.json + content.json），供设计平台
-   * 「框选节点 → 定位产物文件」（见 PLAN-manifest.md）。
+   * 「框选节点 → 定位产物文件」。
    * manifest 不进 outputFiles（write-output 保持纯净），在此 post-pipeline 构建。
    */
   manifest: CodeManifest

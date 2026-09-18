@@ -9,7 +9,7 @@ import { iconColors } from '../components/model-edit-items/icon-data/icon-colors
  * 文件名格式：xxx.demo.html
  */
 
-const demoIconConfig: IconConfig = {
+export const demoIconConfig: IconConfig = {
   getCustomIconDir: ({ sessionDir, filePath }) => {
     if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
     return `${sessionDir}/.octo/${sessionDir}/assets`

@@ -361,8 +361,16 @@ export function SessionListItem(props: SessionListItemProps) {
         </div>
         <Show when={props.onActionClick}>
           <div
-            class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[rgba(0,0,0,0.06)]"
-            style={{ width: "20px", height: "20px", "border-radius": "4px", transition: "opacity 150ms" }}
+            class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center hover:bg-[rgba(0,0,0,0.06)]"
+            style={{
+              width: "20px",
+              height: "20px",
+              "border-radius": "4px",
+              cursor: "pointer",
+              opacity: isHovered() ? 1 : 0,
+              transition: isHovered() ? "opacity 150ms" : "opacity 0ms",
+              "pointer-events": isHovered() ? "auto" : "none",
+            }}
             onClick={(e) => { if (!isHovered()) return; e.stopPropagation(); e.preventDefault(); props.onActionClick?.(e) }}
           >
             <Icon name="ellipsis" size="small" style={{ color: "rgba(0,0,0,0.6)", transform: "rotate(90deg)" }} />

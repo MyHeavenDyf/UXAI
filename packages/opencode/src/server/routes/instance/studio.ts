@@ -4,13 +4,9 @@ import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
-import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
+import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
-
-const StudioPermissionInput = z.object({
-  uid: z.string().optional(),
-})
 
 const StudioPromptGenInput = z.object({
   base64img: z.string().min(1),
@@ -232,23 +228,6 @@ export const StudioRoutes = lazy(() =>
           }
         })
       },
-    )
-    .post(
-      "/permissions/check",
-      describeRoute({
-        summary: "Check Studio permission",
-        description: "Checks whether the current user can access the internal Studio entry.",
-        operationId: "studio.permissions.check",
-        responses: {
-          200: {
-            description: "Studio permission result",
-            content: { "application/json": { schema: resolver(z.unknown()) } },
-          },
-          ...errors(502),
-        },
-      }),
-      validator("json", StudioPermissionInput),
-      async (c) => c.json(await checkStudioPermission(c.req.valid("json").uid)),
     )
     .post(
       "/template-publish",

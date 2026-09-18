@@ -1,4 +1,11 @@
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
+import excelIconUrl from "../../icons/Excel.svg"
+import imgIconUrl from "../../icons/img.svg"
+import htmlIconUrl from "../../icons/html.svg"
+import pdfIconUrl from "../../icons/PDF.svg"
+import pptIconUrl from "../../icons/ppt.svg"
+import zipIconUrl from "../../icons/zip.svg"
+import txtIconUrl from "../../icons/txt.svg"
 
 /**
  * 产品资源库数据获取层
@@ -29,10 +36,19 @@ export interface AssetVersionInfo {
 export interface AssetFile {
   /** 资产唯一 id(服务端返回);chip 的唯一标识优先用它 */
   id?: number | string
+  /** 资产类型:30 = 带版本信息的 HTML 容器(versionInfo 下载);40 = 普通文件(docId EDM 下载) */
+  type?: number
   fileName: string
-  snapshot: string
-  s3BaseUrl: string
-  convertHtmlUrl: string
+  /** type 30:缩略图路径(s3BaseUrl + snapshot);type 40 无此项,缩略图用后缀图标 */
+  snapshot?: string
+  s3BaseUrl?: string
+  convertHtmlUrl?: string
+  /** type 40:EDM 文档路径(下载路径 = s3BaseUrl + '/' + docPath) */
+  docPath?: string
+  /** type 40:EDM 下载所需的文档 id */
+  docId?: string
+  /** type 40:文件字节数 */
+  fileSize?: number
   versionInfo?: AssetVersionInfo[] | null
 }
 
@@ -104,22 +120,47 @@ const MOCK_TEAM_TREE: AssetFolder[] = [
 
 const MOCK_FILES: AssetFile[] = [
   {
+    type: 30,
     id: 1111,
     fileName: "容器1",
     snapshot: "image/ad270bbc7e41f8772b3d0bcc7be511fa53149cc8.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
+    docPath: "assets/1753/2abc123123.xlsx",
+    docId: "ASSET_421",
+    fileSize: 1111,
     versionInfo: [
       { filePath: "/a/b", fileName: "source.zip", fileSize: 111111 },
     ],
   },
   {
+    type: 30,
     id: 2222,
     fileName: "容器2",
+    docPath: "assets/1753/2abc123123.xlsx",
+    docId: "ASSET_421",
+    fileSize: 1111,
     snapshot: "image/Iconolor.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
     versionInfo: null,
+  },
+  {
+    type: 40,
+    id: 3333,
+    fileName: "产品效果图.png",
+    docPath: "assets/1753/product-preview.png",
+    s3BaseUrl: "http://127.0.0.1:8080/",
+    fileSize: 20480,
+  },
+  {
+    type: 40,
+    id: 4444,
+    fileName: "数据报表.xlsx",
+    docPath: "assets/1753/report.xlsx",
+    snapshot: "image/report-thumb.png",
+    s3BaseUrl: "http://127.0.0.1:8080/",
+    fileSize: 20480,
   },
 ]
 
@@ -148,8 +189,8 @@ export function encodeAssetUrl(url: string): string {
  * Join a base URL and a path segment, ensuring exactly one "/" between them.
  * Handles cases where base has trailing "/" or path has leading "/".
  */
-export function joinUrl(base: string, path: string): string {
-  if (!base) return path
+export function joinUrl(base: string | null | undefined, path: string | null | undefined): string {
+  if (!base) return path || ""
   if (!path) return base
   if (base.endsWith("/")) {
     return base + path.replace(/^\/+/, "")
@@ -203,19 +244,75 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
 /**
  * 获取某文件夹下的文件列表。
  * 非登录态: 返回 mock 文件(任何 teamId 都返回同一份)。
- * 登录态: GET assetFile/getList?teamId=folderId
- * 筛选掉没有 versionInfo 或该属性为空/空数组的项(spec line 67)
+ * 登录态: GET assetFile/getAll?teamId=folderId&sortKey=createTime&sortType=desc(spec line 93)
+ * 筛选(spec line 94):type 40 直接保留;type 30 筛掉没有 versionInfo 或该属性为空/空数组的项
  */
 export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
-  const filterByVersion = (files: AssetFile[]): AssetFile[] =>
-    files.filter((f) => Array.isArray(f.versionInfo) && f.versionInfo.length > 0)
+  const filterByType = (files: AssetFile[]): AssetFile[] =>
+    files.filter((f) => f.type === 40 || (Array.isArray(f.versionInfo) && f.versionInfo.length > 0))
   if (!isLoggedIn()) {
-    return filterByVersion(MOCK_FILES)
+    return filterByType(MOCK_FILES)
   }
   const base = getBaseUrl()
   const resp = await getJson(
-    `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
+    `${base}/pipeline/rest.root/assetManagement/assetFile/getAll?teamId=${teamId}&sortKey=createTime&sortType=desc`,
   )
   const files = (resp?.content as AssetFile[]) ?? []
-  return filterByVersion(files)
+  return filterByType(files)
+}
+
+// ── type 40 文件的后缀图标(spec line 78-86)──
+const EXT_ICON_MAP: Record<string, string> = {
+  txt: txtIconUrl,
+  xlsx: excelIconUrl,
+  xlsm: excelIconUrl,
+  xls: excelIconUrl,
+  gif: imgIconUrl,
+  html: htmlIconUrl,
+  key: pdfIconUrl,
+  pdf: pdfIconUrl,
+  ppt: pptIconUrl,
+  pptx: pptIconUrl,
+  zip: zipIconUrl,
+  rar: zipIconUrl,
+}
+
+/** png/jpeg/jpg/svg:直接显示下载路径的图片(不走图标) */
+const IMAGE_EXT_SET = new Set(["png", "jpeg", "jpg", "svg"])
+
+function extensionOf(fileName: string): string {
+  const clean = fileName.split("?")[0].split("#")[0]
+  const dot = clean.lastIndexOf(".")
+  if (dot < 0 || dot === clean.length - 1) return ""
+  return clean.slice(dot + 1).toLowerCase()
+}
+
+/**
+ * type 40 文件的缩略图(spec line 78-87):
+ * 1. snapshot 有值 → s3BaseUrl + snapshot(与 type 30 同规则)
+ * 2. snapshot 空/缺失时:png/jpeg/jpg/svg → 下载路径图片(s3BaseUrl + docPath);其他后缀 → 对应图标
+ */
+export function getAssetThumb(file: AssetFile): string | undefined {
+  if (file.type !== 40) return undefined
+  if (file.snapshot) {
+    return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))
+  }
+  const ext = extensionOf(file.fileName)
+  if (IMAGE_EXT_SET.has(ext)) {
+    return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+  }
+  return EXT_ICON_MAP[ext]
+}
+
+/** type 40 缩略图是否为真实图片(决定渲染样式:铺满 scale-down vs 居中图标) */
+export function isAssetThumbImage(file: AssetFile): boolean {
+  if (file.snapshot) return true
+  return IMAGE_EXT_SET.has(extensionOf(file.fileName))
+}
+
+/** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀/图片类返回 undefined */
+export function getAssetIconByExtension(fileName: string): string | undefined {
+  const ext = extensionOf(fileName)
+  if (IMAGE_EXT_SET.has(ext)) return undefined
+  return EXT_ICON_MAP[ext]
 }

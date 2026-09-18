@@ -74,6 +74,7 @@ import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
+import { studioGlobalHandlers } from "./handlers/studio-global"
 import { insightHandlers } from "./handlers/insight"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
@@ -107,7 +108,10 @@ const cors = (corsOptions?: CorsOptions) =>
     { global: true },
   )
 
-const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(Layer.provide([controlHandlers, globalHandlers]))
+const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(
+  Layer.provide([controlHandlers, globalHandlers, studioGlobalHandlers]),
+  Layer.provide(authorizationLayer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
+)
 const instanceRouterLayer = authorizationRouterMiddleware
   .combine(instanceRouterMiddleware)
   .combine(workspaceRouterMiddleware)

@@ -748,7 +748,7 @@ function promptRefineTextPreview(text: string) {
   return text.trim().replace(/\s+/g, " ").slice(0, 500)
 }
 
-const PROMPT_REFINE_TIMEOUT_MS = 45_000
+const PROMPT_REFINE_TIMEOUT_MS = 70_000
 
 function isAbortError(error: unknown) {
   return (
@@ -1035,18 +1035,19 @@ async function refineStudioPrompt(
   }
 }
 
-const STUDIO_DETAIL_TITLE_TIMEOUT_MS = PROMPT_REFINE_TIMEOUT_MS
-const STUDIO_DETAIL_TITLE_SYSTEM = [
+export const STUDIO_DETAIL_TITLE_SYSTEM = [
   "你是 Octo Studio 的标题精炼助手。",
   "根据最终生效的图片或视频提示词生成一个简短标题。",
   "只概括主体、核心画面或核心动作。",
+  "标题中的主体、动作和场景必须能从提示词中找到依据，禁止臆造或复用无关内容。",
   "使用中文，必要的英文专有名词可以保留。",
   "建议 4 到 12 个中文字，最多 16 个字符。",
   "不要包含模型、工具、比例、数量、时长或质量参数。",
   "不要包含生成一张、帮我制作、画面描述等解释性文字。",
   "不要使用句号、引号或 Markdown。",
-  '只输出 JSON，例如：{"title":"雨中木屋"}。',
+  "只输出一个仅包含 title 字段的 JSON 对象，不要输出示例、解释或其他字段。",
 ].join("\n")
+const STUDIO_DETAIL_TITLE_TIMEOUT_MS = 100_000
 const studioDetailTitleSchema = z.object({
   title: z.string().min(1).max(32),
 })
@@ -1058,7 +1059,18 @@ class StudioDetailTitleParsed {
 export function studioDetailTitleInput(text: string) {
   const normalized = text.trim().replace(/\s+/g, " ")
   if (normalized.length <= 4_000) return normalized
-  return `${normalized.slice(0, 3_000)}\n…\n${normalized.slice(-1_000)}`
+  const middle = Math.floor(normalized.length / 2)
+  return `${normalized.slice(0, 2_000)}\n…\n${normalized.slice(middle - 500, middle + 500)}\n…\n${normalized.slice(-1_000)}`
+}
+
+export function studioDetailTitleUserContent(text: string) {
+  return JSON.stringify({
+    sourcePrompt: studioDetailTitleInput(text),
+    requirements: [
+      "仅依据 sourcePrompt 提炼标题，不得添加其中不存在的主体、动作或场景",
+      "输出一个仅包含 title 字段的 JSON 对象",
+    ],
+  })
 }
 
 export function studioDetailTitleText(
@@ -1159,15 +1171,16 @@ async function generateStudioDetailTitle(input: {
   signal?: AbortSignal
 }) {
   const startedAt = Date.now()
+  const titleInput = studioDetailTitleInput(input.text)
   let timedOut = false
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     timedOut = true
-    controller.abort(new Error("Studio detail title timed out."))
+    controller.abort(new Error("Studio detail title timed out after 100 seconds."))
   }, STUDIO_DETAIL_TITLE_TIMEOUT_MS)
   const abortSignal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal
   try {
-    return await studioPromptProviderRuntime.runPromise(
+    const title = await studioPromptProviderRuntime.runPromise(
       (provider) =>
         Effect.gen(function* () {
           const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
@@ -1207,9 +1220,7 @@ async function generateStudioDetailTitle(input: {
                     model: resolved,
                     agent,
                     system: [STUDIO_DETAIL_TITLE_SYSTEM],
-                    messages: [
-                      { role: "user", content: JSON.stringify({ prompt: studioDetailTitleInput(input.text) }) },
-                    ],
+                    messages: [{ role: "user", content: studioDetailTitleUserContent(input.text) }],
                     tools: {},
                     toolChoice: "none",
                     retries: 0,
@@ -1222,6 +1233,12 @@ async function generateStudioDetailTitle(input: {
         }),
       { signal: abortSignal },
     )
+    console.log("[studio.service] detail title completed", {
+      sessionID: input.session.id,
+      inputLength: titleInput.length,
+      title,
+    })
+    return title
   } catch (error) {
     if (input.signal?.aborted) return
     console.warn("[studio.service] detail title failed", {

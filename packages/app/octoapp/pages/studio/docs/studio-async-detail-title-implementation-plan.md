@@ -30,7 +30,7 @@ Studio 用户输入可能很长，直接把用户提示词用于以下位置会�
 2. 新增 Studio 专用 `generateStudioDetailTitle()`，单独调用 LLM 精炼标题。
 3. 标题任务在提示词润色完成后启动：有润色结果时使用 `refinedPrompt`，没有润色任务或润色降级时使用用户输入。
 4. 图片/视频供应商任务创建成功并开始轮询后，标题任务与生成轮询并行执行。
-5. 标题任务失败、超时或没有可用文本模型时，不影响图片/视频任务创建、轮询和完成。
+5. 标题任务失败、被主动取消或没有可用文本模型时，不影响图片/视频任务创建、轮询和完成。
 6. 标题完成后更新 generation、会话 tool part 和前端展示。
 7. 首轮生成的标题仍可同步到 `Session.title`，但不得覆盖用户手动重命名。
 8. 再次生成、编辑能力等已有标题语义保持不变。
@@ -390,7 +390,7 @@ const studioDetailTitleSchema = z.object({
 建议标题 LLM 输出 JSON，而不是自由文本：
 
 ```json
-{"title":"雨中木屋"}
+{"title":"根据提示词生成的短标题"}
 ```
 
 这样可复用现有 JSON 提取思路，并降低模型附带解释文字的概率。
@@ -426,19 +426,13 @@ const STUDIO_DETAIL_TITLE_SYSTEM = [
   "不要包含模型、工具、比例、数量、时长或质量参数。",
   "不要包含生成一张、帮我制作、画面描述等解释性文字。",
   "不要使用句号、引号或 Markdown。",
-  "只输出 JSON：{\"title\":\"雨中木屋\"}。",
+  "只输出一个仅包含 title 字段的 JSON 对象，不要输出示例、解释或其他字段。",
 ].join("\n")
 ```
 
 标题任务使用 `toolChoice: "none"`、`tools: {}`，并关闭 skills/MCP，避免产生额外行为。
 
-标题 timeout 与提示词润色保持一致，设为 45 秒：
-
-```ts
-const STUDIO_DETAIL_TITLE_TIMEOUT_MS = PROMPT_REFINE_TIMEOUT_MS
-```
-
-标题虽然是非关键 UI 元数据，但部分小模型在冷启动或高负载时可能超过 10 秒。标题任务本身不会阻塞图片/视频生成，因此允许最多等待 45 秒，超时后仍仅保留 fallback 标题。
+标题任务设置 100 秒独立 timeout。它与图片/视频生成轮询并行，不阻塞主流程；模型在 100 秒内返回时异步更新标题，超时后保留 fallback 标题。
 
 ### 8.4 标题 Agent
 
@@ -531,7 +525,7 @@ const activeGenerationTitleControllers = new Map<
 - `activeGenerationControllers.get(id)`：润色和 provider 创建阶段；
 - `activeGenerationTitleControllers.get(id)`：provider 已创建后的标题阶段。
 
-标题 controller 自身还需叠加 45 秒 timeout signal。
+标题任务使用独立 controller，并叠加 100 秒 timeout signal；用户取消和实例销毁仍可提前终止。
 
 ### 8.7 避免并发写覆盖
 
@@ -628,7 +622,7 @@ if (
 
 | 场景 | 标题行为 | 生成任务行为 |
 |---|---|---|
-| 标题 LLM 超时 | 保留 fallback，记录 warning | 继续 |
+| 标题 LLM 超过 100 秒 | 保留 fallback，记录 warning | 继续 |
 | 标题输出非法 | 保留 fallback，记录 warning | 继续 |
 | 没有可用文本模型 | 保留 fallback，记录 warning | 润色按自身策略处理 |
 | 提示词润色失败 | 与标题任务无关 | 使用现有润色 fallback |
@@ -766,7 +760,7 @@ promptRefineModels?: Array<{ providerID: string; modelID: string }>
 3. 新增标题输入裁剪、输出解析和 normalize。
 4. 标题输入优先使用本轮润色后的 `refinedPrompt/effectivePrompt`，没有润色调用时使用用户输入。
 5. 使用增加了小模型优先判断的 Studio 文本模型选择器调用 LLM。
-6. 增加 45 秒 timeout 和独立 abort controller。
+6. 增加独立 abort controller 和 100 秒 timeout。
 7. 标题失败时返回 `undefined`，不抛到 generation 主链路。
 
 ### 阶段四：实现并发安全持久化
@@ -848,7 +842,7 @@ promptRefineModels?: Array<{ providerID: string; modelID: string }>
 - 生成先完成、标题后完成时，completed tool part 仍能补写标题；
 - 标题先完成、生成后完成时，worker 不会把标题覆盖回 fallback；
 - 供应商 request 更新与标题更新同时发生，不丢失 task 信息；
-- 标题超时不触发 generation failed；
+- 标题超过 100 秒不触发 generation failed；
 - 标题 LLM 抛错不触发 `failGenerationCreationByID()`；
 - 提示词润色失败时标题仍可成功；
 - 供应商创建失败时不启动标题 LLM，并保留 fallback。
@@ -877,7 +871,7 @@ Session 标题：
 4. 第二轮输入“把狗换成猫”时，确认标题基于润色后的完整提示词，而不是只概括这句修改指令；
 5. 标题返回后详情标题与 Canvas Tab 自动替换；
 6. 图片/视频生成轮询和完成不受标题请求耗时影响；
-7. 模拟标题接口超时，生成任务仍正常完成；
+7. 模拟标题接口超过 100 秒未返回，生成任务仍正常完成并保留 fallback 标题；
 8. 生成期间手动修改会话标题，LLM 标题返回后不覆盖；
 9. 刷新页面，短标题仍能恢复。
 
@@ -906,7 +900,7 @@ Session 标题：
 
 ### 15.2 Provider 并发限制
 
-润色与标题请求不再同时调用同一文本 provider，但标题请求会与图片/视频供应商轮询并行。标题属于低优先级任务，应优先超时降级，不能占用或阻塞生成 worker。
+润色与标题请求不再同时调用同一文本 provider，但标题请求会与图片/视频供应商轮询并行。标题属于低优先级任务，不能占用或阻塞生成 worker；用户取消、实例销毁或运行超过 100 秒时终止。
 
 ### 15.3 JSON 整体覆盖竞态
 

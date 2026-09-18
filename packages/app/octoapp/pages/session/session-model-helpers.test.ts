@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { UserMessage } from "@opencode-ai/sdk/v2"
-import { resetSessionModel, syncSessionModel } from "./session-model-helpers"
+import { lastSessionUserMessage, resetSessionModel, syncSessionModel } from "./session-model-helpers"
 
 const message = (input?: { agent?: string; model?: UserMessage["model"] }) =>
   ({
@@ -48,5 +48,19 @@ describe("resetSessionModel", () => {
     })
 
     expect(calls).toEqual(["reset"])
+  })
+})
+
+describe("lastSessionUserMessage", () => {
+  test("ignores newer messages from child sessions", () => {
+    const main = message({ model: { providerID: "openai", modelID: "gpt-4.1" } })
+    const child = {
+      ...message({ model: { providerID: "anthropic", modelID: "claude" } }),
+      id: "child-message",
+      sessionID: "child",
+      time: { created: 2 },
+    }
+
+    expect(lastSessionUserMessage({ session: [main], child: [child] }, "session")).toBe(main)
   })
 })

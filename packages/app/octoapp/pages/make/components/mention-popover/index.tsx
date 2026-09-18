@@ -15,6 +15,8 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetThumb,
+  isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -513,7 +515,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           if (skills.length > 0) {
             handleSkillClick(skills[0])
           }
-        } else if (activeTab() === 'files') {
+        } else if (activeTab() === 'files' && selectedCategory() === 'design') {
           const files = filteredFiles()
           if (files.generated.length > 0 || files.uploaded.length > 0) {
             const firstFile = files.generated[0] || files.uploaded[0]
@@ -844,7 +846,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        // type 40:png/jpeg/jpg/svg 显示下载路径图片缩略,其他后缀显示对应图标;type 30 用 inferKindFromUrl 文件图标
+                        const thumbUrl = file.type === 40 ? getAssetThumb(file) : undefined
+                        const FileIcon = file.type === 40
+                          ? undefined
+                          : getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
                         return (
                           <button
                             type="button"
@@ -896,7 +902,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
-                            <FileIcon size={20} />
+                            <Show when={thumbUrl} fallback={FileIcon ? <FileIcon size={20} /> : null}>
+                              <img class="asset-grid-icon" src={thumbUrl} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: cover; border-radius: 4px;" />
+                            </Show>
                             <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
                           </button>
                         )
@@ -948,13 +956,25 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         >
           <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
           <div class="mention-asset-preview-image">
-            <img
-              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
-              alt={assetPreview()!.fileName}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <Show
+              when={assetPreview()!.type === 40}
+              fallback={
+                <img
+                  src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
+                  alt={assetPreview()!.fileName}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none'
+                  }}
+                />
+              }
+            >
+              {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
+              <img
+                src={getAssetThumb(assetPreview()!)}
+                alt={assetPreview()!.fileName}
+                style={isAssetThumbImage(assetPreview()!) ? "width: 100%; height: 100%; object-fit: scale-down;" : "width: 48px; height: 48px; object-fit: contain;"}
+              />
+            </Show>
           </div>
         </div>
       </Show>

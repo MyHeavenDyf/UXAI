@@ -118,6 +118,8 @@ export type SidebarShellProps = ParentProps & {
   // ── Style overrides ──
   /** Custom background for the sidebar */
   background?: string
+  /** Ref callback for the scrollable list container (data-slot="list-scroll"). */
+  listScrollRef?: (el: HTMLDivElement) => void
 }
 
 /**
@@ -196,6 +198,7 @@ export function SidebarShell(props: SidebarShellProps) {
       {/* ─── Scrollable content area ─── */}
       <Show when={props.inlineBeforeSection || !collapsed()}>
         <div
+          ref={props.listScrollRef}
           data-slot="list-scroll"
           class={`flex-1 min-h-0 overflow-y-auto px-[12px]${props.inlineBeforeSection ? " group-list-scroll" : ""}`}
           style={{ position: "relative", "z-index": 11 }}
