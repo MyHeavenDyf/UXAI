@@ -8,6 +8,7 @@ import {
   joinUrl,
   assetFileId,
   getAssetThumb,
+  getAssetThumbKind,
   isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
@@ -308,10 +309,26 @@ function AssetDialog(props: {
                               />
                             </Show>
                           }>
-                            {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
-                            <Show when={getAssetThumb(file)}>
+                            {/* type 40:html 用 iframe(88×50 缩放,同附件面板);图片类显示下载路径图片;其他后缀显示图标 */}
+                            <Show when={getAssetThumbKind(file) === "html"}>
+                              <div class="asset-grid-thumb-html">
+                                <iframe
+                                  src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))}
+                                  sandbox="allow-scripts"
+                                />
+                              </div>
+                            </Show>
+                            <Show when={getAssetThumbKind(file) === "image"}>
                               <img
-                                class={isAssetThumbImage(file) ? "me-asset-grid-thumb" : "asset-grid-icon"}
+                                class="me-asset-grid-thumb"
+                                src={getAssetThumb(file)}
+                                alt=""
+                                draggable={false}
+                              />
+                            </Show>
+                            <Show when={getAssetThumbKind(file) === "icon"}>
+                              <img
+                                class="asset-grid-icon"
                                 src={getAssetThumb(file)}
                                 alt=""
                                 draggable={false}
@@ -372,10 +389,27 @@ function AssetDialog(props: {
                     </Show>
                   }
                 >
-                  {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
-                  <Show when={getAssetThumb(previewFile()!)} fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}>
+                  {/* type 40:html 用 iframe 显示下载路径(同 type 30 的 html 预览);图片类显示下载路径图片;其他后缀显示图标 */}
+                  <Show when={getAssetThumbKind(previewFile()!) === "html"}>
+                    <div style="position: relative; width: 240px; height: 135px; flex-shrink: 0;">
+                      <iframe
+                        src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.docPath))}
+                        sandbox="allow-scripts"
+                        style="position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: 0; transform: scale(0.125); transform-origin: top left; pointer-events: none;"
+                      />
+                    </div>
+                  </Show>
+                  <Show when={getAssetThumbKind(previewFile()!) === "image"}>
                     <img
-                      class={isAssetThumbImage(previewFile()!) ? "me-asset-dialog-preview-img" : "asset-grid-icon"}
+                      class="me-asset-dialog-preview-img"
+                      src={getAssetThumb(previewFile()!)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </Show>
+                  <Show when={getAssetThumbKind(previewFile()!) === "icon"}>
+                    <img
+                      class="asset-grid-icon"
                       src={getAssetThumb(previewFile()!)}
                       alt=""
                       draggable={false}
