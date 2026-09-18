@@ -71,3 +71,38 @@
 
 遗留边界（未处理，需单独决策）：confirm-plan 走 `session.command` 的模板 part 为服务端注入的非 synthetic（`resolvePromptParts`，prompt.ts:144），其 SKILL.md/方案全文仍会进入标题上下文；如需剥离须给 command 模板 part 打 synthetic 标记，但会影响所有 agent 的 command 消息 real 判定。
 
+## 超长标题保留 + 后台二次压缩（修复内网全量 New session）
+
+### 背景
+
+上一轮「超长即弃」（`cleanTitleText` 首行 >30 字符返回 undefined 放弃标题）在内网造成全量回归：内部网关的 title 模型输出普遍偏长（照抄用户原句 / thinking 泄漏 / 弱模型不守 10 字约束），首行超 30 字符即整体弃用；而 `ensureTitle` 仅在首条真实用户消息且标题仍为默认值时触发一次，失败后不再重试，于是所有会话永远停留在默认标题，前端显示 "New session"。本地模型输出短，未复现。
+
+### 实现
+
+范围严格限定在 title agent 自身（`ensureTitle` / `cleanTitleText` / `title.txt`），不动 llm.ts 与主 prompt 流程。
+
+`packages/opencode/src/session/prompt.ts`：
+
+- 新增常量 `TITLE_MAX = 30`（title.txt 要求 ≤10 字的 3 倍容错上限）。
+- `cleanTitleText` 移除「>30 字符即弃」检查，只负责剥 thinking 块与取首个非空行；长度策略移交调用方。
+- `ensureTitle` 改为三级流水：
+  1. 清洗后首行 ≤30 字符 → 直接落库（原行为）；
+  2. 超长 → 先截断到 30 字符落库，前端立即拿到可读标题，不再整体弃用；
+  3. 截断版展示后，新增 `compressTitle` 以超长全文为输入发起一次 small 二次压缩请求（输入仅一行标题，开销极小），要求压缩到 ≤10 字；成功且 ≤30 字符则覆盖落库，失败或再次超长则保留截断版。
+- 标题流去掉 `Effect.orDie`：失败保留为类型化失败，由调用点 `Effect.ignore` 干净吞掉，不再产生 defect 噪音。
+- 注入指令强化为「直接输出标题本身，不要任何思考过程或解释」。
+
+`packages/opencode/src/agent/prompt/title.txt`：
+
+- 输出要求新增「直接输出标题本身，不输出任何思考过程」；
+- `<rules>` 新增「绝不照抄用户消息原句：无论用户消息多长，都必须提炼压缩到 10 个字符以内」。
+
+### 测试
+
+`title-clean.test.ts` 更新：>30 字符由「放弃」改为「原样返回」（截断/压缩在 ensureTitle），新增恰好 30 字符边界用例，共 15 用例。
+
+### 验证
+
+- `bun test test/session/title-clean.test.ts`（packages/opencode）— 15 pass / 0 fail；
+- `bun run typecheck` — 12/12 successful。
+
