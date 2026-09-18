@@ -425,10 +425,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     setTimeout(() => {
       if (!scrollContainer) return
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
-      if (el) {
-        const elTop = el.offsetTop
-        scrollContainer.scrollTop = Math.max(0, elTop - 10)
-      }
+      if (!el) return
+      const elTop = el.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top + scrollContainer.scrollTop
+      scrollContainer.scrollTo({ top: Math.max(0, elTop - 46), behavior: "smooth" })
     }, 50)
   }
 
