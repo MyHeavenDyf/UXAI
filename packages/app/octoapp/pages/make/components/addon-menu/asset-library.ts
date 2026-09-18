@@ -290,20 +290,18 @@ function extensionOf(fileName: string): string {
   return clean.slice(dot + 1).toLowerCase()
 }
 
-export type AssetThumbKind = "image" | "html" | "icon"
+export type AssetThumbKind = "image" | "icon"
 
 /**
- * type 40 缩略图的渲染方式(spec line 78-89):
+ * type 40 缩略图的渲染方式(spec line 78-88):
  * - snapshot 有值 → "image"(s3BaseUrl + snapshot,同 type 30)
- * - snapshot 空/缺失:html → "html"(iframe 显示下载路径);png/jpeg/jpg/svg → "image"(下载路径图片);其他后缀 → "icon"(含 other.svg 兜底)
+ * - snapshot 空/缺失:png/jpeg/jpg/svg → "image"(下载路径图片);其他后缀(html/txt/xlsx 等)→ "icon"(含 other.svg 兜底)
  * 非 type 40 返回 undefined
  */
 export function getAssetThumbKind(file: AssetFile): AssetThumbKind | undefined {
   if (file.type !== 40) return undefined
   if (file.snapshot) return "image"
-  const ext = extensionOf(file.fileName)
-  if (ext === "html") return "html"
-  if (IMAGE_EXT_SET.has(ext)) return "image"
+  if (IMAGE_EXT_SET.has(extensionOf(file.fileName))) return "image"
   return "icon"
 }
 

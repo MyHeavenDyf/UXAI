@@ -391,15 +391,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                                 />
                               </Show>
                             }>
-                              {/* type 40:html 用 iframe 显示下载路径(同 type 30);图片类显示下载路径图片;其他后缀显示图标 */}
-                              <Show when={getAssetThumbKind(file) === "html"}>
-                                <div class="asset-grid-thumb-html">
-                                  <iframe
-                                    src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))}
-                                    sandbox="allow-scripts"
-                                  />
-                                </div>
-                              </Show>
+                              {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀(html/txt/xlsx 等)显示对应图标 */}
                               <Show when={getAssetThumbKind(file) === "image"}>
                                 <img
                                   class="asset-grid-thumb"
@@ -489,18 +481,14 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                                 />
                               </Show>
                             }>
-                              {/* type 40:html 显示图标(32px 缩略位不放 iframe);图片类真图;其他后缀图标 */}
-                              <Show when={getAssetThumbKind(file) === "html"} fallback={
-                                <Show when={getAssetThumb(file)}>
-                                  <img
-                                    class={isAssetThumbImage(file) ? "asset-selected-full" : "asset-grid-icon"}
-                                    src={getAssetThumb(file)}
-                                    alt=""
-                                    draggable={false}
-                                  />
-                                </Show>
-                              }>
-                                <img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} style="width: 24px; height: 24px; object-fit: contain;" />
+                              {/* type 40:图片类真图;其他后缀(html/txt/xlsx 等)图标 */}
+                              <Show when={getAssetThumb(file)}>
+                                <img
+                                  class={isAssetThumbImage(file) ? "asset-selected-full" : "asset-grid-icon"}
+                                  src={getAssetThumb(file)}
+                                  alt=""
+                                  draggable={false}
+                                />
                               </Show>
                             </Show>
                           </div>
@@ -554,15 +542,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                       </Show>
                     }
                   >
-                    {/* type 40:html 用 iframe 显示下载路径(同 type 30 设计文件预览);图片类显示下载路径图片;其他后缀显示图标 */}
-                    <Show when={getAssetThumbKind(previewFile()!) === "html"}>
-                      <div class="addon-menu-asset-preview-html">
-                        <iframe
-                          src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.docPath))}
-                          sandbox="allow-scripts"
-                        />
-                      </div>
-                    </Show>
+                    {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
                     <Show when={getAssetThumbKind(previewFile()!) === "image"}>
                       <img
                         class="addon-menu-asset-preview-img"

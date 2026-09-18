@@ -907,9 +907,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                               </Show>
                             </div>
                             <Show when={thumbUrl} fallback={
-                              <Show when={kind === "html"}>
-                                <img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: contain;" />
-                              </Show>
+                              <img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: contain;" />
                             }>
                               <img class="asset-grid-icon" src={thumbUrl} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: cover; border-radius: 4px;" />
                             </Show>
@@ -976,16 +974,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 />
               }
             >
-              {/* type 40:html 用 iframe 显示下载路径(同 type 30 的 html 预览);图片类显示下载路径图片;其他后缀显示图标 */}
-              <Show when={getAssetThumbKind(assetPreview()!) === "html"}>
-                <div style="position: relative; width: 240px; height: 135px; flex-shrink: 0;">
-                  <iframe
-                    src={encodeAssetUrl(joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.docPath))}
-                    sandbox="allow-scripts"
-                    style="position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: 0; transform: scale(0.125); transform-origin: top left; pointer-events: none;"
-                  />
-                </div>
-              </Show>
+              {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
               <Show when={getAssetThumbKind(assetPreview()!) === "image"}>
                 <img
                   src={getAssetThumb(assetPreview()!)}
