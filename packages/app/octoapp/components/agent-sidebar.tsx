@@ -6,7 +6,8 @@ import { batch, createEffect, createMemo, createResource, createSignal, on, onCl
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { useGlobalSync } from "@/context/global-sync"
+// useGlobalSync is currently unused; re-enable when sync-specific hooks are needed
+// import { useGlobalSync } from "@/context/global-sync"
 import { sessionTitle } from "@/utils/session-title"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -14,7 +15,8 @@ import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useSessionPin } from "@/hooks/use-session-pin"
-import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+// disableIframesDuringDrag is currently unused after recent refactors
+// import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -62,10 +64,14 @@ export type AgentSidebarProps = {
    *  Should return ALL sessions for the directory; AgentSidebar handles sort/filter/pagination. */
   fetchSessions?: (directory: string) => Promise<Session[]>
   /** Server-side pagination fetcher. When provided, AgentSidebar fetches one page at a time
-   *  on scroll instead of loading all sessions upfront. The cursor is an opaque number whose
-   *  meaning is defined by the implementation (e.g. timestamp for cursor-based APIs, offset
-   *  for offset-based APIs). Return nextCursor=undefined when there are no more pages. */
-  fetchSessionPage?: (directory: string, cursor?: number) => Promise<{ sessions: Session[], nextCursor?: number }>
+   *  on scroll instead of loading all sessions upfront. The cursor is an opaque string whose
+   *  meaning is defined by the implementation (e.g. composite cursor for cursor-based APIs,
+   *  offset for offset-based APIs). Return nextCursor=undefined when there are no more pages. */
+  fetchSessionPage?: (directory: string, cursor?: string) => Promise<{ sessions: Session[], nextCursor?: string }>
+  /** Optional fetcher for pinned sessions. When provided, the returned sessions are merged into
+   *  the list on first load so pinned sessions remain visible even if their update time is old.
+   *  If omitted, AgentSidebar will not fetch pinned sessions separately. */
+  fetchPinnedSessions?: (directory: string) => Promise<Session[]>
 
   // ── Routes ──
   /** Build URL for an existing session */
@@ -121,7 +127,6 @@ export type AgentSidebarProps = {
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
   const dialog = useDialog()
@@ -143,12 +148,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
       }
       try {
         if (props.fetchSessionPage) {
-          const result = await props.fetchSessionPage(d)
+          const [result, pinned] = await Promise.all([
+            props.fetchSessionPage(d),
+            props.fetchPinnedSessions ? props.fetchPinnedSessions(d) : Promise.resolve([] as Session[]),
+          ])
           if (resolvedDir() !== d) return [] as Session[]
           setSessionCursor(result.nextCursor)
-          const sorted = result.sessions.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          const existingIds = new Set(pinned.map(s => s.id))
+          const sorted = result.sessions
+            .filter(s => !existingIds.has(s.id))
+            .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
           setFetchedDir(d)
-          return sorted.filter(s => s.agent === props.agentFilter)
+          return [...pinned, ...sorted].filter(s => s.agent === props.agentFilter)
         }
         const data = props.fetchSessions
           ? await props.fetchSessions(d)
@@ -166,7 +177,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   )
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
-  const [sessionCursor, setSessionCursor] = createSignal<number | undefined>(undefined)
+  const [sessionCursor, setSessionCursor] = createSignal<string | undefined>(undefined)
   const [loadingMoreSessions, setLoadingMoreSessions] = createSignal(false)
   const useServerPagination = () => !!props.fetchSessionPage
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
@@ -394,6 +405,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let pendingScrollId: string | null = null
 
+  type PendingSessionEvent = {
+    type: "session.created" | "session.updated" | "session.deleted"
+    sessionID: string
+    info: Session
+  }
+  const pendingSessionEvents: PendingSessionEvent[] = []
+
   function scrollToSession(id: string) {
     setTimeout(() => {
       if (!scrollContainer) return
@@ -405,6 +423,55 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }, 50)
   }
 
+  function applySessionEvent(ev: PendingSessionEvent) {
+    const sessionID = ev.sessionID
+    const info = ev.info
+    if (info.directory !== resolvedDir()) return
+    const idx = sessionList.findIndex(s => s.id === sessionID)
+    if (ev.type === "session.created") {
+      if (info.agent !== props.agentFilter) return
+      if (idx === -1) setSessionList(produce((draft) => { draft.unshift(info) }))
+    } else if (ev.type === "session.updated") {
+      if (info.time.archived) {
+        if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
+        return
+      }
+      if (info.agent !== props.agentFilter) return
+      if (idx >= 0) {
+        setSessionList(produce((draft) => { draft[idx] = info }))
+      } else {
+        setSessionList(produce((draft) => { draft.unshift(info) }))
+      }
+    } else if (ev.type === "session.deleted") {
+      if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
+    }
+  }
+
+  function flushSessionEvents() {
+    if (pendingSessionEvents.length === 0) return
+    const events = pendingSessionEvents.splice(0, pendingSessionEvents.length)
+    // Merge events for the same session: keep the last state, but preserve
+    // created/deleted boundaries so a create followed by an delete is handled.
+    // If a created event is updated later, apply as created (then update in place);
+    // if a created session is deleted, treat it as a no-op.
+    const merged = new Map<string, PendingSessionEvent>()
+    for (const ev of events) {
+      const existing = merged.get(ev.sessionID)
+      if (!existing) {
+        merged.set(ev.sessionID, ev)
+      } else if (existing.type === "session.created" && ev.type === "session.updated") {
+        merged.set(ev.sessionID, { type: "session.created", sessionID: ev.sessionID, info: ev.info })
+      } else if (existing.type === "session.created" && ev.type === "session.deleted") {
+        merged.delete(ev.sessionID)
+      } else if (existing.type === "session.updated" && ev.type === "session.deleted") {
+        merged.set(ev.sessionID, ev)
+      }
+    }
+    for (const ev of merged.values()) {
+      applySessionEvent(ev)
+    }
+  }
+
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
@@ -413,29 +480,20 @@ export function AgentSidebar(props: AgentSidebarProps) {
         if (activeId) pendingScrollId = activeId
       }
       clearTimeout(refetchTimer)
+      const evtProps = e.details.properties as { sessionID?: string; info?: Session }
+      if (evtProps.sessionID && evtProps.info) {
+        pendingSessionEvents.push({ type: t, sessionID: evtProps.sessionID, info: evtProps.info })
+      }
       refetchTimer = setTimeout(async () => {
         if (useServerPagination()) {
-          const evtProps = e.details.properties as { sessionID?: string; info?: Session }
-          const sessionID = evtProps.sessionID
-          const info = evtProps.info
-          if (sessionID && info && info.directory === resolvedDir()) {
-            if (t === "session.created" && info.agent === props.agentFilter) {
-              const existingIdx = sessionList.findIndex(s => s.id === sessionID)
-              if (existingIdx === -1) setSessionList(produce((draft) => { draft.unshift(info) }))
-            } else if (t === "session.updated") {
-              const idx = sessionList.findIndex(s => s.id === sessionID)
-              if (idx >= 0) setSessionList(produce((draft) => { draft[idx] = info }))
-            } else if (t === "session.deleted") {
-              const idx = sessionList.findIndex(s => s.id === sessionID)
-              if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
-            }
-          }
+          flushSessionEvents()
           if (pendingScrollId) {
             const id = pendingScrollId
             pendingScrollId = null
             scrollToSession(id)
           }
         } else {
+          pendingSessionEvents.length = 0
           await refetch()
           if (pendingScrollId) {
             const id = pendingScrollId

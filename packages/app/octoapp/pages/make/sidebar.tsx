@@ -7,7 +7,7 @@ const PAGE_SIZE = 30
 export function MakeSidebar() {
   const globalSDK = useGlobalSDK()
 
-  const fetchSessionPage = async (dir: string, cursor?: number) => {
+  const fetchSessionPage = async (dir: string, cursor?: string) => {
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.experimental.session.list({
       directory: dir,
@@ -17,7 +17,17 @@ export function MakeSidebar() {
     })
     const sessions = (result.data ?? []) as Session[]
     const next = result.response.headers.get("x-next-cursor")
-    return { sessions, nextCursor: next ? Number(next) : undefined }
+    return { sessions, nextCursor: next ?? undefined }
+  }
+
+  const fetchPinnedSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      pinned: true,
+      agent: "octo_make",
+    })
+    return (result.data ?? []) as Session[]
   }
 
   return (
@@ -26,6 +36,7 @@ export function MakeSidebar() {
       routePrefix="/make"
       agentFilter="octo_make"
       fetchSessionPage={fetchSessionPage}
+      fetchPinnedSessions={fetchPinnedSessions}
       buildSessionRoute={(s: Session) => `/make/${s.id}`}
       buildNewRoute={() => "/make"}
       buildDeleteFallback={() => "/make"}

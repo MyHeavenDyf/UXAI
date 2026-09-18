@@ -46,21 +46,31 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
 
   const PAGE_SIZE = 30
 
-  const fetchSessionPage = async (dir: string, cursor?: number) => {
+  const fetchSessionPage = async (dir: string, cursor?: string) => {
     const insightApi = globalSDK.client.insight
-    const offset = cursor ?? 0
     if (insightApi) {
+      const offset = Number(cursor ?? 0)
       const result = await insightApi.sessions.list({ directory: dir, limit: PAGE_SIZE, offset: String(offset) })
       const items = (result.data?.items ?? []) as Session[]
       const total = Number(result.data?.total ?? 0)
       const nextOffset = offset + items.length
-      return { sessions: items, nextCursor: nextOffset < total ? nextOffset : undefined }
+      return { sessions: items, nextCursor: nextOffset < total ? String(nextOffset) : undefined }
     }
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.experimental.session.list({ directory: dir, limit: PAGE_SIZE, cursor })
     const items = ((result.data ?? []) as Session[]) as Session[]
     const next = result.response.headers.get("x-next-cursor")
-    return { sessions: items, nextCursor: next ? Number(next) : undefined }
+    return { sessions: items, nextCursor: next ?? undefined }
+  }
+
+  const fetchPinnedSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      pinned: true,
+      agent: "octo_insight",
+    })
+    return (result.data ?? []) as Session[]
   }
 
   return (
@@ -73,6 +83,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         routePrefix="/insight"
         agentFilter="octo_insight"
         fetchSessionPage={fetchSessionPage}
+        fetchPinnedSessions={fetchPinnedSessions}
         buildSessionRoute={(s: Session) => `/insight/${s.id}`}
         buildNewRoute={() => "/insight"}
         buildDeleteFallback={() => "/insight"}
