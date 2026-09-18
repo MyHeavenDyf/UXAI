@@ -4,6 +4,7 @@ import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable, PartTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { SessionCategoryTable } from "./session-category.sql"
+import { SessionGroupMappingTable } from "./session-group.sql"
 import { agentToCategory } from "./session-category"
 import { fromRow, type Info, type GlobalInfo, type ListInput } from "./session"
 import type { SessionID } from "./schema"
@@ -115,6 +116,7 @@ export function* listGlobalWithCategory(input?: {
   archived?: boolean
   agent?: string
   pinned?: boolean
+  grouped?: boolean
 }): Generator<GlobalInfo> {
   const conditions: (ReturnType<typeof sql> | ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof isNull> | ReturnType<typeof lt> | ReturnType<typeof like>)[] = []
 
@@ -126,6 +128,9 @@ export function* listGlobalWithCategory(input?: {
   }
   if (input?.pinned === true) {
     conditions.push(eq(SessionTable.pinned, 1))
+  }
+  if (input?.grouped === true) {
+    conditions.push(sql`EXISTS (SELECT 1 FROM ${SessionGroupMappingTable} WHERE ${SessionGroupMappingTable.session_id} = ${SessionTable.id})`)
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))

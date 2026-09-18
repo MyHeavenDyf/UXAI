@@ -73,6 +73,17 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     return (result.data ?? []) as Session[]
   }
 
+  const fetchGroupSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      grouped: "true",
+      agent: "octo_insight",
+      limit: 9999,
+    })
+    return (result.data ?? []) as Session[]
+  }
+
   const fetchSessionById = async (dir: string, sessionID: string) => {
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.session.get({ sessionID, directory: dir })
@@ -90,6 +101,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         agentFilter="octo_insight"
         fetchSessionPage={fetchSessionPage}
         fetchPinnedSessions={fetchPinnedSessions}
+        fetchGroupSessions={fetchGroupSessions}
         fetchSessionById={fetchSessionById}
         buildSessionRoute={(s: Session) => `/insight/${s.id}`}
         buildNewRoute={() => "/insight"}
