@@ -8,6 +8,7 @@ import {
   joinUrl,
   assetFileId,
   getAssetThumb,
+  getAssetThumbKind,
   isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
@@ -309,9 +310,17 @@ function AssetDialog(props: {
                             </Show>
                           }>
                             {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
-                            <Show when={getAssetThumb(file)}>
+                            <Show when={getAssetThumbKind(file) === "image"}>
                               <img
-                                class={isAssetThumbImage(file) ? "me-asset-grid-thumb" : "asset-grid-icon"}
+                                class="me-asset-grid-thumb"
+                                src={getAssetThumb(file)}
+                                alt=""
+                                draggable={false}
+                              />
+                            </Show>
+                            <Show when={getAssetThumbKind(file) === "icon"}>
+                              <img
+                                class="asset-grid-icon"
                                 src={getAssetThumb(file)}
                                 alt=""
                                 draggable={false}
@@ -372,10 +381,18 @@ function AssetDialog(props: {
                     </Show>
                   }
                 >
-                  {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
-                  <Show when={getAssetThumb(previewFile()!)} fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}>
+                  {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
+                  <Show when={getAssetThumbKind(previewFile()!) === "image"}>
                     <img
-                      class={isAssetThumbImage(previewFile()!) ? "me-asset-dialog-preview-img" : "asset-grid-icon"}
+                      class="me-asset-dialog-preview-img"
+                      src={getAssetThumb(previewFile()!)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </Show>
+                  <Show when={getAssetThumbKind(previewFile()!) === "icon"}>
+                    <img
+                      class="asset-grid-icon"
                       src={getAssetThumb(previewFile()!)}
                       alt=""
                       draggable={false}

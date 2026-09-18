@@ -6,6 +6,7 @@ import pdfIconUrl from "../../icons/PDF.svg"
 import pptIconUrl from "../../icons/ppt.svg"
 import zipIconUrl from "../../icons/zip.svg"
 import txtIconUrl from "../../icons/txt.svg"
+import otherIconUrl from "../../icons/other.svg"
 
 /**
  * 产品资源库数据获取层
@@ -238,7 +239,8 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
   const listResp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetTeam/getList?teamId=${rootTeamId}`,
   )
-  return (listResp?.content as AssetFolder[]) ?? []
+  const listRaw = listResp?.content
+  return Array.isArray(listRaw) ? listRaw : []
 }
 
 /**
@@ -257,7 +259,8 @@ export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   const resp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetFile/getAll?teamId=${teamId}&sortKey=createTime&sortType=desc`,
   )
-  const files = (resp?.content as AssetFile[]) ?? []
+  const raw = resp?.content
+  const files = Array.isArray(raw) ? raw : []
   return filterByType(files)
 }
 
@@ -287,27 +290,38 @@ function extensionOf(fileName: string): string {
   return clean.slice(dot + 1).toLowerCase()
 }
 
+export type AssetThumbKind = "image" | "icon"
+
 /**
- * type 40 文件的缩略图(spec line 78-87):
- * 1. snapshot 有值 → s3BaseUrl + snapshot(与 type 30 同规则)
- * 2. snapshot 空/缺失时:png/jpeg/jpg/svg → 下载路径图片(s3BaseUrl + docPath);其他后缀 → 对应图标
+ * type 40 缩略图的渲染方式(spec line 78-88):
+ * - snapshot 有值 → "image"(s3BaseUrl + snapshot,同 type 30)
+ * - snapshot 空/缺失:png/jpeg/jpg/svg → "image"(下载路径图片);其他后缀(html/txt/xlsx 等)→ "icon"(含 other.svg 兜底)
+ * 非 type 40 返回 undefined
  */
-export function getAssetThumb(file: AssetFile): string | undefined {
+export function getAssetThumbKind(file: AssetFile): AssetThumbKind | undefined {
   if (file.type !== 40) return undefined
+  if (file.snapshot) return "image"
+  if (IMAGE_EXT_SET.has(extensionOf(file.fileName))) return "image"
+  return "icon"
+}
+
+/** type 40 缩略图 URL:image/html 返回对应 URL(snapshot 优先,缺失用下载路径),icon 返回图标 URL(other.svg 兜底) */
+export function getAssetThumb(file: AssetFile): string | undefined {
+  const kind = getAssetThumbKind(file)
+  if (!kind) return undefined
+  if (kind === "icon") {
+    const ext = extensionOf(file.fileName)
+    return EXT_ICON_MAP[ext] || otherIconUrl
+  }
   if (file.snapshot) {
     return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))
   }
-  const ext = extensionOf(file.fileName)
-  if (IMAGE_EXT_SET.has(ext)) {
-    return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
-  }
-  return EXT_ICON_MAP[ext]
+  return encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
 }
 
 /** type 40 缩略图是否为真实图片(决定渲染样式:铺满 scale-down vs 居中图标) */
 export function isAssetThumbImage(file: AssetFile): boolean {
-  if (file.snapshot) return true
-  return IMAGE_EXT_SET.has(extensionOf(file.fileName))
+  return getAssetThumbKind(file) === "image"
 }
 
 /** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀/图片类返回 undefined */
