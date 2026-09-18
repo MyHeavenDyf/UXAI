@@ -11,6 +11,7 @@ import type {
   StudioCapability,
 } from "@/studio/image-provider"
 import { Instance } from "@/project/instance"
+import * as Log from "@opencode-ai/core/util/log"
 
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
@@ -54,6 +55,14 @@ type InternalStyleConfig = {
     weight: number | string
   }>
   mode: string
+}
+
+const log = Log.create({ service: "studio.permission" })
+
+function permissionUIDHash(value: string) {
+  return Array.from(value)
+    .reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16_777_619) >>> 0, 2_166_136_261)
+    .toString(16)
 }
 
 /*
@@ -329,42 +338,83 @@ export async function fetchPromptTags(): Promise<unknown> {
   return parseJson(text)
 }
 
-export async function checkStudioPermission(userIdx?: string): Promise<unknown> {
+export type StudioPermissionTiming = {
+  vendorDurationMs: number
+  totalDurationMs: number
+}
+
+export function studioPermissionServerTiming(timing: StudioPermissionTiming | undefined, handlerDurationMs: number) {
+  return [
+    timing ? `vendor;dur=${timing.vendorDurationMs}` : undefined,
+    `handler;dur=${Math.round(handlerDurationMs)}`,
+  ].filter((item): item is string => item !== undefined).join(", ")
+}
+
+export async function checkStudioPermission(
+  userIdx?: string,
+  onTiming?: (timing: StudioPermissionTiming) => void,
+): Promise<unknown> {
   const url = env("IMAGE_CHECK_PERMISSION_URL") ?? DEFAULT_CHECK_PERMISSION_URL
   if (!url) {
-    console.warn("[studio.permission] skipped: configure DEFAULT_CHECK_PERMISSION_URL or IMAGE_CHECK_PERMISSION_URL")
+    log.warn("permission check skipped", { reason: "permission URL is not configured" })
     return { skipped: true }
   }
-  const response = await fetch(url, {
-    method: METHOD,
-    headers: internalImageHeaders(),
-    body: JSON.stringify({
-      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
-      uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
-    }),
-  }).catch((error) => {
-    throw new Error(
-      [
-        "check_permission network failed.",
-        `url=${url}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
-  })
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(
-      [
-        "check_permission failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
+  const uid = userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
+  const requestID = crypto.randomUUID()
+  const routeStartedAt = performance.now()
+  const timing: { vendorDurationMs: number } = { vendorDurationMs: 0 }
+  log.info("route_enter", { requestID, uidHash: permissionUIDHash(uid) })
+
+  try {
+    const vendorStartedAt = performance.now()
+    log.info("vendor_start", { requestID })
+    try {
+      const response = await fetch(url, {
+        method: METHOD,
+        headers: internalImageHeaders(),
+        body: JSON.stringify({
+          checkPermList: ["view:keling_entry", "view:jimeng_entry"],
+          uid,
+        }),
+      }).catch((error) => {
+        throw new Error(
+          [
+            "check_permission network failed.",
+            `url=${url}`,
+            `error=${describeError(error)}`,
+          ].join("\n"),
+        )
+      })
+      const text = await response.text()
+      if (!response.ok) {
+        throw new Error(
+          [
+            "check_permission failed.",
+            `status=${response.status}`,
+            `statusText=${response.statusText}`,
+            `body=${text}`,
+          ].join("\n"),
+        )
+      }
+      return parseJson(text)
+    } finally {
+      timing.vendorDurationMs = Math.round(performance.now() - vendorStartedAt)
+      log.info("vendor_end", {
+        requestID,
+        vendorDurationMs: timing.vendorDurationMs,
+      })
+    }
+  } finally {
+    const totalDurationMs = Math.round(performance.now() - routeStartedAt)
+    onTiming?.({
+      vendorDurationMs: timing.vendorDurationMs,
+      totalDurationMs,
+    })
+    log.info("route_end", {
+      requestID,
+      totalDurationMs,
+    })
   }
-  const result = parseJson(text)
-  console.log("[studio.permission] response", result)
-  return result
 }
 
 export async function generatePromptFromImage(input: { base64img: string }): Promise<PromptGenResponse> {

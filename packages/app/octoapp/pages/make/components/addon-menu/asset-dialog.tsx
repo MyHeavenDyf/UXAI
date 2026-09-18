@@ -10,6 +10,9 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetThumb,
+  isAssetThumbImage,
+  getAssetIconByExtension,
   type AssetFolder,
   type AssetFile,
 } from "./asset-library"
@@ -115,6 +118,27 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     return props.selections.some(s => s.type === "file" && (s as any).id === id)
   }
 
+  // 跨文件夹的全局选中缓存:id → AssetFile。已选列表与确认下载都从这里取,
+  // 解决"确认时只反查当前文件夹 files()"导致的跨文件夹选中文件不会被下载的问题
+  const [selectedAssets, setSelectedAssets] = createSignal<Map<string, AssetFile>>(new Map())
+  const [selectedListOpen, setSelectedListOpen] = createSignal(false)
+  let selectedListRef: HTMLDivElement | undefined
+  let selectedTriggerRef: HTMLButtonElement | undefined
+
+  // 打开弹窗时与 props.selections 对账:移除 chip 已不存在的缓存项
+  createEffect(() => {
+    if (!props.open) return
+    setSelectedAssets(prev => {
+      const next = new Map<string, AssetFile>()
+      for (const [id, file] of prev) {
+        const still = props.selections.some(s => s.type === "file" && (s as any).id === id)
+        if (still) next.set(id, file)
+      }
+      return next
+    })
+    setSelectedListOpen(false)
+  })
+
   const toggleFile = (file: AssetFile) => {
     const id = assetFileId(file)
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
@@ -126,11 +150,53 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     }
     if (isFileSelected(file)) {
       props.onDeselect(selection)
+      setSelectedAssets(prev => {
+        const next = new Map(prev)
+        next.delete(id)
+        return next
+      })
     } else {
       props.onSelect(selection)
+      setSelectedAssets(prev => new Map(prev).set(id, file))
       tracker.interaction({ module: "design", name: "addon-select-product-asset", extend: JSON.stringify({ fileName: file.fileName }) })
     }
   }
+
+  // 已选列表:移除单个选中项
+  const removeSelectedAsset = (file: AssetFile) => {
+    const id = assetFileId(file)
+    const selection: MentionSelection = {
+      type: "file",
+      filename: file.fileName,
+      path: id,
+    }
+    props.onDeselect(selection)
+    setSelectedAssets(prev => {
+      const next = new Map(prev)
+      next.delete(id)
+      return next
+    })
+  }
+
+  // 已选列表:清空全部选中
+  const clearSelectedAssets = () => {
+    for (const [, file] of selectedAssets()) {
+      removeSelectedAsset(file)
+    }
+  }
+
+  // 已选列表点击外部关闭
+  createEffect(() => {
+    if (!selectedListOpen()) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest(".asset-selected-popover")) return
+      if (target.closest(".asset-selected-trigger")) return
+      setSelectedListOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    onCleanup(() => document.removeEventListener("mousedown", handler))
+  })
 
   const toggleExpand = (key: string) => {
     setExpanded(prev => {
@@ -234,20 +300,15 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
   }
 
   // 收集当前选中的 AssetFile(确认时交给父组件批量下载)
+  // 数据源 = 全局选中缓存 selectedAssets(跨文件夹可用,含已选列表展示的同一份)
   // "未下载"判据:path === id(插入时 path 即 assetFileId;下载后 path 被补成本地路径 ≠ id)
   const collectSelected = (): AssetFile[] => {
     const result: AssetFile[] = []
-    const seen = new Set<string>()
-    for (const sel of props.selections) {
-      if (sel.type !== "file") continue
-      const id = (sel as any).id as string | undefined
-      const path = (sel as any).path as string
-      if (!id || !path) continue
-      if (path !== id) continue // 已下载(本地路径)的跳过
-      if (seen.has(id)) continue
-      seen.add(id)
-      const found = files().find(f => assetFileId(f) === id)
-      if (found) result.push(found)
+    for (const [id, file] of selectedAssets()) {
+      const sel = props.selections.find(s => s.type === "file" && (s as any).id === id)
+      if (!sel) continue
+      if ((sel as any).path !== id) continue // 已下载(本地路径)的跳过
+      result.push(file)
     }
     return result
   }
@@ -319,13 +380,25 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                             onMouseEnter={(e) => handleStageEnter(e, file)}
                             onMouseLeave={handleStageLeave}
                           >
-                            <Show when={file.snapshot}>
-                              <img
-                                class="asset-grid-thumb"
-                                src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
-                                alt=""
-                                draggable={false}
-                              />
+                            <Show when={file.type === 40} fallback={
+                              <Show when={file.snapshot}>
+                                <img
+                                  class="asset-grid-thumb"
+                                  src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
+                            }>
+                              {/* type 40:png/jpeg/jpg/svg 直接显示下载路径图片,其他后缀显示对应图标 */}
+                              <Show when={getAssetThumb(file)}>
+                                <img
+                                  class={isAssetThumbImage(file) ? "asset-grid-thumb" : "asset-grid-icon"}
+                                  src={getAssetThumb(file)}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
                             </Show>
                             <div class={`mention-checkbox asset-grid-checkbox ${selected() ? "mention-checkbox--checked" : ""}`}>
                               <Show when={selected()}>
@@ -342,21 +415,91 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
               </ScrollView>
             </div>
 
-            {/* 下方按钮区 */}
+            {/* 下方按钮区:左侧已选触发按钮 + 右侧取消/确认 */}
             <div class="asset-dialog-footer">
-              <button type="button" class="asset-dialog-btn" onClick={props.onCancel}>取消</button>
               <button
+                ref={selectedTriggerRef}
                 type="button"
-                class="asset-dialog-btn asset-dialog-btn-primary"
-                onClick={() => {
-                  const selected = collectSelected()
-                  tracker.interaction({ module: "design", name: "addon-confirm-product-asset", extend: JSON.stringify({ count: selected.length }) })
-                  props.onConfirm(selected)
-                }}
+                class={`asset-selected-trigger ${selectedListOpen() ? "asset-selected-trigger--active" : ""}`}
+                onClick={() => setSelectedListOpen(v => !v)}
               >
-                确认
+                已选{selectedAssets().size}项
+                <Icon
+                  name="chevron-down"
+                  size="small"
+                  class="asset-selected-trigger-arrow"
+                  style={selectedListOpen() ? "transform: rotate(180deg)" : undefined}
+                />
               </button>
+              <div class="asset-dialog-footer-actions">
+                <button type="button" class="asset-dialog-btn" onClick={props.onCancel}>取消</button>
+                <button
+                  type="button"
+                  class="asset-dialog-btn asset-dialog-btn-primary"
+                  onClick={() => {
+                    const selected = collectSelected()
+                    tracker.interaction({ module: "design", name: "addon-confirm-product-asset", extend: JSON.stringify({ count: selected.length }) })
+                    props.onConfirm(selected)
+                  }}
+                >
+                  确认
+                </button>
+              </div>
             </div>
+
+            {/* 已选项管理弹窗(激活时出现在触发按钮上方) */}
+            <Show when={selectedListOpen()}>
+              <div class="asset-selected-popover" ref={selectedListRef}>
+                <div class="asset-selected-popover-header">
+                  <span class="asset-selected-popover-count">已选{selectedAssets().size}项</span>
+                  <button type="button" class="asset-selected-clear" onClick={clearSelectedAssets}>清空</button>
+                </div>
+                <div class="asset-selected-list">
+                  <Show
+                    when={selectedAssets().size > 0}
+                    fallback={<div class="asset-selected-empty">暂无内容</div>}
+                  >
+                    <For each={[...selectedAssets().entries()]}>
+                      {([id, file]) => (
+                        <div class="asset-selected-item">
+                          <div class="asset-selected-thumb">
+                            <Show when={file.type === 40} fallback={
+                              <Show when={file.snapshot}>
+                                <img
+                                  src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
+                            }>
+                              <Show when={getAssetThumb(file)} fallback={<img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} />}>
+                                <img
+                                  class={isAssetThumbImage(file) ? "asset-selected-full" : "asset-grid-icon"}
+                                  src={getAssetThumb(file)}
+                                  alt=""
+                                  draggable={false}
+                                />
+                              </Show>
+                            </Show>
+                          </div>
+                          <span class="asset-selected-name" title={file.fileName}>{file.fileName}</span>
+                          <button
+                            type="button"
+                            class="asset-selected-remove"
+                            onClick={() => removeSelectedAsset(file)}
+                            aria-label="移除"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                              <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </div>
+            </Show>
 
             {/* 右缘拖拽把手(不可见,仅光标变化) */}
             <div class="asset-dialog-right-handle" onMouseDown={startRightDrag} />
@@ -374,15 +517,30 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                 <div class="addon-menu-asset-preview-name">{previewFile()!.fileName}</div>
                 <div class="addon-menu-asset-preview-stage">
                   <Show
-                    when={previewFile()!.snapshot}
-                    fallback={<span class="addon-menu-empty-state-text">无预览</span>}
+                    when={previewFile()!.type === 40}
+                    fallback={
+                      <Show
+                        when={previewFile()!.snapshot}
+                        fallback={<span class="addon-menu-empty-state-text">无预览</span>}
+                      >
+                        <img
+                          class="addon-menu-asset-preview-img"
+                          src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
+                          alt=""
+                          draggable={false}
+                        />
+                      </Show>
+                    }
                   >
-                    <img
-                      class="addon-menu-asset-preview-img"
-                      src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
-                      alt=""
-                      draggable={false}
-                    />
+                    {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
+                    <Show when={getAssetThumb(previewFile()!)} fallback={<span class="addon-menu-empty-state-text">无预览</span>}>
+                      <img
+                        class={isAssetThumbImage(previewFile()!) ? "addon-menu-asset-preview-img" : "asset-grid-icon"}
+                        src={getAssetThumb(previewFile()!)}
+                        alt=""
+                        draggable={false}
+                      />
+                    </Show>
                   </Show>
                 </div>
               </div>

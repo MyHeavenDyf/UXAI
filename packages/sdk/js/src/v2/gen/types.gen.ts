@@ -31,6 +31,7 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
+  | EventSessionCompactionEstimated
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -700,6 +701,10 @@ export type CompactionPart = {
   auto: boolean
   overflow?: boolean
   tail_start_id?: string
+  estimated_tokens?: number
+  estimated_limit?: number
+  estimated_provider_id?: string
+  estimated_model_id?: string
 }
 
 export type Part =
@@ -806,6 +811,7 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
+    | EventSessionCompactionEstimated
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -1082,6 +1088,8 @@ export type McpLocalConfig = {
   }
   enabled?: boolean
   timeout?: number
+  homepage?: string
+  docs?: string
 }
 
 export type McpOAuthConfig = {
@@ -1110,6 +1118,9 @@ export type McpRemoteConfig = {
   oauth?: McpOAuthConfig | false
   timeout?: number
   proxy?: boolean
+  transport?: "http" | "sse"
+  homepage?: string
+  docs?: string
 }
 
 /**
@@ -1250,6 +1261,13 @@ export type Config = {
     primary_tools?: Array<string>
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
+  }
+}
+
+export type StudioPermissionError = {
+  name: "StudioPermissionError"
+  data: {
+    message: string
   }
 }
 
@@ -2606,6 +2624,19 @@ export type EventSessionCompacted = {
   }
 }
 
+export type EventSessionCompactionEstimated = {
+  id: string
+  type: "session.compaction.estimated"
+  properties: {
+    sessionID: string
+    messageID: string
+    tokens: number
+    limit: number
+    providerID: string
+    modelID: string
+  }
+}
+
 export type EventMcpToolsChanged = {
   id: string
   type: "mcp.tools.changed"
@@ -3653,6 +3684,32 @@ export type GlobalUpgradeResponses = {
 }
 
 export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
+
+export type GlobalStudioPermissionsCheckData = {
+  body?: {
+    uid?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/studio/permissions/check"
+}
+
+export type GlobalStudioPermissionsCheckErrors = {
+  /**
+   * StudioPermissionError
+   */
+  502: StudioPermissionError
+}
+
+export type GlobalStudioPermissionsCheckError =
+  GlobalStudioPermissionsCheckErrors[keyof GlobalStudioPermissionsCheckErrors]
+
+export type GlobalStudioPermissionsCheckResponses = {
+  /**
+   * Studio permission result
+   */
+  200: unknown
+}
 
 export type EventSubscribeData = {
   body?: never
@@ -7923,34 +7980,6 @@ export type StudioPromptTagsListError = StudioPromptTagsListErrors[keyof StudioP
 export type StudioPromptTagsListResponses = {
   /**
    * Prompt tags list
-   */
-  200: unknown
-}
-
-export type StudioPermissionsCheckData = {
-  body?: {
-    uid?: string
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/permissions/check"
-}
-
-export type StudioPermissionsCheckErrors = {
-  /**
-   * StudioGenerationError
-   */
-  400: StudioGenerationError
-}
-
-export type StudioPermissionsCheckError = StudioPermissionsCheckErrors[keyof StudioPermissionsCheckErrors]
-
-export type StudioPermissionsCheckResponses = {
-  /**
-   * Studio permission result
    */
   200: unknown
 }

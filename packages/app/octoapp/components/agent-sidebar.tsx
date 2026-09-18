@@ -586,7 +586,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       beforeSection={() => (
         <>
-          <Show when={pinnedSessions().length > 0 || draggingSessionId()}>
+          <Show when={pinnedSessions().length > 0}>
             <div
               onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}

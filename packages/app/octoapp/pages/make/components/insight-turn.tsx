@@ -15,7 +15,6 @@ import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
-import { shouldShowTurnError } from "@/components/context-usage-warning"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -72,33 +71,6 @@ export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Ele
         </div>
       </div>
     </div>
-  )
-}
-
-export function ContextOverflowNotice(props: {
-  tokens: number
-  limit: number
-  locale: string
-  class?: string
-  disabled?: boolean
-  onCompact?: () => void
-}) {
-  return (
-    <MakeErrorNotice class={props.class}>
-      当前对话 Session 上下文已超过100% ({props.tokens.toLocaleString(props.locale)} / {props.limit.toLocaleString(props.locale)})。
-      <br />
-      请进行
-      <button
-        type="button"
-        class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ color: "#0a59f7", font: "inherit" }}
-        disabled={props.disabled}
-        onClick={props.onCompact}
-      >
-        上下文压缩
-      </button>
-      ，或新建对话。
-    </MakeErrorNotice>
   )
 }
 
@@ -657,7 +629,10 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  compactDisabled?: boolean
+  onCompact?: () => void
   hasQuestionRequest?: boolean
+  hasRunningTool?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
@@ -797,18 +772,19 @@ export function InsightTurn(props: {
     return false
   })
 
-  const assistantError = createMemo(() => {
+  const messageError = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
-      if (!shouldShowTurnError(err.name as string)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }
     }
     return null
   })
+  const assistantError = createMemo(() => isCompactionTurn() ? null : messageError())
+  const compactionError = createMemo(() => isCompactionTurn() ? messageError() : null)
 
   const assistantParts = createMemo(() => {
     const msgs = assistantMsgs()
@@ -1410,16 +1386,11 @@ const stateStatus = state.status as string | undefined
           </div>
         </Show>
         <Show when={compactionFailed()}>
-          <div
-            class="mx-3 px-4 py-2 text-sm"
-            style={{
-              "border-radius": "var(--octo-radius-md)",
-              background: "rgba(254, 231, 232, 1)",
-              color: "#191919",
-            }}
-          >
-            上下文压缩失败
-          </div>
+          <MakeErrorNotice class="mx-3" title="上下文压缩失败">
+            <Show when={compactionError()?.message}>
+              <div style={{ "user-select": "text" }}>{compactionError()!.message}</div>
+            </Show>
+          </MakeErrorNotice>
         </Show>
         <Show when={compactionStalled()}>
           <div
@@ -1647,10 +1618,36 @@ const stateStatus = state.status as string | undefined
       <Show when={assistantError()}>
         <MakeErrorNotice
           class="mx-3"
-          title={assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
+          title={
+            assistantError()!.name === "ProviderAuthError"
+              ? "认证失败"
+              : assistantError()!.name === "ContextOverflowError"
+                ? "上下文超出提示"
+                : "生成出错"
+          }
         >
-          <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+          <Show
+            when={assistantError()!.name === "ContextOverflowError"}
+            fallback={
+              <Show when={assistantError()!.message}>
+                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+              </Show>
+            }
+          >
+            <div style={{ "user-select": "text" }}>系统的单次处理能力已满。</div>
+            <div>
+              请进行“
+              <button
+                type="button"
+                class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ color: "#0a59f7", font: "inherit" }}
+                disabled={props.compactDisabled}
+                onClick={props.onCompact}
+              >
+                上下文压缩
+              </button>
+              ”，或新建对话。
+            </div>
           </Show>
         </MakeErrorNotice>
       </Show>
@@ -1764,8 +1761,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
+      {/* 阻塞提示 — 渐进式显示（question 状态或工具执行时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest && !props.hasRunningTool}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 180

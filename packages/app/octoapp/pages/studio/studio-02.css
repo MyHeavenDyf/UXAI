@@ -1261,6 +1261,16 @@
   background: #f3f3f3;
 }
 
+.studio-style-menu-loading {
+  min-height: 116px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #858587;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .studio-style-icon {
   width: 42px;
   height: 42px;

@@ -198,6 +198,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                         classList={{
                           "bg-[rgba(10,89,247,0.08)]": isActive(),
                           "hover:bg-surface-base-hover": true,
+                          "bg-surface-base-hover": menuOpenId() === group.id && !isActive(),
                           "opacity-40": draggingId() === group.id,
                           "bg-[rgba(10,89,247,0.06)]": sessionDragOverGroup() === group.id && !isActive(),
                         }}
@@ -253,6 +254,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                         }}
                         onMouseEnter={() => setHoveredId(group.id)}
                         onMouseLeave={() => setHoveredId(null)}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpenId(group.id) }}
                         onClick={() => toggleGroup(group.id)}
                       >
                         <Show when={dragOverId() === group.id && draggingId() && draggingId() !== group.id}>

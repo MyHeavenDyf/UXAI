@@ -13,6 +13,7 @@ export function DialogCreateGroup(props: {
 }) {
   const dialog = useDialog()
   const [name, setName] = createSignal(props.initialName ?? "")
+  const [submitting, setSubmitting] = createSignal(false)
 
   const errorMessage = () => {
     if (name().length > 50) return "分组名称不得超过50个字符"
@@ -25,6 +26,7 @@ export function DialogCreateGroup(props: {
   const handleCreate = async () => {
     const value = name().trim()
     if (!value || errorMessage()) return
+    setSubmitting(true)
     await props.onCreate(value)
     dialog.close()
   }
@@ -45,13 +47,13 @@ export function DialogCreateGroup(props: {
               autofocus
             />
           </div>
-          <Show when={errorMessage()}>
+          <Show when={!submitting() && errorMessage()}>
             <div data-slot="input-error" style={{ color: "#ed4831", position: "absolute", top: "100%", left: "0", "margin-top": "4px" }}>{errorMessage()}</div>
           </Show>
         </div>
         <div class="flex justify-end gap-2 items-end create-group-actions">
           <Button variant="ghost" size="large" class="create-group-cancel-btn" onClick={() => dialog.close()}>取消</Button>
-          <Button variant="primary" size="large" class="create-group-create-btn" disabled={!name().trim() || !!errorMessage()} onClick={handleCreate}>{props.actionLabel ?? "创建分组"}</Button>
+          <Button variant="primary" size="large" class="create-group-create-btn" disabled={submitting() || !name().trim() || !!errorMessage()} onClick={handleCreate}>{props.actionLabel ?? "创建分组"}</Button>
         </div>
       </div>
     </Dialog>

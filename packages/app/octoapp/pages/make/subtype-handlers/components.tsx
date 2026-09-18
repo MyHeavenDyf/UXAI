@@ -1,6 +1,7 @@
 import type { SubtypeHandler, CanvasEditResult } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
 import { defaultModelEditConfig } from './default'
+import { demoIconConfig } from './demo'
 import type { JSX } from 'solid-js'
 import type { DesktopApi } from '../lib/electron-api'
 import { createSignal } from 'solid-js'
@@ -98,6 +99,12 @@ function wrapComponentsPrompt(filePath: string, body: string): string {
 const componentsModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
   deleteCallback: async (args) => wrapComponentsPrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
+  /** 选中 svg/img 元素时开放图标弹窗替换（与 demo 一致）；确认产生的 prompt 再包一层
+   *  components 源码定位/重编译指引——index.components.html 是编译产物，改源码后 rebuild */
+  iconConfig: {
+    ...demoIconConfig,
+    onConfirm: async (args) => wrapComponentsPrompt(args.filePath, await demoIconConfig.onConfirm(args)),
+  },
 }
 
 export default {
