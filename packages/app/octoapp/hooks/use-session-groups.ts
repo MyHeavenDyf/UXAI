@@ -1,7 +1,7 @@
 import { createEffect, on } from "solid-js"
 import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { migrateLocalGroupsToDB } from "./migrate-groups"
+import { fetchSessionGroupList } from "./migrate-groups"
 
 export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
@@ -34,10 +34,8 @@ export function useSessionGroups(dir: () => string | undefined, namespace: strin
       // visible while the new list is loading.
       setMapping(reconcile({}))
       const client = globalSDK.createClient({ directory: d })
-      await migrateLocalGroupsToDB({ dir: d, namespace, client })
-      const result = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+      const data = await fetchSessionGroupList({ dir: d, namespace, client })
       if (dir() !== d) return
-      const data = result.data
       const raw = data?.mapping ?? {}
       const cleaned: SessionGroupMapping = {}
       for (const [k, v] of Object.entries(raw)) cleaned[k] = { groupId: v.groupId, position: Number(v.position) }

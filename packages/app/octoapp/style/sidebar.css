@@ -18,7 +18,7 @@
   border-radius: 8px;
 }
 
-.section-header-inline button:last-child:hover path {
+.section-header-inline button:hover path {
   fill: #191919;
 }
 

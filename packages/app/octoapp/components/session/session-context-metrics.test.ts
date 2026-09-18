@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { getSessionContextMetrics } from "./session-context-metrics"
+import {
+  getSessionContextMetrics,
+  isContextEstimateForMessage,
+  isContextEstimateForModel,
+  resolveContextEstimateModel,
+  selectContextEstimateModel,
+} from "./session-context-metrics"
 
 const assistant = (
   id: string,
@@ -135,5 +141,66 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.totalCost).toBe(0)
     expect(metrics.context).toBeUndefined()
+  })
+})
+
+describe("isContextEstimateForModel", () => {
+  test("only accepts an estimate produced for the selected model", () => {
+    const estimate = { providerID: "openai", modelID: "gpt-4.1" }
+
+    expect(isContextEstimateForModel(estimate, { modelID: "gpt-4.1", providerID: "openai" })).toBe(true)
+    expect(isContextEstimateForModel(estimate, { modelID: "gpt-4.2", providerID: "openai" })).toBe(false)
+    expect(isContextEstimateForModel(estimate, { modelID: "gpt-4.1", providerID: "other" })).toBe(false)
+    expect(isContextEstimateForModel(undefined, { modelID: "gpt-4.1", providerID: "openai" })).toBe(false)
+  })
+})
+
+describe("isContextEstimateForMessage", () => {
+  test("rejects an estimate from an earlier compaction in the same session", () => {
+    const estimate = { messageID: "old-compaction" }
+
+    expect(isContextEstimateForMessage(estimate, "current-compaction")).toBe(false)
+    expect(isContextEstimateForMessage(estimate, "old-compaction")).toBe(true)
+    expect(isContextEstimateForMessage(undefined, "old-compaction")).toBe(false)
+  })
+})
+
+describe("resolveContextEstimateModel", () => {
+  test("uses the summary model for estimates created before model IDs were persisted", () => {
+    expect(resolveContextEstimateModel({}, { providerID: "openai", modelID: "gpt-4.1" })).toEqual({
+      providerID: "openai",
+      modelID: "gpt-4.1",
+    })
+  })
+
+  test("keeps the model explicitly stored with a new estimate", () => {
+    expect(
+      resolveContextEstimateModel(
+        { providerID: "anthropic", modelID: "claude" },
+        { providerID: "openai", modelID: "gpt-4.1" },
+      ),
+    ).toEqual({ providerID: "anthropic", modelID: "claude" })
+  })
+})
+
+describe("selectContextEstimateModel", () => {
+  test("uses the main model for the main context meter while a child session is active", () => {
+    expect(
+      selectContextEstimateModel({
+        selected: { providerID: "anthropic", modelID: "claude" },
+        main: { providerID: "openai", modelID: "gpt-4.1" },
+        hasActiveChild: true,
+      }),
+    ).toEqual({ providerID: "openai", modelID: "gpt-4.1" })
+  })
+
+  test("uses the selected model for a normal main-session conversation", () => {
+    expect(
+      selectContextEstimateModel({
+        selected: { providerID: "anthropic", modelID: "claude" },
+        main: { providerID: "openai", modelID: "gpt-4.1" },
+        hasActiveChild: false,
+      }),
+    ).toEqual({ providerID: "anthropic", modelID: "claude" })
   })
 })

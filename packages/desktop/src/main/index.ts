@@ -182,8 +182,8 @@ function setupApp() {
   })
 
   app.on("will-quit", () => {
-    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-001 §8.6.1)——
-    // 不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
+    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-004 §3.8)——
+    // 没有数量上限,不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
     FastuiDevServer.stopAll()
     void killSidecar()
   })
@@ -213,6 +213,10 @@ function setupApp() {
     registerLocalProtocol()
     setDockIcon()
     startPreviewServer()
+    // fastui 预览(SPEC-DES-004):先收掉上次崩溃遗留的 dev server,再开始响应 skill 的起服务请求
+    void FastuiDevServer.cleanupOrphans()
+      .catch((error) => console.warn("[fastui] 清理遗留 dev server 失败", error))
+      .finally(() => FastuiDevServer.startRequestWatcher())
     setupAutoUpdater()
     powerMonitor.on("resume", () => {
       BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))

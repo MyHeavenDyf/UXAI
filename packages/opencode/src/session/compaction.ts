@@ -22,6 +22,7 @@ import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { CompactionSummary } from "./compaction-summary"
+import { NonNegativeInt } from "@/util/schema"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -30,6 +31,17 @@ export const Event = {
     "session.compacted",
     Schema.Struct({
       sessionID: SessionID,
+    }),
+  ),
+  Estimated: BusEvent.define(
+    "session.compaction.estimated",
+    Schema.Struct({
+      sessionID: SessionID,
+      messageID: MessageID,
+      tokens: NonNegativeInt,
+      limit: NonNegativeInt,
+      providerID: ProviderID,
+      modelID: ModelID,
     }),
   ),
 }
@@ -558,10 +570,8 @@ export const layer: Layer.Layer<
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
-        yield* session.updatePart({
-          ...compactionPart,
-          tail_start_id: selected.tail_start_id,
-        })
+        compactionPart.tail_start_id = selected.tail_start_id
+        yield* session.updatePart(compactionPart)
       }
 
       if (result === "continue" && input.auto) {

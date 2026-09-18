@@ -8,7 +8,7 @@ import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
-import { syncSessionModel } from "@/pages/session/session-model-helpers"
+import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
@@ -17,7 +17,7 @@ import {
   type ArtifactFile,
   type ArtifactFileKind,
 } from "./utils/artifact-file-api"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
@@ -75,7 +75,7 @@ import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentS
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { encodeFilePath } from "@/context/file/path"
-import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -90,11 +90,6 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
-import {
-  ContextUsageWarning,
-  isContextAtLimit,
-  shouldShowContextWarning,
-} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -121,11 +116,18 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import {
+  getSessionContextMetrics,
+  isContextEstimateForMessage,
+  isContextEstimateForModel,
+  resolveContextEstimateModel,
+  selectContextEstimateModel,
+} from "@/components/session/session-context-metrics"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
+import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
@@ -205,6 +207,14 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  const [compactedContextEstimate, setCompactedContextEstimate] = createSignal<{
+    sessionID: string
+    messageID: string
+    tokens: number
+    limit: number
+    providerID: string
+    modelID: string
+  }>()
 
   function findMultimodalModel() {
     const recent = local.model.recent().filter(m => m && local.model.visible({ providerID: m.provider.id, modelID: m.id }))
@@ -794,7 +804,7 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(() => {
     const handleAppend = (e: Event) => {
       const detail = (e as CustomEvent<AppendToComposerEventDetail>).detail
-      const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+      const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
       ref?.appendDoc?.(detail.docJSON, detail.prefix)
     }
     window.addEventListener(APPEND_TO_COMPOSER_EVENT, handleAppend)
@@ -819,8 +829,10 @@ const sessionMessagesLoaded = createMemo(() => {
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       const activePlanID = activePlanSessionId()
+      const activePatternID = activePatternSessionId()
       const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
-      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
+      const isCurrentPatternChild = !!activePatternID && patternSubParentSessionId() === sid && eventSessionID === activePatternID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild && !isCurrentPatternChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -896,6 +908,9 @@ const sessionMessagesLoaded = createMemo(() => {
               delta: partText,
             }
           ])
+        } else if (partType === "tool") {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
         }
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
@@ -919,6 +934,8 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "session.compaction.estimated") {
+        setCompactedContextEstimate(e.properties)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -1221,10 +1238,10 @@ const sessionMessagesLoaded = createMemo(() => {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        syncSessionModel(local, msg as any)
+        syncSessionModel(local, msg as UserMessage)
         // Sync tab key so new conversations inherit this session's model.
-        if ((msg as any).model?.providerID && (msg as any).model?.modelID) {
-          local.model.set((msg as any).model, { recent: true })
+        if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
+          local.model.set((msg as UserMessage).model, { recent: true })
         }
       },
     ),
@@ -1234,7 +1251,48 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextMetrics = createMemo(
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
+  const persistedCompactedContextEstimate = createMemo(() => {
+    const context = contextMetrics()
+    if (!params.id || !context?.message.summary) return
+    const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
+    if (
+      !part ||
+      part.estimated_tokens === undefined ||
+      part.estimated_limit === undefined
+    ) return
+    const model = resolveContextEstimateModel(
+      { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
+      { providerID: context.message.providerID, modelID: context.message.modelID },
+    )
+    return {
+      sessionID: params.id,
+      tokens: part.estimated_tokens,
+      limit: part.estimated_limit,
+      providerID: model.providerID,
+      modelID: model.modelID,
+    }
+  })
+  const currentCompactedContextEstimate = createMemo(() => {
+    const current = currentModel()
+    const main = lastSessionUserMessage(sync.data.message, params.id)?.model
+    const model = selectContextEstimateModel({
+      selected: current && { providerID: current.provider.id, modelID: current.id },
+      main,
+      hasActiveChild:
+        !!activePlanForCurrentSession() || !!(activePatternSessionId() && patternSubParentSessionId() === params.id),
+    })
+    const estimate = compactedContextEstimate()
+    if (
+      estimate?.sessionID === params.id &&
+      isContextEstimateForMessage(estimate, contextMetrics()?.message.parentID) &&
+      isContextEstimateForModel(estimate, model)
+    ) return estimate
+    const persisted = persistedCompactedContextEstimate()
+    if (isContextEstimateForModel(persisted, model)) return persisted
+  })
   const contextLimit = createMemo(() => {
+    const estimate = currentCompactedContextEstimate()
+    if (contextMetrics()?.message.summary && estimate) return estimate.limit
     if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
     if (contextMetrics()?.limit) return contextMetrics()!.limit!
@@ -1242,22 +1300,18 @@ const sessionMessagesLoaded = createMemo(() => {
   const contextTokens = createMemo(() => {
     const context = contextMetrics()
     if (!context) return 0
-    if (context.message.summary) return context.output
+    if (context.message.summary) {
+      const estimate = currentCompactedContextEstimate()
+      if (estimate) return estimate.tokens
+      return
+    }
     return context.total
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+    const tokens = contextTokens()
+    return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
-
-  createEffect(() => {
-    if (contextUsage() >= 80) return
-    if (ignoredContextWarningSession() !== params.id) return
-    setIgnoredContextWarningSession(undefined)
-  })
-
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
@@ -1280,11 +1334,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
-  const contextWarningVisible = createMemo(
-    () =>
-      !contextSendBlocked() &&
-      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
-  )
   const contextCompactionDisabled = effectiveBusy
 
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
@@ -1314,20 +1363,17 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  function compactContext() {
-    const sessionID = params.id
-    const model = currentModel()
-    if (!sessionID || !model || contextCompactionDisabled()) return
+  function compactContext(sessionID: string) {
+    if (!sessionID || contextCompactionDisabled()) return
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
-      agent: "octo_make",
-      model: `${model.provider.id}/${model.id}`,
+      agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
     })
   }
 
-  function confirmCompactContext() {
+  function confirmCompactContext(sessionID: string) {
     if (contextCompactionDisabled()) return
     dialog.show(() => (
       <Dialog title="压缩上下文" fit class="delete-dialog">
@@ -1345,7 +1391,7 @@ const sessionMessagesLoaded = createMemo(() => {
               class="delete-dialog-btn delete-dialog-btn-primary"
               onClick={() => {
                 dialog.close()
-                void compactContext()
+                void compactContext(sessionID)
               }}
             >
               确认压缩
@@ -1432,13 +1478,36 @@ const sessionMessagesLoaded = createMemo(() => {
     lastBusyState = busy
   }, { defer: true }))
 
+  // 检测当前 session 及子 session 中是否有正在执行的工具（pending/running）
+  // 用于阻塞检测排除：工具执行期间不应显示"模型响应较慢"
+  const hasRunningTool = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const sessions = [sid, ...childSessionIDs()]
+    for (const id of sessions) {
+      const messages = (sync.data.message?.[id] ?? []) as Message[]
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (msg.role === "user") break
+        if (msg.role !== "assistant") continue
+        const parts = (sync.data.part?.[msg.id] ?? []) as Array<Record<string, unknown>>
+        for (const p of parts) {
+          if (p.type !== "tool") continue
+          const status = (p.state as Record<string, unknown> | undefined)?.status
+          if (status === "running" || status === "pending") return true
+        }
+      }
+    }
+    return false
+  })
+
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (effectiveBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion && !hasRunningTool()) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -1688,11 +1757,8 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
     api.writeFileBuffer(outputsInitPath, buffer)
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
-    // fastui dev server:挂着等 skill 写出 .octo-fastui.json,出现即由主进程起服务并持有
-    // (SPEC-DES-001 §8.6.1)。skill 脚本是短命的,它自己起的进程在 Windows 下活不过本次调用。
-    // 非 fastui 会话等不到那个文件,超时静默放弃,对其他 Design 用法零影响。
-    api.fastuiDevServerArm?.([dir, ".octo", id].join(sep))
-      .catch((err: unknown) => console.warn("[MakePage] failed to arm fastui dev server", err))
+    // fastui 预览服务不再在进会话时预挂(SPEC-DES-004):skill 需要服务时向主进程投请求,
+    // 用户点卡片时再当场取服务。后台跑着的对话用户未必点开过,按进会话来挂会漏。
   }))
 
   // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
@@ -3450,11 +3516,11 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    // 基于 hasContent() 选择正确的编辑器
+    // 基于 hasSessionView() 选择正确的编辑器（与渲染逻辑一致）
     let text: string
     let mentions: MentionAttrs[]
-    
-    if (hasContent()) {
+
+    if (hasSessionView()) {
       text = proseMirrorRef2?.getText?.() || ""
       mentions = proseMirrorRef2?.getMentions?.() || []
     } else {
@@ -3462,15 +3528,6 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
-    if (contextSendBlocked()) {
-      showOctoToast({
-        title: "上下文已达到上限",
-        description: "请先压缩上下文，或新建对话。",
-        variant: "error",
-      })
-      return
-    }
-
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
@@ -3867,7 +3924,7 @@ if (dsId) {
   function pickSlash(cmd: SlashCommand) {
     if (!slashState()) return
 
-    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const ref = hasSessionView() ? proseMirrorRef2 : proseMirrorRef1
     ref?.replaceSlashCommand?.(`/${cmd.trigger} `)
 
     setSlashState(null)
@@ -4227,20 +4284,23 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file via its versionInfo download path
-   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
-   * into the current session's uploads directory (or tmps if no session yet).
-   * ZIP files are extracted into the uploads dir and the archive deleted;
-   * the returned path is the extracted folder in that case.
+   * Download a product-asset-library file into the current session's uploads
+   * directory (or tmps if no session yet), by type (spec line 71-85):
+   * - type 30: fetch from baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName
+   * - type 40: EdmUtil.download([{ name, size, docId }]) (callback-based, wrapped as Promise)
+   * ZIP files (by download name suffix) are extracted into the uploads dir and the
+   * archive is not kept; the returned path is the extracted folder in that case.
    * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
     file: {
+      type?: number
       fileName: string
-      snapshot: string
-      s3BaseUrl: string
-      convertHtmlUrl: string
+      s3BaseUrl?: string
+      docPath?: string
+      docId?: string
+      fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
     },
     onProgress: (pct: number) => void,
@@ -4252,27 +4312,41 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    const version = file.versionInfo?.[0]
-    if (!version) throw new Error("缺少版本信息,无法下载")
-
-    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
-    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
-    const remotePath = `/main${version.filePath}/${version.fileName}`
-    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
-
     onProgress(0)
-    const response = await fetch(fileUrl, { signal })
-    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
-    const blob = await response.blob()
+    let buffer: ArrayBuffer
+    let downloadName: string
+    if (file.type === 40) {
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
+      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
+      downloadName = file.docPath
+      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
+    } else {
+      // type 30: versionInfo 下载路径(baseUrl + '/main' + filePath + '/' + fileName)
+      const version = file.versionInfo?.[0]
+      if (!version) throw new Error("缺少版本信息,无法下载")
+      downloadName = version.fileName
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+      const remotePath = `/main${version.filePath}/${version.fileName}`
+      const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
+      const response = await fetch(fileUrl, { signal })
+      if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+      const blob = await response.blob()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      buffer = await blob.arrayBuffer()
+    }
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
-    const buffer = await blob.arrayBuffer()
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
 
-    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+    const isZip = downloadName.toLowerCase().endsWith(".zip")
 
     if (isZip) {
       try {
@@ -4308,10 +4382,16 @@ if (dsId) {
       }
     }
 
-    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
-    const dot = version.fileName.lastIndexOf(".")
-    const ext = dot > 0 ? version.fileName.slice(dot) : ""
-    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    let saveName: string
+    if (file.type === 40) {
+      saveName = file.fileName
+    } else {
+      const dot = downloadName.lastIndexOf(".")
+      const ext = dot > 0 ? downloadName.slice(dot) : ""
+      saveName = `${file.fileName}${ext}`
+    }
+    const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -4520,6 +4600,36 @@ if (dsId) {
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
       if (!linkContent) return
+
+      // fastui 预览(SPEC-DES-004):卡片只记产物,地址由预览面板打开时向主进程当场取。
+      // 本方案之前生成的卡片是 http://127.0.0.1:<port> —— 端口早已过期,
+      // 在 fastui 会话里一律按「产物未知」处理,交给主进程在对话只有一个工程时确定。
+      const fastuiName = parseFastuiPreview(linkContent)
+      const legacyFastui =
+        fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
+          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          : false
+      if (fastuiName !== null || legacyFastui) {
+        const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
+        const existingPreview = tabStore.tabs().find(t => t.type === "html" && t.filePath === previewUrl)
+        if (existingPreview) {
+          tabStore.activate(existingPreview.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", reused: true }) })
+          return
+        }
+        tabStore.openTab({
+          id: `link-fastui-${params.id ?? ""}-${fastuiName ?? ""}`,
+          title: fastuiName || card.title,
+          type: "html",
+          subtype: "url",
+          content: "",
+          filePath: previewUrl,
+          artifactIdentifier: card.artifactIdentifier,
+          createdAt: card.createdAt,
+        })
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", legacy: legacyFastui }) })
+        return
+      }
 
       if (/^https?:\/\//i.test(linkContent)) {
         // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
@@ -4931,28 +5041,10 @@ if (dsId) {
                         <div class="make-token-tooltip-copy">
                           <p>
                             当前对话 Session 上下文
-                            {contextSendBlocked()
-                              ? "已超过100%"
-                              : contextUsage() >= 80
-                                ? "已超过80%"
-                                : `已使用${contextUsage()}%`}{" "}
+                            {contextUsage() === undefined ? "用量暂不可用" : `已使用${contextUsage()}%`} {" "}
                             (
-                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
-                              {contextTokens().toLocaleString(language.intl())}
-                            </span>{" "}
-                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
-                          </p>
-                          <p>
-                            建议点击“
-                            <button
-                              type="button"
-                              class="make-token-tooltip-action"
-                              disabled={contextCompactionDisabled()}
-                              onClick={confirmCompactContext}
-                            >
-                              上下文压缩
-                            </button>
-                            ”以继续对话。
+                            {contextTokens()?.toLocaleString(language.intl()) ?? "--"}{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
                           </p>
                         </div>
                       }
@@ -4971,8 +5063,15 @@ if (dsId) {
                           padding: "0",
                         }}
                         disabled={contextCompactionDisabled()}
-                        onClick={confirmCompactContext}
-                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
+                        onClick={() => {
+                          const sessionID = params.id
+                          if (sessionID) confirmCompactContext(sessionID)
+                        }}
+                        aria-label={
+                          contextUsage() === undefined
+                            ? "上下文用量暂不可用，点击压缩上下文"
+                            : `上下文已使用 ${contextUsage()}%，点击压缩上下文`
+                        }
                       >
                         <ContextUsageCircle percentage={contextUsage()} />
                       </button>
@@ -5236,13 +5335,11 @@ onPreview={(url) => {
                           icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                          aria-label={
                            effectiveBusy()
                              ? "停止生成"
-                             : contextSendBlocked()
-                               ? "上下文已达到上限，请先压缩上下文"
-                               : undefined
+                             : undefined
                          }
 />
                     </div>
@@ -5330,7 +5427,10 @@ onPreview={(url) => {
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => setPrompt(text)}
+                        compactDisabled={contextCompactionDisabled()}
+                        onCompact={() => confirmCompactContext(userMessages()[0].sessionID || params.id!)}
                         hasQuestionRequest={!!questionRequest()}
+                        hasRunningTool={hasRunningTool()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
                           void historyController.onFileRefresh(tabStore.tabs())
@@ -5358,7 +5458,10 @@ onPreview={(url) => {
                             onChildSession={ensureChildSession}
                             deltaLog={deltaLog()}
                             onFormSubmit={(text) => setPrompt(text)}
+                            compactDisabled={contextCompactionDisabled()}
+                            onCompact={() => confirmCompactContext(messageSessionID)}
                             hasQuestionRequest={!!questionRequest()}
+                            hasRunningTool={hasRunningTool()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
                               void historyController.onFileRefresh(tabStore.tabs())
@@ -5382,36 +5485,6 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
-
-                  <Show when={contextSendBlocked() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextOverflowNotice
-                          class="w-full"
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
@@ -5639,13 +5712,11 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
                        aria-label={
                          effectiveBusy()
                            ? "停止生成"
-                           : contextSendBlocked()
-                             ? "上下文已达到上限，请先压缩上下文"
-                             : undefined
+                           : undefined
                        }
                      />
                   </div>

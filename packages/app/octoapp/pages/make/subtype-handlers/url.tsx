@@ -7,6 +7,7 @@ import {
   isExportingAny,
   isFastuiSession,
   isLocalPreviewUrl,
+  parseFastuiPreview,
   sessionDirOf,
 } from '../utils/fastui-export'
 
@@ -23,8 +24,14 @@ import {
  * 一个必然失败的下载按钮 —— 那是对既有行为的回归。extraButtons 是同一个扩展点的另一条腿。
  */
 function targetSessionDir(ctx: SubtypeHandlerContext): string | null {
-  if (!isLocalPreviewUrl(ctx.tab.filePath)) return null
+  // fastui 卡片(fastui://<产物名>,SPEC-DES-004)或旧版 loopback 卡片
+  if (parseFastuiPreview(ctx.tab.filePath) === null && !isLocalPreviewUrl(ctx.tab.filePath)) return null
   return sessionDirOf(ctx.sdkDirectory, ctx.sessionId)
+}
+
+/** 卡片对应的产物名;旧版卡片没有,导出时退回会话状态文件里的工程 */
+function targetProjectName(ctx: SubtypeHandlerContext): string | undefined {
+  return parseFastuiPreview(ctx.tab.filePath) || undefined
 }
 
 const urlHandler: SubtypeHandler = {
@@ -49,7 +56,7 @@ const urlHandler: SubtypeHandler = {
             const dir = targetSessionDir(ctx)
             if (!dir) return
             ctx.tracker.interaction({ module: 'design', name: 'fastui-export-zip' })
-            await exportFastuiZip(dir)
+            await exportFastuiZip(dir, targetProjectName(ctx))
           },
         },
       ],

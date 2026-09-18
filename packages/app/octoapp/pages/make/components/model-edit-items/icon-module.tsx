@@ -504,7 +504,7 @@ function IconPickerPopup(props: {
                   <div class="grid grid-cols-5 gap-2">
                     <For each={state.customIcons}>
                       {(icon, i) => (
-                        <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'ring-1 ring-inset ring-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
+                        <div class="group relative flex h-[60px] w-full cursor-pointer items-center justify-center rounded-xl bg-[#F2F3F5]" classList={{ 'outline outline-1 outline-[#0A59F7]': `custom:${icon.src}` === state.selectedId }}
                           onMouseEnter={(e) => showTip(e.currentTarget, { name: customIconName(icon.path ?? icon.src) })} onMouseLeave={() => setState('tip', null)}
                           onClick={() => { setState('selectedId', `custom:${icon.src}`); setState('selected', customIconName(icon.path ?? icon.src)) }}>
                           <img src={icon.src} class="max-h-full max-w-full object-contain" />
@@ -593,31 +593,35 @@ export function IconModule(props: {
   const [iconValue, setIconValue] = createSignal<IconState>({})
   let anchorRef: HTMLButtonElement | undefined
 
+  const loadIconPreview = (state: IconState) => {
+    if (state.src && props.filePath) {
+      const fullPath = `${props.filePath.replace(/[\\/][^\\/]+$/, '')}/${state.src}`
+      const api = getDesktopApi()
+      if (api?.readFileBuffer) {
+        api.readFileBuffer(fullPath).then(buf => {
+          if (buf) {
+            const mime = (state.src ?? '').endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+            blobToDataURL(new Blob([buf], { type: mime })).then(dataUrl => {
+              setIconValue(prev => ({ ...prev, url: dataUrl }))
+            })
+          }
+        }).catch(() => {})
+      }
+    }
+  }
+
   createEffect(() => {
     if (props.dom && props.iconConfig.getInitialState) {
       const state = props.iconConfig.getInitialState(props.dom)
       setIconValue(state)
-      // 自定义图标：readFileBuffer 转 dataURL 用于预览
-      if (state.isCustom && state.src && props.filePath) {
-        const fullPath = `${props.filePath.replace(/[\\/][^\\/]+$/, '')}/${state.src}`
-        const api = getDesktopApi()
-        if (api?.readFileBuffer) {
-          api.readFileBuffer(fullPath).then(buf => {
-            if (buf) {
-              const mime = (state.src ?? '').endsWith('.svg') ? 'image/svg+xml' : 'image/png'
-              blobToDataURL(new Blob([buf], { type: mime })).then(dataUrl => {
-                setIconValue(prev => ({ ...prev, url: dataUrl }))
-              })
-            }
-          }).catch(() => {})
-        }
-      }
+      loadIconPreview(state)
     }
   })
 
   const handleConfirm = async (current: IconState) => {
     const prev = iconValue()
     setIconValue(current)
+    loadIconPreview(current)
     const prompt = await props.iconConfig.onConfirm({
       prev, current,
       dom: props.dom!,

@@ -7,6 +7,8 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetThumb,
+  isAssetThumbImage,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -296,13 +298,25 @@ function AssetDialog(props: {
                           onMouseEnter={(e) => handleStageEnter(e, file)}
                           onMouseLeave={handleStageLeave}
                         >
-                          <Show when={file.snapshot}>
-                            <img
-                              class="me-asset-grid-thumb"
-                              src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
-                              alt=""
-                              draggable={false}
-                            />
+                          <Show when={file.type === 40} fallback={
+                            <Show when={file.snapshot}>
+                              <img
+                                class="me-asset-grid-thumb"
+                                src={encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot))}
+                                alt=""
+                                draggable={false}
+                              />
+                            </Show>
+                          }>
+                            {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
+                            <Show when={getAssetThumb(file)}>
+                              <img
+                                class={isAssetThumbImage(file) ? "me-asset-grid-thumb" : "asset-grid-icon"}
+                                src={getAssetThumb(file)}
+                                alt=""
+                                draggable={false}
+                              />
+                            </Show>
                           </Show>
                           <div class={`me-asset-grid-radio ${selected() ? "me-asset-grid-radio--checked" : ""}`}>
                             <Show when={selected()}>
@@ -343,15 +357,30 @@ function AssetDialog(props: {
               <div class="me-asset-dialog-preview-name">{previewFile()!.fileName}</div>
               <div class="me-asset-dialog-preview-stage">
                 <Show
-                  when={previewFile()!.snapshot}
-                  fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}
+                  when={previewFile()!.type === 40}
+                  fallback={
+                    <Show
+                      when={previewFile()!.snapshot}
+                      fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}
+                    >
+                      <img
+                        class="me-asset-dialog-preview-img"
+                        src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
+                        alt=""
+                        draggable={false}
+                      />
+                    </Show>
+                  }
                 >
-                  <img
-                    class="me-asset-dialog-preview-img"
-                    src={encodeAssetUrl(joinUrl(previewFile()!.s3BaseUrl, previewFile()!.snapshot))}
-                    alt=""
-                    draggable={false}
-                  />
+                  {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示图标 */}
+                  <Show when={getAssetThumb(previewFile()!)} fallback={<span style={{ "font-size": "14px", color: "#777" }}>无预览</span>}>
+                    <img
+                      class={isAssetThumbImage(previewFile()!) ? "me-asset-dialog-preview-img" : "asset-grid-icon"}
+                      src={getAssetThumb(previewFile()!)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </Show>
                 </Show>
               </div>
             </div>
