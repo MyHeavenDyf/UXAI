@@ -370,6 +370,7 @@ export const ExperimentalRoutes = lazy(() =>
           archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
           agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
           pinned: z.enum(["true", "false"]).optional().meta({ description: "Only return pinned sessions" }),
+          grouped: z.enum(["true", "false"]).optional().meta({ description: "Only return sessions that belong to a group" }),
         }),
       ),
       async (c) => {
@@ -386,6 +387,7 @@ export const ExperimentalRoutes = lazy(() =>
           archived: queryBoolean(query.archived),
           agent: query.agent,
           pinned: queryBoolean(query.pinned) ?? undefined,
+          grouped: queryBoolean(query.grouped) ?? undefined,
         })) {
           sessions.push(session)
         }
