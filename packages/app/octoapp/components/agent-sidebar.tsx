@@ -72,6 +72,9 @@ export type AgentSidebarProps = {
    *  the list on first load so pinned sessions remain visible even if their update time is old.
    *  If omitted, AgentSidebar will not fetch pinned sessions separately. */
   fetchPinnedSessions?: (directory: string) => Promise<Session[]>
+  /** Optional fetcher for sessions that belong to a group. When provided, the returned sessions are merged into
+   *  the list on first load so group sessions are available immediately without scroll-loading. */
+  fetchGroupSessions?: (directory: string) => Promise<Session[]>
   /** Optional fetcher for a single session by ID. Used to backfill the current active session
    *  when it is not included in the first page (e.g. deep-linked old sessions). */
   fetchSessionById?: (directory: string, sessionID: string) => Promise<Session | null | undefined>
@@ -151,18 +154,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
       }
       try {
         if (props.fetchSessionPage) {
-          const [result, pinned] = await Promise.all([
+          const [result, pinned, grouped] = await Promise.all([
             props.fetchSessionPage(d),
             props.fetchPinnedSessions ? props.fetchPinnedSessions(d) : Promise.resolve([] as Session[]),
+            props.fetchGroupSessions ? props.fetchGroupSessions(d) : Promise.resolve([] as Session[]),
           ])
           if (resolvedDir() !== d) return [] as Session[]
           setSessionCursor(result.nextCursor)
-          const existingIds = new Set(pinned.map(s => s.id))
+          const pinnedIds = new Set(pinned.map(s => s.id))
+          const groupedDeduped = grouped.filter(s => !pinnedIds.has(s.id))
+          const existingIds = new Set([...pinnedIds, ...groupedDeduped.map(s => s.id)])
           const sorted = result.sessions
             .filter(s => !existingIds.has(s.id))
             .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
           setFetchedDir(d)
-          return [...pinned, ...sorted].filter(s => s.agent === props.agentFilter)
+          return [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
         }
         const data = props.fetchSessions
           ? await props.fetchSessions(d)
@@ -808,7 +814,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
               classList={{ "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0) }}
             >
               <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => setPinnedCollapsed(v => !v)} class="section-header-inline" />
-            </div>
             <Show when={!pinnedCollapsed()}>
               <SessionList
                 sessions={pinnedSessions()}
@@ -838,6 +843,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 plainEmptyDropZone
               />
             </Show>
+            </div>
           </Show>
           {props.beforeSection?.({
             sessions: sessionList,

@@ -475,6 +475,7 @@ function MakeContent() {
   // ── 会话区三点菜单（与左侧栏 session 右键菜单一致）──
   const groupsCtx = useMakeGroupsContext()
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+  const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
 
   const menuSession = () => sessionInfoMirror()
   const menuHasMessages = () => {
@@ -5067,6 +5068,7 @@ if (dsId) {
                   class="make-icon-btn flex items-center justify-center size-4"
                   aria-label={language.t("common.moreOptions")}
                   onClick={(e) => {
+                    setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
                     setTitleState("menuOpen", true)
                   }}
@@ -5077,6 +5079,7 @@ if (dsId) {
                   show={titleState.menuOpen && !!menuSession()}
                   x={menuPos().x}
                   y={menuPos().y}
+                  triggerEl={menuTriggerEl}
                   session={menuSession()}
                   hasMessages={menuHasMessages()}
                   groups={groupsCtx?.groups}
