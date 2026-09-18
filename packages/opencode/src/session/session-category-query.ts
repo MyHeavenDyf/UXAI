@@ -109,15 +109,23 @@ export function* listGlobalWithCategory(input?: {
   directory?: string
   roots?: boolean
   start?: number
-  cursor?: number
+  cursor?: string | number
   search?: string
   limit?: number
   archived?: boolean
+  agent?: string
+  pinned?: boolean
 }): Generator<GlobalInfo> {
   const conditions: (ReturnType<typeof sql> | ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof isNull> | ReturnType<typeof lt> | ReturnType<typeof like>)[] = []
 
   if (input?.directory) {
     conditions.push(eq(SessionTable.directory, input.directory))
+  }
+  if (input?.agent) {
+    conditions.push(eq(SessionTable.agent, input.agent))
+  }
+  if (input?.pinned === true) {
+    conditions.push(eq(SessionTable.pinned, 1))
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))
@@ -125,8 +133,22 @@ export function* listGlobalWithCategory(input?: {
   if (input?.start) {
     conditions.push(gte(SessionTable.time_updated, input.start))
   }
-  if (input?.cursor) {
-    conditions.push(lt(SessionTable.time_updated, input.cursor))
+  if (input?.cursor !== undefined) {
+    const cursorParts = String(input.cursor).split(":")
+    const cursorTime = Number(cursorParts[0])
+    if (!Number.isNaN(cursorTime)) {
+      if (cursorParts.length > 1) {
+        const cursorId = cursorParts.slice(1).join(":")
+        conditions.push(
+          or(
+            lt(SessionTable.time_updated, cursorTime),
+            and(eq(SessionTable.time_updated, cursorTime), sql`${SessionTable.id} < ${cursorId}`)!,
+          )!,
+        )
+      } else {
+        conditions.push(lt(SessionTable.time_updated, cursorTime))
+      }
+    }
   }
   if (input?.search) {
     conditions.push(like(SessionTable.title, `%${input.search}%`))

@@ -31,18 +31,25 @@ export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
   /**
-   * fastui dev server(SPEC-DES-001 §8.6.1):建会话时调一次,主进程挂着等 skill
-   * 写出 .octo-fastui.json,出现即起 dev server 并持有它。
-   * 非 fastui 会话等不到那个文件,超时静默放弃。
+   * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
+   * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
    */
-  fastuiDevServerArm?: (sessionDir: string) => Promise<boolean>
-  fastuiDevServerStop?: (sessionDir: string) => Promise<boolean>
+  fastuiPreviewOpen?: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 「重新编译」:结束当前服务并当场重起 */
+  fastuiPreviewRestart?: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /**
    * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
-   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。
+   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。带产物名时导出该工程。
    */
   fastuiExportZip?: (
     sessionDir: string,
+    projectName?: string,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>

@@ -108,6 +108,14 @@ export function createTabsMapping(pkg: string): MappingDef {
       // ─── activeKey → selectedIndex（useState，双形态） ───
       //   字面量 → Value.literal（编译期算索引 hardcode）
       //   DataBinding → Value.computed + useState（transform 内算索引，cvCtx 读循环数据，path 直传无需 resolveValueFromPath）
+      //
+      // DataBinding 额外挂 runtimeKeyMap：当此 path 被事件 Action 改写（shared=true，
+      // 即外部 setState/cycleState 驱动）时，提升为 useSharedState 后 store 原始值是
+      // key 字符串，而 Tab 要数字 selectedIndex → tree-finalizer 据此 runtimeKeyMap
+      // 产 `KEYS.indexOf(raw)` 派生 const + 改写 onClick 写回 key。仅 shared 时生效，
+      // 非 shared（自驱动）走原 useState(initial)+extractor 路径。
+      // keys 来自编译期已知的静态 TabItem props.key（循环 children 的 key 是运行时数据，
+      // 暂不挂 runtimeKeyMap，退化到现有 shared 提升行为）。
       const hasActiveKey = Object.prototype.hasOwnProperty.call(props, 'activeKey')
       if (hasActiveKey) {
         const activeKeyRaw = props.activeKey
@@ -118,12 +126,21 @@ export function createTabsMapping(pkg: string): MappingDef {
           // 闭包捕获 staticChildren / loop（编译期已知），transform 内用 cvCtx 读循环数据算索引
           const staticChildrenCapture = staticChildren
           const loopCapture = isLoop ? (children as LoopNode) : null
+          // 静态 children 的 key 数组（编译期已知，供 shared 时运行时 key→index 查表）
+          const staticKeys = staticChildrenCapture
+            .map(c => c?.props?.key)
+            .filter(k => k !== undefined && k !== null)
+          const useStateMarker: { event: string; extractor: (s: string) => string; runtimeKeyMap?: { keys: any[] } } = {
+            event: 'onClick',
+            extractor,
+          }
+          if (staticKeys.length > 0) useStateMarker.runtimeKeyMap = { keys: staticKeys }
           outputProps.selectedIndex = Value.computed({
             path: activeKeyRaw.path,
             pathType: activeKeyRaw.pathType ?? 'absolute',
             accessPath: activeKeyRaw.accessPath,
             containsJSX: false,
-            useState: { event: 'onClick', extractor },
+            useState: useStateMarker,
             transform: (rawActiveKey: any, cvCtx?: any) => {
               const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
               if (!activeKeyVal || activeKeyVal === '') return 0

@@ -111,12 +111,15 @@ export function createHistoryStore() {
     const sep = getSep(tab.filePath)
     const historyDir = getHistoryDir(tab.filePath)
     const baseName = getBaseName(tab.filePath)
-    // 版本时间取源文件 mtime（内容真实写入时刻），stat 失败回退当前时间
-    let ts = new Date()
-    try {
-      const stat = await api.statFile?.(tab.filePath)
-      if (stat?.mtimeMs) ts = new Date(stat.mtimeMs)
-    } catch {}
+    /** 版本时间取文件集的最大 mtime（= 该组内容最后变更时刻，NTFS 系统时钟可靠）。
+     *  必须取全集最大值而非主文件：如 components 页 html 生成后不变、变化都在 data.js，
+     *  只取 html 会让每条记录同名互相覆盖（表现为"新记录没出现 + 时间停在生成时刻"）。stat 全失败回退当前时间 */
+    let tsMs = 0
+    for (const rel of files) {
+      const st = await api.statFile?.(resolveRelativePath(rel, tab.filePath!)).catch(() => null)
+      if (st?.mtimeMs && st.mtimeMs > tsMs) tsMs = st.mtimeMs
+    }
+    const ts = tsMs > 0 ? new Date(tsMs) : new Date()
     const versionName = buildVersionFolderName(baseName, ts, actor)
     const versionDir = historyDir + sep + versionName
 
