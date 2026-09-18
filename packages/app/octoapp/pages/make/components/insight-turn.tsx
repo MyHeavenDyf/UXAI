@@ -23,6 +23,7 @@ import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
+import { parseFastuiPreview } from "../utils/fastui-export"
 
 function renderMentionText(text: string): JSX.Element {
   // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
@@ -139,6 +140,10 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
 function extractLinkTitle(content: string): string {
   const trimmed = (content ?? "").trim()
   if (!trimmed) return ""
+
+  // fastui 预览卡片 fastui://<产物名>(SPEC-DES-004):标题就是产物名
+  const fastuiName = parseFastuiPreview(trimmed)
+  if (fastuiName !== null) return fastuiName || "本地预览"
 
   if (/^https?:\/\//i.test(trimmed)) {
     try {

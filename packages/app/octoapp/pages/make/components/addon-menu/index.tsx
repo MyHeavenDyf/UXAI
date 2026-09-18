@@ -473,13 +473,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               type="button"
               class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
               onClick={() => {
-                request(() => {
-                  if (activeSecondary() === 'files') {
-                    setActiveSecondary(null)
-                  } else {
-                    setActiveSecondary('files')
-                  }
-                })
+                if (activeSecondary() === 'files') {
+                  setActiveSecondary(null)
+                  return
+                }
+                request(() => setActiveSecondary('files'))
               }}
             >
               <span class="addon-menu-item-icon"><DesignFilesIcon /></span>

@@ -127,6 +127,7 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
+import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
@@ -1756,11 +1757,8 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
     api.writeFileBuffer(outputsInitPath, buffer)
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
-    // fastui dev server:挂着等 skill 写出 .octo-fastui.json,出现即由主进程起服务并持有
-    // (SPEC-DES-001 §8.6.1)。skill 脚本是短命的,它自己起的进程在 Windows 下活不过本次调用。
-    // 非 fastui 会话等不到那个文件,超时静默放弃,对其他 Design 用法零影响。
-    api.fastuiDevServerArm?.([dir, ".octo", id].join(sep))
-      .catch((err: unknown) => console.warn("[MakePage] failed to arm fastui dev server", err))
+    // fastui 预览服务不再在进会话时预挂(SPEC-DES-004):skill 需要服务时向主进程投请求,
+    // 用户点卡片时再当场取服务。后台跑着的对话用户未必点开过,按进会话来挂会漏。
   }))
 
   // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
@@ -4586,6 +4584,36 @@ if (dsId) {
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
       if (!linkContent) return
+
+      // fastui 预览(SPEC-DES-004):卡片只记产物,地址由预览面板打开时向主进程当场取。
+      // 本方案之前生成的卡片是 http://127.0.0.1:<port> —— 端口早已过期,
+      // 在 fastui 会话里一律按「产物未知」处理,交给主进程在对话只有一个工程时确定。
+      const fastuiName = parseFastuiPreview(linkContent)
+      const legacyFastui =
+        fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
+          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          : false
+      if (fastuiName !== null || legacyFastui) {
+        const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
+        const existingPreview = tabStore.tabs().find(t => t.type === "html" && t.filePath === previewUrl)
+        if (existingPreview) {
+          tabStore.activate(existingPreview.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", reused: true }) })
+          return
+        }
+        tabStore.openTab({
+          id: `link-fastui-${params.id ?? ""}-${fastuiName ?? ""}`,
+          title: fastuiName || card.title,
+          type: "html",
+          subtype: "url",
+          content: "",
+          filePath: previewUrl,
+          artifactIdentifier: card.artifactIdentifier,
+          createdAt: card.createdAt,
+        })
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", legacy: legacyFastui }) })
+        return
+      }
 
       if (/^https?:\/\//i.test(linkContent)) {
         // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活

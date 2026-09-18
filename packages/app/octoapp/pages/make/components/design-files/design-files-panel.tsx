@@ -15,7 +15,7 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
 import { useLocal } from "@/context/local"
-import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
+import { showInsightNotice } from "@/pages/insight/components/insight-notice"
 import { validateFileForExternal } from "@/pages/insight/lib/upload"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { tracker } from "@/utils/tracker"
@@ -522,7 +522,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           const entry = (item as any).webkitGetAsEntry?.() as FileSystemEntry | null
           if (entry) {
             if (entry.isDirectory) hasDir = true
-            else entries.push(entry)
+            entries.push(entry)
           }
         }
       }
@@ -1161,7 +1161,6 @@ onDelete={handleDelete}
         </Show>
       </div>
       {gate}
-      <InsightNoticeHost />
     </div>
   )
 }

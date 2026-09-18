@@ -13,7 +13,7 @@ import { dirname, join } from "node:path"
 
 import log from "electron-log/main.js"
 
-import { nodeBinOf } from "./fastui-devserver"
+import { nodeBinOf, resolveProject } from "./fastui-devserver"
 
 const SKILL_NAME = "fastui-vue-creator"
 /** 打包本身只是遍历 + zlib,几秒量级;这个上限是防止脚本卡死时按钮永远转圈 */
@@ -74,12 +74,23 @@ function parseContract(stdout: string) {
 }
 
 /** 打一个干净的交付包。失败以结果对象返回,`error` 已是可直接展示给用户的一句话。 */
-export function exportZip(sessionDir: string): Promise<ExportResult> {
+export function exportZip(sessionDir: string, projectName?: string): Promise<ExportResult> {
   return new Promise<ExportResult>((resolve) => {
     const state = readState(sessionDir)
     if (!state) {
       resolve({ ok: false, error: `读不到会话状态 ${join(sessionDir, ".octo-fastui.json")}` })
       return
+    }
+    // 同一对话可以有多个产物工程,而状态文件只记最后建的那个 —— 卡片带了产物名就导出它,
+    // 否则导出的可能是另一个工程。产物名的合法性与存在性交给 resolveProject 统一判定。
+    let projectArgs: string[] = []
+    if (projectName) {
+      const r = resolveProject(sessionDir, projectName)
+      if (!r.ok) {
+        resolve({ ok: false, error: r.error })
+        return
+      }
+      projectArgs = [`--project-dir=${r.projectDir}`]
     }
 
     const script = resolveScript(sessionDir, state.skillDir)
@@ -97,7 +108,7 @@ export function exportZip(sessionDir: string): Promise<ExportResult> {
 
     let child: ChildProcess
     try {
-      child = spawn(bin, [script, `--session-dir=${sessionDir}`], {
+      child = spawn(bin, [script, `--session-dir=${sessionDir}`, ...projectArgs], {
         env,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
