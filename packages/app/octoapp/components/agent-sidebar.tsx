@@ -436,7 +436,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
         if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
         return
       }
-      if (info.agent !== props.agentFilter) return
+      if (info.agent !== props.agentFilter) {
+        if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
+        return
+      }
       if (idx >= 0) {
         setSessionList(produce((draft) => { draft[idx] = info }))
       } else {
@@ -464,6 +467,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
       } else if (existing.type === "session.created" && ev.type === "session.deleted") {
         merged.delete(ev.sessionID)
       } else if (existing.type === "session.updated" && ev.type === "session.deleted") {
+        merged.set(ev.sessionID, ev)
+      } else if (existing.type === "session.updated" && ev.type === "session.updated") {
         merged.set(ev.sessionID, ev)
       }
     }

@@ -4565,12 +4565,12 @@ export type ExperimentalSessionListData = {
     workspace?: string
     roots?: boolean | "true" | "false"
     start?: number
-    cursor?: string | number
+    cursor?: string
     search?: string
     limit?: number
+    pinned?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
-    pinned?: boolean | "true" | "false"
   }
   url: "/experimental/session"
 }
