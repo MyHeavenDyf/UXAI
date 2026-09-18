@@ -128,7 +128,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
   },
 
-  gtx: {
+  gts: {
     features: {
       refresh: true,
       modeToggle: true,
