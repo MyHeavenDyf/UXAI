@@ -4,7 +4,6 @@ import * as Tool from "./tool"
 import TurndownService from "turndown"
 import DESCRIPTION from "./webfetch.txt"
 import { isImageAttachment } from "@/util/media"
-import { networkDiag } from "@/util/network"
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
@@ -93,14 +92,9 @@ export const WebFetchTool = Tool.define(
             Effect.catchIf(
               () => true,
               (err) =>
-                Effect.die(
-                  new Error(`webfetch failed (${params.url}): ${describeRequestError(err)} ${networkDiag()}`),
-                ),
+                Effect.die(new Error(`webfetch failed (${params.url}): ${describeRequestError(err)}`)),
             ),
-            Effect.timeoutOrElse({
-              duration: timeout,
-              orElse: () => Effect.die(new Error(`Request timed out ${networkDiag()}`)),
-            }),
+            Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
           )
 
           // Check content length

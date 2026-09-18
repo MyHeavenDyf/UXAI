@@ -190,19 +190,6 @@ function useEnvProxy() {
       "[sidecar:proxy] setGlobalProxyFromEnv OK, proxy:",
       maskProxyUrl(process.env.http_proxy ?? process.env.HTTP_PROXY) ?? "<unset>",
     )
-    // "OK" 仍是弱信号:读回 undici 全局 dispatcher 槽确认真的装上了 EnvHttpProxyAgent。
-    // fetch(globalThis.fetch)走的正是这个槽;若槽里不是 EnvHttpProxyAgent,所有 fetch 都会直连。
-    const dispatcher = (globalThis as unknown as Record<symbol, { constructor?: { name?: string } } | undefined>)[
-      Symbol.for("undici.globalDispatcher.1")
-    ]
-    const dispatcherName = dispatcher?.constructor?.name
-    if (hasProxyEnv && dispatcherName !== "EnvHttpProxyAgent") {
-      console.warn(
-        `[sidecar:proxy] dispatcher slot is "${dispatcherName ?? "<unset>"}" (expected EnvHttpProxyAgent) — fetch will go DIRECT`,
-      )
-    } else {
-      console.log(`[sidecar:proxy] global dispatcher verified: ${dispatcherName ?? "<unset>"}`)
-    }
   } catch (error) {
     console.warn("[sidecar:proxy] failed to load proxy environment", error)
   }
