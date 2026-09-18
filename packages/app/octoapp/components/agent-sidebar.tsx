@@ -72,6 +72,9 @@ export type AgentSidebarProps = {
    *  the list on first load so pinned sessions remain visible even if their update time is old.
    *  If omitted, AgentSidebar will not fetch pinned sessions separately. */
   fetchPinnedSessions?: (directory: string) => Promise<Session[]>
+  /** Optional fetcher for a single session by ID. Used to backfill the current active session
+   *  when it is not included in the first page (e.g. deep-linked old sessions). */
+  fetchSessionById?: (directory: string, sessionID: string) => Promise<Session | null | undefined>
 
   // ── Routes ──
   /** Build URL for an existing session */
@@ -477,6 +480,28 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
+  async function backfillActiveSession() {
+    if (!useServerPagination()) return
+    const id = props.activeSessionId()
+    if (!id) return
+    if (sessionList.some(s => s.id === id)) return
+    const d = resolvedDir()
+    if (!d) return
+    try {
+      const session = props.fetchSessionById ? await props.fetchSessionById(d, id) : undefined
+      const info = session as Session | undefined
+      if (!info) return
+      if (resolvedDir() !== d) return
+      if (info.directory !== d) return
+      if (sessionList.some(s => s.id === id)) return
+      if (info.agent !== props.agentFilter || info.time.archived) return
+      setSessionList(produce((draft) => { draft.unshift(info) }))
+      scrollToSession(id)
+    } catch (err) {
+      console.error("[agent-sidebar] backfill active session failed", { id, dir: d, error: String(err) })
+    }
+  }
+
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
@@ -573,6 +598,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       clearTimeout(refetchTimer)
       refetchTimer = setTimeout(() => {
         if (!useServerPagination()) void refetch()
+        else void backfillActiveSession()
       }, 500)
     }
   }))
@@ -587,10 +613,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
       if (len > 0) {
         didInitialScroll = true
         const id = props.activeSessionId()
-        if (id) scrollToSession(id)
+        if (!id) return
+        if (sessionList.some(s => s.id === id)) scrollToSession(id)
+        else void backfillActiveSession()
       }
     },
   ))
+
+  createEffect(on(sessions, (data) => {
+    if (!data) return
+    void backfillActiveSession()
+  }, { defer: true }))
   // Scroll to active session after rename
   function scrollToActiveSession() {
     const id = props.activeSessionId()

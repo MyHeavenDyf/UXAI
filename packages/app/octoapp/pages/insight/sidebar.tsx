@@ -73,6 +73,12 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     return (result.data ?? []) as Session[]
   }
 
+  const fetchSessionById = async (dir: string, sessionID: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.get({ sessionID, directory: dir })
+    return (result.data as Session | undefined) ?? null
+  }
+
   return (
     <div
       class="shrink-0 relative flex flex-col h-full"
@@ -84,6 +90,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         agentFilter="octo_insight"
         fetchSessionPage={fetchSessionPage}
         fetchPinnedSessions={fetchPinnedSessions}
+        fetchSessionById={fetchSessionById}
         buildSessionRoute={(s: Session) => `/insight/${s.id}`}
         buildNewRoute={() => "/insight"}
         buildDeleteFallback={() => "/insight"}

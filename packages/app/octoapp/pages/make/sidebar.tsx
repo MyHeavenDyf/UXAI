@@ -30,6 +30,12 @@ export function MakeSidebar() {
     return (result.data ?? []) as Session[]
   }
 
+  const fetchSessionById = async (dir: string, sessionID: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.get({ sessionID, directory: dir })
+    return (result.data as Session | undefined) ?? null
+  }
+
   return (
     <GroupedSidebar
       namespace="make"
@@ -37,6 +43,7 @@ export function MakeSidebar() {
       agentFilter="octo_make"
       fetchSessionPage={fetchSessionPage}
       fetchPinnedSessions={fetchPinnedSessions}
+      fetchSessionById={fetchSessionById}
       buildSessionRoute={(s: Session) => `/make/${s.id}`}
       buildNewRoute={() => "/make"}
       buildDeleteFallback={() => "/make"}
