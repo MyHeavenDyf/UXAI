@@ -92,16 +92,23 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
-  /** fastui dev server:起(或复用)一个会话的 dev server,SPEC-DES-001 §8.6.1 */
-  fastuiDevServerEnsure: (
+  /**
+   * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
+   * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
+   */
+  fastuiPreviewOpen: (
     sessionDir: string,
-  ) => Promise<{ ok: true; port: number; pid: number; logPath: string; reused: boolean } | { ok: false; error: string }>
-  fastuiDevServerStop: (sessionDir: string) => Promise<boolean>
-  /** 建会话时调:挂着等 skill 写出会话状态文件,出现即起 dev server;非 fastui 会话超时静默放弃 */
-  fastuiDevServerArm: (sessionDir: string) => Promise<boolean>
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 「重新编译」:结束当前服务并当场重起 */
+  fastuiPreviewRestart: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (
     sessionDir: string,
+    projectName?: string,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
