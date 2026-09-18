@@ -7,7 +7,6 @@ import { formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNo
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
 import { currentAccount } from "./account"
-import { artifactIdentityExtra } from "./artifact-tracking"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./prompt-local-files"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
@@ -216,7 +215,6 @@ export async function sendQueuedItem(
     // extra 与即时发送(index.tsx doSendPrompt)保持同构，否则「busy 时排队发出的那条」会缺字段：
     //   - skills(SPEC-INS-029)：不带则技能用量统计缺一块。
     //   - account(SPEC-INS-030 §5)：不带则该轮 knowledge_search 拿不到工号、直接拒答。
-    //   - artifactTracking：固定本轮 uid/version，供服务端恢复时使用原始归属。
-    extra: { ...promptExtra, ...artifactIdentityExtra() },
+    ...(promptExtra ? { extra: promptExtra } : {}),
   })
 }

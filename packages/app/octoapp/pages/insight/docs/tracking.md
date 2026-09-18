@@ -1,7 +1,5 @@
 # Insight 打点清单
 
-产物打点新增 v2 诊断实现，仍沿用下文三个 name。server 所属 turn 改为每文件一条（`files` 单元素、`count: 1`），旧 turn 保留原聚合发送；迁移字段、开关与恢复边界见 [tracking-artifacts-v2.md](./tracking-artifacts-v2.md)。
-
 记录 insight agent 已埋入的所有打点，新增/变更打点时同步维护此表。
 
 接入规范见 [`/docs/tracker.md`](../../../../../../docs/tracker.md)。实施方案与映射规则见 [`tracking-plan.md`](./tracking-plan.md)。

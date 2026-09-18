@@ -1,7 +1,5 @@
 # Insight 打点实操方案
 
-任务 114 的产物打点 v2（name 不变、服务端事实补采与队列、按 turn 迁移）见 [tracking-artifacts-v2.md](./tracking-artifacts-v2.md)。默认诊断运行，正式切换前必须验证接收端契约。
-
 把打点收集单（桌面 `insight打点收集单.md`，28 项行为）落地为 tracker SDK 调用的实施方案。
 
 - 调用方式：[`/docs/tracker.md`](../../../../../../docs/tracker.md)

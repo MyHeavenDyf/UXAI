@@ -63,10 +63,6 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
-import * as ArtifactStore from "@/tracking/store"
-import { mcpFact, taskInfo } from "@/tracking/facts"
-import { ArtifactTracking } from "@/tracking"
-import { ArtifactScanner } from "@/tracking/scanner"
 import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
@@ -452,7 +448,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
                 )
-                const result = yield* ArtifactTracking.aroundTool(input.processor.message.id, item.id, item.execute(args, ctx))
+                const result = yield* item.execute(args, ctx)
                 const output = {
                   ...result,
                   attachments: result.attachments?.map((attachment) => ({
@@ -549,17 +545,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }
 
               const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
-              yield* ArtifactTracking.safe(Effect.sync(() => ArtifactStore.replay()))
-              const artifactMetadata = yield* ArtifactTracking.safe(Effect.sync(() => {
-                const turn = ArtifactStore.assistantTurn(input.processor.message.id)
-                if (!turn) return {}
-                const fact = mcpFact(result)
-                const task = taskInfo({ state: { input: args, metadata: { octoArtifactResult: fact } } })
-                return { octoArtifactResult: fact, octoArtifactOwner: ArtifactStore.resultTurn(turn, key, task.id)?.owner ?? "legacy" }
-              }))
               const metadata = {
                 ...result.metadata,
-                ...artifactMetadata,
                 truncated: truncated.truncated,
                 ...(truncated.truncated && { outputPath: truncated.outputPath }),
               }
@@ -1060,7 +1047,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
-      const ctx = yield* InstanceState.context
       const agentName = input.agent || (yield* agents.defaultAgent())
       const ag = yield* agents.get(agentName)
       if (!ag) {
@@ -1450,16 +1436,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       })
 
-      const artifactTurn = yield* ArtifactTracking.safe(Effect.sync(() => ArtifactStore.beginTurn({
-        messageID: info.id, sessionID: input.sessionID, directory: ctx.directory,
-        createdAt: info.time.created, agent: info.agent, extra: input.extra,
-      })))
-      if (artifactTurn) {
-        for (const part of parts) {
-          if (part.type !== "text") continue
-          part.metadata = { ...part.metadata, octoArtifactOwner: artifactTurn.owner }
-        }
-      }
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
 
@@ -1584,9 +1560,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
 
         if (input.noReply === true) return message
-        return yield* loop({ sessionID: input.sessionID }).pipe(Effect.ensuring(
-          ArtifactTracking.safe(Effect.tryPromise(() => ArtifactScanner.finalize(ArtifactStore.readTurn(message.info.id)))),
-        ))
+        return yield* loop({ sessionID: input.sessionID })
       },
     )
 

@@ -32,8 +32,6 @@ import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { Modelv2 } from "@/v2/model"
 import * as DateTime from "effect/DateTime"
-import * as ArtifactStore from "@/tracking/store"
-import { ArtifactTracking } from "@/tracking"
 
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
@@ -218,21 +216,19 @@ export const layer: Layer.Layer<
       ) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return
-        const artifactTurn = yield* ArtifactTracking.safe(Effect.sync(() => ArtifactStore.assistantTurn(match.part.messageID)))
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "completed",
             input: match.part.state.input,
             output: output.output,
-            metadata: { ...output.metadata, ...(artifactTurn ? { octoArtifactOwner: output.metadata.octoArtifactOwner ?? artifactTurn.owner } : {}) },
+            metadata: output.metadata,
             title: output.title,
             time: { start: match.part.state.time.start, end: Date.now() },
             attachments: output.attachments,
           },
         })
         yield* settleToolCall(toolCallID)
-        yield* ArtifactTracking.safe(Effect.sync(() => ArtifactStore.replay()))
       })
 
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
