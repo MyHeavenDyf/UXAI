@@ -2,20 +2,20 @@ import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import defaultHandler from './default'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 
-/** gtx 历史记录的文件集（相对 tab.filePath 所在目录，'.' = 当前文件）。
+/** gts 历史记录的文件集（相对 tab.filePath 所在目录，'.' = 当前文件）。
  *  需要多文件记录时在这里扩展，如 ['.', './config.json'] */
-const GTX_HISTORY_FILES = ['.']
+const GTS_HISTORY_FILES = ['.']
 
-const gtxHandler: SubtypeHandler = {
+const gtsHandler: SubtypeHandler = {
   ...defaultHandler,
-  name: 'gtx',
+  name: 'gts',
 
   /** 历史记录入口 1：决定每次记录哪些文件。
    *  event.type: 'open' | 'edit' | 'agent-update' | 'agent-file-edit'
    *  返回相对路径数组；返回 null 表示本次不记录。
    *  此文件集同时决定 agent 改文件检测（onFileRefresh）的 hash 监控范围。 */
   onHistoryTrigger(_event, _ctx) {
-    return GTX_HISTORY_FILES
+    return GTS_HISTORY_FILES
   },
 
   /** 历史记录入口 2：版本恢复逻辑。用户点击历史版本行时调用，
@@ -25,7 +25,7 @@ const gtxHandler: SubtypeHandler = {
     const api = getDesktopApi()
     if (!api?.copyFileTo || !api?.readFileBuffer || !tab.filePath) return
 
-    for (const rel of GTX_HISTORY_FILES) {
+    for (const rel of GTS_HISTORY_FILES) {
       const id = relativePathToId(rel)
       const ext = getExt(resolveRelativePath(rel, tab.filePath))
       const versionFileName = id + ext
@@ -43,4 +43,4 @@ const gtxHandler: SubtypeHandler = {
   },
 }
 
-export default gtxHandler
+export default gtsHandler
