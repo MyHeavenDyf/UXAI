@@ -161,6 +161,38 @@ describe("experimental HttpApi", () => {
     expect(((await next.json()) as Session.GlobalInfo[]).map((session) => session.id)).toContain(first.id)
   })
 
+  test("filters global session list by agent", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+
+    const make = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "make-one", agent: "octo_make" }),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const insight = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "insight-one", agent: "octo_insight" }),
+    })
+
+    const headers = { "x-opencode-directory": tmp.path }
+    const filtered = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, agent: "octo_make" })}`,
+      { headers },
+    )
+    expect(filtered.status).toBe(200)
+    const filteredBody = (await filtered.json()) as Session.GlobalInfo[]
+    expect(filteredBody.map((session) => session.id)).toEqual([make.id])
+    expect(filteredBody.every((session) => session.agent === "octo_make")).toBe(true)
+
+    const all = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path })}`,
+      { headers },
+    )
+    const allBody = (await all.json()) as Session.GlobalInfo[]
+    expect(allBody.map((session) => session.id)).toContain(make.id)
+    expect(allBody.map((session) => session.id)).toContain(insight.id)
+  })
+
   testWorktreeMutations("serves worktree mutations through Hono bridge", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
 

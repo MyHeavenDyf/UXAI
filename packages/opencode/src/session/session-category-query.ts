@@ -113,11 +113,15 @@ export function* listGlobalWithCategory(input?: {
   search?: string
   limit?: number
   archived?: boolean
+  agent?: string
 }): Generator<GlobalInfo> {
   const conditions: (ReturnType<typeof sql> | ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof isNull> | ReturnType<typeof lt> | ReturnType<typeof like>)[] = []
 
   if (input?.directory) {
     conditions.push(eq(SessionTable.directory, input.directory))
+  }
+  if (input?.agent) {
+    conditions.push(eq(SessionTable.agent, input.agent))
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))

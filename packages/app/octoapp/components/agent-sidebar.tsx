@@ -61,6 +61,11 @@ export type AgentSidebarProps = {
   /** Custom session fetcher. When provided, replaces the default client.session.list() call.
    *  Should return ALL sessions for the directory; AgentSidebar handles sort/filter/pagination. */
   fetchSessions?: (directory: string) => Promise<Session[]>
+  /** Server-side pagination fetcher. When provided, AgentSidebar fetches one page at a time
+   *  on scroll instead of loading all sessions upfront. The cursor is an opaque number whose
+   *  meaning is defined by the implementation (e.g. timestamp for cursor-based APIs, offset
+   *  for offset-based APIs). Return nextCursor=undefined when there are no more pages. */
+  fetchSessionPage?: (directory: string, cursor?: number) => Promise<{ sessions: Session[], nextCursor?: number }>
 
   // ── Routes ──
   /** Build URL for an existing session */
@@ -131,27 +136,46 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const [sessions, { refetch }] = createResource(
     () => isOnboarding() ? "" : (resolvedDir() ?? ""),
-    async (d) => {
+    async (d: string) => {
       if (!d) {
         setFetchedDir(d)
         return [] as Session[]
       }
-      const data = props.fetchSessions
-        ? await props.fetchSessions(d)
-        : ((await globalSDK.createClient({ directory: d }).session.list(props.listParams as any)).data ?? []) as Session[]
-      const sorted = data.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-      setFetchedDir(d)
-      return sorted.filter(s => s.agent === props.agentFilter)
+      try {
+        if (props.fetchSessionPage) {
+          const result = await props.fetchSessionPage(d)
+          if (resolvedDir() !== d) return [] as Session[]
+          setSessionCursor(result.nextCursor)
+          const sorted = result.sessions.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          setFetchedDir(d)
+          return sorted.filter(s => s.agent === props.agentFilter)
+        }
+        const data = props.fetchSessions
+          ? await props.fetchSessions(d)
+          : ((await globalSDK.createClient({ directory: d }).session.list(props.listParams as any)).data ?? []) as Session[]
+        const sorted = data.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+        setFetchedDir(d)
+        return sorted.filter(s => s.agent === props.agentFilter)
+      } catch (err) {
+        if (resolvedDir() !== d) return [] as Session[]
+        setFetchedDir(d)
+        console.error("[agent-sidebar] session fetch failed", { dir: d, error: String(err) })
+        return [] as Session[]
+      }
     },
   )
 
   const [sessionList, setSessionList] = createStore<Session[]>([])
+  const [sessionCursor, setSessionCursor] = createSignal<number | undefined>(undefined)
+  const [loadingMoreSessions, setLoadingMoreSessions] = createSignal(false)
+  const useServerPagination = () => !!props.fetchSessionPage
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
   const [sessionDropPosition, setSessionDropPosition] = createSignal<"before" | "after" | null>(null)
   let restoreIframes: (() => void) | undefined
+  let scrollContainer: HTMLDivElement | undefined
 
   const pinnedSessions = createMemo(() =>
     sessionList.filter(s => s.pinned).sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
@@ -168,10 +192,57 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const VISIBLE_BATCH = 30
   const [visibleCount, setVisibleCount] = createSignal(VISIBLE_BATCH)
-  const displayedRecentSessions = createMemo(() => recentSessions().slice(0, visibleCount()))
-  const hasMoreSessions = createMemo(() => visibleCount() < recentSessions().length)
+  const displayedRecentSessions = createMemo(() =>
+    useServerPagination() ? recentSessions() : recentSessions().slice(0, visibleCount())
+  )
+  const hasMoreSessions = createMemo(() =>
+    useServerPagination() ? sessionCursor() !== undefined : visibleCount() < recentSessions().length
+  )
 
-  createEffect(on(resolvedDir, () => setVisibleCount(VISIBLE_BATCH), { defer: true }))
+  const loadMoreFromServer = async () => {
+    if (loadingMoreSessions() || sessionCursor() === undefined) return
+    const d = resolvedDir()
+    if (!d || !props.fetchSessionPage) return
+    setLoadingMoreSessions(true)
+    try {
+      let cursor = sessionCursor()
+      let emptyPages = 0
+      let loadedAny = false
+      while (cursor !== undefined && emptyPages < 10) {
+        const result = await props.fetchSessionPage(d, cursor)
+        if (resolvedDir() !== d) return
+        setSessionCursor(result.nextCursor)
+        cursor = result.nextCursor
+        const sorted = result.sessions.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+        const filtered = sorted.filter(s => s.agent === props.agentFilter)
+        const existingIds = new Set(sessionList.map(s => s.id))
+        const deduped = filtered.filter(s => !existingIds.has(s.id))
+        if (deduped.length > 0) {
+          setSessionList(produce((draft) => { draft.push(...deduped) }))
+          loadedAny = true
+          break
+        }
+        emptyPages++
+      }
+      if (!loadedAny) setSessionCursor(undefined)
+    } catch (err) {
+      console.error("[agent-sidebar] loadMoreFromServer failed", { dir: d, error: String(err) })
+    } finally {
+      setLoadingMoreSessions(false)
+    }
+  }
+
+  createEffect(on(resolvedDir, () => { setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
+
+  createEffect(on(displayedRecentSessions, () => {
+    requestAnimationFrame(() => {
+      if (!scrollContainer || !scrollContainer.clientHeight) return
+      if (hasMoreSessions() && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
+        if (useServerPagination()) void loadMoreFromServer()
+        else setVisibleCount(prev => prev + VISIBLE_BATCH)
+      }
+    })
+  }))
 
   const { togglePin: togglePinSession } = useSessionPin()
 
@@ -314,7 +385,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data, { key: "id" }))
+    if (!data) return
+    setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
   const stable = createMemo(() => fetchedDir() === resolvedDir())
@@ -324,7 +396,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   function scrollToSession(id: string) {
     setTimeout(() => {
-      const scrollContainer = document.querySelector<HTMLElement>('[data-slot="list-scroll"]')
       if (!scrollContainer) return
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
       if (el) {
@@ -343,11 +414,34 @@ export function AgentSidebar(props: AgentSidebarProps) {
       }
       clearTimeout(refetchTimer)
       refetchTimer = setTimeout(async () => {
-        await refetch()
-        if (pendingScrollId) {
-          const id = pendingScrollId
-          pendingScrollId = null
-          scrollToSession(id)
+        if (useServerPagination()) {
+          const evtProps = e.details.properties as { sessionID?: string; info?: Session }
+          const sessionID = evtProps.sessionID
+          const info = evtProps.info
+          if (sessionID && info && info.directory === resolvedDir()) {
+            if (t === "session.created" && info.agent === props.agentFilter) {
+              const existingIdx = sessionList.findIndex(s => s.id === sessionID)
+              if (existingIdx === -1) setSessionList(produce((draft) => { draft.unshift(info) }))
+            } else if (t === "session.updated") {
+              const idx = sessionList.findIndex(s => s.id === sessionID)
+              if (idx >= 0) setSessionList(produce((draft) => { draft[idx] = info }))
+            } else if (t === "session.deleted") {
+              const idx = sessionList.findIndex(s => s.id === sessionID)
+              if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
+            }
+          }
+          if (pendingScrollId) {
+            const id = pendingScrollId
+            pendingScrollId = null
+            scrollToSession(id)
+          }
+        } else {
+          await refetch()
+          if (pendingScrollId) {
+            const id = pendingScrollId
+            pendingScrollId = null
+            scrollToSession(id)
+          }
         }
       }, 1000)
     }
@@ -355,15 +449,25 @@ export function AgentSidebar(props: AgentSidebarProps) {
   onCleanup(unsub)
 
   onMount(() => {
-    const scrollContainer = document.querySelector<HTMLElement>('[data-slot="list-scroll"]')
-    if (!scrollContainer) return
+    const el = scrollContainer
+    if (!el) return
     const onScroll = () => {
-      if (scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 100 && hasMoreSessions()) {
-        setVisibleCount(prev => prev + VISIBLE_BATCH)
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions()) {
+        if (useServerPagination()) void loadMoreFromServer()
+        else setVisibleCount(prev => prev + VISIBLE_BATCH)
       }
     }
-    scrollContainer.addEventListener("scroll", onScroll, { passive: true })
-    onCleanup(() => scrollContainer.removeEventListener("scroll", onScroll))
+    el.addEventListener("scroll", onScroll, { passive: true })
+    onCleanup(() => el.removeEventListener("scroll", onScroll))
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (hasMoreSessions() && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight) {
+        if (useServerPagination()) void loadMoreFromServer()
+        else setVisibleCount(prev => prev + VISIBLE_BATCH)
+      }
+    })
+    resizeObserver.observe(el)
+    onCleanup(() => resizeObserver.disconnect())
   })
   onCleanup(() => { clearTimeout(refetchTimer) })
 
@@ -374,11 +478,19 @@ export function AgentSidebar(props: AgentSidebarProps) {
     pendingScrollId = activeId
     clearTimeout(refetchTimer)
     refetchTimer = setTimeout(async () => {
-      await refetch()
-      if (pendingScrollId) {
-        const id = pendingScrollId
-        pendingScrollId = null
-        scrollToSession(id)
+      if (useServerPagination()) {
+        if (pendingScrollId) {
+          const id = pendingScrollId
+          pendingScrollId = null
+          scrollToSession(id)
+        }
+      } else {
+        await refetch()
+        if (pendingScrollId) {
+          const id = pendingScrollId
+          pendingScrollId = null
+          scrollToSession(id)
+        }
       }
     }, 500)
   }
@@ -396,7 +508,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
   createEffect(on(props.activeSessionId, (newId, oldId) => {
     if (newId && newId !== oldId) {
       clearTimeout(refetchTimer)
-      refetchTimer = setTimeout(() => void refetch(), 500)
+      refetchTimer = setTimeout(() => {
+        if (!useServerPagination()) void refetch()
+      }, 500)
     }
   }))
 
@@ -584,6 +698,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       onNewClick={newSession}
       sectionTitle={props.sectionTitle}
       sectionIcon={props.sectionIcon}
+      listScrollRef={(el) => { scrollContainer = el }}
       beforeSection={() => (
         <>
           <Show when={pinnedSessions().length > 0}>

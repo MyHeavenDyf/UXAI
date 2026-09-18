@@ -62,6 +62,7 @@ export const SessionListQuery = Schema.Struct({
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
   archived: Schema.optional(QueryBoolean),
+  agent: Schema.optional(Schema.String),
 })
 
 export const ExperimentalPaths = {

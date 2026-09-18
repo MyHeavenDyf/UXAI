@@ -917,6 +917,7 @@ export function* listGlobal(input?: {
   search?: string
   limit?: number
   archived?: boolean
+  agent?: string
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)
 }

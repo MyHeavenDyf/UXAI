@@ -44,19 +44,23 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     document.addEventListener("mouseup", onUp)
   }
 
-  const fetchInsightSessions = async (dir: string): Promise<Session[]> => {
+  const PAGE_SIZE = 30
+
+  const fetchSessionPage = async (dir: string, cursor?: number) => {
     const insightApi = globalSDK.client.insight
+    const offset = cursor ?? 0
     if (insightApi) {
-      const initial = await insightApi.sessions.list({ directory: dir, limit: 100 })
-      const initialItems = (initial.data?.items ?? []) as Session[]
-      const total = Number(initial.data?.total ?? initialItems.length)
-      if (!Number.isFinite(total) || initialItems.length >= total) return initialItems
-      const full = await insightApi.sessions.list({ directory: dir, limit: total })
-      return (full.data?.items ?? initialItems) as Session[]
+      const result = await insightApi.sessions.list({ directory: dir, limit: PAGE_SIZE, offset: String(offset) })
+      const items = (result.data?.items ?? []) as Session[]
+      const total = Number(result.data?.total ?? 0)
+      const nextOffset = offset + items.length
+      return { sessions: items, nextCursor: nextOffset < total ? nextOffset : undefined }
     }
     const client = globalSDK.createClient({ directory: dir })
-    const result = await client.session.list()
-    return ((result.data ?? []) as Session[]) as Session[]
+    const result = await client.experimental.session.list({ directory: dir, limit: PAGE_SIZE, cursor })
+    const items = ((result.data ?? []) as Session[]) as Session[]
+    const next = result.response.headers.get("x-next-cursor")
+    return { sessions: items, nextCursor: next ? Number(next) : undefined }
   }
 
   return (
@@ -68,7 +72,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         namespace="insight"
         routePrefix="/insight"
         agentFilter="octo_insight"
-        fetchSessions={fetchInsightSessions}
+        fetchSessionPage={fetchSessionPage}
         buildSessionRoute={(s: Session) => `/insight/${s.id}`}
         buildNewRoute={() => "/insight"}
         buildDeleteFallback={() => "/insight"}

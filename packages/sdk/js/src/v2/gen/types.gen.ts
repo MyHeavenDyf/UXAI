@@ -4569,6 +4569,7 @@ export type ExperimentalSessionListData = {
     search?: string
     limit?: number
     archived?: boolean | "true" | "false"
+    agent?: string
   }
   url: "/experimental/session"
 }

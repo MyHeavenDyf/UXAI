@@ -368,6 +368,7 @@ export const ExperimentalRoutes = lazy(() =>
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
+          agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
         }),
       ),
       async (c) => {
@@ -382,6 +383,7 @@ export const ExperimentalRoutes = lazy(() =>
           search: query.search,
           limit: limit + 1,
           archived: queryBoolean(query.archived),
+          agent: query.agent,
         })) {
           sessions.push(session)
         }
