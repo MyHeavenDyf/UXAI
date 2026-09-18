@@ -515,7 +515,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           if (skills.length > 0) {
             handleSkillClick(skills[0])
           }
-        } else if (activeTab() === 'files') {
+        } else if (activeTab() === 'files' && selectedCategory() === 'design') {
           const files = filteredFiles()
           if (files.generated.length > 0 || files.uploaded.length > 0) {
             const firstFile = files.generated[0] || files.uploaded[0]
