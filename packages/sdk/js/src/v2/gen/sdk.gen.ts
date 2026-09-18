@@ -1565,10 +1565,12 @@ export class Session extends HeyApiClient {
       workspace?: string
       roots?: boolean | "true" | "false"
       start?: number
-      cursor?: number
+      cursor?: string
       search?: string
       limit?: number
+      pinned?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
+      agent?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1584,7 +1586,9 @@ export class Session extends HeyApiClient {
             { in: "query", key: "cursor" },
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
+            { in: "query", key: "pinned" },
             { in: "query", key: "archived" },
+            { in: "query", key: "agent" },
           ],
         },
       ],

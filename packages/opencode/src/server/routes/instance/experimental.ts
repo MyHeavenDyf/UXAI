@@ -361,13 +361,15 @@ export const ExperimentalRoutes = lazy(() =>
             .number()
             .optional()
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
-          cursor: z.coerce
-            .number()
+          cursor: z
+            .string()
             .optional()
-            .meta({ description: "Return sessions updated before this timestamp (milliseconds since epoch)" }),
+            .meta({ description: "Opaque cursor returned by the previous page (composite of timestamp and session id)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
+          agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
+          pinned: z.enum(["true", "false"]).optional().meta({ description: "Only return pinned sessions" }),
         }),
       ),
       async (c) => {
@@ -382,13 +384,16 @@ export const ExperimentalRoutes = lazy(() =>
           search: query.search,
           limit: limit + 1,
           archived: queryBoolean(query.archived),
+          agent: query.agent,
+          pinned: queryBoolean(query.pinned) ?? undefined,
         })) {
           sessions.push(session)
         }
         const hasMore = sessions.length > limit
         const list = hasMore ? sessions.slice(0, limit) : sessions
         if (hasMore && list.length > 0) {
-          c.header("x-next-cursor", String(list[list.length - 1].time.updated))
+          const last = list[list.length - 1]
+          c.header("x-next-cursor", `${last.time.updated}:${last.id}`)
         }
         return c.json(list)
       },

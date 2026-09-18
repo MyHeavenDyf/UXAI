@@ -42,3 +42,5 @@ bun.lock
 .bunfig.toml
 
 analysis/
+
+.octo/ses_*/

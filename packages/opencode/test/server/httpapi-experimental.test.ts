@@ -6,7 +6,9 @@ import { WithInstance } from "../../src/project/with-instance"
 import { Server } from "../../src/server/server"
 import { ExperimentalPaths } from "../../src/server/routes/instance/httpapi/groups/experimental"
 import { Session } from "@/session/session"
+import { SessionTable } from "@/session/session.sql"
 import { Database } from "@/storage/db"
+import { eq } from "drizzle-orm"
 import * as Log from "@opencode-ai/core/util/log"
 import { Worktree } from "../../src/worktree"
 import { resetDatabase } from "../fixture/db"
@@ -153,12 +155,95 @@ describe("experimental HttpApi", () => {
       `${ExperimentalPaths.session}?${new URLSearchParams({
         directory: tmp.path,
         limit: "10",
-        cursor: body[0].time.updated.toString(),
+        cursor: `${body[0].time.updated}:${body[0].id}`,
       })}`,
       { headers },
     )
     expect(next.status).toBe(200)
     expect(((await next.json()) as Session.GlobalInfo[]).map((session) => session.id)).toContain(first.id)
+  })
+
+  test("paginates with composite cursor when sessions share the same timestamp", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+
+    const sessions: Session.Info[] = []
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const created: Session.Info[] = []
+        for (let i = 0; i < 3; i++) {
+          created.push(await createSession({ title: `same-time-${i}` }))
+        }
+        // Force identical timestamps to verify composite cursor disambiguation.
+        const now = Date.now()
+        Database.use((db) => {
+          for (const s of created) {
+            db.update(SessionTable).set({ time_updated: now }).where(eq(SessionTable.id, s.id)).run()
+          }
+        })
+        sessions.push(...created)
+      },
+    })
+
+    const headers = { "x-opencode-directory": tmp.path }
+    const first = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, limit: "1" })}`,
+      { headers },
+    )
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as Session.GlobalInfo[]
+    expect(firstBody.length).toBe(1)
+    const nextCursor = first.headers.get("x-next-cursor")
+    expect(nextCursor).toBeTruthy()
+
+    const second = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({
+        directory: tmp.path,
+        limit: "10",
+        cursor: nextCursor!,
+      })}`,
+      { headers },
+    )
+    expect(second.status).toBe(200)
+    const secondBody = (await second.json()) as Session.GlobalInfo[]
+    const firstIds = firstBody.map((s) => s.id)
+    const secondIds = secondBody.map((s) => s.id)
+    expect(secondIds.some((id) => firstIds.includes(id))).toBe(false)
+    for (const s of sessions) {
+      expect([...firstIds, ...secondIds]).toContain(s.id)
+    }
+  })
+
+  test("filters global session list by agent", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+
+    const make = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "make-one", agent: "octo_make" }),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const insight = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "insight-one", agent: "octo_insight" }),
+    })
+
+    const headers = { "x-opencode-directory": tmp.path }
+    const filtered = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, agent: "octo_make" })}`,
+      { headers },
+    )
+    expect(filtered.status).toBe(200)
+    const filteredBody = (await filtered.json()) as Session.GlobalInfo[]
+    expect(filteredBody.map((session) => session.id)).toEqual([make.id])
+    expect(filteredBody.every((session) => session.agent === "octo_make")).toBe(true)
+
+    const all = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path })}`,
+      { headers },
+    )
+    const allBody = (await all.json()) as Session.GlobalInfo[]
+    expect(allBody.map((session) => session.id)).toContain(make.id)
+    expect(allBody.map((session) => session.id)).toContain(insight.id)
   })
 
   testWorktreeMutations("serves worktree mutations through Hono bridge", async () => {
