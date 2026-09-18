@@ -117,9 +117,11 @@
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
-| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
-| artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
-| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
+| artifact-file-write | write 工具成功完成，含覆盖写 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-file-edit | edit 工具成功完成 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-mcp-return | MCP 成功返回有效资源；异步任务等用户查询 completed | `files: [{type, count: 1, tool}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+
+这三个事件已移除前端发送，不依赖会话页面。异步 MCP 不主动轮询；完整去重、重试、配置及验收说明见 [服务端产物打点方案](./server-artifact-delivery.md)。
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 

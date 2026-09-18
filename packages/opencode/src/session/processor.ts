@@ -18,6 +18,8 @@ import {
   usable,
 } from "./overflow"
 import { PartID } from "./schema"
+import { ArtifactStore } from "@/tracking/store"
+import { ArtifactSender } from "@/tracking/sender"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
@@ -216,7 +218,7 @@ export const layer: Layer.Layer<
       ) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return
-        yield* session.updatePart({
+        const completed = yield* session.updatePart({
           ...match.part,
           state: {
             status: "completed",
@@ -228,6 +230,9 @@ export const layer: Layer.Layer<
             attachments: output.attachments,
           },
         })
+        yield* Effect.sync(() => {
+          if (completed.type === "tool" && ArtifactStore.collect(completed)) ArtifactSender.wake()
+        }).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] capture deferred; completed part retained")))
         yield* settleToolCall(toolCallID)
       })
 

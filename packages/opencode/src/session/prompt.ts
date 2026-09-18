@@ -1,4 +1,6 @@
 import path from "path"
+import { ArtifactStore } from "@/tracking/store"
+import { mcpFacts } from "@/tracking/facts"
 import os from "os"
 import * as EffectZod from "@/util/effect-zod"
 import { SessionID, MessageID, PartID } from "./schema"
@@ -544,9 +546,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 }
               }
 
+              const artifactDelivery = yield* Effect.sync(() => {
+                if (!ArtifactStore.enabled(input.processor.message.id)) return
+                return mcpFacts(
+                  Object.keys(cfg.mcp ?? {})
+                    .sort((a, b) => b.length - a.length)
+                    .find((name) => key.startsWith(name.replace(/[^a-zA-Z0-9_-]/g, "_") + "_")) ?? "unknown",
+                  key, result,
+                )
+              }).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] MCP fact capture failed")))
               const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
               const metadata = {
                 ...result.metadata,
+                ...(artifactDelivery ? { artifactDelivery } : {}),
                 truncated: truncated.truncated,
                 ...(truncated.truncated && { outputPath: truncated.outputPath }),
               }
@@ -1533,6 +1545,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
+        yield* Effect.sync(() => ArtifactStore.begin({
+          messageID: message.info.id, sessionID: input.sessionID, directory: session.directory, extra: input.extra,
+        })).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] turn registration failed")))
         yield* sessions.touch(input.sessionID)
 
         // SPEC-INS-029:前端注入式技能激活的事件上报。insight 的 @技能走 synthetic 注入 SKILL.md
