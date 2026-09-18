@@ -1894,6 +1894,22 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
   })
 
+  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：补一次 onFileRefresh。
+  // components 页面的 index.components.html 由构建进程在回复内重新产出，SSE 的 tool/step 事件
+  // 时点上可能读不到新文件而漏记「模型编辑」版本；此刻模型已收工、产物已落盘，检查必然命中。
+  // hash 未变时 onFileRefresh 是空操作，与 SSE 路径幂等互斥（先到者记录并推进基线）。
+  createEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ filePath?: string }>).detail
+      if (!detail?.filePath) return
+      const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
+      if (!target) return
+      await historyController.onFileRefresh([target])
+    }
+    window.addEventListener("model-edit:reply-done", handler)
+    onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
+  })
+
   // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
   // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
   // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。

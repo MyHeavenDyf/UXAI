@@ -123,10 +123,10 @@ export const Value = {
     }
   },
 
-  /** 事件动作（setState 写共享 state）：Button.onClick / Drawer.onClose 等 */
+  /** 事件动作（写共享 state）：setState 直写字面量 / cycleState 在 value 数组中轮转；Button.onClick / Drawer.onClose 等 */
   action(opts: {
     event: string
-    action: 'setState'
+    action: 'setState' | 'cycleState'
     path: string
     value: any
   }): ActionValue {

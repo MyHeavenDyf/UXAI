@@ -178,7 +178,8 @@ function createSharedStore(init: Record<string, any>) {
     },
     get: () => state,
     set: (key: string, value: any) => {
-      state = { ...state, [key]: value }
+      // 支持函数式 updater（cycleState 用）：value 为函数时以当前值求下一值。
+      state = { ...state, [key]: typeof value === 'function' ? value(state[key]) : value }
       listeners.forEach((l) => l())
     },
   }
@@ -318,6 +319,18 @@ function walk(node: BuildNode, ctx: StateBuilderContext): void {
         const prevNode = ctx.currentNode
         ctx.currentNode = node
         try {
+          // condition（A2UI Scenario 3）：判据只读——登记 path 为 shared（useSharedState 订阅，
+          // 响应 action 变化）+ 初值（从 state 取），但不进 bindingRefs/enrichment（不产值绑定）。
+          // 与 action 登记同款「只登记 key+初值、不产读引用」。
+          const cond = (node as any).condition as { path: string; in: string[]; varName?: string } | undefined
+          if (cond) {
+            const ckey = sharedKeyOfPath(cond.path)
+            ctx.sharedKeys.add(ckey)
+            if (!(ckey in ctx.stateEntries)) {
+              const craw = getValueFromState(ctx.rawState, cond.path)
+              if (craw !== undefined) ctx.stateEntries[ckey] = craw
+            }
+          }
           consumeProps(node.props, ctx)
           walkChildren(node.children, ctx, (node as any).id ?? '')
         } finally {
@@ -444,7 +457,13 @@ export function consumeValue(v: any, ctx: StateBuilderContext): void {
             const raw = getValueFromState(ctx.rawState, v.path)
             try {
               const result = evalCvWithOverride(v, raw, ctx)
-              setNested(ctx.stateEntries, v.accessPath, result)
+              // runtimeKeyMap（Tabs activeKey 被 setState/cycleState 外部驱动）：
+              // store 初值必须保持 raw key（由 action case / 只读 binding 写入），
+              // 不能用 transform 结果（数字 index）污染——否则 useSharedState 读到 index，
+              // tree-finalizer 的 KEYS.indexOf(index) 命中 -1。故 opt-in 跳过 setNested。
+              if (!(v.shared && (v as any).useState?.runtimeKeyMap)) {
+                setNested(ctx.stateEntries, v.accessPath, result)
+              }
             } catch (err: any) {
               console.warn(`  [warn] state-builder: computed 求值失败 (path: ${v.path}): ${err.message}`)
             }
@@ -453,7 +472,9 @@ export function consumeValue(v: any, ctx: StateBuilderContext): void {
       }
       return
 
-    // ── action（事件 setState）→ 无读消费，但确保 shared store 含该 key 初值 ──
+    // ── action（事件动作）→ 无读消费，但确保 shared store 含该 key 初值 ──
+    // setState：初值取 state 声明（rawState）；cycleState：协议要求 state 初值 = value[0]，
+    //   若 state 未声明则兜底取 value[0]（数组首项）。
     case 'action': {
       const key = sharedKeyOfPath(v.path)
       ctx.sharedKeys.add(key)
@@ -461,7 +482,11 @@ export function consumeValue(v: any, ctx: StateBuilderContext): void {
       // shared-state.ts 的 store 从 initialState.key 初始化。
       if (!(key in ctx.stateEntries)) {
         const raw = getValueFromState(ctx.rawState, v.path)
-        if (raw !== undefined) ctx.stateEntries[key] = raw
+        if (raw !== undefined) {
+          ctx.stateEntries[key] = raw
+        } else if (v.action === 'cycleState' && Array.isArray(v.value) && v.value.length > 0) {
+          ctx.stateEntries[key] = v.value[0]
+        }
       }
       return
     }
