@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, onCleanup, createEffect, on, type JSX } from 'solid-js'
+import { createSignal, Show, createMemo, onMount, onCleanup, createEffect, on, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import type { MentionAttrs } from '../prosemirror-editor/schema'
 import { ProseMirrorEditor } from '../prosemirror-editor'
@@ -7,6 +7,8 @@ import type { ArtifactFile } from '../../utils/artifact-file-api'
 import type { SkillConfig } from '../skill-config-types'
 import { sendTextToAgent, appendToMainComposer, submitMainComposer } from '../../utils/agent-events'
 import { tracker } from '@/utils/tracker'
+import { AssetModule } from '../model-edit-items/asset-module'
+import type { AssetConfig, ModelEditElement } from '../model-edit-items/types'
 import './model-edit-area-dialog.css'
 
 type EditorRef = {
@@ -41,6 +43,7 @@ export function ModelEditAreaDialog(props: {
   productId?: number
   onDownloadProductAsset?: (file: import('../addon-menu/asset-library').AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  assetConfig?: AssetConfig
   onClose: () => void
   onSubmitStart?: () => void
   onMentionActiveChange?: (active: boolean) => void
@@ -71,6 +74,26 @@ export function ModelEditAreaDialog(props: {
   const [liveRect, setLiveRect] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null)
 
   const elementId = () => props.element?.dataOdId || props.element?.id || null
+
+  const assetDom = createMemo((): ModelEditElement | null => {
+    const el = props.element
+    if (!el) return null
+    return {
+      dataOdId: el.dataOdId ?? el.id ?? '',
+      tagName: '',
+      className: '',
+      attributes: {},
+      styles: {},
+      outerHTML: '',
+      rect: el.rect,
+      text: '',
+      selector: el.selector,
+      htmlHint: '',
+      isLayoutContainer: false,
+      elementKind: 'container',
+      selectionKind: 'native',
+    }
+  })
 
   const startTrackRect = () => {
     const id = elementId()
@@ -174,7 +197,7 @@ export function ModelEditAreaDialog(props: {
       return { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }
     }
     const dialogWidth = 400
-    const dialogHeight = 250
+    const dialogHeight = props.assetConfig ? 320 : 250
     const containerW = cRect.width
     const containerH = cRect.height
 
@@ -289,6 +312,19 @@ export function ModelEditAreaDialog(props: {
         <div class="model-edit-area-header" onMouseDown={startDrag}>
           <span>修改选中区域</span>
         </div>
+        <Show when={props.assetConfig && assetDom() && (!props.assetConfig.showConfig || props.assetConfig.showConfig(assetDom()!))}>
+          <div class="model-edit-area-asset">
+            <AssetModule
+              assetConfig={props.assetConfig!}
+              dom={assetDom()!}
+              filePath={props.filePath}
+              disabled={isDisabled()}
+              onSubmitStart={() => props.onSubmitStart?.()}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+            />
+          </div>
+        </Show>
         <div class="model-edit-area-body">
           <ProseMirrorEditor
             sessionId={props.sessionId || ''}

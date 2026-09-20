@@ -1,6 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { ManualEditTarget } from "../edit-mode/source-patches"
-import type { ModelEditConfig } from "../components/model-edit-items/types"
+import type { ModelEditConfig, AssetConfirmArgs } from "../components/model-edit-items/types"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -112,6 +112,11 @@ export interface SubtypeHandler {
    * Model Edit 配置（组件感知属性面板）
    */
   modelEditConfig?: ModelEditConfig
+
+  /**
+   * 自定义资产库确认后发送的提示词（覆盖 default assetConfig.onConfirm）
+   */
+  onAssetConfirm?: (args: AssetConfirmArgs) => string | Promise<string>
 
   /**
    * UI 配置（配置方式）

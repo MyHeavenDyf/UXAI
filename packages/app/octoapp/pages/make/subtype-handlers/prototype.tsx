@@ -186,6 +186,14 @@ export default {
     { value: 'eview-ui', label: 'Eview UI' },
   ],
 
+  onAssetConfirm: ({ dom, filePath, folderpath, data }) => {
+    return [
+      `[文件: ${filePath}]`,
+      `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
+      `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
+    ].join('\n')
+  },
+
   async handleLocalEdit(ctx) {
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)

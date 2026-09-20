@@ -139,6 +139,7 @@ export function ResultViewer(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onAssetConfirm?: (args: import("../model-edit-items/types").AssetConfirmArgs) => string | Promise<string>
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -824,6 +825,7 @@ archiving={featureMutex.state.archiving}
       productId={props.productId}
       onDownloadProductAsset={props.onDownloadProductAsset}
       onUpdateMentionPath={props.onUpdateMentionPath}
+      onAssetConfirm={getSubtypeHandler(activeTab()?.subtype)?.onAssetConfirm ?? props.onAssetConfirm}
     />
   </div>
 )

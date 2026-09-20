@@ -4,8 +4,11 @@ import { PropertyEditorPopup } from "@/pages/pattern/modules/preview/property-ed
 import type { ModifyElementData } from "@/pages/pattern/modules/preview/property-editor-popup/types"
 import "@/pages/pattern/assets/style/preview/PropertyEditorPopup.css"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
+import { AssetModule } from "../model-edit-items/asset-module"
+import type { ModelEditElement, AssetConfirmArgs, AssetConfig } from "../model-edit-items/types"
 import type { SkillConfig } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
+import { directModelEditConfig } from "../../subtype-handlers/default"
 import {
   onPrototypeQuickFix,
   onPrototypeClosePanels,
@@ -23,6 +26,8 @@ export function PrototypePropertyEditor(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  /** 自定义资产库确认后发送的提示词（覆盖 default 的 onConfirm） */
+  onAssetConfirm?: (args: AssetConfirmArgs) => string | Promise<string>
 }): JSX.Element {
   const [data, setData] = createSignal<PrototypeQuickFixData | null>(null)
   let lastData: PrototypeQuickFixData | null = null
@@ -95,6 +100,41 @@ export function PrototypePropertyEditor(props: {
     return `[${tag}: ${selector}]`
   }
 
+  const assetDom = createMemo((): ModelEditElement | null => {
+    const d = data() ?? lastData
+    if (!d) return null
+    const r = d.elementRect
+    return {
+      dataOdId: d.elementId,
+      tagName: d.componentType || '',
+      className: d.currentClass || '',
+      attributes: {},
+      styles: {},
+      outerHTML: '',
+      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+      text: '',
+      selector: d.selector || d.elementId,
+      htmlHint: '',
+      isLayoutContainer: false,
+      elementKind: 'container',
+      selectionKind: 'native',
+    }
+  })
+
+  const effectiveAssetConfig = createMemo((): AssetConfig | undefined => {
+    const base = directModelEditConfig.assetConfig
+    if (!props.onAssetConfirm) return base
+    if (!base) return { onConfirm: props.onAssetConfirm }
+    return { ...base, onConfirm: props.onAssetConfirm }
+  })
+
+  const showAssetModule = createMemo(() => {
+    const cfg = effectiveAssetConfig()
+    const dom = assetDom()
+    if (!cfg || !dom) return false
+    return !cfg.showConfig || cfg.showConfig(dom)
+  })
+
   return (
     <>
       <Show when={data()}>
@@ -115,6 +155,19 @@ export function PrototypePropertyEditor(props: {
           if (!mod.keepOpen) closeAll()
         }}
         onCancel={closeAll}
+        topExtra={
+          <Show when={showAssetModule()}>
+            <AssetModule
+              assetConfig={effectiveAssetConfig()!}
+              dom={assetDom()!}
+              filePath={(data() ?? lastData)?.filePath ?? ''}
+              disabled={false}
+              onSubmitStart={closeAll}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+            />
+          </Show>
+        }
       />
 
       <Show when={data() && hasRect()}>
@@ -128,6 +181,7 @@ export function PrototypePropertyEditor(props: {
           productId={props.productId}
           onDownloadProductAsset={props.onDownloadProductAsset}
           onUpdateMentionPath={props.onUpdateMentionPath}
+          assetConfig={isHost() ? effectiveAssetConfig() : undefined}
           fixedPosition
           maskBorderColor={isHost() ? '#fa8c16' : '#007bff'}
           maskBgColor={isHost() ? 'rgba(250,140,22,0.12)' : 'rgba(0,123,255,0.1)'}
