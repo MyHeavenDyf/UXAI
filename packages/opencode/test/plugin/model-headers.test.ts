@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { configureModelsApiHeaders, modelRequestBody, parseModelsApi } from "@/plugin/model-headers"
+import {
+  configureModelsApiHeaders,
+  modelRequestBody,
+  modelsApiCatalog,
+  parseModelsApi,
+} from "@/plugin/model-headers"
 
 test("normalizes array models from the remote catalog", () => {
   const catalog = parseModelsApi({
@@ -43,6 +48,36 @@ test("excludes removed providers from the remote catalog", () => {
       },
     }),
   ).toEqual({})
+})
+
+test("catalog revision invalidates the sidecar cache", async () => {
+  let requests = 0
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      requests += 1
+      return Response.json({ w3: { id: "w3", name: "W3", env: [], models: {} } })
+    },
+  })
+
+  try {
+    const headers = {
+      "x-opencode-models-api-source": "http",
+      "x-opencode-models-api-url": server.url.toString(),
+      "x-opencode-models-api-revision": "1",
+    }
+    configureModelsApiHeaders(headers)
+    await modelsApiCatalog()
+    configureModelsApiHeaders(headers)
+    await modelsApiCatalog()
+    expect(requests).toBe(1)
+
+    configureModelsApiHeaders({ ...headers, "x-opencode-models-api-revision": "2" })
+    await modelsApiCatalog()
+    expect(requests).toBe(2)
+  } finally {
+    await server.stop(true)
+  }
 })
 
 describe("model request body", () => {

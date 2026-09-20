@@ -2,31 +2,46 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
 const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
-let modelsApi: { source: "http" | "local"; url?: string; token?: string; account?: string } | undefined
+let modelsApi:
+  | { source: "http" | "local"; url?: string; token?: string; account?: string; revision?: string }
+  | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
 
-export function configureModelsApi(input: { source?: string; url?: string; token?: string; account?: string }) {
+export function configureModelsApi(input: {
+  source?: string
+  url?: string
+  token?: string
+  account?: string
+  revision?: string
+}) {
   const source = input.source === "local" ? "local" : "http"
   if (source === "local") {
     cache = undefined
-    modelsApi = { source, token: input.token, account: input.account }
+    modelsApi = { source, token: input.token, account: input.account, revision: input.revision }
     return
   }
   if (!input.url) {
     cache = undefined
-    modelsApi = { source, token: input.token, account: input.account }
+    modelsApi = { source, token: input.token, account: input.account, revision: input.revision }
     return
   }
   try {
     const url = new URL(input.url)
     if (url.protocol !== "http:" && url.protocol !== "https:") return
-    const next = { source, url: url.toString(), token: input.token, account: input.account } as const
+    const next = {
+      source,
+      url: url.toString(),
+      token: input.token,
+      account: input.account,
+      revision: input.revision,
+    } as const
     if (
       modelsApi?.source !== next.source ||
       modelsApi.url !== next.url ||
       modelsApi.token !== next.token ||
-      modelsApi.account !== next.account
+      modelsApi.account !== next.account ||
+      modelsApi.revision !== next.revision
     ) {
       cache = undefined
     }
@@ -41,6 +56,7 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
     url: headers["x-opencode-models-api-url"],
     token: headers.uiplustoken,
     account: headers["x-opencode-w3-account"],
+    revision: headers["x-opencode-models-api-revision"],
   })
 }
 

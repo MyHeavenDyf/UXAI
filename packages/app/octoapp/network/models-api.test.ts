@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { modelsApiHeaders, modelsApiProviders } from "./models-api"
+import {
+  MODELS_API_URL_STORAGE_KEY,
+  modelsApiHeaders,
+  modelsApiProviders,
+  refreshModelsApi,
+} from "./models-api"
 
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
@@ -86,6 +91,14 @@ describe("modelsApiHeaders", () => {
   test("includes the account from userInfo for the local server", () => {
     localStorage.setItem("userInfo", JSON.stringify({ account: " j60099994 " }))
     expect(modelsApiHeaders()["x-opencode-w3-account"]).toBe("j60099994")
+  })
+
+  test("increments the catalog revision after a successful refresh", async () => {
+    localStorage.setItem("uiplusToken", "token")
+    localStorage.setItem(MODELS_API_URL_STORAGE_KEY, "data:application/json,%7B%7D")
+    const before = Number(modelsApiHeaders()["x-opencode-models-api-revision"])
+    await refreshModelsApi()
+    expect(Number(modelsApiHeaders()["x-opencode-models-api-revision"])).toBe(before + 1)
   })
 
   test("omits the account when userInfo is invalid", () => {
