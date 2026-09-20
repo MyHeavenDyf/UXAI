@@ -152,6 +152,7 @@ export const layer = Layer.effect(
         files,
         Effect.fnUntraced(function* (match) {
           const name = match[1]
+          if (!name) return
           if (seen.has(name)) return
           seen.add(name)
           const filepath = name.startsWith("~/")

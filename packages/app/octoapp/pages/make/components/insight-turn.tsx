@@ -675,7 +675,7 @@ export function InsightTurn(props: {
   // FilePart entries (images with S3 URL)
   const userFileParts = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
-    return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
+    return parts.filter((p) => p.type === "file" && (p as { filename?: string }).filename) as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
   })
 
   // Synthetic [附件] manifest (local file references)
