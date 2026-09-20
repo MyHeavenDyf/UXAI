@@ -121,7 +121,11 @@ export type PathEnv = { xdgConfig?: string; homeDir?: string }
  */
 export async function resolveScript(sessionDir: string, skillDir?: string, env?: PathEnv): Promise<string | null> {
   const homeDir = env?.homeDir ?? homedir()
-  const xdgConfig = env?.xdgConfig ?? process.env.XDG_CONFIG_HOME ?? join(homeDir, ".config")
+  // 后半截**刻意用 `||` 而不是 `??`**:空串的 XDG_CONFIG_HOME 要当成"没设",这跟 server 侧
+  // 一致(`xdg-basedir` 就是 `env.XDG_CONFIG_HOME || …`)。用 `??` 的话空串会被当成有效值,
+  // 候选 #3 退化成相对路径 `octo/skill/<name>` —— 眼下会被候选 #4 兜住(两者产出逐字相同),
+  // 但那是靠另一条候选救,不是这一行自己对;而且那条相对路径会混进 tried 诊断日志误导排查。
+  const xdgConfig = env?.xdgConfig ?? (process.env.XDG_CONFIG_HOME || join(homeDir, ".config"))
   const candidates = [
     await skillDirFromServer(sessionDir),
     // new-session 写进状态文件的路径(SPEC-DES-001 §8.6.2)
