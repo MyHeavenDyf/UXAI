@@ -2989,6 +2989,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 切换历史版本：交由 controller 处理 */
   async function handleHistorySwitch(entry: VersionEntry) {
+    if (effectiveBusy()) return
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
@@ -5807,6 +5808,7 @@ onPreview={(url) => {
                 }}
                 onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
+                  if (effectiveBusy()) return
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)
