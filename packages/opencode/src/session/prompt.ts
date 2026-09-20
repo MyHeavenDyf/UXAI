@@ -251,14 +251,16 @@ export const layer = Layer.effect(
       const ag = yield* agents.get("title")
       if (!ag) return
       const mdl = yield* provider.getTitleModel(input.providerID, input.modelID)
-      yield* elog.info("title model selected", {
+      const titleModelLog = {
         sessionID: input.session.id,
         selectedProviderID: input.providerID,
         selectedModelID: input.modelID,
         titleProviderID: mdl.providerID,
         titleModelID: mdl.id,
         switched: mdl.providerID !== input.providerID || mdl.id !== input.modelID,
-      })
+      }
+      yield* elog.info("title model selected", titleModelLog)
+      console.info("[TitleModel] selected", titleModelLog)
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)
