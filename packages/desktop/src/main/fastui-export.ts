@@ -18,7 +18,12 @@ import { nodeBinOf, resolveProject } from "./fastui-devserver"
 const SKILL_NAME = "fastui-vue-creator"
 /** 打包本身只是遍历 + zlib,几秒量级;这个上限是防止脚本卡死时按钮永远转圈 */
 const EXPORT_TIMEOUT_MS = 5 * 60 * 1000
-/** 问 server 要 skill 位置的上限。同机回环请求,毫秒级;超时就走候选链,不拖住导出 */
+/**
+ * 问 server 要 skill 位置的上限。同机回环请求,而且**该 instance 必然是热的**(会话就跑在
+ * 它下面,`Skill.all()` 背后那层懒缓存早已建好),所以正常路径是毫秒级。`projectDir` 万一
+ * 推错、落到一个冷 instance 上,那边要做一次完整的 skill 发现扫描 —— 这个上限就是为那种
+ * 情况兜底:超时走候选链,不拖住导出。
+ */
 const SKILL_QUERY_TIMEOUT_MS = 3000
 
 type ServerInfo = { url: string; username: string | null; password: string | null }
@@ -51,16 +56,20 @@ function projectDirOf(sessionDir: string): string {
 }
 
 /**
- * **问 server 要 skill 的位置 —— 这是唯一的真相源。**
+ * **问 server 要 skill 的位置 —— 它是扫出这些 skill 的那一方,也是唯一知道它们在哪的。**
  *
- * skill 是 server 扫出来的,`Skill.Info.location` 就是它扫到的 SKILL.md 绝对路径
+ * `Skill.Info.name` 取自 SKILL.md 的 frontmatter,`location` 是 server 扫到的绝对路径
  * (`skill/index.ts` 的 `location: match`,来自 `Glob.scan({ absolute: true })`)。
- * 主进程自己算不出这个路径:`<octoConfig>/skill/` 依赖 `XDG_CONFIG_HOME`,而那个变量
- * 在两个进程之间是分裂的 —— `storage.ts` 的 app-data-fallback 只把它灌进 sidecar
- * (`sidecar.ts` 的 `Object.assign(process.env, storage.env)`,从不写回主进程),
- * 而非 Windows 上 `preferAppEnv()` 还会把用户 shell 里的值捞进主进程。两边碰巧一致
- * 时算对,不一致时算错,那不是确定判断。server 还会扫项目目录下的 `{skill,skills}/`,
- * 装在那里的 skill 主进程更是无从猜起。
+ * **按 name 找、拿 location,这一对组合是这里的关键**:目录名与 skill 名可以不一致,
+ * 宿主拿常量去拼目录名就会落空。2026-09 内网 Mac 的现场正是如此 —— 那台机器上
+ * skill 装在 `~/.config/octo/skill/fastui-vue-creator␠/`(目录名尾部多一个空格,
+ * Windows 建不出这种名字,所以同版本 Windows 全部正常)。server 照常扫到并加载,
+ * 宿主用 `join(…, "fastui-vue-creator")` 则永远 miss。
+ *
+ * 目录名畸变只是其中一种;`<octoConfig>/skill/` 还依赖 `XDG_CONFIG_HOME`(主进程与
+ * sidecar 在 app-data-fallback 模式下会取到不同的值),server 也会扫**项目目录**下的
+ * `{skill,skills}/`(`skill/index.ts:197`)—— 装在那里的 skill 宿主无从猜起。
+ * 共同点是:宿主那条路是推导,这条是查询。
  *
  * 失败(server 未就绪、请求超时、该 skill 没装)一律返回 null,交给下面的候选链兜底。
  */
@@ -94,23 +103,33 @@ async function skillDirFromServer(sessionDir: string): Promise<string | null> {
   }
 }
 
+/** 候选链要读的两个基准路径。测试注入,生产走 `process.env` / `homedir()` */
+export type PathEnv = { xdgConfig?: string; homeDir?: string }
+
 /**
  * skill 的实际落点。先问 server(上面),问不到再走候选链。
  *
- * 候选链里每一条都是 `existsSync` 验「这个文件在不在」的确定判断,不是猜路径;但**候选
- * 本身**是猜的,所以它只是 server 不可用时的兜底,不再是正路。顺序上 server 优先于状态
+ * 候选链里每一条都是 `existsSync` 验「这个文件在不在」的确定判断;但**候选本身是拿常量
+ * 拼出来的**,目录名与 skill 名不一致时(2026-09 内网 Mac:目录名尾部多一个空格)整条链
+ * 全部落空 —— 所以它只是 server 不可用时的兜底,不是正路。顺序上 server 也优先于状态
  * 文件:后者是建会话那一刻的快照,skill 换过位置(重装、改用项目内副本)就成了死链。
+ *
+ * 后两条候选看着像重复,不是:`migrate.ts` 的 `deployBuiltinSkills` **硬编码**部署到
+ * `~/.config/octo/skill`(`migrate.ts:185`),完全不看 `XDG_CONFIG_HOME`;而 server 扫的是
+ * `Global.Path.octoConfig`(`core/global.ts:15`,由 `xdg-basedir` 推出)。设过那个变量的
+ * 机器上,部署落点与扫描落点本就是两个目录,两条都要试。
  */
-export async function resolveScript(sessionDir: string, skillDir?: string): Promise<string | null> {
-  const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+export async function resolveScript(sessionDir: string, skillDir?: string, env?: PathEnv): Promise<string | null> {
+  const homeDir = env?.homeDir ?? homedir()
+  const xdgConfig = env?.xdgConfig ?? process.env.XDG_CONFIG_HOME ?? join(homeDir, ".config")
   const candidates = [
     await skillDirFromServer(sessionDir),
     // new-session 写进状态文件的路径(SPEC-DES-001 §8.6.2)
     skillDir,
-    // 与 skill/index.ts 扫描的 <octoConfig>/skill/ 一致
+    // server 扫描的 <octoConfig>/skill/
     join(xdgConfig, "octo", "skill", SKILL_NAME),
-    // XDG_CONFIG_HOME 分裂时的另一侧:migrate.ts 的 deployBuiltinSkills 就硬编码部署到这里
-    join(homedir(), ".config", "octo", "skill", SKILL_NAME),
+    // deployBuiltinSkills 硬编码的部署落点
+    join(homeDir, ".config", "octo", "skill", SKILL_NAME),
     // SPEC-DES-001 §8.6.2 提到的工程内落点,留作兜底
     join(dirname(sessionDir), "skills", SKILL_NAME),
   ]
@@ -160,7 +179,7 @@ export async function exportZip(sessionDir: string, projectName?: string): Promi
 
   const script = await resolveScript(sessionDir, state.skillDir)
   if (!script) {
-    return { ok: false, error: `未找到 ${SKILL_NAME} 的导出脚本，请确认该技能已安装` }
+    return { ok: false, error: `未找到 ${SKILL_NAME} 的导出脚本,请确认该技能已安装` }
   }
 
   return runExportScript(sessionDir, script, state.envDir, projectArgs)

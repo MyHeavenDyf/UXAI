@@ -317,7 +317,11 @@ async function initialize() {
           onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
           onStdout: (message) => logger.log("sidecar stdout", { message }),
           onStderr: (message) => logger.warn("sidecar stderr", { message }),
-          onExit: (code) => logger.warn("sidecar exited", { code }),
+          onExit: (code) => {
+            logger.warn("sidecar exited", { code })
+            // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
+            FastuiExport.setServerInfo(null)
+          },
         },
       )
 
