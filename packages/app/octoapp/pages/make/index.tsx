@@ -930,7 +930,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
-        void historyController.onFileRefresh(tabStore.tabs())
+        void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())

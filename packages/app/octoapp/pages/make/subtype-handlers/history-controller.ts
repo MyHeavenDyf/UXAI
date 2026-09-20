@@ -1,5 +1,6 @@
 import { createHistoryStore, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
 import { getSubtypeHandler } from "../utils/subtype-registry"
+import { getSubtypeConfig } from "../utils/subtype-config"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { getDesktopApi } from "../lib/electron-api"
@@ -104,7 +105,28 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       }
     }
 
-    const entry = await historyStore.recordVersion(tab, actor, files)
+    // 同内容同 actor 去重：一次模型编辑会并发触发多路事件（file.edited / watcher /
+    // tool.success / step.ended / onFilesRefresh，可能再加路径 A），每路都可能走到
+    // recordVersion；若最新版本已由同一 actor 记录且内容一致，跳过本次记录。
+    if (actor !== "init") {
+      const existing = await historyStore.listVersions(tab)
+      const newest = existing[0]
+      if (newest && newest.actor === actor) {
+        const currentHash = await getTabFileSetHash(tab)
+        const versionFiles = await historyStore.getVersionFiles(newest.id, tab, files)
+        const hashes: string[] = []
+        for (const vf of versionFiles) {
+          const h = await getFileHash(vf.filePath)
+          if (h) hashes.push(h)
+        }
+        if (currentHash && hashes.join("|") === currentHash) {
+          callbacks.setCurrentVersionId(() => newest.id)
+          return
+        }
+      }
+    }
+
+    const entry = await historyStore.recordVersion(tab, actor, files, getSubtypeConfig(tab.subtype).history?.maxVersions)
     if (entry) {
       // 使进行中的 loadVersions/refreshVersions 失效（它们的快照可能不含本条记录）
       listGeneration++
@@ -188,26 +210,65 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     }
   }
 
-  async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
-    for (const tab of tabs) {
-      if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) continue
-      const hash = await getTabFileSetHash(tab)
-      if (!hash) continue
-      const prevHash = lastFileHash.get(tab.filePath!)
-      lastFileHash.set(tab.filePath!, hash)
-      if (prevHash === undefined) continue
-      if (prevHash === hash) continue
-      const api = getDesktopApi()
-      const buf = await api?.readFileBuffer?.(tab.filePath!)
-      if (!buf) continue
-      const fileContent = new TextDecoder().decode(buf)
-      if (!fileContent) continue
-      if (fileContent !== tab.content) {
-        callbacks.updateTabContent(tab.id, fileContent)
-      }
-      await trigger(tab, { type: "agent-file-edit" }, "agent")
-      callbacks.setFilesRefreshKey((k) => k + 1)
+  // onFileRefresh 串行化：一次模型编辑会并发触发多路事件，若并发执行，
+  // 各调用可能读到写入中间态的 hash（或基线读写交错），导致一次编辑记多条版本。
+  // 在途时只置 pending 标记，当前轮跑完后补跑一轮（合并突发事件）。
+  let refreshInFlight = false
+  let refreshQueued = false
+  let refreshQueuedTurnEnd = false
+
+  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean }): Promise<void> {
+    if (refreshInFlight) {
+      refreshQueued = true
+      if (opts?.turnEnd) refreshQueuedTurnEnd = true
+      return
+    }
+    refreshInFlight = true
+    try {
+      do {
+        const turnEnd = !!opts?.turnEnd || refreshQueuedTurnEnd
+        refreshQueued = false
+        refreshQueuedTurnEnd = false
+        for (const tab of tabs) {
+          if (!isEligible(tab)) continue
+          if (writingTabs.has(tab.id)) continue
+          const hash = await getTabFileSetHash(tab)
+          if (!hash) continue
+          const prevHash = lastFileHash.get(tab.filePath!)
+          if (prevHash === undefined) {
+            // 首次见到：只建基线，不记录
+            lastFileHash.set(tab.filePath!, hash)
+            continue
+          }
+          if (prevHash === hash) continue
+          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !turnEnd
+          const api = getDesktopApi()
+          if (coalesce) {
+            // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录；
+            // 轮结束（step.ended → turnEnd: true）时统一记一条最终态
+            const buf = await api?.readFileBuffer?.(tab.filePath!)
+            if (!buf) continue
+            const fileContent = new TextDecoder().decode(buf)
+            if (fileContent && fileContent !== tab.content) {
+              callbacks.updateTabContent(tab.id, fileContent)
+            }
+            callbacks.setFilesRefreshKey((k) => k + 1)
+            continue
+          }
+          lastFileHash.set(tab.filePath!, hash)
+          const buf = await api?.readFileBuffer?.(tab.filePath!)
+          if (!buf) continue
+          const fileContent = new TextDecoder().decode(buf)
+          if (!fileContent) continue
+          if (fileContent !== tab.content) {
+            callbacks.updateTabContent(tab.id, fileContent)
+          }
+          await trigger(tab, { type: "agent-file-edit" }, "agent")
+          callbacks.setFilesRefreshKey((k) => k + 1)
+        }
+      } while (refreshQueued)
+    } finally {
+      refreshInFlight = false
     }
   }
 
