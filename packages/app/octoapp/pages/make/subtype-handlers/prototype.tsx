@@ -187,7 +187,7 @@ export default {
   ],
 
   onAssetConfirm: ({ dom, filePath, folderpath, data }) => {
-    return `请你使用 ${folderpath}作为资产，替换[目标节点]：${dom.selector},在替换之前，请你务必阅读 ${folderpath}/README.md，严格按照${folderpath}/README.md里面的流程执行。`
+    return `请你使用 ${folderpath}作为资产，替换[目标节点]：${dom.selector},在替换之前，请你务必阅读 ${folderpath}\\README.md，并严格按照其中的流程执行。`
   },
 
   async handleLocalEdit(ctx) {
