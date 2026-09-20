@@ -270,6 +270,10 @@ const EXT_ICON_MAP: Record<string, string> = {
   xlsx: excelIconUrl,
   xlsm: excelIconUrl,
   xls: excelIconUrl,
+  png: imgIconUrl,
+  jpeg: imgIconUrl,
+  jpg: imgIconUrl,
+  svg: imgIconUrl,
   gif: imgIconUrl,
   html: htmlIconUrl,
   key: pdfIconUrl,
@@ -296,7 +300,7 @@ export type AssetThumbKind = "image" | "icon"
  * type 40 缩略图的渲染方式(spec line 78-88):
  * - snapshot 有值 → "image"(s3BaseUrl + snapshot,同 type 30)
  * - snapshot 空/缺失:png/jpeg/jpg/svg → "image"(下载路径图片);其他后缀(html/txt/xlsx 等)→ "icon"(含 other.svg 兜底)
- * 非 type 40 返回 undefined
+ * 仅处理 type 40;type 30 的缩略图由各渲染处直接用 snapshot(s3BaseUrl + snapshot)
  */
 export function getAssetThumbKind(file: AssetFile): AssetThumbKind | undefined {
   if (file.type !== 40) return undefined
@@ -305,7 +309,7 @@ export function getAssetThumbKind(file: AssetFile): AssetThumbKind | undefined {
   return "icon"
 }
 
-/** type 40 缩略图 URL:image/html 返回对应 URL(snapshot 优先,缺失用下载路径),icon 返回图标 URL(other.svg 兜底) */
+/** type 40 缩略图 URL:image 返回对应 URL(snapshot 优先,缺失用下载路径),icon 返回图标 URL(other.svg 兜底) */
 export function getAssetThumb(file: AssetFile): string | undefined {
   const kind = getAssetThumbKind(file)
   if (!kind) return undefined
@@ -324,9 +328,8 @@ export function isAssetThumbImage(file: AssetFile): boolean {
   return getAssetThumbKind(file) === "image"
 }
 
-/** type 40 文件的缩略图:按 fileName 后缀取对应图标 URL;未知后缀/图片类返回 undefined */
+/** 按 fileName 后缀取对应图标 URL(图片类返回 img.svg);未知后缀兜底 other.svg */
 export function getAssetIconByExtension(fileName: string): string | undefined {
   const ext = extensionOf(fileName)
-  if (IMAGE_EXT_SET.has(ext)) return undefined
-  return EXT_ICON_MAP[ext]
+  return EXT_ICON_MAP[ext] || otherIconUrl
 }
