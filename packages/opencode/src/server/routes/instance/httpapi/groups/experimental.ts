@@ -62,6 +62,7 @@ export const SessionListQuery = Schema.Struct({
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
   pinned: Schema.optional(QueryBoolean),
+  grouped: Schema.optional(QueryBoolean),
   archived: Schema.optional(QueryBoolean),
   agent: Schema.optional(Schema.String),
 })
