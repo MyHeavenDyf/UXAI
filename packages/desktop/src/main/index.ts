@@ -57,6 +57,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as FastuiExport from "./fastui-export"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
@@ -316,7 +317,11 @@ async function initialize() {
           onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
           onStdout: (message) => logger.log("sidecar stdout", { message }),
           onStderr: (message) => logger.warn("sidecar stderr", { message }),
-          onExit: (code) => logger.warn("sidecar exited", { code }),
+          onExit: (code) => {
+            logger.warn("sidecar exited", { code })
+            // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
+            FastuiExport.setServerInfo(null)
+          },
         },
       )
 
@@ -332,6 +337,10 @@ async function initialize() {
       return startSidecar(fallbackStorage)
     })
     server = listener
+    // 导出代码包要问 server 要 skill 的实际位置(fastui-export.ts `skillDirFromServer`):
+    // 主进程与 sidecar 的 XDG_CONFIG_HOME 可能不是同一个值,自己算 `<octoConfig>/skill/`
+    // 会算到一个空目录上。
+    FastuiExport.setServerInfo({ url, username: "opencode", password })
     serverReady.resolve({
       url,
       username: "opencode",
