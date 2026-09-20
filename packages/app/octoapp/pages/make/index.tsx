@@ -85,7 +85,6 @@ import { SessionPermissionDock } from "@/pages/session/composer/session-permissi
 import { ResultViewer } from "./components/result-viewer/index"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -93,8 +92,6 @@ import { ContextUsageCircle } from "@/components/context-usage-circle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
-import { loadDesignSystem } from "./utils/design-system-loader"
-import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
@@ -1727,22 +1724,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
   })
 
-  const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
-  const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
-  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  createEffect(() => {
-    const key = dsKey()
-    if (!key) return
-    const id = selectedDesignSystem()
-    if (id) localStorage.setItem(key, id)
-    else localStorage.removeItem(key)
-  })
-  createEffect(on(() => params.id, (id) => {
-    if (!id) return
-    const saved = localStorage.getItem(DS_KEY_PREFIX + id)
-    setSelectedDesignSystem(saved ?? null)
-  }))
 
   createEffect(on(() => params.id, (id) => {
     if (!id) return
@@ -3062,7 +3044,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ``,
           `[Existing artifacts in this session]`,
           ...lines,
-          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -3070,14 +3052,14 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     return [
       `[Artifact Folder]: ${artifactFolder}`,
-      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      `优先使用 <artifact> 标签输出，默认不要使用 write 工具。仅当用户明确要求使用 write 工具时，才必须把文件写入此目录内，不得写到其他任何位置。`,
       existingList,
       `---`,
       ``,
     ].filter(Boolean).join("\n")
   }
 
-  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
+  /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
@@ -3387,63 +3369,6 @@ const sessionMessagesLoaded = createMemo(() => {
         setSkillToolCalls([])
       }
 
-      // Design system prompt injection (prepended as hidden context, user text preserved)
-      const dsId = selectedDesignSystem()
-      if (dsId) {
-        let dsPrefix = ""
-        try {
-          const ds = await loadDesignSystem(dsId)
-          if (!ds.design && !ds.tokens) {
-            console.warn("[MakePage] design system loaded but empty:", dsId)
-          }
-          dsPrefix = [
-            `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows below.`,
-            `You MUST apply this design system to every artifact you create in this session:`,
-            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
-            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
-            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
-            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
-            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
-            ``,
-            `## DESIGN.md (authoritative visual rules for ${dsId})`,
-            ``,
-            ds.design,
-            ``,
-            `## :root tokens (paste verbatim into <style>)`,
-            ``,
-            "```css",
-            ds.tokens,
-            "```",
-            "",
-            "---",
-          ].join("\n")
-        } catch (err) {
-          console.error("[MakePage] design system load failed", err)
-        }
-
-        // Craft document injection (design quality guides)
-        try {
-          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
-          if (crafts) {
-            dsPrefix += [
-              "",
-              "## Design Quality Guides (mandatory)",
-              "",
-              crafts,
-              "",
-              "---",
-            ].join("\n")
-          }
-        } catch (err) {
-          console.error("[MakePage] craft load failed", err)
-        }
-
-        if (dsPrefix) {
-          promptText = dsPrefix + "\n" + text
-        }
-      }
-
       // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
       if (artifactFolderPrefix) {
         promptText = artifactFolderPrefix + "\n" + promptText
@@ -3474,8 +3399,7 @@ const sessionMessagesLoaded = createMemo(() => {
         module: "design",
         name: "send-message",
         extend: JSON.stringify({ 
-          hasAttachment: fileParts.length > 0 || localManifest.length > 0, 
-          designSystem: dsId ?? null 
+          hasAttachment: fileParts.length > 0 || localManifest.length > 0,
         }),
       })
       
@@ -3707,10 +3631,6 @@ const sessionMessagesLoaded = createMemo(() => {
       await moveAssetsConfigToSession(session.id)
 
       local.session.promote(sdk.directory, session.id)
-      const dsId = selectedDesignSystem()
-if (dsId) {
-          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-        }
         navigate(`/make/${session.id}`)
         sid = session.id
       }
@@ -5272,12 +5192,6 @@ onPreview={(url) => {
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
-                        <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
                           />
@@ -5647,12 +5561,6 @@ onPreview={(url) => {
                     />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
                         <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
