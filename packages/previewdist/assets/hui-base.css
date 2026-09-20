@@ -438,6 +438,7 @@
   }
   &.el-select--small{
     .el-select__wrapper{
+      min-height: 28px;
       padding: 2px 12px;
     }
   }
