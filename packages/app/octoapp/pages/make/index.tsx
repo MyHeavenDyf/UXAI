@@ -1861,13 +1861,6 @@ const sessionMessagesLoaded = createMemo(() => {
     if (tab) await historyController.loadVersions(tab)
   }))
 
-  // Agent 路径 B：直接调 write/edit 工具改文件时记录版本
-  createEffect(async () => {
-    const key = filesRefreshKey()
-    if (key === 0) return
-    await historyController.onFileRefresh(tabStore.tabs())
-  })
-
   // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
   // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
   // 用 beginWrite/endWrite 包住，防止 SSE file.edited 把这次写入误记为 agent 编辑。

@@ -245,14 +245,15 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
           const api = getDesktopApi()
           if (coalesce) {
             // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录；
-            // 轮结束（step.ended → turnEnd: true）时统一记一条最终态
+            // 轮结束（step.ended → turnEnd: true）时统一记一条最终态。
+            // 仅在内容真正变化时 bump 刷新
             const buf = await api?.readFileBuffer?.(tab.filePath!)
             if (!buf) continue
             const fileContent = new TextDecoder().decode(buf)
             if (fileContent && fileContent !== tab.content) {
               callbacks.updateTabContent(tab.id, fileContent)
+              callbacks.setFilesRefreshKey((k) => k + 1)
             }
-            callbacks.setFilesRefreshKey((k) => k + 1)
             continue
           }
           lastFileHash.set(tab.filePath!, hash)
