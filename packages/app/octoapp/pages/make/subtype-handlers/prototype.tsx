@@ -187,11 +187,7 @@ export default {
   ],
 
   onAssetConfirm: ({ dom, filePath, folderpath, data }) => {
-    return [
-      `[文件: ${filePath}]`,
-      `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
-      `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
-    ].join('\n')
+    return `请你使用 ${folderpath}作为资产，替换[目标节点]：${dom.selector},在替换之前，请你务必阅读 ${folderpath}/README.md，严格按照${folderpath}/README.md里面的流程执行。`
   },
 
   async handleLocalEdit(ctx) {
