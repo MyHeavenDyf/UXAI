@@ -1366,11 +1366,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
   function compactContext(sessionID: string) {
     if (!sessionID || contextCompactionDisabled()) return
+    const model = currentModel()
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
       agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
+      model: model ? `${model.provider.id}/${model.id}` : undefined,
     })
   }
 
