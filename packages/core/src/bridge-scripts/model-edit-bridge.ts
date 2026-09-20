@@ -50,6 +50,8 @@ function me_runBridge() {
     if (typeof ResizeObserver !== 'undefined' && document.documentElement) {
       me_trackRo = new ResizeObserver(function() { me_trackRefresh(); });
       me_trackRo.observe(document.documentElement);
+      var el = document.querySelector('[data-od-id="' + id + '"]');
+      if (el) me_trackRo.observe(el);
     }
   }
   function me_stopTrack() {

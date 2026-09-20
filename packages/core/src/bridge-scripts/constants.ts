@@ -794,6 +794,8 @@ function eb_startTrack(id) {
   if (typeof ResizeObserver !== 'undefined' && document.documentElement) {
     eb_trackRo = new ResizeObserver(function() { eb_trackRefresh(); });
     eb_trackRo.observe(document.documentElement);
+    var el = document.querySelector('[data-od-id="' + id + '"]');
+    if (el) eb_trackRo.observe(el);
   }
 }
 function eb_stopTrack() {
