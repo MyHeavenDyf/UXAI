@@ -43,7 +43,6 @@ export type ApiModels = Record<string, ApiProvider | null | undefined>
 type ProviderLike = { id: string; name: string }
 const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 let latestModelsApi: ApiModels | undefined
-let modelsApiRevision = 0
 const refreshModelsApiListeners = new Set<(models: ApiModels) => void | Promise<void>>()
 type ModelsApiBridge = {
   pipelineRequest?: (
@@ -115,7 +114,6 @@ export function modelsApiHeaders() {
   const url = modelsApiUrl()
   return {
     ...(url ? { "x-opencode-models-api-source": "http", "x-opencode-models-api-url": url } : {}),
-    ...(url ? { "x-opencode-models-api-revision": String(modelsApiRevision) } : {}),
     ...(token ? { uiplustoken: token } : {}),
     ...(account ? { "x-opencode-w3-account": account } : {}),
   }
@@ -244,7 +242,6 @@ export function registerModelsApiRefresh(listener: (models: ApiModels) => void |
 
 export async function refreshModelsApi() {
   const models = await fetchModelsApi()
-  modelsApiRevision += 1
   await Promise.all(Array.from(refreshModelsApiListeners, (listener) => listener(models)))
   return models
 }
