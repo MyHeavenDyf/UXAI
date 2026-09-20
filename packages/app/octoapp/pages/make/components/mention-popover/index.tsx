@@ -849,10 +849,12 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        // type 40:png/jpeg/jpg/svg 显示下载路径图片缩略,html 用图标(20px 行内不放 iframe),其他后缀显示对应图标;type 30 用 inferKindFromUrl 文件图标
-                        const kind = file.type === 40 ? getAssetThumbKind(file) : undefined
-                        const thumbUrl = kind === "image" || kind === "icon" ? getAssetThumb(file) : undefined
-                        const FileIcon = file.type === 40
+                        // type 40 走 getAssetThumb(snapshot 优先/图片类下载路径真图/后缀图标);
+                        // type 30 与附件面板弹窗一致:snapshot 有值显示真图,否则显示类型图标
+                        const thumbUrl = file.type === 40
+                          ? getAssetThumb(file)
+                          : (file.snapshot ? encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot)) : undefined)
+                        const FileIcon = thumbUrl
                           ? undefined
                           : getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
                         return (
