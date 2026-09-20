@@ -18,6 +18,17 @@ import { nodeBinOf, resolveProject } from "./fastui-devserver"
 const SKILL_NAME = "fastui-vue-creator"
 /** 打包本身只是遍历 + zlib,几秒量级;这个上限是防止脚本卡死时按钮永远转圈 */
 const EXPORT_TIMEOUT_MS = 5 * 60 * 1000
+/** 问 server 要 skill 位置的上限。同机回环请求,毫秒级;超时就走候选链,不拖住导出 */
+const SKILL_QUERY_TIMEOUT_MS = 3000
+
+type ServerInfo = { url: string; username: string | null; password: string | null }
+
+/** sidecar 就绪时由 index.ts 注入。未就绪(或已退出)时为 null,定位退回候选链 */
+let serverInfo: ServerInfo | null = null
+
+export function setServerInfo(info: ServerInfo | null) {
+  serverInfo = info
+}
 
 export type ExportResult =
   | { ok: true; zipPath: string; bytes: number; fileCount: number }
@@ -34,25 +45,84 @@ function readState(sessionDir: string): { envDir?: string; skillDir?: string } |
   }
 }
 
+/** `<projectDir>/.octo/<sid>` → `<projectDir>`,与前端 `sessionDirOf` 的拼法互逆 */
+function projectDirOf(sessionDir: string): string {
+  return dirname(dirname(sessionDir))
+}
+
 /**
- * skill 的实际落点。`.octo-fastui.json` 目前没有 `skillDir` 字段(new-session 不写),
- * 所以按候选逐个 `existsSync` 验 —— 是「文件在不在」的确定判断,不是猜路径。
- * 第一位留给状态文件,skill 以后补上那个字段就直接生效,宿主侧不用再改。
+ * **问 server 要 skill 的位置 —— 这是唯一的真相源。**
+ *
+ * skill 是 server 扫出来的,`Skill.Info.location` 就是它扫到的 SKILL.md 绝对路径
+ * (`skill/index.ts` 的 `location: match`,来自 `Glob.scan({ absolute: true })`)。
+ * 主进程自己算不出这个路径:`<octoConfig>/skill/` 依赖 `XDG_CONFIG_HOME`,而那个变量
+ * 在两个进程之间是分裂的 —— `storage.ts` 的 app-data-fallback 只把它灌进 sidecar
+ * (`sidecar.ts` 的 `Object.assign(process.env, storage.env)`,从不写回主进程),
+ * 而非 Windows 上 `preferAppEnv()` 还会把用户 shell 里的值捞进主进程。两边碰巧一致
+ * 时算对,不一致时算错,那不是确定判断。server 还会扫项目目录下的 `{skill,skills}/`,
+ * 装在那里的 skill 主进程更是无从猜起。
+ *
+ * 失败(server 未就绪、请求超时、该 skill 没装)一律返回 null,交给下面的候选链兜底。
  */
-function resolveScript(sessionDir: string, skillDir?: string): string | null {
+async function skillDirFromServer(sessionDir: string): Promise<string | null> {
+  const info = serverInfo
+  if (!info) return null
+  try {
+    const url = new URL("/skill", info.url)
+    // instance 路由按目录解析实例(middleware 读 `directory` 查询参数),缺省会落到
+    // sidecar 的 cwd —— 那样扫不到装在本项目目录下的 skill
+    url.searchParams.set("directory", projectDirOf(sessionDir))
+
+    const headers = new Headers()
+    if (info.password) {
+      const auth = Buffer.from(`${info.username ?? "opencode"}:${info.password}`).toString("base64")
+      headers.set("authorization", `Basic ${auth}`)
+    }
+
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(SKILL_QUERY_TIMEOUT_MS) })
+    if (!res.ok) {
+      log.warn("[fastui] 查询 skill 位置失败", { status: res.status })
+      return null
+    }
+    const list = (await res.json()) as Array<{ name?: string; location?: string }>
+    const hit = Array.isArray(list) ? list.find((item) => item?.name === SKILL_NAME) : undefined
+    if (!hit?.location) return null
+    return dirname(hit.location)
+  } catch (error) {
+    log.warn("[fastui] 查询 skill 位置出错", { error: String(error) })
+    return null
+  }
+}
+
+/**
+ * skill 的实际落点。先问 server(上面),问不到再走候选链。
+ *
+ * 候选链里每一条都是 `existsSync` 验「这个文件在不在」的确定判断,不是猜路径;但**候选
+ * 本身**是猜的,所以它只是 server 不可用时的兜底,不再是正路。顺序上 server 优先于状态
+ * 文件:后者是建会话那一刻的快照,skill 换过位置(重装、改用项目内副本)就成了死链。
+ */
+export async function resolveScript(sessionDir: string, skillDir?: string): Promise<string | null> {
   const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
   const candidates = [
+    await skillDirFromServer(sessionDir),
+    // new-session 写进状态文件的路径(SPEC-DES-001 §8.6.2)
     skillDir,
-    // 技能实际安装位置:与 skill/index.ts 扫描的 <octoConfig>/skill/ 一致
+    // 与 skill/index.ts 扫描的 <octoConfig>/skill/ 一致
     join(xdgConfig, "octo", "skill", SKILL_NAME),
+    // XDG_CONFIG_HOME 分裂时的另一侧:migrate.ts 的 deployBuiltinSkills 就硬编码部署到这里
+    join(homedir(), ".config", "octo", "skill", SKILL_NAME),
     // SPEC-DES-001 §8.6.2 提到的工程内落点,留作兜底
     join(dirname(sessionDir), "skills", SKILL_NAME),
   ]
+  const tried: string[] = []
   for (const dir of candidates) {
     if (!dir) continue
     const script = join(dir, "scripts", "export-zip.mjs")
     if (existsSync(script)) return script
+    tried.push(script)
   }
+  // 用户看到的是一句话,定位要靠这里 —— 把试过的路径都记上,省掉一轮来回问
+  log.warn("[fastui] 定位不到导出脚本", { sessionDir, serverKnown: !!serverInfo, tried })
   return null
 }
 
@@ -74,34 +144,39 @@ function parseContract(stdout: string) {
 }
 
 /** 打一个干净的交付包。失败以结果对象返回,`error` 已是可直接展示给用户的一句话。 */
-export function exportZip(sessionDir: string, projectName?: string): Promise<ExportResult> {
+export async function exportZip(sessionDir: string, projectName?: string): Promise<ExportResult> {
+  const state = readState(sessionDir)
+  if (!state) {
+    return { ok: false, error: `读不到会话状态 ${join(sessionDir, ".octo-fastui.json")}` }
+  }
+  // 同一对话可以有多个产物工程,而状态文件只记最后建的那个 —— 卡片带了产物名就导出它,
+  // 否则导出的可能是另一个工程。产物名的合法性与存在性交给 resolveProject 统一判定。
+  let projectArgs: string[] = []
+  if (projectName) {
+    const r = resolveProject(sessionDir, projectName)
+    if (!r.ok) return { ok: false, error: r.error }
+    projectArgs = [`--project-dir=${r.projectDir}`]
+  }
+
+  const script = await resolveScript(sessionDir, state.skillDir)
+  if (!script) {
+    return { ok: false, error: `未找到 ${SKILL_NAME} 的导出脚本，请确认该技能已安装` }
+  }
+
+  return runExportScript(sessionDir, script, state.envDir, projectArgs)
+}
+
+/** 跑脚本、解析契约行。与定位分开,这里只负责「把脚本跑完并翻译它的输出」。 */
+function runExportScript(
+  sessionDir: string,
+  script: string,
+  envDir: string | undefined,
+  projectArgs: string[],
+): Promise<ExportResult> {
   return new Promise<ExportResult>((resolve) => {
-    const state = readState(sessionDir)
-    if (!state) {
-      resolve({ ok: false, error: `读不到会话状态 ${join(sessionDir, ".octo-fastui.json")}` })
-      return
-    }
-    // 同一对话可以有多个产物工程,而状态文件只记最后建的那个 —— 卡片带了产物名就导出它,
-    // 否则导出的可能是另一个工程。产物名的合法性与存在性交给 resolveProject 统一判定。
-    let projectArgs: string[] = []
-    if (projectName) {
-      const r = resolveProject(sessionDir, projectName)
-      if (!r.ok) {
-        resolve({ ok: false, error: r.error })
-        return
-      }
-      projectArgs = [`--project-dir=${r.projectDir}`]
-    }
-
-    const script = resolveScript(sessionDir, state.skillDir)
-    if (!script) {
-      resolve({ ok: false, error: `找不到 ${SKILL_NAME} 的 export-zip.mjs,技能可能未安装` })
-      return
-    }
-
     // 共享池的 node 优先;它不在时用 Electron 自己的 node 运行时(ELECTRON_RUN_AS_NODE),
     // 这样"环境还没装好但产物已经在磁盘上"也能把包导出来 —— 打包不依赖那 1GB 依赖。
-    const poolNode = state.envDir ? nodeBinOf(state.envDir) : null
+    const poolNode = envDir ? nodeBinOf(envDir) : null
     const usePoolNode = !!poolNode && existsSync(poolNode)
     const bin = usePoolNode ? poolNode! : process.execPath
     const env = usePoolNode ? { ...process.env } : { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
