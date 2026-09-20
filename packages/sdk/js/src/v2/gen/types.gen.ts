@@ -4569,6 +4569,7 @@ export type ExperimentalSessionListData = {
     search?: string
     limit?: number
     pinned?: boolean | "true" | "false"
+    grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
   }

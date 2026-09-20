@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { createEffect, createMemo, createSignal, Show, For } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollableText } from "@/components/session-list"
@@ -32,6 +32,10 @@ export type SessionContextMenuProps = {
   /** Custom backdrop right-click handler. Used by the sidebar to re-target the
    *  menu to another session on right-click. Defaults to closing the menu. */
   onContextMenuBackdrop?: (e: MouseEvent) => void
+  /** Trigger element to anchor the menu to (e.g. the kebab button). When provided,
+   *  the menu follows the element on window resize instead of staying at the
+   *  click-point coordinates. */
+  triggerEl?: () => HTMLElement | undefined
 }
 
 /**
@@ -84,7 +88,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   })
 
   createEffect(() => {
-    if (props.show && props.session) {
+    if (!(props.show && props.session)) return
+
+    const position = () => {
       requestAnimationFrame(() => {
         const menu = contextMenuRef()
         if (!menu) return
@@ -93,20 +99,39 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
         const viewportHeight = window.innerHeight
         const viewportWidth = window.innerWidth
         const minMargin = 24
-        let top = props.y
+
+        const trigger = props.triggerEl?.()
+        let top: number
+        let left: number
+        if (trigger) {
+          const rect = trigger.getBoundingClientRect()
+          top = rect.bottom + 4
+          left = rect.right - menuWidth
+        } else {
+          top = props.y
+          left = props.x
+        }
         if (top + menuHeight > viewportHeight - minMargin) {
           top = Math.max(0, viewportHeight - menuHeight - minMargin)
         }
-        let left = props.x
         if (left + menuWidth > viewportWidth - minMargin) {
           left = Math.max(0, viewportWidth - menuWidth - minMargin)
         }
+        if (left < 0) left = 0
+        if (top < 0) top = 0
         setMenuStyle({
           left: `${left}px`,
           top: `${top}px`,
           visibility: "visible",
         })
       })
+    }
+
+    position()
+
+    if (props.triggerEl) {
+      window.addEventListener("resize", position)
+      onCleanup(() => window.removeEventListener("resize", position))
     }
   })
 

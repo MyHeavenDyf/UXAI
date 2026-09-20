@@ -1569,6 +1569,7 @@ export class Session extends HeyApiClient {
       search?: string
       limit?: number
       pinned?: boolean | "true" | "false"
+      grouped?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
       agent?: string
     },
@@ -1587,6 +1588,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
             { in: "query", key: "pinned" },
+            { in: "query", key: "grouped" },
             { in: "query", key: "archived" },
             { in: "query", key: "agent" },
           ],

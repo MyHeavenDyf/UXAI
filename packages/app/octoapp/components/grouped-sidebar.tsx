@@ -194,6 +194,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                     return (
                     <>
                       <div
+                        data-group-id={group.id}
                         class="group-item flex items-center gap-[8px] text-[12px] leading-[20px] h-[36px] shrink-0 relative rounded-[8px] transition-colors"
                         classList={{
                           "bg-[rgba(10,89,247,0.08)]": isActive(),

@@ -165,6 +165,7 @@ export function ConversationHeader(
   // ── 会话区三点菜单（与左侧栏 session 右键菜单一致）──
   const groupsCtx = useMakeGroupsContext()
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+  const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
 
   const menuHasMessages = () => {
     const s = info()
@@ -341,6 +342,7 @@ export function ConversationHeader(
             class="size-6 rounded-md shrink-0 cursor-pointer"
             aria-label="更多操作"
             onClick={(e) => {
+              setMenuTriggerEl(e.currentTarget as HTMLElement)
               setMenuPos({ x: e.clientX, y: e.clientY })
               setTitle("menuOpen", true)
             }}
@@ -349,6 +351,7 @@ export function ConversationHeader(
             show={title.menuOpen && !!info()}
             x={menuPos().x}
             y={menuPos().y}
+            triggerEl={menuTriggerEl}
             session={info() ?? null}
             hasMessages={menuHasMessages()}
             groups={groupsCtx?.groups}
