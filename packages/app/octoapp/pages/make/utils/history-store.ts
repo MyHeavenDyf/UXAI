@@ -103,6 +103,7 @@ export function createHistoryStore() {
     tab: ResultTab,
     actor: HistoryActor,
     files: string[],
+    maxVersions?: number,
   ): Promise<VersionEntry | null> {
     if (!api?.copyFileTo || !api?.listDirectory || !api?.deleteFile) return null
     if (!tab.filePath) return null
@@ -162,7 +163,7 @@ export function createHistoryStore() {
       actor,
     }
 
-    await prune(historyDir, baseName)
+    await prune(historyDir, baseName, maxVersions)
     return entry
   }
 
@@ -230,7 +231,8 @@ export function createHistoryStore() {
       .sort((a, b) => b.timestamp - a.timestamp)
   }
 
-  async function prune(historyDir: string, baseName: string): Promise<void> {
+  async function prune(historyDir: string, baseName: string, maxVersions?: number): Promise<void> {
+    const cap = maxVersions ?? MAX_VERSIONS
     if (!api?.listDirectory || !api?.deleteFile) return
     const prefix = baseName + "."
     const entries = await api.listDirectory(historyDir)
@@ -251,8 +253,8 @@ export function createHistoryStore() {
       .filter((v) => v.actor !== "init")
       .sort((a, b) => b.ts - a.ts)
 
-    if (versions.length <= MAX_VERSIONS) return
-    for (const item of versions.slice(MAX_VERSIONS)) {
+    if (versions.length <= cap) return
+    for (const item of versions.slice(cap)) {
       const filesInVersion = entries.filter((e) => e.path.split(/[/\\]/)[0] === item.id && e.type === "file")
       for (const f of filesInVersion) {
         await api.deleteFile(f.path)
