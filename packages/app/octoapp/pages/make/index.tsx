@@ -929,7 +929,7 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
-      } else if (e.type === "session.next.step.ended") {
+      } else if (e.type === "session.next.step.ended" || e.type === "session.idle") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
