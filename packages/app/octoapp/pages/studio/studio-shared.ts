@@ -211,6 +211,65 @@ export function triggerBrowserDownload(url: string, filename: string) {
   document.body.removeChild(link)
 }
 
+function contentDispositionFilename(value?: string | null) {
+  if (!value) return
+  const encoded = value.match(/(?:^|;)\s*filename\*\s*=\s*([^;]+)/i)?.[1]?.trim()
+  if (encoded) {
+    const filename = encoded.replace(/^UTF-8''/i, "").replace(/^['"]|['"]$/g, "")
+    try {
+      return decodeURIComponent(filename)
+    } catch {
+      return filename
+    }
+  }
+  return value.match(/(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;]*))/i)?.slice(1).find(Boolean)?.trim()
+}
+
+function mediaExtension(mime?: string | null) {
+  return {
+    "image/avif": "avif",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+  }[mime?.split(";", 1)[0]?.trim().toLowerCase() ?? ""]
+}
+
+export function studioMediaDownloadFilename(input: {
+  url: string
+  contentDisposition?: string | null
+  mime?: string | null
+}) {
+  const disposition = contentDispositionFilename(input.contentDisposition)
+  const urlFilename = (() => {
+    if (input.url.startsWith("data:")) return
+    try {
+      const filename = new URL(input.url).pathname.split("/").filter(Boolean).pop()
+      if (!filename) return
+      try {
+        return decodeURIComponent(filename)
+      } catch {
+        return filename
+      }
+    } catch {
+      return
+    }
+  })()
+  const filename = (disposition ?? urlFilename ?? "download")
+    .replaceAll("\\", "/")
+    .split("/")
+    .pop()
+    ?.replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim() || "download"
+  const extension = mediaExtension(input.mime)
+  if (/\.[a-z0-9]{1,10}$/i.test(filename) || !extension) return filename
+  return `${filename}.${extension}`
+}
+
 export function getModelResolutionKey(styleModel: string): string {
   const id = styleModelId(styleModel) ?? styleModel
   if (id === "hdesign") return "hdesign"
