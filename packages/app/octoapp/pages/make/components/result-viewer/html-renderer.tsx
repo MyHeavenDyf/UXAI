@@ -1928,7 +1928,6 @@ return (
                 - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
                 - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
                 - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
-                - 参考：design-system-picker.tsx:163
               */}
               <iframe
                 ref={iframeRef}
