@@ -97,7 +97,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const files = await handler?.onHistoryTrigger?.(event, ctx)
     if (!files || files.length === 0) return
 
-    if (event.type === "open" && event.isNew) {
+    if (event.type === "open") {
+      // init 条件：该文件无任何历史（不要求 tab 首次打开）。
+      // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
         callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
@@ -203,6 +205,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       await trigger(tab, { type: "open", isNew: true }, "init")
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
+    } else {
+      // 已有 tab 重开（内容未变）：无历史时补建 init；有历史时 trigger 内部查重跳过
+      await trigger(tab, { type: "open", isNew: false }, "init")
     }
     const hash = await getTabFileSetHash(tab)
     if (hash) {

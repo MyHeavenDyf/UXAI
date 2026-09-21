@@ -118,6 +118,23 @@ export function mergeOptimisticPage(page: MessagePage, items: OptimisticItem[]) 
   }
 }
 
+export function resolveMessagePage(input: {
+  mode?: "replace" | "prepend"
+  fetched: Message[]
+  existing: Message[] | undefined
+  busy?: boolean
+}): Message[] {
+  const existing = input.existing ?? []
+  if (input.mode === "prepend") return merge(existing, input.fetched)
+  if (existing.length === 0) return input.fetched
+  // Fix 7: replace 模式下,busy 期间的快照可能落后于 SSE(同 Fix 3 保护 parts 的理由),
+  // 空页则几乎必然是「初始 GET 先于 prompt POST 发出」的过期快照;
+  // 两者都 merge 保留本地已有消息,避免整体替换把 SSE 刚写入的消息擦除
+  // (擦除后空数组被视为已加载/已缓存,InsightTurn 永久空白)
+  if (input.busy || input.fetched.length === 0) return merge(existing, input.fetched)
+  return input.fetched
+}
+
 export function applyOptimisticAdd(draft: OptimisticStore, input: OptimisticAddInput) {
   const messages = draft.message[input.sessionID]
   if (messages) {
@@ -342,13 +359,17 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             clearOptimistic(input.directory, input.sessionID, messageID)
           }
           const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const cached = input.mode === "prepend" ? (store.message[input.sessionID] ?? []) : []
-          const message = input.mode === "prepend" ? merge(cached, next.session) : next.session
+          const busy = store.session_status[input.sessionID]?.type === "busy"
+          const message = resolveMessagePage({
+            mode: input.mode,
+            fetched: next.session,
+            existing: store.message[input.sessionID],
+            busy,
+          })
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
             // Fix 3: busy session 期间不整体替换 parts,改为 merge:
             // 保留本地更长的 delta 累积文本,避免服务端快照(可能落后于 streaming)覆盖
-            const busy = store.session_status[input.sessionID]?.type === "busy"
             for (const p of next.part) {
               const filtered = p.part.filter((x) => !SKIP_PARTS.has(x.type))
               if (!filtered.length) continue

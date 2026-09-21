@@ -1,5 +1,6 @@
 import type { JSX } from 'solid-js'
-import { Show, For, createSignal } from 'solid-js'
+import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { ModelEditElement, ManualEditKind } from './types'
 import type { ColorToken } from './icon-data/hui-color-tokens'
 import {
@@ -12,6 +13,7 @@ import {
   Section, QuadModeSection, EffectsSection,
   LAYOUT_GRID,
 } from '../result-viewer/row-primitives'
+import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark } from '../../icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
 import { parseEffects } from '../../edit-mode/source-patches'
 
@@ -62,6 +64,118 @@ function numFromString(s: string): number {
 
 function parseJson(s: string): Record<string, string> {
   try { return JSON.parse(s) } catch { return {} }
+}
+
+type SizeMode = 'fixed' | 'fit' | 'fill'
+
+function SizeModeSelect(props: {
+  value: SizeMode
+  fixedValue: string
+  axis: 'width' | 'height'
+  onModeChange: (mode: SizeMode) => void
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
+  let btnRef!: HTMLButtonElement
+  let listRef!: HTMLDivElement
+
+  const isW = () => props.axis === 'width'
+  const shortLabel = () => props.value === 'fixed' ? '固定' : props.value === 'fit' ? '适应' : '填充'
+  const ModeIcon = (mode: SizeMode): JSX.Element => {
+    const Icon = isW()
+      ? (mode === 'fixed' ? IconSizeFixedWidth : mode === 'fit' ? IconSizeAdjustWidth : IconSizeFillWidth)
+      : (mode === 'fixed' ? IconSizeFixedWidth : mode === 'fit' ? IconSizeAdjustWidth : IconSizeFillWidth)
+    return <Icon />
+  }
+
+  const modes: { value: SizeMode; longLabel: string }[] = isW()
+    ? [
+        { value: 'fixed', longLabel: '固定宽度' },
+        { value: 'fit', longLabel: '适应内容' },
+        { value: 'fill', longLabel: '填充容器' },
+      ]
+    : [
+        { value: 'fixed', longLabel: '固定高度' },
+        { value: 'fit', longLabel: '适应内容' },
+        { value: 'fill', longLabel: '填充容器' },
+      ]
+
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      if (listRef && !listRef.contains(e.target as Node) && !btnRef.contains(e.target as Node)) setOpen(false)
+    }
+    const onScroll = () => setOpen(false)
+    if (btnRef) {
+      const r = btnRef.getBoundingClientRect()
+      setPos({ x: r.left, y: r.bottom + 4, w: r.width })
+      requestAnimationFrame(() => {
+        if (!listRef) return
+        const lr = listRef.getBoundingClientRect()
+        if (!lr.height) return
+        const fitsDown = r.bottom + 4 + lr.height <= window.innerHeight
+        const ay = fitsDown ? r.bottom + 4 : Math.max(4, r.top - 4 - lr.height)
+        setPos({ x: r.left, y: ay, w: r.width })
+      })
+    }
+    document.addEventListener('mousedown', handler)
+    window.addEventListener('scroll', onScroll, true)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', handler)
+      window.removeEventListener('scroll', onScroll, true)
+    })
+  })
+
+  return (
+    <div class="relative flex-1 min-w-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen(!open())}
+        class="flex h-8 w-full items-center gap-1.5 rounded-[4px] bg-[#F9F9F9] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9]"
+      >
+        <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.4)', ...(isW() ? {} : { transform: 'rotate(90deg)' }) }}>
+          {ModeIcon(props.value)}
+        </span>
+        <span class="flex-1 truncate" style={{ color: '#191919' }}>{shortLabel()}</span>
+        <svg class="w-3 h-3 ml-0.5 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          <div ref={listRef} class="fixed z-[2147483646] flex flex-col gap-1 rounded-lg p-1"
+            style={{
+              left: pos().x + 'px',
+              top: pos().y + 'px',
+              width: '166px',
+              background: '#fff',
+              'border-radius': '8px',
+              'box-shadow': '0 4px 12px 0 rgba(0,0,0,0.16)',
+            }}>
+            <For each={modes}>
+              {(m) => (
+                <button
+                  type="button"
+                  onClick={() => { props.onModeChange(m.value); setOpen(false) }}
+                  class="flex items-center gap-2 rounded-[4px] px-2 text-left cursor-pointer border-none bg-transparent outline-none hover:bg-[rgba(0,0,0,0.05)]"
+                  style={{ 'line-height': '32px', 'font-size': '14px', 'font-weight': '400', color: 'rgba(25,25,25,1)' }}
+                >
+                  <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.9)', ...(isW() ? {} : { transform: 'rotate(90deg)' }) }}>
+                    {ModeIcon(m.value)}
+                  </span>
+                  <span class="flex-1 truncate">{m.longLabel}</span>
+                  <Show when={props.value === m.value}>
+                    <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.9)' }}>
+                      <IconSizeCheckmark />
+                    </span>
+                  </Show>
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </div>
+  )
 }
 
 const FONT_FAMILY_OPTS = [
@@ -304,29 +418,37 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       const w = () => data().width || ''
       const h = () => data().height || ''
 
+      // 尺寸模式：fill=100% / fit=fit-content / fixed=具体 px
+      const wMode = (): SizeMode => w() === '100%' ? 'fill' : (w() === 'fit-content' || w() === 'max-content' || w() === 'auto') ? 'fit' : 'fixed'
+      const hMode = (): SizeMode => h() === '100%' ? 'fill' : (h() === 'fit-content' || h() === 'max-content' || h() === 'auto') ? 'fit' : 'fixed'
+      const [fixedCache, setFixedCache] = createSignal<{ width?: string; height?: string }>({})
+      // 初始 px 值缓存（首次读取 fixed 模式时记录）
+      const cacheFixed = (axis: 'width' | 'height', val: string) => {
+        if (!val || val === '100%' || val === 'fit-content' || val === 'max-content' || val === 'auto') return
+        setFixedCache(prev => prev[axis] === val ? prev : { ...prev, [axis]: val })
+      }
+      createEffect(() => { cacheFixed('width', w()) })
+      createEffect(() => { cacheFixed('height', h()) })
+      const onWModeChange = (mode: SizeMode) => {
+        if (mode === 'fill') update({ width: '100%' })
+        else if (mode === 'fit') update({ width: 'fit-content' })
+        else update({ width: fixedCache().width || '' })
+      }
+      const onHModeChange = (mode: SizeMode) => {
+        if (mode === 'fill') update({ height: '100%' })
+        else if (mode === 'fit') update({ height: 'fit-content' })
+        else update({ height: fixedCache().height || '' })
+      }
+
       return (
         <Section title="宽高">
-          <div class="cc-size-row">
+          <div class="cc-size-grid">
             <DragInput value={() => numFromString(w())} setValue={(v) => update({ width: `${v}px` })} setFound={() => {}} found={() => true} placeholder="宽" icon="W" />
             <DragInput value={() => numFromString(h())} setValue={(v) => update({ height: `${v}px` })} setFound={() => {}} found={() => true} placeholder="高" icon="H" />
+            <SizeModeSelect value={wMode()} fixedValue={w()} axis="width" onModeChange={onWModeChange} />
+            <SizeModeSelect value={hMode()} fixedValue={h()} axis="height" onModeChange={onHModeChange} />
           </div>
           <div class="cc-size-checkboxes">
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={w() === '100%'} onChange={(e) => update({ width: e.currentTarget.checked ? '100%' : '' })} />
-              <span>填充宽度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={h() === '100%'} onChange={(e) => update({ height: e.currentTarget.checked ? '100%' : '' })} />
-              <span>填充高度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={w() === 'fit-content' || w() === 'max-content' || w() === 'auto'} onChange={(e) => update({ width: e.currentTarget.checked ? 'fit-content' : '' })} />
-              <span>适应宽度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={h() === 'fit-content' || h() === 'max-content' || h() === 'auto'} onChange={(e) => update({ height: e.currentTarget.checked ? 'fit-content' : '' })} />
-              <span>适应高度</span>
-            </label>
             <label class="cc-size-checkbox cc-size-clip">
               <input type="checkbox" checked={data().overflow === 'hidden'} onChange={(e) => update({ overflow: e.currentTarget.checked ? 'hidden' : '' })} />
               <span>裁剪内容</span>

@@ -85,7 +85,6 @@ import { SessionPermissionDock } from "@/pages/session/composer/session-permissi
 import { ResultViewer } from "./components/result-viewer/index"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -93,8 +92,6 @@ import { ContextUsageCircle } from "@/components/context-usage-circle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
-import { loadDesignSystem } from "./utils/design-system-loader"
-import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
@@ -128,6 +125,7 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { isVisibleUserMessage } from "./utils/visible-message"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
@@ -630,6 +628,25 @@ const sessionMessagesLoaded = createMemo(() => {
         // 附件清空不在此处理：同上,Sync store 任何更新都会触发本 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      },
+    ),
+  )
+
+  // Fix 9: 切换 session 完整性校验。message[id] 已加载但无可见 user 消息时,可能是:
+  // ① 修复前残留的污染状态(空数组/仅 assistant);② SSE gap 丢掉 message.part.updated
+  // 而 message.updated 存活(parts 缺失被 visible 过滤)。两者都不会触发 missing 重取,
+  // 切换后对话区永久空白。此处 view-time 强制重拉一次兜底(force sync 会重写消息+parts);
+  // Set 防重复,失败时回退以便下次切换重试。
+  const integrityForced = new Set<string>()
+  createEffect(
+    on(
+      () => [params.id, sessionMessagesLoaded()] as const,
+      ([id, loaded]) => {
+        if (!id || !loaded || integrityForced.has(id)) return
+        const messages = (sync.data.message?.[id] ?? []) as Message[]
+        if (messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) return
+        integrityForced.add(id)
+        sync.session.sync(id, { force: true }).catch(() => integrityForced.delete(id))
       },
     ),
   )
@@ -1212,16 +1229,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const visible = (message: Message) => {
-      const parts = sync.data.part[message.id] ?? []
-      if (message.role !== "user" || parts.length === 0) return false
-      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
-      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
-      if (parts.some((part) => part.type === "compaction")) {
-        return parts.some((part) => part.type === "text")
-      }
-      return true
-    }
+    const visible = (message: Message) => isVisibleUserMessage(message, sync.data.part[message.id])
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childSessionIDs()) {
@@ -1730,22 +1738,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
   })
 
-  const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
-  const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
-  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  createEffect(() => {
-    const key = dsKey()
-    if (!key) return
-    const id = selectedDesignSystem()
-    if (id) localStorage.setItem(key, id)
-    else localStorage.removeItem(key)
-  })
-  createEffect(on(() => params.id, (id) => {
-    if (!id) return
-    const saved = localStorage.getItem(DS_KEY_PREFIX + id)
-    setSelectedDesignSystem(saved ?? null)
-  }))
 
   createEffect(on(() => params.id, (id) => {
     if (!id) return
@@ -2557,12 +2550,14 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
-      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
-      persistActivePlanDraft()
-      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
-      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
-      tabStore.reset()
+      // 仅在 session 实际切换时重置 tabs:本 effect 还依赖 sync.data.session,
+      // 同一 session 内后台列表更新(warmSessions/首次加载)替换引用也会重跑,无条件 reset 会清空已打开的 tabs
+      if (newSid !== prevSid) {
+        // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+        // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+        persistActivePlanDraft()
+        tabStore.reset()
+      }
       // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
       if (newSid !== prevSid && _enteringPlan) {
         setPatternEnded(false)
@@ -2577,6 +2572,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternBlockMatchError(false)
         setPatternSubEnriching(false)
       }
+      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
+      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -3059,7 +3056,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ``,
           `[Existing artifacts in this session]`,
           ...lines,
-          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -3067,14 +3064,14 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     return [
       `[Artifact Folder]: ${artifactFolder}`,
-      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      `优先使用 <artifact> 标签输出，默认不要使用 write 工具。仅当用户明确要求使用 write 工具时，才必须把文件写入此目录内，不得写到其他任何位置。`,
       existingList,
       `---`,
       ``,
     ].filter(Boolean).join("\n")
   }
 
-  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
+  /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
@@ -3384,63 +3381,6 @@ const sessionMessagesLoaded = createMemo(() => {
         setSkillToolCalls([])
       }
 
-      // Design system prompt injection (prepended as hidden context, user text preserved)
-      const dsId = selectedDesignSystem()
-      if (dsId) {
-        let dsPrefix = ""
-        try {
-          const ds = await loadDesignSystem(dsId)
-          if (!ds.design && !ds.tokens) {
-            console.warn("[MakePage] design system loaded but empty:", dsId)
-          }
-          dsPrefix = [
-            `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows below.`,
-            `You MUST apply this design system to every artifact you create in this session:`,
-            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
-            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
-            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
-            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
-            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
-            ``,
-            `## DESIGN.md (authoritative visual rules for ${dsId})`,
-            ``,
-            ds.design,
-            ``,
-            `## :root tokens (paste verbatim into <style>)`,
-            ``,
-            "```css",
-            ds.tokens,
-            "```",
-            "",
-            "---",
-          ].join("\n")
-        } catch (err) {
-          console.error("[MakePage] design system load failed", err)
-        }
-
-        // Craft document injection (design quality guides)
-        try {
-          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
-          if (crafts) {
-            dsPrefix += [
-              "",
-              "## Design Quality Guides (mandatory)",
-              "",
-              crafts,
-              "",
-              "---",
-            ].join("\n")
-          }
-        } catch (err) {
-          console.error("[MakePage] craft load failed", err)
-        }
-
-        if (dsPrefix) {
-          promptText = dsPrefix + "\n" + text
-        }
-      }
-
       // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
       if (artifactFolderPrefix) {
         promptText = artifactFolderPrefix + "\n" + promptText
@@ -3471,8 +3411,7 @@ const sessionMessagesLoaded = createMemo(() => {
         module: "design",
         name: "send-message",
         extend: JSON.stringify({ 
-          hasAttachment: fileParts.length > 0 || localManifest.length > 0, 
-          designSystem: dsId ?? null 
+          hasAttachment: fileParts.length > 0 || localManifest.length > 0,
         }),
       })
       
@@ -3500,6 +3439,15 @@ const sessionMessagesLoaded = createMemo(() => {
       }).catch(err => {
         console.error("[MakePage] prompt failed", err)
         showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      }).finally(() => {
+        // Fix 8: 自愈校验。首条消息的 SSE 事件可能落在断线重连窗口内永久丢失
+        // (服务端无事件回放),而空的 message store 又被视为已加载/已缓存,
+        // 各处重取逻辑都不会触发 → InsightTurn 永久空白。
+        // stream 结束时若目标 session 里没有可渲染的 user 消息,强制重新拉取兜底。
+        const messages = (sync.data.message?.[sessionId] ?? []) as Message[]
+        if (!messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) {
+          void sync.session.sync(sessionId, { force: true }).catch(() => {})
+        }
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -3704,10 +3652,6 @@ const sessionMessagesLoaded = createMemo(() => {
       await moveAssetsConfigToSession(session.id)
 
       local.session.promote(sdk.directory, session.id)
-      const dsId = selectedDesignSystem()
-if (dsId) {
-          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-        }
         navigate(`/make/${session.id}`)
         sid = session.id
       }
@@ -4588,6 +4532,21 @@ if (dsId) {
       return
     }
 
+    // link 类型先校验,打不开直接 toast 返回,不切 tabs 模式(否则右侧停留在无 tab 的 tabs 视图)
+    if (card.type === "link") {
+      const linkContent = (card.content ?? "").trim()
+      if (!linkContent) {
+        showOctoToast({ title: "打开失败", description: "链接内容为空", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "empty-content" }) })
+        return
+      }
+      if (!/^([A-Za-z]:[/\\]|\/)/.test(linkContent) && !projectDir()) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "no-project-dir" }) })
+        return
+      }
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
@@ -4596,7 +4555,6 @@ if (dsId) {
     // 磁盘路径:   转绝对路径,按扩展名推断 type(复用本地文件渲染逻辑)
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
-      if (!linkContent) return
 
       // fastui 预览(SPEC-DES-004):卡片只记产物,地址由预览面板打开时向主进程当场取。
       // 本方案之前生成的卡片是 http://127.0.0.1:<port> —— 端口早已过期,
@@ -4685,6 +4643,9 @@ if (dsId) {
           if (fileContent && fileContent !== existingLocal.content) {
             tabStore.updateTabContent(existingLocal.id, fileContent)
             await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          } else {
+            // 内容未变也要走 onTabOpen：该文件无历史时补建 init
+            await historyController.onTabOpen(existingLocal, existingLocal)
           }
         }
         tabStore.activate(existingLocal.id)
@@ -4704,6 +4665,21 @@ if (dsId) {
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
       })
+
+      if (inferredType !== "design-plan") {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(absolutePath)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent) {
+            tabStore.updateTabContent(tabId, fileContent)
+          }
+        }
+        const tab = tabStore.tabs().find((t) => t.id === tabId)
+        if (tab) {
+          await historyController.onTabOpen(tab, undefined)
+        }
+      }
       tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", ext: absolutePath.split(".").pop() }) })
       return
     }
@@ -4766,6 +4742,9 @@ if (dsId) {
             if (fileContent && fileContent !== existingTab.content) {
               tabStore.updateTabContent(existingTab.id, fileContent)
               await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
+            } else {
+              // 内容未变也要走 onTabOpen：该文件无历史时补建 init
+              await historyController.onTabOpen(existingTab, existingTab)
             }
           }
         }
@@ -4874,7 +4853,10 @@ if (dsId) {
     if (isAbsolute) {
       absolutePath = normalizedPath
     } else {
-      if (!dir) return
+      if (!dir) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        return
+      }
       const normalizedDir = dir.replace(/\\/g, '/')
       absolutePath = normalizedDir
       if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
@@ -5271,12 +5253,6 @@ onPreview={(url) => {
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
-                        <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
                           />
@@ -5646,12 +5622,6 @@ onPreview={(url) => {
                     />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
                         <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
