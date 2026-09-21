@@ -97,7 +97,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const files = await handler?.onHistoryTrigger?.(event, ctx)
     if (!files || files.length === 0) return
 
-    if (event.type === "open" && event.isNew) {
+    if (event.type === "open") {
+      // init 条件：该文件无任何历史（不要求 tab 首次打开）。
+      // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
         callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
@@ -203,6 +205,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       await trigger(tab, { type: "open", isNew: true }, "init")
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
+    } else {
+      // 已有 tab 重开（内容未变）：无历史时补建 init；有历史时 trigger 内部查重跳过
+      await trigger(tab, { type: "open", isNew: false }, "init")
     }
     const hash = await getTabFileSetHash(tab)
     if (hash) {
@@ -216,6 +221,21 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   let refreshInFlight = false
   let refreshQueued = false
   let refreshQueuedTurnEnd = false
+
+  // 'turn' 模式的静默期结算：轮内变化后若 SETTLE_DELAY_MS 内无新事件，
+  // 自动补一次 turnEnd 记录。不依赖 turnEnd 事件时序——session.idle 可能赶在
+  // 文件写入完成前到达（此时 hash==基线被跳过），之后的 file.edited 已无 turnEnd，
+  // 改动会被永久搁置（表现为"停在原始版本/没有模型编辑记录"）。
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  const SETTLE_DELAY_MS = 1500
+
+  function scheduleSettle(tabs: ResultTab[]): void {
+    if (settleTimer) clearTimeout(settleTimer)
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined
+      void onFileRefresh(tabs, { turnEnd: true })
+    }, SETTLE_DELAY_MS)
+  }
 
   async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean }): Promise<void> {
     if (refreshInFlight) {
@@ -244,9 +264,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
           const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !turnEnd
           const api = getDesktopApi()
           if (coalesce) {
-            // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录；
-            // 轮结束（step.ended → turnEnd: true）时统一记一条最终态。
-            // 仅在内容真正变化时 bump 刷新
+            // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录。
+            // 安排静默期结算：1.5s 内无新事件（或到达 turnEnd）时记一条，
+            // 避免依赖 turnEnd 事件时序导致改动被永久搁置。
+            scheduleSettle(tabs)
             const buf = await api?.readFileBuffer?.(tab.filePath!)
             if (!buf) continue
             const fileContent = new TextDecoder().decode(buf)
@@ -255,6 +276,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
               callbacks.setFilesRefreshKey((k) => k + 1)
             }
             continue
+          }
+          // 记录路径（turnEnd 或 'each' 模式）：推进基线 + 记录
+          if (settleTimer) {
+            clearTimeout(settleTimer)
+            settleTimer = undefined
           }
           lastFileHash.set(tab.filePath!, hash)
           const buf = await api?.readFileBuffer?.(tab.filePath!)
