@@ -4,10 +4,7 @@ import { useParams } from "@solidjs/router"
 import { createMemo } from "solid-js"
 
 export const popularProviders = [
-  "opencode",
-  "bpit",
   "bpit-beta",
-  "w3",
   "opencode-go",
   "anthropic",
   "github-copilot",
@@ -17,6 +14,7 @@ export const popularProviders = [
   "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)
+const removedProviderIDs = new Set(["opencode", "bpit"])
 
 export function useProviders() {
   const globalSync = useGlobalSync()
@@ -29,19 +27,18 @@ export function useProviders() {
     }
     return globalSync.data.provider
   }
+  const all = () => providers().all.filter((provider) => !removedProviderIDs.has(provider.id))
   return {
-    all: () => providers().all,
+    all,
     default: () => providers().default,
-    popular: () => providers().all.filter((p) => popularProviderSet.has(p.id)),
+    popular: () => all().filter((p) => popularProviderSet.has(p.id)),
     connected: () => {
       const connected = new Set(providers().connected)
-      return providers().all.filter((p) => connected.has(p.id))
+      return all().filter((p) => connected.has(p.id))
     },
     paid: () => {
       const connected = new Set(providers().connected)
-      return providers().all.filter(
-        (p) => connected.has(p.id) && (p.id !== "opencode" || Object.values(p.models).some((m) => m.cost?.input)),
-      )
+      return all().filter((p) => connected.has(p.id))
     },
   }
 }

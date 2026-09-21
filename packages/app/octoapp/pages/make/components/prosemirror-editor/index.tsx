@@ -20,6 +20,7 @@ import "./styles.css"
 interface EditorRef {
   getText: () => string
   getMentions: () => MentionAttrs[]
+  getDocJSON: () => any
   focus: () => void
   clear: () => void
   insertText: (text: string) => void
@@ -29,6 +30,8 @@ interface EditorRef {
   updateMentionPath: (id: string, path: string) => void
   isAlive: () => boolean
   replaceDoc: (json: any) => void
+  appendDoc: (json: any, prefix?: string) => void
+  closeMention: () => void
 }
 
 interface Props {
@@ -52,7 +55,9 @@ interface Props {
   onPreview?: (url: string) => void
   onPaste?: (e: ClipboardEvent) => void
   ref?: (el: EditorRef) => void
+  onTriggerStateChange?: (active: boolean) => void
   productId?: number
+  placeholder?: string
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (filename: string, path: string) => void
 }
@@ -74,6 +79,7 @@ export const ProseMirrorEditor = (props: Props) => {
     } else {
       setPopoverPosition(null)
     }
+    props.onTriggerStateChange?.(!!state?.active)
   }, props.onTriggerMention)
 
   const slashTriggerPlugin = createSlashTriggerPlugin((state) => {
@@ -90,7 +96,7 @@ export const ProseMirrorEditor = (props: Props) => {
       if (m.type === "skill") {
         return { type: "skill", name: m.name, label: m.label }
       } else {
-        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined }
+        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.type === "folder" ? true : undefined }
       }
     })
     props.setMentionSelections(selections)
@@ -288,7 +294,13 @@ export const ProseMirrorEditor = (props: Props) => {
           if (!v || !v.dom?.isConnected) return
           const attrs = selection.type === "skill"
             ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-            : { id: selection.path, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+            : {
+                id: selection.path,
+                name: selection.filename,
+                type: (selection as any).isFolder ? ("folder" as const) : ("file" as const),
+                label: selection.filename,
+                path: selection.path,
+              }
           const node = editorSchema.nodes.mention.create(attrs)
           const { from, to } = v.state.selection
           const tr = v.state.tr.replaceWith(from, to, node)
@@ -341,10 +353,53 @@ export const ProseMirrorEditor = (props: Props) => {
             ? docFromJSON(json)
             : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
           const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
-          // replaceWith 整体替换时,原 selection 落在被替换区间内会被映射成覆盖新内容的非折叠范围,
-          // 表现为切换 session 后编辑器"全选"了所有内容。显式收敛到段首折叠态。
           tr.setSelection(TextSelection.atStart(tr.doc))
           v.dispatch(tr)
+        },
+        getDocJSON: () => {
+          const v = view()
+          if (!v || !v.state || !v.dom?.isConnected) return null
+          return v.state.doc.toJSON()
+        },
+        appendDoc: (json: any, prefix?: string) => {
+          const v = view()
+          if (!v || !v.state || !v.dom?.isConnected) return
+          const tr = v.state.tr
+          let insertPos = v.state.doc.content.size
+          if (prefix) {
+            tr.insertText(`\n${prefix}\n`, insertPos)
+            insertPos = tr.doc.content.size
+          }
+          if (json?.content?.length > 0) {
+            const newDoc = docFromJSON(json)
+            newDoc.content.forEach((node) => {
+              tr.insert(tr.doc.content.size, node)
+            })
+          }
+          if (tr.docChanged) {
+            tr.setSelection(TextSelection.atEnd(tr.doc))
+            v.dispatch(tr)
+            v.focus()
+          }
+        },
+        closeMention: () => {
+          const v = view()
+          const trigger = triggerState()
+          if (v && trigger) {
+            const from = Math.min(trigger.from, v.state.doc.content.size)
+            const to = Math.min(trigger.to, v.state.doc.content.size)
+            if (from < to) {
+              const tr = v.state.tr.delete(from, to)
+              v.dispatch(tr)
+            }
+          }
+          if (v) {
+            const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+            v.dispatch(tr)
+          }
+          setTriggerState(null)
+          setPopoverPosition(null)
+          props.onTriggerStateChange?.(false)
         },
       })
     }
@@ -360,6 +415,7 @@ export const ProseMirrorEditor = (props: Props) => {
     }
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)
+    props.onContentChange?.(initialDoc.toJSON(), initialText)
 
     // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
     if (props.autofocus && !props.disabled) {
@@ -382,45 +438,24 @@ export const ProseMirrorEditor = (props: Props) => {
     v.setProps({ ...v.props, editable: () => !props.disabled })
   })
 
-  // Close popover when clicking outside
-  createEffect(() => {
-    const state = triggerState()
-    if (!state?.active) return
-    
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      
-      // Don't close if clicking on editor (let ProseMirror handle it)
-      if (target.closest(".pm-editor")) return
-      
-      if (!target.closest(".mention-popover-container")) {
-        console.log("[click-outside] closing popover")
-        const v = view()
-        const trigger = triggerState()
-        
-        if (v && trigger) {
-          // Delete @abc search text
-          // 确保 position 在文档范围内
-          const from = Math.min(trigger.from, v.state.doc.content.size)
-          const to = Math.min(trigger.to, v.state.doc.content.size)
-          if (from < to) {
-            const tr = v.state.tr.delete(from, to)
-            v.dispatch(tr)
-          }
-        }
-        
-        if (v) {
-          const tr = v.state.tr.setMeta(mentionTriggerKey, null)
-          v.dispatch(tr)
-        }
-        
-        setTriggerState(null)
+  // Close popover via overlay click
+  const closeMention = () => {
+    const v = view()
+    const trigger = triggerState()
+    if (v && trigger) {
+      const from = Math.min(trigger.from, v.state.doc.content.size)
+      const to = Math.min(trigger.to, v.state.doc.content.size)
+      if (from < to) {
+        const tr = v.state.tr.delete(from, to)
+        v.dispatch(tr)
       }
     }
-    
-    document.addEventListener("mousedown", handler)
-    onCleanup(() => document.removeEventListener("mousedown", handler))
-  })
+    if (v) {
+      const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+      v.dispatch(tr)
+    }
+    setTriggerState(null)
+  }
 
   // Close slash popover when clicking outside
   createEffect(() => {
@@ -459,7 +494,8 @@ export const ProseMirrorEditor = (props: Props) => {
     if (selection.type === "skill") {
       attrs = { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
     } else {
-      attrs = { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+      const id = selection.path || selection.filename
+      attrs = { id, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
     }
 
     const node = editorSchema.nodes.mention.create(attrs)
@@ -527,7 +563,7 @@ export const ProseMirrorEditor = (props: Props) => {
   return (
     <div class="pm-editor-wrapper">
       <Show when={isEmpty() && !props.disabled}>
-        <div class="pm-placeholder">输入你的想法生成可交互的原型效果...</div>
+        <div class="pm-placeholder">{props.placeholder ?? "输入你的想法生成可交互的原型效果..."}</div>
       </Show>
       <div 
         ref={containerRef} 
@@ -540,26 +576,20 @@ export const ProseMirrorEditor = (props: Props) => {
       
       <Show when={triggerState()?.active && popoverPosition()}>
         <Portal>
-          <div 
+          <div class="mention-popover-overlay" onClick={closeMention} />
+          <div
             style={{
               position: "fixed",
               left: `${popoverPosition()!.left}px`,
               bottom: `${popoverPosition()!.bottom + 1}px`,
               "z-index": 1000,
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             <MentionPopover
               query={triggerState()!.query}
               sessionId={props.sessionId}
-              onClose={() => {
-                const v = view()
-                const trigger = triggerState()
-                if (v && trigger) {
-                  const tr = v.state.tr.delete(trigger.from, trigger.to)
-                  v.dispatch(tr)
-                }
-                setTriggerState(null)
-              }}
+              onClose={closeMention}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
               selections={props.mentionSelections}

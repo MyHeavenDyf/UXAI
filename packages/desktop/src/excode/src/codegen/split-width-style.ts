@@ -61,7 +61,9 @@ export function splitWidthToStyle(className: string | undefined): SplitWidthResu
 
   // convertTailwindToCSS 已在模块级初始化，返回 { width: '188px' } 等 camelCase 对象
   // useVar=false：内联 style 不支持 var()，直接解析为具体值
-  const styleObj = convertTailwindToCSS(widthTokens.join(' '), false)
+  // 显式标注 Record<string, string>：Electron 默认态下 main/tailwind-to-css 在本仓库未解析、
+  // convertTailwindToCSS 退化为 any，Object.entries 值会降为 {} 触发 TS2322；标注后两模式一致
+  const styleObj: Record<string, string> = convertTailwindToCSS(widthTokens.join(' '), false)
 
   // 只取有值的属性（过滤掉解析失败的）
   const filtered: Record<string, string> = {}

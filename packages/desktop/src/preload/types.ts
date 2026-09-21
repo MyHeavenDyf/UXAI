@@ -41,6 +41,12 @@ export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
   | { success: false; error: string }
 
+// 设置-MCP 页写操作:直改全局配置文件的 mcp 段(local/remote 条目,字段见 opencode ConfigMCP schema)。
+// 内置名单(uxr-tool/pixso)主进程拒改;生效需 renderer 随后调 global.dispose 重建实例。
+export type McpConfigWriteInput =
+  | { op: "set"; name: string; value: Record<string, unknown> }
+  | { op: "remove"; name: string }
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
@@ -86,6 +92,24 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
+  /**
+   * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
+   * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
+   */
+  fastuiPreviewOpen: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 「重新编译」:结束当前服务并当场重起 */
+  fastuiPreviewRestart: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
+  fastuiExportZip: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
@@ -110,6 +134,8 @@ export type ElectronAPI = {
   ) => Promise<string>
   /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** copyFileToWorktree 的字节版:剪贴板内存 blob(截图等)无源路径,把字节写进同一落点;返回落地路径 */
+  writeFileToWorktree: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
   /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
@@ -126,15 +152,18 @@ export type ElectronAPI = {
   setTitlebarOverlayHidden: (hidden: boolean) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string }>
   installUpdate: () => Promise<void>
   onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
   onResume: (callback: () => void) => () => void
+  onReopen: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  /** 设置-MCP 页:写全局配置文件的 mcp 段(jsonc 保留注释,内置名单拒改);生效需随后 global.dispose */
+  mcpConfigWrite: (input: McpConfigWriteInput) => Promise<void>
   getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
@@ -153,10 +182,12 @@ export type ElectronAPI = {
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
-  /** 大文件归档:只 stat 不读盘,返回文件大小;非普通文件返回 null */
-  statFile: (path: string) => Promise<{ size: number } | null>
+  /** 大文件归档:只 stat 不读盘,返回文件大小与修改时间;非普通文件返回 null */
+  statFile: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
+  /** 目录存在性预检：仅当路径是存在的目录时返回 true(与 fileExists 对称) */
+  dirExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>
   /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
   renameFile: (srcPath: string, destPath: string) => Promise<void>
@@ -171,7 +202,7 @@ export type ElectronAPI = {
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: { tree: { label: string; value: string; nodes?: string[]; children?: unknown[] }[]; content: Record<string, string> } }>
   runPixsoBuild: (input: string) => Promise<string>
   getTopixsoDir: () => Promise<string>
   exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>

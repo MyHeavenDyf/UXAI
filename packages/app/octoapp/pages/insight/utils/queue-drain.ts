@@ -7,6 +7,7 @@ import { formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNo
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
 import { currentAccount } from "./account"
+import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./prompt-local-files"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
 
@@ -25,17 +26,18 @@ export async function snapshotAttachmentsForQueue(
   done: Attachment[],
   sid: string | undefined,
   baseDir: string | undefined,
-): Promise<{ uploads: Array<{ filename: string; path: string; bytes?: number }>; images: Array<{ filename: string; url: string; mime?: string }> }> {
+): Promise<{ uploads: Array<{ filename: string; path: string; bytes?: number }>; images: Array<{ filename: string; path: string; mime?: string }> }> {
   const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
-  const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
+  const imageFiles = done.filter((a) => isImageFile(a.filename) && a.path)
 
   // 把还落在预会话落地区（.octo/tmps/）的附件 rename 进真实会话目录（.octo/<sid>/uploads/）。
-  // sid 入队时已知（busy 说明有会话）；失败不阻断，快照退化为指向预会话区的旧路径，仍可读。
+  // 图片与非图片同链路落 tmps，一样要搬。sid 入队时已知（busy 说明有会话）；失败不阻断，
+  // 快照退化为指向预会话区的旧路径，仍可读。
   const movedPaths = new Map<string, string>()
   const api = getDesktopApi()
   if (sid && baseDir && typeof api?.movePendingUploadToSession === "function") {
     await Promise.all(
-      localFiles
+      done
         .filter((a) => a.path && isPendingUploadPath(a.path))
         .map(async (a) => {
           try {
@@ -49,7 +51,7 @@ export async function snapshotAttachmentsForQueue(
 
   return {
     uploads: localFiles.map((a) => ({ filename: a.filename, path: movedPaths.get(a.id) ?? a.path!, bytes: a.size })),
-    images: imageFiles.map((a) => ({ filename: a.filename, url: a.url!, mime: a.mime })),
+    images: imageFiles.map((a) => ({ filename: a.filename, path: movedPaths.get(a.id) ?? a.path!, mime: a.mime })),
   }
 }
 
@@ -64,7 +66,12 @@ export async function snapshotAttachmentsForQueue(
  * - **不含 optimistic**（optimistic 写 insight-scoped sync，页面没挂就没有——真实消息经全局 SSE 落库，
  *   切回 insight 正常显示）。
  */
-export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, item: QueuedSend): Promise<void> {
+export async function sendQueuedItem(
+  globalSDK: GlobalSDK,
+  sessionID: string,
+  item: QueuedSend,
+  home?: string,
+): Promise<void> {
   const directory = item.directory
   if (!directory) {
     // 入队时未固化 directory（理论不该发生）——无法建 scoped client，跳过本次 drain，保留队列可见。
@@ -111,7 +118,7 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
   }
 
   // SPEC-INS-032 §2.3：与 doSendPrompt 同一套内联分层判定（防两套漂移）。
-  // uploads 的 bytes 入队时已快照；`@` 引用的会话文件没有，drain 时用 readFileBuffer 补。
+  // uploads 的 bytes 入队时已快照；`@` 引用和正文里的本地文件在 drain 时重新确认当前磁盘状态。
   const mentionFiles = item.files ?? []
   const mentionBytes = new Map<string, number>()
   if (mentionFiles.length > 0) {
@@ -127,12 +134,17 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
       }),
     )
   }
+  const promptLocalDocuments = await resolvePromptLocalDocuments(item.text, getDesktopApi(), home)
   const inlineFiles = [
     ...(item.uploads ?? []),
     ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
+    ...promptLocalDocuments,
   ]
   const inlineDecision = decideInlineStrategy(inlineFiles)
   if (inlineDecision.mode === "dispatch") {
+    if (promptLocalDocuments.length > 0) {
+      syntheticTexts.push(formatPromptLocalDocuments(promptLocalDocuments))
+    }
     console.log("[octo:attach] 内联预算超限,转子代理分治", {
       count: inlineDecision.files.length,
       totalBytes: inlineDecision.totalBytes,

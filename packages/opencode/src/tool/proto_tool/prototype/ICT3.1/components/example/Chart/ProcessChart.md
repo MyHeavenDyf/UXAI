@@ -1,6 +1,6 @@
-# ProcessChart | 进度条
+# ProcessChart | 进度条 示例
 
-### Example: Basic Progress Bar
+## Example: Basic Progress Bar
 - Use `name: "ProcessBarChart"` for horizontal progress bar
 - Data uses `name` and `value` fields
 
@@ -22,11 +22,11 @@
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430", "#715afb"]` — custom bar colors
 - `"unit": "%"` — value suffix (e.g., `"%"`, `"MB"`, `"GB"`)
 
-### Example: Stacked Progress Bar
+## Example: Stacked Progress Bar
 - Use `name: "StackProcessBarChart"` for stacked horizontal progress bar
 - Data uses `name` and `children` arrays (each child has `type` and `value`)
 

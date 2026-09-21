@@ -81,6 +81,8 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalStudioPermissionsCheckErrors,
+  GlobalStudioPermissionsCheckResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InsightChatMigrationPreviewErrors,
@@ -176,6 +178,22 @@ import type {
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
+  SessionGroupCreateErrors,
+  SessionGroupCreateResponses,
+  SessionGroupListErrors,
+  SessionGroupListResponses,
+  SessionGroupMapSessionErrors,
+  SessionGroupMapSessionResponses,
+  SessionGroupRemoveErrors,
+  SessionGroupRemoveResponses,
+  SessionGroupRenameErrors,
+  SessionGroupRenameResponses,
+  SessionGroupReorderErrors,
+  SessionGroupReorderResponses,
+  SessionGroupReorderSessionsErrors,
+  SessionGroupReorderSessionsResponses,
+  SessionGroupUnmapSessionErrors,
+  SessionGroupUnmapSessionResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionListErrors,
@@ -188,6 +206,8 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionReorderErrors,
+  SessionReorderResponses,
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
@@ -216,12 +236,24 @@ import type {
   StudioGenerationsGetResponses,
   StudioGenerationsRebootErrors,
   StudioGenerationsRebootResponses,
-  StudioPermissionsCheckErrors,
-  StudioPermissionsCheckResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
+  StudioStyleDescriptionGenCreateErrors,
+  StudioStyleDescriptionGenCreateResponses,
+  StudioTemplateDeleteDeleteErrors,
+  StudioTemplateDeleteDeleteResponses,
+  StudioTemplateDetailGetErrors,
+  StudioTemplateDetailGetResponses,
+  StudioTemplateListListErrors,
+  StudioTemplateListListResponses,
+  StudioTemplatePublishCreateErrors,
+  StudioTemplatePublishCreateResponses,
+  StudioTemplateUpdateUpdateErrors,
+  StudioTemplateUpdateUpdateResponses,
+  StudioTemplateUserSearchCreateErrors,
+  StudioTemplateUserSearchCreateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -598,6 +630,43 @@ export class Config extends HeyApiClient {
   }
 }
 
+export class Permissions extends HeyApiClient {
+  /**
+   * Check Studio permission
+   *
+   * Checks Studio capabilities without initializing a workspace instance.
+   */
+  public check<ThrowOnError extends boolean = false>(
+    parameters?: {
+      uid?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "uid" }] }])
+    return (options?.client ?? this.client).post<
+      GlobalStudioPermissionsCheckResponses,
+      GlobalStudioPermissionsCheckErrors,
+      ThrowOnError
+    >({
+      url: "/global/studio/permissions/check",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Studio extends HeyApiClient {
+  private _permissions?: Permissions
+  get permissions(): Permissions {
+    return (this._permissions ??= new Permissions({ client: this.client }))
+  }
+}
+
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -662,6 +731,11 @@ export class Global extends HeyApiClient {
   private _config?: Config
   get config(): Config {
     return (this._config ??= new Config({ client: this.client }))
+  }
+
+  private _studio?: Studio
+  get studio(): Studio {
+    return (this._studio ??= new Studio({ client: this.client }))
   }
 }
 
@@ -1491,10 +1565,13 @@ export class Session extends HeyApiClient {
       workspace?: string
       roots?: boolean | "true" | "false"
       start?: number
-      cursor?: number
+      cursor?: string
       search?: string
       limit?: number
+      pinned?: boolean | "true" | "false"
+      grouped?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
+      agent?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1510,7 +1587,10 @@ export class Session extends HeyApiClient {
             { in: "query", key: "cursor" },
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
+            { in: "query", key: "pinned" },
+            { in: "query", key: "grouped" },
             { in: "query", key: "archived" },
+            { in: "query", key: "agent" },
           ],
         },
       ],
@@ -3865,6 +3945,8 @@ export class Session2 extends HeyApiClient {
       time?: {
         archived?: number
       }
+      sort_order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      pinned?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3879,6 +3961,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "time" },
+            { in: "body", key: "sort_order" },
+            { in: "body", key: "pinned" },
           ],
         },
       ],
@@ -4162,6 +4246,43 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/message/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Reorder sessions
+   *
+   * Batch-update session sort_order from an ordered list of session IDs (index becomes the new sort_order). Replaces N concurrent session.update calls on drag-reorder.
+   */
+  public reorder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      ids?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "ids" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionReorderResponses, SessionReorderErrors, ThrowOnError>({
+      url: "/session/reorder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -4699,6 +4820,315 @@ export class Part extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<PartUpdateResponses, PartUpdateErrors, ThrowOnError>({
       url: "/session/{sessionID}/message/{messageID}/part/{partID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class SessionGroup extends HeyApiClient {
+  /**
+   * List session groups
+   *
+   * List all session groups and their session-to-group mappings for a directory + namespace.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      namespace: "make" | "insight"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "namespace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionGroupListResponses, SessionGroupListErrors, ThrowOnError>({
+      url: "/session-group",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create session group
+   *
+   * Create a new session group scoped to a directory + namespace.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      namespace?: "make" | "insight"
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "namespace" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionGroupCreateResponses, SessionGroupCreateErrors, ThrowOnError>({
+      url: "/session-group",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete session group
+   *
+   * Delete a session group. Mappings for this group are removed; sessions are untouched.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SessionGroupRemoveResponses, SessionGroupRemoveErrors, ThrowOnError>(
+      {
+        url: "/session-group/{id}",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * Rename session group
+   *
+   * Rename an existing session group.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<SessionGroupRenameResponses, SessionGroupRenameErrors, ThrowOnError>({
+      url: "/session-group/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Reorder session groups
+   *
+   * Persist the full ordered list of group IDs.
+   */
+  public reorder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      ids?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "ids" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionGroupReorderResponses, SessionGroupReorderErrors, ThrowOnError>(
+      {
+        url: "/session-group/reorder",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Map session to group
+   *
+   * Assign a session to a group, replacing any previous assignment.
+   */
+  public mapSession<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      groupId?: string
+      position?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "groupId" },
+            { in: "body", key: "position" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionGroupMapSessionResponses,
+      SessionGroupMapSessionErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/mapping",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove session from group
+   *
+   * Remove a session's group assignment.
+   */
+  public unmapSession<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      SessionGroupUnmapSessionResponses,
+      SessionGroupUnmapSessionErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/mapping/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Reorder sessions within a group
+   *
+   * Update the position of sessions within a group.
+   */
+  public reorderSessions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      groupId?: string
+      sessionIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "groupId" },
+            { in: "body", key: "sessionIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionGroupReorderSessionsResponses,
+      SessionGroupReorderSessionsErrors,
+      ThrowOnError
+    >({
+      url: "/session-group/reorder-sessions",
       ...options,
       ...params,
       headers: {
@@ -5571,49 +6001,6 @@ export class PromptTags extends HeyApiClient {
   }
 }
 
-export class Permissions extends HeyApiClient {
-  /**
-   * Check Studio permission
-   *
-   * Checks whether the current user can access the internal Studio entry.
-   */
-  public check<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      uid?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "uid" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      StudioPermissionsCheckResponses,
-      StudioPermissionsCheckErrors,
-      ThrowOnError
-    >({
-      url: "/studio/permissions/check",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
 export class PromptGen extends HeyApiClient {
   /**
    * Generate prompt from reference image
@@ -5646,6 +6033,425 @@ export class PromptGen extends HeyApiClient {
       ThrowOnError
     >({
       url: "/studio/prompt-gen",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class StyleDescriptionGen extends HeyApiClient {
+  /**
+   * Generate style description
+   *
+   * Streams style description fields from the internal Studio style template API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      style_keywords?: string
+      style_images?: Array<{
+        url: string
+      }>
+      style_dimensions?: Array<
+        | "tonal"
+        | "composition"
+        | "volume"
+        | "surface"
+        | "color"
+        | "linework"
+        | "shape_structure"
+        | "role_design"
+        | "lettering"
+        | "post_processing"
+      >
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "style_keywords" },
+            { in: "body", key: "style_images" },
+            { in: "body", key: "style_dimensions" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.post<
+      StudioStyleDescriptionGenCreateResponses,
+      StudioStyleDescriptionGenCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/style-description-gen",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplatePublish extends HeyApiClient {
+  /**
+   * Publish Studio template
+   *
+   * Publishes a Studio style template or preset recipe using the internal Studio style template API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?:
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            template_type: "extract_style"
+            style_description: {
+              overview: string
+              tonal?: string
+              composition?: string
+              volume?: string
+              surface?: string
+              color?: string
+              linework?: string
+              shape_structure?: string
+              role_design?: string
+              lettering?: string
+              post_processing?: string
+            }
+            style_images: Array<{
+              url: string
+            }>
+            style_keywords: string
+          }
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            template_type: "preset_recipe"
+            fixed_reference_images: Array<{
+              url: string
+            }>
+            play_description: string
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioTemplatePublishCreateResponses,
+      StudioTemplatePublishCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-publish",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplateUpdate extends HeyApiClient {
+  /**
+   * Update Studio template
+   *
+   * Updates a Studio style template or preset recipe using the internal Studio style template API.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+      body?:
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            idx: number
+            template_type: "extract_style"
+            style_description: {
+              overview: string
+              tonal?: string
+              composition?: string
+              volume?: string
+              surface?: string
+              color?: string
+              linework?: string
+              shape_structure?: string
+              role_design?: string
+              lettering?: string
+              post_processing?: string
+            }
+            style_images: Array<{
+              url: string
+            }>
+            style_keywords: string
+          }
+        | {
+            allowed_user_ids: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            idx: number
+            template_type: "preset_recipe"
+            fixed_reference_images: Array<{
+              url: string
+            }>
+            play_description: string
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      StudioTemplateUpdateUpdateResponses,
+      StudioTemplateUpdateUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-update/{templateID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplateDelete extends HeyApiClient {
+  /**
+   * Delete Studio template
+   *
+   * Deletes a Studio template using the internal Studio style template API.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      StudioTemplateDeleteDeleteResponses,
+      StudioTemplateDeleteDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-delete/{templateID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class TemplateList extends HeyApiClient {
+  /**
+   * List Studio templates
+   *
+   * Returns paged Studio style templates from the internal Studio style template API.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      user_id: string
+      only_public: string
+      page: string
+      page_size: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+            { in: "query", key: "only_public" },
+            { in: "query", key: "page" },
+            { in: "query", key: "page_size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioTemplateListListResponses,
+      StudioTemplateListListErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-list",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class TemplateDetail extends HeyApiClient {
+  /**
+   * Get Studio template detail
+   *
+   * Returns a Studio template by id from the internal Studio style template API.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioTemplateDetailGetResponses,
+      StudioTemplateDetailGetErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-detail/{templateID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class TemplateUserSearch extends HeyApiClient {
+  /**
+   * Search Studio template visible users
+   *
+   * Searches users for Studio template permission settings.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      query?: string
+      size?: 3
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "query" },
+            { in: "body", key: "size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioTemplateUserSearchCreateResponses,
+      StudioTemplateUserSearchCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-user-search",
       ...options,
       ...params,
       headers: {
@@ -5901,20 +6707,50 @@ export class EditorEntries extends HeyApiClient {
   }
 }
 
-export class Studio extends HeyApiClient {
+export class Studio2 extends HeyApiClient {
   private _promptTags?: PromptTags
   get promptTags(): PromptTags {
     return (this._promptTags ??= new PromptTags({ client: this.client }))
   }
 
-  private _permissions?: Permissions
-  get permissions(): Permissions {
-    return (this._permissions ??= new Permissions({ client: this.client }))
-  }
-
   private _promptGen?: PromptGen
   get promptGen(): PromptGen {
     return (this._promptGen ??= new PromptGen({ client: this.client }))
+  }
+
+  private _styleDescriptionGen?: StyleDescriptionGen
+  get styleDescriptionGen(): StyleDescriptionGen {
+    return (this._styleDescriptionGen ??= new StyleDescriptionGen({ client: this.client }))
+  }
+
+  private _templatePublish?: TemplatePublish
+  get templatePublish(): TemplatePublish {
+    return (this._templatePublish ??= new TemplatePublish({ client: this.client }))
+  }
+
+  private _templateUpdate?: TemplateUpdate
+  get templateUpdate(): TemplateUpdate {
+    return (this._templateUpdate ??= new TemplateUpdate({ client: this.client }))
+  }
+
+  private _templateDelete?: TemplateDelete
+  get templateDelete(): TemplateDelete {
+    return (this._templateDelete ??= new TemplateDelete({ client: this.client }))
+  }
+
+  private _templateList?: TemplateList
+  get templateList(): TemplateList {
+    return (this._templateList ??= new TemplateList({ client: this.client }))
+  }
+
+  private _templateDetail?: TemplateDetail
+  get templateDetail(): TemplateDetail {
+    return (this._templateDetail ??= new TemplateDetail({ client: this.client }))
+  }
+
+  private _templateUserSearch?: TemplateUserSearch
+  get templateUserSearch(): TemplateUserSearch {
+    return (this._templateUserSearch ??= new TemplateUserSearch({ client: this.client }))
   }
 
   private _generations?: Generations
@@ -6352,6 +7188,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._part ??= new Part({ client: this.client }))
   }
 
+  private _sessionGroup?: SessionGroup
+  get sessionGroup(): SessionGroup {
+    return (this._sessionGroup ??= new SessionGroup({ client: this.client }))
+  }
+
   private _sync?: Sync
   get sync(): Sync {
     return (this._sync ??= new Sync({ client: this.client }))
@@ -6367,9 +7208,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._tui ??= new Tui({ client: this.client }))
   }
 
-  private _studio?: Studio
-  get studio(): Studio {
-    return (this._studio ??= new Studio({ client: this.client }))
+  private _studio?: Studio2
+  get studio(): Studio2 {
+    return (this._studio ??= new Studio2({ client: this.client }))
   }
 
   private _insight?: Insight

@@ -14,6 +14,10 @@ import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { useLocal } from "@/context/local"
+import { showInsightNotice } from "@/pages/insight/components/insight-notice"
+import { validateFileForExternal } from "@/pages/insight/lib/upload"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { tracker } from "@/utils/tracker"
 import {
   createArtifactFileStore,
@@ -48,10 +52,21 @@ import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile, IconRefresh } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
+import { getDesktopApi } from "../../lib/electron-api"
+import { dirname, basename, joinPath } from "../../utils/references"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
   const capitalized = kind.charAt(0).toUpperCase() + kind.slice(1)
   return `designFiles.kind${capitalized}`
+}
+
+async function deletePanelStateFile(htmlPath: string): Promise<void> {
+  const api = getDesktopApi()
+  if (!api?.deleteFile) return
+  try {
+    const statePath = joinPath(dirname(htmlPath), '.' + basename(htmlPath) + '.panel-state.json')
+    await api.deleteFile(statePath)
+  } catch { /* silent — don't block deletion */ }
 }
 
 const modifiedSectionToI18nKey = (section: ModifiedSection): string => {
@@ -85,6 +100,7 @@ interface Props {
 export function DesignFilesPanel(props: Props): JSX.Element {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
+  const local = useLocal()
   const dialog = useDialog()
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
@@ -92,6 +108,25 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
+
+  // 外网模型上传风险确认:点击「上传」或拖入文件时,若当前模型为外网(isExternal),先弹风险提示弹框,
+  // 确认后才执行上传。内网模型不拦截。
+  const { request, gate } = useUploadRiskGate()
+  const requestUploadFile = () => request(() => fileInputRef?.click())
+  const requestUploadFolder = () => request(() => folderInputRef?.click())
+
+  const isExternal = createMemo(() => !!local.model.current()?.isExternal)
+
+  // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+  function checkExternalFile(file: File): boolean {
+    if (!local.model.current()?.isExternal) return true
+    const err = validateFileForExternal(file)
+    if (err) {
+      showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
+      return false
+    }
+    return true
+  }
 
   const PREVIEW_MIN = 150
   const LIST_MIN = 390
@@ -229,6 +264,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const doDelete = async (file: ArtifactFile) => {
     try {
       await deleteArtifactFile(globalSDK.url, sdk.directory, file.path)
+      void deletePanelStateFile(file.path)
       fileStore.deleteFile(file.path)
 
       const previewFile = fileStore.previewFile()
@@ -280,6 +316,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     try {
       const result = await deleteArtifactBatch(globalSDK.url, sdk.directory, paths)
       for (const path of paths) {
+        void deletePanelStateFile(path)
         fileStore.deleteFile(path)
       }
       fileStore.clearSelection()
@@ -315,6 +352,21 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       tracker.interaction({ module: "design", name: "files-batch-download", extend: JSON.stringify({ count: files.length }) })
     } catch (err) {
       showOctoToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  async function handleFolderDownload(file: ArtifactFile) {
+    try {
+      const blob = await archiveArtifacts(globalSDK.url, sdk.directory, [file.path])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${file.name}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      tracker.interaction({ module: "design", name: "files-download-folder" })
+    } catch (err) {
+      showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -371,6 +423,8 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   const handleUpload = async (files: FileList) => {
+    const filtered = Array.from(files).filter(checkExternalFile)
+    if (filtered.length === 0) return
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
@@ -381,7 +435,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     ) {
       let okCount = 0
       let failedCount = 0
-      for (const file of Array.from(files)) {
+      for (const file of filtered) {
         let srcPath = ""
         try {
           srcPath = desktopApi.getPathForFile(file)
@@ -412,7 +466,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       return
     }
 
-    for (const file of Array.from(files)) {
+    for (const file of filtered) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
         const base64 = ev.target?.result as string
@@ -462,16 +516,24 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const items = e.dataTransfer?.items
     if (items) {
       const entries: FileSystemEntry[] = []
+      let hasDir = false
       for (const item of Array.from(items)) {
         if (item.kind === "file") {
           const entry = (item as any).webkitGetAsEntry?.() as FileSystemEntry | null
-          if (entry) entries.push(entry)
+          if (entry) {
+            if (entry.isDirectory) hasDir = true
+            entries.push(entry)
+          }
         }
       }
-      void processEntries(entries)
+      if (hasDir && isExternal()) {
+        showInsightNotice("info", "外网模型不支持上传文件夹，请逐个上传文件")
+        if (entries.length === 0) return
+      }
+      request(() => void processEntries(entries))
     } else {
       const files = e.dataTransfer?.files
-      if (files && files.length > 0) handleUpload(files)
+      if (files && files.length > 0) request(() => handleUpload(files))
     }
   }
 
@@ -493,6 +555,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
         const file = await getFileFromEntry(entry as FileSystemFileEntry)
+        if (!checkExternalFile(file)) return
         const relativePath = entry.fullPath.slice(1 + folderName.length)
         const base64 = await readFileAsBase64(file)
         fileEntries.push({ relativePath, content: base64 })
@@ -537,6 +600,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   async function uploadSingleFile(file: File) {
+    if (!checkExternalFile(file)) return
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
@@ -614,6 +678,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleFolderUpload = async (files: FileList) => {
     if (!files || files.length === 0) return
+    if (isExternal()) {
+      showInsightNotice("info", "外网模型不支持上传文件夹，请逐个上传文件")
+      return
+    }
 
     const firstFile = files[0]
     const folderName = firstFile.webkitRelativePath?.split("/")[0]
@@ -625,7 +693,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const fileEntries: FolderUploadFile[] = []
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
 
-    for (const file of Array.from(files)) {
+    for (const file of Array.from(files).filter(checkExternalFile)) {
       const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
       const reader = new FileReader()
       const base64 = await new Promise<string>((resolve) => {
@@ -674,9 +742,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       <Show when={showHeader()}>
         <DesignFilesToolbar
           fileStore={fileStore}
+          isExternal={isExternal}
           onRefresh={refresh}
-          onUploadFile={() => fileInputRef?.click()}
-          onUploadFolder={() => folderInputRef?.click()}
+          onUploadFile={requestUploadFile}
+          onUploadFolder={requestUploadFolder}
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
         />
@@ -820,24 +889,26 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
                     style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
                   >
+                    <Show when={!isExternal()}>
+                      <button
+                        type="button"
+                        onClick={() => { requestUploadFolder(); setEmptyUploadOpen(false) }}
+                        class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                        style={{
+                          height: "36px",
+                          "border-radius": "6px",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "#191919",
+                        }}
+                      >
+                        <IconFolder size={16} />
+                        <span>{language.t("designFiles.uploadFolder")}</span>
+                      </button>
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
-                      style={{
-                        height: "36px",
-                        "border-radius": "6px",
-                        "font-size": "14px",
-                        "line-height": "22px",
-                        color: "#191919",
-                      }}
-                    >
-                      <IconFolder size={16} />
-                      <span>{language.t("designFiles.uploadFolder")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      onClick={() => { requestUploadFile(); setEmptyUploadOpen(false) }}
                       class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
                       style={{
                         height: "36px",
@@ -883,24 +954,26 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
                     style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
                   >
+                    <Show when={!isExternal()}>
+                      <button
+                        type="button"
+                        onClick={() => { requestUploadFolder(); setEmptyUploadOpen(false) }}
+                        class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                        style={{
+                          height: "36px",
+                          "border-radius": "6px",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "#191919",
+                        }}
+                      >
+                        <IconFolder size={16} />
+                        <span>{language.t("designFiles.uploadFolder")}</span>
+                      </button>
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
-                      style={{
-                        height: "36px",
-                        "border-radius": "6px",
-                        "font-size": "14px",
-                        "line-height": "22px",
-                        color: "#191919",
-                      }}
-                    >
-                      <IconFolder size={16} />
-                      <span>{language.t("designFiles.uploadFolder")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      onClick={() => { requestUploadFile(); setEmptyUploadOpen(false) }}
                       class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
                       style={{
                         height: "36px",
@@ -1003,6 +1076,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
                       onDownload={handleDownload}
+                      onFolderDownload={handleFolderDownload}
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
@@ -1029,6 +1103,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpen={handleOpenFile}
 onDelete={handleDelete}
                       onDownload={handleDownload}
+                      onFolderDownload={handleFolderDownload}
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
@@ -1050,6 +1125,7 @@ onDelete={handleDelete}
                     onOpen={handleOpenFile}
                     onDelete={fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
                     onDownload={handleDownload}
+                    onFolderDownload={handleFolderDownload}
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
@@ -1084,6 +1160,7 @@ onDelete={handleDelete}
           )}
         </Show>
       </div>
+      {gate}
     </div>
   )
 }
@@ -1128,6 +1205,7 @@ function KindGroupRows(props: {
   onOpen: (file: ArtifactFile) => void
   onDelete?: (file: ArtifactFile) => void
   onDownload?: (file: ArtifactFile) => void
+  onFolderDownload?: (file: ArtifactFile) => void
   onOpenInExplorer: (file: ArtifactFile) => void
   onNavigateFolder?: (folder: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
@@ -1164,7 +1242,7 @@ function KindGroupRows(props: {
                       onPreview={() => props.onPreview(file)}
                       onOpen={() => props.onOpen(file)}
                       onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onDownload={file.isFolder ? (props.onFolderDownload ? () => props.onFolderDownload!(file) : undefined) : () => props.onDownload?.(file)}
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
@@ -1201,7 +1279,7 @@ function KindGroupRows(props: {
                       onPreview={() => props.onPreview(file)}
                       onOpen={() => props.onOpen(file)}
                       onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onDownload={file.isFolder ? (props.onFolderDownload ? () => props.onFolderDownload!(file) : undefined) : () => props.onDownload?.(file)}
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}

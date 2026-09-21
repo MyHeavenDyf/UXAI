@@ -1,6 +1,7 @@
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { directoryHeader } from "@/utils/headers"
 import { extractSubtypeFromFilename } from "./subtype-extractor"
+import { isCodeFile } from "./code-highlight"
 
 export type ArtifactFileKind =
   | "folder"
@@ -63,7 +64,14 @@ export async function fetchArtifactList(
   if (!response.ok) {
     throw new Error(`Failed to list artifacts: ${response.statusText}`)
   }
-  return response.json()
+  const data: ArtifactListResponse = await response.json()
+  for (const file of data.files) {
+    if (file.isFolder) continue
+    if ((file.kind === "binary" || file.kind === "document") && isCodeFile(file.name)) {
+      file.kind = "code"
+    }
+  }
+  return data
 }
 
 export async function fetchArtifactContent(

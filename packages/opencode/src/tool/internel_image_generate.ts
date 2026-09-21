@@ -11,6 +11,7 @@ import type {
   StudioCapability,
 } from "@/studio/image-provider"
 import { Instance } from "@/project/instance"
+import * as Log from "@opencode-ai/core/util/log"
 
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
@@ -36,7 +37,7 @@ type InternalImageEndpointPreset = {
 }
 type InternalTaskType = "txt2img" | "img2img"
 type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
-type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
+type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9" | "21:9"
 type InternalStyleConfig = {
   taskType: string
   tagName: string
@@ -54,6 +55,14 @@ type InternalStyleConfig = {
     weight: number | string
   }>
   mode: string
+}
+
+const log = Log.create({ service: "studio.permission" })
+
+function permissionUIDHash(value: string) {
+  return Array.from(value)
+    .reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16_777_619) >>> 0, 2_166_136_261)
+    .toString(16)
 }
 
 /*
@@ -177,6 +186,7 @@ type QueryTaskResponse = {
     status?: number
     order?: number
     progress?: number
+    error_message?: unknown
     results?: string[]
     results_clean_bg?: string[]
     results_v2?: Array<{
@@ -328,42 +338,83 @@ export async function fetchPromptTags(): Promise<unknown> {
   return parseJson(text)
 }
 
-export async function checkStudioPermission(userIdx?: string): Promise<unknown> {
+export type StudioPermissionTiming = {
+  vendorDurationMs: number
+  totalDurationMs: number
+}
+
+export function studioPermissionServerTiming(timing: StudioPermissionTiming | undefined, handlerDurationMs: number) {
+  return [
+    timing ? `vendor;dur=${timing.vendorDurationMs}` : undefined,
+    `handler;dur=${Math.round(handlerDurationMs)}`,
+  ].filter((item): item is string => item !== undefined).join(", ")
+}
+
+export async function checkStudioPermission(
+  userIdx?: string,
+  onTiming?: (timing: StudioPermissionTiming) => void,
+): Promise<unknown> {
   const url = env("IMAGE_CHECK_PERMISSION_URL") ?? DEFAULT_CHECK_PERMISSION_URL
   if (!url) {
-    console.warn("[studio.permission] skipped: configure DEFAULT_CHECK_PERMISSION_URL or IMAGE_CHECK_PERMISSION_URL")
+    log.warn("permission check skipped", { reason: "permission URL is not configured" })
     return { skipped: true }
   }
-  const response = await fetch(url, {
-    method: METHOD,
-    headers: internalImageHeaders(),
-    body: JSON.stringify({
-      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
-      uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
-    }),
-  }).catch((error) => {
-    throw new Error(
-      [
-        "check_permission network failed.",
-        `url=${url}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
-  })
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(
-      [
-        "check_permission failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
+  const uid = userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
+  const requestID = crypto.randomUUID()
+  const routeStartedAt = performance.now()
+  const timing: { vendorDurationMs: number } = { vendorDurationMs: 0 }
+  log.info("route_enter", { requestID, uidHash: permissionUIDHash(uid) })
+
+  try {
+    const vendorStartedAt = performance.now()
+    log.info("vendor_start", { requestID })
+    try {
+      const response = await fetch(url, {
+        method: METHOD,
+        headers: internalImageHeaders(),
+        body: JSON.stringify({
+          checkPermList: ["view:keling_entry", "view:jimeng_entry"],
+          uid,
+        }),
+      }).catch((error) => {
+        throw new Error(
+          [
+            "check_permission network failed.",
+            `url=${url}`,
+            `error=${describeError(error)}`,
+          ].join("\n"),
+        )
+      })
+      const text = await response.text()
+      if (!response.ok) {
+        throw new Error(
+          [
+            "check_permission failed.",
+            `status=${response.status}`,
+            `statusText=${response.statusText}`,
+            `body=${text}`,
+          ].join("\n"),
+        )
+      }
+      return parseJson(text)
+    } finally {
+      timing.vendorDurationMs = Math.round(performance.now() - vendorStartedAt)
+      log.info("vendor_end", {
+        requestID,
+        vendorDurationMs: timing.vendorDurationMs,
+      })
+    }
+  } finally {
+    const totalDurationMs = Math.round(performance.now() - routeStartedAt)
+    onTiming?.({
+      vendorDurationMs: timing.vendorDurationMs,
+      totalDurationMs,
+    })
+    log.info("route_end", {
+      requestID,
+      totalDurationMs,
+    })
   }
-  const result = parseJson(text)
-  console.log("[studio.permission] response", result)
-  return result
 }
 
 export async function generatePromptFromImage(input: { base64img: string }): Promise<PromptGenResponse> {
@@ -710,6 +761,12 @@ function isSuccessResponse(response: QueryTaskResponse): boolean {
 function isFailureResponse(response: QueryTaskResponse): boolean {
   const status = Number(getTaskStatus(response))
   return ![0, 1, 2, 6].includes(status)
+}
+
+export function queryTaskFailureMessage(response: QueryTaskResponse) {
+  const message = response.result?.error_message
+  if (typeof message === "string" && message.trim()) return message.trim()
+  return "生成任务失败"
 }
 
 function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery["status"] {
@@ -1169,7 +1226,7 @@ function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | un
     input.aspectRatio ??
     (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
     input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
-  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"].includes(value ?? "")) return value as StudioAspectRatio
+  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].includes(value ?? "")) return value as StudioAspectRatio
   return undefined
 }
 
@@ -1233,6 +1290,7 @@ export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioA
 }
 
 function buildPrompt(input: ImageGenerateInput) {
+  if (buildTemplateArgs(input)) return input.prompt
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
       ? input.extra.conversationContext.trim()
@@ -1247,6 +1305,18 @@ function buildPrompt(input: ImageGenerateInput) {
   ]
     .filter((item): item is string => Boolean(item))
     .join("\n")
+}
+
+function buildTemplateArgs(input: ImageGenerateInput) {
+  const template = input.extra?.template
+  if (!template || typeof template !== "object" || Array.isArray(template)) return
+  const record = template as JsonRecord
+  if (typeof record.id !== "string" && typeof record.id !== "number") return
+  if (!record.prompt || typeof record.prompt !== "object" || Array.isArray(record.prompt)) return
+  return {
+    id: record.id,
+    prompt: record.prompt as JsonRecord,
+  }
 }
 
 export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
@@ -1322,6 +1392,7 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
 }
 
 async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const template = buildTemplateArgs(input)
   const refImgList = (await Promise.all(
     (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
   ))
@@ -1347,6 +1418,7 @@ async function buildTextToImageRequestBody(input: ImageGenerateInput, context: I
       ref_img_list: refImgList,
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),
+      ...(template ? { template } : {}),
     },
   }
 }
@@ -1404,9 +1476,15 @@ function getVideoMode(input: ImageGenerateInput) {
   return value === "pro" ? "pro" : "std"
 }
 
+function getVideoResolution(input: ImageGenerateInput) {
+  const value = extraString(input, "resolution")
+  if (value === "480p" || value === "720p" || value === "1080p" || value === "4k") return value
+  return "480p"
+}
+
 function getVideoAspectRatio(input: ImageGenerateInput) {
   const aspectRatio = getStudioAspectRatio(input)
-  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9") return aspectRatio
+  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9" || aspectRatio === "21:9" || aspectRatio === "4:3" || aspectRatio === "3:4") return aspectRatio
   return "16:9"
 }
 
@@ -1432,6 +1510,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     duration: getVideoDuration(input),
     count: getStudioCount(input),
     mode: getVideoMode(input),
+    resolution: getVideoResolution(input),
   }
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")
@@ -1746,6 +1825,7 @@ export async function queryInternalGeneration(task: ImageGenerationTask): Promis
     rawStatus: getTaskStatus(queryJson),
     progress: getTaskProgress(queryJson),
     order: getTaskOrder(queryJson),
+    error: status === "failed" ? queryTaskFailureMessage(queryJson) : undefined,
     images: [
       ...images.map((url) => ({ kind: "image" as const, url })),
       ...videos.map((url) => ({ kind: "video" as const, url })),
@@ -1767,15 +1847,13 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     if (query.status === "succeeded") return query
 
     if (query.status === "failed") {
-      throw new Error(
-        [
-          "query_task returned failure.",
-          `taskId=${task.taskId}`,
-          `status=${query.rawStatus}`,
-          `progress=${query.progress}`,
-          `response=${JSON.stringify(query.raw, null, 2)}`,
-        ].join("\n"),
-      )
+      console.error("[studio.internel] query_task returned failure", {
+        taskId: task.taskId,
+        status: query.rawStatus,
+        progress: query.progress,
+        response: query.raw,
+      })
+      throw new Error(query.error ?? "生成任务失败")
     }
 
     if (i < maxPollCount) {

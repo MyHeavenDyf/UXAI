@@ -47,3 +47,18 @@ registerCustomBridge('shadcn-component-editor', {
   `,
   position: 'body'
 })
+
+registerCustomBridge('components-theme', {
+  script: `
+(function() {
+  console.log('[ComponentsTheme] Loaded')
+  window.parent.postMessage({ type: 'od:components-theme-loaded' }, '*')
+  window.addEventListener('message', function(e) {
+    var d = e && e.data
+    if (!d || d.type !== 'od:toggle-theme') return
+    document.documentElement.classList.toggle('dark')
+  })
+})()
+  `,
+  position: 'body'
+})

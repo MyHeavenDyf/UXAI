@@ -19,7 +19,7 @@ import { type ToolDefinition } from "./tool.js"
 export * from "./tool.js"
 
 export type ProviderContext = {
-  source: "env" | "config" | "custom" | "api"
+  source: "env" | "config" | "custom" | "api" | "remote"
   info: Provider
   options: Record<string, any>
 }
@@ -88,7 +88,7 @@ type Rule = {
 
 export type AuthHook = {
   provider: string
-  loader?: (auth: () => Promise<Auth>, provider: Provider) => Promise<Record<string, any>>
+  loader?: (auth: () => Promise<Auth>, provider: ProviderV2) => Promise<Record<string, any>>
   methods: (
     | {
         type: "oauth"

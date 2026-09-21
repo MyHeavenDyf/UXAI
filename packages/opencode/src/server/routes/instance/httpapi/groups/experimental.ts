@@ -58,10 +58,13 @@ export const SessionListQuery = Schema.Struct({
   directory: Schema.optional(Schema.String),
   roots: Schema.optional(QueryBoolean),
   start: Schema.optional(Schema.NumberFromString),
-  cursor: Schema.optional(Schema.NumberFromString),
+  cursor: Schema.optional(Schema.String),
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
+  pinned: Schema.optional(QueryBoolean),
+  grouped: Schema.optional(QueryBoolean),
   archived: Schema.optional(QueryBoolean),
+  agent: Schema.optional(Schema.String),
 })
 
 export const ExperimentalPaths = {

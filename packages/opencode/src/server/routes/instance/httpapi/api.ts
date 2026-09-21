@@ -18,11 +18,13 @@ import { ProviderApi } from "./groups/provider"
 import { PtyApi, PtyConnectApi } from "./groups/pty"
 import { QuestionApi } from "./groups/question"
 import { SessionApi } from "./groups/session"
+import { SessionGroupApi } from "./groups/session-group"
 import { SyncApi } from "./groups/sync"
 import { TuiApi } from "./groups/tui"
 import { WorkspaceApi } from "./groups/workspace"
 import { V2Api } from "./groups/v2"
 import { StudioApi } from "./groups/studio"
+import { StudioGlobalApi } from "./groups/studio-global"
 import { InsightApi } from "./groups/insight"
 
 // SSE event schemas built from the same BusEvent/SyncEvent registries that
@@ -30,7 +32,10 @@ import { InsightApi } from "./groups/insight"
 const EventSchema = Schema.Union(BusEvent.effectPayloads()).annotate({ identifier: "Event" })
 const SyncEventSchemas = SyncEvent.effectPayloads()
 
-export const RootHttpApi = HttpApi.make("opencode-root").addHttpApi(ControlApi).addHttpApi(GlobalApi)
+export const RootHttpApi = HttpApi.make("opencode-root")
+  .addHttpApi(ControlApi)
+  .addHttpApi(GlobalApi)
+  .addHttpApi(StudioGlobalApi)
 
 export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(ArtifactApi)
@@ -46,6 +51,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(PermissionApi)
   .addHttpApi(ProviderApi)
   .addHttpApi(SessionApi)
+  .addHttpApi(SessionGroupApi)
   .addHttpApi(SyncApi)
   .addHttpApi(V2Api)
   .addHttpApi(TuiApi)

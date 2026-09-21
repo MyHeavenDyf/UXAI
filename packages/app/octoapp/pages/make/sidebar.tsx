@@ -1,50 +1,69 @@
-import { createEffect, createSignal } from "solid-js"
-import { useLocation } from "@solidjs/router"
-import { Icon } from "@opencode-ai/ui/icon"
-import { useGlobalSync } from "@/context/global-sync"
-import { useProjectDir } from "@/hooks/use-project-dir"
-import { AgentSidebar } from "@/components/agent-sidebar"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { GroupedSidebar } from "@/components/grouped-sidebar"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
+const PAGE_SIZE = 30
+
 export function MakeSidebar() {
-  const location = useLocation()
-  const globalSync = useGlobalSync()
-  const projectDir = useProjectDir()
+  const globalSDK = useGlobalSDK()
 
-  const [resolvedDir, setResolvedDir] = createSignal<string>()
+  const fetchSessionPage = async (dir: string, cursor?: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      limit: PAGE_SIZE,
+      cursor,
+      agent: "octo_make",
+    })
+    const sessions = (result.data ?? []) as Session[]
+    const next = result.response.headers.get("x-next-cursor")
+    return { sessions, nextCursor: next ?? undefined }
+  }
 
-  createEffect(() => {
-    const d = projectDir()
-    if (d) setResolvedDir(d)
-  })
+  const fetchPinnedSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      pinned: true,
+      agent: "octo_make",
+    })
+    return (result.data ?? []) as Session[]
+  }
 
-  createEffect(() => {
-    if (!globalSync.data.ready) {
-      const d = projectDir()
-      if (d) setResolvedDir(d)
-    }
-  })
+  const fetchGroupSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      grouped: "true",
+      agent: "octo_make",
+      limit: 9999,
+    })
+    return (result.data ?? []) as Session[]
+  }
+
+  const fetchSessionById = async (dir: string, sessionID: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.get({ sessionID, directory: dir })
+    return (result.data as Session | undefined) ?? null
+  }
 
   return (
-    <AgentSidebar
-      directory={resolvedDir()}
+    <GroupedSidebar
+      namespace="make"
+      routePrefix="/make"
       agentFilter="octo_make"
+      fetchSessionPage={fetchSessionPage}
+      fetchPinnedSessions={fetchPinnedSessions}
+      fetchGroupSessions={fetchGroupSessions}
+      fetchSessionById={fetchSessionById}
       buildSessionRoute={(s: Session) => `/make/${s.id}`}
       buildNewRoute={() => "/make"}
       buildDeleteFallback={() => "/make"}
-      activeSessionId={() => {
-        const m = location.pathname.match(/^\/make\/(.+)$/)
-        return m?.[1]
-      }}
-      sectionTitle="Octo Design"
-      sectionIcon={() => (
-        <span style={{ "--icon-base": "#0a59f7", display: "inline-flex" }}>
-          <Icon name="tab-make" size="normal" />
-        </span>
-      )}
+      sectionTitle="最近"
       newButtonText="新建对话"
       trackerModule="design"
       sidebarSourceKey="make"
+      inlineBeforeSection
     />
   )
 }

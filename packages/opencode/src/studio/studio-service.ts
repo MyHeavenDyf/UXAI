@@ -8,6 +8,27 @@ import {
   summarizeInternalOutput,
   type PromptGenResponse,
 } from "@/tool/internel_image_generate"
+import {
+  deleteInternalStyleTemplate,
+  generateStyleDescriptionStream,
+  getInternalStyleTemplate,
+  listInternalStyleTemplates,
+  publishInternalStyleTemplate,
+  searchInternalStyleTemplateUsers,
+  updateInternalStyleTemplate,
+  type StyleDescriptionGenRequest,
+  type StyleDescriptionGenStreamEvent,
+  type StyleTemplateDetailRequest,
+  type StyleTemplateDeleteRequest,
+  type StyleTemplateListRequest,
+  type StyleTemplateListItem,
+  type StyleTemplateListResult,
+  type StyleTemplatePublishRequest,
+  type StyleTemplateUpdatePayload,
+  type StyleTemplateUpdateRequest,
+  type StyleTemplateUserSearchItem,
+  type StyleTemplateUserSearchRequest,
+} from "@/tool/internel_style_template"
 import z from "zod"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
@@ -44,14 +65,13 @@ export type StudioPromptRefineResult = {
   assistantText: string
   refinedPrompt: string
   effectivePrompt: string
-  detailTitle: string
   fallback?: boolean
   raw?: unknown
 }
 type StudioPromptRefineModelCandidate = {
   providerID: ProviderID
   modelID: ModelID
-  source: "session" | "connected" | "default"
+  source: "small" | "session" | "connected" | "default"
 }
 
 type StudioGenerationPromptInput = StudioGenerationRequest & {
@@ -89,11 +109,7 @@ export type StudioGenerationRequest = {
   extra?: Record<string, unknown>
 }
 
-export type StudioEditorCapability =
-  | "image.upscale"
-  | "image.cutout"
-  | "image.inpaint"
-  | "image.outpaint"
+export type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 
 export type StudioEditorEntryRequest = {
   sessionID: string
@@ -110,6 +126,19 @@ export type StudioEditorEntryResult = {
 export type StudioPromptGenRequest = {
   base64img: string
 }
+
+export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
+export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
+export type StudioTemplatePublishRequest = StyleTemplatePublishRequest
+export type StudioTemplateUpdatePayload = StyleTemplateUpdatePayload
+export type StudioTemplateUpdateRequest = StyleTemplateUpdateRequest
+export type StudioTemplateDeleteRequest = StyleTemplateDeleteRequest
+export type StudioTemplateListRequest = StyleTemplateListRequest
+export type StudioTemplateDetailRequest = StyleTemplateDetailRequest
+export type StudioTemplateListItem = StyleTemplateListItem
+export type StudioTemplateListResult = StyleTemplateListResult
+export type StudioTemplateUserSearchItem = StyleTemplateUserSearchItem
+export type StudioTemplateUserSearchRequest = StyleTemplateUserSearchRequest
 
 export type StudioGenerationResult = {
   id: string
@@ -128,8 +157,17 @@ export type StudioGenerationResult = {
   aspectRatio: string
   videoMode?: "text" | "first_last_frame"
   duration?: string
-  videoQualityMode?: "std" | "pro"
-  images: { id: string; kind?: "image" | "video"; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number; duration?: number }[]
+  videoQualityMode?: "480" | "720" | "1080" | "4k"
+  images: {
+    id: string
+    kind?: "image" | "video"
+    url: string
+    thumbnailUrl?: string
+    remoteUrl?: string
+    width?: number
+    height?: number
+    duration?: number
+  }[]
   request?: unknown
   response?: unknown
   rawBody?: string
@@ -153,9 +191,63 @@ export async function createPromptGen(input: StudioPromptGenRequest): Promise<Pr
   return result
 }
 
+export async function createStyleDescriptionGenStream(
+  input: StudioStyleDescriptionGenRequest,
+  handlers: {
+    onEvent: (event: StudioStyleDescriptionGenStreamEvent) => void | Promise<void>
+    signal?: AbortSignal
+  },
+) {
+  await generateStyleDescriptionStream(input, handlers)
+}
+
+export async function publishTemplate(input: StudioTemplatePublishRequest): Promise<unknown> {
+  return publishInternalStyleTemplate(input)
+}
+
+export async function updateTemplate(input: StudioTemplateUpdateRequest): Promise<unknown> {
+  return updateInternalStyleTemplate(input)
+}
+
+export async function deleteTemplate(input: StudioTemplateDeleteRequest): Promise<unknown> {
+  return deleteInternalStyleTemplate(input)
+}
+
+export async function listTemplates(input: StudioTemplateListRequest): Promise<StudioTemplateListResult> {
+  return listInternalStyleTemplates(input)
+}
+
+export async function getTemplateDetail(input: StudioTemplateDetailRequest): Promise<StudioTemplateListItem> {
+  return getInternalStyleTemplate(input)
+}
+
+export async function searchTemplateUsers(
+  input: StudioTemplateUserSearchRequest,
+): Promise<StudioTemplateUserSearchItem[]> {
+  return searchInternalStyleTemplateUsers(input)
+}
+
 export type StudioGenerationAccepted = Pick<
   StudioGenerationResult,
-  "id" | "status" | "capability" | "prompt" | "displayPrompt" | "detailPrompt" | "detailTitle" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
+  | "id"
+  | "status"
+  | "capability"
+  | "prompt"
+  | "displayPrompt"
+  | "detailPrompt"
+  | "detailTitle"
+  | "provider"
+  | "model"
+  | "aspectRatio"
+  | "taskId"
+  | "images"
+  | "progress"
+  | "order"
+  | "rawStatus"
+  | "error"
+  | "createdAt"
+  | "updatedAt"
+  | "completedAt"
 > & {
   sessionID: string
 }
@@ -193,25 +285,27 @@ function videoDuration(input: StudioGenerationRequest) {
   return Number.isInteger(n) && n >= 4 && n <= 15 ? value : "5"
 }
 
-function videoQualityMode(input: StudioGenerationRequest) {
-  const value = input.extra?.mode
-  return value === "pro" ? "pro" : "std"
+function videoQualityMode(input: StudioGenerationRequest): "480" | "720" | "1080" | "4k" {
+  const value = input.extra?.resolution
+  if (value === "480p") return "480"
+  if (value === "720p") return "720"
+  if (value === "1080p") return "1080"
+  if (value === "4k") return "4k"
+  return "480"
 }
 
 function isEditorGenerationCapability(capability: StudioCapability) {
-  return capability === "image.upscale" ||
+  return (
+    capability === "image.upscale" ||
     capability === "image.cutout" ||
     capability === "image.inpaint" ||
     capability === "image.outpaint"
+  )
 }
 
 function buildAssistantText(input: StudioGenerationRequest) {
   if (input.capability === "video.generate") {
-    return [
-      `我将为您创作${input.prompt}。`,
-      input.aspectRatio ? `画幅比例设为 ${input.aspectRatio}` : undefined,
-      "。",
-    ]
+    return [`我将为您创作${input.prompt}。`, input.aspectRatio ? `画幅比例设为 ${input.aspectRatio}` : undefined, "。"]
       .filter((item): item is string => Boolean(item))
       .join("")
   }
@@ -246,7 +340,6 @@ function submittingPromptRefine(input: StudioGenerationRequest): StudioPromptRef
     assistantText: buildSubmittingAssistantText(input),
     refinedPrompt: prompt,
     effectivePrompt: prompt,
-    detailTitle: resolveDetailTitle(input),
   }
 }
 
@@ -328,11 +421,7 @@ function shouldRefineWithLLM(input: StudioGenerationRequest) {
 function shouldPassthroughReferenceImagePrompt(input: StudioGenerationRequest) {
   if (input.capability === "image.generate") return (input.referenceImages?.length ?? 0) > 0
   if (input.capability !== "video.generate") return false
-  return Boolean(
-    input.extra?.firstFrame ||
-      input.extra?.lastFrame ||
-      (input.referenceImages?.length ?? 0) > 0,
-  )
+  return Boolean(input.extra?.firstFrame || input.extra?.lastFrame || (input.referenceImages?.length ?? 0) > 0)
 }
 
 function shouldPassthroughEditorPrompt(input: StudioGenerationRequest) {
@@ -340,10 +429,12 @@ function shouldPassthroughEditorPrompt(input: StudioGenerationRequest) {
 }
 
 function previousEffectivePrompt(previous?: StudioGenerationRecord) {
-  const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
-  return previousRequest?.effectivePrompt?.trim() ||
+  const previousRequest = previous ? (generationRequest(previous).input as StudioGenerationPromptInput) : undefined
+  return (
+    previousRequest?.effectivePrompt?.trim() ||
     previousRequest?.refinedPrompt?.trim() ||
     previousRequest?.prompt?.trim()
+  )
 }
 
 function buildEffectivePromptFromPrevious(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
@@ -358,39 +449,43 @@ function promptPassthroughRefine(input: StudioGenerationRequest): StudioPromptRe
     assistantText: buildSubmittingAssistantText(input),
     refinedPrompt: prompt,
     effectivePrompt: prompt,
-    detailTitle: resolveDetailTitle(input),
     fallback: true,
   }
 }
 
-function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioGenerationRecord): StudioPromptRefineResult {
+function promptRefineFallback(
+  input: StudioGenerationRequest,
+  previous?: StudioGenerationRecord,
+): StudioPromptRefineResult {
   const regenerateText = input.displayPrompt?.trim() === "再次生成"
   const restoredPrompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim()
-  const effectivePrompt = restoredPrompt || (regenerateText ? input.prompt : buildEffectivePromptFromPrevious(input, previous))
+  const effectivePrompt =
+    restoredPrompt || (regenerateText ? input.prompt : buildEffectivePromptFromPrevious(input, previous))
   return {
     assistantText: regenerateText
       ? "好的，我会按当前结果的配置重新生成。"
       : shouldRefineWithLLM(input)
-      ? input.capability === "video.generate"
-        ? "好的，我会根据你的描述创作视频。"
-        : input.sourceImage
-          ? "好的，我会基于当前画面继续创作。"
-          : "好的，我会根据你的描述创作画面。"
-      : buildAssistantText(input),
+        ? input.capability === "video.generate"
+          ? "好的，我会根据你的描述创作视频。"
+          : input.sourceImage
+            ? "好的，我会基于当前画面继续创作。"
+            : "好的，我会根据你的描述创作画面。"
+        : buildSubmittingAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
-    detailTitle: resolveDetailTitle(input),
     fallback: true,
   }
 }
 
 function isStudioPromptConnectedProvider(provider: Provider.Info, disabledProviders: Set<string>) {
   if (provider.id !== "w3" && disabledProviders.has(provider.id)) return false
-  return provider.id === "w3" ||
+  return (
+    provider.id === "w3" ||
     Boolean(provider.key) ||
     provider.source === "env" ||
     provider.source === "api" ||
     Boolean((provider.options as Record<string, unknown>)?.apiKey)
+  )
 }
 
 function studioPromptRefineModelKey(input: { providerID: string; modelID: string }) {
@@ -452,19 +547,56 @@ function sessionPromptRefineModel(
   }
 }
 
-const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel")(function* (
+const selectStudioSmallModel = Effect.fn("Studio.selectSmallModel")(function* (
+  provider: Provider.Interface,
+  session: typeof SessionTable.$inferSelect,
+  providers: Record<string, Provider.Info>,
+  disabledProviders: Set<string>,
+  enabledModels?: Set<string>,
+) {
+  const providerIDs = [
+    ...(session.model ? [session.model.providerID] : []),
+    ...Object.values(providers)
+      .filter((item) => isStudioPromptConnectedProvider(item, disabledProviders))
+      .map((item) => item.id),
+  ].filter((item, index, items) => items.indexOf(item) === index)
+  const seen = new Set<string>()
+  for (const providerID of providerIDs) {
+    const candidate = yield* provider.getSmallModel(ProviderID.make(providerID)).pipe(Effect.option)
+    if (candidate._tag !== "Some") continue
+    const model = candidate.value
+    if (!model) continue
+    const key = studioPromptRefineModelKey({ providerID: model.providerID, modelID: model.id })
+    if (seen.has(key)) continue
+    seen.add(key)
+    const selectedProvider = providers[model.providerID]
+    if (!selectedProvider || !isStudioPromptConnectedProvider(selectedProvider, disabledProviders)) continue
+    if (!isStudioPromptRefineModelEnabled(model.providerID, model.id, enabledModels)) continue
+    return {
+      providerID: model.providerID,
+      modelID: model.id,
+      source: "small" as const,
+    }
+  }
+})
+
+const selectStudioTextModel = Effect.fn("Studio.selectTextModel")(function* (
   provider: Provider.Interface,
   session: typeof SessionTable.$inferSelect,
   disabledProviders: Set<string>,
   enabledModels?: Set<string>,
 ) {
+  const providers = yield* provider.list()
+  const smallModel = yield* selectStudioSmallModel(provider, session, providers, disabledProviders, enabledModels)
+  if (smallModel) return smallModel
+
   const sessionModel = sessionPromptRefineModel(session, enabledModels)
   if (sessionModel) {
     const resolved = yield* provider.getModel(sessionModel.providerID, sessionModel.modelID).pipe(Effect.option)
     if (resolved._tag === "Some") return sessionModel
   }
 
-  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list(), disabledProviders, enabledModels)
+  const connectedModel = firstStudioPromptConnectedModel(providers, disabledProviders, enabledModels)
   if (connectedModel) {
     const resolved = yield* provider.getModel(connectedModel.providerID, connectedModel.modelID).pipe(Effect.option)
     if (resolved._tag === "Some") {
@@ -476,7 +608,7 @@ const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel"
   }
 
   if (enabledModels) {
-    return yield* Effect.fail(new Error("No Studio prompt refine model is enabled."))
+    return yield* Effect.fail(new Error("No Studio text model is enabled."))
   }
 
   return {
@@ -507,17 +639,13 @@ function lastSuccessfulGeneration(sessionID: SessionID) {
     db
       .select()
       .from(StudioGenerationTable)
-      .where(and(
-        eq(StudioGenerationTable.session_id, sessionID),
-        eq(StudioGenerationTable.status, "succeeded"),
-      ))
+      .where(and(eq(StudioGenerationTable.session_id, sessionID), eq(StudioGenerationTable.status, "succeeded")))
       .all(),
-  )
-    .sort((left, right) => (right.completed_at ?? right.time_updated) - (left.completed_at ?? left.time_updated))[0]
+  ).sort((left, right) => (right.completed_at ?? right.time_updated) - (left.completed_at ?? left.time_updated))[0]
 }
 
 function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
-  const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  const previousRequest = previous ? (generationRequest(previous).input as StudioGenerationPromptInput) : undefined
   const previousPrompt = previousEffectivePrompt(previous)
   return {
     capability: input.capability,
@@ -534,21 +662,21 @@ function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGene
           },
         }
       : {}),
-    previousTurn: previous && previousRequest
-      ? {
-          capability: previous.capability,
-          userText: previousRequest.prompt,
-          refinedPrompt: previousPrompt,
-          imageUrls: imageUrls(previous.result),
-        }
-      : undefined,
+    previousTurn:
+      previous && previousRequest
+        ? {
+            capability: previous.capability,
+            userText: previousRequest.prompt,
+            refinedPrompt: previousPrompt,
+            imageUrls: imageUrls(previous.result),
+          }
+        : undefined,
   }
 }
 
 const promptRefineSchema = z.object({
   assistantText: z.string().min(1),
   refinedPrompt: z.string().min(1),
-  detailTitle: z.string().min(1).max(32).optional(),
 })
 
 function parsePromptRefineText(text: string) {
@@ -575,7 +703,6 @@ function completePromptRefineResult(parsed: z.infer<typeof promptRefineSchema>):
   return {
     ...parsed,
     effectivePrompt: parsed.refinedPrompt,
-    detailTitle: parsed.detailTitle?.trim() ?? "",
   }
 }
 
@@ -590,7 +717,6 @@ function studioPromptRefineInvalidFields(result: StudioPromptRefineResult) {
   return [
     ...(isMeaninglessStudioPromptRefineText(result.refinedPrompt) ? ["refinedPrompt"] : []),
     ...(isMeaninglessStudioPromptRefineText(result.assistantText) ? ["assistantText"] : []),
-    ...(isMeaninglessStudioPromptRefineText(result.detailTitle) ? ["detailTitle"] : []),
   ]
 }
 
@@ -604,7 +730,6 @@ export function normalizeStudioPromptRefineResult(
       assistantText: buildSubmittingAssistantText(input),
       refinedPrompt: prompt,
       effectivePrompt: prompt,
-      detailTitle: fallbackDetailTitle(input),
       fallback: true,
       raw: result.raw,
     }
@@ -616,9 +741,6 @@ export function normalizeStudioPromptRefineResult(
       : result.assistantText.trim(),
     refinedPrompt: result.refinedPrompt.trim(),
     effectivePrompt: result.refinedPrompt.trim(),
-    detailTitle: isMeaninglessStudioPromptRefineText(result.detailTitle)
-      ? fallbackDetailTitle(input)
-      : result.detailTitle.trim(),
   }
 }
 
@@ -626,11 +748,13 @@ function promptRefineTextPreview(text: string) {
   return text.trim().replace(/\s+/g, " ").slice(0, 500)
 }
 
-const PROMPT_REFINE_TIMEOUT_MS = 45_000
+const PROMPT_REFINE_TIMEOUT_MS = 70_000
 
 function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === "AbortError" ||
-    error instanceof Error && /abort|cancel/i.test(error.message)
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && /abort|cancel|interrupt/i.test(error.message))
+  )
 }
 
 const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
@@ -640,6 +764,8 @@ const studioPromptAgentRuntime = makeRuntime(Agent.Service, Agent.defaultLayer)
 
 const STUDIO_PROMPT_REFINE_AGENT_PROMPT =
   "You are a Studio prompt refinement assistant. Follow the task instructions exactly."
+const STUDIO_DETAIL_TITLE_AGENT_PROMPT =
+  "You are a Studio title refinement assistant. Follow the task instructions exactly."
 
 class StudioPromptRefineParsed {
   constructor(readonly result: StudioPromptRefineResult) {}
@@ -667,6 +793,19 @@ function studioPromptRefineAgent(agent: Agent.Info | undefined): Agent.Info {
 async function getStudioPromptRefineAgent() {
   const agent = await studioPromptAgentRuntime.runPromise((service) => service.get("octo_studio"))
   return studioPromptRefineAgent(agent)
+}
+
+function studioDetailTitleAgent(agent: Agent.Info | undefined): Agent.Info {
+  return {
+    ...studioPromptRefineAgent(agent),
+    prompt: STUDIO_DETAIL_TITLE_AGENT_PROMPT,
+    temperature: 0.2,
+  }
+}
+
+async function getStudioDetailTitleAgent() {
+  const agent = await studioPromptAgentRuntime.runPromise((service) => service.get("octo_studio"))
+  return studioDetailTitleAgent(agent)
 }
 
 function readPromptRefineLLMStream(stream: Stream.Stream<LLM.Event, unknown>, startedAt: number) {
@@ -720,7 +859,7 @@ function studioToolInput(request: StudioGenerationPromptInput, promptRefine: Stu
     prompt: request.prompt,
     displayPrompt: request.displayPrompt,
     detailPrompt: request.detailPrompt,
-    detailTitle: promptRefine.detailTitle,
+    detailTitle: request.detailTitle,
     styleModel: isEditorGenerationCapability(request.capability) ? undefined : request.styleModel,
     aspectRatio: isEditorGenerationCapability(request.capability) ? undefined : request.aspectRatio,
     count: isEditorGenerationCapability(request.capability) ? undefined : request.count,
@@ -735,7 +874,7 @@ function studioToolInput(request: StudioGenerationPromptInput, promptRefine: Stu
 
 const IMAGE_PROMPT_REFINE_SYSTEM = [
   "你是 Octo Studio 的图片提示词润色助手。",
-  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText、refinedPrompt 和 detailTitle。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
   "严格规则：",
   "- 只负责画面内容描述，不决定能力、模型、风格配置、工具、比例、数量。",
   "- 不要在 refinedPrompt 中写模型名称、画幅比例、生成数量、工具名称。",
@@ -746,15 +885,13 @@ const IMAGE_PROMPT_REFINE_SYSTEM = [
   "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的画面内容。",
   "- refinedPrompt 不超过 300 个中文字。",
-  "- detailTitle 是 4 到 12 个中文字的短标题，只概括主体或核心画面，不写模型、比例、数量、工具、动作指令或解释句，不使用标点。",
-  "- 例如：雨中木屋、晨雾山谷。",
   "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
 
 const VIDEO_PROMPT_REFINE_SYSTEM = [
   "你是 Octo Studio 的视频提示词润色助手。",
-  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText、refinedPrompt 和 detailTitle。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
   "严格规则：",
   "- 只负责视频内容、动作、镜头、节奏、氛围描述。",
   "- 不决定能力、模型、比例、数量、时长、质量模式、工具。",
@@ -767,8 +904,6 @@ const VIDEO_PROMPT_REFINE_SYSTEM = [
   "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的视频内容。",
   "- refinedPrompt 不超过 300 个中文字。",
-  "- detailTitle 是 4 到 12 个中文字的短标题，只概括主体或核心动作，不写模型、比例、时长、质量、工具、动作指令或解释句，不使用标点。",
-  "- 例如：海边奔跑、咖啡馆镜头推进。",
   "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
@@ -801,7 +936,7 @@ async function refineStudioPrompt(
         Effect.gen(function* () {
           const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
           const enabledModels = studioPromptRefineEnabledModels(input)
-          const selected = yield* selectStudioPromptRefineModel(
+          const selected = yield* selectStudioTextModel(
             provider,
             session,
             new Set(config.disabled_providers ?? []),
@@ -884,7 +1019,6 @@ async function refineStudioPrompt(
         invalidFields,
         assistantTextLength: response.result.assistantText.length,
         refinedPromptLength: response.result.refinedPrompt.length,
-        detailTitleLength: response.result.detailTitle.length,
       })
     }
     return normalizeStudioPromptRefineResult(input, { ...response.result, raw: response.result })
@@ -901,6 +1035,224 @@ async function refineStudioPrompt(
   }
 }
 
+export const STUDIO_DETAIL_TITLE_SYSTEM = [
+  "你是 Octo Studio 的标题精炼助手。",
+  "根据最终生效的图片或视频提示词生成一个简短标题。",
+  "只概括主体、核心画面或核心动作。",
+  "标题中的主体、动作和场景必须能从提示词中找到依据，禁止臆造或复用无关内容。",
+  "使用中文，必要的英文专有名词可以保留。",
+  "建议 4 到 12 个中文字，最多 16 个字符。",
+  "不要包含模型、工具、比例、数量、时长或质量参数。",
+  "不要包含生成一张、帮我制作、画面描述等解释性文字。",
+  "不要使用句号、引号或 Markdown。",
+  "只输出一个仅包含 title 字段的 JSON 对象，不要输出示例、解释或其他字段。",
+].join("\n")
+const STUDIO_DETAIL_TITLE_TIMEOUT_MS = 100_000
+const studioDetailTitleSchema = z.object({
+  title: z.string().min(1).max(32),
+})
+
+class StudioDetailTitleParsed {
+  constructor(readonly title: string) {}
+}
+
+export function studioDetailTitleInput(text: string) {
+  const normalized = text.trim().replace(/\s+/g, " ")
+  if (normalized.length <= 4_000) return normalized
+  const middle = Math.floor(normalized.length / 2)
+  return `${normalized.slice(0, 2_000)}\n…\n${normalized.slice(middle - 500, middle + 500)}\n…\n${normalized.slice(-1_000)}`
+}
+
+export function studioDetailTitleUserContent(text: string) {
+  return JSON.stringify({
+    sourcePrompt: studioDetailTitleInput(text),
+    requirements: [
+      "仅依据 sourcePrompt 提炼标题，不得添加其中不存在的主体、动作或场景",
+      "输出一个仅包含 title 字段的 JSON 对象",
+    ],
+  })
+}
+
+export function studioDetailTitleText(
+  input: Pick<StudioGenerationRequest, "prompt" | "detailPrompt">,
+  promptRefine: Pick<StudioPromptRefineResult, "refinedPrompt" | "effectivePrompt">,
+) {
+  return (
+    promptRefine.refinedPrompt.trim() ||
+    promptRefine.effectivePrompt.trim() ||
+    input.detailPrompt?.trim() ||
+    input.prompt.trim()
+  )
+}
+
+export function normalizeStudioDetailTitle(title?: string) {
+  const normalized = title
+    ?.replace(/<think>[\s\S]*?<\/think>\s*/gi, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.replace(/^[#*_`"'“”‘’]+|[#*_`"'“”‘’]+$/g, "")
+    .replace(/[\\/:*?<>|，。！？、；：；：!?;:（）【】《》()\[\]{}@#$%^&+=~]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 16)
+    .trim()
+  if (isMeaninglessStudioPromptRefineText(normalized)) return
+  return normalized
+}
+
+function parseStudioDetailTitleText(text: string) {
+  const trimmed = text.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]
+  const objectStart = trimmed.indexOf("{")
+  const objectEnd = trimmed.lastIndexOf("}")
+  return [
+    trimmed,
+    fenced,
+    objectStart >= 0 && objectEnd > objectStart ? trimmed.slice(objectStart, objectEnd + 1) : undefined,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .map((item) => {
+      try {
+        const parsed = studioDetailTitleSchema.safeParse(JSON.parse(item))
+        return parsed.success ? normalizeStudioDetailTitle(parsed.data.title) : undefined
+      } catch {
+        return undefined
+      }
+    })
+    .find((item): item is string => Boolean(item))
+}
+
+function readStudioDetailTitleStream(stream: Stream.Stream<LLM.Event, unknown>, startedAt: number) {
+  return Effect.gen(function* () {
+    let text = ""
+    let abortReason: string | undefined
+    let finishReason: string | undefined
+    const result = yield* stream.pipe(
+      Stream.runForEach((part) => {
+        if (part.type === "error") return Effect.fail(part.error)
+        if (part.type === "abort") {
+          return Effect.sync(() => {
+            abortReason = typeof part.reason === "string" ? part.reason : undefined
+          })
+        }
+        if (part.type === "finish") {
+          return Effect.sync(() => {
+            finishReason = part.finishReason
+          })
+        }
+        if (part.type !== "text-delta") return Effect.void
+        return Effect.sync(() => {
+          text += part.text
+          return parseStudioDetailTitleText(text)
+        }).pipe(Effect.flatMap((title) => (title ? Effect.fail(new StudioDetailTitleParsed(title)) : Effect.void)))
+      }),
+      Effect.as(undefined as string | undefined),
+      Effect.catchIf(
+        (error) => error instanceof StudioDetailTitleParsed,
+        (error) => Effect.succeed(error.title),
+      ),
+    )
+    if (result) return result
+    const title = parseStudioDetailTitleText(text)
+    if (title) return title
+    return yield* Effect.fail(
+      new Error(
+        `Studio detail title did not return valid JSON. elapsed=${Date.now() - startedAt} finishReason=${finishReason ?? "unknown"} abortReason=${abortReason ?? "unknown"} raw=${promptRefineTextPreview(text)}`,
+      ),
+    )
+  })
+}
+
+async function generateStudioDetailTitle(input: {
+  request: StudioGenerationRequest
+  session: typeof SessionTable.$inferSelect
+  text: string
+  signal?: AbortSignal
+}) {
+  const startedAt = Date.now()
+  const titleInput = studioDetailTitleInput(input.text)
+  let timedOut = false
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort(new Error("Studio detail title timed out after 100 seconds."))
+  }, STUDIO_DETAIL_TITLE_TIMEOUT_MS)
+  const abortSignal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal
+  try {
+    const title = await studioPromptProviderRuntime.runPromise(
+      (provider) =>
+        Effect.gen(function* () {
+          const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
+          const enabledModels = studioPromptRefineEnabledModels(input.request)
+          const selected = yield* selectStudioTextModel(
+            provider,
+            input.session,
+            new Set(config.disabled_providers ?? []),
+            enabledModels,
+          )
+          const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
+          const agent = yield* Effect.promise(() => getStudioDetailTitleAgent())
+          const user: MessageV2.User = {
+            id: MessageID.ascending(),
+            sessionID: SessionID.zod.parse(input.session.id),
+            role: "user",
+            time: { created: Date.now() },
+            agent: "octo_studio",
+            model: {
+              providerID: selected.providerID,
+              modelID: selected.modelID,
+            },
+          }
+          console.log("[studio.service] detail title model", {
+            sessionID: input.session.id,
+            selectionSource: selected.source,
+            selectedProviderID: selected.providerID,
+            selectedModelID: selected.modelID,
+          })
+          return yield* Effect.promise(() =>
+            studioPromptLLMRuntime.runPromise(
+              (llm) =>
+                readStudioDetailTitleStream(
+                  llm.stream({
+                    user,
+                    sessionID: input.session.id,
+                    model: resolved,
+                    agent,
+                    system: [STUDIO_DETAIL_TITLE_SYSTEM],
+                    messages: [{ role: "user", content: studioDetailTitleUserContent(input.text) }],
+                    tools: {},
+                    toolChoice: "none",
+                    retries: 0,
+                  }),
+                  Date.now(),
+                ),
+              { signal: abortSignal },
+            ),
+          )
+        }),
+      { signal: abortSignal },
+    )
+    console.log("[studio.service] detail title completed", {
+      sessionID: input.session.id,
+      inputLength: titleInput.length,
+      title,
+    })
+    return title
+  } catch (error) {
+    if (input.signal?.aborted) return
+    console.warn("[studio.service] detail title failed", {
+      sessionID: input.session.id,
+      elapsed: Date.now() - startedAt,
+      timedOut,
+      error: timedOut ? controller.signal.reason : error,
+    })
+    return
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 function persistStudioSession(input: {
   generationID: string
   sessionID: SessionID
@@ -909,9 +1261,7 @@ function persistStudioSession(input: {
   promptRefine: StudioPromptRefineResult
   createdAt: number
 }): StudioPersistedTurn | undefined {
-  const session = Database.use((db) =>
-    db.select().from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
-  )
+  const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get())
   if (!session) return
 
   const userID = MessageID.ascending()
@@ -999,7 +1349,11 @@ function persistStudioSession(input: {
   SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: userInfo })
   SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: userTextPart, time: input.createdAt })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: assistantTextPart, time: input.createdAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: input.sessionID,
+    part: assistantTextPart,
+    time: input.createdAt,
+  })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.createdAt })
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: input.createdAt }).where(eq(SessionTable.id, input.sessionID)).run(),
@@ -1012,11 +1366,10 @@ function persistStudioSession(input: {
 
 export async function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
   const sessionID = SessionID.zod.parse(input.sessionID)
-  const session = Database.use((db) =>
-    db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
-  )
+  const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
-  if (session.directory !== Instance.directory) throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
+  if (session.directory !== Instance.directory)
+    throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   if (session.agent !== "octo_studio") throw new Error(`Session is not a Studio session: ${sessionID}`)
 
   const callID = `studio_editor_entry_${input.entryID}`
@@ -1031,7 +1384,7 @@ export async function createEditorEntry(input: StudioEditorEntryRequest): Promis
       db.select().from(MessageTable).where(eq(MessageTable.id, existing.message_id)).get(),
     )
     const assistantInfo = assistant
-      ? { ...assistant.data, id: assistant.id, sessionID: assistant.session_id } as MessageV2.Info
+      ? ({ ...assistant.data, id: assistant.id, sessionID: assistant.session_id } as MessageV2.Info)
       : undefined
     const parentID = assistantInfo?.role === "assistant" ? assistantInfo.parentID : undefined
     if (parentID) {
@@ -1179,10 +1532,20 @@ function completeStudioSession(input: {
           width: input.result.images[0]?.width,
           height: input.result.images[0]?.height,
           imageCount: input.result.images.length,
-          images: input.result.images.filter((image) => !isVideoKind(image.kind)).map((image) => image.remoteUrl ?? image.url),
-          videos: input.result.images.filter((image) => isVideoKind(image.kind)).map((image) => image.remoteUrl ?? image.url),
-          primaryImage: input.result.images.find((image) => !isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => !isVideoKind(image.kind))?.url ?? null,
-          primaryVideo: input.result.images.find((image) => isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => isVideoKind(image.kind))?.url ?? null,
+          images: input.result.images
+            .filter((image) => !isVideoKind(image.kind))
+            .map((image) => image.remoteUrl ?? image.url),
+          videos: input.result.images
+            .filter((image) => isVideoKind(image.kind))
+            .map((image) => image.remoteUrl ?? image.url),
+          primaryImage:
+            input.result.images.find((image) => !isVideoKind(image.kind))?.remoteUrl ??
+            input.result.images.find((image) => !isVideoKind(image.kind))?.url ??
+            null,
+          primaryVideo:
+            input.result.images.find((image) => isVideoKind(image.kind))?.remoteUrl ??
+            input.result.images.find((image) => isVideoKind(image.kind))?.url ??
+            null,
           progress: input.result.progress,
           order: input.result.order,
           rawStatus: input.result.rawStatus,
@@ -1218,9 +1581,17 @@ function completeStudioSession(input: {
     },
   }
   SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.result.completedAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: input.sessionID,
+    part: toolPart,
+    time: input.result.completedAt,
+  })
   Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: input.result.completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
+    db
+      .update(SessionTable)
+      .set({ time_updated: input.result.completedAt })
+      .where(eq(SessionTable.id, input.sessionID))
+      .run(),
   )
 }
 
@@ -1271,10 +1642,7 @@ function failStudioSession(input: {
   )
 }
 
-function restoreStudioSession(input: {
-  record: StudioGenerationRecord
-  task: ImageGenerationTask
-}) {
+function restoreStudioSession(input: { record: StudioGenerationRecord; task: ImageGenerationTask }) {
   const updatedAt = Date.now()
   const turn = loadAnyPersistedTurn(input.record)
   const state = turn.toolPart.state
@@ -1360,13 +1728,21 @@ function generationRequest(record: StudioGenerationRecord) {
 
 function loadAnyPersistedTurn(record: StudioGenerationRecord): StudioAnyPersistedTurn {
   const assistant = Database.use((db) =>
-    db.select({ data: MessageTable.data }).from(MessageTable).where(eq(MessageTable.id, record.assistant_message_id)).get(),
+    db
+      .select({ data: MessageTable.data })
+      .from(MessageTable)
+      .where(eq(MessageTable.id, record.assistant_message_id))
+      .get(),
   )
   const part = Database.use((db) =>
     db.select({ data: PartTable.data }).from(PartTable).where(eq(PartTable.id, record.tool_part_id)).get(),
   )
   if (!assistant || !part) throw new Error(`Studio generation ${record.id} session turn is missing.`)
-  const assistantInfo = { ...assistant.data, id: record.assistant_message_id, sessionID: record.session_id } as MessageV2.Assistant
+  const assistantInfo = {
+    ...assistant.data,
+    id: record.assistant_message_id,
+    sessionID: record.session_id,
+  } as MessageV2.Assistant
   const toolPart = {
     ...part.data,
     id: record.tool_part_id,
@@ -1381,7 +1757,8 @@ function loadAnyPersistedTurn(record: StudioGenerationRecord): StudioAnyPersiste
 
 function loadPersistedTurn(record: StudioGenerationRecord): StudioPersistedTurn {
   const turn = loadAnyPersistedTurn(record)
-  if (turn.toolPart.state.status !== "running") throw new Error(`Studio generation ${record.id} tool part is not running.`)
+  if (turn.toolPart.state.status !== "running")
+    throw new Error(`Studio generation ${record.id} tool part is not running.`)
   return {
     assistantInfo: turn.assistantInfo,
     toolPart: turn.toolPart as MessageV2.ToolPart & { state: MessageV2.ToolStateRunning },
@@ -1446,11 +1823,16 @@ function markGenerationCancelled(input: {
         .get()
       if (!current) return "missing" as const
       if (current.status === "failed" && current.raw_status === "4") return "cancelled" as const
-      if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed") return "cancelled" as const
-      if (current.status !== "queued" && current.status !== "running" && !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")) return "terminal" as const
+      if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed")
+        return "cancelled" as const
+      if (
+        current.status !== "queued" &&
+        current.status !== "running" &&
+        !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")
+      )
+        return "terminal" as const
       const updateTurn = current.status === "queued" || current.status === "running"
-      db
-        .update(StudioGenerationTable)
+      db.update(StudioGenerationTable)
         .set({
           status: input.status,
           raw_status: "4",
@@ -1463,7 +1845,7 @@ function markGenerationCancelled(input: {
         })
         .where(eq(StudioGenerationTable.id, input.record.id))
         .run()
-      return updateTurn ? "claimed" as const : "claimed_without_turn" as const
+      return updateTurn ? ("claimed" as const) : ("claimed_without_turn" as const)
     },
     { behavior: "immediate" },
   )
@@ -1501,7 +1883,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     order: record.queue_order ?? undefined,
     rawStatus: record.raw_status ?? undefined,
     ...(record.status === "create_failed" || record.status === "failed"
-      ? record.error ? { error: record.error } : {}
+      ? record.error
+        ? { error: record.error }
+        : {}
       : {}),
     createdAt: record.time_created,
     updatedAt: record.time_updated,
@@ -1524,10 +1908,7 @@ function updateStudioGenerationProgress(record: StudioGenerationRecord, query: I
         next_poll_at: updatedAt + (query.status === "queued" ? 4000 : 2500),
         time_updated: updatedAt,
       })
-      .where(and(
-        eq(StudioGenerationTable.id, record.id),
-        inArray(StudioGenerationTable.status, ["queued", "running"]),
-      ))
+      .where(and(eq(StudioGenerationTable.id, record.id), inArray(StudioGenerationTable.status, ["queued", "running"])))
       .returning({ id: StudioGenerationTable.id })
       .get(),
   )
@@ -1539,7 +1920,7 @@ function updateStudioGenerationProgress(record: StudioGenerationRecord, query: I
       .where(eq(StudioGenerationTable.id, record.id))
       .get(),
   )
-  if (!current || current.status !== "queued" && current.status !== "running") return false
+  if (!current || (current.status !== "queued" && current.status !== "running")) return false
   const turn = loadPersistedTurn(record)
   const toolPart: MessageV2.ToolPart = {
     ...turn.toolPart,
@@ -1565,10 +1946,7 @@ function updateStudioGenerationProgress(record: StudioGenerationRecord, query: I
   return true
 }
 
-function buildGenerationResult(
-  record: StudioGenerationRecord,
-  output: ImageGenerationQuery | ImageGenerateOutput,
-) {
+function buildGenerationResult(record: StudioGenerationRecord, output: ImageGenerationQuery | ImageGenerateOutput) {
   const input = generationRequest(record).input
   const completedAt = Date.now()
   return stripUndefined({
@@ -1619,9 +1997,8 @@ async function failGeneration(record: StudioGenerationRecord, error: unknown, ra
         .from(StudioGenerationTable)
         .where(eq(StudioGenerationTable.id, record.id))
         .get()
-      if (!current || current.status !== "queued" && current.status !== "running") return false
-      db
-        .update(StudioGenerationTable)
+      if (!current || (current.status !== "queued" && current.status !== "running")) return false
+      db.update(StudioGenerationTable)
         .set({
           status: "failed",
           ...(rawStatus === undefined ? {} : { raw_status: String(rawStatus) }),
@@ -1665,9 +2042,8 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
         .from(StudioGenerationTable)
         .where(eq(StudioGenerationTable.id, record.id))
         .get()
-      if (!current || current.status !== "queued" && current.status !== "running") return false
-      db
-        .update(StudioGenerationTable)
+      if (!current || (current.status !== "queued" && current.status !== "running")) return false
+      db.update(StudioGenerationTable)
         .set({
           status: "succeeded",
           raw_status: String(result.rawStatus ?? 2),
@@ -1737,9 +2113,7 @@ async function processGeneration(record: StudioGenerationRecord) {
     if (query.status === "failed") {
       await failGeneration(
         record,
-        Number(query.rawStatus) === 4
-          ? "用户取消生成"
-          : `query_task returned failure. taskId=${task.taskId} status=${query.rawStatus}`,
+        Number(query.rawStatus) === 4 ? "用户取消生成" : (query.error ?? "生成任务失败"),
         query.rawStatus,
       )
       return
@@ -1760,10 +2134,9 @@ async function processGeneration(record: StudioGenerationRecord) {
             next_poll_at: Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(record.poll_attempts, 5)),
             time_updated: Date.now(),
           })
-          .where(and(
-            eq(StudioGenerationTable.id, record.id),
-            inArray(StudioGenerationTable.status, ["queued", "running"]),
-          ))
+          .where(
+            and(eq(StudioGenerationTable.id, record.id), inArray(StudioGenerationTable.status, ["queued", "running"])),
+          )
           .run(),
       )
       return
@@ -1789,6 +2162,7 @@ async function createProviderTask(input: StudioGenerationPromptInput, provider: 
 const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
 const activeGenerations = new Set<string>()
 const activeGenerationControllers = new Map<string, AbortController>()
+const activeGenerationTitleControllers = new Map<string, { controller: AbortController; directory: string }>()
 const rebootingGenerations = new Set<string>()
 
 function loadGenerationRecord(id: string) {
@@ -1802,7 +2176,9 @@ function loadGenerationRecord(id: string) {
 }
 
 function isGenerationCancelled(record?: Pick<StudioGenerationRecord, "status" | "raw_status">) {
-  return Boolean(record && (record.status === "failed" || record.status === "create_failed") && record.raw_status === "4")
+  return Boolean(
+    record && (record.status === "failed" || record.status === "create_failed") && record.raw_status === "4",
+  )
 }
 
 function failGenerationCreationByID(id: string, error: unknown) {
@@ -1814,6 +2190,77 @@ function failGenerationCreationByID(id: string, error: unknown) {
     turn: loadPersistedTurn(record),
     error,
   })
+}
+
+function shouldGenerateStudioDetailTitle(input: StudioGenerationPromptInput) {
+  if (input.capability !== "image.generate" && input.capability !== "video.generate") return false
+  return input.displayPrompt?.trim() !== "再次生成"
+}
+
+function persistStudioDetailTitle(id: string, title: string) {
+  const record = loadGenerationRecord(id)
+  if (!record || isGenerationCancelled(record)) return
+  const data = generationRequest(record)
+  const request = {
+    ...data.input,
+    detailTitle: title,
+  }
+  Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        request: stripUndefined({ input: request, task: data.task }) as Record<string, unknown>,
+        time_updated: Date.now(),
+      })
+      .where(eq(StudioGenerationTable.id, id))
+      .run(),
+  )
+  const turn = loadAnyPersistedTurn(record)
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: record.session_id,
+    part: {
+      ...turn.toolPart,
+      state: {
+        ...turn.toolPart.state,
+        input: {
+          ...turn.toolPart.state.input,
+          detailTitle: title,
+        },
+      },
+    } as MessageV2.ToolPart,
+    time: Date.now(),
+  })
+  if (!request.shouldSetSessionTitle) return
+  const session = Database.use((db) =>
+    db.select().from(SessionTable).where(eq(SessionTable.id, record.session_id)).get(),
+  )
+  if (!session || (session.title && session.title !== request.initialSessionTitle)) return
+  SyncEvent.run(Session.Event.Updated, {
+    sessionID: record.session_id,
+    info: { title },
+  })
+}
+
+async function runStudioDetailTitleTask(input: {
+  id: string
+  request: StudioGenerationPromptInput
+  session: typeof SessionTable.$inferSelect
+  text: string
+}) {
+  const controller = new AbortController()
+  activeGenerationTitleControllers.set(input.id, { controller, directory: Instance.directory })
+  try {
+    const title = await generateStudioDetailTitle({
+      request: input.request,
+      session: input.session,
+      text: input.text,
+      signal: controller.signal,
+    })
+    if (!title || controller.signal.aborted || isGenerationCancelled(loadGenerationRecord(input.id))) return
+    persistStudioDetailTitle(input.id, title)
+  } finally {
+    activeGenerationTitleControllers.delete(input.id)
+  }
 }
 
 async function runGenerationCreatePipeline(id: string) {
@@ -1832,24 +2279,12 @@ async function runGenerationCreatePipeline(id: string) {
     const generationInput: StudioGenerationPromptInput = {
       ...input,
       displayPrompt: input.displayPrompt,
-      detailTitle: promptRefine.detailTitle,
       refinedPrompt: promptRefine.refinedPrompt,
       effectivePrompt: promptRefine.effectivePrompt,
       promptRefineFallback: promptRefine.fallback,
     }
     const current = loadGenerationRecord(id)
     if (!current || isGenerationCancelled(current)) return
-    if (input.shouldSetSessionTitle && promptRefine.detailTitle) {
-      const latestSession = Database.use((db) =>
-        db.select().from(SessionTable).where(eq(SessionTable.id, record.session_id)).get(),
-      )
-      if (latestSession && (!latestSession.title || latestSession.title === input.initialSessionTitle)) {
-        SyncEvent.run(Session.Event.Updated, {
-          sessionID: record.session_id,
-          info: { title: promptRefine.detailTitle },
-        })
-      }
-    }
     updateSubmittingTurn({ record: current, request: generationInput, promptRefine })
     Database.use((db) =>
       db
@@ -1863,8 +2298,8 @@ async function runGenerationCreatePipeline(id: string) {
     )
     if (isGenerationCancelled(loadGenerationRecord(id))) return
     const created = await createProviderTask(generationInput, record.provider).then(
-      (task) => ({ task } as const),
-      (error) => ({ error } as const),
+      (task) => ({ task }) as const,
+      (error) => ({ error }) as const,
     )
     if ("error" in created) {
       if (isGenerationCancelled(loadGenerationRecord(id))) return
@@ -1899,6 +2334,19 @@ async function runGenerationCreatePipeline(id: string) {
         .run(),
     )
     startStudioGenerationWorker()
+    if (shouldGenerateStudioDetailTitle(persistedInput)) {
+      const runTitle = Instance.bind(() =>
+        runStudioDetailTitleTask({
+          id,
+          request: persistedInput,
+          session,
+          text: studioDetailTitleText(input, promptRefine),
+        }).catch((error) => {
+          if (!isAbortError(error)) console.warn("[studio.service] detail title task failed", { id, error })
+        }),
+      )
+      void runTitle()
+    }
   } catch (error) {
     if (isGenerationCancelled(loadGenerationRecord(id))) return
     failGenerationCreationByID(id, error)
@@ -1937,14 +2385,16 @@ async function tickStudioGenerationWorker(directory: string) {
               .from(StudioGenerationTable)
               .where(eq(StudioGenerationTable.id, record.id))
               .get()
-            if (!current || current.status !== "queued" && current.status !== "running" || current.next_poll_at > now) return false
-            db
-              .update(StudioGenerationTable)
+            if (!current || (current.status !== "queued" && current.status !== "running") || current.next_poll_at > now)
+              return false
+            db.update(StudioGenerationTable)
               .set({ next_poll_at: now + 60_000, time_updated: now })
-              .where(and(
-                eq(StudioGenerationTable.id, record.id),
-                inArray(StudioGenerationTable.status, ["queued", "running"]),
-              ))
+              .where(
+                and(
+                  eq(StudioGenerationTable.id, record.id),
+                  inArray(StudioGenerationTable.status, ["queued", "running"]),
+                ),
+              )
               .run()
             return true
           },
@@ -1960,27 +2410,35 @@ async function tickStudioGenerationWorker(directory: string) {
 export function startStudioGenerationWorker() {
   const directory = Instance.directory
   if (workerTimers.has(directory)) return
-  const tick = Instance.bind(() => tickStudioGenerationWorker(directory).catch((error) => {
-    console.error("[studio.worker] tick failed", error)
-  }))
+  const tick = Instance.bind(() =>
+    tickStudioGenerationWorker(directory).catch((error) => {
+      console.error("[studio.worker] tick failed", error)
+    }),
+  )
   workerTimers.set(directory, setInterval(tick, 1000))
   void tick()
 }
 
 registerDisposer(async (directory) => {
   const timer = workerTimers.get(directory)
-  if (!timer) return
-  clearInterval(timer)
-  workerTimers.delete(directory)
+  if (timer) {
+    clearInterval(timer)
+    workerTimers.delete(directory)
+  }
+  Array.from(activeGenerationTitleControllers.entries())
+    .filter(([, item]) => item.directory === directory)
+    .forEach(([id, item]) => {
+      item.controller.abort(new Error("Studio instance disposed."))
+      activeGenerationTitleControllers.delete(id)
+    })
 })
 
 export async function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
   const sessionID = SessionID.zod.parse(input.sessionID)
-  const session = Database.use((db) =>
-    db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
-  )
+  const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
-  if (session.directory !== Instance.directory) throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
+  if (session.directory !== Instance.directory)
+    throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
@@ -1988,6 +2446,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const generationInput: StudioGenerationPromptInput = {
     ...input,
     displayPrompt: input.displayPrompt,
+    detailTitle: resolveDetailTitle(input),
     refinedPrompt: promptRefine.refinedPrompt,
     effectivePrompt: promptRefine.effectivePrompt,
     promptRefineFallback: promptRefine.fallback,
@@ -2002,23 +2461,28 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   })
   if (!turn) throw new Error(`Unable to create Studio session turn: ${sessionID}`)
   Database.use((db) =>
-    db.insert(StudioGenerationTable).values({
-      id,
-      session_id: sessionID,
-      directory: session.directory,
-      assistant_message_id: turn.assistantInfo.id,
-      tool_part_id: turn.toolPart.id,
-      provider,
-      capability: input.capability,
-      status: "running",
-      progress: 0,
-      request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
-      next_poll_at: Number.MAX_SAFE_INTEGER,
-      time_created: createdAt,
-      time_updated: createdAt,
-    }).run(),
+    db
+      .insert(StudioGenerationTable)
+      .values({
+        id,
+        session_id: sessionID,
+        directory: session.directory,
+        assistant_message_id: turn.assistantInfo.id,
+        tool_part_id: turn.toolPart.id,
+        provider,
+        capability: input.capability,
+        status: "running",
+        progress: 0,
+        request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_created: createdAt,
+        time_updated: createdAt,
+      })
+      .run(),
   )
-  const run = Instance.bind(() => runGenerationCreatePipeline(id).catch((error) => failGenerationCreationByID(id, error)))
+  const run = Instance.bind(() =>
+    runGenerationCreatePipeline(id).catch((error) => failGenerationCreationByID(id, error)),
+  )
   void run()
   const record = loadGenerationRecord(id)
   if (!record) throw new Error(`Unable to load Studio generation: ${id}`)
@@ -2031,10 +2495,13 @@ export async function rebootGeneration(id: string): Promise<StudioGenerationResu
   try {
     const record = loadGenerationRecord(id)
     if (!record) throw new Error(`Studio generation not found: ${id}`)
-    if (record.status === "create_failed") throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
+    if (record.status === "create_failed")
+      throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
     if (record.status !== "failed") throw new Error(`Only failed Studio generations can be rebooted: ${id}`)
-    if (record.provider !== "internel") throw new Error(`Studio generation provider does not support reboot: ${record.provider}`)
-    if (!record.provider_task_id) throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
+    if (record.provider !== "internel")
+      throw new Error(`Studio generation provider does not support reboot: ${record.provider}`)
+    if (!record.provider_task_id)
+      throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
 
     const data = generationRequest(record)
     const reboot = await rebootInternalGeneration({
@@ -2061,8 +2528,7 @@ export async function rebootGeneration(id: string): Promise<StudioGenerationResu
         if (!current) return "missing" as const
         if (current.status !== "failed") return "terminal" as const
         if (!current.provider_task_id) return "missing_task" as const
-        db
-          .update(StudioGenerationTable)
+        db.update(StudioGenerationTable)
           .set({
             provider_task_id: task.taskId,
             status: "running",
@@ -2085,7 +2551,8 @@ export async function rebootGeneration(id: string): Promise<StudioGenerationResu
       { behavior: "immediate" },
     )
     if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
-    if (claimed === "missing_task") throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
+    if (claimed === "missing_task")
+      throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
     if (claimed === "terminal") return getGeneration(id)
     restoreStudioSession({ record, task })
     startStudioGenerationWorker()
@@ -2107,14 +2574,16 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
   const snapshot = generationSnapshot(record)
   return {
     ...snapshot,
-    ...(record.status === "succeeded" ? record.result as StudioGenerationResult | undefined : {}),
+    ...(record.status === "succeeded" ? (record.result as StudioGenerationResult | undefined) : {}),
     sessionID: record.session_id,
     status: record.status,
     progress: record.progress,
     order: record.queue_order ?? undefined,
     rawStatus: record.raw_status ?? undefined,
     ...(record.status === "create_failed" || record.status === "failed"
-      ? record.error ? { error: record.error } : {}
+      ? record.error
+        ? { error: record.error }
+        : {}
       : {}),
     updatedAt: record.time_updated,
     completedAt: record.completed_at ?? undefined,
@@ -2126,16 +2595,20 @@ export async function cancelGeneration(id: string): Promise<StudioGenerationResu
   if (!record) throw new Error(`Studio generation not found: ${id}`)
   if (record.status === "failed" && record.raw_status === "4") return getGeneration(id)
   if (record.status === "create_failed" && record.raw_status === "4") return getGeneration(id)
-  if (record.status === "succeeded") throw new Error(`Studio generation is already completed and cannot be cancelled: ${id}`)
-  if (record.status === "create_failed") throw new Error(`Studio generation creation has already failed and cannot be cancelled: ${id}`)
+  if (record.status === "succeeded")
+    throw new Error(`Studio generation is already completed and cannot be cancelled: ${id}`)
+  if (record.status === "create_failed")
+    throw new Error(`Studio generation creation has already failed and cannot be cancelled: ${id}`)
   if (record.status === "failed") throw new Error(`Studio generation has already failed and cannot be cancelled: ${id}`)
   activeGenerationControllers.get(id)?.abort(new Error("Studio generation cancelled."))
+  activeGenerationTitleControllers.get(id)?.controller.abort(new Error("Studio generation cancelled."))
   if (!record.provider_task_id) {
     const claimed = markGenerationCancelled({ record, status: "create_failed" })
     if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
     return getGeneration(id)
   }
-  if (record.provider !== "internel") throw new Error(`Studio generation provider does not support cancellation: ${record.provider}`)
+  if (record.provider !== "internel")
+    throw new Error(`Studio generation provider does not support cancellation: ${record.provider}`)
 
   await cancelInternalGeneration(record.provider_task_id)
 

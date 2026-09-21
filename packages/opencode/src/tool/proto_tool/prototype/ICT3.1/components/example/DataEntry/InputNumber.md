@@ -1,6 +1,6 @@
-# InputNumber | 数字输入框
+# InputNumber | 数字输入框 示例
 
-### Example: Basic InputNumber
+## Example: Basic InputNumber
 
 ```json
 {
@@ -13,7 +13,7 @@
 }
 ```
 
-### Example: InputNumber with range
+## Example: InputNumber with range
 
 ```json
 {
@@ -28,7 +28,7 @@
 }
 ```
 
-### Example: InputNumber with step
+## Example: InputNumber with step
 
 ```json
 {
@@ -44,7 +44,7 @@
 }
 ```
 
-### Example: InputNumber with controls
+## Example: InputNumber with controls
 
 ```json
 {
@@ -59,7 +59,7 @@
 }
 ```
 
-### Example: InputNumber with size
+## Example: InputNumber with size
 
 ```json
 {

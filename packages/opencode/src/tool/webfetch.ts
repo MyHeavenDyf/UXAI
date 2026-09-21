@@ -87,6 +87,13 @@ export const WebFetchTool = Tool.define(
                   ),
                 ),
             ),
+            // fetch 的深层失败原因(ECONNREFUSED/证书错误/代理 407/超时)在 cause 链里,
+            // 不展开的话对外只有 "TypeError: fetch failed",无法定位是否走代理
+            Effect.catchIf(
+              () => true,
+              (err) =>
+                Effect.die(new Error(`webfetch failed (${params.url}): ${describeRequestError(err)}`)),
+            ),
             Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
           )
 
@@ -153,6 +160,27 @@ export const WebFetchTool = Tool.define(
     }
   }),
 )
+
+function describeRequestError(err: unknown): string {
+  const parts: string[] = []
+  const reason = (err as { reason?: { _tag?: string; cause?: unknown; response?: { status?: number } } })?.reason
+  if (reason?._tag === "StatusCodeError") {
+    return `HTTP ${reason.response?.status ?? "?"} from server`
+  }
+  if (reason?._tag && reason._tag !== "RequestError") parts.push(`reason=${reason._tag}`)
+  let current: unknown = reason?._tag === "RequestError" ? reason.cause : (err as { cause?: unknown })?.cause ?? err
+  for (let depth = 0; current && depth < 5; depth++) {
+    if (current instanceof Error) {
+      const code = (current as NodeJS.ErrnoException).code
+      parts.push(code ? `${current.name} [${code}] ${current.message}` : `${current.name}: ${current.message}`)
+    } else {
+      parts.push(String(current))
+      break
+    }
+    current = (current as { cause?: unknown }).cause
+  }
+  return parts.join(" <- ") || "unknown error"
+}
 
 async function extractTextFromHTML(html: string) {
   // HTMLRewriter 是 Bun 独有 API，Electron utilityProcess (Node) 无此全局。

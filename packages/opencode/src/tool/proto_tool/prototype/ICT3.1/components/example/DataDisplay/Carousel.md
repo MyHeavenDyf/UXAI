@@ -1,6 +1,14 @@
-# Carousel
+# Carousel 示例
 
-### Example: Carousel with dynamic item rendering
+## Usage constraints for child node ids
+
+- Each child node id must be owned by exactly one parent component and one child or slot position.
+- Do not reuse the same node id in multiple `children` arrays or multiple `{ "componentId": "..." }` slot/template references.
+- Do not reuse a loop template `componentId` as another static child or as another parent's template.
+- If two structures look similar, create separate child nodes such as `projectOverviewPanel` and `userOverviewPanel` instead of sharing `overviewPanel`.
+- Component-specific keys such as `props.key` can reuse the same semantic value in different components, but the node `id` must still be unique per usage.
+
+## Example: Carousel with dynamic item rendering
 
 ```json
 {
@@ -67,7 +75,7 @@
 }
 ```
 
-### Example: Carousel with static items
+## Example: Carousel with static items
 
 ```json
 {

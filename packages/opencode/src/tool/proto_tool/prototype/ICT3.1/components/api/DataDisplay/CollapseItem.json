@@ -36,7 +36,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Unique ID for cross-referencing."
+      "description": "Unique ID for cross-referencing. A node id must be used by exactly one parent and one child or slot position; do not reuse the same node id in multiple places."
     },
     "component": {
       "type": "string",

@@ -29,6 +29,7 @@ import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
 import { Question } from "@/question"
 import { Session } from "@/session/session"
+import { SessionGroup } from "@/session/session-group"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -67,11 +68,13 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectRoute, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
+import { sessionGroupHandlers } from "./handlers/session-group"
 import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
+import { studioGlobalHandlers } from "./handlers/studio-global"
 import { insightHandlers } from "./handlers/insight"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
@@ -105,7 +108,10 @@ const cors = (corsOptions?: CorsOptions) =>
     { global: true },
   )
 
-const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(Layer.provide([controlHandlers, globalHandlers]))
+const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(
+  Layer.provide([controlHandlers, globalHandlers, studioGlobalHandlers]),
+  Layer.provide(authorizationLayer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
+)
 const instanceRouterLayer = authorizationRouterMiddleware
   .combine(instanceRouterMiddleware)
   .combine(workspaceRouterMiddleware)
@@ -129,6 +135,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     permissionHandlers,
     providerHandlers,
     sessionHandlers,
+    sessionGroupHandlers,
     syncHandlers,
     v2Handlers,
     tuiHandlers,
@@ -183,6 +190,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       Question.defaultLayer,
       Ripgrep.defaultLayer,
       Session.defaultLayer,
+      SessionGroup.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,
       SessionRevert.defaultLayer,

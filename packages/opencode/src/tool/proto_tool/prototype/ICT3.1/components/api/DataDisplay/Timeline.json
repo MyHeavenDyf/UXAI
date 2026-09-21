@@ -2,21 +2,21 @@
 	"name": "Timeline",
 	"type": "object",
 	"$defs": {
-		"StaticChildren":{
+		"StaticChildren": {
 			"type": "array",
 			"items": {
 				"type": "string",
-				"description": "The unique identifier for a component"
+				"description": "The unique identifier for a child component node. Do not reuse the same component id in multiple parents or multiple children positions."
 			},
-			"description": "A static list of child component IDs."
+			"description": "A static list of child component IDs. Every id in this array must be unique and must not be reused by any other parent node. Create a separate child node for each rendered position."
 		},
-		"TemplateChildren":{
+		"TemplateChildren": {
 			"type": "object",
-			"description": "A template for generating a dynamic list of children from a data model list. The `componentId` is the component to use as a template.",
+			"description": "A template for generating a dynamic list of child components from a data model list. The `componentId` is the component node to use as a template. Do not reuse this template component id as a static child or as another parent's template; create a dedicated template node for this parent instance.",
 			"properties": {
 				"componentId": {
 					"type": "string",
-					"description": "The unique identifier for a component"
+					"description": "The unique identifier for a template component node. It must be dedicated to this parent instance and must not be reused elsewhere."
 				},
 				"path": {
 					"type": "string",

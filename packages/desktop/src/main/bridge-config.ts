@@ -4,6 +4,7 @@ type SubtypeCapabilities = {
     modeToggle: boolean
     viewport: boolean
     localEdit: boolean
+    modelEdit: boolean
     drawEdit: boolean
     canvasEdit: boolean
     comment: boolean
@@ -25,7 +26,8 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: false,
-      drawEdit: true,
+      modelEdit: false,
+      drawEdit: false,
       canvasEdit: true,
       comment: true,
       archive: true,
@@ -45,6 +47,7 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: false,
       viewport: false,
       localEdit: false,
+      modelEdit: false,
       drawEdit: false,
       canvasEdit: false,
       comment: false,
@@ -54,12 +57,64 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     }
   },
 
+  components: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: true,
+      drawEdit: false,
+      canvasEdit: true,
+      comment: true,
+      archive: true,
+      download: true,
+      fullscreen: true,
+    },
+    rendering: {
+      customBridges: ['components-theme'],
+    },
+  },
+
   _default: {
     features: {
       refresh: true,
       modeToggle: true,
       viewport: true,
+      localEdit: false,
+      modelEdit: true,
+      drawEdit: false,
+      canvasEdit: true,
+      comment: true,
+      archive: true,
+      download: true,
+      fullscreen: true,
+    }
+  },
+
+  demo: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: true,
+      drawEdit: true,
+      canvasEdit: true,
+      comment: true,
+      archive: true,
+      download: true,
+      fullscreen: true,
+    }
+  },
+
+  demoedit: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
       localEdit: true,
+      modelEdit: true,
       drawEdit: true,
       canvasEdit: true,
       comment: true,
@@ -80,6 +135,7 @@ export type BridgeInjectConfig = {
   injectAnnotate: boolean
   injectEdit: boolean
   injectEditStyle: boolean
+  injectModelEdit: boolean
   injectInspect: boolean
   injectPicker: boolean
   injectComment: boolean
@@ -92,7 +148,7 @@ export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig 
   const config = getSubtypeConfig(subtype)
   const { features, rendering } = config
   
-  const editEnabled = features.localEdit || features.drawEdit || features.canvasEdit
+  const editOrModelEdit = features.localEdit || features.drawEdit || features.canvasEdit || features.modelEdit
   const customBridges = rendering?.customBridges || []
   
   return {
@@ -101,8 +157,9 @@ export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig 
     injectPicker: true,
     injectInspect: true,
     
-    injectEdit: editEnabled,
-    injectEditStyle: editEnabled,
+    injectEdit: editOrModelEdit,
+    injectEditStyle: editOrModelEdit,
+    injectModelEdit: features.modelEdit,
     
     injectComment: features.comment && !customBridges.includes('custom-comment'),
     injectSnapshot: (features.drawEdit || features.archive) && !customBridges.includes('custom-snapshot'),

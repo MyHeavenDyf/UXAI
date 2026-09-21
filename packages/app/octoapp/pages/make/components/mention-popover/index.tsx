@@ -6,6 +6,7 @@ import { lookupDisplayName } from "../skill-config-types"
 import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import {
@@ -13,6 +14,12 @@ import {
   fetchAssetFiles,
   joinUrl,
   inferKindFromUrl,
+  assetFileId,
+  getAssetThumb,
+  getAssetThumbKind,
+  isAssetThumbImage,
+  getAssetIconByExtension,
+  encodeAssetUrl,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -22,7 +29,7 @@ export type MentionTab = 'skills' | 'product-assets' | 'files'
 
 export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
-  | { type: 'file'; filename: string; path: string; id?: string }
+  | { type: 'file'; filename: string; path: string; id?: string; isFolder?: boolean }
   | { type: 'product-asset'; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 interface MentionPopoverProps {
@@ -49,6 +56,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
+
+  // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
+  // 确认后才展示资产/文件列表。tab 点击不拦截。
+  const { request, gate } = useUploadRiskGate()
   
   // 产品资产库状态
   const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
@@ -337,33 +348,36 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   // 产品资产库文件选中态:基于 props.selections (doc 里的 chip),按 id 匹配
-  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl) (唯一标识,下载后不变,即使 path 被改成本地路径)
+  // chip id = assetFileId(file) (唯一标识,下载后不变,即使 path 被改成本地路径)
   // 参照 addon-menu 的 isAssetFileSelected,用 id 而不是 filename 匹配,避免同名文件误判
   const isAssetFileSelected = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
     return props.selections.some(s =>
-      s.type === 'file' && (s as any).id === url
+      s.type === 'file' && (s as any).id === id
     )
   }
 
-  // 在 assetSubStack 里按 URL 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
+  // 在 assetSubStack 里按 id 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
   const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
     for (const level of assetSubStack()) {
-      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
+      const f = level.files.find(file => assetFileId(file) === url)
       if (f) return f
     }
     return undefined
   }
 
-  // 产品资产文件点击:chip path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识
+  // 产品资产文件点击:chip path = assetFileId(file) 作唯一标识
   // (insertMention 会把 selection.path 存为 chip.attrs.id;sync plugin 提取时 selection.id = chip.attrs.id)
+  // zip 资产下载后解压为文件夹,chip 标记 isFolder,发送时文案用"这个文件夹"
   // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip (按 id 匹配)
   const handleProductAssetClick = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
+    const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: url,
+      path: id,
+      isFolder: isZip || undefined,
     }
     if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
@@ -373,7 +387,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   // 收集选中的产品资产库文件:从 props.selections 反查 AssetFile
-  // 跳过 path 不是 URL 的 (即已下载到本地路径的 chip,避免重复下载)
+  // "未下载"判据:path === id(下载后 path 被补成本地路径 ≠ id,避免重复下载)
   const collectSelectedAssetFiles = (): AssetFile[] => {
     const result: AssetFile[] = []
     const seen = new Set<string>()
@@ -382,8 +396,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       const id = (sel as any).id as string | undefined
       const path = (sel as any).path as string
       if (!id || !path) continue
-      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
-      if (!/^https?:\/\//.test(path)) continue
+      if (path !== id) continue
       if (seen.has(id)) continue
       seen.add(id)
       const found = findAssetFileInStackByUrl(id)
@@ -405,9 +418,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         setAssetDownloadCurrent(file.fileName)
         const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
         if (assetDownloadCancelled()) break
-        // 用 URL (chip id) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
+        // 用 chip id (assetFileId) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
         if (localPath) {
-          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
+          props.onUpdateMentionPath?.(assetFileId(file), localPath)
         }
       }
       setAssetDownloadOpen(false)
@@ -423,13 +436,15 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭下载弹窗:移除 path 仍是 URL 的 chip (即本次未下载完成的)
+  // 关闭下载弹窗:移除未下载完成的 chip (path === id 即本地路径未补)
   const closeAssetDownload = () => {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
     for (const sel of props.selections) {
-      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (sel.type === 'file' && id && path && path === id) {
         props.onDeselect(sel)
       }
     }
@@ -503,7 +518,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           if (skills.length > 0) {
             handleSkillClick(skills[0])
           }
-        } else if (activeTab() === 'files') {
+        } else if (activeTab() === 'files' && selectedCategory() === 'design') {
           const files = filteredFiles()
           if (files.generated.length > 0 || files.uploaded.length > 0) {
             const firstFile = files.generated[0] || files.uploaded[0]
@@ -584,7 +599,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('design') }}
+          onClick={() => { setActiveTab('files'); setSelectedCategory('platform') }}
         >
           设计文件
         </button>
@@ -617,7 +632,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => { setSelectedCategory('design') }}
+            onClick={() => request(() => setSelectedCategory('design'))}
           >
             <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
@@ -648,7 +663,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <button
                   type="button"
                   class={`mention-primary-item ${selectedTopFolderId() === folder.id.toString() ? 'mention-primary-item--selected' : ''}`}
-                  onClick={() => handleTopFolderClick(folder)}
+                  onClick={() => request(() => handleTopFolderClick(folder))}
                 >
                   <Icon name="folder" size="small" />
                   <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
@@ -724,7 +739,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       </Show>
 
       {/* Secondary Panel - Files */}
-      <Show when={activeTab() === 'files' && filteredFiles()}>
+      <Show when={activeTab() === 'files' && selectedCategory() === 'design' && filteredFiles()}>
         {(files) => (
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
             <div class="mention-files-header">当前会话</div>
@@ -834,7 +849,14 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        // type 40 走 getAssetThumb(snapshot 优先/图片类下载路径真图/后缀图标);
+                        // type 30 与附件面板弹窗一致:snapshot 有值显示真图,否则显示类型图标
+                        const thumbUrl = file.type === 40
+                          ? getAssetThumb(file)
+                          : (file.snapshot ? encodeAssetUrl(joinUrl(file.s3BaseUrl, file.snapshot)) : undefined)
+                        const FileIcon = thumbUrl
+                          ? undefined
+                          : getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
                         return (
                           <button
                             type="button"
@@ -886,7 +908,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
-                            <FileIcon size={20} />
+                            <Show when={thumbUrl} fallback={
+                              <img src={getAssetIconByExtension(file.fileName)} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: contain;" />
+                            }>
+                              <img class="asset-grid-icon" src={thumbUrl} alt="" draggable={false} style="width: 20px; height: 20px; object-fit: cover; border-radius: 4px;" />
+                            </Show>
                             <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
                           </button>
                         )
@@ -903,8 +929,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
                   {/* 空状态 */}
                   <Show when={visibleChildren().length === 0 && visibleFiles().length === 0 && !level.loadingFiles}>
-                    <div class="mention-loading-state">
-                      暂无内容
+                    <div class="mention-empty-state">
+                      <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                      <span class="mention-empty-state-text">暂无内容</span>
                     </div>
                   </Show>
                 </div>
@@ -937,13 +964,34 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         >
           <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
           <div class="mention-asset-preview-image">
-            <img
-              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
-              alt={assetPreview()!.fileName}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <Show
+              when={assetPreview()!.type === 40}
+              fallback={
+                <img
+                  src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
+                  alt={assetPreview()!.fileName}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none'
+                  }}
+                />
+              }
+            >
+              {/* type 40:png/jpeg/jpg/svg 显示下载路径图片,其他后缀显示对应图标 */}
+              <Show when={getAssetThumbKind(assetPreview()!) === "image"}>
+                <img
+                  src={getAssetThumb(assetPreview()!)}
+                  alt={assetPreview()!.fileName}
+                  style="width: 100%; height: 100%; object-fit: scale-down;"
+                />
+              </Show>
+              <Show when={getAssetThumbKind(assetPreview()!) === "icon"}>
+                <img
+                  src={getAssetThumb(assetPreview()!)}
+                  alt={assetPreview()!.fileName}
+                  style="width: 48px; height: 48px; object-fit: contain;"
+                />
+              </Show>
+            </Show>
           </div>
         </div>
       </Show>
@@ -1021,6 +1069,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         </div>
       </Show>
     </Portal>
+    {gate}
   </>
   )
 }

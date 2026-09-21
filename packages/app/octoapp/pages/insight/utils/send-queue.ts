@@ -39,8 +39,8 @@ export interface QueuedSend {
    */
   // SPEC-INS-032:bytes 一并快照(入队时手上有 Attachment.size,drain 时只剩 path,再取要多读一次盘)
   uploads?: Array<{ filename: string; path: string; bytes?: number }>
-  /** SPEC-INS-027:入队时**上传的**图片附件快照(已 done 的 S3 url + mime);drain 时重建 vision FilePart */
-  images?: Array<{ filename: string; url: string; mime?: string }>
+  /** SPEC-INS-027:入队时**上传的**图片附件快照(已 done 的本地 path + mime);drain 时重建 vision FilePart{url:file://…} */
+  images?: Array<{ filename: string; path: string; mime?: string }>
 }
 
 const [queues, setQueues] = createSignal<Record<string, QueuedSend[]>>({})

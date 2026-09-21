@@ -1,6 +1,6 @@
-# Select | 下拉选择器
+# Select | 下拉选择器 示例
 
-### Example: Basic Select
+## Example: Basic Select
 
 ```json
 {
@@ -18,7 +18,7 @@
 }
 ```
 
-### Example: Select with size
+## Example: Select with size
 
 ```json
 {
@@ -35,7 +35,7 @@
 }
 ```
 
-### Example: Select with showSearch
+## Example: Select with showSearch
 
 ```json
 {
@@ -58,7 +58,7 @@
 
 ```
 
-### Example: Select with mode (multiple)
+## Example: Select with mode (multiple)
 
 ```json
 {

@@ -30,6 +30,7 @@ import { emitKey, serializePlainJs } from './js-serializer'
 import type { EmitOptions } from './jsx-emitter'
 import type { PropValue } from '../core/value-types'
 import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/node-types'
+import { collectFileNodeIds } from './node-id-collector'
 
 // ─── 主入口 ───
 
@@ -271,6 +272,13 @@ function assembleMainPage(
   return {
     path: draft.path,
     content: parts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id（manifest 用）：main 文件 = rootTree + main FileUnit consts + draft 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: [draft.rootTree],
+      fileUnit: mainFileUnit,
+      moduleTopConsts: draft.moduleTopConsts,
+      componentInternalConsts: draft.componentInternalConsts,
+    }),
   }
 }
 
@@ -399,6 +407,13 @@ function assembleModuleFile(
   return {
     path: ext.path,
     content: finalParts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id：module 文件 = ext.body + module FileUnit consts + ext 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: ext.body,
+      fileUnit: fileUnit,
+      moduleTopConsts: ext.moduleTopConsts,
+      componentInternalConsts: ext.componentInternalConsts,
+    }),
   }
 }
 
@@ -535,6 +550,13 @@ function assembleComponentTemplate(
   return {
     path: ext.path,
     content: parts.join('\n\n') + '\n',
+    // 该 .tsx emitted 的 A2UI 基础 id：循环模板文件 = ext.body + loopTemplate FileUnit consts + ext 的 moduleTop/componentInternal consts
+    nodeIds: collectFileNodeIds({
+      roots: ext.body,
+      fileUnit: fileUnit,
+      moduleTopConsts: ext.moduleTopConsts,
+      componentInternalConsts: ext.componentInternalConsts,
+    }),
   }
 }
 
@@ -670,8 +692,14 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
       }
       return serializeRenderFnBody(v, bodyOpts, lvl)
     }
-    // BuildNode（kind: 'component'，来自 resolveIcon 的图标节点等）→ JSX 元素
+    // BuildNode（kind: 'component'）→ JSX 元素。
+    // - 有 node-field children（烘焙 Menu 树等嵌套子树）→ 走 emitNode：含 children 递归（数组 join
+    //   无括号 + TextNode 裸文本 + 缩进 + dotted tag），与 slotNode→emitNode 路径同源、输出一致。
+    // - 无 children 的叶子（resolveIcon 图标等）仍走 serializeComponentConst（自闭合，保持原行为）。
     if (v.kind === 'component' && typeof v.tag === 'string' && typeof v.props === 'object') {
+      if (v.children) {
+        return emitNode(v as BuildNode, { useCssModules: constEmit.useCssModules, emitId: false })
+      }
       return serializeComponentConst(v)
     }
     // 纯对象 → 美化多行序列化（智能 key 引号 + 缩进）

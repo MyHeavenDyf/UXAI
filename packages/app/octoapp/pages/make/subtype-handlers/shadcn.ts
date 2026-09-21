@@ -1,5 +1,5 @@
 import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload, CanvasEditResult } from './types'
-import type { ManualEditTarget, ManualEditStyles } from '../edit-mode/source-patches'
+import type { ManualEditTarget, ManualEditStyles, ManualEditCssKey } from '../edit-mode/source-patches'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { sendTextToAgent } from '../utils/agent-events'
 import JSZip from 'jszip'
@@ -74,9 +74,12 @@ export function buildLocalEditPayload(
   if (pendingStyle?.styles) {
     const styleChanges: Array<{ prop: string; before: string; after: string }> = []
     for (const [prop, value] of Object.entries(pendingStyle.styles)) {
-      const before = initialStyles?.[prop as keyof ManualEditStyles] ?? ''
-      if (before !== value) {
-        styleChanges.push({ prop, before, after: value })
+      // effects 是结构化数组(非 CSS 属性),不参与 style diff 记录
+      if (prop === 'effects') continue
+      const before = (initialStyles?.[prop as ManualEditCssKey] as string | undefined) ?? ''
+      const after = value as string
+      if (before !== after) {
+        styleChanges.push({ prop, before, after })
       }
     }
     if (styleChanges.length > 0) changes.push({ kind: 'styles', changes: styleChanges })
@@ -150,7 +153,7 @@ export default {
   },
 
   async handleCanvasEdit(ctx) {
-    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, onFilesRefresh } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
@@ -234,7 +237,8 @@ export default {
               }
             }
             
-            showOctoToast({ title: "已保存", description: folderName })
+            showOctoToast({ title: "已解压", description: folderName })
+            onFilesRefresh?.()
             return
           }
           

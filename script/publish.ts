@@ -54,6 +54,7 @@ await $`bun ./packages/plugin/script/publish.ts`
 if (Script.release) {
   await $`bun ./packages/desktop/scripts/finalize-latest-json.ts`
   await $`bun ./packages/desktop/scripts/finalize-latest-yml.ts`
+  await $`bun ./packages/desktop/scripts/inject-release-notes.ts`
 }
 
 if (Script.release && !Script.preview) {

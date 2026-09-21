@@ -1,8 +1,8 @@
-# BarChart | 柱状图
+# BarChart | 柱状图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Bar Chart
+## Example: Basic Bar Chart
 - Use `xAxis.data` to specify the field name for X-axis dimension
 - `yAxisTitle` is the Y-axis visible label (required)
 
@@ -24,12 +24,12 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"direction": "horizontal"` — horizontal bar orientation
 - `"color": ["#2070F3", "#63b430"]` — custom bar colors
 - `"markLine": { "top": 38 }` — threshold reference line
 
-### Example: Double-sided Bar Chart
+## Example: Double-sided Bar Chart
 - Use `type: "double-sides"` for bidirectional bars
 
 ```json
@@ -51,7 +51,7 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Example: Stacked Bar Chart
+## Example: Stacked Bar Chart
 - Use `type: "stack"` for stacked bars
 - Use `stack` object to define custom stack groups (field name arrays)
 

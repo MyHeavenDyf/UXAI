@@ -104,6 +104,7 @@ export function TabBar(props: {
               <div
                 class="octo-tab"
                 data-active={isActive() ? "true" : undefined}
+                title={tab.title}
                 onClick={() => {
                   props.onActivate(tab.id)
                   props.onViewModeChange?.("tabs")

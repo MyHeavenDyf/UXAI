@@ -64,6 +64,12 @@
             { "$ref": "#/$defs/DataBinding" }
           ],
           "description": "lucide icon name to be shown when the state is unchecked." 
+        },
+        "disabled": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/DataBinding" }
+          ]
         }
       },
       "required": ["value"]

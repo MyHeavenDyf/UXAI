@@ -37,7 +37,7 @@
 | `preset-click` | 用户点预置提示词胶囊，把提示词填进输入框 | 欢迎页 / 对话页的预置提示词胶囊 → `handlePresetClick` | `{presetId, source}` | ✅ |
 | `message-abort` | AI 生成中用户点击停止 | 输入框「发送 / 停止」按钮的停止态 → `handleAbort` | — | ✅ |
 | `attachment-add` | 用户添加附件（逐个文件计一次） | 附件按钮选文件（file input）/ 拖拽文件进对话区 → `addAttachments` | `{method, fileType, fileSize}` | ✅ |
-| `attachment-upload-result` | 附件上传的成败结果（结果型，非直接点击） | 上传请求 promise 落定 → `doUpload` 的 then / catch | `{success, errorCode?}` | ✅ |
+| `attachment-import-result` | 附件导入 worktree 的成败结果（结果型，非直接点击；2026-09 起图片与非图片统一走此事件，以 `kind` 区分） | 导入 promise 落定 → `doImport` | `{success, localized?, kind, reason?}` | ✅ |
 | `task-refresh` | 用户点任务卡片「刷新」查询进度 | 任务卡片刷新按钮 → `handleTaskRefresh`（busy/cooldown 拦截后才打） | `{taskId}` | ✅ |
 | `task-stop` | 用户点任务卡片「终止」 | 任务卡片终止按钮 → `handleTaskStop`（busy 拦截后才打） | `{taskId}` | ✅ |
 | `task-open-result` | 用户点任务卡片「查看结果」打开右侧面板 | 任务卡片「查看结果」按钮 → `handleTaskOpenResult`：有产物直接打开打 `{taskId}`；completed 但无产物时触发 get_task_result 兜底查询，打 `{taskId, deferred:true}` | `{taskId, deferred?}` | ✅ |
@@ -72,7 +72,7 @@
 
 ## 三、代码写法范式
 
-统一从 `@/utils/tracker` 引入，**打点放在动作成功之后**，失败路径不打（除非事件本身就是结果型，如 `attachment-upload-result`）：
+统一从 `@/utils/tracker` 引入，**打点放在动作成功之后**，失败路径不打（除非事件本身就是结果型，如 `attachment-import-result`）：
 
 ```ts
 import { tracker } from "@/utils/tracker"
@@ -154,9 +154,9 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 | name | 功能 | 打在哪个功能 / 控件 | extend |
 |---|---|---|---|
 | `extract-failure` | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 派生） | `index.tsx` turn effect 扫 tool parts | `{reason: error/empty-text}` |
-| `attachment-import-result` | 非图片附件导入 worktree 的成败（结果型；与图片走的 `attachment-upload-result` 区分） | `index.tsx` `doImport` then/catch | `{success, localized?}` |
+| `attachment-import-result` | 附件（图片与非图片）导入 worktree 的成败（结果型） | `index.tsx` `doImport` then/catch | `{success, localized?, kind: "image"/"file"}` |
 
-> 注：`attachment-upload-result` 现仅用于**图片** S3 上传结果，extend 带 `kind:"image"`；非图片附件走本地导入、结果打 `attachment-import-result`。
+> 注：2026-09 起图片与非图片同链路本地导入 worktree（去 S3），统一打 `attachment-import-result` 并以 `kind` 区分；`attachment-upload-result` 已随 S3 图片链路移除。
 
 ### 批次 4 — MCP 任务结果成败（`server-` 前缀，服务端真实使用）
 

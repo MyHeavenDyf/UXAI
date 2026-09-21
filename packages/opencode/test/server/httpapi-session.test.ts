@@ -355,6 +355,32 @@ describe("session HttpApi", () => {
   )
 
   it.live(
+    "POST /session/reorder batch-updates sort_order from ordered ids",
+    withTmp({ git: true, config: { formatter: false, lsp: false, share: "disabled" } }, (tmp) =>
+      Effect.gen(function* () {
+        const headers = { "x-opencode-directory": tmp.path, "content-type": "application/json" }
+        const s1 = yield* createSession(tmp.path, { title: "reorder-1" })
+        const s2 = yield* createSession(tmp.path, { title: "reorder-2" })
+        const s3 = yield* createSession(tmp.path, { title: "reorder-3" })
+
+        const ok = yield* requestJson<boolean>(SessionPaths.reorder, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ids: [s3.id, s1.id, s2.id] }),
+        })
+        expect(ok).toBe(true)
+
+        const r1 = yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: s1.id }), { headers })
+        const r2 = yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: s2.id }), { headers })
+        const r3 = yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: s3.id }), { headers })
+        expect(r1.sort_order).toBe(1)
+        expect(r2.sort_order).toBe(2)
+        expect(r3.sort_order).toBe(0)
+      }),
+    ),
+  )
+
+  it.live(
     "persists selected workspace id when creating a session",
     withTmp({ git: true, config: { formatter: false, lsp: false, share: "disabled" } }, (tmp) =>
       Effect.gen(function* () {

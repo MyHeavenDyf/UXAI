@@ -15,7 +15,6 @@ import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_INSIGHT_READER from "./prompt/insight_reader.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
-import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
@@ -381,7 +380,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["html-prototype"],
-            mcp: ["prototype-dev"],
+            mcp: ["pixso"],
           },
           octo_make_plan: {
             name: "octo_make_plan",
@@ -393,6 +392,9 @@ export const layer = Layer.effect(
                 "*": "deny",
                 read: "ask",
                 websearch: "allow",
+                // "*" deny 已隐含禁用 skill 工具,显式声明使意图可见,且 prompt.ts 的
+                // command() 分支据此拦截 session.command 的 skill 模板注入
+                skill: "deny",
               }),
               user,
             ),
@@ -400,17 +402,6 @@ export const layer = Layer.effect(
             mode: "primary",
             native: true,
             hidden: true,
-          },
-          octo_design: {
-            name: "octo_design",
-            description: "UI design specialist. Generates and edits .pix design files using Pixso MCP tools.",
-            prompt: PROMPT_OCTO_DESIGN,
-            permission: Permission.merge(defaults, user),
-            options: {},
-            mode: "primary",
-            native: false,
-            skills: ["design-basics"],
-            mcp: ["pixso-design"],
           },
           octo_studio: {
             name: "octo_studio",

@@ -22,6 +22,7 @@ import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { CompactionSummary } from "./compaction-summary"
+import { NonNegativeInt } from "@/util/schema"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -30,6 +31,17 @@ export const Event = {
     "session.compacted",
     Schema.Struct({
       sessionID: SessionID,
+    }),
+  ),
+  Estimated: BusEvent.define(
+    "session.compaction.estimated",
+    Schema.Struct({
+      sessionID: SessionID,
+      messageID: MessageID,
+      tokens: NonNegativeInt,
+      limit: NonNegativeInt,
+      providerID: ProviderID,
+      modelID: ModelID,
     }),
   ),
 }
@@ -106,15 +118,6 @@ function summaryText(message: MessageV2.WithParts) {
 
 export function validateSummary(summary: string | undefined) {
   return CompactionSummary.validate(summary)
-}
-
-export function isSuccessful(message: MessageV2.WithParts) {
-  return (
-    message.info.role === "assistant" &&
-    message.info.summary === true &&
-    !!message.info.finish &&
-    !message.info.error
-  )
 }
 
 function completedCompactions(messages: MessageV2.WithParts[]) {
@@ -217,6 +220,7 @@ export interface Interface {
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
+    message?: string
   }) => Effect.Effect<void>
 }
 
@@ -566,10 +570,8 @@ export const layer: Layer.Layer<
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
-        yield* session.updatePart({
-          ...compactionPart,
-          tail_start_id: selected.tail_start_id,
-        })
+        compactionPart.tail_start_id = selected.tail_start_id
+        yield* session.updatePart(compactionPart)
       }
 
       if (result === "continue" && input.auto) {
@@ -693,6 +695,7 @@ export const layer: Layer.Layer<
       model: { providerID: ProviderID; modelID: ModelID }
       auto: boolean
       overflow?: boolean
+      message?: string
     }) {
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
@@ -710,6 +713,18 @@ export const layer: Layer.Layer<
         auto: input.auto,
         overflow: input.overflow,
       })
+      // 手动压缩时附带显示文本(synthetic text part):make 等客户端把用户输入渲染为气泡;
+      // 标准 UI 的 Message 组件会过滤 synthetic part,不会重复显示。
+      if (input.message) {
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "text",
+          text: input.message,
+          synthetic: true,
+        } satisfies MessageV2.TextPart)
+      }
       EventV2.run(SessionEvent.Compaction.Started.Sync, {
         sessionID: input.sessionID,
         timestamp: DateTime.makeUnsafe(Date.now()),

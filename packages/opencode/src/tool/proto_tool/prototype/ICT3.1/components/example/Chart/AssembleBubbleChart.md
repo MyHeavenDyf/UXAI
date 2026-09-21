@@ -1,8 +1,8 @@
-# AssembleBubbleChart | 组装气泡图
+# AssembleBubbleChart | 组装气泡图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Assemble Bubble Chart
+## Example: Basic Assemble Bubble Chart
 - Data is an array of objects with bubble metadata
 - Each item contains `name`, `value`, and category info
 
@@ -23,11 +23,11 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430", "#715afb"]` — custom bubble colors
 
 
-### Example: Nested Assemble Bubble Chart
+## Example: Nested Assemble Bubble Chart
 
 ```json
 {

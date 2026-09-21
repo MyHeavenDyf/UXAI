@@ -28,6 +28,27 @@ export interface ComponentNode {
   /** A2UI element id（用于 BindingValue.nodeId、生成 className 等） */
   id?: string
 
+  /**
+   * 即使 config.id=false 也强制输出 id 属性。
+   * 被锚点 href 引用的目标元素由 build-trees 预扫打标，使 prod（config.id=false）仍带 id
+   * 供锚点滚动定位（href 不致变死链）。config.id=true 时此标记冗余、不影响输出。
+   */
+  keepId?: boolean
+
+  /**
+   * 元素级条件渲染（A2UI Scenario 3）。
+   * element 上与 props/children 平级的 `condition: { path, in }`，由 build-trees 读取存入。
+   * path 指向顶层 state 值（协议约束：interaction path 必须顶层，不在 loop 数据里）；
+   * 当该值 ∈ in 数组时渲染该元素，否则完全不渲染（不占位）。
+   *
+   * 非值绑定（不进 bindingRefs/enrichment），是一种「判据只读」：
+   * state-builder 登记 path 为 shared（useSharedState 订阅，响应 action 变化）；
+   * tree-finalizer lift 出 `const [varName] = useSharedState(sharedKey)` 并写回 varName；
+   * jsx-emitter 用 varName 包守卫 `{[...in].includes(varName) && (<Node/>)}`。
+   * varName 由 tree-finalizer 填，build-trees 阶段只填 {path, in}。
+   */
+  condition?: { path: string; in: string[]; varName?: string }
+
   /** A2UI 原始组件名 */
   component: string
 
@@ -82,6 +103,18 @@ export interface HtmlNode {
   __node: true,
   kind: 'html'
   id?: string
+  /**
+   * 即使 config.id=false 也强制输出 id 属性（被锚点 href 引用的目标元素，由 build-trees 预扫打标）。
+   * 详见 ComponentNode.keepId。
+   */
+  keepId?: boolean
+
+  /**
+   * 元素级条件渲染（A2UI Scenario 3），详见 ComponentNode.condition。
+   * HTML 节点与组件节点同样支持 condition 守卫包裹。
+   */
+  condition?: { path: string; in: string[]; varName?: string }
+
   tag: string
   props: Record<string, PropValue>
   /** 子节点：常规节点数组 / LoopNode（不在数组中）/ null */

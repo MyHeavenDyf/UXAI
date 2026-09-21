@@ -1,33 +1,32 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
-let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
+const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
+let modelsApi: { source: "http" | "local"; url?: string; token?: string; account?: string } | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
 
-export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
+export function configureModelsApi(input: { source?: string; url?: string; token?: string; account?: string }) {
   const source = input.source === "local" ? "local" : "http"
   if (source === "local") {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   if (!input.url) {
     cache = undefined
-    modelsApi = { source, token: input.token }
+    modelsApi = { source, token: input.token, account: input.account }
     return
   }
   try {
     const url = new URL(input.url)
     if (url.protocol !== "http:" && url.protocol !== "https:") return
-    const w3Api = input.w3Api ? new URL(input.w3Api) : undefined
-    if (w3Api && w3Api.protocol !== "http:" && w3Api.protocol !== "https:") return
-    const next = { source, url: url.toString(), w3Api: w3Api?.toString(), token: input.token } as const
+    const next = { source, url: url.toString(), token: input.token, account: input.account } as const
     if (
       modelsApi?.source !== next.source ||
       modelsApi.url !== next.url ||
-      modelsApi.w3Api !== next.w3Api ||
-      modelsApi.token !== next.token
+      modelsApi.token !== next.token ||
+      modelsApi.account !== next.account
     ) {
       cache = undefined
     }
@@ -40,8 +39,8 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
   configureModelsApi({
     source: headers["x-opencode-models-api-source"],
     url: headers["x-opencode-models-api-url"],
-    w3Api: headers["x-opencode-w3-api"],
     token: headers.uiplustoken,
+    account: headers["x-opencode-w3-account"],
   })
 }
 
@@ -67,18 +66,74 @@ function parseJson(value: unknown): unknown {
   }
 }
 
-function apiModels(value: unknown): Record<string, unknown> {
+function normalizeModels(value: unknown) {
+  const entries = Array.isArray(value)
+    ? value.flatMap((model) => (isRecord(model) && typeof model.id === "string" ? [[model.id, model] as const] : []))
+    : isRecord(value)
+      ? Object.entries(value)
+      : []
+
+  return Object.fromEntries(
+    entries.flatMap(([key, model]) => {
+      if (!isRecord(model)) return []
+      const id = typeof model.id === "string" && model.id ? model.id : key
+      const limit = isRecord(model.limit) ? model.limit : {}
+      return [
+        [
+          id,
+          {
+            ...model,
+            id,
+            name: typeof model.name === "string" && model.name ? model.name : id,
+            release_date: typeof model.release_date === "string" ? model.release_date : "",
+            attachment: model.attachment === true,
+            reasoning: model.reasoning === true,
+            temperature: model.temperature === true,
+            tool_call: model.tool_call !== false,
+            limit: {
+              ...limit,
+              context: typeof limit.context === "number" ? limit.context : 0,
+              output: typeof limit.output === "number" ? limit.output : 0,
+            },
+          },
+        ] as const,
+      ]
+    }),
+  )
+}
+
+export function parseModelsApi(value: unknown): Record<string, unknown> {
   const input = parseJson(value)
   if (!isRecord(input)) return {}
 
   const direct = Object.fromEntries(
-    Object.entries(input).filter(([, provider]) => isRecord(provider) && isRecord(provider.models)),
+    Object.entries(input).flatMap(([key, provider]) => {
+      if (!isRecord(provider) || (!isRecord(provider.models) && !Array.isArray(provider.models))) return []
+      const id = typeof provider.id === "string" && provider.id ? provider.id : key
+      if (REMOVED_PROVIDER_IDS.has(id)) return []
+      return [
+        [
+          id,
+          {
+            ...provider,
+            id,
+            name: typeof provider.name === "string" && provider.name ? provider.name : id,
+            env: Array.isArray(provider.env)
+              ? provider.env.filter((item): item is string => typeof item === "string")
+              : [],
+            models: normalizeModels(provider.models),
+          },
+        ] as const,
+      ]
+    }),
   )
   if (Object.keys(direct).length > 0) return direct
 
-  return ["content", "data", "provider", "providers", "result"]
-    .map((key) => apiModels(input[key]))
-    .find((providers) => Object.keys(providers).length > 0) ?? {}
+  return (
+    ["content", "data", "provider", "providers", "result"]
+      .map((key) => parseModelsApi(input[key]))
+      .find((providers) => Object.keys(providers).length > 0) ?? {}
+  )
 }
 
 async function loadApi() {
@@ -89,7 +144,7 @@ async function loadApi() {
   loading = fetch(modelsApi.url, {
     headers: modelsApi.token ? { uiplustoken: modelsApi.token } : {},
   })
-    .then(async (response) => (response.ok ? apiModels(await response.json()) : undefined))
+    .then(async (response) => (response.ok ? parseModelsApi(await response.json()) : undefined))
     .catch(() => undefined)
     .finally(() => {
       loading = undefined
@@ -99,8 +154,11 @@ async function loadApi() {
   return api
 }
 
+export function modelsApiCatalog() {
+  return loadApi()
+}
+
 export async function modelsApiProviderUrl(providerID: string) {
-  if (providerID === "w3" && modelsApi?.w3Api) return modelsApi.w3Api
   const api = await loadApi()
   const provider = api?.[providerID]
   if (!isRecord(provider)) return
@@ -114,6 +172,15 @@ function findApiModel(api: Record<string, unknown>, providerID: string, modelID:
   const direct = provider.models[modelID] ?? provider.models[apiID]
   if (direct) return direct
   return Object.values(provider.models).find((model) => isRecord(model) && model.id === apiID)
+}
+
+export function modelRequestBody(body: unknown, isExternal?: boolean) {
+  if (!isRecord(body)) return body
+  return {
+    ...body,
+    isExternal: isExternal ?? false,
+    ...(modelsApi?.account ? { w3Account: modelsApi.account } : {}),
+  }
 }
 
 export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {

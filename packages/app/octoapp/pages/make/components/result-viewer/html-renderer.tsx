@@ -1,4 +1,5 @@
 import { createMemo, createSignal, createResource, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
@@ -11,13 +12,22 @@ import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
+import { ModelEditPanel } from "./model-edit-panel"
+import { ModelEditAreaDialog } from "./model-edit-area-dialog"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
+import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
+import { HUI_COLOR_TOKENS } from "../model-edit-items/icon-data/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { dirname, basename, joinPath } from "../../utils/references"
+import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
+
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
@@ -29,6 +39,7 @@ import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import { getA2uiDataRelativePaths } from "../../utils/prototype-utils"
 import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
@@ -156,6 +167,10 @@ export function HtmlRenderer(props: {
   palette?: PaletteId | null
   inspecting?: boolean
   editing?: boolean
+  modelEditing?: boolean
+  modelEditConfig?: ModelEditConfig
+  onModelEditSave?: (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: ModelEditContext) => Promise<boolean | void>
+  onModelEditDelete?: (element: ModelEditElement, ctx: ModelEditContext) => Promise<boolean | void>
   drawing?: boolean
   commenting?: boolean
   archiving?: boolean
@@ -185,11 +200,19 @@ export function HtmlRenderer(props: {
   subtype?: string
   /** 当前 tab 的 id（用于构造 SubtypeHandlerContext） */
   tabId?: string
+  disabled?: boolean
+  skillConfig?: import("../skill-config-types").SkillConfig
+  artifactFiles?: { generated: import("../../utils/artifact-file-api").ArtifactFile[]; uploaded: import("../../utils/artifact-file-api").ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
+  /** fastui 预览卡片的产物名;null 表示不是 fastui 卡片(SPEC-DES-004) */
+  const fastuiName = createMemo(() => parseFastuiPreview(props.filePath))
   const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
@@ -209,6 +232,106 @@ export function HtmlRenderer(props: {
   )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditTarget, setModelEditTarget] = createSignal<ModelEditElement | null>(null)
+  const [modelEditPanelConfig, setModelEditPanelConfig] = createSignal<ConfigGroup[]>([])
+  const [modelEditPanelData, setModelEditPanelData] = createSignal<Record<string, string>>({})
+  const [modelEditPanelTitle, setModelEditPanelTitle] = createSignal('')
+  const [modelEditPanelInfo, setModelEditPanelInfo] = createSignal('')
+  const [modelEditPanelPosition, setModelEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditPrevData, setModelEditPrevData] = createSignal<Record<string, string>>({})
+  const [mentionPanelOpen, setMentionPanelOpen] = createSignal(false)
+  const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
+  const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
+  const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
+
+  const [panelStateCache, setPanelStateCache] = createStore<Record<string, Record<string, string>>>({})
+
+  const panelStatePath = () => {
+    const fp = props.filePath
+    if (!fp) return null
+    return joinPath(dirname(fp), '.' + basename(fp) + '.panel-state.json')
+  }
+
+  const loadPanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.readFileBuffer || !sp) return
+    try {
+      const buf = await api.readFileBuffer(sp)
+      if (!buf) return
+      const text = new TextDecoder().decode(new Uint8Array(buf))
+      const data = JSON.parse(text) as Record<string, Record<string, string>>
+      setPanelStateCache({ ...data })
+    } catch { /* file not found or parse error — normal degradation */ }
+  }
+
+  const writePanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.writeFileBuffer || !sp) return
+    try {
+      const json = JSON.stringify(panelStateCache)
+      const buf = new TextEncoder().encode(json).buffer as ArrayBuffer
+      await api.writeFileBuffer(sp, buf)
+    } catch { /* silent fail — don't block save */ }
+  }
+
+  const handleIframeLoad = () => {
+    if (!iframeRef) return
+    // fastui 预览:地址挂上之后的 load 才算真正出了页面(SPEC-DES-004 §3.6)
+    if (fastuiName() !== null) fastuiPreview.frameLoaded(!!iframeRef.getAttribute("src"))
+    if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
+    if (props.editing) {
+      iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+    }
+    if (props.inspecting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+    }
+    if (props.commenting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+      const comments = savedComments()
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+    }
+    if (props.modelEditing) {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage({
+        type: "od:model-edit-mode",
+        enabled: true,
+        componentFlag: config?.componentFlag || null,
+        htmlFlag: config?.htmlFlag || null,
+      }, "*")
+    }
+    if (props.palette) {
+      iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+    }
+    const overrides = savedOverrides()
+    if (overrides.length > 0) {
+      overrides.forEach((override) => {
+        iframeRef.contentWindow?.postMessage(
+          { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+          "*"
+        )
+      })
+    }
+    void loadPanelState()
+  }
+
+  const modelEditContext = createMemo((): ModelEditContext | undefined => {
+    const target = modelEditTarget()
+    if (!target) return undefined
+    return {
+      dom: target,
+      filePath: props.filePath || '',
+      type: target.componentType || target.htmlType || 'default',
+      postMessageToIframe: (data: unknown) => iframeRef?.contentWindow?.postMessage(data, '*'),
+      getIframeSnapshot: () => getIframeSnapshot(),
+      onContentChange: (content: string) => props.onContentChange?.(content) ?? Promise.resolve(),
+      onRefreshNeeded: () => props.onRefreshNeeded?.(),
+      cleanBridgeContent: (html: string) => cleanBridgeContent(html),
+      applyPatch: (html: string, patch: ManualEditPatch) => applyManualEditPatch(html, patch),
+      wrapHtmlContent: (html: string) => wrapHtmlContent(html, props.content),
+    }
+  })
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
     elementId: string | null
@@ -405,8 +528,8 @@ export function HtmlRenderer(props: {
       htmlContent = extractHtmlContent(htmlContent)
       
       // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
-      let srcZipBlob: Blob | null = null
-      let srcFileName: string | undefined
+      let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
+      let previewExtraRels: string[] = []
       const handler = getSubtypeHandler(props.subtype)
       if (handler?.buildArchiveSrc && props.tabId) {
         const m = local.model.current()
@@ -435,11 +558,19 @@ export function HtmlRenderer(props: {
           sessionId: props.sessionId,
           sdkDirectory: props.sdkDirectory,
         }
+        // 混合 prototype 的 a2ui-data 以 dataPath: './...' JS 字面量引用，静态正则抓不到、
+        // 运行时 observedUrls 时序不稳定——按 getA2uiDataRelativePaths 显式列出，确定性地补进 preview/。
+        if (props.subtype === "prototype") {
+          try {
+            previewExtraRels = await getA2uiDataRelativePaths(ctx)
+          } catch (err) {
+            console.warn("[Archive] getA2uiDataRelativePaths failed:", err)
+          }
+        }
         try {
           const r = await handler.buildArchiveSrc(ctx)
           if (r) {
-            srcZipBlob = r.blob
-            srcFileName = r.fileName
+            srcFiles = r.files
           } else if (props.subtype === "prototype") {
             showOctoToast({ title: "代码包生成失败，已跳过 src/" })
           }
@@ -449,6 +580,45 @@ export function HtmlRenderer(props: {
         }
       }
       
+      // prototype 归档补 preview/ 本地资源目录（绕过静态正则 + observedUrls 时序局限）：
+      //  ① htmlDir/assets —— 顶层 assets 软链布局（HTML 引用 ./assets/index.js，无 hash）；不存在则 archive-utils 逐目录 try/catch 跳过。
+      //  ② previewdist 运行时 —— 混合/previewdist 布局（HTML 引用 ./previewdist/PreviewRenderer.js，distPath='./previewdist'，
+      //     PreviewRenderer 运行时再动态加载 ./previewdist/assets/index.js + CSS + 字体 + index.prototype.html）。
+      //     兼容真实目录与软链两种形态：优先页内 htmlDir/previewdist（内容与其 PreviewRenderer.js 自洽）；
+      //     若 listDirectory 不跟随软链 / 目录不存在导致拿不到文件，回退 getPreviewDistDir() 真实路径
+      //     （开发态 packages/previewdist、安装态 resources/previewdist；pattern 归档同此路径，见 pattern-archive-utils.ts）。
+      //     两者经 previewExtraDirs 的 relativeTo(htmlDir, …) → 'previewdist' 写到 preview/previewdist/，对上 HTML 的 ./previewdist/ 引用。
+      const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
+      const previewExtraDirs: string[] = []
+      if (props.subtype === "prototype" && htmlDir) {
+        previewExtraDirs.push(joinPath(htmlDir, "assets"))
+        const desktopApi = getDesktopApi()
+        // 仅当页引用 ./previewdist/ 时才补 previewdist 运行时（避免顶层-assets 布局无谓打包共享运行时）：
+        if (/\.\/previewdist\//i.test(htmlContent)) {
+          const previewdistDir = joinPath(htmlDir, "previewdist")
+          const listDirectory = desktopApi?.listDirectory
+          let usePreviewdistDir = false
+          if (listDirectory) {
+            try {
+              const entries = await listDirectory(previewdistDir)
+              usePreviewdistDir = entries.some(e => e.type === "file")
+            } catch { /* 软链未跟随 / 目录不存在 → 走回退 */ }
+          }
+          if (usePreviewdistDir) {
+            previewExtraDirs.push(previewdistDir)
+          } else {
+            const getPreviewDistDir = desktopApi?.getPreviewDistDir
+            if (getPreviewDistDir) {
+              try { previewExtraDirs.push(await getPreviewDistDir()) } catch {}
+            }
+          }
+        }
+      }
+
+      // prototype：抓 iframe 实时 DOM 快照，用于在 data/components.json 记录
+      // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
+      const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
+
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -458,8 +628,10 @@ export function HtmlRenderer(props: {
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || "",
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
-        srcZipBlob,
-        srcFileName,
+        srcFiles,
+        previewExtraDirs,
+        previewExtraRels,
+        prototypeSnapshotHtml,
       })
       
       if (isLoggedIn) {
@@ -535,7 +707,7 @@ createEffect(() => {
     if (props.editing && editTarget() && !editPanelPosition()) {
       // Calculate initial position (right side with padding)
       const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
-      const panelWidth = 340
+      const panelWidth = 268
       const padding = 12
       setEditPanelPosition({
         left: Math.max(padding, canvasWidth - panelWidth - padding),
@@ -843,6 +1015,7 @@ createEffect(() => {
       picker: true,
       inspectBridge: true,
       editBridge: true,
+      modelEditBridge: true,
       snapshotBridge: true,
       commentBridge: true,
       resourceCollectorBridge: true,
@@ -851,19 +1024,140 @@ createEffect(() => {
   })
 
   const shouldUseExternalUrl = createMemo(() => {
-    return /^https?:\/\//i.test(props.filePath || "")
+    return /^https?:\/\//i.test(props.filePath || "") || fastuiName() !== null
   })
+
+  // ── fastui 预览(SPEC-DES-004)──────────────────────────────────────
+  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址;状态迁移、超时与
+  // 「刷新不闪」都在 utils/fastui-preview.ts 里(有单测),这里只负责接线。
+  const [fastui, setFastui] = createSignal<FastuiPreviewState>({ phase: "resolving" })
+  const fastuiPreview = createFastuiPreviewController({ onState: setFastui })
+  onCleanup(() => fastuiPreview.dispose())
+  const [fastuiAttempt, setFastuiAttempt] = createSignal(0)
+  /** 下一次取地址走「结束当前服务并重起」;由「重新编译」按钮置位 */
+  let fastuiRestartNext = false
+
+  createEffect(
+    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
+    on(
+      [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
+      ([name]) => {
+        if (name === null) return
+        const restart = fastuiRestartNext
+        fastuiRestartNext = false
+        fastuiPreview.request({
+          api: getDesktopApi(),
+          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          name,
+          restart,
+        })
+      },
+    ),
+  )
+
+  const recompileFastui = () => {
+    fastuiRestartNext = true
+    setFastuiAttempt((n) => n + 1)
+  }
+
+  // ── 本地预览服务的就绪门禁(SPEC-DES-001 §8.6.5)─────────────────────
+  // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
+  // 拿到 ERR_CONNECTION_REFUSED 之后**不会自己重试**,就一直白着。
+  // 修法是端口没通就先别挂 src —— 跨源 iframe 的加载失败未必触发 onerror,拿不到可靠信号,
+  // 主动探测端口才是确定的判据。只管 127.0.0.1/localhost,其他外链行为完全不变。
+  //
+  // **门禁必须是"尽力而为的等待",不能是"通不过就锁死"**:渲染进程的 origin 是自定义
+  // scheme,向 loopback 发跨源子资源请求还要过 Chromium 的 Private Network Access
+  // 那一关(no-cors 不豁免)。万一探测在真机上根本不可用,恒不放行就把"白屏但切 tab
+  // 能恢复"变成了"永远打不开",比改动前更糟。所以超时后降级为直接挂 src,让 iframe
+  // 自己去撞 —— 最坏等价于改动前的行为。
+  //
+  // 门禁范围比 fastui 宽(任意 loopback URL 都走),因为"等本地服务起来再挂 iframe"
+  // 对任何本地预览都成立;所以覆盖层文案保持中性,不写 fastui 专属的说法。
+  // fastui 卡片有自己的一套(见上),这里只管其他本地服务
+  const needsReadyGate = createMemo(
+    () => shouldUseExternalUrl() && fastuiName() === null && isLocalPreviewUrl(props.filePath),
+  )
+  const [previewReady, setPreviewReady] = createSignal(false)
+  const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
+
+  // 首次编译 1–3 分钟(§8.6.1),上限取同量级
+  const PROBE_INTERVAL_MS = 1000
+  const PROBE_TIMEOUT_MS = 3 * 60 * 1000
+  const PROBE_ATTEMPT_TIMEOUT_MS = 5000
+
+  createEffect(on([needsReadyGate, () => props.filePath], ([gate, url]) => {
+    if (!gate || !url) {
+      setPreviewReady(true)
+      setPreviewTimedOut(false)
+      return
+    }
+    setPreviewReady(false)
+    setPreviewTimedOut(false)
+
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inflight: AbortController | undefined
+    const deadline = Date.now() + PROBE_TIMEOUT_MS
+
+    const probe = async () => {
+      if (disposed) return
+      const controller = new AbortController()
+      inflight = controller
+      // 端口开着但不回应时 fetch 会一直挂,不设上限就再也不会重试
+      const abortTimer = setTimeout(() => controller.abort(), PROBE_ATTEMPT_TIMEOUT_MS)
+      try {
+        // no-cors 拿到的是 opaque response,读不了内容 —— 但"连上了"这件事已经确定
+        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: controller.signal })
+        if (!disposed) setPreviewReady(true)
+        return
+      } catch {
+        /* 还没 listen(或本次探测超时),继续等 */
+      } finally {
+        clearTimeout(abortTimer)
+        if (inflight === controller) inflight = undefined
+      }
+      if (disposed) return
+      if (Date.now() >= deadline) {
+        // 降级:放行 src、撤掉覆盖层。之后要么正常渲染(探测机制不可用但服务其实是通的),
+        // 要么显示浏览器自己的错误页 —— 后者就是改动前的行为,不是回归。
+        // 重试入口用 action bar 现成的刷新按钮:它 bump refreshKey,externalUrl 会重算出
+        // 带新 _octo_v 的地址,iframe 重新加载。
+        console.warn("[fastui] 本地预览端口探测超时,降级为直接加载", url)
+        setPreviewTimedOut(true)
+        return
+      }
+      timer = setTimeout(probe, PROBE_INTERVAL_MS)
+    }
+    void probe()
+
+    onCleanup(() => {
+      disposed = true
+      if (timer) clearTimeout(timer)
+      inflight?.abort()
+    })
+  }))
 
   const externalUrl = createMemo(() => {
     if (!shouldUseExternalUrl()) return undefined
+    // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
+    // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
+    if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
+    let base = props.filePath!
+    if (fastuiName() !== null) {
+      // 地址还没取到就不挂 src:挂上去就是一次拿不回来的连接失败
+      const fu = fastui()
+      if (fu.phase !== "loading" && fu.phase !== "ready") return undefined
+      base = fu.url
+    }
     const key = props.refreshKey ?? 0
-    if (key === 0) return props.filePath
+    if (key === 0) return base
     try {
-      const u = new URL(props.filePath!)
+      const u = new URL(base)
       u.searchParams.set("_octo_v", String(key))
       return u.toString()
     } catch {
-      return props.filePath
+      return base
     }
   })
 
@@ -1015,6 +1309,11 @@ createEffect(() => {
     }
 
     if (d.type === "od:edit-selected") {
+      if (mentionPanelOpen() || pendingLocalEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
       
       // Save previous element's pending changes before switching
@@ -1054,6 +1353,71 @@ createEffect(() => {
         "*"
       )
     }
+
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
+
+// Listen to model-edit messages from iframe
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.modelEditing) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+
+    if (d.type === "od:model-edit-selected") {
+      if (mentionPanelOpen() || pendingModelEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
+      const target: ModelEditElement = d.target
+      const config = props.modelEditConfig
+      if (!config) return
+
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
+
+      let panelConfig: ConfigGroup[] = []
+      let panelData: Record<string, string> = {}
+
+      if (target.selectionKind === 'component' && target.componentType && config.componentConfig?.[target.componentType]) {
+        const compConfig = config.componentConfig[target.componentType]
+        panelConfig = compConfig.config
+        panelData = compConfig.data(target)
+        setModelEditPanelTitle(compConfig.title)
+        const info = compConfig.info ? compConfig.info(target) : ''
+        setModelEditPanelInfo(info)
+      } else {
+        const defaultConfig = getDefaultNativeConfig(target.elementKind, target.isLayoutContainer)
+        const defaultData = readNativeDefaults(target.elementKind, target)
+
+        if (target.selectionKind === 'native' && target.htmlType && config.htmlConfig?.[target.htmlType]) {
+          const htmlConfig = config.htmlConfig[target.htmlType]
+          panelConfig = htmlConfig.config(defaultConfig)
+          panelData = htmlConfig.data(defaultData, target)
+        } else {
+          panelConfig = defaultConfig
+          panelData = defaultData
+        }
+
+        setModelEditPanelTitle(target.tagName)
+        setModelEditPanelInfo(target.htmlHint)
+      }
+
+      const cached = panelStateCache[target.selector]
+      if (cached) {
+        panelData = { ...panelData, ...cached }
+      }
+
+      setModelEditPrevData({ ...panelData })
+      setModelEditTarget(target)
+      setModelEditPanelConfig(panelConfig)
+      setModelEditPanelData(panelData)
+    }
   }
 
   window.addEventListener("message", handleMessage)
@@ -1090,7 +1454,7 @@ createEffect(() => {
           htmlHint: comment.htmlHint,
           label: comment.label,
           note: comment.note,
-          pinPosition: d.position,
+          pinPosition: transformRect(d.position),
           commenterAvatar: comment.commenterAvatar,
           commenterName: comment.commenterName,
           createdAt: comment.createdAt,
@@ -1115,7 +1479,7 @@ createEffect(() => {
         position: d.position,
         htmlHint: d.htmlHint,
         label: d.label,
-        hoverPoint: d.hoverPoint,
+        hoverPoint: transformPoint(d.hoverPoint),
       })
       setEditingComment(null)
       setCommentReadOnly(false)
@@ -1128,7 +1492,7 @@ createEffect(() => {
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
-        const pinPos = d.pinPosition
+        const pinPos = transformRect(d.pinPosition)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -1150,7 +1514,7 @@ createEffect(() => {
     
     if (d.type === "od:comment-pin-position") {
       const commentId = d.commentId
-      const pinPos = d.pinPosition
+      const pinPos = transformRect(d.pinPosition)
       const comment = savedComments().find(c => c.id === commentId)
       if (comment && pinPos) {
         setEditingComment(comment)
@@ -1224,6 +1588,50 @@ createEffect(() => {
       }
     }
   })
+
+  // Send model-edit-mode toggle to iframe
+  createEffect(() => {
+    if (iframeRef && props.mode === "preview") {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage(
+        {
+          type: "od:model-edit-mode",
+          enabled: !!props.modelEditing,
+          componentFlag: config?.componentFlag || null,
+          htmlFlag: config?.htmlFlag || null,
+        },
+        "*"
+      )
+      if (!props.modelEditing) {
+        setModelEditTarget(null)
+      }
+    }
+  })
+
+  // Watch for model reply completion after save/delete/confirm
+  createEffect(on(() => props.disabled, (disabled, prev) => {
+    if (prev && !disabled && pendingModelEditClose()) {
+      setPendingModelEditClose(false)
+      setModelEditTarget(null)
+      iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+      props.onRefreshNeeded?.()
+      /** 模型回复完成的确定时机：补一次历史检查。components 等页面的产物由构建进程重新产出，
+       *  SSE 的 tool/step 事件时点上不一定能读到新文件，导致「模型编辑」版本漏记；
+       *  index.tsx 监听后跑 onFileRefresh（hash 未变时是空操作，幂等） */
+      if (props.filePath) {
+        window.dispatchEvent(new CustomEvent("model-edit:reply-done", { detail: { filePath: props.filePath } }))
+      }
+    }
+    if (prev && !disabled && pendingLocalEditClose()) {
+      setPendingLocalEditClose(false)
+      cancelManualEditStyleDraft()
+      setEditTarget(null)
+      manualEditPendingStyle = null
+      manualEditPendingText = null
+      setEditDraft(emptyManualEditDraft(props.content))
+      props.onRefreshNeeded?.()
+    }
+  }))
 
 // Send inspect-mode toggle to iframe
   createEffect(() => {
@@ -1335,21 +1743,49 @@ createEffect(() => {
     return vp !== "desktop" && props.mode === "preview"
   }
 
-  const containerStyle = createMemo(() => {
-    if (!isResponsive()) return {}
-
+  const viewportTransform = createMemo(() => {
+    if (!isResponsive()) return { scale: 1, offsetX: 0, offsetY: 0 }
     const vp = props.viewport!
     const dims = VIEWPORT_DIMS[vp]
     const { w, h } = canvasSize()
     const scale = effectiveScale(vp, w, h)
     const pad = 24
+    return {
+      scale,
+      offsetX: pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2),
+      offsetY: pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2),
+    }
+  })
 
+  const transformPoint = (point: { x: number; y: number }) => {
+    const t = viewportTransform()
+    return {
+      x: t.offsetX + point.x * t.scale,
+      y: t.offsetY + point.y * t.scale,
+    }
+  }
+
+  const transformRect = (rect: { left: number; top: number; width: number; height: number }) => {
+    const t = viewportTransform()
+    return {
+      left: t.offsetX + rect.left * t.scale,
+      top: t.offsetY + rect.top * t.scale,
+      width: rect.width * t.scale,
+      height: rect.height * t.scale,
+    }
+  }
+
+  const containerStyle = createMemo(() => {
+    if (!isResponsive()) return {}
+    const vp = props.viewport!
+    const dims = VIEWPORT_DIMS[vp]
+    const t = viewportTransform()
     return {
       "--octo-vp-width": `${dims.width}px`,
       "--octo-vp-height": `${dims.height}px`,
-      "--octo-vp-scale": scale,
-      "--octo-vp-offset-x": `${pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2)}px`,
-      "--octo-vp-offset-y": `${pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2)}px`,
+      "--octo-vp-scale": t.scale,
+      "--octo-vp-offset-x": `${t.offsetX}px`,
+      "--octo-vp-offset-y": `${t.offsetY}px`,
     } as JSX.CSSProperties
   })
 
@@ -1372,8 +1808,102 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: (pendingModelEditClose() || pendingLocalEditClose()) ? 'wait' : undefined }}
     >
+      {/* fastui 预览:编译中 / 出错两种覆盖层(SPEC-DES-004 §3.6)。出页面之前一直盖着,不让用户看到白屏 */}
+      <Show when={props.mode === "preview" && fastuiName() !== null && fastui().phase !== "ready"}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "10px",
+            padding: "24px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <Show
+            when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
+            fallback={
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
+                <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+                  首次打开需要启动本地服务，通常十几秒，请稍候。
+                </div>
+              </>
+            }
+          >
+            {(err) => (
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)", "text-align": "center", "max-width": "420px" }}>
+                  {err().message}
+                </div>
+                <Show when={err().logTail}>
+                  <pre
+                    style={{
+                      margin: "0",
+                      "max-width": "min(640px, 100%)",
+                      "max-height": "200px",
+                      overflow: "auto",
+                      padding: "8px 10px",
+                      "font-size": "11px",
+                      "line-height": "16px",
+                      "white-space": "pre-wrap",
+                      "word-break": "break-all",
+                      color: "var(--octo-text-secondary, #8a8a8a)",
+                      background: "rgba(0,0,0,0.04)",
+                      "border-radius": "6px",
+                    }}
+                  >
+                    {err().logTail}
+                  </pre>
+                </Show>
+                <button
+                  type="button"
+                  onClick={recompileFastui}
+                  style={{
+                    "margin-top": "4px",
+                    padding: "5px 14px",
+                    "font-size": "13px",
+                    "border-radius": "6px",
+                    border: "1px solid var(--octo-border, #d9d9d9)",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  重新编译
+                </button>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+      {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
+          超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
+      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "8px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在等待本地预览服务…</div>
+          <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+            服务就绪后会自动加载，首次启动可能需要几分钟。
+          </div>
+        </div>
+      </Show>
       {props.mode === "preview" ? (
         <DrawOverlay
           active={props.drawing ?? false}
@@ -1410,35 +1940,7 @@ return (
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           ) : (
@@ -1455,35 +1957,7 @@ return (
                 sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
-                onLoad={() => {
-                  if (!iframeRef) {
-                    return
-                  }
-                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
-                  if (props.editing) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
-                  }
-                  if (props.inspecting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
-                  }
-                  if (props.commenting) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
-                    const comments = savedComments()
-                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
-                  }
-                  if (props.palette) {
-                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
-                  }
-                  const overrides = savedOverrides()
-                  if (overrides.length > 0) {
-                    overrides.forEach((override) => {
-                      iframeRef.contentWindow?.postMessage(
-                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
-                        "*"
-                      )
-                    })
-                  }
-                }}
+                onLoad={handleIframeLoad}
               />
             </div>
           )}
@@ -1699,12 +2173,115 @@ onExit={() => {
   setEditDraft(emptyManualEditDraft(props.content))
 }}
 onFloatingPositionChange={setEditPanelPosition}
-               />
-             </Show>
+                />
+              </Show>
+          <Show when={props.editing && editTarget()}>
+            <ModelEditAreaDialog
+              element={editTarget()}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                cancelManualEditStyleDraft()
+                setEditTarget(null)
+                manualEditPendingStyle = null
+                manualEditPendingText = null
+                setEditDraft(emptyManualEditDraft(props.content))
+                setMentionPanelOpen(false)
+                tracker.interaction({ module: "design", name: "cancel-local-edit-area" })
+              }}
+              onSubmitStart={() => setPendingLocalEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+            />
+          </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditPanel
+              element={modelEditTarget()}
+              config={modelEditPanelConfig()}
+              panelData={modelEditPanelData()}
+              panelTitle={modelEditPanelTitle()}
+              panelInfo={modelEditPanelInfo()}
+              filePath={props.filePath || ''}
+              disabled={props.disabled}
+              colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
+              onChange={(args) => {
+                const selector = args.dom.selector
+                if (selector) setPanelStateCache(selector, (prev: Record<string, string>) => ({ ...prev, [args.key]: args.value }))
+                props.modelEditConfig?.onChange?.(args)
+              }}
+              context={modelEditContext()}
+              iconConfig={props.modelEditConfig?.iconConfig}
+              assetConfig={props.modelEditConfig?.assetConfig}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              floatingStyle={modelEditPanelPosition() ?? undefined}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onSave={async (current) => {
+                await writePanelState()
+                const target = modelEditTarget()
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditSave?.(target, modelEditPrevData(), current, ctx) ?? undefined
+                }
+              }}
+              onDelete={async () => {
+                const target = modelEditTarget()
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditDelete?.(target, ctx) ?? undefined
+                }
+              }}
+              onExit={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "close-model-edit-panel" })
+              }}
+              onFloatingPositionChange={setModelEditPanelPosition}
+            />
+          </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditAreaDialog
+              element={modelEditTarget()}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "cancel-model-edit-area" })
+              }}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+              promptCallback={props.modelEditConfig?.promptCallback}
+            />
+          </Show>
 <Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
                 <CommentHoverTooltip
                   target={commentHoverTarget()!}
-                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                  iframeBounds={(() => {
+                    const vp = props.viewport ?? "desktop"
+                    const dims = VIEWPORT_DIMS[vp]
+                    return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                  })()}
                   onClose={() => setCommentHoverTarget(null)}
                   onClick={() => {
                     const hoverTarget = commentHoverTarget()
@@ -1744,8 +2321,12 @@ setEditingComment(comment)
               </Show>
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
-                   iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-target={editingComment() ? {
+                    iframeBounds={(() => {
+                      const vp = props.viewport ?? "desktop"
+                      const dims = VIEWPORT_DIMS[vp]
+                      return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                    })()}
+ target={editingComment() ? {
                       elementId: editingComment()!.elementId,
                       selector: editingComment()!.selector,
                       contentSignature: editingComment()!.contentSignature,
@@ -1755,11 +2336,12 @@ target={editingComment() ? {
                       position: editingComment()!.position,
                       htmlHint: editingComment()!.htmlHint,
                       hoverPoint: commentTarget()?.hoverPoint || (() => {
-                        const bounds = iframeRef?.getBoundingClientRect()
-                        return {
-                          x: editingComment()!.position.x * (bounds?.width || 800),
-                          y: editingComment()!.position.y * (bounds?.height || 600)
-                        }
+                        const vp = props.viewport ?? "desktop"
+                        const dims = VIEWPORT_DIMS[vp]
+                        return transformPoint({
+                          x: editingComment()!.position.x * (dims.width || 800),
+                          y: editingComment()!.position.y * (dims.height || 600)
+                        })
                       })(),
                       pinPosition: commentTarget()?.pinPosition,
                     } : {

@@ -1,11 +1,10 @@
 import { dirname, join } from "node:path"
-import { existsSync, readFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
+import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
 import { getStore } from "./store"
 import type { DesktopStorage } from "./storage"
 import type { SqliteMigrationProgress } from "../preload/types"
@@ -253,19 +252,21 @@ function createSidecarEnv(): Record<string, string> {
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
 
-  // 从 proxy_config.json 强制覆盖 proxy 变量,确保 sidecar 在 macOS shell 探测干扰后仍能读到代理
-  try {
-    const configFile = join(homedir(), ".config", "octo", "proxy_config.json")
-    if (existsSync(configFile)) {
-      const config = JSON.parse(readFileSync(configFile, "utf-8"))
-      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
-        const value = config[key]
-        if (!value) continue
-        env[key] = value
-        env[key.toUpperCase()] = value
-      }
+  // 从 ~/.config/octo/proxy_config.json 强制覆盖 proxy 变量,确保 sidecar 在 macOS shell 探测干扰后仍能读到代理
+  const proxyConfig = readProxyConfig()
+  if (proxyConfig) {
+    for (const key of ["http_proxy", "https_proxy", "no_proxy"] as const) {
+      const value = proxyConfig[key]
+      if (!value) continue
+      env[key] = value
+      env[key.toUpperCase()] = value
     }
-  } catch {}
+    console.log("[server:createSidecarEnv] proxy config injected", {
+      file: proxyConfigFile(),
+      http_proxy: maskProxyUrl(proxyConfig.http_proxy),
+      no_proxy: proxyConfig.no_proxy,
+    })
+  }
 
   // 把内网知识库 base 注入 sidecar 供 knowledge_search 读(sidecar 进程读不到 .env / VITE_,
   // 故从 main 的编译期常量 import.meta.env.OCTO_KB_BASE_URL 透传)。

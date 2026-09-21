@@ -116,6 +116,10 @@
 .pm-mention {
   display: inline-block;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
   padding: 3px 8px;
   font-size: 12px;
   border-radius: 999px;
@@ -130,6 +134,11 @@
 }
 
 .pm-mention.pm-mention--file {
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
+}
+
+.pm-mention.pm-mention--folder {
   background: rgba(10, 89, 247, 0.08);
   color: #0A59F7;
 }

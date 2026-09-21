@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { DISPATCH_NOTE_HEADER, formatDispatchNote, isExtractableDocFile, isTextInlineFile } from "./upload"
+import {
+  DISPATCH_NOTE_HEADER,
+  formatDispatchNote,
+  imageMimeFor,
+  isExtractableDocFile,
+  isTextInlineFile,
+} from "./upload"
 
 /**
  * SPEC-INS-032 §2.6：分治判定的两套口径在**文案**上也要分开说。
@@ -53,8 +59,15 @@ describe("formatDispatchNote", () => {
 
 describe("文件分类谓词", () => {
   test("office / pdf 归 extract_document，不算可内联文本", () => {
-    for (const name of ["a.docx", "b.pdf", "c.xlsx", "d.pptx", "e.doc"]) {
+    for (const name of ["a.docx", "b.pdf", "c.xlsx", "d.pptx"]) {
       expect(isExtractableDocFile(name)).toBe(true)
+      expect(isTextInlineFile(name)).toBe(false)
+    }
+  })
+
+  test("旧版 doc/xls/ppt 不冒充 extract_document 可读格式，也不当文本内联", () => {
+    for (const name of ["a.doc", "b.xls", "c.ppt"]) {
+      expect(isExtractableDocFile(name)).toBe(false)
       expect(isTextInlineFile(name)).toBe(false)
     }
   })
@@ -69,5 +82,27 @@ describe("文件分类谓词", () => {
       expect(isTextInlineFile(name)).toBe(true)
       expect(isExtractableDocFile(name)).toBe(false)
     }
+  })
+})
+
+// 粘贴/部分拖拽源 File.type 为空时按扩展名兜底精确 mime(评审 P2):
+// 笼统给 image/png 会把 jpg/gif/webp 错标,落库 media_type 与实际字节不符。
+describe("imageMimeFor", () => {
+  test("五种图片扩展名各自映射到精确 mime", () => {
+    expect(imageMimeFor("a.png")).toBe("image/png")
+    expect(imageMimeFor("a.jpg")).toBe("image/jpeg")
+    expect(imageMimeFor("a.jpeg")).toBe("image/jpeg")
+    expect(imageMimeFor("a.gif")).toBe("image/gif")
+    expect(imageMimeFor("a.webp")).toBe("image/webp")
+  })
+
+  test("大写扩展名同样命中(getExt 已 lower-case)", () => {
+    expect(imageMimeFor("Photo.JPG")).toBe("image/jpeg")
+  })
+
+  test("非图片扩展名 → fallback(默认 octet-stream)", () => {
+    expect(imageMimeFor("材料.xlsx")).toBe("application/octet-stream")
+    expect(imageMimeFor("readme")).toBe("application/octet-stream")
+    expect(imageMimeFor("a.docx", "image/png")).toBe("image/png")
   })
 })

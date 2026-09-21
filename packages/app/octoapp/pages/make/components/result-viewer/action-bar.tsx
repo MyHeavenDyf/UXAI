@@ -13,6 +13,7 @@ import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { DownloadCancelledError } from "../../subtype-handlers/default"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
 import { usePixsoTransport, type UploadZipOptions, type PixsoAction } from "@/utils/useZipTransport"
@@ -52,18 +53,18 @@ function stripExtension(title: string, ext: string): string {
   return title
 }
 
-async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
   const api = getDesktopApi()
 
   if (api?.saveFilePicker && api?.writeFileBuffer) {
     const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
-    if (!chosen) return
+    if (!chosen) return false
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
     showOctoToast({ title: "已下载" })
-    return
+    return true
   }
 
   const url = URL.createObjectURL(blob)
@@ -75,6 +76,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
   showOctoToast({ title: "已下载" })
+  return true
 }
 
 function markdownTableToCSV(md: string): string {
@@ -266,7 +268,9 @@ function CanvasEditDropdown(props: {
   sessionId?: string
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
-}): JSX.Element {
+    onFilesRefresh?: () => void
+    disabled?: boolean
+   }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
   const [actions, setActions] = createSignal<PixsoAction[]>([])
@@ -311,6 +315,7 @@ function CanvasEditDropdown(props: {
         observedUrlsGetter: props.observedUrlsGetter,
         usePixsoTransport,
         sdkDirectory: props.sdkDirectory,
+        onFilesRefresh: props.onFilesRefresh,
       }
       
       const result = await handler.handleCanvasEdit(ctx)
@@ -480,6 +485,7 @@ export function ActionBar(props: {
     palette?: PaletteId | null
     inspecting?: boolean
     editing?: boolean
+    modelEditing?: boolean
     drawing?: boolean
     commenting?: boolean
     archiving?: boolean
@@ -490,6 +496,7 @@ export function ActionBar(props: {
     onPaletteChange?: (palette: PaletteId | null) => void
     onInspectToggle?: () => void
     onEditToggle?: () => void
+    onModelEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
@@ -503,6 +510,8 @@ export function ActionBar(props: {
     sessionId?: string
     sdkDirectory?: string
     postMessageToIframe?: (data: unknown) => void
+    onFilesRefresh?: () => void
+    disabled?: boolean
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -564,6 +573,11 @@ export function ActionBar(props: {
       })
       TaskStore.finish([{ key: taskId, status: "completed" }])
     } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        const item = TaskStore.items().find(i => i.key === taskId)
+        if (item) TaskStore.remove(item)
+        return
+      }
       TaskStore.error([{ key: taskId, status: "error" }])
       showOctoToast({
         title: "下载失败",
@@ -588,6 +602,7 @@ export function ActionBar(props: {
   const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
   const showRefreshButton = () => featureVisible(config().features.refresh)
   const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
   const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
   const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
   const showComment = () => featureVisible(config().features.comment) && showViewport()
@@ -667,6 +682,10 @@ export function ActionBar(props: {
       observedUrlsGetter: props.observedResourceUrls,
       usePixsoTransport,
       postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
+      // 会话上下文:自定义按钮要定位会话目录时用(如 fastui 导出代码包)。
+      // 与 handleDownload 的 ctx 取法一致 —— sessionId 走路由参数。
+      sessionId: props.sessionId ?? params.id,
+      sdkDirectory: props.sdkDirectory,
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -768,6 +787,18 @@ export function ActionBar(props: {
               <span>局部修改</span>
             </button>
           )}
+          {showModelEdit() && props.onModelEditToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
+              onClick={props.onModelEditToggle}
+              title="局部修改"
+            >
+              <IconLocalModify size={16} />
+              <span>局部修改</span>
+            </button>
+          )}
           {showDrawEdit() && props.onDrawToggle && (
             <button
               type="button"
@@ -786,6 +817,7 @@ export function ActionBar(props: {
               sessionId={props.sessionId}
               sdkDirectory={props.sdkDirectory}
               observedUrlsGetter={props.observedResourceUrls}
+              onFilesRefresh={props.onFilesRefresh}
             />
           )}
           <Show when={shouldShowCopy()}>
@@ -874,7 +906,8 @@ export function ActionBar(props: {
               ref={historyBtnRef}
               type="button"
               class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.historyActive }}
+              classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
+              disabled={!!props.disabled}
               onClick={props.onHistoryToggle}
               title="历史版本"
             >
@@ -1023,6 +1056,26 @@ function DownloadButton(props: {
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  /** 点击下载按钮与气泡以外的区域时关闭（气泡挂载在 body 门户，需同时校验气泡自身）。
+   *  点击落在预览 iframe 内时父文档收不到 mousedown，用 window blur 兜底（焦点切入 iframe 即触发）；
+   *  mousedown 走捕获阶段，避免被中间容器的 stopPropagation 挡住 */
+  createEffect(() => {
+    if (!open()) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef?.contains(t) || menuRef?.contains(t)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener('mousedown', onDocMouseDown, true)
+    window.addEventListener('blur', onBlur)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', onDocMouseDown, true)
+      window.removeEventListener('blur', onBlur)
+    })
+  })
 
   const hasMultiple = () => props.options.length > 1
 
@@ -1045,7 +1098,7 @@ function DownloadButton(props: {
         <button
           ref={btnRef}
           type="button"
-          class="octo-dropdown-trigger"
+          class="octo-action-btn"
           classList={{ "octo-dropdown-open": open() }}
           style={{ width: "auto" }}
           onClick={() => setOpen(!open())}
@@ -1061,6 +1114,7 @@ function DownloadButton(props: {
               const rect = btnRef?.getBoundingClientRect()
               return (
                 <div
+                  ref={menuRef}
                   class="octo-dropdown-menu"
                   style={{
                     top: `${(rect?.bottom ?? 0) + 4}px`,

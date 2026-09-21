@@ -9,9 +9,48 @@ export type AssetsConfig = {
   user?: AssetsConfigUser
 }
 
+/**
+ * 代码 manifest 节点（结构对齐 desktop/excode 的 manifest-builder.ts；octoapp 跨包
+ * 不便直接 import excode 类型，故就地结构化声明，IPC 透传时按结构匹配）。
+ * 设计平台「框选节点 → 定位产物文件」用：tree 是 src 目录树，content 是路径→文件内容。
+ */
+export interface ManifestNode {
+  label: string
+  value: string
+  nodes?: string[]
+  children?: ManifestNode[]
+}
+
+/** 代码 manifest：tree（src 目录树）+ content（路径→文件内容） */
+export interface CodeManifest {
+  tree: ManifestNode[]
+  content: Record<string, string>
+}
+
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
+  /**
+   * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
+   * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
+   */
+  fastuiPreviewOpen?: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 「重新编译」:结束当前服务并当场重起 */
+  fastuiPreviewRestart?: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /**
+   * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
+   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。带产物名时导出该工程。
+   */
+  fastuiExportZip?: (
+    sessionDir: string,
+    projectName?: string,
+  ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
@@ -20,13 +59,21 @@ export type DesktopApi = {
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
   /** 原子重命名（同文件系统内）。用于"写临时文件 → rename 到目标"原子落盘。 */
   renameFile?: (srcPath: string, destPath: string) => Promise<void>
-  statFile?: (path: string) => Promise<{ size: number } | null>
+  statFile?: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   copyFileTo?: (srcPath: string, destPath: string) => Promise<void>
   deleteFile?: (path: string) => Promise<void>
   fileExists?: (path: string) => Promise<boolean>
+  /** 目录存在性预检:仅当路径是存在的目录时返回 true(与 fileExists 对称) */
+  dirExists?: (path: string) => Promise<boolean>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
+  /** 拷贝源文件进 <baseDir>/.octo/tmps/（预会话落地区，撞名加后缀）；返回落地路径 */
+  copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** copyFileToWorktree 的字节版：剪贴板内存 blob 无源路径，把字节写进同一落点；返回落地路径 */
+  writeFileToWorktree?: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
+  /** 发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
+  movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end
@@ -38,11 +85,15 @@ export type DesktopApi = {
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
   /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
-  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
+  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: CodeManifest }>
   /** 导出 ZIP 压缩包 */
   exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   /** 获取上传资源根目录 */
   getUploadsDir?: () => Promise<string | null>
+  /** 获取 previewdist 目录（A2UI 运行时：HTML/JS/CSS/字体）。
+   *  开发态为 packages/previewdist，安装态为 resources/previewdist。
+   *  prototype 归档用此拿真实路径列 assets 子目录，避免 symlink 导致 listDirectory 不跟随。 */
+  getPreviewDistDir?: () => Promise<string>
   /** 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>，iframe 经 local:// 解析） */
   savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
 }

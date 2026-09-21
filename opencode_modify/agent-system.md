@@ -59,3 +59,15 @@
 - **octo_make**：允许 bash, read, glob, grep, task, webfetch, skill, question；deny edit, todowrite, websearch, jimeng_image_generate, internel_image_generate, lsp。新增 question: allow 覆盖
 - 目的：减少不必要工具描述注入系统提示词，降低上下文长度
 - **涉及文件**：`src/agent/agent.ts`
+
+### 当前未提交：删除 octo_design agent
+
+- 背景：octo_design（UI 设计专家，绑定 pixso-design MCP + design-basics skill）整体移除，其 MCP 绑定 `pixso-design` 与 skill `design-basics` 均为悬空引用（无配置定义/skill 目录不存在）
+- `src/agent/agent.ts`：删除 octo_design 定义及 `PROMPT_OCTO_DESIGN` import
+- 删除 `src/agent/prompt/octo_design.txt`
+- `src/session/session-category.ts`：移除 `octo_design: "design"` 映射；`SessionCategory` 类型保留 `"design"` 值（旧 DB 行仍持有该分类，前端 i18n `category.design` 同步保留）
+- `packages/app/octoapp/components/skills-content.tsx`：移除技能库 `octo_design` 分组标签
+- `packages/app/README.md`：分组类型说明同步更新
+- `test/plugin/octo-session-workdir.test.ts`：两处 `sid("octo_design")` fixture（仅作"非 insight 会话"示例名）改为 `sid("octo_make")`
+- 历史变更日志 `docs/changes-*.md` 与生成文档 `ARCHITECTURE.md` 不动（历史记录）
+- 验证：opencode + octoapp typecheck 通过；builtin-mcp / octo-session-workdir / agent 测试 51 个全过
