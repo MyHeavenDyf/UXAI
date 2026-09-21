@@ -49,6 +49,7 @@ export type ResultTab = {
   fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
   filePath?: string         // **身份**(§5):path 模式必填;uri 模式落盘完成后由 bindLocalPath 补上
   description?: string      // uri 模式来自 resource_link.description,可在 ActionBar 副标题展示
+  size?: number             // 字节数:文件管理开页签带入(供归档超限前置判定);uri/inline/写产物无
   viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");html/markdown + 思维导图 shape 的 json 用
   createdAt: Date
 }
@@ -128,6 +129,7 @@ export function createTabStore() {
       fileName: card.fileName,
       filePath: card.filePath,
       description: card.description,
+      size: card.size,
       createdAt: card.createdAt,
     }
     console.log("[octo:tab] openTab", {

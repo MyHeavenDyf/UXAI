@@ -24,6 +24,7 @@ export type ImageGenerateOutput = {
   capability?: StudioCapability
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskId?: string
+  duration?: string
   images: { kind?: "image" | "video"; url: string; thumbnailUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
   statusCode?: number
@@ -48,6 +49,7 @@ export type ImageGenerationQuery = ImageGenerateOutput & {
   rawStatus: number | string
   progress: number
   order?: number
+  error?: string
 }
 
 export type ImageGenerationProvider = {

@@ -14,6 +14,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { type FormState, headerRow, modalityRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
+import { DialogSettings } from "./dialog-settings"
 
 type Props = {
   back?: "providers" | "close"
@@ -58,7 +59,7 @@ export function DialogCustomProvider(props: Props) {
 
   const goBack = () => {
     if (props.back === "close") {
-      dialog.close()
+      dialog.show(() => <DialogSettings initialTab="providers" />)
       return
     }
     dialog.show(() => <DialogSelectProvider />)

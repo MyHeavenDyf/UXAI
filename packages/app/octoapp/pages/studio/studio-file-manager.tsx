@@ -53,7 +53,33 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
   "扩图": "image.outpaint",
 }
 
+const EDIT_CAPABILITIES = new Set(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"])
+
+const dimensionCache = new Map<string, { w: number; h: number }>()
+
+function probeImageDimensions(url: string, onReady: () => void) {
+  if (dimensionCache.has(url)) return
+  const el = new Image()
+  el.onload = () => {
+    const w = el.naturalWidth
+    const h = el.naturalHeight
+    if (w && h) {
+      dimensionCache.set(url, { w, h })
+      onReady()
+    }
+  }
+  el.onerror = () => {}
+  el.src = url
+}
+
 function getRatioCategory(item: FileManagerMedia): string | null {
+  const real = dimensionCache.get(item.url)
+  if (real) {
+    const maxDim = Math.max(real.w, real.h)
+    if (Math.abs(real.w - real.h) / maxDim <= 0.01) return "正方形"
+    if (real.w > real.h) return "横版"
+    if (real.h > real.w) return "竖版"
+  }
   // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
   if (item.isCustom) {
     const w = item.width
@@ -85,6 +111,13 @@ function getRatioCategory(item: FileManagerMedia): string | null {
 }
 
 function getSizeCategory(item: FileManagerMedia): string | null {
+  const real = dimensionCache.get(item.url)
+  if (real) {
+    const longSide = Math.max(real.w, real.h)
+    if (longSide < 2000) return "1K"
+    if (longSide < 4000) return "2K"
+    return "4K"
+  }
   const w = item.width
   const h = item.height
   if (w && h) {
@@ -222,6 +255,43 @@ function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
       ...group,
       items: group.items.sort((a, b) => b.createdAt - a.createdAt),
     }))
+}
+
+function FileManagerVideoMedia(props: { item: FileManagerMedia }) {
+  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
+  const badgeDuration = () => {
+    const actual = actualDuration()
+    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
+    return props.item.duration
+  }
+  return (
+    <div class="studio-file-manager-media-video-wrapper">
+      <video
+        src={props.item.url}
+        muted
+        playsinline
+        preload="metadata"
+        class="studio-file-manager-media-image"
+        onError={(e) => {
+          const el = e.currentTarget as HTMLVideoElement
+          el.style.display = "none"
+        }}
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration
+          setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
+        }}
+      />
+      <span class="studio-file-manager-media-video-badge">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
+          <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
+        </svg>
+        <Show when={badgeDuration()}>
+          <span class="studio-file-manager-media-video-badge-text">{badgeDuration()}s</span>
+        </Show>
+      </span>
+    </div>
+  )
 }
 
 export function StudioFileManager(props: {
@@ -391,10 +461,24 @@ export function StudioFileManager(props: {
     return groupMediaByDate(allMedia)
   })
 
+  const [dimsTick, setDimsTick] = createSignal(0)
+
+  createEffect(() => {
+    const groups = mediaByDate()
+    for (const group of groups) {
+      for (const item of group.items) {
+        if (item.kind === "image" && EDIT_CAPABILITIES.has(item.capability ?? "")) {
+          probeImageDimensions(item.url, () => setDimsTick((t) => t + 1))
+        }
+      }
+    }
+  })
+
   const globalEmpty = createMemo(() => mediaByDate().length === 0)
 
   // Filter media groups by all active filters
   const filteredGroups = createMemo(() => {
+    dimsTick()
     const groups = mediaByDate()
 
     const sourceSelected = confirmedSource()
@@ -440,6 +524,74 @@ export function StudioFileManager(props: {
 
   const tabEmpty = createMemo(() => filteredGroups().length === 0)
 
+  const confirmedFilterLabels = createMemo(() => {
+    const labels: string[] = []
+    for (const v of confirmedSource()) labels.push(v)
+    for (const v of confirmedRatio()) labels.push(v)
+    for (const v of confirmedSize()) {
+      const opt = SIZE_OPTIONS.find((s) => s.label === v)
+      labels.push(opt ? `${v}${opt.desc}` : v)
+    }
+    return labels
+  })
+
+  const [isFilterTextTruncated, setIsFilterTextTruncated] = createSignal(false)
+  let filterLabelRef!: HTMLSpanElement
+  let filterResizeObserver: ResizeObserver | undefined
+  const checkFilterTextTruncation = () => {
+    if (filterLabelRef) setIsFilterTextTruncated(filterLabelRef.scrollWidth > filterLabelRef.clientWidth)
+  }
+  createEffect(() => {
+    void confirmedFilterLabels().join("、")
+    queueMicrotask(() => checkFilterTextTruncation())
+  })
+  onCleanup(() => filterResizeObserver?.disconnect())
+  const [showFilterTooltip, setShowFilterTooltip] = createSignal(false)
+  let filterTooltipTimeout: ReturnType<typeof setTimeout> | undefined
+  let filterTooltipRef!: HTMLDivElement
+  const [filterTooltipStyle, setFilterTooltipStyle] = createSignal<JSX.CSSProperties>({})
+  const updateFilterTooltipPos = () => {
+    if (!filterLabelRef) return
+    const rect = filterLabelRef.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+      style.top = `${rect.bottom + 4}px`
+    } else {
+      style.bottom = `${window.innerHeight - rect.top + 4}px`
+    }
+    setFilterTooltipStyle(style)
+  }
+  const enterFilterTrigger = () => {
+    if (!isFilterTextTruncated()) return
+    clearTimeout(filterTooltipTimeout)
+    updateFilterTooltipPos()
+    setShowFilterTooltip(true)
+  }
+  const leaveFilterTrigger = () => {
+    filterTooltipTimeout = setTimeout(() => setShowFilterTooltip(false), 150)
+  }
+  const enterFilterTooltip = () => clearTimeout(filterTooltipTimeout)
+  const leaveFilterTooltip = () => setShowFilterTooltip(false)
+
+  function clearConfirmedFilters(e: MouseEvent) {
+    e.stopPropagation()
+    batch(() => {
+      sourceFilter.reset()
+      ratioFilter.reset()
+      sizeFilter.reset()
+      setConfirmedSource(new Set<string>())
+      setConfirmedRatio(new Set<string>())
+      setConfirmedSize(new Set<string>())
+    })
+    savedTabFilters.set(activeFilter(), {
+      source: new Set<string>(),
+      ratio: new Set<string>(),
+      size: new Set<string>(),
+    })
+    persistCurrentState()
+  }
+
   const emptyText = createMemo(() => {
     if (globalEmpty()) return "暂无相关文件"
     const filter = activeFilter()
@@ -461,11 +613,13 @@ export function StudioFileManager(props: {
     const rect = containerRef.getBoundingClientRect()
     if (props.showStudioCenter) {
       const centerWidth = props.studioCenterWidth ?? 468
+      const left = Math.max(0, rect.left - centerWidth)
+      const width = Math.min(rect.width + centerWidth, window.innerWidth - left)
       setOverlayStyle({
         position: "fixed",
         top: `${rect.top}px`,
-        left: `${rect.left - centerWidth}px`,
-        width: `${rect.width + centerWidth}px`,
+        left: `${left}px`,
+        width: `${width}px`,
         height: `${rect.height}px`,
       })
     } else {
@@ -520,7 +674,7 @@ export function StudioFileManager(props: {
         <Show when={!globalEmpty()}>
           <div
             class="studio-file-manager-filter"
-            classList={{ active: showFilter() }}
+            classList={{ active: showFilter(), filtered: confirmedFilterLabels().length > 0 }}
             onClick={() => {
               if (!showFilter()) syncLiveFromConfirmed()
               setShowFilter((v) => !v)
@@ -529,7 +683,38 @@ export function StudioFileManager(props: {
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "margin-right": "4px", "flex-shrink": "0" }}>
               <path d="M3.5 2.5H12.5A1 1 0 0 1 13.5 3.5L9.5 7V10L7 13.5A1 1 0 0 1 6.5 12.5V7L2.5 3.5A1 1 0 0 1 3.5 2.5Z" stroke="currentColor" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            <span class="studio-file-manager-filter-text">筛选</span>
+            <Show
+              when={confirmedFilterLabels().length > 0}
+              fallback={<span class="studio-file-manager-filter-text">筛选</span>}
+            >
+              <span
+                ref={(el) => { filterLabelRef = el; filterResizeObserver?.disconnect(); filterResizeObserver = new ResizeObserver(() => checkFilterTextTruncation()); filterResizeObserver.observe(el); queueMicrotask(() => checkFilterTextTruncation()) }}
+                class="studio-file-manager-filter-text"
+                onMouseEnter={enterFilterTrigger}
+                onMouseLeave={leaveFilterTrigger}
+              >
+                {confirmedFilterLabels().join("、")}
+              </span>
+              <Show when={showFilterTooltip()}>
+                <Portal>
+                  <div
+                    ref={filterTooltipRef!}
+                    style={{ ...filterTooltipStyle(), "max-width": "300px" }}
+                    onMouseEnter={enterFilterTooltip}
+                    onMouseLeave={leaveFilterTooltip}
+                    class="studio-custom-tooltip fixed z-[1000]"
+                  >
+                    {confirmedFilterLabels().join("、")}
+                  </div>
+                </Portal>
+              </Show>
+              <span
+                class="studio-file-manager-filter-clear"
+                role="button"
+                aria-label="清除筛选"
+                onClick={clearConfirmedFilters}
+              />
+            </Show>
           </div>
         </Show>
       </div>
@@ -564,28 +749,7 @@ export function StudioFileManager(props: {
                               }}
                             />
                           }>
-                            <div class="studio-file-manager-media-video-wrapper">
-                              <video
-                                src={item.url}
-                                muted
-                                playsinline
-                                preload="metadata"
-                                class="studio-file-manager-media-image"
-                                onError={(e) => {
-                                  const el = e.currentTarget as HTMLVideoElement
-                                  el.style.display = "none"
-                                }}
-                              />
-                              <span class="studio-file-manager-media-video-badge">
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                                  <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
-                                  <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
-                                </svg>
-                                <Show when={item.duration}>
-                                  <span class="studio-file-manager-media-video-badge-text">{item.duration}s</span>
-                                </Show>
-                              </span>
-                            </div>
+                            <FileManagerVideoMedia item={item} />
                           </Show>
                         </div>
                       )}

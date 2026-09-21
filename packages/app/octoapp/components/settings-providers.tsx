@@ -4,7 +4,8 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
-import { createMemo, type Component, For, Show } from "solid-js"
+import { createMemo, createSignal, type Component, For, Show, type JSX } from "solid-js"
+import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -14,8 +15,9 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
 
-type ProviderSource = "env" | "api" | "config" | "custom"
+type ProviderSource = "env" | "api" | "config" | "custom" | "remote"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
+const CUSTOM_PROVIDER_MARKER = "__octo_custom_provider"
 
 const PROVIDER_NOTES = [
   { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
@@ -28,6 +30,37 @@ const PROVIDER_NOTES = [
   { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
 ] as const
 
+const whiteBtn: JSX.CSSProperties = {
+  width: "80px",
+  height: "28px",
+  "background-color": "#fff",
+  border: "1px solid #c9c9c9",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "rgba(0,0,0,0.9)",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+  gap: "4px",
+}
+
+const blueBtn: JSX.CSSProperties = {
+  width: "80px",
+  height: "28px",
+  "background-color": "#0a59f7",
+  border: "none",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "#fff",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+}
+
 export const SettingsProviders: Component = () => {
   const dialog = useDialog()
   const language = useLanguage()
@@ -35,13 +68,14 @@ export const SettingsProviders: Component = () => {
   const globalSync = useGlobalSync()
   const queryClient = useQueryClient()
   const providers = useProviders()
+  const [disconnecting, setDisconnecting] = createSignal<Set<string>>(new Set())
 
   const connected = createMemo(() => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
     return providers
       .connected()
-      .filter((p) => p.id === "w3" || !disabled.has(p.id))
-      .sort((a, b) => Number(b.id === "w3") - Number(a.id === "w3"))
+      .filter((p) => p.source === "remote" || !disabled.has(p.id))
+      .sort((a, b) => Number(b.source === "remote") - Number(a.source === "remote"))
   })
 
   const popular = createMemo(() => {
@@ -50,13 +84,6 @@ export const SettingsProviders: Component = () => {
       .popular()
       .filter((p) => !connectedIDs.has(p.id))
       .slice()
-    // 预置供应商被 disable 后会从后端列表消失，补充合成条目让用户可以重新连接
-    const ids = new Set(items.map((p) => p.id))
-    for (const pid of ["opencode", "bpit"]) {
-      if (!connectedIDs.has(pid) && !ids.has(pid)) {
-        items.push({ id: pid, name: pid === "opencode" ? "Octo AI" : pid } as ProviderItem)
-      }
-    }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items
   })
@@ -64,17 +91,18 @@ export const SettingsProviders: Component = () => {
   const source = (item: ProviderItem): ProviderSource | undefined => {
     if (!("source" in item)) return
     const value = item.source
-    if (value === "env" || value === "api" || value === "config" || value === "custom") return value
+    if (value === "env" || value === "api" || value === "config" || value === "custom" || value === "remote")
+      return value
     return
   }
 
   const type = (item: ProviderItem) => {
-    if (item.id === "w3") return language.t("common.default")
     const current = source(item)
+    if (current === "remote") return language.t("common.default")
     if (current === "env") return language.t("settings.providers.tag.environment")
     if (current === "api") return language.t("provider.connect.method.apiKey")
     if (current === "config") {
-      if (isConfigCustom(item.id)) return language.t("settings.providers.tag.custom")
+      if (isConfigCustom(item)) return language.t("settings.providers.tag.custom")
       return language.t("settings.providers.tag.config")
     }
     if (current === "custom") return language.t("settings.providers.tag.custom")
@@ -85,32 +113,13 @@ export const SettingsProviders: Component = () => {
 
   const note = (id: string) => PROVIDER_NOTES.find((item) => item.match(id))?.key
 
-  const isConfigCustom = (providerID: string) => {
-    const provider = globalSync.data.config.provider?.[providerID]
+  const isConfigCustom = (item: ProviderItem) => {
+    const provider = globalSync.data.config.provider?.[item.id]
     if (!provider) return false
     if (provider.npm !== "@ai-sdk/openai-compatible") return false
     if (!provider.models || Object.keys(provider.models).length === 0) return false
-    return true
-  }
-
-  const disableProvider = async (providerID: string, name: string) => {
-    const before = globalSync.data.config.disabled_providers ?? []
-    const next = before.includes(providerID) ? before : [...before, providerID]
-
-    await globalSync
-      .updateConfig({ disabled_providers: next })
-      .then(() => {
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
+    if (provider.options?.[CUSTOM_PROVIDER_MARKER] === true) return true
+    return Array.isArray(provider.env) && provider.env.length === 0
   }
 
   const hasApiKey = (providerID: string) => {
@@ -122,22 +131,12 @@ export const SettingsProviders: Component = () => {
     queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
   }
 
-  const disconnectOpencode = async (name: string) => {
-    await globalSDK.client.auth.remove({ providerID: "opencode" }).catch(() => undefined)
-    const provider = globalSync.data.config.provider ?? {}
-    const next = { ...provider }
-    if (next.opencode?.options) {
-      const { apiKey: _, ...rest } = next.opencode.options
-      next.opencode = { ...next.opencode, options: Object.keys(rest).length > 0 ? rest : undefined }
-    }
-    await globalSync.updateConfig({ provider: next })
-    await globalSDK.client.global.dispose()
-    await disableProvider("opencode", name)
-    invalidateAllProviders()
-  }
-
   const disconnect = async (providerID: string, name: string) => {
-    await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+    setDisconnecting((prev) => new Set([...prev, providerID]))
+
+    queryClient.setQueryData<ProviderListResponse>([null, "providers"], (old) =>
+      old ? { ...old, connected: old.connected.filter((id) => id !== providerID) } : old,
+    )
 
     const provider = globalSync.data.config.provider ?? {}
     const next = { ...provider }
@@ -149,29 +148,63 @@ export const SettingsProviders: Component = () => {
     const before = globalSync.data.config.disabled_providers ?? []
     const nextDisabled = before.includes(providerID) ? before : [...before, providerID]
 
-    await globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } })
-    await globalSDK.client.global.dispose()
-    invalidateAllProviders()
-
-    showToast({
-      variant: "success",
-      icon: "circle-check",
-      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-    })
+    await Promise.all([
+      globalSDK.client.auth.remove({ providerID }).catch(() => undefined),
+      globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } }),
+    ])
+      .then(() => {
+        invalidateAllProviders()
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
+          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+        })
+      })
+      .catch((err: unknown) => {
+        queryClient.setQueryData<ProviderListResponse>([null, "providers"], (old) =>
+          old ? { ...old, connected: [...old.connected, providerID] } : old,
+        )
+        const message = err instanceof Error ? err.message : String(err)
+        showToast({ title: language.t("common.requestFailed"), description: message })
+      })
+      .finally(() => {
+        setDisconnecting((prev) => new Set([...prev].filter((id) => id !== providerID)))
+      })
   }
 
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
-      <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 24px), transparent);">
-        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
+      <div
+        class="sticky top-0 z-10"
+        style="background: linear-gradient(to bottom, #fff calc(100% - 24px), transparent);"
+      >
+        <div
+          style={{
+            "font-size": "14px",
+            "line-height": "22px",
+            color: "rgba(0, 0, 0, 0.9)",
+            "font-weight": "bold",
+            padding: "12px 0",
+          }}
+        >
           {language.t("settings.providers.title")}
         </div>
       </div>
 
       <div class="flex flex-col gap-8">
         <div class="flex flex-col gap-1" data-component="connected-providers-section">
-          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.connected")}</div>
+          <div
+            style={{
+              "font-size": "14px",
+              "line-height": "22px",
+              color: "rgba(0, 0, 0, 0.9)",
+              "font-weight": "bold",
+              padding: "12px 0",
+            }}
+          >
+            {language.t("settings.providers.section.connected")}
+          </div>
           <SettingsList>
             <Show
               when={connected().length > 0}
@@ -183,56 +216,122 @@ export const SettingsProviders: Component = () => {
             >
               <For each={connected()}>
                 {(item) => (
-                  <div class="group" style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                  <div
+                    class="group"
+                    style={{
+                      display: "flex",
+                      "flex-wrap": "wrap",
+                      "align-items": "center",
+                      "justify-content": "space-between",
+                      gap: "4px",
+                      padding: "12px 16px",
+                      background: "rgba(0, 0, 0, 0.03)",
+                      "border-radius": "8px",
+                    }}
+                  >
                     <div style={{ display: "flex", "align-items": "center", gap: "12px", "min-width": 0 }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                        {item.name}
+                      </span>
                       <Tag>{type(item)}</Tag>
                     </div>
                     <Show when={item.id === "opencode"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-                        <Button size="large" variant="secondary" onClick={() => {
-                          dialog.show(() => <DialogConnectProvider provider="opencode" />)
-                        }}>
-                          {hasApiKey("opencode")
-                            ? language.t("common.edit")
-                            : language.t("common.connect")}
-                        </Button>
+                        <Show when={!hasApiKey("opencode")}>
+                          <button
+                            type="button"
+                            style={whiteBtn}
+                            onClick={() => {
+                              dialog.show(() => <DialogConnectProvider provider="opencode" />)
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "#fff")
+                              e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                            }}
+                            onMouseDown={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseUp={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                          >
+                            {language.t("common.connect")}
+                          </button>
+                        </Show>
                         <Show when={hasApiKey("opencode")}>
-                          <Button size="large" variant="ghost" onClick={() => void disconnectOpencode(item.name)}>
+                          <button
+                            type="button"
+                            style={blueBtn}
+                            disabled={disconnecting().has(item.id)}
+                            onClick={() => void disconnect(item.id, item.name)}
+                            onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                            onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
+                            onMouseDown={(e) => e.currentTarget.style.setProperty("background-color", "#0a55eb")}
+                            onMouseUp={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                          >
                             {language.t("common.disconnect")}
-                          </Button>
+                          </button>
                         </Show>
                       </div>
                     </Show>
-                    <Show when={item.id !== "opencode" && item.id !== "w3"}>
+                    <Show when={item.id !== "opencode" && source(item) !== "remote"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-                        <Show when={isConfigCustom(item.id)}>
-                          <Button
-                            size="large"
-                            variant="secondary"
+                        <Show when={isConfigCustom(item)}>
+                          <button
+                            type="button"
+                            style={whiteBtn}
                             onClick={() =>
-                              dialog.show(() => (
-                                <DialogCustomProvider back="close" providerID={item.id} />
-                              ))
+                              dialog.show(() => <DialogCustomProvider back="close" providerID={item.id} />)
                             }
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "#fff")
+                              e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                            }}
+                            onMouseDown={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
+                            onMouseUp={(e) => {
+                              e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                              e.currentTarget.style.setProperty("border-color", "transparent")
+                            }}
                           >
                             {language.t("common.edit")}
-                          </Button>
+                          </button>
                         </Show>
                         <Show
                           when={canDisconnect(item)}
                           fallback={
-                            <Show when={!isConfigCustom(item.id)}>
+                            <Show when={!isConfigCustom(item)}>
                               <span class="text-14-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
                                 {language.t("settings.providers.connected.environmentDescription")}
                               </span>
                             </Show>
                           }
                         >
-                          <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
+                          <button
+                            type="button"
+                            style={blueBtn}
+                            disabled={disconnecting().has(item.id)}
+                            onClick={() => void disconnect(item.id, item.name)}
+                            onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                            onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
+                            onMouseDown={(e) => e.currentTarget.style.setProperty("background-color", "#0a55eb")}
+                            onMouseUp={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                          >
                             {language.t("common.disconnect")}
-                          </Button>
+                          </button>
                         </Show>
                       </div>
                     </Show>
@@ -244,15 +343,38 @@ export const SettingsProviders: Component = () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.popular")}</div>
+          <div
+            style={{
+              "font-size": "14px",
+              "line-height": "22px",
+              color: "rgba(0, 0, 0, 0.9)",
+              "font-weight": "bold",
+              padding: "12px 0",
+            }}
+          >
+            {language.t("settings.providers.section.popular")}
+          </div>
           <SettingsList>
             <For each={popular()}>
               {(item) => (
-                <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    "flex-wrap": "wrap",
+                    "align-items": "center",
+                    "justify-content": "space-between",
+                    gap: "4px",
+                    padding: "12px 16px",
+                    background: "rgba(0, 0, 0, 0.03)",
+                    "border-radius": "8px",
+                  }}
+                >
                   <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
                     <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                        {item.name}
+                      </span>
                       <Show when={item.id === "opencode"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
@@ -261,47 +383,106 @@ export const SettingsProviders: Component = () => {
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
-                      {(key) => <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>{language.t(key())}</span>}
+                      {(key) => (
+                        <span
+                          style={{
+                            "font-size": "12px",
+                            "line-height": "20px",
+                            color: "rgba(0, 0, 0, 0.6)",
+                            "margin-top": "4px",
+                          }}
+                        >
+                          {language.t(key())}
+                        </span>
+                      )}
                     </Show>
                   </div>
-                  <Button
-                    size="large"
-                    variant="secondary"
-                    icon="plus-small"
+                  <button
+                    type="button"
+                    style={whiteBtn}
                     onClick={() => {
                       dialog.show(() => <DialogConnectProvider provider={item.id} />)
                     }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "#fff")
+                      e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                      e.currentTarget.style.setProperty("border-color", "transparent")
+                    }}
                   >
                     {language.t("common.connect")}
-                  </Button>
+                  </button>
                 </div>
               )}
             </For>
 
             <div
-              style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px", "flex-wrap": "wrap" }}
+              style={{
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "space-between",
+                gap: "4px",
+                padding: "12px 16px",
+                background: "rgba(0, 0, 0, 0.03)",
+                "border-radius": "8px",
+                "flex-wrap": "wrap",
+              }}
               data-component="custom-provider-section"
             >
               <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
                 <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", gap: "12px" }}>
                   <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
-                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{language.t("provider.custom.title")}</span>
+                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>
+                    {language.t("provider.custom.title")}
+                  </span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>
+                <span
+                  style={{
+                    "font-size": "12px",
+                    "line-height": "20px",
+                    color: "rgba(0, 0, 0, 0.6)",
+                    "margin-top": "4px",
+                  }}
+                >
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>
-              <Button
-                size="large"
-                variant="secondary"
-                icon="plus-small"
+              <button
+                type="button"
+                style={whiteBtn}
                 onClick={() => {
                   dialog.show(() => <DialogCustomProvider back="close" />)
                 }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "#fff")
+                  e.currentTarget.style.setProperty("border-color", "#c9c9c9")
+                }}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
+                onMouseUp={(e) => {
+                  e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)")
+                  e.currentTarget.style.setProperty("border-color", "transparent")
+                }}
               >
                 {language.t("common.connect")}
-              </Button>
+              </button>
             </div>
           </SettingsList>
 

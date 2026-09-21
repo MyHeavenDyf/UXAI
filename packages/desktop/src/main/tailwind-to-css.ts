@@ -425,9 +425,9 @@ function buildThemeCss(): string {
   for (const [name, hex] of Object.entries(ext.colors as Record<string, string>)) {
     lines.push(`  --color-${name}: ${hex};`)
   }
-  for (const [name, val] of Object.entries(ext.borderColor as Record<string, string>)) {
-    lines.push(`  --color-${name}: ${val};`)
-  }
+  // ⚠️ 不把 borderColor 发为 `--color-*`：base 会与字号 `text-base`(`--text-base`)命名冲突，
+  // 使 tailwind 把 `text-base` 当颜色（color: var(--color-base)），既丢字号又覆盖同 className 里的真文本色。
+  // border-<color> 工具走 colors 命名空间——divider/selected/error 已在 colors 中定义，仍可用；base 非标准 border 工具，丢弃无影响。
   for (const [name, [size, opts]] of Object.entries(ext.fontSize as Record<string, [string, { lineHeight?: string }]>)) {
     lines.push(`  --text-${name}: ${size};`)
     if (opts?.lineHeight) lines.push(`  --text-${name}--line-height: ${opts.lineHeight};`)
@@ -437,6 +437,17 @@ function buildThemeCss(): string {
   }
   for (const [name, val] of Object.entries(ext.boxShadow as Record<string, string>)) {
     lines.push(`  --shadow-${name}: ${val};`)
+  }
+  // outline 三组：v4 工具 outline-<color>/<width>/<offset> 查 --outline-color-* / --outline-width-* / --outline-offset-*
+  // （outline-color 先查 --outline-color-* 再查 --color-*）。发到各自专用命名空间，避免污染 --color-*（与 text-* 等冲突）。
+  for (const [name, val] of Object.entries(ext.outlineColor as Record<string, string>)) {
+    lines.push(`  --outline-color-${name}: ${val};`)
+  }
+  for (const [name, val] of Object.entries(ext.outlineWidth as Record<string, string>)) {
+    lines.push(`  --outline-width-${name}: ${val};`)
+  }
+  for (const [name, val] of Object.entries(ext.outlineOffset as Record<string, string>)) {
+    lines.push(`  --outline-offset-${name}: ${val};`)
   }
   for (const [name, val] of Object.entries(ext.spacing as Record<string, string>)) {
     lines.push(`  --spacing-${name}: ${val};`)
@@ -458,24 +469,6 @@ try {
 
 function kebabToCamel(s: string): string {
   return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
-}
-
-function splitDeclarations(body: string): string[] {
-  const parts: string[] = []
-  let depth = 0
-  let current = ""
-  for (const ch of body) {
-    if (ch === "(") depth++
-    else if (ch === ")") depth--
-    if (ch === ";" && depth === 0) {
-      if (current.trim()) parts.push(current.trim())
-      current = ""
-    } else {
-      current += ch
-    }
-  }
-  if (current.trim()) parts.push(current.trim())
-  return parts
 }
 
 function findMatchingParen(s: string, start: number): number {
@@ -518,20 +511,25 @@ function resolveValue(value: string, localVars: Map<string, string>, useVar: boo
         const tv = designSystem ? (designSystem.resolveThemeValue(name.slice(2)) ?? designSystem.resolveThemeValue(name)) : undefined
         const resolved2 = local ?? tv ?? (name === "--spacing" ? "0.25rem" : fallback)
         if (useVar && resolved2 !== undefined) {
-          // useVar=true：提取定义中第一个 var 变量名，不再递归
-          const varMatch = resolved2.match(/^var\(\s*--([\w-]+)/)
-          if (varMatch) {
-            const innerName = `--${varMatch[1]}`
-            // 检查是否自引用（如 --shadow-sm: var(--shadow-sm, ...)）
-            if (innerName === name) {
-              // 自引用：返回 var(--name)，让浏览器自行解析
-              result += `var(${name})`
-            } else {
-              // 非自引用：返回 var(--innerName)，不再递归
-              result += `var(${innerName})`
+          // useVar=true：仅当 resolved2 整体是一个 var()（无后续内容）时，提取内层变量名，
+          //   保留运行时可覆盖的 var（如 `var(--color-on-surface)` → `var(--color-text-primary)`）。
+          //   复合值（如 ring-shadow `var(--tw-ring-inset,) 0 0 0 calc(...) var(--tw-ring-color,...)`）
+          //   原样保留——否则只取首个 var 会丢掉 ring 宽度/颜色等后续内容。
+          //   自引用（`--shadow-sm: var(--shadow-sm, …)`）返回 var(--name) 让浏览器用 fallback。
+          let singleVarName: string | null = null
+          if (resolved2.startsWith('var(')) {
+            const close = findMatchingParen(resolved2, 4)
+            if (close === resolved2.length - 1) {
+              const content = resolved2.slice(4, close)
+              const commaIdx = content.indexOf(',')
+              const nm = (commaIdx < 0 ? content : content.slice(0, commaIdx)).trim()
+              if (/^--[\w-]+$/.test(nm)) singleVarName = nm
             }
+          }
+          if (singleVarName) {
+            result += singleVarName === name ? `var(${name})` : `var(${singleVarName})`
           } else {
-            // 定义值是纯值（无 var），直接返回该值
+            // 复合值（var + 后续内容）或纯值：原样返回
             result += resolved2
           }
         } else {
@@ -566,57 +564,281 @@ const logicalToPhysical: Record<string, string[]> = {
   insetBlock: ["top", "bottom"],
 }
 
-function parseCssToProperties(css: string, useVar: boolean = false): Record<string, string> {
-  const result: Record<string, string> = {}
+type ParsedChunk = { pseudos: string[]; mediaQueries: string[]; props: Record<string, string> }
+
+type Frame = {
+  kind: "selector" | "media" | "pseudo" | "drop"
+  query?: string
+  pseudo?: string
+  localVars: Map<string, string>
+}
+
+/**
+ * 将 candidatesToCss 产出的单条 CSS（可能含嵌套 @media / &:pseudo / [dir=rtl] & 等）解析为
+ * 按 (pseudos, mediaQueries) 组合分组的 chunk。
+ * - 顶层声明 / selector 块内直接声明 -> pseudos=[], mediaQueries=[]（base）
+ * - @media / @supports / @container 包裹 -> mediaQueries 累积对应 query
+ * - &:hover / [dir=rtl] & / & > * 等含 & 的嵌套选择器包裹 -> pseudos 累积原始选择器文本（含 &）
+ * - 其他 at-rule（@starting-style 等）包裹 -> 丢弃
+ * 同一声明被多层嵌套包裹时，pseudos / mediaQueries 均按外->内顺序累积；
+ * 输出端把 pseudos 折叠到选择器（& 逐层替换为外层结果）、medias 用 and 合并，即可还原语义。
+ */
+function parseCssToChunks(css: string, useVar: boolean = false, escapedClass?: string): ParsedChunk[] {
   const propertyVars = new Map<string, string>()
   for (const m of css.matchAll(/@property\s+(--[\w-]+)\s*\{[^}]*?initial-value:\s*([^;}]+)/g)) {
     propertyVars.set(m[1], m[2].trim())
   }
-  const withoutProperty = css.replace(/@property[^{]*\{[^}]*\}/g, "")
-  for (const m of withoutProperty.matchAll(/\{([^}]*)\}/g)) {
-    const body = m[1]
-    const localVars = new Map(propertyVars)
-    const decls = splitDeclarations(body)
-    for (const decl of decls) {
-      const idx = decl.indexOf(":")
-      if (idx < 0) continue
-      const prop = decl.slice(0, idx).trim()
-      const val = decl.slice(idx + 1).trim()
-      if (prop.startsWith("--")) localVars.set(prop, val)
+  // 剥掉 @property 块（其 initial-value 已提取到 propertyVars 作为 var() 兜底）
+  const s = css.replace(/@property[^{]*\{[^}]*\}/g, "")
+  // 嵌套上下文栈：每进入一个 { 块压入一帧，} 弹出。media/pseudo 帧参与声明归属，selector/drop 不参与
+  const frames: Frame[] = []
+  // 按声明的 (pseudos, mediaQueries) 组合去重合并；同组合的声明写进同一 chunk
+  const chunksByKey = new Map<string, ParsedChunk>()
+
+  const localVars = () => frames[frames.length - 1]?.localVars ?? propertyVars
+  const pseudosOf = () => frames.filter(f => f.kind === "pseudo").map(f => f.pseudo!)
+  const mediasOf = () => frames.filter(f => f.kind === "media").map(f => f.query!)
+  const dropped = () => frames.some(f => f.kind === "drop")
+
+  const pushDecl = (prop: string, val: string) => {
+    const camelProp = kebabToCamel(prop)
+    const resolved = resolveValue(val, localVars(), useVar)
+    // useVar=true: shadow 占位符（0 0 #0000, ...）简化为只输出 var(--shadow-xxx)
+    const cleaned = useVar ? resolved.replace(/^(?:0\s+0\s+#0000\s*,\s*)+/, "") : resolved
+    if (dropped()) return
+    const pseudos = pseudosOf()
+    const mediaQueries = mediasOf()
+    // 分组键：用控制字符分隔，避免选择器/查询里的普通字符撞车；同一 (pseudos, medias) 组合归一个 chunk
+    const key = pseudos.join("\x01") + "\x02" + mediaQueries.join("\x01")
+    if (!chunksByKey.has(key)) chunksByKey.set(key, { pseudos, mediaQueries, props: {} })
+    const chunk = chunksByKey.get(key)!
+    const physicals = logicalToPhysical[camelProp]
+    if (physicals) for (const p of physicals) chunk.props[p] = cleaned
+    else chunk.props[camelProp] = cleaned
+  }
+
+  let i = 0
+  while (i < s.length) {
+    const ch = s[i]
+    if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") { i++; continue }
+    if (ch === "}") { frames.pop(); i++; continue }
+    if (ch === "@") {
+      const brace = s.indexOf("{", i)
+      if (brace < 0) break
+      const head = s.slice(i, brace)
+      const m = head.match(/^@(media|supports|container)\b\s*([\s\S]*)$/)
+      frames.push(
+        m
+          ? { kind: "media", query: m[2].trim(), localVars: new Map(propertyVars) }
+          : { kind: "drop", localVars: new Map(propertyVars) },
+      )
+      i = brace + 1
+      continue
     }
-    for (const decl of decls) {
+    // 扫描到首个 { ; } （括号深度感知），区分选择器块与声明
+    let depth = 0
+    let j = i
+    let stop = ""
+    while (j < s.length) {
+      const c = s[j]
+      if (c === "(") depth++
+      else if (c === ")") depth--
+      else if (depth === 0 && (c === "{" || c === ";" || c === "}")) { stop = c; break }
+      j++
+    }
+    if (stop === "{") {
+      const sel = s.slice(i, j).trim()
+      // 含 & 的嵌套选择器（&:hover、[dir=rtl] &、& > * 等）-> pseudo 上下文，保留原始文本供折叠。
+      // 此外修复 4.3.3+：tailwind 对变体发扁平具体选择器（`.hover\:bg-primary:hover`、`[dir=rtl] .rtl\:foo`、
+      // `.group:hover .group-hover\:foo`），无 `&`，否则 `:hover`/`:last-child` 等伪类后缀丢失、声明漏进 base。
+      // 选择器含候选类 `.`+escapedClass 但 ≠ 纯候选类（即带伪类/属性/前缀/组合器变体）→ 归一化为 `&`-style pseudo。
+      // 纯候选类（`.border-r`）→ selector frame（base，不破坏扁平 base API）。
+      const candidateSel = escapedClass ? '.' + escapedClass : null
+      const isVariant = !!(candidateSel && sel.includes(candidateSel) && sel !== candidateSel)
+      const pseudo = isVariant ? sel.split(candidateSel!).join('&') : sel
+      frames.push(
+        sel.includes("&") || isVariant
+          ? { kind: "pseudo", pseudo, localVars: new Map(propertyVars) }
+          : { kind: "selector", localVars: new Map(propertyVars) },
+      )
+      i = j + 1
+      continue
+    }
+    // 此处 stop 为 ; 或 }：解析为 prop: value 声明（prop 不能以 : 开头，故 idx > 0）
+    const decl = s.slice(i, j).trim()
+    if (decl) {
       const idx = decl.indexOf(":")
-      if (idx < 0) continue
-      const prop = decl.slice(0, idx).trim()
-      if (prop.startsWith("--")) continue
-      const val = decl.slice(idx + 1).trim()
-      const camelProp = kebabToCamel(prop)
-      const resolved = resolveValue(val, localVars, useVar)
-      // useVar=true 时，如果 shadow 属性包含 tailwind 占位符（0 0 #0000）和 var(--shadow-xxx)
-      // 则简化为只输出 var(--shadow-xxx)
-      const cleaned = useVar
-        ? resolved.replace(/^(?:0\s+0\s+#0000\s*,\s*)+/, "")
-        : resolved
-      const physicals = logicalToPhysical[camelProp]
-      if (physicals) {
-        for (const p of physicals) result[p] = cleaned
+      if (idx > 0) {
+        const prop = decl.slice(0, idx).trim()
+        const val = decl.slice(idx + 1).trim()
+        // 局部 --var 定义：注入当前帧的 localVars 供后续 var() 解析；!important 是声明级标志，
+        // var() 替换不携带被引自定义属性的 !important（规范行为），剥离以免外层声明再带 !important
+        // 时拼成 "!important !important"（如 !shadow-sm 的 --tw-shadow: … !important）
+        if (prop.startsWith("--")) localVars().set(prop, val.replace(/\s*!\s*important\s*$/i, ""))
+        else pushDecl(prop, val)
+      }
+    }
+    // ; 后移到下一条声明；} 不消费，让循环顶部的 } 分支弹栈
+    i = stop === ";" ? j + 1 : j
+  }
+  return [...chunksByKey.values()]
+}
+
+export interface VariantRule {
+  pseudos: string[]
+  mediaQueries: string[]
+  props: Record<string, string>
+}
+
+export interface GroupedCSS {
+  base: Record<string, string>
+  variants: VariantRule[]
+}
+
+/**
+ * 把候选类名转为 CSS 选择器里的转义形式（与 tailwind 一致）：
+ *   - 标识符字符 [a-zA-Z0-9_-] 原样，但前导数字用 hex 转义（CSS 里 `\2` 会被当 hex 转义，歧义）
+ *   - 其他特殊字符（: / [ ] ! @ 等）用 `\char` 转义
+ * 用于把 candidatesToCss 产出的具体选择器 `.escapedClass` 归一化为 `&`-style。
+ */
+function escapeClassName(c: string): string {
+  let r = ''
+  for (let i = 0; i < c.length; i++) {
+    const ch = c[i]
+    if (/[a-zA-Z0-9_-]/.test(ch)) {
+      if (i === 0 && /[0-9]/.test(ch)) r += '\\' + ch.charCodeAt(0).toString(16).padStart(2, '0') + ' '
+      else r += ch
+    } else {
+      r += '\\' + ch
+    }
+  }
+  return r
+}
+
+/**
+ * 分组解析：base 为无 variant 的属性；variants 为各 (pseudos, mediaQueries) 组合下的属性。
+ * 供 LESS 代码生成（style-converter）使用，可正确产出嵌套 @media / 伪类规则。
+ */
+export function convertTailwindToCSSGrouped(className: string, useVar: boolean = false): GroupedCSS {
+  const base: Record<string, string> = {}
+  const variantMap = new Map<string, VariantRule>()
+  if (!className.trim() || !designSystem) return { base, variants: [] }
+  const classes = className.split(/\s+/).filter(Boolean)
+  // candidatesToCss 返回与输入 1:1 的数组（无效候选为 null）
+  const cssArr = designSystem.candidatesToCss(classes) as (string | null)[]
+  for (let i = 0; i < classes.length; i++) {
+    const css = cssArr[i]
+    if (!css) continue
+    // 把候选类的转义形式传入 parser：4.3.3+ 对变体发扁平具体选择器（`.hover\:bg-primary:hover`），
+    // parser 需据此把含候选类但非纯候选类的选择器（即变体）归一化为 `&`-style（详见 parseCssToChunks）。
+    const escapedClass = escapeClassName(classes[i])
+    for (const chunk of parseCssToChunks(css, useVar, escapedClass)) {
+      if (chunk.pseudos.length === 0 && chunk.mediaQueries.length === 0) {
+        Object.assign(base, chunk.props)
       } else {
-        result[camelProp] = cleaned
+        // 跨多个 class 合并：相同 (pseudos, medias) 组合的声明并入同一 VariantRule
+        const key = chunk.pseudos.join("\x01") + "\x02" + chunk.mediaQueries.join("\x01")
+        const existing = variantMap.get(key)
+        if (existing) Object.assign(existing.props, chunk.props)
+        else variantMap.set(key, { pseudos: chunk.pseudos, mediaQueries: chunk.mediaQueries, props: { ...chunk.props } })
       }
     }
   }
-  return result
+  return { base, variants: [...variantMap.values()] }
 }
 
+/**
+ * 扁平解析：仅返回 base 属性（响应式 / 伪类 variant 的声明不在此表达）。
+ * 供 IPC / renderer 内联 style 使用——内联 style 无法承载 @media / 伪类，故只取 base。
+ */
 export function convertTailwindToCSS(className: string, useVar: boolean = false): Record<string, string> {
-  if (!className.trim()) return {}
-  if (!designSystem) return {}
-  const classes = className.split(/\s+/).filter(Boolean)
-  const cssStrings = designSystem.candidatesToCss(classes)
-  const result: Record<string, string> = {}
-  for (const css of cssStrings) {
-    if (!css) continue
-    Object.assign(result, parseCssToProperties(css, useVar))
+  return convertTailwindToCSSGrouped(className, useVar).base
+}
+
+// ─── LESS 规则产出（供 style-converter 消费） ─────────────────────────
+
+export interface StyleDeclaration {
+  prop: string
+  value: string
+}
+
+export interface LessRule {
+  selector: string
+  declarations: StyleDeclaration[]
+  variants?: { selector: string; mediaQueries: string[]; declarations: StyleDeclaration[] }[]
+}
+
+function camelToKebab(s: string): string {
+  return s.replace(/([A-Z])/g, '-$1').toLowerCase()
+}
+
+function styleObjToDecls(styleObj: Record<string, string>): StyleDeclaration[] {
+  return Object.entries(styleObj).map(([k, v]) => ({ prop: camelToKebab(k), value: v }))
+}
+
+// 给 width/height 及 min/max 变体加 !important（chart 用，压过组件默认 .ev-chart 两类选择器）
+function withSizingImportant(decls: StyleDeclaration[]): StyleDeclaration[] {
+  return decls.map(d => {
+    const p = d.prop.toLowerCase()
+    return (p === 'width' || p === 'height' || p.endsWith('-width') || p.endsWith('-height'))
+      ? { ...d, value: `${d.value} !important` }
+      : d
+  })
+}
+
+/**
+ * 把 Tailwind className 转成一条 LESS 规则：base 选择器 + base 声明 + 各 variant。
+ * - 伪类（&:hover / [dir=rtl] & 等）折叠到选择器（& 逐层替换为外层结果）
+ *   [&:hover] -> .id:hover ; [&:hover, &:focus] -> .id:hover:focus ; ["[dir=rtl] &"] -> [dir=rtl] .id
+ * - 媒体查询保留在 variant.mediaQueries，由 generateLessContent 包成 @media ... and ...
+ * importantSizing=true 时给 width/height 加 !important（chart 用）。
+ */
+export function convertTailwindToLessRule(
+  className: string,
+  baseSelector: string,
+  opts: { useVar?: boolean; importantSizing?: boolean } = {},
+): LessRule | null {
+  const grouped = convertTailwindToCSSGrouped(className, opts.useVar ?? false)
+  const foldPseudos = (pseudos: string[]) =>
+    pseudos.reduce<string>((sel, p) => p.split('&').join(sel), baseSelector)
+  const apply = (decls: StyleDeclaration[]) => (opts.importantSizing ? withSizingImportant(decls) : decls)
+  const baseDecls = apply(styleObjToDecls(grouped.base))
+  const variants = grouped.variants
+    .map(v => ({
+      selector: foldPseudos(v.pseudos),
+      mediaQueries: v.mediaQueries,
+      declarations: apply(styleObjToDecls(v.props)),
+    }))
+    .filter(v => v.declarations.length > 0)
+  if (baseDecls.length === 0 && variants.length === 0) return null
+  return { selector: baseSelector, declarations: baseDecls, variants }
+}
+
+/**
+ * 把 LessRule[] 序列化为 LESS 文本。
+ * - base 声明直接出 selector { ... }
+ * - variant：纯伪类直接出 selector{} ；带媒体查询的包成 @media q1 and q2 { selector{} }
+ */
+export function generateLessContent(rules: LessRule[]): string {
+  const lines: string[] = []
+  lines.push('// Auto-generated by a2ui-transformer')
+  lines.push('')
+  for (const rule of rules) {
+    if (rule.declarations.length > 0) {
+      lines.push(`${rule.selector} {`)
+      for (const decl of rule.declarations) lines.push(`  ${decl.prop}: ${decl.value};`)
+      lines.push('}')
+      lines.push('')
+    }
+    for (const v of rule.variants ?? []) {
+      const indent = v.mediaQueries.length > 0 ? '  ' : ''
+      if (v.mediaQueries.length > 0) lines.push(`@media ${v.mediaQueries.join(' and ')} {`)
+      lines.push(`${indent}${v.selector} {`)
+      for (const decl of v.declarations) lines.push(`${indent}  ${decl.prop}: ${decl.value};`)
+      lines.push(`${indent}}`)
+      if (v.mediaQueries.length > 0) lines.push('}')
+      lines.push('')
+    }
   }
-  return result
+  return lines.join('\n')
 }

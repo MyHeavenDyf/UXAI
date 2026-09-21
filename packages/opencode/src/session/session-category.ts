@@ -13,7 +13,6 @@ const log = Log.create({ service: "session-category" })
 export const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   octo_ai: "dev",
   build: "dev",
-  octo_design: "design",
   octo_make: "prototype",
   octo_make_plan: "subagent",
   octo_pattern: "prototype",

@@ -198,6 +198,9 @@ export function deployBuiltinSkills() {
     mkdirSync(octoSkillDir, { recursive: true })
     for (const skillDir of readdirSync(builtinSource, { withFileTypes: true })) {
       if (!skillDir.isDirectory()) continue
+      // spreadsheets 由 extract_document 静态嵌入，不部署到用户维护的 skill 目录。
+      // 同名目录可能是用户自定义技能，必须完整保留。
+      if (skillDir.name === "spreadsheets") continue
       const dest = join(octoSkillDir, skillDir.name)
       if (!existsSync(dest)) {
         cpSync(join(builtinSource, skillDir.name), dest, { recursive: true })
@@ -240,7 +243,8 @@ export function deployProtoTools() {
   }
 }
 
-export function deployResourceLibraryScripts() {
+// jk-j60099994-replace-with-60062650-desktop-main-migrate-1-start
+export async function deployResourceLibraryScripts() {
   const configDir = join(homedir(), ".config", "octo")
 
   const builtinSource = app.isPackaged
@@ -262,6 +266,7 @@ export function deployResourceLibraryScripts() {
     log.warn("resourceLibraryScripts deployment: failed", err)
   }
 }
+// jk-j60099994-replace-with-60062650-desktop-main-migrate-1-end
 
 export function deployRipgrep() {
   const { platform, arch } = process

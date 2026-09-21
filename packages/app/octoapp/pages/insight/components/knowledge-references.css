@@ -1,0 +1,88 @@
+/* 内网知识库引用列表(SPEC-INS-030 §2)。
+ *
+ * 挂在 InsightTurn 的回答下方,与同处对话流的入口卡(.octo-preview-entry)风格对齐:
+ * 浅色一套、octo token、不入 @layer(insight 全站浅色,不跟随系统暗色)。 */
+
+.octo-kb-refs {
+  margin: 0 12px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--octo-border-divider);
+  font-family: var(--octo-font);
+}
+
+.octo-kb-refs__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--octo-text-secondary);
+  transition: color var(--octo-dur-fast) var(--octo-ease);
+}
+
+.octo-kb-refs__toggle:hover {
+  color: var(--octo-text-primary);
+}
+
+.octo-kb-refs__caret {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.octo-kb-refs__list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.octo-kb-refs__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.octo-kb-refs__index {
+  flex-shrink: 0;
+  color: var(--octo-text-secondary);
+}
+
+.octo-kb-refs__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font: inherit;
+  color: var(--octo-brand);
+}
+
+.octo-kb-refs__link:hover {
+  text-decoration: underline;
+}
+
+.octo-kb-refs__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--octo-text-primary);
+}
+
+.octo-kb-refs__meta {
+  flex-shrink: 0;
+  color: var(--octo-text-secondary);
+}

@@ -382,6 +382,7 @@ export const layer = Layer.effect(
         url: url.href,
         proxy: mcp.proxy,
         proxyMode,
+        transport: mcp.transport ?? "auto",
         timeout: mcp.timeout ?? DEFAULT_TIMEOUT,
         oauth: !oauthDisabled,
         headerKeys: mcp.headers ? Object.keys(mcp.headers) : [],
@@ -426,7 +427,7 @@ export const layer = Layer.effect(
             fetch: fetchFn,
           }),
         },
-      ]
+      ].filter((t) => !mcp.transport || t.name === (mcp.transport === "sse" ? "SSE" : "StreamableHTTP"))
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
       let lastStatus: Status | undefined
@@ -598,8 +599,20 @@ export const layer = Layer.effect(
         if (!listed) return
         if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
+        const oldDefs = s.defs[name]
         s.defs[name] = listed
-        log.info("tools list updated", { server: name, newToolCount: listed.length })
+        log.info("tools list updated", {
+          server: name,
+          newToolCount: listed.length,
+          oldToolCount: oldDefs?.length ?? 0,
+          oldTools: (oldDefs ?? []).map((t) => t.name).join(","),
+          newTools: listed.map((t) => t.name).join(","),
+          diff: JSON.stringify({
+            removed: (oldDefs ?? []).filter((t) => !listed.some((n) => n.name === t.name)).map((t) => t.name),
+            added: listed.filter((t) => !(oldDefs ?? []).some((o) => o.name === t.name)).map((t) => t.name),
+          }),
+          source: "ToolListChangedNotification",
+        })
         await bridge.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
       })
     }

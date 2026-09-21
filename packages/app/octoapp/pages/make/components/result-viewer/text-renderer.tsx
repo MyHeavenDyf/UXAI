@@ -3,6 +3,7 @@ import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
 import { directoryHeader } from "@/utils/headers"
+import { highlightCode, getLanguageFromFilename } from "../../utils/code-highlight"
 
 interface Props {
   filePath: string
@@ -54,9 +55,10 @@ export function TextRenderer(props: Props): JSX.Element {
               {(_, i) => <div>{i() + 1}</div>}
             </For>
           </div>
-          <code class="p-2 px-3 whitespace-pre overflow-auto">
-            {content()}
-          </code>
+          <code
+            class="p-2 px-3 whitespace-pre overflow-auto"
+            innerHTML={highlightCode(content() ?? "", getLanguageFromFilename(props.filePath))}
+          />
         </pre>
       </Show>
     </div>

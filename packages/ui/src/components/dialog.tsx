@@ -10,6 +10,7 @@ export interface DialogProps extends ParentProps {
   size?: "normal" | "large" | "x-large"
   class?: ComponentProps<"div">["class"]
   classList?: ComponentProps<"div">["classList"]
+  style?: ComponentProps<"div">["style"]
   fit?: boolean
   transition?: boolean
 }
@@ -31,6 +32,7 @@ export function Dialog(props: DialogProps) {
             ...props.classList,
             [props.class ?? ""]: !!props.class,
           }}
+          style={props.style}
           onOpenAutoFocus={(e) => {
             const target = e.currentTarget as HTMLElement | null
             const autofocusEl = target?.querySelector("[autofocus]") as HTMLElement | null

@@ -1,6 +1,6 @@
-# CheckboxGroup | 复选框组
+# CheckboxGroup | 复选框组 示例
 
-### Example: CheckboxGroup basic
+## Example: CheckboxGroup basic
 
 ```json
 {

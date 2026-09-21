@@ -13,9 +13,11 @@ import { Global } from "@opencode-ai/core/global"
 import { Permission } from "@/permission"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Config } from "@/config/config"
+import { Ripgrep } from "@/file/ripgrep"
 import { ConfigMarkdown } from "@/config/markdown"
 import { Glob } from "@opencode-ai/core/util/glob"
 import * as Log from "@opencode-ai/core/util/log"
+import * as Stream from "effect/Stream"
 import { Discovery } from "./discovery"
 
 const log = Log.create({ service: "skill" })
@@ -80,6 +82,7 @@ export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly getMany: (names: string[]) => Effect.Effect<Info[]>
   readonly all: () => Effect.Effect<Info[]>
+  readonly files: (info: Info, options?: { signal?: AbortSignal }) => Effect.Effect<string[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   readonly refresh: () => Effect.Effect<void>
@@ -108,15 +111,16 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
   const parsed = z.object({ name: z.string(), description: z.string() }).safeParse(md.data)
   if (!parsed.success) return
 
+  state.dirs.add(path.dirname(match))
+  // matches 已按来源优先级排序且顺序加载,首个注册的同名 skill 即高优先级来源,后到的跳过
   if (state.skills[parsed.data.name]) {
-    log.warn("duplicate skill name", {
+    log.warn("duplicate skill name, keeping higher priority entry", {
       name: parsed.data.name,
       existing: state.skills[parsed.data.name].location,
       duplicate: match,
     })
+    return
   }
-
-  state.dirs.add(path.dirname(match))
   const skillDir = path.basename(path.dirname(match))
   state.skills[parsed.data.name] = {
     name: parsed.data.name,
@@ -288,6 +292,18 @@ const discoverSkills = Effect.fnUntraced(function* (
     }
   }
 
+  // 同名 skill 冲突时 ~/.config/octo 必须确定性胜出(此前 unbounded 并发 + 后写覆盖,结果随机):
+  // P0 = octoConfig/skill/<dir>/SKILL.md(桌面端统一管理/部署位置,仅一层)
+  // P1 = octoConfig 下其余路径(skills/ 复数目录、嵌套副本如 dist/)
+  // P2 = 其它所有来源(.claude/.agents/.opencode/项目目录等)
+  // 配合 loadSkills 的顺序加载 + add() 的首个注册生效。
+  const priority = (match: string) => {
+    if (path.dirname(path.dirname(match)) === octoSkillDir) return 0
+    if (match.startsWith(global.octoConfig + path.sep)) return 1
+    return 2
+  }
+  matches.sort((a, b) => priority(a) - priority(b))
+
   return {
     matches,
     dirs: Array.from(state.dirs),
@@ -297,8 +313,8 @@ const discoverSkills = Effect.fnUntraced(function* (
 })
 
 const loadSkills = Effect.fnUntraced(function* (state: State, discovered: DiscoveryState, bus: Bus.Interface) {
+  // 顺序加载(非并发):保证 discoverSkills 的优先级排序真实生效,见排序处注释
   yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus, discovered.typeMap), {
-    concurrency: "unbounded",
     discard: true,
   })
 
@@ -315,6 +331,7 @@ export const layer = Layer.effect(
     const bus = yield* Bus.Service
     const fsys = yield* AppFileSystem.Service
     const global = yield* Global.Service
+    const rg = yield* Ripgrep.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
         return yield* discoverSkills(config, discovery, fsys, global, ctx.directory, ctx.worktree)
@@ -343,6 +360,17 @@ export const layer = Layer.effect(
       return Object.values(s.skills)
     })
 
+    const files = Effect.fn("Skill.files")(function* (info: Info, options?: { signal?: AbortSignal }) {
+      const dir = path.dirname(info.location)
+      const result = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: options?.signal }).pipe(
+        Stream.filter((file: string) => path.basename(file) !== "SKILL.md"),
+        Stream.map((file: string) => path.resolve(dir, file)),
+        Stream.runCollect,
+        Effect.orDie,
+      )
+      return [...result].toSorted()
+    })
+
     const dirs = Effect.fn("Skill.dirs")(function* () {
       return (yield* InstanceState.get(discovered)).dirs
     })
@@ -367,8 +395,7 @@ export const layer = Layer.effect(
         }
       }
 
-      const allowedDirs = d.agentConfig[agentKey] ?? []
-      const allowedSet = new Set(allowedDirs)
+      const allowedSet = new Set(d.agentConfig[agentKey] ?? [])
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
         const skillDir = s.skillDirMap[skill.name]
@@ -384,7 +411,7 @@ export const layer = Layer.effect(
       yield* InstanceState.invalidateAll(state)
     })
 
-    return Service.of({ get, getMany, all, dirs, available, refresh })
+    return Service.of({ get, getMany, all, files, dirs, available, refresh })
   }),
 )
 
@@ -394,7 +421,25 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(Global.layer),
+  Layer.provide(Ripgrep.defaultLayer),
 )
+
+export function formatLoaded(info: Info, files: string[]) {
+  const dir = path.dirname(info.location)
+  return [
+    `# Skill: ${info.name}`,
+    "",
+    info.content.trim(),
+    "",
+    `Skill directory (absolute path): ${dir}`,
+    "All listed paths are native absolute filesystem paths. Use them directly as read tool filePath values.",
+    "Do not use relative paths or file:// URLs as read tool filePath values.",
+    "",
+    "<skill_files>",
+    ...files.map((file) => `<file>${file}</file>`),
+    "</skill_files>",
+  ].join("\n")
+}
 
 export function fmt(list: Info[], opts: { verbose: boolean }) {
   if (list.length === 0) return "No skills are currently available."

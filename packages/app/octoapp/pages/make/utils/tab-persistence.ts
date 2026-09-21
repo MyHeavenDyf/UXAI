@@ -19,6 +19,7 @@ export interface PersistenceOptions {
   sdkDirectory: string
   snapshotStore: { save: (tab: ResultTab) => void }
   refreshSnapshots: () => void
+  skipSnapshot?: boolean
 }
 
 export async function persistTabChanges(
@@ -28,10 +29,12 @@ export async function persistTabChanges(
   const skipPersist = ["image", "video", "audio", "pdf", "svg", "text"].includes(tab.type)
   if (skipPersist) return
 
-  // 1. Save localStorage snapshot (always)
-  options.snapshotStore.save(tab)
-  options.refreshSnapshots()
-  
+  // 1. Save localStorage snapshot (skip if disk history is handling it)
+  if (!options.skipSnapshot) {
+    options.snapshotStore.save(tab)
+    options.refreshSnapshots()
+  }
+
   // 2. Write to file system (if tab has filePath and content)
   if (tab.filePath && options.sdkDirectory && tab.content) {
     try {
@@ -50,7 +53,8 @@ export async function persistTabChanges(
   
   // 3. Auto-save to project directory (Electron environment only)
   // Skip if file is from Design Files panel (already exists on disk)
-  const isFromDesignFiles = tab.filePath && tab.filePath.includes(".octo/") && tab.filePath.includes(`/${options.sessionId}/`)
+  const normalizedPath = tab.filePath?.replace(/\\/g, "/")
+  const isFromDesignFiles = normalizedPath && normalizedPath.includes(".octo/") && normalizedPath.includes(`/${options.sessionId}/`)
   if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {
     const card: OutputCard = {
       id: tab.id,

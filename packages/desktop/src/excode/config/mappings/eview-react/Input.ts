@@ -7,16 +7,18 @@
  * | placeholder | placeholder | 同名透传 |
  * | size | — | 丢弃 |
  * | maxLength | maxLength | 同名透传 |
- * | prefix/suffix | prefix/suffix | resolveIconProp → BuildNode |
+ * | prefix | — | 丢弃（eview-react TextField 无 prefix prop，仅支持 suffix） |
+ * | suffix | suffix | resolveIconProp → BuildNode |
  * | password: true | type: 'password' | boolean → string |
- * | className | className | 同名透传 |
+ * | className | className + inputStyle | 宽度类(w-*)→inputStyle(内联样式)，其余→className |
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 // ─── icon prop 解析（字面量 / DataBinding） ───
 function resolveIconProp(
@@ -55,10 +57,10 @@ export function createInputMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value', 'placeholder', 'size', 'maxLength',
-        'prefix', 'suffix', 'password',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Input 的 props 是封闭集合
+      // (value/placeholder/size/maxLength/prefix/suffix/password/className)，
+      // 不再做"非 SKIP 即透传"的兜底，避免把目标库不支持的 prop 漏出去。
 
       // ─── value → value（useState 受控，双形态） ───
       //   字面量 → Value.literal（初始值 hardcode）
@@ -107,9 +109,7 @@ export function createInputMapping(pkg: string): MappingDef {
       }
 
       // ─── prefix/suffix icon ───
-      if (props.prefix) {
-        outputProps.prefix = resolveIconProp(props.prefix, ctx)
-      }
+      //   eview-react TextField 无 prefix prop（仅 suffix），A2UI prefix 丢弃。
       if (props.suffix) {
         outputProps.suffix = resolveIconProp(props.suffix, ctx)
       }
@@ -119,12 +119,20 @@ export function createInputMapping(pkg: string): MappingDef {
         outputProps.type = 'password'
       }
 
-      // ─── className ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
+      // ─── className: 拆分宽度类 → inputStyle（内联样式），其余 → className ───
+      // TextField 的 className 控制外层容器，inputStyle 控制内部 input 元素；
+      // 宽度类（w-47, w-[226px] 等）应作用于 input 元素，故拆到 inputStyle。
+      // 内联 style 优先级高于 CSS class，无需 !important。
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
       }
+      if (widthStyle) {
+        outputProps.inputStyle = widthStyle as any
+      }
+
+      // 不做剩余兜底透传：A2UI Input 的 props 已逐项显性处理，
+      // 避免把目标库不支持的 prop（如 prefix/size）漏传给 TextField。
 
       return {
         props: outputProps,

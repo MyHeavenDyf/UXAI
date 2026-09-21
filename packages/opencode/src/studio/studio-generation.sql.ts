@@ -27,6 +27,7 @@ export const StudioGenerationTable = sqliteTable(
     request: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
     result: text({ mode: "json" }).$type<Record<string, unknown>>(),
     error: text(),
+    last_poll_error: text(),
     next_poll_at: integer().notNull(),
     poll_attempts: integer().notNull().default(0),
     completed_at: integer(),

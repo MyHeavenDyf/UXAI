@@ -31,8 +31,6 @@ import {
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
-import { CommentsProvider } from "@/context/comments"
-import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
@@ -42,10 +40,8 @@ import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
-import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
-import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
@@ -64,24 +60,25 @@ import { ChatFollowupQueueRunner } from "@/pages/chat/followup-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
+import { MakeGroupsProvider } from "@/context/make-groups"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
+import { UpdateChecker } from "@/components/update-checker"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
+import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
 // jk-j60099994-replace-with-60062650-octo-1-start
 // jk-j60099994-replace-with-60062650-octo-1-end
 
-const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
+const AssetsPage = lazy(() => import("@/pages/assets"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
-const loadSession = () => import("@/pages/session")
-const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
 
 // ⚠️ DEV-ONLY 守卫必须写在 JSX 之外,不要改回 `{import.meta.env.DEV && insightDevRoutes()}`。
@@ -93,20 +90,19 @@ const Loading = () => <div class="size-full" />
 // 详见 docs/learning/solid-jsx-blocks-import-meta-env-treeshaking.md。
 const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
 
-if (typeof location === "object" && /\/session(?:\/|$)/.test(location.pathname)) {
-  void loadSession()
+// SPEC-INS-030:chat 模块下线(唯一独有能力 knowledge_search 已并入 insight)。
+// 三条旧入口一律改导向 insight,而不是直接删路由 —— 站内还散着不少 `/:dir/chat/:id` 的跳转
+// (通知深链、fork 会话、文件搜索跳转、prompt-input 新建会话…),留重定向让它们优雅落到 insight,
+// 而不是撞 404。会话 id 在 insight 路由下直接可开:chat 历史(agent=octo_ai)已由 SPEC-INS-030 §6
+// 路径 B 纳入 insight 列表与渲染。
+const ChatRedirectRoute = () => {
+  const params = useParams<{ id?: string }>()
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
-
-const SessionRoute = () => (
-  <SessionProviders>
-    <Session />
-  </SessionProviders>
-)
-
-const ChatIndexRoute = () => <Navigate href="chat" />
+const DirectoryIndexRoute = () => <Navigate href="/insight" />
 const SessionRedirectRoute = () => {
   const params = useParams<{ id?: string }>()
-  return <Navigate href={`../chat/${params.id ?? ""}`} />
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
 const CoworkRedirectRoute = () => {
   return <Navigate href="/insight" />
@@ -280,7 +276,9 @@ function PatternSidebarLayout(props: ParentProps) {
 function MakeSidebarLayout(props: ParentProps) {
   return (
     <MakeLayoutProvider>
-      <MakeSidebarArea>{props.children}</MakeSidebarArea>
+      <MakeGroupsProvider>
+        <MakeSidebarArea>{props.children}</MakeSidebarArea>
+      </MakeGroupsProvider>
     </MakeLayoutProvider>
   )
 }
@@ -297,10 +295,14 @@ function MakeSidebarArea(props: ParentProps) {
     const startW = ml.leftW()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
+    // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
+    // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
+    const restoreIframes = disableIframesDuringDrag()
     const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
+      restoreIframes()
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
@@ -328,7 +330,7 @@ function MakeSidebarArea(props: ParentProps) {
         .make-icon-btn:hover [data-component="icon"] { color: #0a59f7; }
         .make-icon-btn[data-expanded], .make-icon-btn[data-state="open"] { color: #0a59f7; }
         .make-icon-btn[data-expanded] [data-component="icon"], .make-icon-btn[data-state="open"] [data-component="icon"] { color: #0a59f7; }
-        .make-chat-folded .scroll-view__viewport { max-width: 824px; margin-left: auto; margin-right: auto; }
+        .make-chat-folded .make-chat-content { max-width: 824px; margin-left: auto; margin-right: auto; }
         .make-chat-folded .make-composer { max-width: 800px; margin-left: auto; margin-right: auto; }
       `}</style>
       <div
@@ -340,7 +342,7 @@ function MakeSidebarArea(props: ParentProps) {
         <div
           class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
           classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
-          style={{ "border-right": "1px solid var(--border-weak-base)", background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
+          style={{ background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
         >
           <MakeSidebar />
         </div>
@@ -362,7 +364,7 @@ function MakeSidebarArea(props: ParentProps) {
 function InsightSidebarLayout(props: ParentProps) {
   return (
     <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+      <InsightSidebar />
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         {props.children}
       </div>
@@ -370,7 +372,9 @@ function InsightSidebarLayout(props: ParentProps) {
   )
 }
 
-function SkillsSidebarLayout(props: ParentProps) {
+// /skills 与 /assets 共用的侧栏分发壳:根据 sidebarSource 选择 make/pattern/insight 侧栏。
+// 两者页面结构一致,仅内容不同,故复用同一布局;命名体现其分发职责而非绑定 skills。
+function SidebarDispatchLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
@@ -397,18 +401,6 @@ function AppShellProviders(props: ParentProps) {
         </LayoutProvider>
       </PermissionProvider>
     </SettingsProvider>
-  )
-}
-
-function SessionProviders(props: ParentProps) {
-  return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
   )
 }
 
@@ -495,12 +487,17 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  const isAssetsPage = () => {
+    return location.pathname === "/assets"
+  }
+
   // Whether skills is opened from make/pattern context (vs insight/cowork)
   const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
   const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
 
   return (
     <>
+      <UpdateChecker />
       <FocusModeResetHandler />
       <NotificationProvider>
         <ModelsProvider>
@@ -534,7 +531,11 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <SkillsPage />
                   </InsightSidebarLayout>
                 </Show>
-                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                {/* Assets (knowledge base): SidebarDispatchLayout 根据 sidebarSource 选择 make/pattern/insight 侧栏 */}
+                <Show when={isAssetsPage()}>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
                   {props.appChildren}
                   {props.children}
                 </Show>
@@ -749,9 +750,10 @@ export function AppInterface(props: {
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
+                  <Route path="/assets" component={AssetsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
-                    <Route path="/" component={ChatIndexRoute} />
-                    <Route path="/chat/:id?" component={ChatPage} />
+                    <Route path="/" component={DirectoryIndexRoute} />
+                    <Route path="/chat/:id?" component={ChatRedirectRoute} />
                     <Route path="/cowork/:id?" component={CoworkRedirectRoute} />
                     <Route path="/studio/:id?" component={StudioPage} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />

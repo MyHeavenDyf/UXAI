@@ -41,6 +41,7 @@ export interface NestedTreeNode {
   userTeamType?: number
   _hide?: boolean
   disabled?: boolean
+  _hasPermissionDescendant?: boolean
   children?: NestedTreeNode[]
 }
 

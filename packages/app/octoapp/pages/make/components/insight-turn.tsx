@@ -4,23 +4,75 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
+import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+import { getFileIcon } from "../icons/file-type-icons"
+import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
+import { kindFromMime } from "./attachment-bar"
+import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
+import { lookupDisplayName } from "./skill-config-types"
+import { parseFastuiPreview } from "../utils/fastui-export"
 
-// Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
-  return text
+  // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
+  // getDocTextWithMentions 在 chip 前后各插入一个 ​ 作为边界标记。
+  const parts = text.split(/(@[^​@]+)/g)
+
+  return (
+    <>
+      {parts.map((part) => {
+        if (part.startsWith("@") && part.length > 1) {
+          return (
+            <span style={{ "margin-left": "8px", "margin-right": "8px" }}>
+              {part}
+            </span>
+          )
+        }
+        return part
+      })}
+    </>
+  )
+}
+
+export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Element; class?: string }) {
+  return (
+    <div
+      role="alert"
+      class={`px-4 py-3 ${props.class ?? ""}`}
+      style={{
+        "border-radius": "8px",
+        background: "rgba(254, 231, 232, 1)",
+        color: "#191919",
+        "font-size": "14px",
+        "line-height": "22px",
+      }}
+    >
+      <div class="flex items-start gap-2">
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" class="mt-1 shrink-0" aria-hidden="true">
+          <path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128" />
+          <path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round" />
+        </svg>
+        <div class="min-w-0 flex-1">
+          <Show when={props.title}>
+            <div class="font-medium">{props.title}</div>
+          </Show>
+          {props.children}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // 跟踪已 autoSave 的 artifact（避免重复调用）
@@ -42,6 +94,7 @@ export type OutputCardType =
   | "react-component" | "diagram"
   | "image" | "video" | "audio" | "pdf" | "text"
   | "design-plan"
+  | "link"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -49,6 +102,7 @@ export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
+  subtype?: string
   content: string
   filePath?: string
   commentFilePath?: string
@@ -73,6 +127,43 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "react-component": "react-component",
   diagram: "diagram",
   "text/design-plan": "design-plan",
+  "text/link": "link",
+}
+
+// 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题
+// URL:        提取最后的文件名(含扩展名),无路径时回退到 host
+//             "https://a.com/path/file.html" → "file.html"
+//             "https://a.com/"               → "a.com"
+// 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
+//             "D:\\dir\\a.shadcn.html" → "a.shadcn"
+//             "D:\\dir\\report.pdf"    → "report"
+function extractLinkTitle(content: string): string {
+  const trimmed = (content ?? "").trim()
+  if (!trimmed) return ""
+
+  // fastui 预览卡片 fastui://<产物名>(SPEC-DES-004):标题就是产物名
+  const fastuiName = parseFastuiPreview(trimmed)
+  if (fastuiName !== null) return fastuiName || "本地预览"
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed)
+      const segments = u.pathname.split("/").filter(Boolean)
+      if (segments.length > 0) {
+        const last = segments[segments.length - 1]
+        try { return decodeURIComponent(last) } catch { return last }
+      }
+      return u.host
+    } catch {
+      // fall through to path handling
+    }
+  }
+
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
+  const lastDot = filename.lastIndexOf(".")
+  if (lastDot > 0) return filename.slice(0, lastDot)
+  return filename
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -92,6 +183,35 @@ function decodeDataUrl(url: string): string {
     return url
   }
 }
+
+// 从文件名扩展名推断 mime,仅用于 local 附件清单渲染(后端 manifest 只存了 filename+path)。
+// 覆盖常见图片/svg/webp/gif,其余按二进制处理,渲染端走文件图标 fallback。
+function mimeFromFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    html: "text/html",
+    htm: "text/html",
+    md: "text/markdown",
+    txt: "text/plain",
+    json: "application/json",
+    js: "application/javascript",
+    ts: "application/typescript",
+    css: "text/css",
+    pdf: "application/pdf",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+  }
+  return map[ext] ?? "application/octet-stream"
+}
+
 
 function getToolEndTime(state: Record<string, unknown> | undefined): number {
   const time = state?.time as Record<string, unknown> | undefined
@@ -127,7 +247,7 @@ function cardTypeIconSrc(_type: OutputCardType): string {
 }
 
 function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Omit<OutputCard, "id" | "createdAt">[] = []
   try {
     const parser = createArtifactParser()
@@ -158,9 +278,18 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
+        // 模型声明的 title 可能带后缀或含异常字符,不可靠
+        let resolvedTitle = startEvent.title
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(fullContent)
+          if (fromContent) resolvedTitle = fromContent
+        }
         results.push({
-          title: startEvent.title || mappedType,
+          title: resolvedTitle || mappedType,
           type: mappedType,
+          subtype: extractSubtypeFromTitle(resolvedTitle),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
@@ -180,9 +309,9 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
 function scanArtifactHeaders(text: string): Array<{ identifier: string; title: string; type: OutputCardType }> {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Array<{ identifier: string; title: string; type: OutputCardType }> = []
-  const re = /<artifact\s+([^>]*)>/g
+  const re = /<artifact\s+([^>]*)>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const attrs = m[1]
@@ -291,7 +420,7 @@ function WaitingPill(props: {
       .filter(entry => entry.sessionID !== props.sessionID && entry.field === "text")
       .slice(-50)
     for (const entry of childTextDeltas) {
-      if (entry.delta.includes("<artifact")) {
+      if (/<artifact/i.test(entry.delta)) {
         const childParser = createArtifactParser()
         for (const ev of childParser.feed(entry.delta)) {
           if (ev.type === "artifact:chunk") artifactContent += ev.delta
@@ -347,13 +476,13 @@ function WaitingPill(props: {
 
   return (
     <div
-      class="mx-3 mb-2"
-      style={{
-        "border-radius": "var(--octo-radius-md)",
-        background: "var(--octo-brand-a3)",
-        border: "1.5px dashed var(--octo-brand-a25)",
-      }}
-    >
+      class="mx-3"
+        style={{
+          "border-radius": "var(--octo-radius-md)",
+          background: "var(--octo-brand-a3)",
+          border: "1.5px dashed var(--octo-brand-a25)",
+        }}
+      >
       <div class="px-3 py-2 flex items-center gap-2">
         <div
           class="w-1.5 h-1.5 rounded-full animate-pulse"
@@ -388,7 +517,7 @@ function WaitingPill(props: {
 
 function ProducedFilesList(props: { files: Array<{ path: string; name: string }> }): JSX.Element {
   return (
-    <div class="mx-3 mb-2">
+    <div class="mx-3">
       <div
         class="px-2.5 py-1.5 flex flex-col gap-1"
         style={{
@@ -421,7 +550,7 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
 function ReasoningCollapsed(props: { texts: string[]; duration: string }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   return (
-    <div style={{ width: "100%", "margin-bottom": "8px" }}>
+    <div style={{ width: "100%" }}>
       <button
         type="button"
         onClick={() => setOpen(!open())}
@@ -462,7 +591,7 @@ function ReasoningCollapsed(props: { texts: string[]; duration: string }): JSX.E
       <Show when={open()}>
         <div
           style={{
-            "margin-top": "20px",
+            "margin-top": "16px",
             "padding-left": "12px",
             "border-left": "1px solid rgba(0,0,0,0.08)",
             "font-size": "12px",
@@ -505,9 +634,13 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  compactDisabled?: boolean
+  onCompact?: () => void
   hasQuestionRequest?: boolean
+  hasRunningTool?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
+  skillConfig?: import("./skill-config-types").SkillConfig
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -542,7 +675,7 @@ export function InsightTurn(props: {
   // FilePart entries (images with S3 URL)
   const userFileParts = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
-    return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
+    return parts.filter((p) => p.type === "file" && (p as { filename?: string }).filename) as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
   })
 
   // Synthetic [附件] manifest (local file references)
@@ -556,12 +689,24 @@ export function InsightTurn(props: {
   })
 
   // Merged attachments for display
+  // local 文件清单只存了 {filename, path},没带 mime。从扩展名推断图片类型,
+  // Electron 桌面用 local:// 协议直接显示;浏览器环境无此协议,保持文件图标 fallback。
   const userAttachments = createMemo(() => {
     const files = userFileParts()
     const locals = userInputManifest()
+    const desktop = isElectronDesktop()
     return [
       ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
-      ...locals.map(l => ({ filename: l.filename, url: undefined as string | undefined, mime: "application/octet-stream", isLocal: true })),
+      ...locals.map(l => {
+        const mime = mimeFromFilename(l.filename)
+        const isImage = mime.startsWith("image/")
+        return {
+          filename: l.filename,
+          url: (desktop && isImage) ? pathToLocalUrl(l.path) : undefined,
+          mime,
+          isLocal: true,
+        }
+      }),
     ]
   })
 
@@ -581,6 +726,49 @@ export function InsightTurn(props: {
     return result
   })
 
+  // ict_pattern agent 的 turn：弱模型可能输出纯文字而非 <pattern-match>/<module-list> 标签，
+  // 这类文字应作为"思考过程"（reasoning）展示，而非常规 prose 回复
+  const isPatternAgentTurn = createMemo(() =>
+    assistantMsgs().some((m) => (m as Record<string, unknown>).agent === "ict_pattern"),
+  )
+
+  const isLatestTurn = createMemo(() => {
+    const messages = msgStore?.[props.sessionID] ?? []
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
+    return lastUser?.id === props.messageID
+  })
+
+  // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
+  // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
+  const isCompactionTurn = createMemo(() => {
+    const parts = partStore?.[props.messageID] ?? []
+    return parts.some((p) => p.type === "compaction")
+  })
+
+  // 压缩完成 = 摘要 assistant 消息(summary: true)已 finish 且无 error,与标准 session-turn 判定一致
+  const compacted = createMemo(() =>
+    isCompactionTurn() && assistantMsgs().some((m) => m.summary === true && !!m.finish && !m.error),
+  )
+
+  const compactionFailed = createMemo(() =>
+    isCompactionTurn() && !compacted() && assistantMsgs().some((m) => !!m.error),
+  )
+
+  // 兜底:压缩 turn 不再活跃(已不是最新 turn 或 session 已 idle)但既未成功也无 error 标记
+  // —— 典型场景是模型超时/中断导致 processor 未产出 summary 消息,assistantMsgs 为空。
+  const compactionStalled = createMemo(() =>
+    isCompactionTurn() && !compacted() && !compactionFailed() && (!isLatestTurn() || !props.active),
+  )
+
   const isAborted = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
@@ -589,7 +777,7 @@ export function InsightTurn(props: {
     return false
   })
 
-  const assistantError = createMemo(() => {
+  const messageError = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
@@ -600,6 +788,8 @@ export function InsightTurn(props: {
     }
     return null
   })
+  const assistantError = createMemo(() => isCompactionTurn() ? null : messageError())
+  const compactionError = createMemo(() => isCompactionTurn() ? messageError() : null)
 
   const assistantParts = createMemo(() => {
     const msgs = assistantMsgs()
@@ -633,13 +823,21 @@ export function InsightTurn(props: {
         if (reasoning) texts.push(reasoning)
       }
     }
+    // ict_pattern agent：输出中的非标签文字（标签外的额外说明、或弱模型未按格式输出的纯文字）
+    // 一律作为"思考过程"展示，prose 只保留引导提示语
+    if (isPatternAgentTurn()) {
+      const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+      if (textPart?.text) {
+        const cleaned = textPart.text
+          .replace(/<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/gi, "")
+          .replace(/<module-list[^>]*>[\s\S]*?<\/module-list>/gi, "")
+          .replace(/<pattern-match[^>]*>[\s\S]*$/gi, "")
+          .replace(/<module-list[^>]*>[\s\S]*$/gi, "")
+          .trim()
+        if (cleaned) texts.push(cleaned)
+      }
+    }
     return texts
-  })
-
-  const isLatestTurn = createMemo(() => {
-    const messages = msgStore?.[props.sessionID] ?? []
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
-    return lastUser?.id === props.messageID
   })
 
   const showGenerating = createMemo(() => props.active && isLatestTurn())
@@ -659,9 +857,40 @@ export function InsightTurn(props: {
     return s > 0 ? `${m}m ${s}s` : `${m}m`
   })
 
+  const turnMeta = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    if (showGenerating()) return ""
+    const firstMsg = msgs[0] as AssistantMessage
+    const lastMsg = msgs[msgs.length - 1] as AssistantMessage
+    const start = firstMsg.time?.created
+    const completed = lastMsg.time?.completed
+    if (typeof start !== "number" || typeof completed !== "number") return ""
+    if (completed < start) return ""
+    const secs = Math.round((completed - start) / 1000)
+    if (secs < 0) return ""
+    const duration = secs < 60
+      ? `${secs} 秒`
+      : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
+
+    let agent = lastMsg.agent
+    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan') agent = 'Octo_Design'
+    const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
+    const modelLabel = (() => {
+      const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
+      return match?.models?.[lastMsg.modelID]?.name ?? lastMsg.modelID ?? ""
+    })()
+    const interruptedLabel = isAborted() ? i18n.t("ui.message.interrupted") : ""
+    return [agentLabel, modelLabel, duration, interruptedLabel]
+      .filter(Boolean)
+      .join(" · ")
+  })
+
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
     const parts = assistantParts()
+    const skillData = props.skillConfig?.skill
+    
     return parts
       .filter((p) => p.type === "tool")
       .map((p) => {
@@ -681,19 +910,60 @@ export function InsightTurn(props: {
         const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
         const isCompleted = stateStatus === "completed"
+        
+        const toolName = (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown"
+        
+        // 查找 displayName（仅对 skill 工具）
+        let displayName: string | undefined
+        if (toolName === "skill" && input && typeof input.name === "string") {
+          displayName = lookupDisplayName(skillData, input.name as string)
+        }
+        
         return {
-          name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
+          name: toolName,
           status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          displayName,
         }
       })
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const nonTaskToolCalls = createMemo(() =>
-    toolCalls().filter((c) => !/task/i.test(c.name))
+
+  // 用户通过 @ / / 激活的技能:后端在 createUserMessage 时为 user message 注入
+  // type="tool" tool="skill" 的 part(source: "user")。assistantParts 不包含 user parts,
+  // 需单独从 partStore[messageID] 取,合并到 skillToolCalls 前面展示。
+  const userSkillToolCalls = createMemo((): ToolCallInfo[] => {
+    const parts = (partStore?.[props.messageID] ?? []) as Array<Record<string, unknown>>
+    const skillData = props.skillConfig?.skill
+    return parts
+      .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+      .map((p) => {
+        const state = (p.state as Record<string, unknown> | undefined) ?? {}
+        const input = state.input as { name?: string } | undefined
+        const displayName = input?.name
+          ? lookupDisplayName(skillData, input.name)
+          : undefined
+        return {
+          name: "skill",
+          status: "done" as const,
+          input: input ?? undefined,
+          output: undefined,
+          filePath: undefined,
+          displayName,
+        }
+      })
+  })
+
+  const skillToolCalls = createMemo(() => [
+    ...userSkillToolCalls(),
+    ...toolCalls().filter((c) => c.name === "skill"),
+  ])
+
+  const otherToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
   )
 
   // ── NEW: subtask sessions (from Task tool calls) ──
@@ -758,7 +1028,7 @@ const stateStatus = state.status as string | undefined
         if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
           artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
         }
-        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
+        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
         if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
       }
 
@@ -826,14 +1096,36 @@ const stateStatus = state.status as string | undefined
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
+    // pattern 模式结构化标签 <pattern-match> / <module-list> 的 JSON 由
+    // pattern-sub-scanner 解析用于 IntentConfirmCard，不应作为 prose 显示。
+    // agent 仅输出标签时，输出一段引导文字，类似进入策略模式时的文字回复。
+    const raw = textPart.text
+    const hasPatternMatch = /<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/i.test(raw)
+    const hasModuleList = /<module-list[^>]*>[\s\S]*?<\/module-list>/i.test(raw)
+    const cleaned = raw
+      .replace(/<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/gi, "")
+      .replace(/<module-list[^>]*>[\s\S]*?<\/module-list>/gi, "")
+      .replace(/<pattern-match[^>]*>[\s\S]*$/gi, "")
+      .replace(/<module-list[^>]*>[\s\S]*$/gi, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleaned)) {
       if (ev.type === "text") prose += ev.delta
     }
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
-    return prose.trim()
+    prose = prose.trim()
+    // ict_pattern agent：标签内容由 scanner 解析，prose 只输出引导提示语；
+    // 标签外的额外文字（含弱模型未按格式输出的纯文字）归入 reasoningTexts
+    if (isPatternAgentTurn()) {
+      if (hasModuleList) return "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+      if (hasPatternMatch) return "已根据你的需求匹配到候选页面布局，请在上方选择最合适的典型页面模板。"
+      return ""
+    }
+    if (prose) return prose
+    if (hasModuleList) return "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+    if (hasPatternMatch) return "已根据你的需求匹配到候选页面布局，请在下方选择最合适的典型页面模板。"
+    return ""
   })
 
   // ── NEW: prose segments (split on <question-form> blocks) ──
@@ -915,13 +1207,21 @@ const stateStatus = state.status as string | undefined
   const [hasSeenCount, setHasSeenCount] = createSignal(0)
   const [lastSeenCards, setLastSeenCards] = createSignal<OutputCard[]>([])
 
+  // 切换 session/message 时清空 local state。
+  // <Show> 包裹的 InsightTurn 在 userMessages().length > 0 保持 truthy 时会被复用,
+  // 不重置 local state 会导致 B session 的 streaming cards 泄漏到 A session 的视图。
+  createEffect(on(() => [props.sessionID, props.messageID] as const, () => {
+    setHasSeenCount(0)
+    setLastSeenCards([])
+  }, { defer: true }))
+
   // Track whether we've seen artifacts during streaming (effect, not memo)
+  // Fix 5: 不在 showGenerating() flip 时重置缓存。
+  // session.status 翻 busy→idle→busy 时 showGenerating() 会瞬变 false,
+  // 原逻辑会清空 hasSeenCount/lastSeenCards 导致 stableStreamingCards 返回 []
+  // 出现内容闪烁。重置职责已由上方 session/message 切换 effect 覆盖。
   createEffect(() => {
-    if (!showGenerating()) {
-      setHasSeenCount(0)
-      setLastSeenCards([])
-      return
-    }
+    if (!showGenerating()) return
     const cards = streamingArtifacts()
     if (cards.length > 0) {
       setHasSeenCount(cards.length)
@@ -1007,10 +1307,48 @@ const stateStatus = state.status as string | undefined
   })
 
   return (
-    <div class="flex flex-col" style={{ "user-select": "text" }}>
+    <div class="octo-make-turn flex flex-col gap-4" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
-        <div class="flex flex-col items-end gap-2 px-3 py-2.5">
+        <div class="flex flex-col items-end gap-4 px-3">
+          <Show when={userAttachments().length > 0}>
+            <div class="flex flex-col items-end gap-4">
+              <For each={userAttachments()}>
+                {(att) => (
+                  <Show
+                    when={att.url && att.mime?.startsWith("image/")}
+                    fallback={
+                      <div
+                        class="break-words flex items-center"
+                        style={{
+                          background: "rgba(0,0,0,0.05)",
+                          padding: "8px 12px",
+                          "border-radius": "8px",
+                          color: "rgba(0,0,0,0.9)",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          gap: "6px",
+                          display: "inline-flex",
+                          "max-width": "200px",
+                        }}
+                      >
+                        {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
+                        <span class="truncate">{att.filename}</span>
+                      </div>
+                    }
+                  >
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)" }}>
+                      <img
+                        src={att.url}
+                        alt={att.filename}
+                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                      />
+                    </div>
+                  </Show>
+                )}
+              </For>
+            </div>
+          </Show>
           <Show when={userText()}>
             <ExpandableBubble
               class="break-words"
@@ -1029,55 +1367,63 @@ const stateStatus = state.status as string | undefined
               {renderMentionText(userText())}
             </ExpandableBubble>
           </Show>
-          <Show when={userAttachments().length > 0}>
-            <div class="flex flex-col gap-2">
-              <For each={userAttachments()}>
-                {(att) => (
-                  <div
-                    class="break-words flex items-center gap-2"
-                    style={{
-                      background: "var(--octo-brand-a8)",
-                      padding: "12px 16px",
-                      "border-radius": "12px",
-                      color: "#191919",
-                      "font-size": "13px",
-                      display: "inline-flex",
-                      "max-width": "200px",
-                    }}
-                  >
-                    <Show when={att.url && att.mime?.startsWith("image/")}>
-                      <img
-                        src={att.url}
-                        alt={att.filename}
-                        style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
-                      />
-                    </Show>
-                    <Show when={!att.url || !att.mime?.startsWith("image/")}>
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ "flex-shrink": "0" }}>
-                        <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.6L13.4 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M13 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </Show>
-                    <span class="truncate">{att.filename}</span>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
         </div>
       </Show>
 
+      {/* 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容 */}
+      <Show when={isCompactionTurn()}>
+        <Show when={!compacted() && !compactionFailed() && !compactionStalled()}>
+          <div
+            class="mx-3 px-4 py-2 flex items-center gap-2"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(200, 200, 200, 0.2)",
+              background: "rgba(200, 200, 200, 0.05)",
+            }}
+          >
+            <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+            <span class="text-sm" style={{ color: "#6e737a" }}>正在压缩上下文…</span>
+          </div>
+        </Show>
+        <Show when={compacted()}>
+          <div data-slot="session-turn-compaction">
+            <MessageDivider label={i18n.t("ui.messagePart.compaction")} />
+          </div>
+        </Show>
+        <Show when={compactionFailed()}>
+          <MakeErrorNotice class="mx-3" title="上下文压缩失败">
+            <Show when={compactionError()?.message}>
+              <div style={{ "user-select": "text" }}>{compactionError()!.message}</div>
+            </Show>
+          </MakeErrorNotice>
+        </Show>
+        <Show when={compactionStalled()}>
+          <div
+            class="mx-3 px-4 py-2 text-sm"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(234, 179, 8, 0.3)",
+              background: "rgba(255, 247, 224, 1)",
+              color: "#7a4f00",
+            }}
+          >
+            上下文压缩未完成（可能已超时或中断）
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={!isCompactionTurn()}>
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
-          <div class="mx-3 mb-1">
+          <div class="mx-3">
             <ReasoningCollapsed
               texts={reasoningTexts()}
               duration={reasoningDuration()}
             />
           </div>
         }>
-          <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
+          <div class="mx-3" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
             <div
               class="overflow-auto"
               style={{
@@ -1105,7 +1451,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-4 py-3"
+          class="px-4"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>
@@ -1135,14 +1481,22 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
-      <Show when={(props.skillToolCalls?.length ?? 0) > 0 || nonTaskToolCalls().length > 0}>
-        <ToolCallGroupCard calls={[...(props.skillToolCalls ?? []), ...nonTaskToolCalls()]} />
-      </Show>
+      {/* 工具调用区域 */}
+      <Show when={skillToolCalls().length > 0 || otherToolCalls().length > 0 || subtasks().length > 0}>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "8px" }}>
+        {/* 技能调用（单独显示在最前面） */}
+        <Show when={skillToolCalls().length > 0}>
+          <ToolCallGroupCard calls={skillToolCalls()} />
+        </Show>
 
-      {/* 子任务进度（Task tool 调用的子 agent 会话） */}
-      <For each={subtasks()}>
-        {(task) => {
+        {/* 其他工具调用 */}
+        <Show when={otherToolCalls().length > 0}>
+          <ToolCallGroupCard calls={otherToolCalls()} />
+        </Show>
+
+        {/* 子任务进度（Task tool 调用的子 agent 会话） */}
+        <For each={subtasks()}>
+          {(task) => {
           // Initialize expand state if not exists (defaults to true = expanded)
           if (subtaskExpandState[task.subSessionID] === undefined) {
             setSubtaskExpandState(task.subSessionID, true)
@@ -1150,7 +1504,7 @@ const stateStatus = state.status as string | undefined
           const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
           return (
-            <div class="mx-3 mb-2" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
+            <div class="mx-3" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
               <button
                 type="button"
@@ -1252,41 +1606,62 @@ const stateStatus = state.status as string | undefined
       </For>
 
       {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && nonTaskToolCalls().length > 0}>
-        <div class="mb-1">
-          <FileOpsSummary calls={nonTaskToolCalls()} />
+      <Show when={!showGenerating() && otherToolCalls().length > 0}>
+        <div>
+          <FileOpsSummary calls={otherToolCalls()} />
+        </div>
+      </Show>
+
+      {/* 产出文件列表 */}
+      <Show when={!showGenerating() && producedFiles().length > 0}>
+        <ProducedFilesList files={producedFiles()} />
+      </Show>
         </div>
       </Show>
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
-        <div
-          class="mx-3 mb-2 px-3 py-2 text-xs leading-relaxed"
-          style={{
-            "border-radius": "var(--octo-radius-md)",
-            background: "rgba(239,68,68,0.08)",
-            border: "1px solid rgba(239,68,68,0.2)",
-            color: "#ef4444",
-          }}
+        <MakeErrorNotice
+          class="mx-3"
+          title={
+            assistantError()!.name === "ProviderAuthError"
+              ? "认证失败"
+              : assistantError()!.name === "ContextOverflowError"
+                ? "上下文超出提示"
+                : "生成出错"
+          }
         >
-          <div class="flex items-center gap-1.5 mb-1 font-medium">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2" />
-              <path d="M7 4v3M7 9v0.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-            </svg>
-            {assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
-          </div>
-          <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+          <Show
+            when={assistantError()!.name === "ContextOverflowError"}
+            fallback={
+              <Show when={assistantError()!.message}>
+                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+              </Show>
+            }
+          >
+            <div style={{ "user-select": "text" }}>系统的单次处理能力已满。</div>
+            <div>
+              请进行“
+              <button
+                type="button"
+                class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ color: "#0a59f7", font: "inherit" }}
+                disabled={props.compactDisabled}
+                onClick={props.onCompact}
+              >
+                上下文压缩
+              </button>
+              ”，或新建对话。
+            </div>
           </Show>
-        </div>
+        </MakeErrorNotice>
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
-            class="mb-3"
+            title={capturedCard.type === "link" ? capturedCard.content : undefined}
             style={{
               "border-radius": "12px",
               padding: "16px 20px",
@@ -1316,15 +1691,17 @@ const stateStatus = state.status as string | undefined
         )}
       </For>
 
-      {/* 产出文件列表 */}
-      <Show when={!showGenerating() && producedFiles().length > 0}>
-        <ProducedFilesList files={producedFiles()} />
-      </Show>
-
       {/* 中断提示 — 始终在最底部 */}
       <Show when={isAborted()}>
         <div data-slot="session-turn-compaction">
           <MessageDivider label={i18n.t("ui.message.interrupted")} />
+        </div>
+      </Show>
+
+      {/* hover 显示的 turn 元信息（agent · model · 耗时 · 中断）— 仿 Insight 页 */}
+      <Show when={turnMeta()}>
+        <div class="octo-make-turn-meta-wrapper">
+          <span class="octo-make-turn-meta">{turnMeta()}</span>
         </div>
       </Show>
 
@@ -1347,7 +1724,7 @@ const stateStatus = state.status as string | undefined
           const isPartial = genCard.content.length === 0
           return (
             <div
-              class="mb-3"
+              title={genCard.type === "link" ? genCard.content : undefined}
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",
@@ -1382,20 +1759,20 @@ const stateStatus = state.status as string | undefined
 
       {/* 已执行时间 — 仅在最新 turn 有生成中卡片时显示 */}
       <Show when={showGenerating() && stableStreamingCards().length > 0 && props.elapsedText}>
-        <div class="mx-3 mb-3">
+        <div class="mx-3">
           <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
             已执行 {props.elapsedText}
           </span>
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
+      {/* 阻塞提示 — 渐进式显示（question 状态或工具执行时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest && !props.hasRunningTool}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 180
           return (
-            <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
+            <div class="mx-3 px-4 py-2 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
               border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
               background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
@@ -1419,6 +1796,7 @@ const stateStatus = state.status as string | undefined
             </div>
           )
         })()}
+      </Show>
       </Show>
     </div>
   )

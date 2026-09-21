@@ -1,10 +1,8 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { ThumbnailMap } from "./session-thumbnail"
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
-import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
@@ -15,8 +13,11 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { IconSettings } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
+import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { decode64 } from "@/utils/base64"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
@@ -38,61 +39,22 @@ function isVideoThumbnailUrl(url: string): boolean {
   return /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url)
 }
 
-export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
   const navigate = useNavigate()
   const layout = useLayout()
-
-  const [sessions, { refetch }] = createResource(
-    () => props.directory ?? "",
-    async (dir) => {
-      if (!dir) return [] as Session[]
-      const client = globalSDK.createClient({ directory: dir })
-      const result = await client.session.list()
-      const data = ((result.data ?? []) as Session[])
-        .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-      return data.filter(s => s.agent === "octo_studio" && !s.time?.archived)
-    },
-  )
-  const [sessionList, setSessionList] = createStore<Session[]>([])
-  createEffect(on(sessions, (data) => {
-    if (data) {
-      setSessionList(reconcile(data, { key: "id" }))
-      if (pendingScrollRestore > 0 && listScrollRef) {
-        listScrollRef.scrollTop = pendingScrollRestore
-        pendingScrollRestore = 0
-      }
-    }
-  }, { defer: true }))
+  const removeSession = useSessionDelete()
 
   // Trigger thumbnail loading when sessions are first loaded
-  createEffect(on(sessions, (data) => {
+  createEffect(on(() => props.sessions, (data) => {
     if (data && data.length > 0 && props.onLoadThumbnails) {
       props.onLoadThumbnails(data)
     }
   }, { defer: true }))
 
-  let refetchTimer: ReturnType<typeof setTimeout> | undefined
-  const unsub = globalSDK.event.listen((e) => {
-    const t = e.details.type
-    if (t === "session.created" || t === "session.updated" || t === "session.deleted" || t === "message.updated") {
-      clearTimeout(refetchTimer)
-      refetchTimer = setTimeout(() => void refetch(), 1000)
-    }
-  })
-  onCleanup(unsub)
-  onCleanup(() => { clearTimeout(refetchTimer) })
-
-  const isLoading = createMemo(() => sessions.loading)
   const [collapsed, setCollapsed] = createSignal(false)
-
-  // When thumbnail version increments, refetch sessions to force For re-render
-  createEffect(() => {
-    const ver = props.thumbnailVersion
-    if (ver && ver > 0) refetch()
-  })
 
   const [title, setTitle] = createStore({
     draft: "",
@@ -111,16 +73,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   }
   let titleRef: HTMLInputElement | undefined
   let listScrollRef: HTMLDivElement | undefined
-  let pendingScrollRestore = 0
-
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
 
   const openTitleEditor = (session: Session) => {
     setTitle({
@@ -151,18 +103,13 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     await globalSDK.createClient({ directory: props.directory }).session
       .update({ sessionID: session.id, title: next })
       .then(() => {
-        setSessionList(
-          produce((draft) => {
-            const index = draft.findIndex((item) => item.id === session.id)
-            if (index !== -1) draft[index].title = next
-          }),
-        )
+        props.onSessionUpdated({ ...session, title: next })
         setTitle({ editingID: "", draft: "" })
       })
       .catch((err) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: errorMessage(err),
+          description: sessionErrorMessage(err, language.t("common.requestFailed")),
         })
       })
       .finally(() => setTitle("savingID", ""))
@@ -180,64 +127,18 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   }
 
   const deleteSession = async (session: Session) => {
-    const sessions = sessionList.filter((item) => !item.time?.archived)
-    const index = sessions.findIndex((item) => item.id === session.id)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
+    const nextSession = pickNextSession(props.sessions.filter((item) => !item.time?.archived), session.id)
 
-    const result = await globalSDK.createClient({ directory: props.directory }).session
-      .delete({ sessionID: session.id })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err),
-        })
-        return false
-      })
+    const ok = await removeSession(globalSDK.createClient({ directory: props.directory }), session.id)
+    if (!ok) return false
 
-    if (!result) return false
-
-    pendingScrollRestore = listScrollRef?.scrollTop ?? 0
-    setSessionList(
-      produce((draft) => {
-        const index = draft.findIndex((item) => item.id === session.id)
-        if (index !== -1) draft.splice(index, 1)
-      }),
-    )
-    // 恢复滚动位置（produce 后同步尝试，reconcile 后也会恢复）
-    if (listScrollRef && pendingScrollRestore > 0) {
-      listScrollRef.scrollTop = pendingScrollRestore
-    }
+    const scrollTop = listScrollRef?.scrollTop ?? 0
+    props.onSessionRemoved(session.id)
+    requestAnimationFrame(() => {
+      if (listScrollRef) listScrollRef.scrollTop = scrollTop
+    })
     navigateAfterSessionRemoval(session.id, nextSession?.id)
     return true
-  }
-
-  function DialogDeleteSession(props: { session: Session }) {
-    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteSession(props.session)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
   }
 
   return (
@@ -299,14 +200,14 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         <Show when={!collapsed()}>
         <div class="flex flex-col flex-1 min-h-0">
           <div data-slot="list-scroll" ref={listScrollRef!} class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
-            <Show when={!isLoading()} fallback={
+            <Show when={!props.loading} fallback={
               <div class="text-12-regular text-text-weak py-4 text-center">
                 <Spinner class="size-4 mx-auto mb-1" />
                 {language.t("common.loading")}
               </div>
             }>
               <Show
-                when={sessionList.length > 0}
+                when={props.sessions.length > 0}
                 fallback={
                   <div class="text-12-regular text-text-weak py-4 text-center">
                     {language.t("sidebar.history.empty")}
@@ -314,7 +215,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                 }
               >
                 <div class="flex flex-col">
-                  <For each={sessionList}>
+                  <For each={props.sessions}>
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
@@ -551,7 +452,12 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
                                       closeContextMenu()
-                                      dialog.show(() => <DialogDeleteSession session={session} />)
+                                      dialog.show(() => (
+                                        <DialogDeleteSession
+                                          name={sessionTitle(session.title) ?? language.t("command.session.new")}
+                                          onDelete={() => deleteSession(session)}
+                                        />
+                                      ))
                                     }}
                                   >
                                     <span data-slot="dropdown-menu-item-label">删除</span>

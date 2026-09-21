@@ -8,6 +8,26 @@
   }
 }
 
+@utility thin-scrollbar {
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+  &::-webkit-scrollbar {
+    display: block;
+    width: 4px;
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--border-weak-base);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--border-strong-base);
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 @utility badge-mask {
   -webkit-mask-image: radial-gradient(circle 5px at calc(100% - 4px) 4px, transparent 5px, black 5.5px);
   mask-image: radial-gradient(circle 5px at calc(100% - 4px) 4px, transparent 5px, black 5.5px);

@@ -16,17 +16,18 @@
  * 不做：transform 调用（NodeMapper 阶段处理）。
  */
 
-import { Step } from '../core/step'
-import { Value } from '../core/value'
-import { Node } from '../core/node'
+import { Step } from '../core/step-base'
+import { Value } from '../core/value-factory'
+import { Node } from '../core/node-factory'
 import { IconCollector } from '../core/icon-collection'
 import {
   HTML_TEXT_ELEMENTS,
-  HTML_VALUE_ATTRIBUTE_ELEMENTS,
   ICON_PROPS_BY_COMPONENT,
   ICON_PROPS_NESTED_IN_ARRAYS,
 } from '../core/icon-props'
 import { rewriteResourcePath } from '../core/resource-path'
+import { pathToJsAccess } from '../core/access-path'
+import { pathToSegments, resolveBySegments } from '../core/state-path'
 import type {
   BuildNode,
   ComponentNode,
@@ -42,26 +43,43 @@ import type { PipelineContext } from '../pipeline/pipeline-context'
 import type { BuiltPage } from '../pipeline/pipeline-context'
 
 // ─── 循环模板不抽离的白名单 ───────────────────────────────────────
-// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab），循环 children 不应
-// 抽成单独的 components/{Name}Template.tsx，而是 inline 在 map 回调里渲染。
-// buildTrees 建树时检查 template body 的 component 名，命中则 LoopNode.inline=true。
-const INLINE_LOOP_COMPONENTS = new Set(['TabItem'])
+// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab、CollapseItem 之于 Collapse），
+// 循环 children 不应抽成单独的 components/{Name}Template.tsx，而是 inline 在 map
+// 回调里渲染，直接参与组件映射。buildTrees 建树时检查 template body 的 component 名，
+// 命中则 LoopNode.inline=true。
+const INLINE_LOOP_COMPONENTS = new Set(['TabItem', 'CollapseItem'])
 
-// ─── state path 工具（inline；后续可与 icon-collection.ts#resolvePath 合并到 core/state-path.ts） ───
 
-/** 把 "/a/b/0/c" 或 "a/b/0/c" 归一为 segments */
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
+/**
+ * 原生 H5 inline style 字符串 → React style 对象。
+ *   "background-color: rgba(239,68,68,0.12); color: red;" → { backgroundColor: 'rgba(239,68,68,0.12)', color: 'red' }
+ * CSS 属性名 kebab → camelCase（含 vendor 前缀 -webkit-/-moz-/-ms-/-o- → 首字母大写）；
+ * 值原样保留为字符串。
+ */
+function parseInlineStyle(css: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const decl of css.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx < 0) continue
+    const prop = decl.slice(0, idx).trim()
+    const val = decl.slice(idx + 1).trim()
+    if (!prop || !val) continue
+    out[cssPropToCamel(prop)] = val
+  }
+  return out
 }
 
-/** 按 segments 逐级取值；找不到 → undefined */
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
+const CSS_VENDOR_PREFIXES = new Set(['webkit', 'moz', 'ms', 'o'])
+function cssPropToCamel(prop: string): string {
+  const parts = prop.split('-').filter(Boolean)
+  return parts
+    .map((w, i) => {
+      const lower = w.toLowerCase()
+      if (i === 0 && CSS_VENDOR_PREFIXES.has(lower)) return w.charAt(0).toUpperCase() + lower.slice(1)
+      if (i === 0) return lower
+      return w.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join('')
 }
 
 /** 从当前的 loopStack 构建 LoopScope 链（从外到内） */
@@ -69,7 +87,7 @@ function buildLoopScope(stack: Array<{ loopNode: LoopNode }>): LoopScope | undef
   if (stack.length === 0) return undefined
   let scope: LoopScope | undefined
   for (let i = 0; i < stack.length; i++) {
-    scope = { loopNode: stack[i].loopNode, parent: scope }
+    scope = { scopeType: 'loopScope', loopNode: stack[i].loopNode, parent: scope }
   }
   // scope 指向最内层循环，parent 链指向外层
   return scope
@@ -94,16 +112,41 @@ interface BuildContext {
     /** 对应的 LoopNode 引用（预创建，构建完 body 后 template.body 再填充） */
     loopNode: LoopNode
   }>
+  /**
+   * 事件改写的 state path 集合（#buildPage 预扫产出，带前导 `/`，与 binding.path 对齐）。
+   * state-builder 据此给 binding/computed 打 shared 标记 → 走共享 store。
+   */
+  eventMutatedPaths: Set<string>
+  /**
+   * 锚点目标 id 集合（#buildPage 预扫产出，去前导 `#`）。
+   * 命中此 id 的节点建树时打 keepId=true，使 config.id=false 时仍输出 id（锚点 href 不致变死链）。
+   * 仅当「数据含 Anchor 组件 且 config.id===false」时预扫返回非空集；否则为 null（不预扫 /
+   * 无 Anchor → 建树时可选链短路，不调 has()、不打任何 keepId）。
+   */
+  anchorTargetIds: Set<string> | null
 }
 
 export class BuildTrees extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
     ctx.builtPages = []
 
+    // keepId 只在「config.id===false 且数据含 Anchor 组件」时才有意义（config.id=true 时 emitId
+    // 已覆盖全部 id）。config.id=false 时才预扫；预扫内单次遍历同时判定有无 Anchor，无 Anchor
+    // 则返回 null、不进标记（见 #collectAnchorTargetIds / #buildPage）。config.id=true 时不预扫。
+    const needKeepId = ctx.config?.id === false
+
     const pagesData: PageData[] = (ctx as any).pagesData || []
     for (const pageData of pagesData) {
-      const built = await this.#buildPage(pageData)
-      ctx.builtPages.push(built)
+      ctx.currentPage = pageData.pageName   // 诊断：出错时 pipeline-engine 能定位到页
+      try {
+        const built = await this.#buildPage(pageData, needKeepId)
+        ctx.builtPages.push(built)
+      } catch (err: any) {
+        // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
+        const msg = err?.message ?? String(err)
+        ctx.errors.push({ step: 'BuildTrees', page: pageData.pageName, message: msg, stack: err?.stack })
+        console.warn(`  [warn] BuildTrees: 页 "${pageData.pageName}" 处理失败，跳过: ${msg}`)
+      }
     }
 
     const totalIcons = ctx.builtPages.reduce(
@@ -115,7 +158,7 @@ export class BuildTrees extends Step {
     )
   }
 
-  async #buildPage(pageData: PageData): Promise<BuiltPage> {
+  async #buildPage(pageData: PageData, needKeepId: boolean): Promise<BuiltPage> {
     const { pageName, a2uiDoc, splitMeta } = pageData
     const { rootId, elements, state } = a2uiDoc
 
@@ -132,6 +175,19 @@ export class BuildTrees extends Step {
     const iconCollector = new IconCollector()
     iconCollector.setState(state || {})
 
+    // 事件 Action 预扫：收集所有 onClick/onClose 等 Action 的 args.path（带前导 `/`），
+    // 供 state-builder 给命中此 path 的 binding/computed 打 shared 标记走共享 store。
+    // 必须在建树遍历前完成——#processValue 解析 binding 时即可查此集合。
+    const eventMutatedPaths = this.#collectEventMutatedPaths(elements)
+
+    // 锚点目标 id 预扫：仅 config.id===false 时跑（needKeepId）。
+    // #collectAnchorTargetIds 单次遍历同时判定「是否含 Anchor」：无 Anchor → 返回 null，
+    // 建树标记侧可选链短路（不调 has()、不打 keepId）——id 保留只在「有 Anchor 且 config.id===false」时发生。
+    // config.id=true 时根本不预扫（needKeepId=false → null）。
+    const anchorTargetIds = needKeepId
+      ? this.#collectAnchorTargetIds(elements, state || {})
+      : null
+
     const ctx: BuildContext = {
       elements,
       state: state || {},
@@ -139,6 +195,8 @@ export class BuildTrees extends Step {
       extracts: [],
       iconCollector,
       loopStack: [],
+      eventMutatedPaths,
+      anchorTargetIds,
     }
 
     const rootTree = this.#buildTree(rootId, ctx, 0)
@@ -160,7 +218,80 @@ export class BuildTrees extends Step {
       extracts: ctx.extracts,
       iconNameSet,
       iconNameMap,
+      eventMutatedPaths,
     } as BuiltPage
+  }
+
+  /**
+   * 预扫所有 elements 的 props，收集事件 Action 的 args.path（带前导 `/`）。
+   * Action 形状：`{ action: "setState", args: { path, value } }`（schema 的 $defs/Action）。
+   * 事件 prop 是组件顶层 prop（onClick/onClose/...），故只扫顶层 props。
+   */
+  #collectEventMutatedPaths(elements: any[]): Set<string> {
+    const paths = new Set<string>()
+    for (const el of elements || []) {
+      const props = el?.props
+      if (!props || typeof props !== 'object') continue
+      for (const v of Object.values(props)) {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+        const action = v as Record<string, any>
+        const args = action.args
+        if (
+          'action' in action &&
+          args &&
+          typeof args === 'object' &&
+          'path' in args &&
+          typeof args.path === 'string'
+        ) {
+          paths.add(args.path)
+        }
+      }
+    }
+    return paths
+  }
+
+  /**
+   * 预扫所有 Anchor 元素的 items，收集锚点目标 id（去前导 `#`）。
+   * 命中此 id 的节点建树时打 keepId=true，使 config.id=false 时仍输出 id（锚点 href 不致变死链）。
+   *
+   * 单次遍历同时判定「是否含 Anchor」：未发现任何 Anchor 元素时返回 **null**（而非空集），
+   * 让 #buildTree 标记侧经可选链短路（不建 Set、不逐节点调 has()）——id 保留只在
+   * 「数据有 Anchor 且 config.id===false」时才真正发生（#buildPage 已按 config.id 门控调用）。
+   *
+   * items 两形态（与 Anchor 映射 transform 识别一致）：
+   *   - 字面量数组 → 直接遍历
+   *   - DataBinding（{path} 对象，#processValue 识别为 BindingValue）→ 绝对 path（`/` 前缀）
+   *     解析到页面 state 拿真实 items 数组再遍历；相对 path（无 `/`）跳过；state 取不到跳过。
+   * 递归 item.children 收集多级嵌套 href。
+   */
+  #collectAnchorTargetIds(elements: any[], state: Record<string, any>): Set<string> | null {
+    const ids = new Set<string>()
+    let sawAnchor = false
+    const visit = (item: any) => {
+      if (!item || typeof item !== 'object') return
+      if (typeof item.href === 'string') {
+        const h = item.href.startsWith('#') ? item.href.slice(1) : item.href
+        if (h) ids.add(h)
+      }
+      if (Array.isArray(item.children)) item.children.forEach(visit)
+    }
+    for (const el of elements || []) {
+      if (el?.component !== 'Anchor') continue
+      sawAnchor = true
+      const items = el?.props?.items
+      let arr: any[] | null = null
+      if (Array.isArray(items)) {
+        arr = items                                  // 字面量
+      } else if (items && typeof items === 'object' && 'path' in items && typeof items.path === 'string') {
+        // DataBinding：仅绝对 path 可静态解析（相对 path 在循环内 per-item，跳过）
+        if (items.path.startsWith('/')) {
+          const resolved = resolveBySegments(state, pathToSegments(items.path))
+          if (Array.isArray(resolved)) arr = resolved
+        }
+      }
+      arr?.forEach(visit)
+    }
+    return sawAnchor ? ids : null
   }
 
   #buildTree(elementId: string, ctx: BuildContext, depth: number): RegularNode | null {
@@ -195,10 +326,25 @@ export class BuildTrees extends Step {
 
     const loopScope = buildLoopScope(ctx.loopStack)
 
+    // 锚点目标节点打 keepId（anchorTargetIds 仅在「config.id=false 且数据含 Anchor」时非 null；
+    // null 时可选链短路返回 undefined，不调 has()、无逐节点开销）
+    const keepId = ctx.anchorTargetIds?.has(el.id) || undefined
+
+    // condition（A2UI Scenario 3）：element 级条件渲染，与 props/children 平级。
+    // 透传原始 {path, in}（非值绑定，不做 Value 转换）；varName 由 tree-finalizer lift 时填。
+    const condition = (el && typeof el === 'object' && el.condition
+      && typeof el.condition.path === 'string'
+      && Array.isArray(el.condition.in))
+      ? { path: el.condition.path, in: el.condition.in as string[] }
+      : undefined
+
     if (isComponent) {
       const node: ComponentNode = {
+        __node: true,
         kind: 'component',
         id: el.id,
+        keepId,
+        condition,
         component: el.component,
         props: processedProps,
         children: children as any,
@@ -215,8 +361,11 @@ export class BuildTrees extends Step {
         ctx.loopStack
       )
       const node: HtmlNode = {
+        __node: true,
         kind: 'html',
         id: el.id,
+        keepId,
+        condition,
         tag: el.component,
         props: finalProps,
         children: finalChildren as any,
@@ -245,10 +394,6 @@ export class BuildTrees extends Step {
     if (!HTML_TEXT_ELEMENTS.has(tag)) {
       return { finalProps: props, finalChildren: children }
     }
-    // 有原生 value 属性的元素不参与下沉
-    if (HTML_VALUE_ATTRIBUTE_ELEMENTS.has(tag)) {
-      return { finalProps: props, finalChildren: children }
-    }
     if (!('value' in props)) {
       return { finalProps: props, finalChildren: children }
     }
@@ -258,6 +403,7 @@ export class BuildTrees extends Step {
 
     // TextNode：value 可以是字符串、BindingValue 或其他值
     const textNode: TextNode = {
+      __node: true,
       kind: 'text',
       value: value as any,
       _resolved: false,
@@ -296,10 +442,23 @@ export class BuildTrees extends Step {
 
     const loopScope = buildLoopScope(ctx.loopStack)
 
+    // 锚点目标节点打 keepId（抽取模块 inner 节点同样打标，使模板文件 emit 时输出 id）
+    const keepId = ctx.anchorTargetIds?.has(el.id) || undefined
+
+    // condition 透传（与 #buildNode 同款；抽取模块 inner 节点也支持条件渲染）
+    const condition = (el && typeof el === 'object' && el.condition
+      && typeof el.condition.path === 'string'
+      && Array.isArray(el.condition.in))
+      ? { path: el.condition.path, in: el.condition.in as string[] }
+      : undefined
+
     const innerNode: RegularNode = isComponent
       ? {
+          __node: true,
           kind: 'component',
           id: el.id,
+          keepId,
+          condition,
           component: el.component,
           props: processedProps,
           children: children as any,
@@ -307,8 +466,11 @@ export class BuildTrees extends Step {
           loopScope,
         }
       : {
+          __node: true,
           kind: 'html',
           id: el.id,
+          keepId,
+          condition,
           tag: el.component,
           props: processedProps,
           children: children as any,
@@ -317,6 +479,7 @@ export class BuildTrees extends Step {
         }
 
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'module',
@@ -367,6 +530,35 @@ export class BuildTrees extends Step {
   ): PropValue {
     if (value === null || value === undefined) return null
 
+    // 原生 H5 inline style 字符串 → React style 对象（camelCase 键）。
+    // A2UI HTML 节点 style 是 CSS 字符串（"background-color: rgba(...);"），React JSX 需对象。
+    // 早期归一：两条 emit 路径（emitProps / serializeForConstValue）都能统一序列化 plain object。
+    if (propKey === 'style' && typeof value === 'string') {
+      return parseInlineStyle(value)
+    }
+
+    // {action, args:{path,value}} → ActionValue（事件 Action：Button.onClick / Drawer.onClose 等）
+    // 必须在 {path}→BindingValue 与嵌套递归之前拦截——否则 Action 的 args.path 会被
+    // 误解析成读 BindingValue（实际是写目标）。event = prop key（事件名）。
+    // action 类型透传：setState（直写字面量）/ cycleState（在 value 数组中轮转，Scenario 3）。
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'action' in (value as any) &&
+      'args' in (value as any)
+    ) {
+      const a = value as any
+      if (typeof a.action === 'string' && a.args && typeof a.args.path === 'string') {
+        return Value.action({
+          event: key,
+          action: a.action as 'setState' | 'cycleState',
+          path: a.args.path,
+          value: a.args.value,
+        })
+      }
+    }
+
     // {componentId} → SlotNodeValue
     if (
       value &&
@@ -381,29 +573,64 @@ export class BuildTrees extends Step {
     // {path} → BindingValue
     if (value && typeof value === 'object' && 'path' in (value as any)) {
       const path = (value as any).path as string
-      // 路径分类 + 兜底：
-      //   - `/` 前缀 → absolute（真绝对路径，保持原语义）
-      //   - 无 `/` 且在循环内 → relative（沿 loopStack 找 absolute 数据源解析）
-      //   - 无 `/` 且不在循环内 → 兜底：相对路径无 loop 可解析，本应是顶层 state 字段。
-      //     按 absolute 从 state 取值；取到数据 → 当 absolute；取不到 → 丢弃（返回 null），
-      //     避免 emit 成游离裸标识符（useState 初始值 / 引用名不在作用域内，产物不可用）。
+      // 路径分类：
+      //   - `/` 前缀 → absolute（真绝对路径）
+      //   - 无 `/` → relative（默认相对路径语义）
+      // 兜底防御（无 `/` 且无循环时按 absolute 从 state 取值、取不到丢弃）已注释——
+      // 实际 A2UI 数据中无 `/` 的路径就是相对路径，不应兜底当 absolute。
+      // 如需重新启用，取消下方注释。
       const hasLeadingSlash = path.startsWith('/')
-      const inLoop = ctx.loopStack.length > 0
       let pathType: 'absolute' | 'relative'
       if (hasLeadingSlash) {
         pathType = 'absolute'
-      } else if (inLoop) {
-        pathType = 'relative'
       } else {
+        pathType = 'relative'
+      }
+      // 兜底防御（已注释）：
+      // const inLoop = ctx.loopStack.length > 0
+      // if (!hasLeadingSlash && !inLoop) {
+      //   const resolved = resolveBySegments(ctx.state, pathToSegments(path))
+      //   if (resolved === undefined) return null // 兜底无数据 → 丢弃
+      //   pathType = 'absolute'
+      // }
+
+      // className DataBinding（absolute）：编译期把 state 值烘焙成原串，与静态 className
+      // 同走 typeof==='string' 路径。下游 style-converter（readPropClassName 见字符串编 .{nodeId}）、
+      // state-builder（见原语跳过）、emitClassName（见字符串产 styles.{autoBase}）、splitWidthToStyle
+      // （见字符串正常拆宽度）全走既有分支，零额外改动。loop（relative）因 per-item 无法烘焙成单串，
+      // 仍落回下方 BindingValue 构建，由 tree-finalizer 处理。
+      if (propKey === 'className' && pathType === 'absolute') {
         const resolved = resolveBySegments(ctx.state, pathToSegments(path))
-        if (resolved === undefined) return null // 兜底无数据 → 丢弃
-        pathType = 'absolute'
+        if (typeof resolved === 'string' && resolved.trim()) {
+          // 资源 url()（bg-[url(/uploads/...)]）改写，与静态 className 末尾 return 同处理
+          return rewriteResourcePath(resolved)
+        }
+        // stateValue 非 string（null/对象/数组）→ 该 className 无可编译串，不烘焙，
+        // 落回下方普通 BindingValue 构建（保持既有行为，不回归）。
+      }
+
+      // className DataBinding（relative / loop）：逐项收集 className 串，挂到 binding；
+      // 并标记所属 loop 强制 inline（per-item className 无法抽离模板——抽离模板的 const
+      // 数组 + idx 引用要求 body 在 map 回调里）。tree-finalizer 据此注册
+      // const 数组 + 替 prop 为 rawExpr；style-converter 据侧信道 __loopClassNameInfo 编
+      // per-item 规则。absolute 已在上方烘焙成原串、不走此分支。
+      let collectedClassStrings: string[] | undefined
+      let flatCollected = false
+      if (propKey === 'className' && pathType === 'relative' && ctx.loopStack.length > 0) {
+        collectedClassStrings = this.#collectRelativeClassNameFromLoop(path, ctx)
+        const top = ctx.loopStack[ctx.loopStack.length - 1]
+        if (top?.loopNode) (top.loopNode as any).__hasClassNameBinding = true
+        // 多级 loopStack（根 absolute + 中间 relative 循环链）：collected 是跨行扁平化的，
+        // idx 是 per-row 内层 idx、与扁平化不对齐 → Phase 2 的 [idx] 数组方案不适用。
+        // 标记 __flatCollected，让 tree-finalizer processClassNameBindings 跳过（保持裸 binding），
+        // 改由 B7 substituteRenderFnClassName 的 value-map（按串查表）处理。
+        flatCollected = this.#isMultiLevelLoopStack(ctx)
       }
 
       const binding = Value.binding({
         path,
         pathType,
-        accessPath: this.#computeAccessPath(path),
+        accessPath: pathToJsAccess(path),
         nodeId,
         componentName: component,
         propKey,
@@ -413,6 +640,12 @@ export class BuildTrees extends Step {
       binding.stateValue = pathType === 'absolute'
         ? (resolveBySegments(ctx.state, pathToSegments(path)) ?? null)
         : (this.#resolveRelativeBindingValue(path, ctx) ?? null)
+
+      // loop className binding：挂 per-item 串数组（供 tree-finalizer / style-converter 消费）
+      if (collectedClassStrings) {
+        binding.collectedClassStrings = collectedClassStrings
+        if (flatCollected) (binding as any).__flatCollected = true
+      }
 
       // 只有 icon prop 才触发 binding 的 state 收集
       if (isIconProp) {
@@ -490,7 +723,7 @@ export class BuildTrees extends Step {
     const dataBinding = Value.binding({
       path: loopInfo.path,
       pathType: loopInfo.path.startsWith('/') ? 'absolute' : 'relative',
-      accessPath: this.#computeAccessPath(loopInfo.path),
+      accessPath: pathToJsAccess(loopInfo.path),
     })
 
     const rootId = loopInfo.componentId
@@ -498,6 +731,7 @@ export class BuildTrees extends Step {
 
     // ① 预创建壳节点，body 后续再填
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'component',
@@ -528,6 +762,14 @@ export class BuildTrees extends Step {
     if ((templateNode as any).component && INLINE_LOOP_COMPONENTS.has((templateNode as any).component)) {
       loopNode.inline = true
     }
+    // className per-item binding 的循环强制 inline（跳出上方静态白名单）：
+    // per-item className 无法抽离模板——抽离模板后 const 数组在父文件、idx 在子模板作用域外，
+    // `${prefix}Classes[idx]` 引用断链。inline 则 body 在 map 回调 (item, idx) => 里，
+    // idx 恒在作用域。标记由 #processValue 的 relative className 分支在 loopStack 顶
+    // loopNode 上打（构建 template body 时 loopStack 顶即当前 loop）。
+    if ((loopNode as any).__hasClassNameBinding) {
+      loopNode.inline = true
+    }
 
     // inline loop 的 extract 不注册到 ctx.extracts——
     // 否则 GenerateStyles 会为它生成 .less（但 .tsx 不会生成，造成 stale 引用）
@@ -547,6 +789,20 @@ export class BuildTrees extends Step {
   //
   // 嵌套循环语义：外层 data.path=absolute，内层 data.path=relative，
   // 这正是从栈顶回溯到首个 absolute 的前提。
+
+  /**
+   * loopStack 是否多级（根 absolute + 至少一个中间 relative 循环）。
+   * 多级时 collected 跨行扁平化、idx 不对齐 → Phase 2 [idx] 方案不适用。
+   */
+  #isMultiLevelLoopStack(ctx: BuildContext): boolean {
+    if (ctx.loopStack.length < 2) return false
+    let rootIdx = -1
+    for (let i = ctx.loopStack.length - 1; i >= 0; i--) {
+      if (ctx.loopStack[i].dataBinding.pathType === 'absolute') { rootIdx = i; break }
+    }
+    // 有根 absolute 且其上还有循环层（中间 relative 链非空）
+    return rootIdx !== -1 && rootIdx < ctx.loopStack.length - 1
+  }
 
   #resolveRelativeBindingValue(relPath: string, ctx: BuildContext): any {
     if (ctx.loopStack.length === 0) return null
@@ -608,28 +864,77 @@ export class BuildTrees extends Step {
     }
   }
 
+  /**
+   * 相对路径 className binding 的逐项收集：沿 loopStack 找最近 absolute 循环数据源，
+   * 遍历数组【所有项】应用 relPath segments，把每项解析出的 className 串收集为 string[]。
+   *
+   * 镜像 #collectRelativeIconFromLoop 的回溯逻辑，但：
+   *   - 返 string[]（per-item 一条，保 idx 与循环项对齐），非串/缺失项填 '' 占位
+   *     （const 数组对应位产 ''、不编规则，但下标对齐不变）。
+   *   - 不交 iconCollector（className 无 icon 解析诉求）。
+   *
+   * 与 #resolveRelativeBindingValue（只取首项做 stateValue 快照）的区别：
+   *   per-item className 可能各 item 不同，需全量收集才能逐项编译 .{prefix}Item{i} 规则。
+   *
+   * 多级 loopStack（根 absolute + 中间 relative 循环链，如 Table rows→cell 内 tags 循环）：
+   *   沿 relChain（rootIdx+1→顶，每层 path 相对上一层 item）逐级解析到最内层循环数据，
+   *   扁平化跨行收集（行1的tags各项 + 行2的tags各项 + …），再对最内层每项应用 relPath。
+   *   单级（relChain 空）行为不变：直接对 rootArr 每项应用 relPath，idx 对齐（Phase 2 [idx] 方案）。
+   *   多级返扁平化 collected——idx 是 per-row 的内层 idx、跟跨行扁平化不对齐，故 Phase 2 [idx] 数组
+   *   方案不适用（调用点打 __flatCollected 标记让 processClassNameBindings 跳过），改由 tree-finalizer
+   *   B7 的 value-map（按串查表 `ClassMap[item.field]`，跨行去重 unique）处理。
+   */
+  #collectRelativeClassNameFromLoop(relPath: string, ctx: BuildContext): string[] {
+    if (ctx.loopStack.length === 0) return []
+
+    // 1. 找到最近的 absolute 循环 dataBinding（作为根）
+    let rootIdx = -1
+    for (let i = ctx.loopStack.length - 1; i >= 0; i--) {
+      if (ctx.loopStack[i].dataBinding.pathType === 'absolute') { rootIdx = i; break }
+    }
+    if (rootIdx === -1) return []
+    const rootAbsBinding = ctx.loopStack[rootIdx].dataBinding
+    const rootArr = resolveBySegments(ctx.state, pathToSegments(rootAbsBinding.path))
+    if (!Array.isArray(rootArr)) return []
+
+    // 2. 中间 relative 循环链（rootIdx+1 → 顶）：每层 path 相对上一层 item
+    const relChain = ctx.loopStack.slice(rootIdx + 1).map(e => pathToSegments(e.dataBinding.path))
+
+    // 3. relPath segments（应用到最内层循环 item）
+    const relSegments = pathToSegments(relPath)
+
+    // 4. 沿 relChain 逐级解析到最内层循环数据（扁平化跨行），对每项应用 relPath 收集
+    const collected: string[] = []
+    const walk = (items: any[], depth: number) => {
+      if (depth === relChain.length) {
+        for (const item of items) {
+          if (item == null) { collected.push(''); continue }
+          const v = resolveBySegments(item, relSegments)
+          collected.push(typeof v === 'string' ? v : '')
+        }
+        return
+      }
+      const segs = relChain[depth]
+      for (const item of items) {
+        if (item == null) continue
+        const sub = resolveBySegments(item, segs)
+        if (Array.isArray(sub)) walk(sub, depth + 1)
+      }
+    }
+    walk(rootArr, 0)
+    return collected
+  }
+
   // ── 辅助 ──
 
-  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>) {
+  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>): TextNode {
     return {
+      __node: true,
       kind: 'text' as const,
       value,
       _resolved: false,
       loopScope: buildLoopScope(loopStack),
     }
-  }
-
-  #computeAccessPath(path: string): string {
-    if (!path.startsWith('/')) return path
-    const segments = path.slice(1).split('/').filter(Boolean)
-    if (segments.length === 0) return ''
-
-    let accessPath = segments[0]
-    for (let i = 1; i < segments.length; i++) {
-      const seg = segments[i]
-      accessPath += /^\d+$/.test(seg) ? `[${seg}]` : `.${seg}`
-    }
-    return accessPath
   }
 
   #toPascalCase(str: string): string {

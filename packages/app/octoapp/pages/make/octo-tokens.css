@@ -138,7 +138,7 @@
   left: 50%;
   top: 0;
   bottom: 0;
-  width: 1px;
+  width: 0.5px;
   background: rgba(0, 0, 0, 0.1);
   transform: translateX(-50%);
 }
@@ -169,7 +169,7 @@
 }
 .octo-tab[data-active="true"] {
   background: rgba(10,89,247,0.08);
-  color: #0a58f7;
+  color: var(--octo-brand);
 }
 .octo-tab-close {
   display: inline-flex;
@@ -233,6 +233,12 @@
 .octo-action-btn:hover {
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
+}
+.octo-action-btn:disabled,
+.octo-action-btn.octo-action-btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .octo-action-btn > svg {
@@ -566,7 +572,7 @@ button[title="版本历史"] {
 [data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
   background-color: #fff;
   border-radius: 12px;
-  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
   border: none;
   padding: 8px;
   min-width: 132px !important;
@@ -593,61 +599,6 @@ button[title="版本历史"] {
   margin: 4px -8px 4px;
   background: rgba(0, 0, 0, 0.1);
   border: none;
-}
-
-/* ── Delete Dialog ────────────────────────── */
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
-  width: 436px;
-}
-
-.delete-dialog[data-slot="dialog-content"] {
-  border-radius: 20px;
-  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
-  padding: 24px 32px;
-  background: #fff;
-  border: none;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
-  padding: 0;
-  margin-bottom: 8px;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
-  display: none;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
-  font-size: 20px;
-  line-height: 22px;
-  font-weight: 600;
-}
-
-.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
-  padding: 0;
-}
-
-.delete-dialog-btn {
-  width: 88px !important;
-  height: 32px !important;
-  border-radius: 4px !important;
-  font-size: 14px !important;
-  line-height: 22px !important;
-  padding: 0 !important;
-}
-
-button.delete-dialog-btn {
-  border: 1px solid rgba(201, 201, 201, 1);
-  background: #fff;
-  color: rgb(25, 25, 25);
-  cursor: pointer;
-}
-
-button.delete-dialog-btn-primary {
-  background: #0a59f7;
-  border-color: #0a59f7;
-  color: #fff;
 }
 
 /* ── Thin scrollbar (matches list-scroll) ────────── */
@@ -712,4 +663,131 @@ button.delete-dialog-btn-primary {
   background: rgba(0, 0, 0, 0.06);
 }
 
+.make-token-tooltip {
+  box-sizing: border-box;
+  width: 381px;
+  max-width: calc(100vw - 24px);
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #fff;
+  color: #191919;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.12);
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  white-space: nowrap;
+}
 
+.make-token-tooltip-copy p {
+  margin: 0;
+}
+
+.make-token-tooltip-copy .is-critical {
+  color: #e02128;
+}
+
+.make-token-tooltip-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a59f7;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+}
+
+.make-token-tooltip-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.make-context-warning-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding-bottom: 16px;
+}
+
+.make-context-warning {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-height: 206px;
+  padding: 20px 24px 24px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  color: #191919;
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+}
+
+.make-context-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.make-context-warning-title svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: #e02128;
+}
+
+.make-context-warning-title h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.make-context-warning-copy {
+  min-height: 66px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.make-context-warning-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 40px;
+  padding-top: 8px;
+}
+
+.make-context-warning-actions button {
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.make-context-warning-ignore {
+  width: 88px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #191919;
+}
+
+.make-context-warning-compact {
+  width: 102px;
+  background: #0a59f7;
+  color: #fff;
+}
+
+.make-context-warning-compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

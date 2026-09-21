@@ -7,13 +7,12 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { KnowledgeReferences, type KnowledgeSource } from "./knowledge-references"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { TextField } from "@opencode-ai/ui/text-field"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -80,17 +79,6 @@ const taskDescription = (part: Part, sessionID: string) => {
   if (metadata?.sessionId !== sessionID) return
   const value = part.state.input?.description
   if (typeof value === "string" && value) return value
-}
-
-// 从一条消息的 parts 里取出 knowledge_search 的 sources(供底部「引用 N 篇资料」列表)。
-const knowledgeSources = (parts: Part[]): KnowledgeSource[] => {
-  for (const part of parts) {
-    if (part.type !== "tool" || part.tool !== "knowledge_search") continue
-    const metadata = "metadata" in part.state ? part.state.metadata : undefined
-    const sources = (metadata as { sources?: unknown } | undefined)?.sources
-    if (Array.isArray(sources) && sources.length > 0) return sources as KnowledgeSource[]
-  }
-  return []
 }
 
 const pace = (width: number) => Math.round(Math.max(1200, Math.min(3200, (Math.max(width, 360) * 2000) / 900)))
@@ -295,19 +283,25 @@ export function MessageTimeline(props: {
   })
 
   const activeMessageID = createMemo(() => {
+    const selectable = (message: UserMessage) => {
+      const parts = sync.data.part[message.id]
+      if (!parts?.length) return false
+      return !parts.some((part) => part.type === "compaction")
+    }
     const parentID = pending()?.parentID
     if (parentID) {
       const messages = sessionMessages()
       const result = Binary.search(messages, parentID, (message) => message.id)
       const message = result.found ? messages[result.index] : messages.find((item) => item.id === parentID)
-      if (message && message.role === "user") return message.id
+      if (message && message.role === "user" && selectable(message)) return message.id
     }
 
     const status = sessionStatus()
     if (status.type !== "idle") {
       const messages = sessionMessages()
       for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === "user") return messages[i].id
+        const message = messages[i]
+        if (message.role === "user" && selectable(message)) return message.id
       }
     }
 
@@ -598,32 +592,6 @@ export function MessageTimeline(props: {
     navigate(`/${params.dir}/chat/${id}`)
   }
 
-  function DialogDeleteSession(props: { sessionID: string }) {
-    const name = createMemo(
-      () => sessionTitle(sync.session.get(props.sessionID)?.title) ?? language.t("command.session.new"),
-    )
-    const handleDelete = async () => {
-      await deleteSession(props.sessionID)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          {language.t("session.delete.confirm", { name: name() })}
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </Dialog>
-    )
-  }
-
   return (
     <Show
       when={!props.mobileChanges}
@@ -791,7 +759,7 @@ export function MessageTimeline(props: {
                             class="transition-opacity duration-200 ease-out"
                             classList={{ "opacity-0": workingStatus() === "hiding" }}
                           >
-                            <Spinner class="size-4" style={{ color: tint() ?? "var(--icon-interactive-base)" }} />
+                            <Spinner class="size-4" style={{ color: "#0a59f7" }} />
                           </div>
                         </Show>
                       </div>
@@ -817,7 +785,7 @@ export function MessageTimeline(props: {
                             value={title.draft}
                             disabled={titleMutation.isPending}
                             class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
-                            style={{ "--inline-input-shadow": "var(--shadow-xs-border-select)" }}
+                            style={{ "font-weight": "600", "--inline-input-shadow": "var(--shadow-xs-border-select)" }}
                             onInput={(event) => setTitle("draft", event.currentTarget.value)}
                             onKeyDown={(event) => {
                               event.stopPropagation()
@@ -912,7 +880,12 @@ export function MessageTimeline(props: {
                                 <DropdownMenu.Item
                                   onSelect={() => {
                                     setTitle("menuOpen", false)
-                                    dialog.show(() => <DialogDeleteSession sessionID={id} />)
+                                    dialog.show(() => (
+                                      <DialogDeleteSession
+                                        name={sessionTitle(sync.session.get(id)?.title) ?? language.t("command.session.new")}
+                                        onDelete={() => deleteSession(id)}
+                                      />
+                                    ))
                                   }}
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
@@ -1069,19 +1042,6 @@ export function MessageTimeline(props: {
                       ),
                   })
                   const commentCount = createMemo(() => comments().length)
-                  // messageID 是「用户消息」id,一个 turn 渲染「用户消息 + 其后的 assistant 回复」。
-                  // 思维链模型(如 DeepSeek R1)会把 reasoning+tool 与最终正文拆成多条 assistant 消息,
-                  // 故从本用户消息往后扫到下一条用户消息为止,在这些 assistant 消息里找 knowledge_search sources。
-                  const kbSources = createMemo<KnowledgeSource[]>(() => {
-                    const msgs = sessionMessages()
-                    const idx = msgs.findIndex((m) => m.id === messageID)
-                    if (idx < 0) return []
-                    for (let i = idx + 1; i < msgs.length && msgs[i].role !== "user"; i++) {
-                      const sources = knowledgeSources(sync.data.part[msgs[i].id] ?? [])
-                      if (sources.length > 0) return sources
-                    }
-                    return []
-                  })
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -1151,9 +1111,6 @@ export function MessageTimeline(props: {
                           container: "w-full px-6",
                         }}
                       />
-                      <Show when={kbSources().length > 0}>
-                        <KnowledgeReferences sources={kbSources()} />
-                      </Show>
                     </div>
                   )
                 }}

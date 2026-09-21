@@ -10,6 +10,7 @@ type Model = {
   name?: string
   limit: {
     context: number
+    input?: number
   }
 }
 
@@ -34,8 +35,39 @@ type Metrics = {
   context: Context | undefined
 }
 
+type ModelRef = {
+  providerID: string
+  modelID: string
+}
+
+export function resolveContextEstimateModel(estimate: Partial<ModelRef>, fallback: ModelRef) {
+  return {
+    providerID: estimate.providerID ?? fallback.providerID,
+    modelID: estimate.modelID ?? fallback.modelID,
+  }
+}
+
+export function selectContextEstimateModel(input: {
+  selected: ModelRef | undefined
+  main: ModelRef | undefined
+  hasActiveChild: boolean
+}) {
+  return input.hasActiveChild ? input.main : input.selected
+}
+
+export function isContextEstimateForModel(
+  estimate: { providerID: string; modelID: string } | undefined,
+  model: ModelRef | undefined,
+) {
+  return !!estimate && !!model && estimate.providerID === model.providerID && estimate.modelID === model.modelID
+}
+
+export function isContextEstimateForMessage(estimate: { messageID: string } | undefined, messageID?: string) {
+  return !!estimate && !!messageID && estimate.messageID === messageID
+}
+
 const tokenTotal = (msg: AssistantMessage) => {
-  return msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+  return msg.tokens.input + msg.tokens.cache.read + msg.tokens.cache.write
 }
 
 const lastAssistantWithTokens = (messages: Message[]) => {
@@ -54,7 +86,7 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Metrics =>
 
   const provider = providers.find((item) => item.id === message.providerID)
   const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
+  const limit = model?.limit.input ?? model?.limit.context
   const total = tokenTotal(message)
 
   return {

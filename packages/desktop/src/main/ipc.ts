@@ -9,6 +9,7 @@ import { dirname, extname, join, basename, resolve as resolvePath, sep } from "n
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
+import { applyEdits, modify } from "jsonc-parser"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import log from "electron-log/main.js"
@@ -31,7 +32,10 @@ import type {
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import * as FastuiDevServer from "./fastui-devserver"
+import * as FastuiExport from "./fastui-export"
 import { getStore } from "./store"
+import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
 import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
@@ -40,6 +44,7 @@ import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
+import { toExactArrayBuffer } from "./buffer-slice"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -48,7 +53,7 @@ const pickerFilters = (ext?: string[]) => {
 
 const topixsoDir = app.isPackaged
   ? join(process.resourcesPath, "topixso")
-  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -95,6 +100,16 @@ async function ensureWorktreeDir(dir: string): Promise<void> {
 function sanitizeSessionSegment(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9_-]/g, "_")
   return cleaned || "session"
+}
+
+// uploads 子路径清洗(design-files 面板「上传」):与 handlers/artifact.ts:16 同语义,
+// 拒绝 .. / ~ / 空,去首尾斜杠。渲染端不是安全边界,主进程必须独立校验。
+function sanitizeUploadsSubPath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
 }
 
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
@@ -205,6 +220,22 @@ function readZipComment(zipPath: string): string {
 
 export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
+
+  // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
+  // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiDevServer.open(sessionDir, projectName),
+  )
+  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiDevServer.restart(sessionDir, projectName),
+  )
+  // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
+  // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
+  // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
+  // 带产物名时导出该工程(同一对话可以有多个工程);不带时按会话状态文件里的工程导出。
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
+    FastuiExport.exportZip(sessionDir, projectName),
+  )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
     return deps.awaitInitialization(send)
@@ -262,6 +293,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -428,6 +462,41 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // SPEC-INS-014 §4.1 的字节版兄弟:同落点 <baseDir>/.octo/tmps/、同 landingName 清洗、同
+  // collisionFreePath 撞名规则,唯一区别是源从「磁盘路径 copyFile」换成「渲染进程传来的
+  // ArrayBuffer 直接 writeFile」——服务剪贴板粘贴的内存 blob(截图/复制的文件),它们
+  // getPathForFile 拿不到源路径(2026-09 insight 图片去 S3 后必须有本地路径,见
+  // octoapp/pages/insight/index.tsx copySourceToWorktree)。布局 SOT 仍是 SPEC-INS-014 §2,
+  // 改落点需同步渲染端 worktree-layout.ts 与 copy-file-to-worktree(见其上方注释)。
+  ipcMain.handle(
+    "write-file-to-worktree",
+    async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, baseDir: string, filename: string) => {
+      const dir = join(baseDir, ".octo", "tmps")
+      await ensureWorktreeDir(dir)
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] write-name-rejected", { filename, reason })
+        console.error("[octo:worktree] write-name-rejected", { filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
+      try {
+        await writeFile(dest, Buffer.from(buffer))
+        console.log("[octo:worktree] write-blob ok", { dest, bytes: buffer.byteLength })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] write-blob failed", {
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
   // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(.octo/tmps/)里的附件
   // rename 进真实会话目录(.octo/<sessionId>/uploads/)。同一文件系统内的原子操作,
   // 失败(源文件在拷贝完成后被删/移动,极少见)由调用方 catch、不阻断发送。
@@ -444,6 +513,50 @@ export function registerIpcHandlers(deps: Deps) {
         return dest
       } catch (err) {
         console.error("[octo:worktree] upload-move failed", {
+          srcPath,
+          dest,
+          sessionId,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // design-files 面板「上传」:把用户选的源文件**直接拷贝**进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]。
+  // 桌面端不走 HTTP/base64 —— fs.copyFile 走内核,无内存压力,500MB+ 也无压力(原先 base64+JSON 链路在
+  // 大文件下会让 FileReader 静默返回空 data URL,后端写出 0 字节文件)。
+  // 撞名走 collisionFreePath、名字清洗走 landingName,与 worktree 落地规则一致。
+  ipcMain.handle(
+    "copy-file-to-session-uploads",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      sessionId: string,
+      subPath: string,
+      filename: string,
+    ) => {
+      const uploadsRoot = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
+      const cleanSub = sanitizeUploadsSubPath(subPath)
+      const targetDir = cleanSub ? join(uploadsRoot, cleanSub) : uploadsRoot
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-session ok", { srcPath, dest, sessionId, subPath: cleanSub })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-session failed", {
           srcPath,
           dest,
           sessionId,
@@ -562,6 +675,20 @@ export function registerIpcHandlers(deps: Deps) {
     if (!existsSync(filePath)) await writeFile(filePath, buf)
     return `/history/${sessionId}/uploads/${filename}`
   })
+
+  // 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 uploads/，由 local:// handler 直接读盘服务。
+  ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
+    if (!dir) throw new Error("uploads dir not set")
+    await mkdir(dir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(dir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `uploads/${filename}`
+  })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
@@ -595,7 +722,20 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       const buf = await readFile(path)
-      return buf.buffer
+      return toExactArrayBuffer(buf)
+    } catch {
+      return null
+    }
+  })
+
+  // 大文件归档:只 stat 不读盘,返回文件大小供渲染端判定是否走流式 fetch(local://).blob() 路径
+  // (read-file-buffer 整份读,>1.8GiB 越 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限,RangeError 静默成 null)。
+  // 非普通文件(目录 / 不存在)返回 null。
+  ipcMain.handle("stat-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const s = await stat(path)
+      if (!s.isFile()) return null
+      return { size: s.size, mtimeMs: s.mtimeMs }
     } catch {
       return null
     }
@@ -639,12 +779,28 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // 目录存在性检查:仅当目标是一个存在的目录时返回 true(与 file-exists 对称)
+  ipcMain.handle("dir-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isDirectory()
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       await unlink(path)
     } catch {
       // 文件不存在时忽略，不执行任何代码
     }
+  })
+
+  // 原子重命名：同文件系统内 fs.rename 是原子的，供"写临时文件 → rename 到目标"模式使用，
+  // 避免大文件/JSON 落盘过程中崩溃导致目标文件被截断（如 prototype data.js 本地编辑回写）。
+  // 跨文件系统会失败，调用方应保证 src/dest 同目录。
+  ipcMain.handle("rename-file", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await rename(srcPath, destPath)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
@@ -712,6 +868,52 @@ export function registerIpcHandlers(deps: Deps) {
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
   const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
+
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  function regenerateSkillConfig() {
+    try {
+      if (!existsSync(octoSkillDir)) return false
+
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
+        .sort()
+
+      const panelSkills = skillNames.map((name, index) => ({
+        label: name,
+        description: name,
+        path: `./skill/${name}/SKILL.md`,
+        id: index + 1,
+        enable: true,
+      }))
+
+      const skillMap: Record<string, { description: string; import: boolean; type: string }> = {}
+      for (const name of skillNames) {
+        skillMap[name] = { description: name, import: true, type: "octo_make" }
+      }
+
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(
+        skillConfigPath,
+        JSON.stringify(
+          {
+            skill: skillMap,
+            panel: { octo_make: panelSkills },
+            agent: { octo_make: skillNames },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      )
+      return true
+    } catch (err) {
+      console.error("regenerateSkillConfig failed", err)
+      return false
+    }
+  }
 
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
@@ -756,12 +958,12 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      syncSkillConfig()
+      // 写入 skill_config.json（新格式）
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
-      throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -840,6 +1042,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
       const octoSkillDir = join(getOctoConfigPath(), "skill")
@@ -854,31 +1057,8 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // Update skills.json with type: "common"
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (!existsSync(skillMdPath)) {
-        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
-      }
-      
-      const config = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
-        : {}
-      const content = readFileSync(skillMdPath, "utf-8")
-      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-      config[skillName] = {
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
-        description: descMatch ? descMatch[1] : "",
-        import: true,
-        type: "common",
-      }
-      const configJson = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
-        : {}
-      configJson['skill'] = config
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
-      // syncSkillConfig()
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
+      regenerateSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
@@ -886,12 +1066,14 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
 
   ipcMain.handle("ensure-skill-config", () => {
-    if (!existsSync(skillsConfigPath)) return
-    if (existsSync(skillConfigPath)) return
-    // 根据 skills.json 构建 skill_config.json
-    syncSkillConfig()
+    // 仅确保目录存在，不重新生成。如果文件不存在则创建空
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
+    }
   })
 
   ipcMain.handle("open-skill-folder", async () => {
@@ -903,6 +1085,59 @@ export function registerIpcHandlers(deps: Deps) {
       await shell.openPath(octoSkillDir)
     }
   })
+
+  // ── 设置-MCP 页:编辑全局配置文件的 mcp 段 ──────────────────────────────
+  // jsonc modify/applyEdits 保留注释(先例 cli/cmd/mcp.ts addMcpToConfig)。
+  // 内置 MCP 名单与服务端 builtin-mcp.ts BUILTIN_MCP_KEYS 同步,内置条目不经此通道管理。
+  // 写入后由 renderer 调 global.dispose 重建实例重读配置(见 packages/app settings-mcp.tsx)。
+  const BUILTIN_MCP_KEYS = new Set(["uxr-tool", "pixso"])
+
+  // 复刻 opencode config.ts globalConfigFile():先 ~/.config/octo 后 ~/.config/opencode,
+  // 目录内 octo.json > octo.jsonc > opencode.json > opencode.jsonc > config.json,默认前者 octo.json。
+  function globalMcpConfigFile() {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+    const names = ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc", "config.json"]
+    for (const dir of [join(xdgConfig, "octo"), join(xdgConfig, "opencode")]) {
+      for (const name of names) {
+        const file = join(dir, name)
+        if (existsSync(file)) return file
+      }
+    }
+    return join(xdgConfig, "octo", names[0])
+  }
+
+  ipcMain.handle(
+    "mcp-config-write",
+    (
+      _event: IpcMainInvokeEvent,
+      arg: { op: "set" | "remove"; name: string; value?: Record<string, unknown> },
+    ) => {
+      try {
+        if (!/^[a-zA-Z0-9_-]+$/.test(arg.name)) {
+          throw new Error(`Invalid MCP server name: ${arg.name}`)
+        }
+        if (BUILTIN_MCP_KEYS.has(arg.name)) {
+          throw new Error(`Built-in MCP server "${arg.name}" is managed by octo and cannot be modified`)
+        }
+        if (arg.op === "set" && (!arg.value || typeof arg.value !== "object" || Array.isArray(arg.value))) {
+          throw new Error("MCP config value must be an object")
+        }
+        const file = globalMcpConfigFile()
+        let text = "{}"
+        if (existsSync(file)) text = readFileSync(file, "utf-8")
+        // jsonc-parser 约定:value 传 undefined 即删除该 key
+        const edits = modify(text, ["mcp", arg.name], arg.op === "set" ? arg.value : undefined, {
+          formattingOptions: { tabSize: 2, insertSpaces: true },
+        })
+        const result = applyEdits(text, edits)
+        mkdirSync(dirname(file), { recursive: true })
+        writeFileSync(file, result, "utf-8")
+      } catch (err) {
+        console.error("mcp-config-write failed", err)
+        throw new Error(`Failed to write MCP config: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+  )
 
   ipcMain.handle("html-to-pdf", async (_event: IpcMainInvokeEvent, html: string) => {
     const win = new BrowserWindow({
@@ -1113,13 +1348,16 @@ export function registerIpcHandlers(deps: Deps) {
         sourceDir?: string
         /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
         destFolder?: string
+        /** 多个源目录各自落到指定 destFolder（sourceDir 的批量版，供多 uploads 目录合并打包） */
+        sourceDirs?: { dir: string; destFolder: string }[]
         comment?: string
       },
     ) => {
       // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
-      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      // 既无 files 又无可用 sourceDir/sourceDirs → 无内容，取消。
       const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
-      if (!opts.files?.length && !sourceDirExists) return null
+      const validSourceDirs = (opts.sourceDirs ?? []).filter((s) => existsSync(s.dir))
+      if (!opts.files?.length && !sourceDirExists && validSourceDirs.length === 0) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -1157,6 +1395,12 @@ export function registerIpcHandlers(deps: Deps) {
         //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
         if (opts.sourceDir && sourceDirExists) {
           archive.directory(opts.sourceDir, destFolder || false)
+        }
+
+        // ②b sourceDirs：多个源目录各自落到指定 destFolder（供 pattern 侧 + make 侧 uploads 合并打包）
+        for (const s of validSourceDirs) {
+          const df = (s.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+          archive.directory(s.dir, df || false)
         }
 
         void archive.finalize()
@@ -1219,18 +1463,81 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
-  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+  ipcMain.handle("get-proxy-config", () => {
+    const configFile = proxyConfigFile()
+    if (!existsSync(configFile)) return null
+
+    try {
+      const config: unknown = JSON.parse(readFileSync(configFile, "utf-8"))
+      if (!config || typeof config !== "object" || !("http_proxy" in config)) return null
+      if (typeof config.http_proxy !== "string") return null
+
+      const proxyUrl = new URL(config.http_proxy)
+      if (!proxyUrl.username || !proxyUrl.password) return null
+
+      return {
+        account: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+        proxyHost: proxyUrl.host,
+        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
+      }
+    } catch (error) {
+      log.warn("[get-proxy-config] 读取代理配置失败", {
+        configFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  })
+
+  // Proxy 配置: 验证代理连通性后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
+  const PROXY_HOSTS = new Set([
+    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+  ])
+
+  // 配置失败时的 curl 对照诊断：区分「代理本身不通」和「Node 证书校验失败(代理 MITM)」。
+  // 调用时 env 仍指向待验证的新代理，curl 能真实走新代理。
+  const collectProxyDiagnostics = (target: string): string => {
+    const probe = (insecure: boolean) => {
+      try {
+        return execSync(`curl ${insecure ? "-k " : ""}-sS --connect-timeout 10 "${target}"`, {
+          timeout: 15000,
+          stdio: "pipe",
+          encoding: "utf-8",
+        })
+          .toString()
+          .trim()
+          .slice(0, 120)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e)
+        return `<失败: ${msg}>`
+      }
+    }
+    const strict = probe(false)
+    const insecure = probe(true)
+    let hint = ""
+    if (strict.startsWith("<失败") && !insecure.startsWith("<失败")) {
+      hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    }
+    return `curl 对照诊断 — 严格证书: ${strict || "<空响应>"} | 跳过证书(-k): ${insecure || "<空响应>"}${hint}`
+  }
+
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
+    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
+    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+    const encodedAccount = encodeURIComponent(account)
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
     // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
-    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const noProxy = noProxyInput?.trim() || defaultNoProxy
     const curlTarget = "https://ifconfig.me/ip"
 
-    log.info("[configure-proxy] 开始配置代理")
+    log.info("[configure-proxy] 开始配置代理", { proxyHost, proxy: maskProxyUrl(proxyUrl), noProxy })
 
-    // 先注入环境变量，确保 curl 能走代理
+    // 先注入环境变量
     const prevEnv: Record<string, string | undefined> = {}
     for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
       prevEnv[key] = process.env[key]
@@ -1244,45 +1551,53 @@ export function registerIpcHandlers(deps: Deps) {
 
     log.info("[configure-proxy] 环境变量已注入")
 
+    // setGlobalProxyFromEnv 返回 restore 函数，验证失败时用于还原全局 dispatcher
+    let restoreDispatcher: unknown
     try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
-
-      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
-      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
-        timeout: 20000,
-        stdio: "pipe",
-        encoding: "utf-8",
-      }).toString().trim()
-
-      if (!curlOutput.startsWith("119.")) {
-        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      // 与 webfetch 同栈验证：主进程 Node fetch(undici 全局 dispatcher) + setGlobalProxyFromEnv，
+      // 证书正常校验。旧实现用 curl -k 会跳过证书校验——代理对 HTTPS 做证书替换(MITM)时
+      // 验证通过但 sidecar 里 webfetch 实际失败。
+      try {
+        restoreDispatcher = (http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        throw new Error(`setGlobalProxyFromEnv 调用失败: ${e instanceof Error ? e.message : String(e)}`)
       }
 
-      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
+      log.info("[configure-proxy] 执行 Node fetch 验证(与 webfetch 同栈)", { curlTarget, timeout: 20000 })
 
-      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
+      const res = await fetch(curlTarget, { signal: AbortSignal.timeout(20000) })
+      const verifyOutput = (await res.text()).trim()
 
-      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
-      const configDir = getOctoConfigPath()
-      const configFile = join(configDir, "proxy_config.json")
-      mkdirSync(configDir, { recursive: true })
+      if (!verifyOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${verifyOutput.slice(0, 100)}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: verifyOutput })
+
+      log.info("[configure-proxy] 验证通过, 写入配置文件")
+
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验；
+      // 路径必须与 proxy-config.ts 统一，不跟随 XDG_CONFIG_HOME）
+      const configFile = proxyConfigFile()
+      mkdirSync(dirname(configFile), { recursive: true })
 
       writeFileSync(configFile, JSON.stringify({
         http_proxy: proxyUrl,
         https_proxy: proxyUrl,
         no_proxy: noProxy,
+        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
 
-      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
-      try {
-        ;(http as any).setGlobalProxyFromEnv()
-      } catch (e) {
-        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
-      }
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效（dispatcher 已在验证前设置）
 
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+
+      // curl 对照诊断要趁 env 还指向新代理时执行
+      const diagnostics = collectProxyDiagnostics(curlTarget)
+
       // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
         const val = prevEnv[key]
@@ -1292,9 +1607,13 @@ export function registerIpcHandlers(deps: Deps) {
           process.env[key] = val
         }
       }
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      log.error("[configure-proxy] 配置失败", { error: errorMessage })
-      return { success: false, curlUrl: curlTarget, error: errorMessage }
+      if (typeof restoreDispatcher === "function") {
+        try {
+          ;(restoreDispatcher as () => void)()
+        } catch {}
+      }
+      log.error("[configure-proxy] 配置失败", { error: errorMessage, diagnostics })
+      return { success: false, curlUrl: curlTarget, error: diagnostics ? `${errorMessage}\n${diagnostics}` : errorMessage }
     }
   })
 

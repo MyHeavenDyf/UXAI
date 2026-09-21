@@ -1,4 +1,5 @@
 import JSZip from "jszip"
+import { pathToLocalUrl } from "./insight-file-api"
 
 // 归档所需桌面端 API 子集(运行时即 window.api,真实实现见 packages/desktop/src/preload/index.ts)。
 // insight 自包含:不依赖 make/lib/electron-api,这里按需声明最小接口。
@@ -6,10 +7,38 @@ type ArchiveDesktopApi = {
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: "file" | "directory"; size?: number }>>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  statFile?: (path: string) => Promise<{ size: number } | null>
 }
 
 function getDesktopApi(): ArchiveDesktopApi | undefined {
   return (window as unknown as { api?: ArchiveDesktopApi }).api
+}
+
+// 大文件流式阈值:>1.8GiB 走 fetch(local://).blob(),≤1.8GiB 走 readFileBuffer 整份物化。
+// 1.8GiB 留 ~200MB 余量在 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限之下。
+const LARGE_FILE_THRESHOLD = 1.8 * 1024 * 1024 * 1024
+
+/**
+ * 大文件归档流式取 File:stat 判 >1.8GiB → fetch(local://).blob() → new File([blob])。
+ * Chromium blob 注册表托底(内存 + 磁盘溢出),JS 只持 Blob 引用不持整份 ArrayBuffer。
+ * postMessage 结构化克隆 Blob 只传引用不拷字节,iframe 拿到的 File 有真实 size。
+ *
+ * @returns File 大文件流式成功;null 文件 ≤ 阈值 或 statFile 不可用(调用方继续 readFileBuffer 原路径)
+ * @throws 文件 > 阈值但 streaming 失败 —— **不静默回退 readFileBuffer**(该路径 > 阈值必 RangeError,
+ *         会把 streaming 的真实错误掩盖成原 toast "无法获取文件内容")。抛错让 archive-flow catch 弹真实原因。
+ */
+export async function getLargeArchiveFile(filePath: string, name: string, mime?: string): Promise<File | null> {
+  const api = getDesktopApi()
+  if (!api?.statFile) return null
+  const st = await api.statFile(filePath)
+  if (!st || st.size <= LARGE_FILE_THRESHOLD) return null
+  try {
+    const blob = await fetch(pathToLocalUrl(filePath)).then((r) => r.blob())
+    if (blob.size === 0) throw new Error(`blob size 为 0`)
+    return new File([blob], name, { type: mime || undefined })
+  } catch (err) {
+    throw new Error(`大文件流式读取失败(${filePath}): ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 export interface CreateArchiveZipOptions {

@@ -1,4 +1,4 @@
-import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
+import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage, StudioInputImage, StudioMode } from "./types"
 import { styleModelId } from "./data"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
@@ -30,6 +30,21 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
   return status === "create_failed" || status === "failed"
 }
 
+export function studioResultCardStatus(input: {
+  result?: Pick<StudioGenerationResult, "status" | "images" | "error">
+  toolError?: string
+  busy: boolean
+  toolRunning: boolean
+}): StudioGenerationStatus {
+  const generationStatus = input.result?.status
+  if (generationStatus === "create_failed" || generationStatus === "failed") return generationStatus
+  if (generationStatus === "queued" || generationStatus === "running") return generationStatus
+  if (generationStatus === "succeeded" || input.result?.images.length) return "succeeded"
+  if (input.toolError || input.result?.error) return "failed"
+  if (input.busy || input.toolRunning) return "running"
+  return "failed"
+}
+
 export type StudioPendingResult = StudioGenerationResult & {
   displayPrompt?: string
   sourceImage?: string
@@ -38,9 +53,28 @@ export type StudioPendingResult = StudioGenerationResult & {
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"
 export type StudioInpaintMode = "qwen_image_edit" | "erase"
-export type StudioVideoDuration = "5" | "10"
-export type StudioVideoQualityMode = "std" | "pro"
+export type StudioVideoDuration = string
+export type StudioVideoQualityMode = "480" | "720" | "1080" | "4k"
+export const STUDIO_VIDEO_RESOLUTION: Record<StudioVideoQualityMode, string> = {
+  "480": "480p",
+  "720": "720p",
+  "1080": "1080p",
+  "4k": "4k",
+}
+export const STUDIO_VIDEO_MODE: Record<StudioVideoQualityMode, "std" | "pro"> = {
+  "480": "std",
+  "720": "pro",
+  "1080": "pro",
+  "4k": "pro",
+}
+export const STUDIO_VIDEO_RESOLUTION_KEY: Record<string, StudioVideoQualityMode> = {
+  "480p": "480",
+  "720p": "720",
+  "1080p": "1080",
+  "4k": "4k",
+}
 export type StudioVideoFrameSlot = "first" | "last"
+export type StudioVideoMode = "all-reference" | "first-last-frame" | "ultra-long"
 
 export const STUDIO_HD_MODES = [
   { label: "8k超清", value: "restoration_8k" },
@@ -48,7 +82,13 @@ export const STUDIO_HD_MODES = [
   { label: "2k性能", value: "super_resolution" },
 ] satisfies { label: string; value: StudioHDMode }[]
 
-export const STUDIO_VIDEO_ASPECT_RATIOS = ["1:1", "9:16", "16:9"] as const
+export const STUDIO_VIDEO_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const
+
+export const STUDIO_VIDEO_MODES = [
+  { label: "全能参考", value: "all-reference" },
+  { label: "首尾帧", value: "first-last-frame" },
+  { label: "超长视频", value: "ultra-long" },
+] satisfies { label: string; value: StudioVideoMode }[]
 
 export function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
   if (capability === "image.upscale") return "hd"
@@ -169,6 +209,65 @@ export function triggerBrowserDownload(url: string, filename: string) {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+}
+
+function contentDispositionFilename(value?: string | null) {
+  if (!value) return
+  const encoded = value.match(/(?:^|;)\s*filename\*\s*=\s*([^;]+)/i)?.[1]?.trim()
+  if (encoded) {
+    const filename = encoded.replace(/^UTF-8''/i, "").replace(/^['"]|['"]$/g, "")
+    try {
+      return decodeURIComponent(filename)
+    } catch {
+      return filename
+    }
+  }
+  return value.match(/(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;]*))/i)?.slice(1).find(Boolean)?.trim()
+}
+
+function mediaExtension(mime?: string | null) {
+  return {
+    "image/avif": "avif",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+  }[mime?.split(";", 1)[0]?.trim().toLowerCase() ?? ""]
+}
+
+export function studioMediaDownloadFilename(input: {
+  url: string
+  contentDisposition?: string | null
+  mime?: string | null
+}) {
+  const disposition = contentDispositionFilename(input.contentDisposition)
+  const urlFilename = (() => {
+    if (input.url.startsWith("data:")) return
+    try {
+      const filename = new URL(input.url).pathname.split("/").filter(Boolean).pop()
+      if (!filename) return
+      try {
+        return decodeURIComponent(filename)
+      } catch {
+        return filename
+      }
+    } catch {
+      return
+    }
+  })()
+  const filename = (disposition ?? urlFilename ?? "download")
+    .replaceAll("\\", "/")
+    .split("/")
+    .pop()
+    ?.replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim() || "download"
+  const extension = mediaExtension(input.mime)
+  if (/\.[a-z0-9]{1,10}$/i.test(filename) || !extension) return filename
+  return `${filename}.${extension}`
 }
 
 export function getModelResolutionKey(styleModel: string): string {

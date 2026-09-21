@@ -59,7 +59,7 @@ export function SessionComposerRegion(props: {
   const info = createMemo(() => (route.params.id ? sync.session.get(route.params.id) : undefined))
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
-  const showComposer = createMemo(() => !props.state.blocked() || child())
+  const showComposer = createMemo(() => !props.state.blocked() || child() || !!props.state.permissionRequest())
 
   const previewPrompt = () =>
     prompt
@@ -153,12 +153,11 @@ export function SessionComposerRegion(props: {
 
         <Show when={props.state.permissionRequest()} keyed>
           {(request) => (
-            <div>
+            <div style={{ "margin-bottom": "12px" }}>
               <SessionPermissionDock
                 request={request}
                 responding={props.state.permissionResponding()}
                 onDecide={(response) => {
-                  props.onResponseSubmit()
                   props.state.decide(response)
                 }}
               />
@@ -270,6 +269,7 @@ export function SessionComposerRegion(props: {
                     onAbort={props.followup?.onAbort}
                     onSubmit={props.onSubmit}
                     disableAtMention={props.disableAtMention}
+                    disabled={!!props.state.permissionRequest()}
                   />
                 }
               >

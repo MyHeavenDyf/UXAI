@@ -14,7 +14,8 @@
       "Bash(cp D:/octoAI/merge/UXAI/packages/opencode/test/tool/registry.test.ts D:/octoAI/octoAI/packages/opencode/test/tool/registry.test.ts)",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(grep -E \"^[a-f0-9]{7,9} |^\\\\+\\\\s+return.*prefix.*timeBytes|^\\\\-.*return.*prefix.*timeBytes|^\\\\+.*createPrefixed|^\\\\-.*createPrefixed\")"
     ]
   }
 }

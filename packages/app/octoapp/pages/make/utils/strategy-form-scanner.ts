@@ -46,9 +46,11 @@ export function scanStrategyFields(
       const fieldName = match[1]
       if (!validFields.has(fieldName)) continue
 
-      const endTag = "</artifact>"
       const contentStart = match.index + match[0].length
-      const endIdx = text.indexOf(endTag, contentStart)
+      const closeRe = /<\/artifact>/gi
+      closeRe.lastIndex = contentStart
+      const closeM = closeRe.exec(text)
+      const endIdx = closeM ? closeM.index : -1
       if (endIdx === -1) continue
 
       const value = text.slice(contentStart, endIdx).trim()

@@ -1,24 +1,46 @@
-import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, createResource, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
+import { createResourceTracker, type ResourceTracker } from "../../utils/resource-tracker"
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { usePixsoTransport } from "@/utils/useZipTransport"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
+import { ModelEditPanel } from "./model-edit-panel"
+import { ModelEditAreaDialog } from "./model-edit-area-dialog"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
+import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
+import { HUI_COLOR_TOKENS } from "../model-edit-items/icon-data/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { dirname, basename, joinPath } from "../../utils/references"
+import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
+
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
-import { showToast } from "@opencode-ai/ui/toast"
+import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
+import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
+import { showOctoToast } from "../octo-toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import { getA2uiDataRelativePaths } from "../../utils/prototype-utils"
+import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -28,6 +50,13 @@ function getArtifactFilename(filePath: string | undefined): string {
   // Handle both Windows (D:\path\file.html) and Unix (/path/file.html) paths
   const parts = filePath.split(/[/\\]/)
   return parts[parts.length - 1] || ''
+}
+
+// Helper: Extract a fenced code block of given lang from text (matches impl in index.tsx / action-bar.tsx)
+function extractCodeBlock(text: string, lang: string): string {
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
 }
 
 // Helper: Get commenter info from localStorage.userInfo
@@ -72,7 +101,14 @@ export type InspectTarget = {
 
 export type PaletteId = "coral" | "electric" | "acid-forest" | "risograph" | "mono-noir"
 
-export type ViewportPreset = "desktop" | "tablet" | "mobile"
+export type ViewportPreset =
+  | "desktop"
+  | "desktop-1920"
+  | "desktop-1680"
+  | "desktop-1440"
+  | "desktop-1366"
+  | "tablet"
+  | "mobile"
 
 export const PALETTE_PRESETS: { id: PaletteId; label: string; colors: string[] }[] = [
   { id: "coral", label: "Coral", colors: ["#ff5a3c", "#ff7a5c", "#fde2d6"] },
@@ -84,6 +120,10 @@ export const PALETTE_PRESETS: { id: PaletteId; label: string; colors: string[] }
 
 const VIEWPORT_DIMS: Record<ViewportPreset, { width: number | null; height: number | null }> = {
   desktop: { width: null, height: null },
+  "desktop-1920": { width: 1920, height: 1080 },
+  "desktop-1680": { width: 1680, height: 1050 },
+  "desktop-1440": { width: 1440, height: 1080 },
+  "desktop-1366": { width: 1366, height: 768 },
   tablet: { width: 820, height: 1180 },
   mobile: { width: 390, height: 844 },
 }
@@ -127,6 +167,10 @@ export function HtmlRenderer(props: {
   palette?: PaletteId | null
   inspecting?: boolean
   editing?: boolean
+  modelEditing?: boolean
+  modelEditConfig?: ModelEditConfig
+  onModelEditSave?: (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: ModelEditContext) => Promise<boolean | void>
+  onModelEditDelete?: (element: ModelEditElement, ctx: ModelEditContext) => Promise<boolean | void>
   drawing?: boolean
   commenting?: boolean
   archiving?: boolean
@@ -145,15 +189,149 @@ export function HtmlRenderer(props: {
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
   tabTitle?: string
+  onSaveLocalEdit?: (payload: LocalEditSavePayload) => Promise<boolean>
+  /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
+  observedUrlsGetter?: (getter: () => string[]) => void
+  /** 注册一个向当前 iframe contentWindow 发送 postMessage 的函数 */
+  registerIframePostMessage?: (fn: (data: unknown) => void) => void
+  /** 注册一个获取当前 iframe 元素的 getter（用于坐标换算 / source 匹配） */
+  iframeElementGetter?: (getter: () => HTMLIFrameElement | undefined) => void
+  /** 当前 tab 的 subtype（用于调用 subtype handler 的归档钩子） */
+  subtype?: string
+  /** 当前 tab 的 id（用于构造 SubtypeHandlerContext） */
+  tabId?: string
+  disabled?: boolean
+  skillConfig?: import("../skill-config-types").SkillConfig
+  artifactFiles?: { generated: import("../../utils/artifact-file-api").ArtifactFile[]; uploaded: import("../../utils/artifact-file-api").ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
+  /** fastui 预览卡片的产物名;null 表示不是 fastui 卡片(SPEC-DES-004) */
+  const fastuiName = createMemo(() => parseFastuiPreview(props.filePath))
+  const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
   const [savedOverrides, setSavedOverrides] = createSignal<Array<{ elementId: string; prop: string; value: string }>>([])
   const [editTarget, setEditTarget] = createSignal<ManualEditTarget | null>(null)
   const [editDraft, setEditDraft] = createSignal<ManualEditDraft>(emptyManualEditDraft(props.content))
+  const [diskContent] = createResource(
+    () => ({ path: props.filePath, key: props.refreshKey ?? 0 }),
+    async (src) => {
+      if (!src.path) return ""
+      const api = getDesktopApi()
+      if (typeof api?.readFileBuffer !== "function") return ""
+      const buf = await api.readFileBuffer(src.path)
+      if (!buf) return ""
+      return decodeHtmlBytes(new Uint8Array(buf))
+    },
+  )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditTarget, setModelEditTarget] = createSignal<ModelEditElement | null>(null)
+  const [modelEditPanelConfig, setModelEditPanelConfig] = createSignal<ConfigGroup[]>([])
+  const [modelEditPanelData, setModelEditPanelData] = createSignal<Record<string, string>>({})
+  const [modelEditPanelTitle, setModelEditPanelTitle] = createSignal('')
+  const [modelEditPanelInfo, setModelEditPanelInfo] = createSignal('')
+  const [modelEditPanelPosition, setModelEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [modelEditPrevData, setModelEditPrevData] = createSignal<Record<string, string>>({})
+  const [mentionPanelOpen, setMentionPanelOpen] = createSignal(false)
+  const [closeMentionTrigger, setCloseMentionTrigger] = createSignal(0)
+  const [pendingModelEditClose, setPendingModelEditClose] = createSignal(false)
+  const [pendingLocalEditClose, setPendingLocalEditClose] = createSignal(false)
+
+  const [panelStateCache, setPanelStateCache] = createStore<Record<string, Record<string, string>>>({})
+
+  const panelStatePath = () => {
+    const fp = props.filePath
+    if (!fp) return null
+    return joinPath(dirname(fp), '.' + basename(fp) + '.panel-state.json')
+  }
+
+  const loadPanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.readFileBuffer || !sp) return
+    try {
+      const buf = await api.readFileBuffer(sp)
+      if (!buf) return
+      const text = new TextDecoder().decode(new Uint8Array(buf))
+      const data = JSON.parse(text) as Record<string, Record<string, string>>
+      setPanelStateCache({ ...data })
+    } catch { /* file not found or parse error — normal degradation */ }
+  }
+
+  const writePanelState = async () => {
+    const api = getDesktopApi()
+    const sp = panelStatePath()
+    if (!api?.writeFileBuffer || !sp) return
+    try {
+      const json = JSON.stringify(panelStateCache)
+      const buf = new TextEncoder().encode(json).buffer as ArrayBuffer
+      await api.writeFileBuffer(sp, buf)
+    } catch { /* silent fail — don't block save */ }
+  }
+
+  const handleIframeLoad = () => {
+    if (!iframeRef) return
+    // fastui 预览:地址挂上之后的 load 才算真正出了页面(SPEC-DES-004 §3.6)
+    if (fastuiName() !== null) fastuiPreview.frameLoaded(!!iframeRef.getAttribute("src"))
+    if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
+    if (props.editing) {
+      iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+    }
+    if (props.inspecting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+    }
+    if (props.commenting) {
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+      const comments = savedComments()
+      iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+    }
+    if (props.modelEditing) {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage({
+        type: "od:model-edit-mode",
+        enabled: true,
+        componentFlag: config?.componentFlag || null,
+        htmlFlag: config?.htmlFlag || null,
+      }, "*")
+    }
+    if (props.palette) {
+      iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+    }
+    const overrides = savedOverrides()
+    if (overrides.length > 0) {
+      overrides.forEach((override) => {
+        iframeRef.contentWindow?.postMessage(
+          { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+          "*"
+        )
+      })
+    }
+    void loadPanelState()
+  }
+
+  const modelEditContext = createMemo((): ModelEditContext | undefined => {
+    const target = modelEditTarget()
+    if (!target) return undefined
+    return {
+      dom: target,
+      filePath: props.filePath || '',
+      type: target.componentType || target.htmlType || 'default',
+      postMessageToIframe: (data: unknown) => iframeRef?.contentWindow?.postMessage(data, '*'),
+      getIframeSnapshot: () => getIframeSnapshot(),
+      onContentChange: (content: string) => props.onContentChange?.(content) ?? Promise.resolve(),
+      onRefreshNeeded: () => props.onRefreshNeeded?.(),
+      cleanBridgeContent: (html: string) => cleanBridgeContent(html),
+      applyPatch: (html: string, patch: ManualEditPatch) => applyManualEditPatch(html, patch),
+      wrapHtmlContent: (html: string) => wrapHtmlContent(html, props.content),
+    }
+  })
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
     elementId: string | null
@@ -209,6 +387,9 @@ export function HtmlRenderer(props: {
   
   // Pending text storage for Cancel/Save logic (tracks text/href changes)
   let manualEditPendingText: { id: string; text: string; href: string } | null = null
+  
+  // Snapshot of normalized styles captured at selection time (used as "before" in local-edit payload)
+  let manualEditInitialStyles: ManualEditStyles | null = null
   
   // History management for Undo/Redo
   let historyStack: HistoryState[] = []
@@ -302,20 +483,25 @@ export function HtmlRenderer(props: {
     try {
       if (!iframeRef) {
         TaskStore.error([{ key: taskId, status: "error" }])
-        showToast({ title: "归档失败", description: "无法获取页面内容" })
+        showOctoToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
-      
+      if (shouldUseExternalUrl()) {
+        TaskStore.error([{ key: taskId, status: "error" }])
+        showOctoToast({ title: "归档失败", description: "外部 URL 不支持归档" })
+        return
+      }
+
       if (overlay) {
         overlay.style.display = 'none'
       }
       if (collisionOverlay) {
         collisionOverlay.style.display = 'none'
       }
-      
+
       await new Promise(resolve => requestAnimationFrame(resolve))
       await new Promise(resolve => requestAnimationFrame(resolve))
-      
+
       const screenshotBlob = await capturePageScreenshot(iframeRef)
       
       if (overlay) {
@@ -323,8 +509,116 @@ export function HtmlRenderer(props: {
       }
       
       const comments = savedComments()
-      const htmlContent = extractHtmlContent(props.content)
       
+      // 从文件系统读取最新 HTML 内容
+      const api = getDesktopApi()
+      let htmlContent: string
+      
+      if (api?.readFileBuffer && props.filePath) {
+        const buffer = await api.readFileBuffer(props.filePath)
+        if (buffer) {
+          htmlContent = decodeHtmlBytes(new Uint8Array(buffer))
+        } else {
+          htmlContent = props.content
+        }
+      } else {
+        htmlContent = props.content
+      }
+      
+      htmlContent = extractHtmlContent(htmlContent)
+      
+      // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
+      let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
+      let previewExtraRels: string[] = []
+      const handler = getSubtypeHandler(props.subtype)
+      if (handler?.buildArchiveSrc && props.tabId) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx: SubtypeHandlerContext = {
+          tab: {
+            id: props.tabId,
+            title: props.tabTitle ?? "",
+            type: "html",
+            subtype: props.subtype,
+            content: props.content,
+            filePath: props.filePath,
+            commentFilePath: props.commentFilePath,
+            sessionId: props.sessionId,
+            createdAt: new Date(),
+          } as ResultTab,
+          showOctoToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: () => iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+          usePixsoTransport,
+          sdk,
+          sync,
+          modelKey,
+          sessionId: props.sessionId,
+          sdkDirectory: props.sdkDirectory,
+        }
+        // 混合 prototype 的 a2ui-data 以 dataPath: './...' JS 字面量引用，静态正则抓不到、
+        // 运行时 observedUrls 时序不稳定——按 getA2uiDataRelativePaths 显式列出，确定性地补进 preview/。
+        if (props.subtype === "prototype") {
+          try {
+            previewExtraRels = await getA2uiDataRelativePaths(ctx)
+          } catch (err) {
+            console.warn("[Archive] getA2uiDataRelativePaths failed:", err)
+          }
+        }
+        try {
+          const r = await handler.buildArchiveSrc(ctx)
+          if (r) {
+            srcFiles = r.files
+          } else if (props.subtype === "prototype") {
+            showOctoToast({ title: "代码包生成失败，已跳过 src/" })
+          }
+        } catch (err) {
+          console.warn("[Archive] buildArchiveSrc failed:", err)
+          if (props.subtype === "prototype") showOctoToast({ title: "代码包生成失败，已跳过 src/" })
+        }
+      }
+      
+      // prototype 归档补 preview/ 本地资源目录（绕过静态正则 + observedUrls 时序局限）：
+      //  ① htmlDir/assets —— 顶层 assets 软链布局（HTML 引用 ./assets/index.js，无 hash）；不存在则 archive-utils 逐目录 try/catch 跳过。
+      //  ② previewdist 运行时 —— 混合/previewdist 布局（HTML 引用 ./previewdist/PreviewRenderer.js，distPath='./previewdist'，
+      //     PreviewRenderer 运行时再动态加载 ./previewdist/assets/index.js + CSS + 字体 + index.prototype.html）。
+      //     兼容真实目录与软链两种形态：优先页内 htmlDir/previewdist（内容与其 PreviewRenderer.js 自洽）；
+      //     若 listDirectory 不跟随软链 / 目录不存在导致拿不到文件，回退 getPreviewDistDir() 真实路径
+      //     （开发态 packages/previewdist、安装态 resources/previewdist；pattern 归档同此路径，见 pattern-archive-utils.ts）。
+      //     两者经 previewExtraDirs 的 relativeTo(htmlDir, …) → 'previewdist' 写到 preview/previewdist/，对上 HTML 的 ./previewdist/ 引用。
+      const htmlDir = props.filePath ? dirname(props.filePath).replace(/\\/g, "/") : ""
+      const previewExtraDirs: string[] = []
+      if (props.subtype === "prototype" && htmlDir) {
+        previewExtraDirs.push(joinPath(htmlDir, "assets"))
+        const desktopApi = getDesktopApi()
+        // 仅当页引用 ./previewdist/ 时才补 previewdist 运行时（避免顶层-assets 布局无谓打包共享运行时）：
+        if (/\.\/previewdist\//i.test(htmlContent)) {
+          const previewdistDir = joinPath(htmlDir, "previewdist")
+          const listDirectory = desktopApi?.listDirectory
+          let usePreviewdistDir = false
+          if (listDirectory) {
+            try {
+              const entries = await listDirectory(previewdistDir)
+              usePreviewdistDir = entries.some(e => e.type === "file")
+            } catch { /* 软链未跟随 / 目录不存在 → 走回退 */ }
+          }
+          if (usePreviewdistDir) {
+            previewExtraDirs.push(previewdistDir)
+          } else {
+            const getPreviewDistDir = desktopApi?.getPreviewDistDir
+            if (getPreviewDistDir) {
+              try { previewExtraDirs.push(await getPreviewDistDir()) } catch {}
+            }
+          }
+        }
+      }
+
+      // prototype：抓 iframe 实时 DOM 快照，用于在 data/components.json 记录
+      // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
+      const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
+
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -332,7 +626,12 @@ export function HtmlRenderer(props: {
         htmlFileName: getArtifactFilename(props.filePath),
         htmlFilePath: props.filePath || "",
         sessionId: props.sessionId || "",
-        projectDir: props.sdkDirectory || ""
+        projectDir: props.sdkDirectory || "",
+        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+        srcFiles,
+        previewExtraDirs,
+        previewExtraRels,
+        prototypeSnapshotHtml,
       })
       
       if (isLoggedIn) {
@@ -367,7 +666,7 @@ export function HtmlRenderer(props: {
         setArchiveSuccessPath(pathStr)
         setArchiveSuccessUniqueId(uniqueId)
         setArchiveSuccessOpen(true)
-        showToast({ title: "归档成功" })
+        showOctoToast({ title: "归档成功" })
       } else {
         const zipFileName = `${fileName}-archive.zip`
         const url = URL.createObjectURL(zipBlob)
@@ -380,7 +679,7 @@ export function HtmlRenderer(props: {
         URL.revokeObjectURL(url)
         
         TaskStore.finish([{ key: taskId, status: "completed" }])
-        showToast({ title: "归档完成", description: "ZIP文件已下载" })
+        showOctoToast({ title: "归档完成", description: "ZIP文件已下载" })
       }
     } catch (err) {
       if (overlay) {
@@ -391,7 +690,7 @@ export function HtmlRenderer(props: {
       }
       console.error("[Archive] Failed:", err)
       TaskStore.error([{ key: taskId, status: "error" }])
-      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }
@@ -408,7 +707,7 @@ createEffect(() => {
     if (props.editing && editTarget() && !editPanelPosition()) {
       // Calculate initial position (right side with padding)
       const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
-      const panelWidth = 340
+      const panelWidth = 268
       const padding = 12
       setEditPanelPosition({
         left: Math.max(padding, canvasWidth - panelWidth - padding),
@@ -446,6 +745,7 @@ createEffect(() => {
 // Load comments when file path or session ID changes
 createEffect(() => {
   if (!props.filePath || !props.sessionId) return
+  if (shouldUseExternalUrl()) return
   
   const loadComments = async () => {
     if (!props.sdkUrl || !props.sdkDirectory || !props.sessionId) return
@@ -484,17 +784,24 @@ createEffect(() => {
     const pending = manualEditPendingStyle
     const target = editTarget()
     const draft = editDraft()
-    
+
     if (!target) return true
+
+    // Subtypes that delegate saving to the agent must not write the file directly.
+    // Esc / element-switch revert the pending preview instead of saving.
+    if (props.onSaveLocalEdit) {
+      cancelManualEditStyleDraft()
+      return true
+    }
     
     // ★ Get HTML snapshot from iframe (guaranteed ID match)
     const html = await getIframeSnapshot()
-    
+
     // Apply all patches (styles + text/href if changed)
     let result: { ok: boolean; source: string; error?: string } = { ok: true, source: html }
     let hasChanges = false
     let description = "Edit styles"
-    
+
     // Apply styles if pending
     if (pending && pending.styles) {
       result = applyManualEditPatch(result.source, {
@@ -535,9 +842,12 @@ createEffect(() => {
     
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
-      await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+      const wrapped = wrapHtmlContent(cleanSource, props.content)
+      await props.onContentChange?.(wrapped)
       if (hasChanges) {
         pushHistory(cleanSource, description)
+        // 文字/链接修改只在 HTML source 层面应用,不像样式那样通过 postMessage 实时预览到 DOM。
+        props.onRefreshNeeded?.()
       }
       return true
     }
@@ -554,7 +864,7 @@ createEffect(() => {
         resolve("")
         return
       }
-      
+
       const handleSnapshot = (e: MessageEvent) => {
         if (e.source !== iframe.contentWindow) return
         const d = e.data
@@ -563,10 +873,10 @@ createEffect(() => {
           resolve(d.html)
         }
       }
-      
+
       window.addEventListener("message", handleSnapshot)
       iframe.contentWindow.postMessage({ type: "od:get-html-snapshot" }, "*")
-      
+
       // Timeout fallback
       setTimeout(() => {
         window.removeEventListener("message", handleSnapshot)
@@ -606,11 +916,19 @@ createEffect(() => {
     if (pendingText) {
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
+      const originalText = fields.text ?? target.fields.text ?? target.text ?? ''
       setEditDraft(prev => ({
         ...prev,
-        text: fields.text ?? target.fields.text ?? target.text ?? '',
+        text: originalText,
         href: fields.href ?? target.fields.href ?? '',
       }))
+      // Revert live text preview in iframe
+      if (target.kind === 'text' || target.kind === 'mixed') {
+        iframeRef?.contentWindow?.postMessage(
+          { type: "od:edit-text", elementId: target.id, value: originalText },
+          "*"
+        )
+      }
     }
   }
   
@@ -640,27 +958,17 @@ createEffect(() => {
       // Ctrl+Z: Undo (global - always available when history exists)
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
-        const ok = undo()
-        if (ok) {
-          console.log('[Edit] Undo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Undo failed - no history available')
-        }
+        undo()
         return
       }
-      
+
       // Ctrl+Y or Ctrl+Shift+Z: Redo (global - always available when future history exists)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault()
-        const ok = redo()
-        if (ok) {
-          console.log('[Edit] Redo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Redo failed - no future history available')
-        }
+        redo()
         return
       }
-      
+
       // Escape: Exit edit mode (only when editing AND editTarget is set)
       if (props.editing && editTarget() && e.key === 'Escape') {
         e.preventDefault()
@@ -681,6 +989,20 @@ createEffect(() => {
   // Initialize history on mount (before any keyboard events)
   onMount(() => {
     initHistory(extractHtmlContent(props.content))
+    if (!shouldUseExternalUrl()) {
+      props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
+    }
+    props.registerIframePostMessage?.((data) => iframeRef?.contentWindow?.postMessage(data, "*"))
+    props.iframeElementGetter?.(() => iframeRef)
+  })
+
+  // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
+  createEffect(on(() => props.refreshKey, () => {
+    if (iframeRef && !shouldUseExternalUrl()) resourceTracker.reset(iframeRef)
+  }))
+
+  onCleanup(() => {
+    resourceTracker.disposeAll()
   })
 
   const srcdoc = createMemo(() => {
@@ -693,14 +1015,154 @@ createEffect(() => {
       picker: true,
       inspectBridge: true,
       editBridge: true,
+      modelEditBridge: true,
       snapshotBridge: true,
       commentBridge: true,
+      resourceCollectorBridge: true,
       annotateElements: true,
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
 
+  const shouldUseExternalUrl = createMemo(() => {
+    return /^https?:\/\//i.test(props.filePath || "") || fastuiName() !== null
+  })
+
+  // ── fastui 预览(SPEC-DES-004)──────────────────────────────────────
+  // 卡片只记产物(fastui://<产物名>),不记端口。打开时向主进程当场取地址;状态迁移、超时与
+  // 「刷新不闪」都在 utils/fastui-preview.ts 里(有单测),这里只负责接线。
+  const [fastui, setFastui] = createSignal<FastuiPreviewState>({ phase: "resolving" })
+  const fastuiPreview = createFastuiPreviewController({ onState: setFastui })
+  onCleanup(() => fastuiPreview.dispose())
+  const [fastuiAttempt, setFastuiAttempt] = createSignal(0)
+  /** 下一次取地址走「结束当前服务并重起」;由「重新编译」按钮置位 */
+  let fastuiRestartNext = false
+
+  createEffect(
+    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
+    on(
+      [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
+      ([name]) => {
+        if (name === null) return
+        const restart = fastuiRestartNext
+        fastuiRestartNext = false
+        fastuiPreview.request({
+          api: getDesktopApi(),
+          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          name,
+          restart,
+        })
+      },
+    ),
+  )
+
+  const recompileFastui = () => {
+    fastuiRestartNext = true
+    setFastuiAttempt((n) => n + 1)
+  }
+
+  // ── 本地预览服务的就绪门禁(SPEC-DES-001 §8.6.5)─────────────────────
+  // 重启后点预览卡片白屏、切走再切回就好:iframe 早于 dev server listen 就挂了 src,
+  // 拿到 ERR_CONNECTION_REFUSED 之后**不会自己重试**,就一直白着。
+  // 修法是端口没通就先别挂 src —— 跨源 iframe 的加载失败未必触发 onerror,拿不到可靠信号,
+  // 主动探测端口才是确定的判据。只管 127.0.0.1/localhost,其他外链行为完全不变。
+  //
+  // **门禁必须是"尽力而为的等待",不能是"通不过就锁死"**:渲染进程的 origin 是自定义
+  // scheme,向 loopback 发跨源子资源请求还要过 Chromium 的 Private Network Access
+  // 那一关(no-cors 不豁免)。万一探测在真机上根本不可用,恒不放行就把"白屏但切 tab
+  // 能恢复"变成了"永远打不开",比改动前更糟。所以超时后降级为直接挂 src,让 iframe
+  // 自己去撞 —— 最坏等价于改动前的行为。
+  //
+  // 门禁范围比 fastui 宽(任意 loopback URL 都走),因为"等本地服务起来再挂 iframe"
+  // 对任何本地预览都成立;所以覆盖层文案保持中性,不写 fastui 专属的说法。
+  // fastui 卡片有自己的一套(见上),这里只管其他本地服务
+  const needsReadyGate = createMemo(
+    () => shouldUseExternalUrl() && fastuiName() === null && isLocalPreviewUrl(props.filePath),
+  )
+  const [previewReady, setPreviewReady] = createSignal(false)
+  const [previewTimedOut, setPreviewTimedOut] = createSignal(false)
+
+  // 首次编译 1–3 分钟(§8.6.1),上限取同量级
+  const PROBE_INTERVAL_MS = 1000
+  const PROBE_TIMEOUT_MS = 3 * 60 * 1000
+  const PROBE_ATTEMPT_TIMEOUT_MS = 5000
+
+  createEffect(on([needsReadyGate, () => props.filePath], ([gate, url]) => {
+    if (!gate || !url) {
+      setPreviewReady(true)
+      setPreviewTimedOut(false)
+      return
+    }
+    setPreviewReady(false)
+    setPreviewTimedOut(false)
+
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inflight: AbortController | undefined
+    const deadline = Date.now() + PROBE_TIMEOUT_MS
+
+    const probe = async () => {
+      if (disposed) return
+      const controller = new AbortController()
+      inflight = controller
+      // 端口开着但不回应时 fetch 会一直挂,不设上限就再也不会重试
+      const abortTimer = setTimeout(() => controller.abort(), PROBE_ATTEMPT_TIMEOUT_MS)
+      try {
+        // no-cors 拿到的是 opaque response,读不了内容 —— 但"连上了"这件事已经确定
+        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: controller.signal })
+        if (!disposed) setPreviewReady(true)
+        return
+      } catch {
+        /* 还没 listen(或本次探测超时),继续等 */
+      } finally {
+        clearTimeout(abortTimer)
+        if (inflight === controller) inflight = undefined
+      }
+      if (disposed) return
+      if (Date.now() >= deadline) {
+        // 降级:放行 src、撤掉覆盖层。之后要么正常渲染(探测机制不可用但服务其实是通的),
+        // 要么显示浏览器自己的错误页 —— 后者就是改动前的行为,不是回归。
+        // 重试入口用 action bar 现成的刷新按钮:它 bump refreshKey,externalUrl 会重算出
+        // 带新 _octo_v 的地址,iframe 重新加载。
+        console.warn("[fastui] 本地预览端口探测超时,降级为直接加载", url)
+        setPreviewTimedOut(true)
+        return
+      }
+      timer = setTimeout(probe, PROBE_INTERVAL_MS)
+    }
+    void probe()
+
+    onCleanup(() => {
+      disposed = true
+      if (timer) clearTimeout(timer)
+      inflight?.abort()
+    })
+  }))
+
+  const externalUrl = createMemo(() => {
+    if (!shouldUseExternalUrl()) return undefined
+    // 没通之前不挂 src:挂上去就是一次拿不回来的 ERR_CONNECTION_REFUSED。
+    // 但超时之后一定要放行,否则探测不可用时就彻底进不去了(见上面的门禁说明)。
+    if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
+    let base = props.filePath!
+    if (fastuiName() !== null) {
+      // 地址还没取到就不挂 src:挂上去就是一次拿不回来的连接失败
+      const fu = fastui()
+      if (fu.phase !== "loading" && fu.phase !== "ready") return undefined
+      base = fu.url
+    }
+    const key = props.refreshKey ?? 0
+    if (key === 0) return base
+    try {
+      const u = new URL(base)
+      u.searchParams.set("_octo_v", String(key))
+      return u.toString()
+    } catch {
+      return base
+    }
+  })
+
   const shouldUseLocalUrl = createMemo(() => {
-    return isElectronDesktop() && props.filePath
+    return isElectronDesktop() && !!props.filePath && !shouldUseExternalUrl()
   })
 
   const localUrl = createMemo(() => {
@@ -737,7 +1199,7 @@ createEffect(() => {
         setServeKey(k => k + 1)
       } catch (err) {
         console.error("[HtmlRenderer] Failed to save file before preview:", err)
-        showToast({ title: "保存失败", description: "无法保存文件到磁盘" })
+        showOctoToast({ title: "保存失败", description: "无法保存文件到磁盘" })
       }
     }
   }))
@@ -759,10 +1221,10 @@ createEffect(() => {
     const iframe = iframeRef
     if (!iframe || !props.inspecting) return
 
-    const handleMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return
-      const d = e.data
-      if (!d || typeof d !== "object") return
+const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
 
       if (d.type === "od:inspect-target" && d.clicked === true) {
         const target: InspectTarget = {
@@ -806,6 +1268,18 @@ createEffect(() => {
       
       // ★ Use iframe snapshot for ID match
       void (async () => {
+        if (props.onSaveLocalEdit) {
+          const target = d.target as ManualEditTarget | undefined
+          if (target) {
+            const before = typeof d.before === 'string' ? d.before : (target.fields.text ?? target.text ?? '')
+            await props.onSaveLocalEdit({
+              target,
+              changes: [{ kind: 'text', before, after: value }],
+            })
+          }
+          return
+        }
+
         const html = await getIframeSnapshot()
         
         // Apply text patch
@@ -819,7 +1293,6 @@ createEffect(() => {
           const cleanSource = cleanBridgeContent(result.source)
           props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
           pushHistory(cleanSource, `Edit text in-place`)
-          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
         } else {
           console.error("[Edit] In-place text edit failed:", result.error)
         }
@@ -832,11 +1305,15 @@ createEffect(() => {
       // Move focus to outer document (enable HTML undo/redo)
       iframeRef?.blur()
       window.focus()
-      console.log('[Edit] Focus transferred to parent window')
       return
     }
 
     if (d.type === "od:edit-selected") {
+      if (mentionPanelOpen() || pendingLocalEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
       
       // Save previous element's pending changes before switching
@@ -854,16 +1331,17 @@ createEffect(() => {
       setEditTarget(target)
       manualEditPendingStyle = null
       manualEditPendingText = null
-      
+
       // Initialize draft from target + source
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
+      manualEditInitialStyles = inspectorManualEditStyles(target, html)
       setEditDraft({
         text: fields.text ?? target.fields.text ?? target.text,
         href: fields.href ?? target.fields.href ?? '',
         src: fields.src ?? target.fields.src ?? '',
         alt: fields.alt ?? target.fields.alt ?? '',
-        styles: inspectorManualEditStyles(target, html),
+        styles: manualEditInitialStyles,
         attributesText: JSON.stringify(readManualEditAttributes(html, target.id), null, 2),
         outerHtml: readManualEditOuterHtml(html, target.id) || target.outerHtml,
         fullSource: html,
@@ -875,6 +1353,71 @@ createEffect(() => {
         "*"
       )
     }
+
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
+
+// Listen to model-edit messages from iframe
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.modelEditing) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+
+    if (d.type === "od:model-edit-selected") {
+      if (mentionPanelOpen() || pendingModelEditClose() || props.disabled) {
+        if (mentionPanelOpen()) setCloseMentionTrigger(n => n + 1)
+        return
+      }
+      const target: ModelEditElement = d.target
+      const config = props.modelEditConfig
+      if (!config) return
+
+      window.dispatchEvent(new CustomEvent("design:element-selected"))
+
+      let panelConfig: ConfigGroup[] = []
+      let panelData: Record<string, string> = {}
+
+      if (target.selectionKind === 'component' && target.componentType && config.componentConfig?.[target.componentType]) {
+        const compConfig = config.componentConfig[target.componentType]
+        panelConfig = compConfig.config
+        panelData = compConfig.data(target)
+        setModelEditPanelTitle(compConfig.title)
+        const info = compConfig.info ? compConfig.info(target) : ''
+        setModelEditPanelInfo(info)
+      } else {
+        const defaultConfig = getDefaultNativeConfig(target.elementKind, target.isLayoutContainer)
+        const defaultData = readNativeDefaults(target.elementKind, target)
+
+        if (target.selectionKind === 'native' && target.htmlType && config.htmlConfig?.[target.htmlType]) {
+          const htmlConfig = config.htmlConfig[target.htmlType]
+          panelConfig = htmlConfig.config(defaultConfig)
+          panelData = htmlConfig.data(defaultData, target)
+        } else {
+          panelConfig = defaultConfig
+          panelData = defaultData
+        }
+
+        setModelEditPanelTitle(target.tagName)
+        setModelEditPanelInfo(target.htmlHint)
+      }
+
+      const cached = panelStateCache[target.selector]
+      if (cached) {
+        panelData = { ...panelData, ...cached }
+      }
+
+      setModelEditPrevData({ ...panelData })
+      setModelEditTarget(target)
+      setModelEditPanelConfig(panelConfig)
+      setModelEditPanelData(panelData)
+    }
   }
 
   window.addEventListener("message", handleMessage)
@@ -883,11 +1426,10 @@ createEffect(() => {
 
 // Listen to comment messages from iframe (always registered, not dependent on props.commenting)
 createEffect(() => {
-  const iframe = iframeRef
-  if (!iframe) return
-
   const handleMessage = (e: MessageEvent) => {
-    if (e.source !== iframe.contentWindow) return
+    const currentIframe = iframeRef
+    if (!currentIframe) return
+    if (e.source !== currentIframe.contentWindow) return
     const d = e.data
     if (!d || typeof d !== "object") return
 
@@ -912,7 +1454,7 @@ createEffect(() => {
           htmlHint: comment.htmlHint,
           label: comment.label,
           note: comment.note,
-          pinPosition: d.position,
+          pinPosition: transformRect(d.position),
           commenterAvatar: comment.commenterAvatar,
           commenterName: comment.commenterName,
           createdAt: comment.createdAt,
@@ -937,7 +1479,7 @@ createEffect(() => {
         position: d.position,
         htmlHint: d.htmlHint,
         label: d.label,
-        hoverPoint: d.hoverPoint,
+        hoverPoint: transformPoint(d.hoverPoint),
       })
       setEditingComment(null)
       setCommentReadOnly(false)
@@ -945,18 +1487,12 @@ createEffect(() => {
     }
 
     if (d.type === "od:comment-pin-click") {
-      console.log('[DEBUG] pin-click received:', d)
-      console.log('[DEBUG] pinPosition:', d.pinPosition)
       const commentId = d.commentId
       const comment = savedComments().find(c => c.id === commentId)
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
-        const pinPos = d.pinPosition
-        console.log('[DEBUG] calculated hoverPoint:', pinPos ? {
-          x: pinPos.left + pinPos.width + 8,
-          y: pinPos.top
-        } : undefined)
+        const pinPos = transformRect(d.pinPosition)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -978,7 +1514,7 @@ createEffect(() => {
     
     if (d.type === "od:comment-pin-position") {
       const commentId = d.commentId
-      const pinPos = d.pinPosition
+      const pinPos = transformRect(d.pinPosition)
       const comment = savedComments().find(c => c.id === commentId)
       if (comment && pinPos) {
         setEditingComment(comment)
@@ -1053,6 +1589,50 @@ createEffect(() => {
     }
   })
 
+  // Send model-edit-mode toggle to iframe
+  createEffect(() => {
+    if (iframeRef && props.mode === "preview") {
+      const config = props.modelEditConfig
+      iframeRef.contentWindow?.postMessage(
+        {
+          type: "od:model-edit-mode",
+          enabled: !!props.modelEditing,
+          componentFlag: config?.componentFlag || null,
+          htmlFlag: config?.htmlFlag || null,
+        },
+        "*"
+      )
+      if (!props.modelEditing) {
+        setModelEditTarget(null)
+      }
+    }
+  })
+
+  // Watch for model reply completion after save/delete/confirm
+  createEffect(on(() => props.disabled, (disabled, prev) => {
+    if (prev && !disabled && pendingModelEditClose()) {
+      setPendingModelEditClose(false)
+      setModelEditTarget(null)
+      iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+      props.onRefreshNeeded?.()
+      /** 模型回复完成的确定时机：补一次历史检查。components 等页面的产物由构建进程重新产出，
+       *  SSE 的 tool/step 事件时点上不一定能读到新文件，导致「模型编辑」版本漏记；
+       *  index.tsx 监听后跑 onFileRefresh（hash 未变时是空操作，幂等） */
+      if (props.filePath) {
+        window.dispatchEvent(new CustomEvent("model-edit:reply-done", { detail: { filePath: props.filePath } }))
+      }
+    }
+    if (prev && !disabled && pendingLocalEditClose()) {
+      setPendingLocalEditClose(false)
+      cancelManualEditStyleDraft()
+      setEditTarget(null)
+      manualEditPendingStyle = null
+      manualEditPendingText = null
+      setEditDraft(emptyManualEditDraft(props.content))
+      props.onRefreshNeeded?.()
+    }
+  }))
+
 // Send inspect-mode toggle to iframe
   createEffect(() => {
     if (iframeRef && props.mode === "preview") {
@@ -1074,7 +1654,6 @@ createEffect(() => {
         { type: "od:comment-mode", enabled: !!props.commenting },
         "*"
       )
-      // 评论模式开启时，主动发送评论数据
       if (props.commenting) {
         const comments = savedComments()
         iframeRef.contentWindow?.postMessage(
@@ -1115,6 +1694,11 @@ createEffect(() => {
       if (props.commenting) {
         iframe.contentWindow?.postMessage(
           { type: "od:comment-mode", enabled: true },
+          "*"
+        )
+        const comments = savedComments()
+        iframe.contentWindow?.postMessage(
+          { type: "od:comment-saved-pins", comments },
           "*"
         )
       }
@@ -1159,21 +1743,49 @@ createEffect(() => {
     return vp !== "desktop" && props.mode === "preview"
   }
 
-  const containerStyle = createMemo(() => {
-    if (!isResponsive()) return {}
-
+  const viewportTransform = createMemo(() => {
+    if (!isResponsive()) return { scale: 1, offsetX: 0, offsetY: 0 }
     const vp = props.viewport!
     const dims = VIEWPORT_DIMS[vp]
     const { w, h } = canvasSize()
     const scale = effectiveScale(vp, w, h)
     const pad = 24
+    return {
+      scale,
+      offsetX: pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2),
+      offsetY: pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2),
+    }
+  })
 
+  const transformPoint = (point: { x: number; y: number }) => {
+    const t = viewportTransform()
+    return {
+      x: t.offsetX + point.x * t.scale,
+      y: t.offsetY + point.y * t.scale,
+    }
+  }
+
+  const transformRect = (rect: { left: number; top: number; width: number; height: number }) => {
+    const t = viewportTransform()
+    return {
+      left: t.offsetX + rect.left * t.scale,
+      top: t.offsetY + rect.top * t.scale,
+      width: rect.width * t.scale,
+      height: rect.height * t.scale,
+    }
+  }
+
+  const containerStyle = createMemo(() => {
+    if (!isResponsive()) return {}
+    const vp = props.viewport!
+    const dims = VIEWPORT_DIMS[vp]
+    const t = viewportTransform()
     return {
       "--octo-vp-width": `${dims.width}px`,
       "--octo-vp-height": `${dims.height}px`,
-      "--octo-vp-scale": scale,
-      "--octo-vp-offset-x": `${pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2)}px`,
-      "--octo-vp-offset-y": `${pad}px`,
+      "--octo-vp-scale": t.scale,
+      "--octo-vp-offset-x": `${t.offsetX}px`,
+      "--octo-vp-offset-y": `${t.offsetY}px`,
     } as JSX.CSSProperties
   })
 
@@ -1186,6 +1798,9 @@ createEffect(() => {
       height: `${dims.height}px`,
       transform: `scale(var(--octo-vp-scale, 1))`,
       "transform-origin": "0 0",
+      position: "absolute",
+      left: "var(--octo-vp-offset-x, 0)",
+      top: "var(--octo-vp-offset-y, 0)",
     } as JSX.CSSProperties
   })
 
@@ -1193,8 +1808,102 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle(), cursor: (pendingModelEditClose() || pendingLocalEditClose()) ? 'wait' : undefined }}
     >
+      {/* fastui 预览:编译中 / 出错两种覆盖层(SPEC-DES-004 §3.6)。出页面之前一直盖着,不让用户看到白屏 */}
+      <Show when={props.mode === "preview" && fastuiName() !== null && fastui().phase !== "ready"}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "10px",
+            padding: "24px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <Show
+            when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
+            fallback={
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
+                <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+                  首次打开需要启动本地服务，通常十几秒，请稍候。
+                </div>
+              </>
+            }
+          >
+            {(err) => (
+              <>
+                <div style={{ "font-size": "13px", color: "var(--octo-text-primary)", "text-align": "center", "max-width": "420px" }}>
+                  {err().message}
+                </div>
+                <Show when={err().logTail}>
+                  <pre
+                    style={{
+                      margin: "0",
+                      "max-width": "min(640px, 100%)",
+                      "max-height": "200px",
+                      overflow: "auto",
+                      padding: "8px 10px",
+                      "font-size": "11px",
+                      "line-height": "16px",
+                      "white-space": "pre-wrap",
+                      "word-break": "break-all",
+                      color: "var(--octo-text-secondary, #8a8a8a)",
+                      background: "rgba(0,0,0,0.04)",
+                      "border-radius": "6px",
+                    }}
+                  >
+                    {err().logTail}
+                  </pre>
+                </Show>
+                <button
+                  type="button"
+                  onClick={recompileFastui}
+                  style={{
+                    "margin-top": "4px",
+                    padding: "5px 14px",
+                    "font-size": "13px",
+                    "border-radius": "6px",
+                    border: "1px solid var(--octo-border, #d9d9d9)",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  重新编译
+                </button>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+      {/* 本地服务还没 listen 时盖住空 iframe,别让用户看到白屏(SPEC-DES-001 §8.6.5)。
+          超时后整体撤掉 —— 那时 src 已放行,盖着反而挡住真正的画面 */}
+      <Show when={props.mode === "preview" && needsReadyGate() && !previewReady() && !previewTimedOut()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "8px",
+            background: "var(--octo-shell-bg, #F3F6FB)",
+            "z-index": "20",
+          }}
+        >
+          <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在等待本地预览服务…</div>
+          <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
+            服务就绪后会自动加载，首次启动可能需要几分钟。
+          </div>
+        </div>
+      </Show>
       {props.mode === "preview" ? (
         <DrawOverlay
           active={props.drawing ?? false}
@@ -1214,27 +1923,41 @@ return (
                 position: "relative",
               }}
             >
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+                - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
+                - 参考：design-system-picker.tsx:163
+              */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
+                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
+                onLoad={handleIframeLoad}
               />
             </div>
           ) : (
             <div style={{ height: "100%", overflow: "auto" }}>
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+              */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
+                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
+                onLoad={handleIframeLoad}
               />
             </div>
           )}
@@ -1331,7 +2054,7 @@ return (
                   const baseStyles = manualEditPendingStyle?.styles ?? editDraft().styles
                   const mergedStyles = { ...baseStyles, ...styles }
                   manualEditPendingStyle = { id, styles: mergedStyles, label }
-                  
+
                   // Send preview to iframe
                   const version = editStyleVersion() + 1
                   setEditStyleVersion(version)
@@ -1340,7 +2063,32 @@ return (
                     "*"
                   )
                 }}
+                onTextPreview={(id, text) => {
+                  iframeRef?.contentWindow?.postMessage(
+                    { type: "od:edit-text", elementId: id, value: text },
+                    "*"
+                  )
+                }}
 onApplyPatch={async (patch: ManualEditPatch, label: string) => {
+              if (props.onSaveLocalEdit) {
+                const target = editTarget()
+                let change: LocalEditChange | null = null
+                if (patch.kind === 'remove-element') {
+                  change = { kind: 'remove-element' }
+                } else if (patch.kind === 'set-image') {
+                  change = { kind: 'image', src: patch.src, alt: patch.alt }
+                }
+                if (target && change) {
+                  const handled = await props.onSaveLocalEdit({ target, changes: [change] })
+                  if (handled && patch.kind === 'remove-element') {
+                    setEditTarget(null)
+                    manualEditPendingStyle = null
+                    manualEditPendingText = null
+                    setEditDraft(emptyManualEditDraft(props.content))
+                  }
+                }
+                return
+              }
               const html = await getIframeSnapshot()
               const result = applyManualEditPatch(html, patch)
               if (result.ok) {
@@ -1376,6 +2124,27 @@ onSaveDraft={async () => {
                     if (saving()) return
                     setSaving(true)
                     try {
+                      if (props.onSaveLocalEdit) {
+                        const payload = buildLocalEditPayload(editTarget()!, manualEditPendingStyle, manualEditPendingText, manualEditInitialStyles)
+                        if (payload.changes.length === 0) {
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                          return
+                        }
+                        const handled = await props.onSaveLocalEdit(payload)
+                        if (handled) {
+                          tracker.interaction({ module: "design", name: "save-edit-changes" })
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                        }
+                        return
+                      }
                       const ok = await flushManualEditStyleSave()
                       if (ok) {
                         tracker.interaction({ module: "design", name: "save-edit-changes" })
@@ -1383,7 +2152,7 @@ onSaveDraft={async () => {
                         manualEditPendingStyle = null
                         manualEditPendingText = null
                       } else {
-                        showToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
+                        showOctoToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
                       }
                     } finally {
                       setSaving(false)
@@ -1396,31 +2165,123 @@ onSaveDraft={async () => {
                   manualEditPendingText = null
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
-onExit={async () => {
-  if (saving()) return
-  setSaving(true)
-  try {
-    const ok = await flushManualEditStyleSave()
-    if (!ok) {
-      showToast({ 
-        title: "样式未保存", 
-        description: "目标元素在HTML中不存在，修改已丢失" 
-      })
-    }
-    setEditTarget(null)
-    manualEditPendingStyle = null
-    manualEditPendingText = null
-  } finally {
-    setSaving(false)
-  }
+onExit={() => {
+  cancelManualEditStyleDraft()
+  setEditTarget(null)
+  manualEditPendingStyle = null
+  manualEditPendingText = null
+  setEditDraft(emptyManualEditDraft(props.content))
 }}
 onFloatingPositionChange={setEditPanelPosition}
-               />
-             </Show>
+                />
+              </Show>
+          <Show when={props.editing && editTarget()}>
+            <ModelEditAreaDialog
+              element={editTarget()}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                cancelManualEditStyleDraft()
+                setEditTarget(null)
+                manualEditPendingStyle = null
+                manualEditPendingText = null
+                setEditDraft(emptyManualEditDraft(props.content))
+                setMentionPanelOpen(false)
+                tracker.interaction({ module: "design", name: "cancel-local-edit-area" })
+              }}
+              onSubmitStart={() => setPendingLocalEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+            />
+          </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditPanel
+              element={modelEditTarget()}
+              config={modelEditPanelConfig()}
+              panelData={modelEditPanelData()}
+              panelTitle={modelEditPanelTitle()}
+              panelInfo={modelEditPanelInfo()}
+              filePath={props.filePath || ''}
+              disabled={props.disabled}
+              colors={props.modelEditConfig?.colors ?? HUI_COLOR_TOKENS}
+              onChange={(args) => {
+                const selector = args.dom.selector
+                if (selector) setPanelStateCache(selector, (prev: Record<string, string>) => ({ ...prev, [args.key]: args.value }))
+                props.modelEditConfig?.onChange?.(args)
+              }}
+              context={modelEditContext()}
+              iconConfig={props.modelEditConfig?.iconConfig}
+              assetConfig={props.modelEditConfig?.assetConfig}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              floatingStyle={modelEditPanelPosition() ?? undefined}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onSave={async (current) => {
+                await writePanelState()
+                const target = modelEditTarget()
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditSave?.(target, modelEditPrevData(), current, ctx) ?? undefined
+                }
+              }}
+              onDelete={async () => {
+                const target = modelEditTarget()
+                const ctx = modelEditContext()
+                if (target && ctx) {
+                  return await props.onModelEditDelete?.(target, ctx) ?? undefined
+                }
+              }}
+              onExit={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "close-model-edit-panel" })
+              }}
+              onFloatingPositionChange={setModelEditPanelPosition}
+            />
+          </Show>
+          <Show when={props.modelEditing && modelEditTarget()}>
+            <ModelEditAreaDialog
+              element={modelEditTarget()}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              filePath={props.filePath || ''}
+              tabTitle={props.tabTitle || ''}
+              disabled={props.disabled}
+              sessionId={props.sessionId}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
+              onClose={() => {
+                setModelEditTarget(null)
+                iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
+                tracker.interaction({ module: "design", name: "cancel-model-edit-area" })
+              }}
+              onSubmitStart={() => setPendingModelEditClose(true)}
+              onMentionActiveChange={setMentionPanelOpen}
+              closeMentionTrigger={closeMentionTrigger()}
+              promptCallback={props.modelEditConfig?.promptCallback}
+            />
+          </Show>
 <Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
                 <CommentHoverTooltip
                   target={commentHoverTarget()!}
-                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                  iframeBounds={(() => {
+                    const vp = props.viewport ?? "desktop"
+                    const dims = VIEWPORT_DIMS[vp]
+                    return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                  })()}
                   onClose={() => setCommentHoverTarget(null)}
                   onClick={() => {
                     const hoverTarget = commentHoverTarget()
@@ -1460,8 +2321,12 @@ setEditingComment(comment)
               </Show>
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
-                   iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-target={editingComment() ? {
+                    iframeBounds={(() => {
+                      const vp = props.viewport ?? "desktop"
+                      const dims = VIEWPORT_DIMS[vp]
+                      return { width: dims.width || iframeRef?.getBoundingClientRect()?.width || 800, height: dims.height || iframeRef?.getBoundingClientRect()?.height || 600 }
+                    })()}
+ target={editingComment() ? {
                       elementId: editingComment()!.elementId,
                       selector: editingComment()!.selector,
                       contentSignature: editingComment()!.contentSignature,
@@ -1471,11 +2336,12 @@ target={editingComment() ? {
                       position: editingComment()!.position,
                       htmlHint: editingComment()!.htmlHint,
                       hoverPoint: commentTarget()?.hoverPoint || (() => {
-                        const bounds = iframeRef?.getBoundingClientRect()
-                        return {
-                          x: editingComment()!.position.x * (bounds?.width || 800),
-                          y: editingComment()!.position.y * (bounds?.height || 600)
-                        }
+                        const vp = props.viewport ?? "desktop"
+                        const dims = VIEWPORT_DIMS[vp]
+                        return transformPoint({
+                          x: editingComment()!.position.x * (dims.width || 800),
+                          y: editingComment()!.position.y * (dims.height || 600)
+                        })
                       })(),
                       pinPosition: commentTarget()?.pinPosition,
                     } : {
@@ -1528,7 +2394,7 @@ const comment: FileComment = {
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
-                      showToast({ title: "保存失败", description: "缺少 SDK 配置" })
+                      showOctoToast({ title: "保存失败", description: "缺少 SDK 配置" })
                       return
                     }
                     
@@ -1563,7 +2429,6 @@ body: JSON.stringify({
                           })
                       })
                      .then(res => {
-                       console.log('[Comment] First save response status:', res.status)
                       if (!res.ok) throw new Error(`Save comment failed: ${res.status}`)
                       return res.json()
                     })
@@ -1574,7 +2439,7 @@ body: JSON.stringify({
                       if (pendingFiles && pendingFiles.length > 0) {
                         const api = getDesktopApi()
                         if (!api?.getPathForFile) {
-                          showToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
+                          showOctoToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
                         } else {
                           try {
                             const uploadPromises = pendingFiles.map(async file => {
@@ -1606,13 +2471,9 @@ body: JSON.stringify({
                             })
                             
                             const uploadedAttachments = await Promise.all(uploadPromises)
-                            
-                            console.log('[Comment] Uploaded attachments:', uploadedAttachments)
-                            
+
                             // Update comment with all attachments
                             const allAttachments = [...(comment.attachments || []), ...uploadedAttachments]
-                            
-                            console.log('[Comment] All attachments for second save:', allAttachments)
                             
 await fetch(`${props.sdkUrl}/comment/file`, {
                                method: 'POST',
@@ -1632,23 +2493,21 @@ body: JSON.stringify({
                                })
                              })
                             .then(res => {
-                              console.log('[Comment] Second save response status:', res.status)
                               if (!res.ok) throw new Error(`Second save failed: ${res.status}`)
                               return res.json()
                             })
                             .then(data => {
-                              console.log('[Comment] Second save response data:', data)
                               if (!data.ok) throw new Error('Second save failed')
                             })
                             
-                            showToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
+                            showOctoToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
                           } catch (uploadErr) {
                             console.error('[Comment] Upload attachments error:', uploadErr)
-                            showToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
+                            showOctoToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
                           }
                         }
                       } else {
-                        showToast({ title: "评论已保存" })
+                        showOctoToast({ title: "评论已保存" })
                       }
                       
 // Reload comments to get server-generated ID
@@ -1674,7 +2533,7 @@ body: JSON.stringify({
                    })
                    .catch(err => {
                      console.error('[Comment] Save failed:', err)
-                     showToast({ title: "保存失败", description: "无法保存评论到后端" })
+                     showOctoToast({ title: "保存失败", description: "无法保存评论到后端" })
                    })
                  }}
                  onDelete={() => {
@@ -1682,7 +2541,7 @@ body: JSON.stringify({
                    if (!commentId) return
                    
                    if (!props.sdkUrl || !props.sdkDirectory) {
-                     showToast({ title: "删除失败", description: "缺少 SDK 配置" })
+                     showOctoToast({ title: "删除失败", description: "缺少 SDK 配置" })
                      return
                    }
                    
@@ -1706,12 +2565,12 @@ body: JSON.stringify({
 setCommentTarget(null)
                       setEditingComment(null)
                       iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
-                      showToast({ title: "标注已删除" })
+                      showOctoToast({ title: "标注已删除" })
                      tracker.interaction({ module: "design", name: "delete-comment" })
                    })
                    .catch(err => {
                      console.error('[Comment] Delete failed:', err)
-                     showToast({ title: "删除失败", description: "无法删除评论" })
+                     showOctoToast({ title: "删除失败", description: "无法删除评论" })
                    })
                  }}
 onClose={() => {
@@ -1725,13 +2584,13 @@ onUploadAttachment={(file) => {
                      const existingComment = editingComment()
                      
                      if (!existingComment) {
-                       showToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
+                       showOctoToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
                        return
                      }
                      
                      const api = getDesktopApi()
                      if (!api?.getPathForFile) {
-                       showToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
+                       showOctoToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
                        return
                      }
                      
@@ -1797,50 +2656,40 @@ const updatedComment = {
                               "*"
                             )
                             
-                            showToast({ title: "附件添加成功", description: file.name })
+                            showOctoToast({ title: "附件添加成功", description: file.name })
                           })
                           .catch(reloadErr => {
                             console.error('[Comment] Reload error:', reloadErr)
-                            showToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
+                            showOctoToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
                           })
                         })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Upload error:', err)
-                       showToast({ title: "附件添加失败", description: err.message })
+                       showOctoToast({ title: "附件添加失败", description: err.message })
                      })
                    }}
 onDeleteAttachment={(attachmentId) => {
                      const existingComment = editingComment()
-                     
-console.log('[Comment] Delete attachment request:', {
-                        attachmentId,
-                        sessionId: props.sessionId,
-                        filePath: getArtifactFilename(props.filePath),
-                        commentId: existingComment?.id,
-                        existingComment: existingComment,
-                      })
-                      
+
                       if (!existingComment) {
-                        showToast({ title: "删除失败", description: "评论不存在" })
+                        showOctoToast({ title: "删除失败", description: "评论不存在" })
                         return
-}
-                      
+                      }
+
                        fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${existingComment.id}`, {
                         method: 'DELETE',
                         headers: { ...directoryHeader(props.sdkDirectory!) }
                       })
                      .then(res => {
-                       console.log('[Comment] Delete response status:', res.status)
                        if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
                        return res.json()
                      })
 .then(data => {
-                        console.log('[Comment] Delete response data:', data)
                         if (!data.ok) throw new Error('Delete failed')
                         
                         // Update editingComment's attachments
@@ -1877,8 +2726,7 @@ console.log('[Comment] Delete attachment request:', {
                         })
 .then(saveData => {
                            if (!saveData.ok) throw new Error('Auto-save failed')
-                           console.log('[Comment] Auto-save after delete success')
-                           
+
 fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
                               headers: { ...directoryHeader(props.sdkDirectory!) }
                             })
@@ -1892,21 +2740,21 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
                                "*"
                              )
                              
-                             showToast({ title: "附件删除成功" })
+                             showOctoToast({ title: "附件删除成功" })
                            })
                            .catch(reloadErr => {
                              console.error('[Comment] Reload error:', reloadErr)
-                             showToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
+                             showOctoToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
                            })
                          })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Delete error:', err)
-                       showToast({ title: "附件删除失败", description: err.message })
+                       showOctoToast({ title: "附件删除失败", description: err.message })
                      })
 }}
                 />
@@ -1937,8 +2785,8 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
           </DrawOverlay>
        ) : (
         <textarea
-          value={extractHtmlContent(props.content)}
-          onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
+          readonly={true}
+          value={diskContent() ?? extractHtmlContent(props.content)}
           class="w-full h-full resize-none p-4 text-sm font-mono outline-none"
           style={{
             background: "rgba(243,244,246,1)",

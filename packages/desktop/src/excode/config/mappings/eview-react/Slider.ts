@@ -16,7 +16,7 @@
  * | step | — | 丢弃 |
  * | input（boolean） | displayInput | 同名透传 + 覆盖默认（A2UI 默认不显示输入框） |
  * | marks（object） | markIndexes | 对象 key 提取为 number[] |
- * | className | className | 同名透传 |
+ * | className | className + stickStyle | 宽度类(w-*)→stickStyle(内联样式)，其余→className |
  *
  * ## 注意事项
  *
@@ -29,7 +29,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 // ─── marks 对象 → markIndexes 数组 ───
 
@@ -50,17 +51,9 @@ export function createSliderMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value',
-        'min',
-        'max',
-        'range',
-        'orientation',
-        'step',
-        'input',
-        'marks',
-        'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Slider 的 props 是封闭集合
+      // (value/min/max/range/orientation/step/input/marks/className)，不做兜底透传。
 
       // ─── range 模式判定 ───
       const isRangeMode = props.range === true
@@ -123,17 +116,16 @@ export function createSliderMapping(pkg: string): MappingDef {
         outputProps.markIndexes = marksToIndexes(props.marks)
       }
 
-      // ─── className 透传 ───
-      if (props.className) {
-        outputProps.className = props.className
+      // ─── className: 拆分宽度类 → stickStyle（内联样式），其余 → className ───
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        outputProps.stickStyle = widthStyle as any
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Slider 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

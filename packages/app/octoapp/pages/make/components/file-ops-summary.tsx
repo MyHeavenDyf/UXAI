@@ -77,7 +77,7 @@ export function FileOpsSummary(props: { calls: ToolCallInfo[] }): JSX.Element {
 
   return (
     <div
-      class="mx-3 mb-1 px-2.5 py-1.5 flex flex-col gap-1"
+      class="mx-3 px-4 py-2 flex flex-col gap-1"
       style={{
         "border-radius": "var(--octo-radius-md)",
         background: "var(--octo-surface-page)",

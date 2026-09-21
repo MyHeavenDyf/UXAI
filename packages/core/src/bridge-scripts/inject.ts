@@ -10,6 +10,8 @@ import {
   EDIT_BRIDGE_STYLE,
 } from "./constants"
 import { COMMENT_BRIDGE_SCRIPT, COMMENT_OUTLINE_CSS, injectCommentBridge as injectCommentBridgeImpl } from "./comment"
+import { RESOURCE_COLLECTOR_BRIDGE_SCRIPT } from "./resource-collector"
+import { MODEL_EDIT_BRIDGE_SCRIPT } from "./model-edit-bridge"
 
 export function injectSandboxShim(doc: string): string {
   if (/<head[^>]*>/i.test(doc)) {
@@ -84,6 +86,53 @@ export function injectEditBridgeStyle(doc: string): string {
 
 export function injectCommentBridge(doc: string): string {
   return injectCommentBridgeImpl(doc)
+}
+
+export function injectResourceCollectorBridge(doc: string): string {
+  if (doc.includes("</body>")) {
+    return doc.replace("</body>", RESOURCE_COLLECTOR_BRIDGE_SCRIPT + "</body>")
+  }
+  return doc + RESOURCE_COLLECTOR_BRIDGE_SCRIPT
+}
+
+export function injectModelEditBridge(doc: string): string {
+  if (doc.includes("</body>")) {
+    return doc.replace("</body>", MODEL_EDIT_BRIDGE_SCRIPT + "</body>")
+  }
+  return doc + MODEL_EDIT_BRIDGE_SCRIPT
+}
+
+export function injectCustomBridge(
+  doc: string, 
+  script: string, 
+  options?: { 
+    style?: string
+    position?: 'head' | 'body'
+  }
+): string {
+  const position = options?.position || 'body'
+  
+  if (options?.style) {
+    const styleTag = `<style data-od-custom-bridge-style>${options.style}</style>`
+    if (doc.includes('</head>')) {
+      doc = doc.replace('</head>', styleTag + '</head>')
+    } else if (doc.includes('<body')) {
+      doc = doc.replace('<body', styleTag + '<body')
+    }
+  }
+  
+  const scriptTag = `<script data-od-custom-bridge>${script}</script>`
+  if (position === 'head') {
+    if (doc.includes('</head>')) {
+      return doc.replace('</head>', scriptTag + '</head>')
+    }
+  } else {
+    if (doc.includes('</body>')) {
+      return doc.replace('</body>', scriptTag + '</body>')
+    }
+  }
+  
+  return doc + scriptTag
 }
 
 export * as BridgeInject from "./inject"

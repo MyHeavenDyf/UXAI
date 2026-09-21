@@ -36,8 +36,8 @@ export function SvgRenderer(props: {
       <div class="flex-1 overflow-hidden" style={{ background: props.mode === "edit" ? "rgba(243,244,246,1)" : "white" }}>
         {props.mode === "edit" ? (
           <textarea
+            readonly={true}
             value={svg()}
-            onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
             class="w-full h-full overflow-auto text-sm font-mono whitespace-pre-wrap p-4 resize-none border-0 outline-none"
             style={{ color: "var(--octo-text-primary)", background: "rgba(243,244,246,1)" }}
           />

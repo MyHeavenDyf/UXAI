@@ -7,7 +7,7 @@ import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { openFileLocally } from "../utils/local-file-ops"
+import { openFileOrReveal } from "../utils/local-file-ops"
 import "./permission-dock.css"
 
 // InsightPermissionDock —— insight 聊天面板的权限询问 UI(SPEC-INS-021 §2)。
@@ -122,14 +122,17 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
   }
 
   // 点路径打开对应本地文件。external_directory 的 pattern 是「目录/*」glob,真正的文件在
-  // metadata.filepath;优先开它,兜底把 pattern 末尾的 /* 去掉当目录开。
-  // 打开复用 openFileLocally:shell.openPath 失败(文件被移走 / 无关联应用)是 resolve 一个错误串、
-  // 不 reject —— openFileLocally 已按此约定判串并弹专业文案。若只 .catch 会把这类失败静默吞掉。
+  // metadata.filepath、其父目录在 metadata.parentDir;优先开文件,兜底把 pattern 末尾的 /* 去掉当目录开。
+  // 用 openFileOrReveal:shell.openPath 失败(文件被移走 / 无关联应用 / 文件根本不存在)是 resolve 一个
+  // 错误串而非 reject,直接 openFileLocally 会即弹"无法打开文件"且无后续;这里失败时退而在文件夹中
+  // 定位该文件,文件不存在再退一步开父目录(parentDir),三步都失败才报错,避免用户点一下只得到错误弹窗。
   const openPath = (perm: PermissionRequest, pattern: string) => {
     const meta = perm.metadata?.["filepath"]
+    const parentMeta = perm.metadata?.["parentDir"]
     const target = typeof meta === "string" && meta ? meta : pattern.replace(/[\\/]\*$/, "")
-    console.log("[octo:permission] open", { permissionID: perm.id, target })
-    void openFileLocally(target)
+    const parentDir = typeof parentMeta === "string" && parentMeta ? parentMeta : undefined
+    console.log("[octo:permission] open", { permissionID: perm.id, target, parentDir })
+    void openFileOrReveal(target, parentDir)
   }
 
   return (

@@ -1,0 +1,341 @@
+import { createSignal, Show, onMount, onCleanup, createEffect, on, type JSX } from 'solid-js'
+import { createStore } from 'solid-js/store'
+import type { MentionAttrs } from '../prosemirror-editor/schema'
+import { ProseMirrorEditor } from '../prosemirror-editor'
+import type { MentionSelection } from '../mention-popover'
+import type { ArtifactFile } from '../../utils/artifact-file-api'
+import type { SkillConfig } from '../skill-config-types'
+import { sendTextToAgent, appendToMainComposer, submitMainComposer } from '../../utils/agent-events'
+import { tracker } from '@/utils/tracker'
+import './model-edit-area-dialog.css'
+
+type EditorRef = {
+  getText: () => string
+  getMentions: () => MentionAttrs[]
+  getDocJSON: () => any
+  clear: () => void
+  insertText: (text: string) => void
+  isAlive: () => boolean
+  closeMention: () => void
+  updateMentionPath: (id: string, path: string) => void
+}
+
+type AreaDialogElement = {
+  rect: { x: number; y: number; width: number; height: number }
+  selector: string
+  dataOdId?: string
+  id?: string
+}
+
+const MASK_COLOR = 'rgba(0,0,0,0.3)'
+
+export function ModelEditAreaDialog(props: {
+  element: AreaDialogElement | null
+  iframeRef?: HTMLIFrameElement
+  viewportScale?: number
+  filePath: string
+  tabTitle: string
+  disabled?: boolean
+  sessionId?: string
+  skillConfig?: SkillConfig
+  artifactFiles?: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import('../addon-menu/asset-library').AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
+  onClose: () => void
+  onSubmitStart?: () => void
+  onMentionActiveChange?: (active: boolean) => void
+  closeMentionTrigger?: number
+  promptCallback?: (filePath: string, selector: string) => string
+  /** 选中框边框色（默认蓝 #007bff，prototype 宿主元素传橙 #fa8c16） */
+  maskBorderColor?: string
+  /** 选中框背景色（默认 rgba(0,123,255,0.1)） */
+  maskBgColor?: string
+  /** 容器用 position:fixed 而非 absolute（prototype 浮层需脱离面板定位到视口） */
+  fixedPosition?: boolean
+}): JSX.Element {
+  const [submitting, setSubmitting] = createSignal(false)
+  const [hasText, setHasText] = createSignal(false)
+  const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
+  const [dragPos, setDragPos] = createStore<{ left: number | null; top: number | null }>({ left: null, top: null })
+  let editorRef: EditorRef | undefined
+  let dialogRef: HTMLDivElement | undefined
+  let parentRef: HTMLDivElement | undefined
+  let dragOverlay: HTMLDivElement | undefined
+
+  onCleanup(() => { dragOverlay?.remove() })
+
+  const [cRect, setCRect] = createSignal<DOMRect | null>(null)
+
+  const [iframeRectTick, setIframeRectTick] = createSignal(0)
+
+  const [liveRect, setLiveRect] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  const elementId = () => props.element?.dataOdId || props.element?.id || null
+
+  const startTrackRect = () => {
+    const id = elementId()
+    if (!id) return
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:track-rect', elementId: id }, '*')
+  }
+
+  const stopTrackRect = () => {
+    props.iframeRef?.contentWindow?.postMessage({ type: 'od:stop-track-rect' }, '*')
+  }
+
+  createEffect(on(() => props.element?.dataOdId ?? props.element?.id, () => {
+    setLiveRect(null)
+    startTrackRect()
+  }))
+
+  onMount(() => {
+    if (parentRef) {
+      setCRect(parentRef.getBoundingClientRect())
+      const ro = new ResizeObserver(() => {
+        setCRect(parentRef!.getBoundingClientRect())
+        setIframeRectTick(t => t + 1)
+      })
+      ro.observe(parentRef)
+      if (props.iframeRef) {
+        ro.observe(props.iframeRef)
+      }
+      const onWinResize = () => {
+        setCRect(parentRef!.getBoundingClientRect())
+        setIframeRectTick(t => t + 1)
+      }
+      window.addEventListener('resize', onWinResize)
+      window.addEventListener('scroll', onWinResize, true)
+      onCleanup(() => {
+        ro.disconnect()
+        window.removeEventListener('resize', onWinResize)
+        window.removeEventListener('scroll', onWinResize, true)
+      })
+    }
+
+    const iframe = props.iframeRef
+    if (iframe) {
+      const onMessage = (e: MessageEvent) => {
+        if (e.source !== iframe.contentWindow) return
+        const d = e.data
+        if (!d || typeof d !== 'object') return
+        if (d.type === 'od:rect-update' && d.rect) {
+          setLiveRect(d.rect)
+        }
+      }
+      window.addEventListener('message', onMessage)
+      onCleanup(() => {
+        window.removeEventListener('message', onMessage)
+        stopTrackRect()
+      })
+    }
+  })
+
+  createEffect(on(() => props.closeMentionTrigger, (n) => {
+    if (n && n > 0) editorRef?.closeMention?.()
+  }))
+
+  const isDisabled = () => submitting() || !!props.disabled
+
+  const containerRect = () => cRect()
+
+  const elementPos = () => {
+    iframeRectTick()  // track iframe position changes
+    const el = props.element
+    const cRect = containerRect()
+    if (!el || !cRect) return null
+    // fixedPosition（prototype 浮层）：element rect 已是视口坐标（message-handler
+    // 做过 iframe→视口换算）。父容器 position:fixed;inset:0 本应贴满视口，但若祖先
+    // 有 will-change/transform 等形成 containing block（如 .make-right-panel），
+    // parentRef 会贴满该祖先而非视口。用 cRect.left/top 把视口坐标转成 parentRef
+    // 相对坐标，确保 dialogPosition/maskPieces 落点正确，避免整体往右下偏移。
+    if (props.fixedPosition) {
+      return { x: el.rect.x - cRect.left, y: el.rect.y - cRect.top, width: el.rect.width, height: el.rect.height }
+    }
+    const iframeRect = props.iframeRef?.getBoundingClientRect()
+    if (!iframeRect) return null
+    const scale = props.viewportScale ?? 1
+    const r = liveRect() ?? el.rect
+    const offsetX = iframeRect.left - cRect.left
+    const offsetY = iframeRect.top - cRect.top
+    return {
+      x: offsetX + r.x * scale,
+      y: offsetY + r.y * scale,
+      width: r.width * scale,
+      height: r.height * scale,
+    }
+  }
+
+  const dialogPosition = (): JSX.CSSProperties => {
+    if (dragPos.left !== null && dragPos.top !== null) {
+      return { left: `${dragPos.left}px`, top: `${dragPos.top}px` }
+    }
+    const rect = elementPos()
+    const cRect = containerRect()
+    if (!rect || !cRect) {
+      return { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }
+    }
+    const dialogWidth = 400
+    const dialogHeight = 250
+    const containerW = cRect.width
+    const containerH = cRect.height
+
+    let left = rect.x + rect.width / 2 - dialogWidth / 2
+    left = Math.max(8, Math.min(left, containerW - dialogWidth - 8))
+
+    let top = rect.y + rect.height + 16
+    if (top + dialogHeight > containerH - 8) {
+      top = Math.max(8, rect.y - dialogHeight - 16)
+    }
+
+    return { left: `${left}px`, top: `${top}px` }
+  }
+
+  const maskPieces = (): JSX.Element => {
+    const rect = elementPos()
+    const cRect = containerRect()
+    if (!rect || !cRect) {
+      return <div style={{ position: 'absolute', inset: 0, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
+    }
+    const cw = cRect.width
+    const ch = cRect.height
+    const ex = rect.x
+    const ey = rect.y
+    const ew = rect.width
+    const eh = rect.height
+    return (
+      <>
+        <div style={{ position: 'absolute', left: '0', top: '0', width: `${cw}px`, height: `${ey}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
+        <div style={{ position: 'absolute', left: '0', top: `${ey + eh}px`, width: `${cw}px`, height: `${ch - ey - eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
+        <div style={{ position: 'absolute', left: '0', top: `${ey}px`, width: `${ex}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
+        <div style={{ position: 'absolute', left: `${ex + ew}px`, top: `${ey}px`, width: `${cw - ex - ew}px`, height: `${eh}px`, background: MASK_COLOR, 'z-index': 10, 'pointer-events': 'none' }} />
+      </>
+    )
+  }
+
+  const startDrag = (e: MouseEvent) => {
+    if (isDisabled() || !dialogRef) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const startX = e.clientX
+    const startY = e.clientY
+    const startLeft = dialogRef.offsetLeft
+    const startTop = dialogRef.offsetTop
+
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:move;background:transparent'
+    document.body.appendChild(overlay)
+    dragOverlay = overlay
+
+    const move = (ev: MouseEvent) => {
+      setDragPos({ left: startLeft + ev.clientX - startX, top: startTop + ev.clientY - startY })
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      window.removeEventListener('blur', up)
+      overlay.remove()
+      dragOverlay = undefined
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+    window.addEventListener('blur', up)
+  }
+
+  const buildPrefix = () => {
+    if (props.promptCallback) {
+      return props.promptCallback(props.filePath, props.element?.selector || '')
+    }
+    const lines: string[] = []
+    if (props.filePath) lines.push(`[文件路径: ${props.filePath}]`)
+    if (props.tabTitle) lines.push(`[页面: ${props.tabTitle}]`)
+    if (props.element?.selector) lines.push(`[元素选择器: ${props.element.selector}（该元素可能是动态生成的）]`)
+    return lines.join('\n')
+  }
+
+  const handleNext = () => {
+    if (isDisabled()) return
+    const text = editorRef?.getText?.() || ''
+    if (!text.trim()) return
+    const prefix = buildPrefix()
+    const docJSON = editorRef?.getDocJSON?.()
+    appendToMainComposer(prefix, docJSON)
+    editorRef?.clear?.()
+    setMentionSelections([])
+    tracker.interaction({ module: "design", name: "append-model-edit-prompt" })
+  }
+
+  const handleConfirm = async () => {
+    if (isDisabled()) return
+    const text = editorRef?.getText?.() || ''
+    if (!text.trim()) return
+    const prefix = buildPrefix()
+    const docJSON = editorRef?.getDocJSON?.()
+    appendToMainComposer(prefix, docJSON)
+    setSubmitting(true)
+    props.onSubmitStart?.()
+    submitMainComposer()
+    setSubmitting(false)
+    tracker.interaction({ module: "design", name: "submit-model-edit-prompt" })
+  }
+
+  return (
+    <div ref={parentRef} style={{ position: props.fixedPosition ? 'fixed' : 'absolute', inset: 0, 'pointer-events': 'none', cursor: isDisabled() ? 'wait' : 'default', ...(props.fixedPosition ? { 'z-index': 200 } : {}) }}>
+      {maskPieces()}
+      <div
+        ref={dialogRef}
+        class="model-edit-area-dialog"
+        style={{ ...dialogPosition(), cursor: isDisabled() ? 'wait' : 'default' }}
+      >
+        <div class="model-edit-area-header" onMouseDown={startDrag}>
+          <span>修改选中区域</span>
+        </div>
+        <div class="model-edit-area-body">
+          <ProseMirrorEditor
+            sessionId={props.sessionId || ''}
+            skillConfig={props.skillConfig ?? {}}
+            artifactFiles={props.artifactFiles ?? null}
+            mentionSelections={mentionSelections()}
+            setMentionSelections={setMentionSelections}
+            disabled={isDisabled()}
+            autofocus={true}
+            placeholder="描述你想要的修改..."
+            onContentChange={(_docJSON, text) => setHasText(text.trim().length > 0)}
+            onSubmit={handleConfirm}
+            onTriggerStateChange={(active) => props.onMentionActiveChange?.(active)}
+            ref={(el: EditorRef) => { editorRef = el }}
+            productId={props.productId}
+            onDownloadProductAsset={props.onDownloadProductAsset}
+            onUpdateMentionPath={(id, path) => editorRef?.updateMentionPath(id, path)}
+          />
+        </div>
+        <div class="model-edit-area-footer">
+          <button
+            type="button"
+            class="model-edit-area-btn subtle"
+            disabled={isDisabled()}
+            onClick={props.onClose}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="model-edit-area-btn secondary"
+            disabled={isDisabled() || !hasText()}
+            onClick={handleNext}
+          >
+            下一项
+          </button>
+          <button
+            type="button"
+            class="model-edit-area-btn primary"
+            disabled={isDisabled() || !hasText()}
+            onClick={handleConfirm}
+          >
+            {submitting() ? '...' : '确认'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

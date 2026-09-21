@@ -1,8 +1,8 @@
-# JadeJueChart | 玉玦图
+# JadeJueChart | 玉玦图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic JadeJue Chart
+## Example: Basic JadeJue Chart
 - Data is an array of objects representing jade jue segments
 
 ```json
@@ -22,5 +22,5 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430", "#715afb"]` — custom segment colors

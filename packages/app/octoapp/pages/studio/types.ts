@@ -7,7 +7,7 @@ export type StudioCapability =
   | "image.outpaint"
   | "image.fusion"
 
-export type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
+export type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9" | "21:9"
 export type StudioImageTool = "jimeng" | "internel"
 
 export type StudioGenerationStatus =
@@ -71,8 +71,8 @@ export type StudioGenerationResult = {
   height?: number
   isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
-  duration?: "5" | "10"
-  videoQualityMode?: "std" | "pro"
+  duration?: string
+  videoQualityMode?: "480" | "720" | "1080" | "4k"
   images: StudioImage[]
   progress?: number
   order?: number

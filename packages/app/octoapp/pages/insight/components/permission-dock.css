@@ -8,6 +8,15 @@
  * (--surface-raised-stronger-non-alpha、--text-strong)都在这里钉成浅色字面量,
  * 并用 color-scheme: light 防止表单控件被 UA 按暗色渲染。 */
 
+/* 纵向滚动也会裁剪横向阴影；借用输入区两侧的 16px 留白，保持卡片宽度及对齐不变。
+ * 顶部另留 16px，避免首张卡片的上方阴影被滚动容器裁掉。
+ * 仅权限弹窗出现时扩展滚动边界，保留答题和队列的纵向滚动。 */
+.octo-input-docks:has(> .octo-perm-dock) {
+  margin-inline: -16px;
+  padding-inline: 16px;
+  padding-top: 16px;
+}
+
 .octo-perm-dock {
   --octo-perm-blue: #0a59f7; /* 应用通用蓝 */
   --octo-perm-ink: rgba(0, 0, 0, 0.9);

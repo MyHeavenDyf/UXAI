@@ -19,7 +19,7 @@ export function HtmlRenderer(props: { content: string }): JSX.Element {
       setBlobUrl("")
       return
     }
-    const url = URL.createObjectURL(new Blob([src], { type: "text/html" }))
+    const url = URL.createObjectURL(new Blob([src], { type: "text/html; charset=utf-8" }))
     setBlobUrl(url)
     // 内容变化前 / 组件卸载时回收,避免 blob 泄漏
     onCleanup(() => URL.revokeObjectURL(url))

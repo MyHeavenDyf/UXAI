@@ -1752,6 +1752,77 @@ test("model limit defaults to zero when not specified", async () => {
   })
 })
 
+test("custom provider model context defaults to 128k when not specified", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            custom: {
+              name: "Custom Provider",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                model: {
+                  name: "Model",
+                },
+                limited: {
+                  name: "Limited Model",
+                  limit: { context: 64_000, output: 8_000 },
+                },
+              },
+              options: { apiKey: "test", __octo_custom_provider: true },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
+      expect(providers[ProviderID.make("custom")].models["limited"].limit.context).toBe(64_000)
+    },
+  })
+})
+
+test("legacy custom provider model context defaults to 128k when not specified", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            custom: {
+              name: "Legacy Custom Provider",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                model: {
+                  name: "Model",
+                },
+              },
+              options: { apiKey: "test" },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
+    },
+  })
+})
+
 test("provider options are deeply merged", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -1940,6 +2011,7 @@ test("models.dev normalization fills required response fields", () => {
         id: "gpt-5.4",
         name: "GPT-5.4",
         family: "gpt",
+        isExternal: true,
         cost: {
           input: 2.5,
           output: 15,
@@ -1955,11 +2027,71 @@ test("models.dev normalization fills required response fields", () => {
 
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
   expect(model.api.url).toBe("")
+  expect(model.isExternal).toBe(true)
   expect(model.capabilities.temperature).toBe(false)
   expect(model.capabilities.reasoning).toBe(false)
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
+})
+
+test("models.dev normalization preserves title model candidates", () => {
+  const provider = Provider.fromModelsDevProvider(
+    {
+      id: "gateway",
+      name: "Gateway",
+      env: [],
+      title_model: ["title-missing", "title-fast"],
+      models: {
+        "title-fast": {
+          id: "title-fast",
+          name: "Title Fast",
+          release_date: "2025-01-01",
+          attachment: false,
+          reasoning: false,
+          temperature: true,
+          tool_call: true,
+          limit: { context: 128_000, output: 1_000 },
+        },
+        selected: {
+          id: "selected",
+          name: "Selected",
+          release_date: "2025-01-01",
+          attachment: false,
+          reasoning: false,
+          temperature: true,
+          tool_call: true,
+          limit: { context: 128_000, output: 16_000 },
+        },
+      },
+    },
+    "remote",
+  )
+
+  expect(provider.title_model).toEqual(["title-missing", "title-fast"])
+  expect(Provider.resolveTitleModelID(provider, ModelID.make("selected"))).toBe(ModelID.make("title-fast"))
+})
+
+test("title model selection falls back to the selected model", () => {
+  const selected = ModelID.make("selected")
+  const provider = Provider.fromModelsDevProvider(
+    {
+      id: "gateway",
+      name: "Gateway",
+      env: [],
+      title_model: [],
+      models: {},
+    },
+    "remote",
+  )
+
+  expect(Provider.resolveTitleModelID(provider, selected)).toBe(selected)
+  expect(
+    Provider.resolveTitleModelID(
+      { ...provider, title_model: ["title-fast"], source: "config", options: { __octo_custom_provider: true } },
+      selected,
+    ),
+  ).toBe(selected)
 })
 
 test("model variants are generated for reasoning models", async () => {

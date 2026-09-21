@@ -1,6 +1,6 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
-import { getDefaultDimensions } from "./studio-shared"
+import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -15,6 +15,7 @@ export type StudioTurnData = {
   toolName?: string
   toolRunning?: boolean
   inputImages?: StudioInputImage[]
+  mentionImages?: Record<string, string>
   result?: StudioGenerationResult
   createdAt: number
   isLatest: boolean
@@ -195,9 +196,23 @@ function parseToolOutput(output?: string) {
   }
 }
 
+const VALID_VIDEO_QUALITY_MODES = new Set<string>(["480", "720", "1080", "4k"])
+
+function resolveVideoQualityMode(output: Record<string, unknown> | undefined, extra: Record<string, unknown> | undefined): StudioVideoQualityMode | undefined {
+  const fromOutput = stringField(output, "videoQualityMode")
+  if (fromOutput && VALID_VIDEO_QUALITY_MODES.has(fromOutput)) return fromOutput as StudioVideoQualityMode
+  const fromExtra = STUDIO_VIDEO_RESOLUTION_KEY[stringField(extra, "resolution") ?? ""]
+  return fromExtra
+}
+
 function stringField(record: Record<string, unknown> | undefined, key: string) {
   const value = record?.[key]
   return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function optionalStringField(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key]
+  return typeof value === "string" ? value : undefined
 }
 
 function numberField(record: Record<string, unknown> | undefined, key: string) {
@@ -213,6 +228,12 @@ function recordField(record: Record<string, unknown> | undefined, key: string) {
 function stringArrayField(value: unknown) {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+}
+
+function stringRecordField(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const entries = Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  return entries.length ? Object.fromEntries(entries) : undefined
 }
 
 function inputImageRef(value: unknown) {
@@ -290,7 +311,8 @@ function normalizeAspectRatio(value?: string): StudioAspectRatio {
     value === "9:16" ||
     value === "3:2" ||
     value === "4:3" ||
-    value === "16:9"
+    value === "16:9" ||
+    value === "21:9"
   ) return value
   return "3:4"
 }
@@ -300,6 +322,7 @@ const STUDIO_ASPECT_RATIO_CANDIDATES: { key: StudioAspectRatio; value: number }[
   { key: "4:3", value: 4 / 3 },
   { key: "3:2", value: 3 / 2 },
   { key: "16:9", value: 16 / 9 },
+  { key: "21:9", value: 21 / 9 },
   { key: "3:4", value: 3 / 4 },
   { key: "2:3", value: 2 / 3 },
   { key: "9:16", value: 9 / 16 },
@@ -449,6 +472,7 @@ function buildResult(input: {
     return "1:1" // neutral fallback for edits (most preserve the input aspect ratio)
   })()
   const extra = recordField(inputRecord, "extra")
+  const mentionImages = stringRecordField(extra?.mentionImages)
   const size = recordField(inputRecord, "target_size")
   const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")
   const height = size ? numberField(size, "height") : numberField(inputRecord, "height") ?? numberField(extra, "height")
@@ -459,7 +483,12 @@ function buildResult(input: {
     stringField(inputRecord, "prompt") ??
     extractUserDemand(input.userText)
   const displayPrompt = stringField(inputRecord, "displayPrompt")
-  const detailPrompt = stringField(inputRecord, "detailPrompt") ?? (displayPrompt ? undefined : extractUserDemand(input.userText))
+  const persistedDetailPrompt = optionalStringField(inputRecord, "detailPrompt")
+  const detailPrompt = persistedDetailPrompt !== undefined
+    ? persistedDetailPrompt
+    : displayPrompt
+      ? undefined
+      : extractUserDemand(input.userText)
   const detailTitle = stringField(inputRecord, "detailTitle")
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
@@ -475,6 +504,7 @@ function buildResult(input: {
     userText: displayPrompt || extractUserDemand(input.userText),
     assistantText: input.assistantText,
     inputImages,
+    mentionImages,
     toolTitle: media.length > 0
       ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
       : running
@@ -508,9 +538,9 @@ function buildResult(input: {
           width,
           height,
           isCustom: isCustom || undefined,
-          videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
-          duration: stringField(output, "duration") as StudioGenerationResult["duration"],
-          videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],
+          videoMode: (stringField(output, "videoMode") ?? stringField(extra, "videoMode")) as StudioGenerationResult["videoMode"],
+          duration: (stringField(output, "duration") ?? stringField(extra, "duration")) as StudioGenerationResult["duration"],
+          videoQualityMode: resolveVideoQualityMode(output, extra),
           images: media.map((item, index) => ({
             id: `studio_img_${completed?.id ?? input.messageID}_${index}`,
             kind: item.kind,

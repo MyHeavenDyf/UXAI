@@ -580,7 +580,7 @@ function makeEditable(el,ev){
     el.removeEventListener('keydown',onKey);
     var v=(el.textContent||'').trim();
     if(commit&&v!==orig.trim()){
-      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v},'*');
+      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v,before:orig.trim(),target:getManualEditTarget(el)},'*');
     }else if(!commit)el.textContent=orig;
   }
   function onBlur(){
@@ -595,9 +595,70 @@ function makeEditable(el,ev){
   el.addEventListener('keydown',onKey);
 }
 
-function getManualEditTarget(el) {
+function tagLabel(el) {
+  var t = el.tagName ? el.tagName.toLowerCase() : '';
+  var c = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
+  var nth = 1;
+  var parent = el.parentElement;
+  if (parent) {
+    for (var i = 0; i < parent.children.length; i++) {
+      if (parent.children[i] === el) { nth = i + 1; break; }
+    }
+  }
+  return t + c + ':nth-child(' + nth + ')';
+}
+
+function buildSelector(el) {
+  var parts = [];
+  var cur = el;
+  for (var i = 0; i < 5 && cur && cur !== document.body && cur !== document.documentElement; i++) {
+    parts.unshift(tagLabel(cur));
+    cur = cur.parentElement;
+  }
+  return parts.join(' > ');
+}
+
+var annotateNextId = -1;
+// Assign a runtime data-od-id to elements rendered after the static annotation
+// (e.g. React content in .shadcn.html), continuing the el-* counter.
+function ensureAnnotatedId(el) {
   if (!el || !el.getAttribute) return null;
   var id = el.getAttribute('data-od-id');
+  if (id) return id;
+  var tag = el.tagName ? el.tagName.toUpperCase() : '';
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return null;
+  if (annotateNextId < 0) {
+    var els = document.querySelectorAll('[data-od-id]');
+    for (var i = 0; i < els.length; i++) {
+      var attr = els[i].getAttribute('data-od-id');
+      if (attr && attr.indexOf('el-') === 0) {
+        var n = parseInt(attr.substring(3), 10);
+        if (!isNaN(n) && n > annotateNextId) annotateNextId = n;
+      }
+    }
+  }
+  annotateNextId++;
+  id = 'el-' + annotateNextId;
+  el.setAttribute('data-od-id', id);
+  return id;
+}
+
+// Annotate the whole rendered DOM once edit mode is enabled so dynamic elements
+// are selectable and get hover outlines.
+function annotateRendered() {
+  function walk(el) {
+    if (el.nodeType !== 1) return;
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return;
+    ensureAnnotatedId(el);
+    for (var i = 0; i < el.children.length; i++) walk(el.children[i]);
+  }
+  walk(document.body);
+}
+
+function getManualEditTarget(el) {
+  if (!el || !el.getAttribute) return null;
+  var id = ensureAnnotatedId(el);
   if (!id) return null;
   
   var tag = el.tagName.toLowerCase();
@@ -640,7 +701,10 @@ function getManualEditTarget(el) {
     'padding','paddingTop','paddingRight','paddingBottom','paddingLeft',
     'margin','marginTop','marginRight','marginBottom','marginLeft',
     'border','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth',
-    'borderStyle','borderColor','borderRadius'
+    'borderStyle','borderColor','borderRadius',
+    'boxShadow','filter','backdropFilter','backgroundImage','overflow',
+    'borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius',
+    'verticalAlign'
   ];
   styleProps.forEach(function(p) {
     styles[p] = computed[p] || '';
@@ -664,9 +728,33 @@ function getManualEditTarget(el) {
     fields: fields,
     attributes: attributes,
     styles: styles,
+    selector: buildSelector(el),
+    htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
     isLayoutContainer: el.children.length > 0,
     outerHtml: el.outerHTML.slice(0, 500)
   };
+}
+
+function setMixedContainerText(el, newText) {
+  var firstTextNode = null;
+  for (var i = 0; i < el.childNodes.length; i++) {
+    var node = el.childNodes[i];
+    if (node.nodeType === 3 && node.textContent && node.textContent.trim()) {
+      if (!firstTextNode) {
+        firstTextNode = node;
+      } else {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        i--;
+      }
+    }
+  }
+  if (firstTextNode) {
+    firstTextNode.textContent = newText;
+  } else if (el.lastChild && el.lastChild.nodeType === 1) {
+    el.insertBefore(document.createTextNode(newText), null);
+  } else {
+    el.appendChild(document.createTextNode(newText));
+  }
 }
 
 function clearSelectedTarget() {
@@ -683,6 +771,62 @@ function setSelectedTarget(id) {
   lastSelectedId = id;
 }
 
+var eb_trackId = null;
+var eb_trackRaf = 0;
+var eb_trackRo = null;
+function eb_trackSend() {
+  if (!eb_trackId) return;
+  var el = document.querySelector('[data-od-id="' + eb_trackId + '"]');
+  if (!el) return;
+  var r = el.getBoundingClientRect();
+  window.parent.postMessage({ type: 'od:rect-update', elementId: eb_trackId, rect: { x: r.left, y: r.top, width: r.width, height: r.height } }, '*');
+}
+function eb_trackRefresh() {
+  if (eb_trackRaf) cancelAnimationFrame(eb_trackRaf);
+  eb_trackRaf = requestAnimationFrame(function() { eb_trackRaf = 0; eb_trackSend(); });
+}
+function eb_startTrack(id) {
+  eb_stopTrack();
+  eb_trackId = id;
+  eb_trackSend();
+  window.addEventListener('scroll', eb_trackRefresh, true);
+  window.addEventListener('resize', eb_trackRefresh);
+  if (typeof ResizeObserver !== 'undefined' && document.documentElement) {
+    eb_trackRo = new ResizeObserver(function() { eb_trackRefresh(); });
+    eb_trackRo.observe(document.documentElement);
+    var el = document.querySelector('[data-od-id="' + id + '"]');
+    if (el) eb_trackRo.observe(el);
+  }
+}
+function eb_stopTrack() {
+  if (eb_trackId) {
+    window.removeEventListener('scroll', eb_trackRefresh, true);
+    window.removeEventListener('resize', eb_trackRefresh);
+    if (eb_trackRo) { eb_trackRo.disconnect(); eb_trackRo = null; }
+    if (eb_trackRaf) { cancelAnimationFrame(eb_trackRaf); eb_trackRaf = 0; }
+    eb_trackId = null;
+  }
+}
+
+function eb_forwardToNestedIframes(d) {
+  var iframes = document.querySelectorAll('iframe[data-od-me-injected]');
+  for (var i = 0; i < iframes.length; i++) {
+    try { iframes[i].contentWindow.postMessage(d, '*'); } catch(e) {}
+  }
+}
+
+// Relay messages from nested iframes to parent
+window.addEventListener('message', function(ev) {
+  var d = ev && ev.data;
+  if (!d) return;
+  if (ev.source !== window.parent && ev.source !== window) {
+    if (d.type === 'od:edit-selected' || d.type === 'od:rect-update') {
+      window.parent.postMessage(d, '*');
+      return;
+    }
+  }
+}, true);
+
 window.addEventListener('message',function(ev){
   var d=ev&&ev.data;
   if(!d)return;
@@ -691,9 +835,12 @@ window.addEventListener('message',function(ev){
     editEnabled = d.enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
+      annotateRendered();
+      document.body.addEventListener('mousedown',handleEditMouseDown,true);
       document.body.addEventListener('click',handleEditSingleClick,true);
       document.body.addEventListener('dblclick',handleEditDoubleClick,true);
     } else {
+      document.body.removeEventListener('mousedown',handleEditMouseDown,true);
       document.body.removeEventListener('click',handleEditSingleClick,true);
       document.body.removeEventListener('dblclick',handleEditDoubleClick,true);
       clearSelectedTarget();
@@ -728,36 +875,59 @@ window.addEventListener('message',function(ev){
         ok:true
       },'*');
     }else{
-      window.parent.postMessage({
-        type:'od:edit-preview-style-applied',
-        id:d.id||'',
-        version:d.version||0,
-        ok:false,
-        error:'Target not found'
-      },'*');
+      eb_forwardToNestedIframes(d);
     }
     return;
   }
   
   if(d.type==='od:edit-text'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
-    if(el)el.textContent=d.value;
+    if(el){
+      if(el.children.length>0){
+        setMixedContainerText(el,d.value);
+      }else{
+        el.textContent=d.value;
+      }
+    } else { eb_forwardToNestedIframes(d); }
+    return;
   }
   if(d.type==='od:edit-attr'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
     if(el&&ATTR_PROPS.includes(d.attr))el.setAttribute(d.attr,d.value);
+    else eb_forwardToNestedIframes(d);
+    return;
   }
   if(d.type==='od:edit-style'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
     if(el)el.style.setProperty(d.prop,d.value,'important');
+    else eb_forwardToNestedIframes(d);
+    return;
+  }
+  if(d.type==='od:track-rect'){
+    var trackEl=document.querySelector('[data-od-id="'+d.elementId+'"]');
+    if(trackEl) eb_startTrack(d.elementId);
+    else eb_forwardToNestedIframes(d);
+    return;
+  }
+  if(d.type==='od:stop-track-rect'){
+    eb_stopTrack();
+    eb_forwardToNestedIframes(d);
+    return;
   }
 });
+
+function handleEditMouseDown(ev){
+  if(!editEnabled)return;
+  ev.preventDefault();
+}
 
 function handleEditSingleClick(ev){
   if(!editEnabled)return;
   if(ev.target&&ev.target.closest&&ev.target.closest('[data-od-editing="true"]'))return;
   ev.preventDefault();
   ev.stopPropagation();
+  
+  clearSelectedTarget();
   
   var el=ev.target;
   while(el&&el!==document.documentElement){
@@ -794,16 +964,12 @@ function handleEditDoubleClick(ev){
 
 export const EDIT_BRIDGE_STYLE = `<style data-od-edit-bridge-style>
 html[data-od-edit-mode] body * { cursor: pointer !important; }
-html[data-od-edit-mode] [data-od-id],
-html[data-od-edit-mode] [data-od-runtime-id],
-html[data-od-edit-mode] [data-od-source-path] { outline: 1px dashed rgba(37, 99, 235, 0.35); outline-offset: 3px; }
 html[data-od-edit-mode] [data-od-id]:hover,
 html[data-od-edit-mode] [data-od-runtime-id]:hover,
 html[data-od-edit-mode] [data-od-source-path]:hover { outline: 2px solid #2563eb; }
 html[data-od-edit-mode] [data-od-edit-selected] {
   outline: 2px solid #2563eb !important;
   outline-offset: 4px;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16);
 }
 html[data-od-edit-mode] [data-od-editing="true"] {
   outline: 2px solid #2563eb !important;

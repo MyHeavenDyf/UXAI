@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -19,6 +19,24 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
+
+describe("Studio result-card status", () => {
+  test("keeps a running generation with a legacy transient error in the generating state", () => {
+    expect(studioResultCardStatus({
+      result: { status: "running", images: [], error: "query_task returned status=500" },
+      busy: true,
+      toolRunning: true,
+    })).toBe("running")
+  })
+
+  test("shows an error only after the generation reaches a failure status", () => {
+    expect(studioResultCardStatus({
+      result: { status: "failed", images: [], error: "query_task returned failure" },
+      busy: false,
+      toolRunning: false,
+    })).toBe("failed")
   })
 })
 
@@ -100,6 +118,7 @@ const runningToolPart = (
   messageID: string,
   tool = "internel_image_generate",
   studio?: Record<string, unknown>,
+  input: Record<string, unknown> = {},
 ) =>
   ({
     id,
@@ -112,7 +131,7 @@ const runningToolPart = (
       status: "running",
       title: "图片生成",
       time: { start: 1 },
-      input: { capability: "image.generate", aspectRatio: "3:4" },
+      input: { capability: "image.generate", aspectRatio: "3:4", ...input },
       metadata: studio ? { studio } : undefined,
     },
   }) as Part
@@ -123,6 +142,7 @@ const erroredToolPart = (
   capability: "image.generate" | "video.generate",
   error = "用户取消生成",
   status: "create_failed" | "failed" = "failed",
+  input: Record<string, unknown> = {},
 ) =>
   ({
     id,
@@ -134,7 +154,7 @@ const erroredToolPart = (
     state: {
       status: "error",
       time: { start: 1, end: 2 },
-      input: { capability, aspectRatio: capability === "video.generate" ? "16:9" : "3:4" },
+      input: { capability, aspectRatio: capability === "video.generate" ? "16:9" : "3:4", ...input },
       error,
       metadata: {
         studio: {
@@ -511,6 +531,108 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.detailPrompt).toBe("雨中的木屋")
   })
 
+  test("preserves an empty detail prompt for frame-based video generation", () => {
+    const user = userMessage("msg_empty_video_detail_user")
+    const assistant = assistantMessage("msg_empty_video_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_empty_video_detail_text", user.id, "根据首尾帧生成自然连贯的视频")],
+        [assistant.id]: [completedGenerationToolPart("p_empty_video_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          detailPrompt: "",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].userText).toBe("根据首尾帧生成自然连贯的视频")
+    expect(turns[0].result?.prompt).toBe("根据首尾帧生成自然连贯的视频")
+    expect(turns[0].result?.detailPrompt).toBe("")
+  })
+
+  test("preserves an empty detail prompt for regenerated turns", () => {
+    const user = userMessage("msg_empty_regenerate_detail_user")
+    const assistant = assistantMessage("msg_empty_regenerate_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_empty_regenerate_detail_text", user.id, "再次生成")],
+        [assistant.id]: [completedGenerationToolPart("p_empty_regenerate_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          displayPrompt: "再次生成",
+          detailPrompt: "",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/regenerated-frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].userText).toBe("再次生成")
+    expect(turns[0].result?.displayPrompt).toBe("再次生成")
+    expect(turns[0].result?.detailPrompt).toBe("")
+  })
+
+  test("preserves an empty detail prompt while generation is running or failed", () => {
+    const runningUser = userMessage("msg_empty_running_detail_user", 1)
+    const runningAssistant = assistantMessage("msg_empty_running_detail_assistant", 2)
+    const failedUser = userMessage("msg_empty_failed_detail_user", 3)
+    const failedAssistant = assistantMessage("msg_empty_failed_detail_assistant", 4)
+    const turns = buildStudioTurns({
+      messages: [runningUser, runningAssistant, failedUser, failedAssistant],
+      parts: {
+        [runningUser.id]: [textPart("p_empty_running_detail_text", runningUser.id, "根据首尾帧生成自然连贯的视频")],
+        [runningAssistant.id]: [runningToolPart(
+          "p_empty_running_detail_tool",
+          runningAssistant.id,
+          "internel_image_generate",
+          { generationID: "studio_gen_empty_running", status: "running", progress: 20 },
+          { capability: "video.generate", aspectRatio: "16:9", detailPrompt: "" },
+        )],
+        [failedUser.id]: [textPart("p_empty_failed_detail_text", failedUser.id, "根据首尾帧生成自然连贯的视频")],
+        [failedAssistant.id]: [erroredToolPart(
+          "p_empty_failed_detail_tool",
+          failedAssistant.id,
+          "video.generate",
+          "生成失败",
+          "failed",
+          { detailPrompt: "" },
+        )],
+      },
+    })
+
+    expect(turns[0].result?.status).toBe("running")
+    expect(turns[0].result?.detailPrompt).toBe("")
+    expect(turns[1].result?.status).toBe("failed")
+    expect(turns[1].result?.detailPrompt).toBe("")
+  })
+
+  test("keeps a user-entered prompt that matches the frame-video default text", () => {
+    const user = userMessage("msg_matching_default_detail_user")
+    const assistant = assistantMessage("msg_matching_default_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_matching_default_detail_text", user.id, "根据首尾帧生成自然连贯的视频")],
+        [assistant.id]: [completedGenerationToolPart("p_matching_default_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          detailPrompt: "根据首尾帧生成自然连贯的视频",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/user-prompt-frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].result?.detailPrompt).toBe("根据首尾帧生成自然连贯的视频")
+  })
+
   test("restores create failure separately from generation failure", () => {
     const user = userMessage("msg_create_failed_user")
     const assistant = assistantMessage("msg_create_failed_assistant", 2)
@@ -650,6 +772,39 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.model).toBe("magnify")
     expect(turns[0].result?.aspectRatio).toBe("16:9")
     expect(turns[0].result?.images[0]?.width).toBe(1280)
+  })
+
+  test("restores mentions from a style-template generation", () => {
+    const m1 = userMessage("msg_template_user")
+    const a1 = assistantMessage("msg_template_assistant", 2)
+    const mention = "@人物\u200B制作一张海报"
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_template_user", m1.id, mention)],
+        [a1.id]: [toolPart(
+          "p_template_tool",
+          a1.id,
+          JSON.stringify({ images: ["https://example.com/result.png"] }),
+          "internel_image_generate",
+          {
+            capability: "image.generate",
+            prompt: mention,
+            displayPrompt: mention,
+            referenceImages: ["https://example.com/person.png"],
+            extra: {
+              mentionImages: { 人物: "https://example.com/person.png" },
+              referenceImageNames: ["人物.png"],
+              template: { id: 1, prompt: { custom: mention } },
+            },
+          },
+        )],
+      },
+    })
+
+    expect(turns[0].userText).toBe(mention)
+    expect(turns[0].mentionImages).toEqual({ 人物: "https://example.com/person.png" })
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual(["https://example.com/person.png"])
   })
 
   test("ignores request urls when extracting images from tool output", () => {

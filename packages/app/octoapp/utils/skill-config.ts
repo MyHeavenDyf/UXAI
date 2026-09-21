@@ -1,6 +1,7 @@
-import type { PanelSkill } from "@/pages/make/components/skill-config-types"
+import type { PanelSkill, SkillConfigEntry } from "@/pages/make/components/skill-config-types"
 
 export interface SkillConfig {
+  skill?: Record<string, SkillConfigEntry>
   panel?: {
     common?: PanelSkill[]
     octo_make?: PanelSkill[]

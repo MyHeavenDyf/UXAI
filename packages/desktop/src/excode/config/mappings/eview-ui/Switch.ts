@@ -25,7 +25,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 const SwitchMapping: MappingDef = {
   tag: 'Toggle',
@@ -34,15 +34,14 @@ const SwitchMapping: MappingDef = {
   transform(node: any, _ctx: TransformContext) {
     const props = node.props || {}
     const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set([
-      'value', 'size',
-      'checkedChildren', 'unCheckedChildren',
-      'checkedChildrenIcon', 'unCheckedChildrenIcon',
-      'className',
-    ])
+
+    // 显性处理每个 A2UI prop（Switch: value/size/checkedChildren/unCheckedChildren/checkedChildrenIcon/unCheckedChildrenIcon），
+    // 不做兜底透传。
 
     // ─── value → toggled（双形态 + useState） ───
-    // Switch 是受控组件，必须产生 useState
+    // Switch 是受控组件，必须产生 useState。
+    // ⚠️ onToggle(value: string) 回传的是 data 的 value 值（字符串）而非 boolean，
+    //    故 extractor 不调用 setter（no-op handler），避免把字符串写进布尔 state。
     //   字面量 → Value.literal（初始值为 hardcode）
     //   DataBinding → Value.computed + useState（初始值从 state.js 取值）
     if ('value' in props) {
@@ -58,7 +57,7 @@ const SwitchMapping: MappingDef = {
           containsJSX: false,
           useState: {
             event: 'onToggle',
-            extractor: (setter) => `(checked) => ${setter}(checked)`,
+            extractor: () => '() => {}',
           },
           transform: (rawValue) => !!rawValue,
         })
@@ -68,7 +67,7 @@ const SwitchMapping: MappingDef = {
           value: val ?? false,
           useState: {
             event: 'onToggle',
-            extractor: (setter) => `(checked) => ${setter}(checked)`,
+            extractor: () => '() => {}',
           },
         })
       }
@@ -83,12 +82,7 @@ const SwitchMapping: MappingDef = {
       outputProps.className = props.className
     }
 
-    // ─── 透传剩余 prop ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
-      }
-    }
+    // 不做剩余兜底透传：A2UI Switch 的 props 已逐项显性处理。
 
     return {
       props: outputProps,

@@ -67,7 +67,7 @@ describe("octo-upload-inject 早退顺序(endpoint 未配置时不误杀无关�
 })
 
 // 本地文件工具的 path/filePath 是本地磁盘目标,永不该被换成 S3 URL(回归:内网上传 md → 让其在
-// 末尾追加,write 的 filePath 命中清单被替换成 S3 URL,octo-outputs-redirect 再把非绝对的 https://
+// 末尾追加,write 的 filePath 命中清单被替换成 S3 URL,octo-session-workdir 再把非绝对的 https://
 // 串 join 进 outputs/,建目录时因路径含 URL 成分崩溃 makeDirectory .../outputs/https:/.../...)。
 // 关键点:即便 endpoint 已配置(内网),这些工具也必须原值放行——由排除集早退,而非"没配 endpoint"的兜底。
 describe("本地文件工具排除(write/edit/read 等不被换成 S3 URL)", () => {
@@ -103,4 +103,88 @@ describe("本地文件工具排除(write/edit/read 等不被换成 S3 URL)", () 
       expect(args.filePath).toBe("report.md")
     },
   )
+})
+
+// `@` 引用的会话文件(SPEC-INS-023 `[引用文件]` 区块)与 `[附件]` 同属「可喂 MCP 的文件白名单」。
+// 2026-08-20 内网回归:此前插件只认 `[附件]`,「先对话生成 md → `@` 它 → 选研究工具」必死。
+// 判据用「抛的是哪个错」区分两种失败:
+//   - "不在本会话的文件清单中" = 白名单没收录(本次要修的 bug)
+//   - "上传服务未配置"        = 已收录、走到了上传步骤(测试环境没配 endpoint,属预期)
+describe("[引用文件] 清单(@ 引用的会话文件)同样是 MCP 白名单", () => {
+  // `@` 清单头行尾带中文说明(formatMentionedFilesForPrompt),parseManifest 只吃 "- " 开头的行 → 应被跳过
+  const MENTION_MANIFEST =
+    "[引用文件] 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件;区别:正文未随内联):\n" +
+    "- 用户问题需求记录.md: /tmp/ses_x/outputs/用户问题需求记录.md"
+  const DECLARATION = '[MCP声明]\n{"tool":"uxr-tool_key_findings","outline_required":false,"user_prompt":"生成观点解析"}'
+
+  test("通用路径:MCP 工具引用 @ 来的产物文件,已被收录(走到上传步骤而非判「不在清单」)", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST])])
+    const args = { download_links: ["用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("chip 声明路径:download_links 填 @ 来的产物文件名,resolvePath 命中", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("chip 声明路径:清单外的文件名仍响亮失败(白名单语义不变)", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["不存在的文件.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow(
+      "不在本会话的文件清单中",
+    )
+  })
+
+  test("[附件] 与 [引用文件] 混用:两个区块的文件都进同一张白名单", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST]), userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["访谈稿.docx", "用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("清单头行尾的中文说明不被误解析成文件", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    // 说明行里含 "[附件]" 等字样,若被当成条目会污染白名单 → 用一个明显来自说明文案的串验证仍 miss
+    const args = { download_links: ["正文未随内联"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow(
+      "不在本会话的文件清单中",
+    )
+  })
+})
+
+// SPEC-INS-032 §5.3:两套「异步结果」共用 `task_id` 这个参数名,弱模型必然会混——
+// 原生 task 派子代理返回的是 `ses_` 开头的**会话 id**(且它是同步的,结论已在 <task_result> 里),
+// MCP get_task_result 认的是业务长任务的哈希任务号。内网实测:子代理被限流打断后,父代理拿着
+// 会话 id 去 get_task_result 得到 not_found,于是判定"子代理失败"退回自己逐份读,分治整个白做。
+describe("子代理会话 id 被当成 MCP 任务号(响亮失败并指回正确路径)", () => {
+  const call = (tool: string, args: unknown) => ({ tool, sessionID: "ses_test", callID: "call_x" })
+
+  test("get_task_result 收到 ses_ 开头的 task_id → 抛错,且文案指向 task(task_id=…) 续跑", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_fbf3aae07ffegA1v2hbFeKik5R" } }
+    await expect(hook(call("uxr-tool_get_task_result", output.args), output)).rejects.toThrow(/子代理的会话 id/)
+    // 关键:错误里必须给出可执行的下一步,否则模型只会换个姿势继续乱试
+    await expect(hook(call("uxr-tool_get_task_result", output.args), output)).rejects.toThrow(/task_id 设为/)
+  })
+
+  test("stop_task 同样拦(它也只认业务任务号)", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_abc123" } }
+    await expect(hook(call("uxr-tool_stop_task", output.args), output)).rejects.toThrow(/子代理的会话 id/)
+  })
+
+  test("正常的业务任务号原样放行(不是 ses_ 前缀就不管)", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "9f2c1ab4d7e" } }
+    await hook(call("uxr-tool_get_task_result", output.args), output)
+    expect(output.args).toEqual({ task_id: "9f2c1ab4d7e" })
+  })
+
+  test("本地 task 工具自己传 ses_ 开头的 task_id(续跑)不受影响", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_abc123", subagent_type: "insight_reader" } }
+    await hook(call("task", output.args), output)
+    expect(output.args).toEqual({ task_id: "ses_abc123", subagent_type: "insight_reader" })
+  })
 })

@@ -124,13 +124,16 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
           search: ctx.query.search,
           limit: limit + 1,
           archived: ctx.query.archived,
+          agent: ctx.query.agent,
+          pinned: ctx.query.pinned,
+          grouped: ctx.query.grouped,
         }),
       )
       const list = sessions.length > limit ? sessions.slice(0, limit) : sessions
       return HttpServerResponse.jsonUnsafe(list, {
         headers:
           sessions.length > limit && list.length > 0
-            ? { "x-next-cursor": String(list[list.length - 1].time.updated) }
+            ? { "x-next-cursor": `${list[list.length - 1].time.updated}:${list[list.length - 1].id}` }
             : undefined,
       })
     })

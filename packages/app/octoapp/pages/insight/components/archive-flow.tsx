@@ -19,6 +19,7 @@ import { EdmUtil } from "@/utils/edmUtil"
 import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion } from "@/network/pipelineRequest"
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
+import { archiveFileSizeError } from "../utils/archive-size"
 
 export type ArchiveTarget =
   | {
@@ -212,6 +213,14 @@ async function runArchiveFileTask(
     const file = await target.getFile()
     if (!file) {
       showToast({ title: "归档失败", description: "无法获取文件内容" })
+      return
+    }
+    // 中央守卫:EDM 文件归档区间 1B~4GiB。前置置灰只覆盖有同步口径的来源(文件管理带 size、文本类看 content),
+    // uri / 写产物等拿不到大小的在此兜底 —— 此处 File 已物化,读 file.size 是准的,拦在打到服务端之前
+    // (空文件 = 0 字节同样在此拦)。
+    const sizeErr = archiveFileSizeError(file.size)
+    if (sizeErr) {
+      showToast({ title: "归档失败", description: sizeErr })
       return
     }
     const dt = new DataTransfer()

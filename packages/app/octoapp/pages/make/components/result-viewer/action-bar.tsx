@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js"
-import { Show, For, createSignal, createEffect, onCleanup } from "solid-js"
+import { Show, For, createSignal, createEffect, onCleanup, createMemo } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
@@ -7,17 +7,37 @@ import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
 import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron } from "../../icons"
 import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
+import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
+import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { DownloadCancelledError } from "../../subtype-handlers/default"
+import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
+import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
+import { usePixsoTransport, type UploadZipOptions, type PixsoAction } from "@/utils/useZipTransport"
+import type { VersionEntry } from "../../utils/history-store"
+import { HistoryPanel } from "./history-panel"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { TaskStore } from "@/context/task"
+import { useParams } from "@solidjs/router"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
 const ACTION_BAR_WRAP_WIDTH = 480
 
+function extractCodeBlock(text: string, lang: string): string {
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
+}
+
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
-    .then(() => showToast({ title: "已复制" }))
+    .then(() => showOctoToast({ title: "已复制" }))
     .catch(console.error)
 }
 
@@ -33,18 +53,18 @@ function stripExtension(title: string, ext: string): string {
   return title
 }
 
-async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
   const api = getDesktopApi()
 
   if (api?.saveFilePicker && api?.writeFileBuffer) {
     const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
-    if (!chosen) return
+    if (!chosen) return false
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
-    showToast({ title: "已下载" })
-    return
+    showOctoToast({ title: "已下载" })
+    return true
   }
 
   const url = URL.createObjectURL(blob)
@@ -55,7 +75,8 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  showToast({ title: "已下载" })
+  showOctoToast({ title: "已下载" })
+  return true
 }
 
 function markdownTableToCSV(md: string): string {
@@ -229,6 +250,10 @@ function exportDeckAsPDF(content: string, title: string) {
 
 const VIEWPORT_OPTIONS: { value: ViewportPreset; label: string; icon: JSX.Element }[] = [
   { value: "desktop", label: "桌面", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1920", label: "桌面(1920*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1680", label: "桌面(1680*1050)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1440", label: "桌面(1440*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1366", label: "桌面(1366*768)", icon: <IconViewportDesktop size={13} /> },
   { value: "tablet", label: "平板", icon: <IconViewportTablet size={13} /> },
   { value: "mobile", label: "手机", icon: <IconViewportMobile size={13} /> },
 ]
@@ -237,6 +262,140 @@ const MODE_OPTIONS: { value: "preview" | "edit"; label: string; icon: JSX.Elemen
   { value: "preview", label: "预览", icon: <IconActionPreview size={13} /> },
   { value: "edit", label: "源码", icon: <IconActionEdit size={13} /> },
 ]
+
+function CanvasEditDropdown(props: {
+  tab: ResultTab
+  sessionId?: string
+  sdkDirectory?: string
+  observedUrlsGetter?: () => string[]
+    onFilesRefresh?: () => void
+    disabled?: boolean
+   }): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const [loading, setLoading] = createSignal(false)
+  const [actions, setActions] = createSignal<PixsoAction[]>([])
+  const [currentOptions, setCurrentOptions] = createSignal<UploadZipOptions | null>(null)
+  let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (menuRef?.contains(target) || btnRef?.contains(target)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener("click", handler)
+    window.addEventListener("blur", onBlur)
+    onCleanup(() => {
+      document.removeEventListener("click", handler)
+      window.removeEventListener("blur", onBlur)
+    })
+  })
+
+  const handleClick = async () => {
+    if (loading()) return
+    
+    const handler = getSubtypeHandler(props.tab.subtype)
+    if (!handler?.handleCanvasEdit) {
+      showOctoToast({ title: "不支持的操作" })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const ctx: SubtypeHandlerContext = {
+        tab: props.tab,
+        sessionId: props.sessionId,
+        showOctoToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: props.observedUrlsGetter,
+        usePixsoTransport,
+        sdkDirectory: props.sdkDirectory,
+        onFilesRefresh: props.onFilesRefresh,
+      }
+      
+      const result = await handler.handleCanvasEdit(ctx)
+      
+      if (result && typeof result === 'object' && 'options' in result && result.options) {
+        const pixsoResult = await usePixsoTransport(result.options)
+        setCurrentOptions(() => result.options!)
+        setActions(() => pixsoResult.actions)
+        setOpen(true)
+      }
+    } catch (error) {
+      console.error("[CanvasEditDropdown] Error:", error)
+      showOctoToast({ title: "操作失败", description: String(error) })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAction = async (action: PixsoAction) => {
+    const opts = currentOptions()
+    if (!opts) return
+    setOpen(false)
+    try {
+      await action.fn(opts)
+    } catch (error) {
+      console.error("[CanvasEditDropdown] Action error:", error)
+      showOctoToast({ title: "操作失败", description: String(error) })
+    }
+  }
+
+  return (
+    <div class="octo-dropdown">
+      <button
+        ref={btnRef}
+        type="button"
+        class="octo-action-btn"
+        classList={{ "octo-dropdown-disabled": loading(), "octo-dropdown-open": open() }}
+        onClick={handleClick}
+        disabled={loading()}
+        title="画布编辑"
+      >
+        <IconCanvasEdit size={16} />
+        <span>{loading() ? "加载中..." : "画布编辑"}</span>
+      </button>
+      <Show when={open() && actions().length > 0}>
+        <Portal mount={document.body}>
+          {(() => {
+            const rect = btnRef?.getBoundingClientRect()
+            return (
+              <div
+                ref={menuRef}
+                class="octo-dropdown-menu"
+                style={{
+                  top: `${(rect?.bottom ?? 0) + 4}px`,
+                  left: `${rect?.left ?? 0}px`,
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement
+                  if (!target.closest("button")) setOpen(false)
+                }}
+              >
+                <For each={actions()}>
+                  {(action) => (
+                    <button
+                      type="button"
+                      class="octo-dropdown-item"
+                      onClick={() => handleAction(action)}
+                    >
+                      <span>{action.label}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            )
+          })()}
+        </Portal>
+      </Show>
+    </div>
+  )
+}
 
 function Dropdown(props: {
   options: { value: string; label: string; icon: JSX.Element }[]
@@ -310,7 +469,7 @@ function Dropdown(props: {
                     </button>
                   )}
                 </For>
-              </div>
+</div>
             )
           })()}
         </Portal>
@@ -326,6 +485,7 @@ export function ActionBar(props: {
     palette?: PaletteId | null
     inspecting?: boolean
     editing?: boolean
+    modelEditing?: boolean
     drawing?: boolean
     commenting?: boolean
     archiving?: boolean
@@ -336,26 +496,120 @@ export function ActionBar(props: {
     onPaletteChange?: (palette: PaletteId | null) => void
     onInspectToggle?: () => void
     onEditToggle?: () => void
+    onModelEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
-    onCanvasToDesign?: () => void
+    observedResourceUrls?: () => string[]
+    onHistoryToggle?: () => void
+    historyActive?: boolean
+    historyEntries?: VersionEntry[]
+    currentVersionId?: string | null
+    onHistorySwitch?: (entry: VersionEntry) => void
+    sessionId?: string
+    sdkDirectory?: string
+    postMessageToIframe?: (data: unknown) => void
+    onFilesRefresh?: () => void
+    disabled?: boolean
   }): JSX.Element {
-  async function handleDownload() {
-    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
-    if (props.tab.type === "deck") {
-      exportDeckAsPDF(props.tab.content, props.tab.title)
-      return
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
+  const params = useParams<{ id?: string }>()
+
+  async function handleDownload(option?: string) {
+    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
+
+    const taskId = `download-${Date.now()}`
+    TaskStore.add([{
+      key: taskId,
+      taskId,
+      type: "download",
+      serviceType: "octo_download",
+      name: props.tab.title,
+      size: 0,
+      status: "in_progress",
+      hasProgress: false,
+      canCancel: false,
+      createdAt: Date.now(),
+    }])
+
+    try {
+      const handler = getSubtypeHandler(props.tab.subtype)
+      if (handler?.handleDownload) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx = {
+          tab: props.tab,
+          showOctoToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: props.observedResourceUrls,
+          usePixsoTransport,
+          sdk,
+          modelKey,
+          sync,
+          sessionId: params.id,
+        }
+
+        const handled = await handler.handleDownload(ctx, option)
+        if (handled === true) {
+          TaskStore.finish([{ key: taskId, status: "completed" }])
+          return
+        }
+      }
+
+      const defaultHandler = getSubtypeHandler('_default')
+      await defaultHandler?.handleDownload?.({
+        tab: props.tab,
+        showOctoToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: props.observedResourceUrls,
+        usePixsoTransport,
+      })
+      TaskStore.finish([{ key: taskId, status: "completed" }])
+    } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        const item = TaskStore.items().find(i => i.key === taskId)
+        if (item) TaskStore.remove(item)
+        return
+      }
+      TaskStore.error([{ key: taskId, status: "error" }])
+      showOctoToast({
+        title: "下载失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error"
+      })
     }
-    const info = getDownloadInfo(props.tab)
-    const content = extractDownloadContent(props.tab)
-    await downloadBlob(content, info.filename, info.mime)
   }
 
-  const canToggleMode = () => props.tab.type === "html"
-  const showViewport = () => props.tab.type === "html" && currentMode() === "preview"
-  const showRefreshButton = () => true
+  const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
+
+  let historyBtnRef: HTMLButtonElement | undefined
+
+  /** 统一判断：feature 是否在当前模式下可见（editOnly 的 feature 只在预览模式显示） */
+  const featureVisible = (flag: FeatureFlag): boolean => {
+    if (!isFeatureEnabled(flag)) return false
+    if (isFeatureEditOnly(flag) && currentMode() !== "preview") return false
+    return true
+  }
+
+  const canToggleMode = () => featureVisible(config().features.modeToggle) && props.tab.type === "html"
+  const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
+  const showRefreshButton = () => featureVisible(config().features.refresh)
+  const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
+  const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
+  const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
+  const showComment = () => featureVisible(config().features.comment) && showViewport()
+  const showArchive = () => featureVisible(config().features.archive) && showViewport()
+  const showDownload = () => featureVisible(config().features.download)
+  const showFullscreen = () => featureVisible(config().features.fullscreen)
+  const showHistory = () => featureVisible(config().features.history) && !!props.tab.filePath
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -366,11 +620,128 @@ export function ActionBar(props: {
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
+  
+  // 获取自定义按钮配置
+  const handler = getSubtypeHandler(props.tab.subtype)
+  const uiConfig = createMemo(() => handler?.components?.actionBar)
+  
+  const downloadOptions = createMemo(() => handler?.downloadOptions ?? [])
+  
+  const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
+  
+  const customButtons = createMemo(() => {
+    const config = uiConfig()
+    if (!config) return []
+    
+    if (config.replaceDefaultButtons && config.customButtons) {
+      return config.customButtons
+    }
+    
+    return config.extraButtons ?? []
+  })
+  
+  // 按位置分组按钮
+  const buttonsByPosition = createMemo(() => {
+    const buttons = customButtons()
+    const positions: ButtonPosition[] = [
+      'start', 'after-refresh', 'after-mode-toggle', 'after-viewport',
+      'after-edit', 'after-download', 'after-archive', 'before-comment', 'before-history', 'before-fullscreen', 'end'
+    ]
+    
+    const groups: Record<string, ActionBarButton[]> = {}
+    positions.forEach(pos => groups[pos] = [])
+    
+    buttons.forEach(button => {
+      const pos = button.position ?? 'end'
+      if (!groups[pos]) groups[pos] = []
+      groups[pos].push(button)
+    })
+    
+    // 对每个位置的按钮按 order 排序
+    Object.keys(groups).forEach(pos => {
+      groups[pos].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    })
+    
+    return groups
+  })
+  
+  // 渲染指定位置的按钮
+  const renderButtonsAtPosition = (position: ButtonPosition): JSX.Element[] => {
+    const buttons = buttonsByPosition()[position] || []
+    return buttons.map(button => renderCustomButton(button)).filter(Boolean) as JSX.Element[]
+  }
+  
+  // 渲染自定义按钮
+  const renderCustomButton = (button: ActionBarButton): JSX.Element | null => {
+    const ctx: SubtypeHandlerContext = {
+      tab: props.tab,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: props.observedResourceUrls,
+      usePixsoTransport,
+      postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
+      // 会话上下文:自定义按钮要定位会话目录时用(如 fastui 导出代码包)。
+      // 与 handleDownload 的 ctx 取法一致 —— sessionId 走路由参数。
+      sessionId: props.sessionId ?? params.id,
+      sdkDirectory: props.sdkDirectory,
+    }
+    
+    const isVisible = typeof button.visible === 'function' 
+      ? button.visible(ctx) 
+      : (button.visible ?? true)
+    
+    if (!isVisible) return null
+    
+    const isDisabled = typeof button.disabled === 'function'
+      ? button.disabled(ctx)
+      : (button.disabled ?? false)
+    
+    const isActive = () => typeof button.active === 'function'
+      ? !!(button.active as (ctx: SubtypeHandlerContext) => boolean)(ctx)
+      : !!(button.active ?? false)
+
+    const resolveIcon = () => {
+      const raw = typeof button.icon === 'function'
+        ? (button.icon as (ctx: SubtypeHandlerContext) => JSX.Element | string)(ctx)
+        : button.icon
+      return typeof raw === 'string' ? <span>{raw}</span> : raw
+    }
+
+    const resolveLabel = () =>
+      typeof button.label === 'function'
+        ? (button.label as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.label
+
+    const resolveTitle = () => {
+      const tip = typeof button.tooltip === 'function'
+        ? (button.tooltip as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.tooltip
+      return tip ?? resolveLabel()
+    }
+    
+    return (
+      <button
+        type="button"
+        class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
+        classList={{ "octo-viewport-btn-active": isActive() }}
+        onClick={() => button.onClick?.(ctx)}
+        disabled={isDisabled}
+        title={resolveTitle()}
+      >
+        {resolveIcon()}
+        <span>{resolveLabel()}</span>
+      </button>
+    )
+  }
 
   return (
+    <>
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {props.onRefresh && (
+        {renderButtonsAtPosition('start')}
+        {showRefreshButton() && props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn octo-action-btn-refresh"
@@ -404,7 +775,7 @@ export function ActionBar(props: {
       <div class="octo-action-bar-right">
         {/* Collapsible buttons - can become icons */}
         <div class="octo-action-bar-collapsible">
-          {showViewport() && props.onEditToggle && (
+          {showLocalEdit() && props.onEditToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -416,7 +787,19 @@ export function ActionBar(props: {
               <span>局部修改</span>
             </button>
           )}
-          {showViewport() && props.onDrawToggle && (
+          {showModelEdit() && props.onModelEditToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
+              onClick={props.onModelEditToggle}
+              title="局部修改"
+            >
+              <IconLocalModify size={16} />
+              <span>局部修改</span>
+            </button>
+          )}
+          {showDrawEdit() && props.onDrawToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -428,16 +811,14 @@ export function ActionBar(props: {
               <span>框选编辑</span>
             </button>
           )}
-          {showViewport() && props.onCanvasToDesign && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              onClick={props.onCanvasToDesign}
-              title="画布编辑"
-            >
-              <IconCanvasEdit size={16} />
-              <span>画布编辑</span>
-            </button>
+          {showCanvasEdit() && (
+            <CanvasEditDropdown
+              tab={props.tab}
+              sessionId={props.sessionId}
+              sdkDirectory={props.sdkDirectory}
+              observedUrlsGetter={props.observedResourceUrls}
+              onFilesRefresh={props.onFilesRefresh}
+            />
           )}
           <Show when={shouldShowCopy()}>
             <button type="button" class="octo-action-btn" onClick={() => {
@@ -448,20 +829,22 @@ export function ActionBar(props: {
               <span>复制</span>
             </button>
           </Show>
-          <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
+          <Show when={showDownload() && props.tab.type !== "local-file" && props.tab.type !== "html"}>
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
-          <Show when={props.tab.type === "html"}>
-            <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload} title="下载">
-              <IconDownloadNew size={16} />
-              <span>下载</span>
-            </button>
+          <Show when={showDownload() && props.tab.type === "html"}>
+            <DownloadButton
+              options={downloadOptions()}
+              onDownload={(option?: string) => handleDownload(option)}
+            />
           </Show>
+          {renderButtonsAtPosition('after-download')}
         </div>
 
         {/* Fixed buttons - always stay as text */}
         <div class="octo-action-bar-fixed">
-          {showViewport() && props.onPaletteChange && (
+          <Show when={!shouldReplaceDefaultButtons()}>
+            {showViewport() && props.onPaletteChange && (
             <div class="flex items-center gap-[2px] mr-1 hidden">
               <button
                 type="button"
@@ -491,7 +874,8 @@ export function ActionBar(props: {
               </For>
             </div>
           )}
-          {showViewport() && props.onCommentToggle && (
+          {renderButtonsAtPosition('before-comment')}
+          {showComment() && props.onCommentToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -505,7 +889,7 @@ export function ActionBar(props: {
               <span>标注</span>
             </button>
           )}
-          {showViewport() && props.onArchiveToggle && (
+          {showArchive() && props.onArchiveToggle && (
             <button
               type="button"
               class="octo-action-btn octo-action-btn-archive"
@@ -516,7 +900,27 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
-          <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
+          {renderButtonsAtPosition('before-history')}
+          {showHistory() && props.onHistoryToggle && (
+            <button
+              ref={historyBtnRef}
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
+              disabled={!!props.disabled}
+              onClick={props.onHistoryToggle}
+              title="历史版本"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>历史</span>
+            </button>
+          )}
+          {renderButtonsAtPosition('after-archive')}
+          {renderButtonsAtPosition('before-fullscreen')}
+          <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
             <button
               type="button"
               class="octo-action-btn"
@@ -541,9 +945,25 @@ export function ActionBar(props: {
               </svg>
             </button>
           </Show>
+          </Show>
+          {renderButtonsAtPosition('end')}
         </div>
       </div>
     </div>
+    <Show when={props.historyActive && historyBtnRef && showHistory()}>
+      <HistoryPanel
+        anchorRect={(() => {
+          const r = historyBtnRef!.getBoundingClientRect()
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
+        })()}
+        entries={props.historyEntries ?? []}
+        currentId={props.currentVersionId ?? null}
+        onSwitch={props.onHistorySwitch!}
+        onClose={() => props.onHistoryToggle?.()}
+        ignoreRef={() => historyBtnRef}
+      />
+    </Show>
+    </>
   )
 }
 
@@ -617,6 +1037,103 @@ function ExportButton(props: {
                         onClick={() => handleExport(kind)}
                       >
                         {EXPORT_LABELS[kind]}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )
+            })()}
+          </Portal>
+        </Show>
+      </div>
+    </Show>
+  )
+}
+
+function DownloadButton(props: {
+  options: { value: string; label: string }[]
+  onDownload: (option?: string) => Promise<void>
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  /** 点击下载按钮与气泡以外的区域时关闭（气泡挂载在 body 门户，需同时校验气泡自身）。
+   *  点击落在预览 iframe 内时父文档收不到 mousedown，用 window blur 兜底（焦点切入 iframe 即触发）；
+   *  mousedown 走捕获阶段，避免被中间容器的 stopPropagation 挡住 */
+  createEffect(() => {
+    if (!open()) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef?.contains(t) || menuRef?.contains(t)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener('mousedown', onDocMouseDown, true)
+    window.addEventListener('blur', onBlur)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', onDocMouseDown, true)
+      window.removeEventListener('blur', onBlur)
+    })
+  })
+
+  const hasMultiple = () => props.options.length > 1
+
+  const handlePick = async (value?: string) => {
+    setOpen(false)
+    await props.onDownload(value)
+  }
+
+  return (
+    <Show
+      when={hasMultiple()}
+      fallback={
+        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()} title="下载">
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+        </button>
+      }
+    >
+      <div class="octo-dropdown">
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-action-btn"
+          classList={{ "octo-dropdown-open": open() }}
+          style={{ width: "auto" }}
+          onClick={() => setOpen(!open())}
+          title="下载"
+        >
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+          <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
+        </button>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            {(() => {
+              const rect = btnRef?.getBoundingClientRect()
+              return (
+                <div
+                  ref={menuRef}
+                  class="octo-dropdown-menu"
+                  style={{
+                    top: `${(rect?.bottom ?? 0) + 4}px`,
+                    left: `${rect?.left ?? 0}px`,
+                  }}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement
+                    if (!target.closest("button")) setOpen(false)
+                  }}
+                >
+                  <For each={props.options}>
+                    {(opt) => (
+                      <button
+                        type="button"
+                        class="octo-dropdown-item"
+                        style={{ "justify-content": "flex-start", "text-align": "left" }}
+                        onClick={() => handlePick(opt.value)}
+                      >
+                        <span>{opt.label}</span>
                       </button>
                     )}
                   </For>

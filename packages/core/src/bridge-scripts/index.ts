@@ -3,6 +3,9 @@
 
 export * from "./constants"
 export * from "./inject"
+export * from "./encoding"
 export { annotateElementsWithIds as annotateElementsWithIdsBrowser } from "./annotate-browser"
+export { RESOURCE_COLLECTOR_BRIDGE_SCRIPT } from "./resource-collector"
+export { MODEL_EDIT_BRIDGE_SCRIPT } from "./model-edit-bridge"
 
 export * as BridgeScripts from "./index"

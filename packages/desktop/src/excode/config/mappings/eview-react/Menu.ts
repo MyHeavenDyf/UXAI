@@ -5,7 +5,7 @@
  *   - mode=horizontal → eview-react **Tab** 组件，items → TabItem children（inline LoopNode / 静态节点）
  *   - 其他（vertical/缺省） → eview-react **Accordion** 组件，items → data prop
  *
- * 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand；Tab: lazyLoad）。
+ * 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)/hideIcons；Tab: lazyLoad）。
  *
  * ## Props 对照（Accordion 分支）
  *
@@ -20,7 +20,7 @@
  * | inlineCollapsed | expanded | 1:1 透传 |
  * | mode: vertical | — | 走 Accordion 分支 |
  * | className | className | 透传 |
- * | — | hideTitleBar/enableMultiOpen/enableExpand | transform 内加 |
+ * | — | hideTitleBar/enableMultiOpen(=true)/enableExpand(=false)/hideIcons | transform 内加 |
  *
  * ## Props 对照（Tab 分支，mode=horizontal）
  *
@@ -47,8 +47,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 import type { BuildNode } from '../../../src/core/node-types'
 
 /**
@@ -98,7 +98,7 @@ export function createMenuMapping(pkg: string): MappingDef {
     tag: 'Accordion',
     import: `${pkg}/Accordion`,
 
-    // 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand；Tab: lazyLoad）
+    // 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)/hideIcons；Tab: lazyLoad）
 
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
@@ -159,23 +159,29 @@ export function createMenuMapping(pkg: string): MappingDef {
             pathType: items.pathType ?? 'absolute',
             accessPath: items.accessPath ?? 'menuData',
           }
+          // 据样本数据判断 items 是否有 icon 字段（与字面量分支 item.icon !== undefined 对齐）。
+          // 无 icon 时不加 icon binding，否则解析成 null、emit 出游离的 icon={null}。
+          const sampleItems: any[] = Array.isArray(items.stateValue) ? items.stateValue : []
+          const hasIcon = sampleItems.some((it: any) => it && typeof it === 'object' && 'icon' in it)
+          const templateProps: Record<string, any> = {
+            label: Value.binding({ path: 'title', pathType: 'relative', accessPath: 'title' }),
+          }
+          if (hasIcon) {
+            templateProps.icon = Value.binding({ path: 'icon', pathType: 'relative', accessPath: 'icon' })
+          }
           const templateItem = Node.component({
             component: 'TabItem',
             tag: 'TabItem',
             // _resolved:false → NodeMapper 走 TabItem 映射：label→title 透传、icon→resolveIcon
-            props: {
-              label: Value.binding({ path: 'title', pathType: 'relative', accessPath: 'title' }),
-              icon: Value.binding({ path: 'icon', pathType: 'relative', accessPath: 'icon' }),
-            },
+            props: templateProps,
           }) as any
           templateItem._resolved = false
-          const extract = {
-            kind: 'extract' as const,
+          const extract = Node.extract({
             componentName: `${node.id || 'Menu'}TabItemTemplate`,
-            purpose: 'component' as const,
+            purpose: 'component',
             body: [templateItem],
             _resolved: false,
-          }
+          })
           const loopNode = Node.loop({ data: dataBinding as any, template: extract })
           loopNode.inline = true
           tabChildren = loopNode
@@ -246,7 +252,8 @@ export function createMenuMapping(pkg: string): MappingDef {
       // Accordion defaults（从静态 defaults 移到此处，仅 Accordion 分支生效）
       if (!('hideTitleBar' in outputProps)) outputProps.hideTitleBar = true
       if (!('enableMultiOpen' in outputProps)) outputProps.enableMultiOpen = true
-      if (!('enableExpand' in outputProps)) outputProps.enableExpand = true
+      if (!('enableExpand' in outputProps)) outputProps.enableExpand = false
+      if (!('hideIcons' in outputProps)) outputProps.hideIcons = true
 
       // items → data：字面量直接转换，path 绑定走 ComputedValue
       const itemsIsBinding = props.items && typeof props.items === 'object' && props.items.type === 'binding'
@@ -289,13 +296,8 @@ export function createMenuMapping(pkg: string): MappingDef {
       if (props.className) {
         outputProps.className = props.className
       }
-      // 透传剩余 prop（skip 掉已处理 / 无对应概念的字段）
-      const SKIP_KEYS = new Set(['items', 'selectedKeys', 'openKeys', 'inlineCollapsed', 'mode', 'className', 'id'])
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Menu 的 props (items/selectedKeys/openKeys/inlineCollapsed/mode/className)
+      // 已逐项显性处理（id 由管线别处处理，不进 outputProps）。
 
       return {
         props: outputProps,

@@ -1,6 +1,6 @@
-# Button | 按钮
+# Button | 按钮 示例
 
-### Example: Button value path and color
+## Example: Button value path and color
 
 ```json
 {
@@ -23,7 +23,7 @@
 }
 ```
 
-### Example: Button icon
+## Example: Button icon
 
 ```json
  {
@@ -35,7 +35,7 @@
 },
 ```
 
-### Example: Button value with icon
+## Example: Button value with icon
 
 ```json
 {
@@ -50,7 +50,7 @@
 ```
 
 
-### Example: Link Button 
+## Example: Link Button 
 
 ```json
  {
@@ -59,6 +59,23 @@
 	"props": {
 		"value": "添加用户",
 		"types": "link"
+	}
+}
+```
+
+## Example: Button onClick event
+
+```json
+{
+	"id": "toggleBtn",
+	"component": "Button",
+	"props": {
+		"value": "展开详情",
+		"color": "primary",
+		"onClick": {
+			"action": "setState",
+			"args": { "path": "/isDetailOpen", "value": true }
+		}
 	}
 }
 ```

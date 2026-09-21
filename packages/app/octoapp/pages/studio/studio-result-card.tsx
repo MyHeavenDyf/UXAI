@@ -1,11 +1,11 @@
-import { For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
-import { isVideoMedia } from "./studio-shared"
+import { isVideoMedia, studioResultCardStatus } from "./studio-shared"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
 
 const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
-const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3"]
+const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3", "21:9"]
 
 type StudioResultCardProps = {
   turn: StudioTurnData
@@ -20,18 +20,43 @@ type StudioResultCardProps = {
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
-function StudioMediaPreview(props: { image: StudioImage }) {
+function StudioMediaPreview(props: { image: StudioImage; duration?: string }) {
+  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
+  const badgeDuration = () => {
+    const actual = actualDuration()
+    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
+    return props.duration
+  }
   return (
     <Show when={isVideoMedia(props.image)} fallback={
-      <img src={props.image.thumbnailUrl ?? props.image.url} class="studio-result-thumb-media" alt="" />
-    }>
-      <video
-        src={props.image.remoteUrl ?? props.image.url}
+      <img
+        src={props.image.thumbnailUrl ?? props.image.url}
         class="studio-result-thumb-media"
-        muted
-        playsinline
-        preload="metadata"
+        alt=""
+        onDragStart={(event) => {
+          event.dataTransfer?.setData("application/x-octo-studio-image", props.image.remoteUrl ?? props.image.url)
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+        }}
       />
+    }>
+      <span class="studio-result-thumb-video">
+        <video
+          src={props.image.remoteUrl ?? props.image.url}
+          class="studio-result-thumb-media"
+          muted
+          playsinline
+          preload="metadata"
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration
+            setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
+          }}
+        />
+        <Show when={badgeDuration()}>
+          <span class="studio-file-manager-media-video-badge">
+            <span class="studio-file-manager-media-video-badge-text">00:{(badgeDuration() ?? "0").padStart(2, "0")}</span>
+          </span>
+        </Show>
+      </span>
     </Show>
   )
 }
@@ -42,14 +67,12 @@ export function StudioResultCard(props: StudioResultCardProps) {
     const index = STUDIO_CAPABILITIES.findIndex((item) => item.id === capability())
     return index <= 0 ? "studio-capability-icon" : `studio-capability-icon studio-capability-icon-${index + 1}`
   }
-  const status = (): StudioGenerationStatus => {
-    if (props.turn.result?.status === "create_failed") return "create_failed"
-    if (props.turn.toolError || props.turn.result?.error) return "failed"
-    if (props.turn.result?.images.length) return "succeeded"
-    if (props.turn.result?.status) return props.turn.result.status
-    if (props.busy || props.turn.toolRunning) return "running"
-    return "failed"
-  }
+  const status = (): StudioGenerationStatus => studioResultCardStatus({
+    result: props.turn.result,
+    toolError: props.turn.toolError,
+    busy: props.busy,
+    toolRunning: Boolean(props.turn.toolRunning),
+  })
   const generating = () => status() === "queued" || status() === "running"
   const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
   const editable = () =>
@@ -193,7 +216,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
                   onClick={() => props.turn.result && props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })}
                   class="studio-result-thumb"
                 >
-                  <StudioMediaPreview image={image} />
+                  <StudioMediaPreview image={image} duration={props.turn.result?.duration} />
                 </button>
               )}
             </For>

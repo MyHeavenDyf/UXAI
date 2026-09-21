@@ -225,7 +225,7 @@ export function AttachmentBar(props: {
   )
 }
 
-function kindFromMime(mime: string): ArtifactFileKind {
+export function kindFromMime(mime: string): ArtifactFileKind {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("video/")) return "video"
   if (mime.startsWith("audio/")) return "audio"

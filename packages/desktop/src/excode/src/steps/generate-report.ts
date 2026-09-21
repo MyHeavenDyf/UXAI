@@ -7,7 +7,7 @@
  * ctx.generationReport 不再写入（保留字段仅供向后兼容 / 调试）。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { PipelineContext } from '../pipeline/pipeline-context'
 import { buildStatsFromContext, buildReportMarkdown } from '../codegen/report-generator'
 
@@ -27,6 +27,16 @@ export class GenerateReport extends Step {
     } catch (err: any) {
       console.warn(`  [warn] GenerateReport: 报告生成失败 (${err.message})`)
       ctx.generationReport = ''
+    }
+
+    // 单页隔离收集的错误汇总输出（per-page step try/catch push 进来的）
+    const errs = ctx.errors ?? []
+    if (errs.length > 0) {
+      console.error('\n──────── 页面处理错误 ────────')
+      for (const e of errs) {
+        console.error(`  [${e.step}] 页 "${e.page}": ${e.message}`)
+      }
+      console.error(`──────── 共 ${errs.length} 个页面处理失败 ────────\n`)
     }
   }
 }

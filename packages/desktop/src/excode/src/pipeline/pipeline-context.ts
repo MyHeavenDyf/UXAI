@@ -9,6 +9,7 @@
  * registry           Step 0: 创建时注入
  * config             配置对象
  * targetLib          目标组件库名
+ * theme              主题（light/dark），默认 light；来自 options.theme
  *
  * pagesData           Step 1: 读 A2UI 数据
  * builtPages          Step 2: BuildTrees 产出
@@ -30,6 +31,8 @@ export interface BuiltPage {
   extracts: ExtractNode[]   // ExtractNode 索引视图
   iconNameSet: string[]
   iconNameMap: Record<string, string>  // A2UI name → @nce/icon-plus 组件名
+  /** 事件 Action 改写的 state path 集合（带前导 `/`，与 binding.path 对齐）；state-builder 据此打 shared 标记 */
+  eventMutatedPaths: Set<string>
 }
 
 export interface MappedPage {
@@ -38,11 +41,32 @@ export interface MappedPage {
   rootTree: BuildNode
   extracts: ExtractNode[]     // NodeMapper 已 walkTree body 子节点
   iconNameMap: Record<string, string>
+  /** 事件 Action 改写的 state path 集合（来自 BuiltPage，state-builder 据此打 shared 标记） */
+  eventMutatedPaths: Set<string>
 }
 
 export interface GeneratedFile {
   path: string
   content: string
+  /**
+   * 仅 .tsx/.jsx 产物文件有：该文件 emitted 的 A2UI 元素基础 id 列表。
+   * 用于设计平台「框选节点 → 定位产物文件」映射。
+   * 存的是基础 id（不含循环展开的 `:index` 后缀），由 file-assembler 走树收集。
+   * state.ts / .less / config.ts / 模板复制文件不带此字段。
+   */
+  nodeIds?: string[]
+}
+
+/** 管线执行期错误（单页隔离收集，由 GenerateReport 汇总输出） */
+export interface PipelineError {
+  /** 出错步骤名（BuildTrees / NodeMapper / FileGenerator） */
+  step: string
+  /** 出错页名 */
+  page: string
+  /** 错误信息 */
+  message: string
+  /** 可选堆栈 */
+  stack?: string
 }
 
 export class PipelineContext {
@@ -50,6 +74,8 @@ export class PipelineContext {
   config: Record<string, any>
   registry: ComponentRegistry
   targetLib: string
+  /** 主题（'light' | 'dark'），默认 'light'；来自 options.theme，当前仅供 GenerateThemeConfig 生成 config.ts 使用 */
+  theme: string
 
   // ── Step 2: ReadPages ──
   pagesData: any[]
@@ -76,10 +102,17 @@ export class PipelineContext {
   // ── Step 8: GenerateReport ──
   generationReport?: string
 
+  // ── 执行期诊断（非数据流）──
+  /** 当前正处理的页名；per-page step 在循环里设置，pipeline-engine catch 时读取以定位失败页面 */
+  currentPage?: string
+  /** 单页隔离收集的错误清单；per-page step 的 try/catch push，GenerateReport 汇总输出 */
+  errors: PipelineError[]
+
   constructor(config: Record<string, any>, registry: ComponentRegistry) {
     this.config = config
     this.registry = registry
     this.targetLib = config.targetLib || 'eview-react'
+    this.theme = config.theme || 'light'
 
     this.pagesData = []
     this.builtPages = []
@@ -89,5 +122,6 @@ export class PipelineContext {
     this.styleResults = []
     this.routeResult = null
     this.outputFiles = []
+    this.errors = []
   }
 }

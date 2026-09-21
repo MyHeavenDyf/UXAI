@@ -52,7 +52,7 @@ export function useAnnotations(deps: {
 }) {
   // ── 状态 ──────────────────────────────────────────────────────────────
 
-  /** iframe 是否已发送 A2UI_READY，批注加载依赖此信号 */
+  /** iframe 是否已发送 od:a2ui-ready，批注加载依赖此信号 */
   const [iframeReady, setIframeReady] = createSignal(false)
 
   /** 批注列表，pos 由 rAF 循环实时更新 */
@@ -359,7 +359,7 @@ export function useAnnotations(deps: {
       deps.unfreezeDomPicker()
     }
     if (!deps.editing() && !deps.annotating()) {
-      deps.previewIframeRef()?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      deps.previewIframeRef()?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
     }
   }
 
@@ -393,7 +393,7 @@ export function useAnnotations(deps: {
   }
 
   /**
-   * 由 DOM_PICKER_QUICK_FIX（annotating 模式下）触发的弹窗打开
+   * 由 od:dom-picker-quick-fix（annotating 模式下）触发的弹窗打开
    * 从 iframe 内原始坐标 rawRect 实时计算页面坐标
    */
   function openAnnotationFromRect(elementId: string, rawRect: RawRect) {

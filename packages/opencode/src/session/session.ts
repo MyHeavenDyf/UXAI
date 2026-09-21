@@ -90,6 +90,8 @@ export function fromRow(row: SessionRow, category?: string): Info {
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
     },
+    sort_order: row.sort_order,
+    pinned: row.pinned === 1,
   }
 }
 
@@ -195,6 +197,8 @@ export const Info = Schema.Struct({
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
   revert: optionalOmitUndefined(Revert),
+  sort_order: Schema.Number,
+  pinned: Schema.Boolean,
 })
   .annotate({ identifier: "Session" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -301,6 +305,8 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  sort_order: Schema.optional(Schema.NullOr(Schema.Number)),
+  pinned: Schema.optional(Schema.NullOr(Schema.Boolean)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -353,13 +359,33 @@ export function plan(input: { slug: string; time: { created: number } }, instanc
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }
 
-export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsage; metadata?: ProviderMetadata }) => {
+export const getUsage = (input: {
+  model: Provider.Model
+  usage: LanguageModelUsage
+  metadata?: ProviderMetadata
+  estimated?: { input: number; output: number }
+}) => {
   const safe = (value: number) => {
     if (!Number.isFinite(value)) return 0
     return value
   }
-  const inputTokens = safe(input.usage.inputTokens ?? 0)
-  const outputTokens = safe(input.usage.outputTokens ?? 0)
+  const reportedInputTokens = safe(input.usage.inputTokens ?? 0)
+  const reportedOutputTokens = safe(input.usage.outputTokens ?? 0)
+  const estimatedInputTokens = safe(input.estimated?.input ?? 0)
+  const estimatedOutputTokens = safe(input.estimated?.output ?? 0)
+  const usedEstimate =
+    (reportedInputTokens === 0 && estimatedInputTokens > 0) ||
+    (reportedOutputTokens === 0 && estimatedOutputTokens > 0)
+  const inputTokens = reportedInputTokens || estimatedInputTokens
+  const outputTokens = reportedOutputTokens || estimatedOutputTokens
+  if (input.estimated && usedEstimate) {
+    log.warn("provider usage missing; using local token estimate", {
+      providerID: input.model.providerID,
+      modelID: input.model.id,
+      input: input.estimated.input,
+      output: input.estimated.output,
+    })
+  }
   const reasoningTokens = safe(input.usage.outputTokenDetails?.reasoningTokens ?? input.usage.reasoningTokens ?? 0)
 
   const cacheReadInputTokens = safe(
@@ -385,10 +411,8 @@ export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsa
   // tokens to get the non-cached input count for separate cost calculation.
   const adjustedInputTokens = safe(inputTokens - cacheReadInputTokens - cacheWriteInputTokens)
 
-  const total = input.usage.totalTokens
-
   const tokens = {
-    total,
+    total: 0,
     input: adjustedInputTokens,
     output: safe(outputTokens - reasoningTokens),
     reasoning: reasoningTokens,
@@ -397,6 +421,9 @@ export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsa
       read: cacheReadInputTokens,
     },
   }
+  tokens.total =
+    (!usedEstimate && safe(input.usage.totalTokens ?? 0)) ||
+    tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write
 
   const costInfo =
     input.model.cost?.experimentalOver200K && tokens.input + tokens.cache.read > 200_000
@@ -442,6 +469,8 @@ export interface Interface {
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: Permission.Ruleset }) => Effect.Effect<void>
+  readonly setSortOrder: (input: { sessionID: SessionID; sortOrder: number }) => Effect.Effect<void>
+  readonly setPinned: (input: { sessionID: SessionID; pinned: boolean }) => Effect.Effect<void>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -519,6 +548,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           created: Date.now(),
           updated: Date.now(),
         },
+        sort_order: 0,
+        pinned: false,
       }
       log.info("created", result)
 
@@ -707,6 +738,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* patch(input.sessionID, { permission: input.permission, time: { updated: Date.now() } })
     })
 
+    const setSortOrder = Effect.fn("Session.setSortOrder")(function* (input: { sessionID: SessionID; sortOrder: number }) {
+      yield* patch(input.sessionID, { sort_order: input.sortOrder })
+    })
+
+    const setPinned = Effect.fn("Session.setPinned")(function* (input: { sessionID: SessionID; pinned: boolean }) {
+      yield* patch(input.sessionID, { pinned: input.pinned })
+    })
+
     const setRevert = Effect.fn("Session.setRevert")(function* (input: {
       sessionID: SessionID
       revert: Info["revert"]
@@ -793,6 +832,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       setTitle,
       setArchived,
       setPermission,
+      setSortOrder,
+      setPinned,
       setRevert,
       clearRevert,
       setSummary,
@@ -872,10 +913,13 @@ export function* listGlobal(input?: {
   directory?: string
   roots?: boolean
   start?: number
-  cursor?: number
+  cursor?: string | number
   search?: string
   limit?: number
   archived?: boolean
+  agent?: string
+  pinned?: boolean
+  grouped?: boolean
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)
 }

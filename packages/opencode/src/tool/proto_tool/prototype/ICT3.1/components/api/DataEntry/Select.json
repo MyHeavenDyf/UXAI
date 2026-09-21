@@ -36,10 +36,12 @@
       "properties": {
         "value": {
           "oneOf": [
-            { "type": ["string", "number", "array"] },
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "array", "items": { "type": ["string", "number"] } },
             { "$ref": "#/$defs/DataBinding" }
           ],
-          "description": "The current selected value(s)."
+          "description": "The current selected value(s). Single mode: string|number; multiple mode: array of the same primitive."
         },
         "options": {
           "oneOf": [{
@@ -51,7 +53,7 @@
                   "type": "string"
                 },
                 "value": {
-                  "type": ["string", "number", "boolean"]
+                  "type": ["string", "number"]
                 }
               },
               "required": ["label", "value"]

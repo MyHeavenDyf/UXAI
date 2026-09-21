@@ -1,9 +1,10 @@
-import { createMemo, createSignal, createEffect, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
+import type { VersionEntry } from "../../utils/history-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
@@ -19,6 +20,8 @@ import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
+import { PrototypeCtxMenu } from "./prototype-ctx-menu"
+import { PrototypePropertyEditor } from "./prototype-property-editor"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -28,9 +31,14 @@ import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } 
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
-import { createC2DZip } from "../../utils/canvas-to-design"
-import { uploadZip } from "@/utils/useZipTransport"
-import { useProjectSelection } from "@/hooks/use-project-selection"
+import { usePixsoTransport } from "@/utils/useZipTransport"
+import { getDesktopApi } from "../../lib/electron-api"
+import { useFeatureMutex } from "../../utils/use-feature-mutex"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { LocalEditSavePayload } from "../../subtype-handlers/types"
+import { sendTextToAgent } from "../../utils/agent-events"
+import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
+import { disposeAllPrototypeSessions, getSessionById } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -84,6 +92,14 @@ export function ResultViewer(props: {
   sdkDirectory?: string
   focusMode?: boolean
   onFocusModeToggle?: () => void
+  onHistoryToggle?: () => void
+  historyActive?: boolean
+  historyEntries?: VersionEntry[]
+  currentVersionId?: string | null
+  onModeChange?: (mode: "preview" | "edit") => void
+  /** 进入局部修改（editing）时触发，父侧用于关闭历史记录等浮层 */
+  onLocalEditStart?: () => void
+  onHistorySwitch?: (entry: VersionEntry) => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
   isPlanConfirmed?: () => boolean
@@ -117,84 +133,207 @@ export function ResultViewer(props: {
   planEnded?: boolean
   /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
   planActive?: boolean
+  disabled?: boolean
+  skillConfig?: import("../skill-config-types").SkillConfig
+  artifactFiles?: { generated: import("../../utils/artifact-file-api").ArtifactFile[]; uploaded: import("../../utils/artifact-file-api").ArtifactFile[] } | null
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
-  const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
 
+  /**
+   * 取设计规划的实际内容（优先 tabStore 中该 plan tab 的最新编辑，
+   * 回退到消息流扫描的 planCard）。编辑走 handleContentChange 会更新
+   * tabStore，再点 [预览] 时若不读 tabStore，编辑会丢失。
+   */
+  const planContent = createMemo(() => {
+    const plan = props.planCard
+    if (!plan?.id) return ""
+    const tab = props.tabs.find((t) => t.id === plan.id)
+    return tab ? tab.content : (plan.content ?? "")
+  })
+
+  /**
+   * 当前激活的 plan tab（编辑态时优先用它在 tabStore 中的最新内容）。
+   * 用于 tab 栏点击 design-plan tab 后切换到 tabs 模式渲染，保证编辑不被回退。
+   */
+  const activePlanTab = createMemo(() => {
+    const tab = activeTab()
+    if (tab?.type === "design-plan") return tab
+    return null
+  })
+
   const [htmlModes, setHtmlModes] = createSignal<Record<string, "preview" | "edit">>({})
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
-  const [inspecting, setInspecting] = createSignal(false)
+  const featureMutex = useFeatureMutex()
+  createEffect(on(() => props.activeId, () => {
+    disposeAllPrototypeSessions()
+    featureMutex.disableAll()
+  }, { defer: true }))
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
-  const [editing, setEditing] = createSignal(false)
-  const [drawing, setDrawing] = createSignal(false)
-  const [commenting, setCommenting] = createSignal(false)
-  const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
+  let observedUrlsGetter: (() => string[]) | null = null
+  // 向当前 HTML tab 的 iframe contentWindow 发送 postMessage 的函数（由 HtmlRenderer 注册）
+  let iframePostMessage: ((data: unknown) => void) | null = null
+  // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
+  let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
+    featureMutex.disableAll()
   }
 
-  const handleCanvasToDesign = async () => {
-    tracker.interaction({ module: "design", name: "canvas-to-design" })
-    try {
-      const tab = activeTab()
-      if (!tab || tab.type !== "html") {
-        showToast({ title: "请先打开HTML文件" })
-        return
-      }
-
-      const isLoggedIn = !!localStorage.getItem('uiplusToken')
-
-      if (!isLoggedIn) {
-        showToast({ title: "生成ZIP文件..." })
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        const zipBlob = await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
-        })
-        const fileName = `${tab.title}-c2d.zip`
-        const url = URL.createObjectURL(zipBlob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        showToast({ title: "生成完成", description: "ZIP文件已下载" })
-        return
-      }
-
-      const result = await uploadZip(async () => {
-        showToast({ title: "生成ZIP文件..." })
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        return await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
-        })
-      }, projectSelection())
-
-      console.log('pixsourl', result?.pixsoUrl)
-
-      if (!result.webview) {
-        showToast({ title: "创建失败" })
-        return
-      }
-
-      console.log('pixso loaded')
-    } catch (error) {
-      console.error("[handleCanvasToDesign] Error:", error)
-      showToast({ title: "操作失败", description: String(error) })
+  const buildSubtypeCtx = () => {
+    const tab = activeTab()
+    if (!tab) return null
+    return {
+      tab,
+      sessionId: tab.sessionId ?? props.sessionId,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      usePixsoTransport,
+      postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
+      iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+      sdkDirectory: props.sdkDirectory,
     }
+  }
+
+  createEffect(on(() => featureMutex.state.editing, (editing, prev) => {
+    if (prev && !editing) {
+      const ctx = buildSubtypeCtx()
+      const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
+      if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
+    }
+    if (!prev && editing) props.onLocalEditStart?.()
+  }))
+
+  const handleLocalEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    const enabling = handler?.handleLocalEdit
+      ? !getSessionById(ctx.tab.id)?.editing
+      : !featureMutex.state.editing
+    if (enabling) props.onLocalEditStart?.()
+    if (handler?.handleLocalEdit) {
+      const handled = await handler.handleLocalEdit(ctx)
+      if (handled === true) return
+    }
+    const nextEditing = !featureMutex.state.editing
+    featureMutex.toggleFeature('editing')
+    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+  }
+
+  const handleDrawToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleDrawEdit) {
+      const handled = await handler.handleDrawEdit(ctx)
+      if (handled === true) return
+    }
+    const nextDrawing = !featureMutex.state.drawing
+    featureMutex.toggleFeature('drawing')
+    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+  }
+
+  const handleCommentToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleComment) {
+      const handled = await handler.handleComment(ctx)
+      if (handled === true) return
+    }
+    const nextCommenting = !featureMutex.state.commenting
+    featureMutex.toggleFeature('commenting')
+    tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+  }
+
+  const handleArchiveToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleArchive) {
+      const handled = await handler.handleArchive(ctx)
+      if (handled === true) return
+    }
+    const nextArchiving = !featureMutex.state.archiving
+    featureMutex.toggleFeature('archiving')
+    tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+  }
+
+  const handleLocalEditSave = async (payload: LocalEditSavePayload): Promise<boolean> => {
+    const tab = activeTab()
+    if (!tab) {
+      return false
+    }
+
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.handleLocalEditSave) {
+      return false
+    }
+
+    const ctx = {
+      tab,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      edit: payload,
+    }
+
+    const handled = await handler.handleLocalEditSave(ctx)
+    return handled === true
+  }
+
+  const handleModelEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (!handler?.modelEditConfig) return
+    const nextModelEditing = !featureMutex.state.modelEditing
+    featureMutex.toggleFeature('modelEditing')
+    tracker.interaction({ module: "design", name: "toggle-model-edit-mode", extend: JSON.stringify({ action: nextModelEditing ? "open" : "close" }) })
+  }
+
+  const handleModelEditSave = async (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: any): Promise<boolean | void> => {
+    const tab = activeTab()
+    if (!tab) return false
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.modelEditConfig) return false
+    const result = await handler.modelEditConfig.saveCallback({
+      ...ctx,
+      prev, current,
+    })
+    const prompt = typeof result === 'string' ? result : ''
+    if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
+    tracker.interaction({ module: "design", name: "save-model-edit-changes", extend: JSON.stringify({ type: tab.type }) })
+    return prompt ? undefined : true
+  }
+
+  const handleModelEditDelete = async (element: ModelEditElement, ctx: any): Promise<boolean | void> => {
+    const tab = activeTab()
+    if (!tab) return false
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.modelEditConfig) return false
+    const result = await handler.modelEditConfig.deleteCallback(ctx)
+    const prompt = typeof result === 'string' ? result : ''
+    if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
+    tracker.interaction({ module: "design", name: "delete-model-edit-element", extend: JSON.stringify({ type: tab.type }) })
+    return prompt ? undefined : true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -205,12 +344,9 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-preview-source", extend: JSON.stringify({ mode: nextMode }) })
     setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
     if (nextMode === "edit") {
-      setInspecting(false)
-      setEditing(false)
-      setDrawing(false)
-      setCommenting(false)
-      setArchiving(false)
+      featureMutex.disableAll()
     }
+    props.onModeChange?.(nextMode)
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html"
@@ -278,7 +414,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
   const handleOpenArtifactFile = (file: ArtifactFile) => {
     const card = artifactFileToOutputCard(file)
     props.onOpenArtifact?.(card)
-    props.onViewModeChange("tabs")
+    // file 类型不支持预览,handleOpenResult 会弹窗提示,不打开 tab。
+    // 这里不能切到 tabs 模式,否则右侧会显示空 ResultViewer("对话产出将在这里展示")。
+    if (card.type !== "file") {
+      props.onViewModeChange("tabs")
+    }
   }
 
   const handleCloseTabsByPath = (paths: string[]) => {
@@ -319,17 +459,22 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onCollapseDrawer={props.onCollapseDrawer}
         />
 
-        <Show when={props.viewMode === "files" && props.sessionId}>
+        <Show when={props.sessionId}>
           {(sid) => (
-            <DesignFilesPanel
-              sessionId={sid()}
-              refreshKey={props.filesRefreshKey ?? 0}
-              onOpenFile={handleOpenArtifactFile}
-              onAddToSession={props.onAddArtifactToSession}
-              onCloseTabsByPath={handleCloseTabsByPath}
-              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onFilesRefresh={props.onFilesRefresh}
-            />
+            <div
+              class="flex flex-col flex-1 min-h-0"
+              style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+            >
+              <DesignFilesPanel
+                sessionId={sid()}
+                refreshKey={props.filesRefreshKey ?? 0}
+                onOpenFile={handleOpenArtifactFile}
+                onAddToSession={props.onAddArtifactToSession}
+                onCloseTabsByPath={handleCloseTabsByPath}
+                onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+                onFilesRefresh={props.onFilesRefresh}
+              />
+            </div>
           )}
         </Show>
 
@@ -381,7 +526,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           <Show when={props.planCard}>
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <DesignPlanRenderer
-                content={props.planCard?.content ?? ""}
+                content={planContent()}  // 优先取 tabStore，保留编辑
                 title={props.planCard?.title ?? ""}
                 artifactIdentifier={props.planCard?.artifactIdentifier}
                 confirmed={props.isPlanConfirmed?.() ?? false}
@@ -503,54 +648,45 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
 <ActionBar
-                   tab={tab}
-                   mode={canToggle ? htmlMode() : undefined}
-                   onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
-                   viewport={viewport()}
-                   onViewportChange={handleViewportChange}
-                   palette={palette()}
-                   onPaletteChange={setPalette}
-                   editing={editing()}
-                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextEditing = !editing()
-                     setEditing(nextEditing)
-                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                     if (nextEditing && drawing()) setDrawing(false)
-                     if (nextEditing && commenting()) setCommenting(false)
-                     if (nextEditing && archiving()) setArchiving(false)
-                   }}
-drawing={drawing()}
-                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextDrawing = !drawing()
-                      setDrawing(nextDrawing)
-                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                      if (nextDrawing && editing()) setEditing(false)
-                      if (nextDrawing && commenting()) setCommenting(false)
-                      if (nextDrawing && archiving()) setArchiving(false)
-                    }}
-                   commenting={commenting()}
-                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextCommenting = !commenting()
-                     setCommenting(nextCommenting)
-                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                     if (nextCommenting && editing()) setEditing(false)
-                     if (nextCommenting && drawing()) setDrawing(false)
-                     if (nextCommenting && archiving()) setArchiving(false)
-                   }}
-                   archiving={archiving()}
-                   onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextArchiving = !archiving()
-                     setArchiving(nextArchiving)
-                     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
-                     if (nextArchiving && editing()) setEditing(false)
-                     if (nextArchiving && drawing()) setDrawing(false)
-                     if (nextArchiving && commenting()) setCommenting(false)
-}}
-                    onCanvasToDesign={handleCanvasToDesign}
-                    onRefresh={handleRefresh}
-                   focusMode={props.focusMode}
-                   onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                 />
+                    tab={tab}
+                    mode={canToggle ? htmlMode() : undefined}
+                    onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                    viewport={viewport()}
+                    onViewportChange={handleViewportChange}
+                    palette={palette()}
+                    onPaletteChange={setPalette}
+                    editing={featureMutex.state.editing}
+                    onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
+                    modelEditing={featureMutex.state.modelEditing}
+                    onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
+                    drawing={featureMutex.state.drawing}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
+                    commenting={featureMutex.state.commenting}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
+
+archiving={featureMutex.state.archiving}
+                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      onRefresh={handleRefresh}
+                     observedResourceUrls={() => observedUrlsGetter?.() || []}
+                     focusMode={props.focusMode}
+                     onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                     historyActive={props.historyActive}
+                     historyEntries={props.historyEntries}
+                     currentVersionId={props.currentVersionId}
+                     onHistorySwitch={props.onHistorySwitch}
+                     onHistoryToggle={props.onHistoryToggle}
+                     sessionId={props.sessionId}
+                     sdkDirectory={props.sdkDirectory}
+                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
+                     onFilesRefresh={props.onFilesRefresh}
+                     disabled={props.disabled}
+                    />
+
+                    
+                  
+                     
+             
+
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
@@ -572,37 +708,53 @@ drawing={drawing()}
                     <Match when={tabType === "json"}>
                       <JsonRenderer content={tab.content} />
                     </Match>
-                    <Match when={tabType === "html"}>
+<Match when={tabType === "html"}>
 <HtmlRenderer
-                          content={tab.content}
-                          mode={htmlMode()}
-                          viewport={viewport()}
-                          palette={palette()}
-                          inspecting={inspecting()}
-                          editing={editing()}
-                          drawing={drawing()}
-                          commenting={commenting()}
-                          archiving={archiving()}
-                          onDrawActiveChange={setDrawing}
-                          onResetArchiving={() => setArchiving(false)}
-                          inspectPanel={true}
-                          onInspectTarget={setInspectTarget}
-                          onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                          onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={combinedRefreshKey()}
-                          filePath={tab.filePath}
-                          commentFilePath={tab.commentFilePath}
-                          sessionId={tab.sessionId ?? props.sessionId}
-                          sdkUrl={globalSDK.url}
-                          sdkDirectory={props.sdkDirectory}
-                          onSaveFile={async (content) => {
-                            if (!tab.filePath) return
-                            const html = extractCodeBlock(content, "html")
-                            await saveArtifactContent(tab.filePath, html)
-                          }}
-                          onRefreshNeeded={handleRefresh}
-                          tabTitle={tab.title}
-                        />
+                           content={tab.content}
+                           mode={htmlMode()}
+                           viewport={viewport()}
+                           palette={palette()}
+                           inspecting={featureMutex.state.inspecting}
+                           editing={featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
+                           modelEditing={featureMutex.state.modelEditing}
+                           modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
+                           onModelEditSave={handleModelEditSave}
+                           onModelEditDelete={handleModelEditDelete}
+                           drawing={featureMutex.state.drawing}
+                           commenting={featureMutex.state.commenting}
+                           archiving={featureMutex.state.archiving}
+                           onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
+                           onResetArchiving={() => featureMutex.toggleFeature('archiving')}
+                           inspectPanel={true}
+                           onInspectTarget={setInspectTarget}
+                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                           refreshKey={combinedRefreshKey()}
+                           filePath={tab.filePath}
+                           commentFilePath={tab.commentFilePath}
+                           sessionId={tab.sessionId ?? props.sessionId}
+                           sdkUrl={globalSDK.url}
+                           sdkDirectory={props.sdkDirectory}
+                           onSaveFile={async (content) => {
+                             if (!tab.filePath) return
+                             const html = extractCodeBlock(content, "html")
+                             await saveArtifactContent(tab.filePath, html)
+                           }}
+                           onRefreshNeeded={handleRefresh}
+                            tabTitle={tab.title}
+                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                             iframeElementGetter={(g) => { iframeElementGetter = g }}
+                             subtype={tab.subtype}
+                             tabId={tab.id}
+                             disabled={props.disabled}
+                             skillConfig={props.skillConfig}
+                             artifactFiles={props.artifactFiles}
+                             productId={props.productId}
+                             onDownloadProductAsset={props.onDownloadProductAsset}
+                             onUpdateMentionPath={props.onUpdateMentionPath}
+                            />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -665,6 +817,15 @@ drawing={drawing()}
         </Show>
       </Show>
     </Show>
+    <PrototypeCtxMenu />
+    <PrototypePropertyEditor
+      sessionId={props.sessionId}
+      skillConfig={props.skillConfig}
+      artifactFiles={props.artifactFiles}
+      productId={props.productId}
+      onDownloadProductAsset={props.onDownloadProductAsset}
+      onUpdateMentionPath={props.onUpdateMentionPath}
+    />
   </div>
 )
 }

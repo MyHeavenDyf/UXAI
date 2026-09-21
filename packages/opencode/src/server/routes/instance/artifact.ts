@@ -8,6 +8,7 @@ import path from "path"
 import { Effect, Option } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "@/project/instance"
+import { expandPathsToZipEntries, createZipArchive } from "./httpapi/handlers/artifact"
 
 const SESSION_BASE_DIR = ".octo"
 const OUTPUTS_DIR = "outputs"
@@ -307,18 +308,8 @@ const { sessionId, path: subPath } = c.req.valid("query")
           "ArtifactRoutes.archive",
           c,
           Effect.gen(function* () {
-            const fs = yield* AppFileSystem.Service
             if (files.length === 0) return new Uint8Array()
-
-            const fileEntries: Array<{ filename: string; content: Uint8Array }> = []
-            for (const filePath of files) {
-              const content = yield* fs.readFile(filePath).pipe(
-                Effect.catch(() => Effect.succeed(new Uint8Array())),
-              )
-              const filename = path.basename(filePath)
-              fileEntries.push({ filename, content })
-            }
-
+            const fileEntries = yield* expandPathsToZipEntries(files)
             return createZipArchive(fileEntries)
           }),
         )
@@ -522,112 +513,3 @@ const { sessionId, path: subPath } = c.req.valid("query")
         }),
     ),
 )
-
-function createZipArchive(files: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
-  const encoder = new TextEncoder()
-  const chunks: Uint8Array[] = []
-  const localHeaders: Array<{ offset: number; filename: string; size: number; crc: number }> = []
-  let offset = 0
-
-  for (const file of files) {
-    const filenameBytes = encoder.encode(file.filename)
-    const crc = crc32(file.content)
-    const size = file.content.length
-
-    const localHeader = new Uint8Array(30 + filenameBytes.length)
-    const view = new DataView(localHeader.buffer)
-
-    view.setUint32(0, 0x04034b50, true)
-    view.setUint16(4, 20, true)
-    view.setUint16(6, 0, true)
-    view.setUint16(8, 0, true)
-    view.setUint16(10, 0, true)
-    view.setUint16(12, 0, true)
-    view.setUint32(14, crc, true)
-    view.setUint32(18, size, true)
-    view.setUint32(22, size, true)
-    view.setUint16(26, filenameBytes.length, true)
-    view.setUint16(28, 0, true)
-    localHeader.set(filenameBytes, 30)
-
-    localHeaders.push({ offset, filename: file.filename, size, crc })
-    chunks.push(localHeader)
-    chunks.push(file.content)
-    offset += localHeader.length + size
-  }
-
-  const centralDirOffset = offset
-  for (const entry of localHeaders) {
-    const filenameBytes = encoder.encode(entry.filename)
-    const centralHeader = new Uint8Array(46 + filenameBytes.length)
-    const view = new DataView(centralHeader.buffer)
-
-    view.setUint32(0, 0x02014b50, true)
-    view.setUint16(4, 20, true)
-    view.setUint16(6, 20, true)
-    view.setUint16(8, 0, true)
-    view.setUint16(10, 0, true)
-    view.setUint16(12, 0, true)
-    view.setUint16(14, 0, true)
-    view.setUint32(16, entry.crc, true)
-    view.setUint32(20, entry.size, true)
-    view.setUint32(24, entry.size, true)
-    view.setUint16(28, filenameBytes.length, true)
-    view.setUint16(30, 0, true)
-    view.setUint16(32, 0, true)
-    view.setUint16(34, 0, true)
-    view.setUint16(36, 0, true)
-    view.setUint32(38, 0, true)
-    view.setUint32(42, entry.offset, true)
-    centralHeader.set(filenameBytes, 46)
-
-    chunks.push(centralHeader)
-    offset += centralHeader.length
-  }
-
-  const centralDirSize = offset - centralDirOffset
-  const endRecord = new Uint8Array(22)
-  const endView = new DataView(endRecord.buffer)
-
-  endView.setUint32(0, 0x06054b50, true)
-  endView.setUint16(4, 0, true)
-  endView.setUint16(6, 0, true)
-  endView.setUint16(8, localHeaders.length, true)
-  endView.setUint16(10, localHeaders.length, true)
-  endView.setUint32(12, centralDirSize, true)
-  endView.setUint32(16, centralDirOffset, true)
-  endView.setUint16(20, 0, true)
-
-  chunks.push(endRecord)
-
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  const result = new Uint8Array(totalLength)
-  let resultOffset = 0
-  for (const chunk of chunks) {
-    result.set(chunk, resultOffset)
-    resultOffset += chunk.length
-  }
-
-  return result
-}
-
-function crc32(data: Uint8Array): number {
-  const table = getCrc32Table()
-  let crc = 0xffffffff
-  for (const byte of data) {
-    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8)
-  }
-  return (crc ^ 0xffffffff) >>> 0
-}
-
-function getCrc32Table(): number[] {
-  const table: number[] = []
-  for (let i = 0; i < 256; i++) {
-    let c = i
-    for (let j = 0; j < 8; j++) {
-      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
-    }
-    table.push(c)
-  }
-  return table
-}

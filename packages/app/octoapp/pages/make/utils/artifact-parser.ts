@@ -13,6 +13,9 @@ export type ArtifactEvent =
 
 const OPEN_PREFIX = "<artifact"
 const CLOSE_TAG = "</artifact>"
+// 大小写不敏感的标签匹配:<Artifact>, <ARTIFACT>, </Artifact> 等都能识别
+const OPEN_TAG_RE = /<artifact/gi
+const CLOSE_TAG_RE = /<\/artifact>/i
 
 interface ParserState {
   inside: boolean
@@ -48,14 +51,17 @@ function findOpenTag(buffer: string): OpenTagMatch {
   let earliestPartialOpen = -1
   let from = 0
   while (from < len) {
-    const idx = buffer.indexOf(OPEN_PREFIX, from)
-    if (idx === -1) break
+    OPEN_TAG_RE.lastIndex = from
+    const m = OPEN_TAG_RE.exec(buffer)
+    if (!m) break
+    const idx = m.index
+    const prefixLen = m[0].length
     if (rangeContains(ranges, idx)) {
-      from = idx + OPEN_PREFIX.length
+      from = idx + prefixLen
       continue
     }
     if (unclosedFenceStart !== null && idx >= unclosedFenceStart) break
-    const after = idx + OPEN_PREFIX.length
+    const after = idx + prefixLen
     const next = buffer.charAt(after)
     if (next === "") {
       if (earliestPartialOpen === -1) earliestPartialOpen = idx
@@ -115,7 +121,7 @@ function findOpenTag(buffer: string): OpenTagMatch {
 
   const tailLt = buffer.lastIndexOf("<")
   if (tailLt !== -1 && !rangeContains(ranges, tailLt)) {
-    const slice = buffer.slice(tailLt)
+    const slice = buffer.slice(tailLt).toLowerCase()
     if (OPEN_PREFIX.startsWith(slice) && slice.length < OPEN_PREFIX.length) {
       note(tailLt)
     }
@@ -194,7 +200,7 @@ export function createArtifactParser() {
         continue
       }
 
-      const closeIdx = state.buffer.indexOf(CLOSE_TAG)
+      const closeIdx = state.buffer.search(CLOSE_TAG_RE)
       if (closeIdx === -1) {
         const flushUpTo = state.buffer.length - (CLOSE_TAG.length - 1)
         if (flushUpTo > 0) {

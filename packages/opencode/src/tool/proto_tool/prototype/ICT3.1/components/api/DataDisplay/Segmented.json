@@ -86,6 +86,9 @@
           "type": "string",
           "enum": ["large", "medium", "small"]
         },
+        "disabled": {
+					"type": "boolean"
+				},
         "className": {
           "type": "string",
           "description": "Tailwind CSS classes for the component."

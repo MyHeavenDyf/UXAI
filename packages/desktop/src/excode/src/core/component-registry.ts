@@ -84,6 +84,7 @@ export class ComponentRegistry {
         wrapper: result.wrapper,
         selfClosing: result.selfClosing,
         propRoute: result.propRoute,
+        classNameProp: result.classNameProp ?? def.classNameProp,
       }
     }
 
@@ -93,6 +94,7 @@ export class ComponentRegistry {
       import: def.import,
       props: filledProps,
       children: node.children || null,
+      classNameProp: def.classNameProp,
     }
   }
 

@@ -3,6 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -12,11 +13,12 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
+import { UpdateButton } from "@/components/update-button"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { useLayout } from "@/context/layout"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconSettings, IconSkill } from "@/pages/_shell/icons"
+import { IconSettings, IconSettings1, IconSkill } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
 import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
@@ -41,7 +43,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
-  const isSkillsPath = () => location.pathname === "/skills"
+  const isSkillsPath = () => location.pathname === "/skills" && !settingsActive()
   const layout = useLayout()
   const dialog = useDialog()
   const notification = useNotification()
@@ -50,6 +52,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [patternFetchedDir, setPatternFetchedDir] = createSignal<string>()
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
@@ -150,29 +153,10 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     if (!session) return
     closeContextMenu()
     dialog.show(() => (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除"{sessionTitle(session.title) || "无标题"}"？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button
-            variant="ghost"
-            size="large"
-            class="delete-dialog-btn"
-            onClick={() => dialog.close()}
-          >
-            取消
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            class="delete-dialog-btn delete-dialog-btn-primary"
-            onClick={() => { void deleteSession(session.id, session.directory).then(() => dialog.close()) }}
-          >
-            删除
-          </Button>
-        </div>
-      </Dialog>
+      <DialogDeleteSession
+        name={sessionTitle(session.title) || "无标题"}
+        onDelete={() => deleteSession(session.id, session.directory)}
+      />
     ))
   }
 
@@ -460,8 +444,8 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
           style={{
             height: "36px",
-            background: isSkillsPath() ? "var(--surface-base-interactive-active)" : "transparent",
-            color: "rgba(0,0,0,0.9)",
+            background: isSkillsPath() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: isSkillsPath() ? "#0A59F7" : "rgba(0,0,0,0.9)",
             "font-weight": isSkillsPath() ? "500" : "400",
           }}
           onClick={() => { layout.sidebarSource.set("pattern"); navigate("/skills") }}
@@ -475,19 +459,32 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         </button>
       </div>
 
-      <div class="shrink-0 px-[12px] pb-[24px]">
+      <div class="relative shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"
           title="设置"
-          class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "rgba(0,0,0,0.9)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-          onClick={() => dialog.show(() => <DialogSettings />)}
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
+          style={{
+            height: "36px",
+            background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": settingsActive() ? "500" : "400",
+          }}
+          onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+          onClick={() => {
+            setSettingsActive(true)
+            dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
+          }}
         >
-          <IconSettings size={20} />
-          <span class="text-[12px] leading-[20px]">设置</span>
+          <span class="flex items-center justify-center shrink-0">
+            <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+              <IconSettings1 size={20} />
+            </Show>
+          </span>
+          <span class="truncate">设置</span>
         </button>
+        <UpdateButton />
       </div>
       <Show when={contextMenu.show && contextMenu.session}>
         <Portal>

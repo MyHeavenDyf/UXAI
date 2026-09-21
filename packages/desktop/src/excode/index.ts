@@ -10,7 +10,7 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 import { ComponentRegistry } from './src/core/component-registry'
-import { Pipeline } from './src/pipeline/pipeline'
+import { Pipeline } from './src/pipeline/pipeline-engine'
 import { PipelineContext } from './src/pipeline/pipeline-context'
 
 // 步骤
@@ -21,8 +21,10 @@ import { FileGenerator } from './src/steps/file-generator'
 import { GenerateRoutes } from './src/steps/generate-routes'
 import { WriteOutput } from './src/steps/write-output'
 import { GenerateReport } from './src/steps/generate-report'
+import { GenerateThemeConfig } from './src/steps/generate-theme-config'
+import { buildManifest, type CodeManifest } from './src/codegen/manifest-builder'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __excodeDir = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * 单页输入（标准形态）。
@@ -45,6 +47,8 @@ export interface HuiCodeOptions {
   /** 模板目录（绝对路径直接用，相对路径相对 api/ 解析）；默认 ./templates。
    *  Electron 打包时传 process.resourcesPath/hui-templates（绝对）。 */
   templateDir?: string
+  /** 主题，取值 'light' | 'dark'，默认 'light'；写入生成的 src/theme/config.ts */
+  theme?: 'light' | 'dark'
 }
 
 export interface OutputFile {
@@ -54,6 +58,12 @@ export interface OutputFile {
 
 export interface DownloadHuiCodeResult {
   files: OutputFile[]
+  /**
+   * 节点→文件映射 manifest（tree.json + content.json），供设计平台
+   * 「框选节点 → 定位产物文件」。
+   * manifest 不进 outputFiles（write-output 保持纯净），在此 post-pipeline 构建。
+   */
+  manifest: CodeManifest
 }
 
 // ─── 内部 config 对象 ───
@@ -67,17 +77,20 @@ const config: {
   css: boolean
   /** 是否在产物 JSX 标签上输出 id 属性 */
   id: boolean
+  /** 主题（light/dark），默认 light；来自 options.theme，写入生成的 src/theme/config.ts */
+  theme: string
 } = {
   templateDir: './templates',
   targetLib: 'eview-react',
   css: true,
   id: false,
+  theme: 'light',
 }
 
 /**
  * 解析模板目录（与旧 excode 用法一致）：
- *   - options.templateDir 提供 → 绝对路径直接用，相对路径相对 __dirname 解析
- *   - 未提供 → 默认 './templates'（相对 __dirname）
+ *   - options.templateDir 提供 → 绝对路径直接用，相对路径相对 __excodeDir 解析
+ *   - 未提供 → 默认 './templates'（相对 __excodeDir）
  *   - 解析后目录不存在 → 回退到 monorepo 源路径 '../../src/excode/templates'
  *   - 末尾拼接 targetLib 子目录（templates 按库名拆分：templates/{lib}/）
  *
@@ -87,11 +100,11 @@ const config: {
 function resolveTemplateDir(dir?: string, targetLib?: string): string {
   const lib = targetLib || 'eview-react'
   const base = dir && dir.trim() ? dir : './templates'
-  const resolved = path.isAbsolute(base) ? base : path.resolve(__dirname, base)
+  const resolved = path.isAbsolute(base) ? base : path.resolve(__excodeDir, base)
   const libDir = path.join(resolved, lib)
   if (fs.existsSync(libDir)) return libDir
   // electron-vite 构建后 ./templates 不会自动复制到 out/main/，回退到 monorepo 源路径。
-  const fallback = path.resolve(__dirname, '../../src/excode/templates')
+  const fallback = path.resolve(__excodeDir, '../../src/excode/templates')
   const fallbackLib = path.join(fallback, lib)
   if (fs.existsSync(fallbackLib)) return fallbackLib
   return libDir
@@ -108,6 +121,7 @@ const DEFAULT_STEPS = [
   'FileGenerator',
   'GenerateRoutes',
   'GenerateReport',
+  'GenerateThemeConfig',
   'WriteOutput',
 ]
 
@@ -118,6 +132,7 @@ const STEP_MAP: Record<string, any> = {
   FileGenerator,
   GenerateRoutes,
   GenerateReport,
+  GenerateThemeConfig,
   WriteOutput,
 }
 
@@ -195,5 +210,9 @@ export async function downloadHuiCode(
 
   await runPipeline(ctx, DEFAULT_STEPS)
 
-  return { files: ctx.outputFiles }
+  // manifest 在 post-pipeline 构建（不进 outputFiles，保持产物纯净）：
+  // 从 ctx.outputFiles（含 GeneratedFile.nodeIds）产 tree + content。
+  const manifest = buildManifest(ctx.outputFiles)
+
+  return { files: ctx.outputFiles, manifest }
 }

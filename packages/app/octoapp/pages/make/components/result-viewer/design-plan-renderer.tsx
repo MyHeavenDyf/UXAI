@@ -130,7 +130,6 @@ export function DesignPlanRenderer(props: {
         "code-theme",
         "content-theme",
         "outline",
-        "preview",
         "export",
       ],
       toolbarConfig: { pin: true },
@@ -140,6 +139,8 @@ export function DesignPlanRenderer(props: {
       },
       input: (val) => {
         setDraft(val)
+        // 每次键击实时同步到 tabStore,避免切换 tab/session 时编辑丢失
+        props.onContentChange?.(val)
       },
     })
   }
@@ -297,7 +298,7 @@ export function DesignPlanRenderer(props: {
       </div>
 
       {/* Content */}
-      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px" }}>
+      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px", "pointer-events": props.disabled ? "none" : "auto" }}>
         <Show
           when={!isEditing()}
           fallback={
@@ -308,7 +309,7 @@ export function DesignPlanRenderer(props: {
             />
           }
         >
-          <div>
+          <div class="select-text">
             <div
               class="prose prose-sm max-w-none"
               style={{ color: "var(--octo-text-primary)" }}

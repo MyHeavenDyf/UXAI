@@ -22,10 +22,32 @@ export type BuildNode = RegularNode | LoopNode
 // ─── ComponentNode ───
 
 export interface ComponentNode {
+  __node: true,
   kind: 'component'
 
   /** A2UI element id（用于 BindingValue.nodeId、生成 className 等） */
   id?: string
+
+  /**
+   * 即使 config.id=false 也强制输出 id 属性。
+   * 被锚点 href 引用的目标元素由 build-trees 预扫打标，使 prod（config.id=false）仍带 id
+   * 供锚点滚动定位（href 不致变死链）。config.id=true 时此标记冗余、不影响输出。
+   */
+  keepId?: boolean
+
+  /**
+   * 元素级条件渲染（A2UI Scenario 3）。
+   * element 上与 props/children 平级的 `condition: { path, in }`，由 build-trees 读取存入。
+   * path 指向顶层 state 值（协议约束：interaction path 必须顶层，不在 loop 数据里）；
+   * 当该值 ∈ in 数组时渲染该元素，否则完全不渲染（不占位）。
+   *
+   * 非值绑定（不进 bindingRefs/enrichment），是一种「判据只读」：
+   * state-builder 登记 path 为 shared（useSharedState 订阅，响应 action 变化）；
+   * tree-finalizer lift 出 `const [varName] = useSharedState(sharedKey)` 并写回 varName；
+   * jsx-emitter 用 varName 包守卫 `{[...in].includes(varName) && (<Node/>)}`。
+   * varName 由 tree-finalizer 填，build-trees 阶段只填 {path, in}。
+   */
+  condition?: { path: string; in: string[]; varName?: string }
 
   /** A2UI 原始组件名 */
   component: string
@@ -56,6 +78,18 @@ export interface ComponentNode {
    */
   propRoute?: Record<string, ExtractRoute>
 
+  /** className 在产物 JSX 上的输出 key 别名（默认 'className'）；由 MappingDef.classNameProp 透传，jsx-emitter/file-assembler emit 时读，style-converter 不读 */
+  classNameProp?: string
+
+  /**
+   * 注释占位标记（NodeMapper 设置）。
+   * 存在时：jsx-emitter 把该节点输出为 JSX 注释形态（花括号包裹的注释文本），
+   * import-collector 把对应 import 行注释化（行首加 //）。
+   * 触发场景：未注册组件 / transform 抛错 —— 节点退化为可见注释占位，
+   * 产物中该组件及其引用均被注释，无需手动注释即可编译。
+   */
+  commentPlaceholder?: string
+
   /** 是否已经过 transform（防二次） */
   _resolved?: boolean
 
@@ -66,8 +100,21 @@ export interface ComponentNode {
 // ─── HtmlNode ───
 
 export interface HtmlNode {
+  __node: true,
   kind: 'html'
   id?: string
+  /**
+   * 即使 config.id=false 也强制输出 id 属性（被锚点 href 引用的目标元素，由 build-trees 预扫打标）。
+   * 详见 ComponentNode.keepId。
+   */
+  keepId?: boolean
+
+  /**
+   * 元素级条件渲染（A2UI Scenario 3），详见 ComponentNode.condition。
+   * HTML 节点与组件节点同样支持 condition 守卫包裹。
+   */
+  condition?: { path: string; in: string[]; varName?: string }
+
   tag: string
   props: Record<string, PropValue>
   /** 子节点：常规节点数组 / LoopNode（不在数组中）/ null */
@@ -84,6 +131,7 @@ export interface HtmlNode {
 // ─── TextNode ───
 
 export interface TextNode {
+  __node: true,
   kind: 'text'
   value: string | BindingValue | ComputedValue
   _resolved?: boolean
@@ -94,6 +142,7 @@ export interface TextNode {
 // ─── ExtractNode（跨文件抽取引用） ───
 
 export interface ExtractNode {
+  __node: true,
   kind: 'extract'
 
   /** 抽取组件名 — 决定文件名、tag、import 路径 */
@@ -137,6 +186,8 @@ export interface ExtractNode {
 export type Scope = LoopScope | RenderFnScope
 
 export interface LoopScope {
+  /** 作用域类型标记（显式区分，避免靠字段有无 `in` 判断） */
+  scopeType: 'loopScope'
   /** 节点直接所属的 LoopNode */
   loopNode: LoopNode
 
@@ -145,6 +196,8 @@ export interface LoopScope {
 }
 
 export interface RenderFnScope {
+  /** 作用域类型标记（显式区分，避免靠字段有无 `in` 判断） */
+  scopeType: 'renderFnScope'
   /** 参数名 → 数据源 binding（来自 params[].dataSource） */
   paramBindings: Record<string, BindingValue>
 
@@ -155,6 +208,7 @@ export interface RenderFnScope {
 // ─── LoopNode（循环节点） ───
 
 export interface LoopNode {
+  __node: true,
   kind: 'loop'
 
   /** 循环数据源（BuildTrees 阶段是 BindingValue；tree-finalizer 阶段可被替换为 VarRefValue 指向 enrichment const） */

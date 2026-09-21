@@ -1,4 +1,5 @@
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
+import { sql } from "drizzle-orm"
 export * from "drizzle-orm"
 import { LocalContext } from "@/util/local-context"
 import { lazy } from "../util/lazy"
@@ -47,7 +48,20 @@ type Client = ReturnType<typeof init>
 type Journal = { sql: string; timestamp: number; name: string }[]
 
 function applyMigrations(db: Client, entries: Journal) {
-  migrate(db, entries)
+  migrate(db, resumableMigrations(db, entries))
+}
+
+export function resumableMigrations(db: Client, entries: Journal) {
+  return entries.map((entry) => ({
+    ...entry,
+    sql: entry.sql.replace(
+      /ALTER TABLE `([^`]+)` ADD `([^`]+)` [^;]+;/g,
+      (statement, table, column) =>
+        db.all<{ name: string }>(sql.raw(`PRAGMA table_info(\`${table}\`)`)).some((item) => item.name === column)
+          ? "SELECT 1;"
+          : statement,
+    ),
+  }))
 }
 
 function time(tag: string) {

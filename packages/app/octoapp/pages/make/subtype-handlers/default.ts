@@ -1,0 +1,834 @@
+import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
+import type { ResultTab } from '../components/result-viewer/tab-store'
+import type { ModelEditConfig, ModelEditElement, OnChangeArgs, IconConfig, IconConfirmArgs, AssetConfig } from '../components/model-edit-items/types'
+import { showOctoToast } from '../components/octo-toast'
+import { getDesktopApi } from '../lib/electron-api'
+import { serializeEffects, type EffectEntry } from '../edit-mode/source-patches'
+import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
+import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
+import JSZip from 'jszip'
+
+function flattenJsonValue(key: string, value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{')) return [`${key}: ${value}`]
+  try {
+    const obj = JSON.parse(trimmed)
+    const lines: string[] = []
+    for (const [subKey, subVal] of Object.entries(obj)) {
+      if (subVal !== '' && subVal !== null && subVal !== undefined) {
+        lines.push(`  ${subKey}: ${String(subVal)}`)
+      }
+    }
+    return lines
+  } catch {
+    return [`${key}: ${value}`]
+  }
+}
+
+function buildModelEditPrompt(
+  element: ModelEditElement,
+  prev: Record<string, string>,
+  current: Record<string, string>,
+  filePath: string,
+): string {
+  const lines: string[] = []
+  lines.push(`[文件路径: ${filePath}]`)
+  lines.push('')
+  lines.push('请修改以下元素:')
+  lines.push(`标签: <${element.tagName}>`)
+  if (element.className) lines.push(`类名: ${element.className}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
+  lines.push(`当前HTML: ${element.htmlHint}`)
+  lines.push('')
+  const changes: string[] = []
+  for (const key of new Set([...Object.keys(prev), ...Object.keys(current)])) {
+    const before = prev[key] ?? ''
+    const after = current[key] ?? ''
+    if (before !== after) {
+      const displayName = key.replace(/^od_/, '')
+      const beforeLines = flattenJsonValue(key, before)
+      const afterLines = flattenJsonValue(key, after)
+      if (beforeLines.length <= 1 && afterLines.length <= 1) {
+        changes.push(`  ${displayName}: ${before || '(empty)'} → ${after || '(empty)'}`)
+      } else {
+        changes.push(`  ${displayName}:`)
+        changes.push(`    修改前:`)
+        beforeLines.forEach(l => changes.push(`      ${l.trim()}`))
+        changes.push(`    修改后:`)
+        afterLines.forEach(l => changes.push(`      ${l.trim()}`))
+      }
+    }
+  }
+  if (changes.length > 0) {
+    lines.push('修改内容:')
+    lines.push(changes.join('\n'))
+  } else {
+    lines.push('（无变化）')
+  }
+  return lines.join('\n')
+}
+
+function buildModelDeletePrompt(element: ModelEditElement, filePath: string): string {
+  const lines: string[] = []
+  lines.push(`[文件路径: ${filePath}]`)
+  lines.push('')
+  lines.push('请删除以下元素:')
+  lines.push(`标签: <${element.tagName}>`)
+  if (element.className) lines.push(`类名: ${element.className}`)
+  lines.push(`选择器: ${element.selector}（该元素可能是动态生成的）`)
+  lines.push(`当前HTML: ${element.htmlHint}`)
+  return lines.join('\n')
+}
+
+const defaultModelEditConfig: ModelEditConfig = {
+  saveCallback: ({ type, prev, current, dom, filePath }) => {
+    return buildModelEditPrompt(dom, prev, current, filePath)
+  },
+  deleteCallback: ({ type, dom, filePath }) => {
+    return buildModelDeletePrompt(dom, filePath)
+  },
+}
+
+export { defaultModelEditConfig }
+
+function parseJson(s: string): Record<string, string> {
+  try { return JSON.parse(s) } catch { return {} }
+}
+
+const directModelEditConfig: ModelEditConfig = {
+  ...defaultModelEditConfig,
+
+  onChange: ({ key, value, dom, postMessageToIframe }: OnChangeArgs) => {
+    const id = dom.dataOdId
+    const version = Date.now()
+    const send = (styles: Record<string, string>) => {
+      postMessageToIframe({ type: 'od:edit-preview-style', id, styles, version })
+    }
+
+    switch (key) {
+      case 'od_color': send({ color: value }); break
+      case 'od_fontSize': send({ fontSize: value }); break
+      case 'od_fontWeight': send({ fontWeight: value }); break
+      case 'od_fontFamily': send({ fontFamily: value }); break
+      case 'od_textAlign': send({ textAlign: value }); break
+      case 'od_lineHeight': send({ lineHeight: value }); break
+      case 'od_letterSpacing': send({ letterSpacing: value }); break
+      case 'od_verticalAlign': send({ verticalAlign: value }); break
+      case 'od_backgroundColor': send({ backgroundColor: value }); break
+      case 'od_opacity': send({ opacity: value }); break
+      case 'od_borderRadius': send({ borderRadius: value }); break
+      case 'od_overflow': send({ overflow: value }); break
+      case 'od_width': send({ width: value }); break
+      case 'od_height': send({ height: value }); break
+      case 'od_textContent':
+        postMessageToIframe({ type: 'od:edit-text', elementId: id, value })
+        break
+      case 'od_href':
+        send({ href: value })
+        break
+      case 'od_layout': {
+        const d = parseJson(value)
+        send({ flexDirection: d.flexDirection || '', justifyContent: d.justifyContent || '', alignItems: d.alignItems || '', gap: d.gap || '' })
+        break
+      }
+      case 'od_size': {
+        const d = parseJson(value)
+        send({ width: d.width || '', height: d.height || '', overflow: d.overflow || '' })
+        break
+      }
+      case 'od_padding': {
+        const d = parseJson(value)
+        send({ paddingTop: d.t || '', paddingRight: d.r || '', paddingBottom: d.b || '', paddingLeft: d.l || '' })
+        break
+      }
+      case 'od_margin': {
+        const d = parseJson(value)
+        send({ marginTop: d.t || '', marginRight: d.r || '', marginBottom: d.b || '', marginLeft: d.l || '' })
+        break
+      }
+      case 'od_appearance': {
+        const d = parseJson(value)
+        const styles: Record<string, string> = {}
+        if (d.backgroundColor !== undefined) styles.backgroundColor = d.backgroundColor
+        if (d.opacity) styles.opacity = d.opacity
+        if (d.borderRadius) {
+          styles.borderRadius = d.borderRadius
+        } else {
+          if (d.borderTopLeftRadius) styles.borderTopLeftRadius = d.borderTopLeftRadius
+          if (d.borderTopRightRadius) styles.borderTopRightRadius = d.borderTopRightRadius
+          if (d.borderBottomRightRadius) styles.borderBottomRightRadius = d.borderBottomRightRadius
+          if (d.borderBottomLeftRadius) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
+        }
+        send(styles)
+        break
+      }
+      case 'od_border': {
+        const d = parseJson(value)
+        send({
+          borderColor: d.borderColor || '',
+          borderTopWidth: d.borderTopWidth || '',
+          borderRightWidth: d.borderRightWidth || '',
+          borderBottomWidth: d.borderBottomWidth || '',
+          borderLeftWidth: d.borderLeftWidth || '',
+          borderStyle: d.borderStyle || '',
+        })
+        break
+      }
+      case 'od_bgImage': send({ backgroundImage: value }); break
+      case 'od_effects': {
+        const effects = JSON.parse(value) as EffectEntry[]
+        const serialized = serializeEffects(effects)
+        send({ boxShadow: serialized.boxShadow, filter: serialized.filter, backdropFilter: serialized.backdropFilter })
+        break
+      }
+    }
+  },
+
+  saveCallback: async ({ getIframeSnapshot, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }) => {
+    const html = await getIframeSnapshot()
+    const clean = cleanBridgeContent(html)
+    const wrapped = wrapHtmlContent(clean)
+    await onContentChange(wrapped)
+    onRefreshNeeded()
+    return ''
+  },
+
+  deleteCallback: async ({ dom, getIframeSnapshot, applyPatch, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }) => {
+    const html = await getIframeSnapshot()
+    const result = applyPatch(html, { id: dom.dataOdId, kind: 'remove-element' })
+    if (result.ok) {
+      const clean = cleanBridgeContent(result.source)
+      const wrapped = wrapHtmlContent(clean)
+      await onContentChange(wrapped)
+      onRefreshNeeded()
+    }
+    return ''
+  },
+
+  promptCallback: (filePath, selector) => {
+    return [
+      `[文件: ${filePath}]`,
+      `[选择器: ${selector}（该元素可能是动态生成的）]`,
+    ].join('\n')
+  },
+
+  iconConfig: {
+    getCustomIconDir: ({ sessionDir, filePath }) => {
+      if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
+      return `${sessionDir}/.octo/${sessionDir}/assets`
+    },
+    getInitialState: (dom) => ({
+      name: dom.attributes['data-icon-name'] || '',
+      id: dom.attributes['data-icon-id'] || '',
+      isCustom: dom.attributes['data-icon-custom'] === 'true',
+      size: dom.attributes['data-icon-size'] || '24',
+      style: dom.attributes['data-icon-style'] || 'outline',
+      color: dom.attributes['data-icon-color'] || '#191919',
+      src: dom.attributes['data-icon-src'] || undefined,
+    }),
+    data: {
+      styles: [
+        { key: '线性', label: '线性', value: 'outline' },
+        { key: '线性双色', label: '线性双色', value: 'two-tone' },
+        { key: '方底托', label: '方底托', value: 'square' },
+        { key: '圆底托', label: '圆底托', value: 'circle' },
+      ],
+      colors: iconColors,
+      sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
+      acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
+    },
+    onConfirm: async ({ prev, current, dom, filePath, postMessageToIframe, writeFileBuffer, sessionDir, getIframeSnapshot, cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }: IconConfirmArgs) => {
+      const id = dom.dataOdId
+      const tag = dom.tagName
+      let iconSrc = current.src ?? ''
+
+      // 1. 下载 SVG 到 uploads（在线/lucide 图标有 svgContent）
+      if (current.svgContent && writeFileBuffer && sessionDir) {
+        const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/assets`
+        const safeName = (current.name ?? 'icon').replace(/[\\/:*?"<>|]/g, '_')
+        const iconPath = `${iconDir}/icon_${safeName}.svg`
+        try {
+          await writeFileBuffer(iconPath, new TextEncoder().encode(current.svgContent).buffer as ArrayBuffer)
+        } catch (e) {
+          console.error('[icon] write SVG failed', iconPath, e)
+        }
+        iconSrc = `uploads/icons/icon_${safeName}.svg`
+      }
+
+      // 2. 构建 data-icon-* 元数据属性
+      const iconAttrs: Record<string, string> = {
+        'data-icon-name': current.name ?? '',
+        'data-icon-id': current.id ?? '',
+        'data-icon-custom': current.isCustom ? 'true' : 'false',
+        'data-icon-src': iconSrc,
+        'data-icon-size': current.size ?? '',
+        'data-icon-style': current.style ?? '',
+        'data-icon-color': current.color ?? '',
+      }
+
+      // 3. 替换 DOM
+      if (tag === 'img') {
+        // <img>: 设置 src 属性
+        if (iconSrc) postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: 'src', value: iconSrc })
+        for (const [k, v] of Object.entries(iconAttrs)) {
+          postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: k, value: v })
+        }
+      } else if (tag === 'svg') {
+        // <svg>: 替换整个元素
+        const html = current.isCustom || !current.svgContent
+          ? `<img src="${iconSrc}" width="${current.size ?? 24}" height="${current.size ?? 24}" />`
+          : current.svgContent
+        postMessageToIframe({ type: 'od:replace-element', elementId: id, html, attrs: iconAttrs })
+      }
+
+      // 4. 写回 HTML + 刷新
+      if (getIframeSnapshot && cleanBridgeContent && wrapHtmlContent && onContentChange && onRefreshNeeded) {
+        const snapshotHtml = await getIframeSnapshot()
+        const clean = cleanBridgeContent(snapshotHtml)
+        const wrapped = wrapHtmlContent(clean)
+        await onContentChange(wrapped)
+        onRefreshNeeded()
+      }
+
+      return ''
+    },
+  } satisfies IconConfig,
+  assetConfig: {
+    showConfig: () => true,
+    getInitialState: () => ({ name: '未选择' }),
+    onConfirm: ({ dom, filePath, folderpath }) => {
+      return [
+        `[文件: ${filePath}]`,
+        `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
+        `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
+      ].join('\n')
+    },
+  } satisfies AssetConfig,
+}
+
+export { directModelEditConfig }
+
+/**
+ * 默认 SubtypeHandler 实现
+ * 
+ * 这个文件展示了如何实现自定义 SubtypeHandler。
+ * 其他 handler 可以参考此文件了解如何实现各种方法。
+ * 
+ * 所有方法都是可选的，你可以选择性地实现需要的方法。
+ * 返回值语义：
+ * - true: 已处理，阻止默认逻辑
+ * - false: 未处理，继续执行默认逻辑
+ * - void: 已处理（等同于 true）
+ */
+
+/** 用户取消系统保存对话框时抛出，由调用方 catch 后静默移除任务项 */
+export class DownloadCancelledError extends Error {
+  constructor() {
+    super("download cancelled")
+    this.name = "DownloadCancelledError"
+  }
+}
+
+// ============ 辅助函数 ============
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+function stripExtension(title: string, ext: string): string {
+  const suffix = `.${ext}`
+  if (title.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return title.slice(0, -suffix.length)
+  }
+  return title
+}
+
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
+  const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
+  const blob = new Blob([blobPart], { type: mimeType })
+  const api = getDesktopApi()
+
+  if (api?.saveFilePicker && api?.writeFileBuffer) {
+    const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
+    if (!chosen) return false
+    const buffer = await blob.arrayBuffer()
+    await api.writeFileBuffer(chosen, buffer)
+    showOctoToast({ title: "已下载" })
+    return true
+  }
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  showOctoToast({ title: "已下载" })
+  return true
+}
+
+function markdownTableToCSV(md: string): string {
+  const lines = md.split("\n")
+  const tableLines = lines.filter((l) => l.trim().startsWith("|"))
+  return tableLines
+    .filter((l) => !/^\|[\s\-:|]+\|$/.test(l.trim()))
+    .map((l) =>
+      l
+        .trim()
+        .slice(1, -1)
+        .split("|")
+        .map((cell) => `"${cell.trim().replace(/"/g, '""')}"`)
+        .join(","),
+    )
+    .join("\n")
+}
+
+function extractDownloadContent(tab: ResultTab): string {
+  if (tab.type === "table") return markdownTableToCSV(tab.content)
+
+  const raw = tab.content
+
+  if (tab.type === "svg") {
+    const fenceMatch = raw.match(/```(?:xml|svg)?\s*\n([\s\S]*?)\n?```/i)
+    if (fenceMatch) return fenceMatch[1].trim()
+    const svgMatch = raw.match(/(<svg[\s>][\s\S]*<\/svg>)/i)
+    if (svgMatch) return svgMatch[1]
+    return raw.trim()
+  }
+
+  if (tab.type === "code-snippet") {
+    const fenceMatch = raw.match(/```[\w]*\s*\n([\s\S]*?)\n?```/)
+    if (fenceMatch) return fenceMatch[1].trim()
+    return raw.trim()
+  }
+
+  if (tab.type === "html" || tab.type === "deck") {
+    const fenceMatch = raw.match(/```html\s*\n([\s\S]*?)\n?```/i)
+    if (fenceMatch) return fenceMatch[1].trim()
+    return raw.trim()
+  }
+
+  return raw
+}
+
+function getCodeSnippetExt(content: string): string {
+  const fenceMatch = content.match(/```(\w+)\s*\n/)
+  if (fenceMatch) {
+    const lang = fenceMatch[1].toLowerCase()
+    const extMap: Record<string, string> = {
+      typescript: "ts", ts: "ts", javascript: "js", js: "js",
+      python: "py", py: "py", rust: "rs", go: "go", java: "java",
+      css: "css", html: "html", json: "json", yaml: "yaml", yml: "yml",
+      toml: "toml", sh: "sh", bash: "sh", sql: "sql",
+      tsx: "tsx", jsx: "jsx", vue: "vue", svelte: "svelte",
+    }
+    return extMap[lang] || lang
+  }
+  return "txt"
+}
+
+function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
+  switch (tab.type) {
+    case "html":
+      return { filename: `${stripExtension(tab.title, "html")}.html`, mime: "text/html;charset=utf-8" }
+    case "deck":
+      return { filename: `${stripExtension(tab.title, "pdf")}.pdf`, mime: "application/pdf" }
+    case "svg":
+      return { filename: `${stripExtension(tab.title, "svg")}.svg`, mime: "image/svg+xml;charset=utf-8" }
+    case "json":
+      return { filename: `${stripExtension(tab.title, "json")}.json`, mime: "application/json;charset=utf-8" }
+    case "table":
+      return { filename: `${stripExtension(tab.title, "csv")}.csv`, mime: "text/csv;charset=utf-8" }
+    case "code-snippet":
+      const ext = getCodeSnippetExt(tab.content)
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: "text/plain;charset=utf-8" }
+    case "markdown":
+    case "markdown-document":
+      return { filename: `${stripExtension(tab.title, "md")}.md`, mime: "text/markdown;charset=utf-8" }
+    default:
+      return { filename: `${stripExtension(tab.title, "txt")}.txt`, mime: "text/plain;charset=utf-8" }
+  }
+}
+
+function exportDeckAsPDF(content: string, title: string) {
+  const html = extractDownloadContent({ type: "deck", content } as ResultTab)
+  const printHtml = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>
+  @page { margin: 0; size: 1920px 1080px; }
+  body { margin: 0; padding: 0; }
+  .slide { page-break-after: always; width: 1920px; height: 1080px; box-sizing: border-box; overflow: hidden; }
+  .slide:last-child { page-break-after: auto; }
+</style>
+</head>
+<body>${html}</body>
+</html>`
+
+  const desktopApi = (window as unknown as { api?: { htmlToPdf?: (html: string) => Promise<ArrayBuffer> } }).api
+  if (desktopApi?.htmlToPdf) {
+    desktopApi.htmlToPdf(printHtml).then(async (buffer) => {
+      await downloadBlob(new Uint8Array(buffer), `${title}.pdf`, "application/pdf")
+    }).catch(console.error)
+    return
+  }
+
+  const win = window.open("", "_blank")
+  if (!win) return
+  win.document.write(printHtml)
+  win.document.close()
+  win.onload = () => win.print()
+}
+
+// ============ Handler 实现 ============
+
+const DEFAULT_HISTORY_FILES = ['.']
+
+const defaultHandler: SubtypeHandler = {
+  name: '_default',
+  
+  /**
+   * 处理下载
+   * 
+   * 默认行为：
+   * 1. HTML 类型：生成 ZIP（包含资源文件）
+   * 2. Deck 类型：导出为 PDF
+   * 3. 其他类型：使用桌面 API 或浏览器下载
+   * 
+   * @example
+   * // 自定义下载：导出到 Figma
+   * async handleDownload(ctx) {
+   *   const { tab, showOctoToast } = ctx
+   *   showOctoToast({ title: "正在导出到 Figma..." })
+   *   await exportToFigma(tab)
+   *   return true  // 阻止默认下载
+   * }
+   */
+  async handleDownload(ctx) {
+    const { tab, showOctoToast, extractCodeBlock, getDesktopApi, observedUrlsGetter } = ctx
+    
+    // 导入依赖（在函数内部导入，避免循环依赖）
+    const { createHtmlAssetsZip } = await import('../utils/html-assets-zip')
+    
+    // HTML 类型：生成 ZIP（包含资源文件）
+    if (tab.type === "html") {
+      const htmlContent = extractDownloadContent(tab)
+      const htmlFileNameInZip = `${stripExtension(tab.title, "html")}.html`
+      
+      try {
+        const observedUrls = observedUrlsGetter?.() || []
+        const zipBlob = await createHtmlAssetsZip({
+          htmlContent,
+          htmlFilePath: tab.filePath || "",
+          htmlFileNameInZip,
+          observedUrls,
+        })
+        
+        const zipName = `${stripExtension(tab.title, "zip")}.zip`
+        const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
+        if (!(await downloadBlob(zipBytes, zipName, "application/zip"))) throw new DownloadCancelledError()
+      } catch (err) {
+        if (err instanceof DownloadCancelledError) throw err
+        showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+      }
+      return true
+    }
+    
+    // Deck 类型：导出为 PDF
+    if (tab.type === "deck") {
+      exportDeckAsPDF(tab.content, stripExtension(tab.title, "pdf"))
+      return true
+    }
+    
+    // 其他类型：使用桌面 API 或浏览器下载
+    const api = getDesktopApi()
+    const supportedTypes = ["html", "svg", "image", "video", "audio", "pdf", "text"]
+    
+    if (tab.filePath && supportedTypes.includes(tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
+      const chosen = await api.saveFilePicker({ defaultPath: tab.title })
+      if (!chosen) throw new DownloadCancelledError()
+      
+      const buffer = await api.readFileBuffer(tab.filePath)
+      if (!buffer) {
+        showOctoToast({ title: "读取文件失败", variant: "error" })
+        return true
+      }
+      
+      await api.writeFileBuffer(chosen, buffer)
+      showOctoToast({ title: "已保存" })
+      return true
+    }
+    
+    // 默认下载
+    const info = getDownloadInfo(tab)
+    const content = extractDownloadContent(tab)
+    if (!(await downloadBlob(content, info.filename, info.mime))) throw new DownloadCancelledError()
+    return true
+  },
+  
+  async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter, onFilesRefresh } = ctx
+    
+    const isLoggedIn = !!localStorage.getItem('uiplusToken')
+    if (!isLoggedIn) {
+      showOctoToast({ title: "请先登录" })
+      return { handled: true }
+    }
+
+    const htmlContent = ctx.extractCodeBlock(tab.content, "html")
+    const { createC2DZip } = await import('../utils/canvas-to-design')
+    
+    return {
+      handled: true,
+      options: {
+        getZip: async () => {
+          showOctoToast({ title: "生成ZIP文件..." })
+          return await createC2DZip({
+            htmlContent,
+            htmlFilePath: tab.filePath || "",
+            tabTitle: tab.title,
+            observedUrls: observedUrlsGetter?.() || [],
+          })
+        },
+        downloadHtml: async (data) => {
+          const api = getDesktopApi()
+          const baseDir = sdkDirectory
+          const sid = sessionId
+          
+          if (!baseDir || !sid || !api?.writeFileBuffer) {
+            showOctoToast({ title: "无法保存文件", variant: "error" })
+            return
+          }
+          
+          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          const lastDotIndex = data.filename.lastIndexOf('.')
+          const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
+          const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
+          
+          // ZIP file: extract to folder
+          if (ext.toLowerCase() === '.zip' && api.listDirectory) {
+            let folderName = baseName
+            let folderPath = `${uploadsDir}/${folderName}`
+            
+            let counter = 0
+            while (await folderExists(folderPath, api)) {
+              counter++
+              folderName = `${baseName} (${counter})`
+              folderPath = `${uploadsDir}/${folderName}`
+            }
+            
+            const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+            const zip = await JSZip.loadAsync(buffer)
+            
+            for (const [relativePath, file] of Object.entries(zip.files)) {
+              if (!file.dir) {
+                const content = await file.async('uint8array')
+                await api.writeFileBuffer(`${folderPath}/${relativePath}`, content.buffer as ArrayBuffer)
+              }
+            }
+            
+            showOctoToast({ title: "已解压", description: folderName })
+            onFilesRefresh?.()
+            return
+          }
+          
+          // Non-ZIP file: save directly
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName} (${counter})${ext}`
+            }
+          }
+          
+          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
+          showOctoToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: tab.title,
+          sessionId: sessionId || "",
+        },
+      },
+    }
+  },
+  
+  /**
+   * 处理标注切换
+   * 
+   * 默认行为：切换 commenting 状态，显示标准标注 UI
+   * 返回 false 表示不处理，让系统执行默认逻辑
+   * 
+   * @example
+   * // 自定义标注：使用自定义标注面板
+   * async handleComment(ctx) {
+   *   const { tab, showOctoToast } = ctx
+   *   // 打开自定义标注面板
+   *   await openCustomCommentPanel(tab)
+   *   return true  // 阻止默认标注 UI
+   * }
+   */
+  async handleComment(ctx) {
+    // 返回 false，让系统执行默认逻辑（切换 featureMutex.state.commenting）
+    return false
+  },
+  
+  /**
+   * 处理归档切换
+   * 
+   * 默认行为：切换 archiving 状态，显示 ArchiveDialog
+   * 返回 false 表示不处理，让系统执行默认逻辑
+   * 
+   * @example
+   * // 自定义归档：上传到云存储
+   * async handleArchive(ctx) {
+   *   const { tab, showOctoToast } = ctx
+   *   await uploadToCloud(tab)
+   *   showOctoToast({ title: "已归档到云端" })
+   *   return true
+   * }
+   */
+  async handleArchive(ctx) {
+    // 返回 false，让系统执行默认逻辑（切换 featureMutex.state.archiving）
+    return false
+  },
+  
+  /**
+   * 功能开启前的钩子
+   * 
+   * 默认行为：允许所有功能开启
+   * 返回 true 表示允许开启，false 表示阻止
+   * 
+   * @example
+   * // 只在登录时允许归档
+   * async beforeFeatureEnable(feature, ctx) {
+   *   if (feature === 'archive') {
+   *     const isLoggedIn = checkLogin()
+   *     if (!isLoggedIn) {
+   *       ctx.showOctoToast({ title: "请先登录" })
+   *       return false
+   *     }
+   *   }
+   *   return true
+   * }
+   */
+  async beforeFeatureEnable(feature, ctx) {
+    return true
+  },
+  
+  /**
+   * UI 配置
+   * 
+   * 默认行为：使用标准 Action Bar 按钮
+   * 
+   * icon 支持三种格式：
+   * 1. 图标组件（推荐）：`<IconSync size={16} />`
+   * 2. emoji/字符：`'🔄'`
+   * 3. 文本：`'Aa'`
+   * 
+   * position 支持以下值：
+   * - 'start': 最前面（左侧区域开始）
+   * - 'after-download': 下载按钮之后
+   * - 'after-archive': 归档按钮之后
+   * - 'before-fullscreen': 全屏按钮之前
+   * - 'end': 最后面（默认）
+   * 
+   * @example
+   * // 指定按钮位置
+   * components: {
+   *   actionBar: {
+   *     extraButtons: [
+   *       {
+   *         id: 'sync',
+   *         label: '同步',
+   *         icon: <IconSync size={16} />,
+   *         position: 'after-download',  // 在下载按钮之后
+   *         order: 1
+   *       },
+   *       {
+   *         id: 'share',
+   *         label: '分享',
+   *         position: 'before-fullscreen',  // 在全屏按钮之前
+   *         order: 1
+   *       },
+   *       {
+   *         id: 'custom-start',
+   *         label: '自定义',
+   *         position: 'start'  // 最前面
+   *       }
+   *     ]
+   *   }
+   * }
+   * 
+   * @example
+   * // 多个按钮排序
+   * components: {
+   *   actionBar: {
+   *     extraButtons: [
+   *       {
+   *         id: 'sync',
+   *         label: '同步',
+   *         position: 'after-download',
+   *         order: 1  // 第一个
+   *       },
+   *       {
+   *         id: 'share',
+   *         label: '分享',
+   *         position: 'after-download',
+   *         order: 2  // 第二个
+   *       }
+   *     ]
+   *   }
+   * }
+   */
+  components: {
+    actionBar: {
+      extraButtons: []
+    }
+  },
+
+  modelEditConfig: directModelEditConfig,
+
+  async onHistoryTrigger(_event, _ctx) {
+    return DEFAULT_HISTORY_FILES
+  },
+
+  async applyVersionFiles(ctx, files) {
+    const { tab, getDesktopApi, updateTabContent } = ctx
+    const api = getDesktopApi()
+    if (!api?.copyFileTo || !api?.readFileBuffer || !tab.filePath) return
+
+    for (const rel of DEFAULT_HISTORY_FILES) {
+      const id = relativePathToId(rel)
+      const ext = getExt(resolveRelativePath(rel, tab.filePath))
+      const versionFileName = id + ext
+      const versionFile = files.find((f) => f.fileName === versionFileName)
+      if (!versionFile) continue
+      const originalPath = resolveRelativePath(rel, tab.filePath)
+      try {
+        await api.copyFileTo(versionFile.filePath, originalPath)
+      } catch {}
+    }
+
+    const buf = await api.readFileBuffer(tab.filePath)
+    if (buf && updateTabContent) {
+      updateTabContent(tab.id, new TextDecoder().decode(buf))
+    }
+  },
+}
+
+export default defaultHandler satisfies SubtypeHandler
+
+async function folderExists(path: string, api: ReturnType<typeof getDesktopApi>): Promise<boolean> {
+  if (!api?.listDirectory) return false
+  const parent = path.replace(/[/\\][^/\\]+$/, '')
+  const items = await api.listDirectory(parent)
+  if (!items) return false
+  return items.some(item => item.path === path && item.type === 'directory')
+}

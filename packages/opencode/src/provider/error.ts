@@ -13,6 +13,7 @@ const OVERFLOW_PATTERNS = [
   /maximum prompt length is \d+/i, // xAI (Grok)
   /reduce the length of the messages/i, // Groq
   /maximum context length is \d+ tokens/i, // OpenRouter, DeepSeek, vLLM
+  /maximum input length is \d+ tokens/i, // OpenAI-compatible gateways
   /exceeds the limit of \d+/i, // GitHub Copilot
   /exceeds the available context size/i, // llama.cpp server
   /greater than the context length/i, // LM Studio
@@ -122,6 +123,14 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
 
   const responseBody = JSON.stringify(body)
   if (body.type !== "error") return
+
+  if (typeof body?.error?.message === "string" && isOverflow(body.error.message)) {
+    return {
+      type: "context_overflow",
+      message: body.error.message,
+      responseBody,
+    }
+  }
 
   switch (body?.error?.code) {
     case "context_length_exceeded":

@@ -1,5 +1,15 @@
 import { getDesktopApi } from "../lib/electron-api"
 import JSZip from "jszip"
+import {
+  collectReferencedFiles,
+  dirname,
+  basename,
+  joinPath,
+  relativeTo,
+} from "./references"
+import type { DesktopApi } from "../lib/electron-api"
+import { observedUrlsToAbsPaths } from "./resource-tracker"
+import { readHtmlFromDisk } from "./html-assets-zip"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -68,6 +78,22 @@ export interface CreateArchiveZipOptions {
   htmlFilePath: string
   sessionId: string
   projectDir: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
+  observedUrls?: string[]
+  /** 归档时塞进 src/ 的文件列表；为空则 src/ 留空 */
+  srcFiles?: { path: string; content: string | Uint8Array }[] | null
+  /** 额外整体打包进 preview/ 的本地目录（绝对路径，递归列出）。
+   *  用于绕过静态解析局限（如打包器转换 new URL 形式、运行时动态注入 css），
+   *  把 HTML 引用但 regex 抓不到的本地资源目录（如 prototype 的 assets symlink）一并带走。 */
+  previewExtraDirs?: string[]
+  /** 额外显式打包进 preview/ 的文件（相对 htmlDir 的相对路径，可带 ./ 前缀）。
+   *  用于绕过静态解析 + 运行时信号都抓不到的引用：混合模式 prototype 的 a2ui-data/*.json / *.data.js
+   *  以 dataPath: './...' JS 字面量引用（非 src/href，静态正则不认；运行时加载时序不稳定），
+   *  由调用方按 getA2uiDataRelativePaths 显式列出，确定性补进 preview/。 */
+  previewExtraRels?: string[]
+  /** prototype 归档：iframe 实时 DOM 快照 HTML，用于抽取 [dom-picker-component] 元素写入 data/prototype.json。
+   *  仅 prototype 子类型传入；undefined 时不生成 prototype.json。 */
+  prototypeSnapshotHtml?: string
 }
 
 export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
@@ -86,6 +112,50 @@ export function transformCommentsForArchive(comments: FileComment[]): ArchiveCom
       }
     })
   }))
+}
+
+export interface PrototypePickerEntry {
+  selector: string
+  /** A2UI 节点 id（elementId），取自 DOM id 属性（ComponentNode.vue 写入 t.node.id） */
+  name: string
+  component: string
+}
+
+/** 从 iframe 实时 DOM 快照 HTML 中抽取 [dom-picker-component] 元素，
+ *  排除 div/h1 等原生 HTML5 标签（component 值小写开头），仅保留注册组件。
+ *  为每个生成在重新渲染后仍能精准命中的 CSS 选择器。html 为空时返回 []。 */
+export function collectPrototypePickerDataFromHtml(html: string): PrototypePickerEntry[] {
+  if (!html) return []
+  const doc = new DOMParser().parseFromString(html, "text/html")
+  return Array.from(doc.querySelectorAll<HTMLElement>("[dom-picker-component]"))
+    .filter(el => !/^[a-z]/.test(el.getAttribute("dom-picker-component") ?? ""))
+    .map(el => ({
+      selector: buildUniqueSelector(el, doc),
+      name: el.id,
+      component: el.getAttribute("dom-picker-component") ?? "",
+    }))
+}
+
+function buildUniqueSelector(el: Element, root: Document): string {
+  const id = el.id
+  if (id && root.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
+    return `#${CSS.escape(id)}`
+  }
+  const path: string[] = []
+  let cur: Element | null = el
+  while (cur && cur !== root.documentElement) {
+    const node: Element = cur
+    const parent: Element | null = node.parentElement
+    if (!parent) break
+    const tag: string = node.tagName.toLowerCase()
+    const siblings: Element[] = Array.from(parent.children).filter((c: Element) => c.tagName === tag)
+    const index: number = siblings.indexOf(node) + 1
+    path.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${index})` : tag)
+    cur = parent
+    const selector: string = path.join(" > ")
+    if (root.querySelectorAll(selector).length === 1) return selector
+  }
+  return path.join(" > ")
 }
 
 export async function capturePageScreenshot(iframe: HTMLIFrameElement): Promise<Blob> {
@@ -142,22 +212,16 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-function checkHasRelativeRefs(html: string): boolean {
-  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
-  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
-  return attrRegex.test(html) || cssRegex.test(html)
-}
-
-function dirname(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(0, idx) : path
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(idx + 1) : path
+/** 列出目录下所有文件（绝对路径）。
+ *  list-directory IPC 已递归 walk，返回的 path 是相对 dir 的相对路径，这里拼回绝对。 */
+async function listDirFiles(
+  listDirectory: NonNullable<DesktopApi["listDirectory"]>,
+  dir: string,
+): Promise<string[]> {
+  const entries = await listDirectory(dir)
+  return entries
+    .filter(e => e.type === "file")
+    .map(e => joinPath(dir, e.path.replace(/\\/g, "/")))
 }
 
 export async function createArchiveZip(options: CreateArchiveZipOptions): Promise<Blob> {
@@ -167,42 +231,105 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.folder("src")
   zip.folder("preview")
 
+  // 塞入 subtype 提供的源码文件（平铺到 src/，不再嵌套 zip）
+  if (options.srcFiles) {
+    for (const f of options.srcFiles) {
+      zip.file(`src/${f.path}`, f.content)
+    }
+  }
+
   const archiveComments = transformCommentsForArchive(options.comments)
   zip.file("data/comments.json", JSON.stringify(archiveComments, null, 2))
 
   const screenshotBytes = await blobToUint8Array(options.screenshotBlob)
   zip.file("data/screenshot.jpg", screenshotBytes)
 
-  zip.file("preview/index.html", options.htmlContent)
+  // prototype：[dom-picker-component] 元素运行时由 Vue 注入，磁盘 HTML 没有，
+  // 从 iframe 实时快照抽取精准选择器写入 data/components.json
+  if (options.prototypeSnapshotHtml !== undefined) {
+    zip.file(
+      "data/components.json",
+      JSON.stringify(collectPrototypePickerDataFromHtml(options.prototypeSnapshotHtml), null, 2),
+    )
+  }
 
   const api = getDesktopApi()
-  
-  // 检查是否有相对路径引用，如果有则复制同目录下所有文件
-  if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
-    const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-    
-    if (hasRelativeRefs) {
-      const htmlDir = dirname(options.htmlFilePath)
-      const htmlFileName = basename(options.htmlFilePath)
-      
+
+  // 始终从磁盘读原始 HTML，保证 ZIP 内 HTML 与磁盘一致
+  const htmlContent = options.htmlFilePath && api?.readFileBuffer
+    ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, (p) => api.readFileBuffer!(p))
+    : options.htmlContent
+
+  zip.file("preview/index.html", htmlContent)
+
+  // 引用资源：静态解析 ∪ 网络信号
+  if (api?.readFileBuffer && options.htmlFilePath) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+    const htmlFileName = basename(options.htmlFilePath)
+
+    // 静态解析（返回绝对路径集合）
+    const staticAbsPaths = await collectReferencedFiles({
+      rootContent: htmlContent,
+      rootType: "html",
+      rootAbsPath: options.htmlFilePath,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
+    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
+
+    // 归档视图约定 HTML 在 preview/index.html，所以不支持跨父级引用：
+    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
+    const referencedRel = new Set<string>()
+    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+      const norm = abs.replace(/\\/g, "/")
+      const lower = norm.toLowerCase()
+      if (lower === htmlDir.toLowerCase()) continue
+      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+      const rel = norm.slice(htmlDir.length + 1)
+      if (rel && rel !== htmlFileName && rel !== options.htmlFileName) {
+        referencedRel.add(rel)
+      }
+    }
+
+    // 显式补充文件（混合 prototype 的 a2ui-data）：static 正则抓不到 dataPath 字面量，
+    // observedUrls 时序不稳定，按调用方给出的相对路径确定性地补进 preview/。
+    if (options.previewExtraRels?.length) {
+      for (const rel of options.previewExtraRels) {
+        const norm = rel.replace(/\\/g, "/").replace(/^\.?\//, "")
+        if (norm && norm !== htmlFileName && norm !== options.htmlFileName) {
+          referencedRel.add(norm)
+        }
+      }
+    }
+
+    for (const relPath of referencedRel) {
       try {
-        const files = await api.listDirectory(htmlDir)
-        
-        for (const file of files) {
-          if (file.type === 'file' && file.path !== htmlFileName) {
-            try {
-              const absolutePath = joinPath(htmlDir, file.path)
-              const buffer = await api.readFileBuffer(absolutePath)
-              if (buffer) {
-                zip.file(`preview/${file.path}`, new Uint8Array(buffer))
-              }
-            } catch (err) {
-              console.warn(`[Archive] Failed to read referenced file:`, file.path, err)
-            }
-          }
+        const absolutePath = joinPath(htmlDir, relPath)
+        const buffer = await api.readFileBuffer(absolutePath)
+        if (buffer) {
+          zip.file(`preview/${relPath}`, new Uint8Array(buffer))
         }
       } catch (err) {
-        console.warn('[Archive] Failed to list directory:', err)
+        console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
+      }
+    }
+  }
+
+  // 额外本地目录整体打包进 preview/（绕过静态解析局限，如 prototype 的 assets symlink）
+  if (options.previewExtraDirs?.length && api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+    for (const dir of options.previewExtraDirs) {
+      const dirNorm = dir.replace(/\\/g, "/")
+      const destPrefix = relativeTo(htmlDir, dirNorm) || basename(dirNorm)
+      try {
+        const allFiles = await listDirFiles(api.listDirectory, dirNorm)
+        for (const absPath of allFiles) {
+          const absNorm = absPath.replace(/\\/g, "/")
+          const rel = absNorm.slice(dirNorm.length).replace(/^[\\/]+/, "")
+          const buffer = await api.readFileBuffer(absPath)
+          if (buffer) zip.file(`preview/${destPrefix}/${rel}`, new Uint8Array(buffer))
+        }
+      } catch (err) {
+        console.warn(`[Archive] previewExtraDir failed:`, dir, err)
       }
     }
   }
@@ -229,20 +356,6 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   }
 
   return await zip.generateAsync({ type: "blob" })
-}
-
-function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-  
-  if (normalizedRelative.startsWith(normalizedBase)) {
-    return normalizedRelative
-  }
-  
-  if (normalizedBase.endsWith("/")) {
-    return normalizedBase + normalizedRelative
-  }
-  return normalizedBase + "/" + normalizedRelative
 }
 
 export function downloadArchiveZip(zipBlob: Blob, fileName: string): void {

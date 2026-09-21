@@ -36,7 +36,7 @@ export default function Divider(props: DividerProps) {
   } = props
 
   const borderStyle = dashed ? 'dashed' : 'solid'
-  const lineColor = '#e5e5e5'
+  const lineColor = 'var(--color-border-separator)'
 
   // ─── 垂直分割线（行内） ───
   if (type === 'vertical') {

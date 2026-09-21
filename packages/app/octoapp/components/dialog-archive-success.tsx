@@ -1,7 +1,7 @@
 import { Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "@/pages/make/components/octo-toast"
 
 interface Props {
   open: boolean
@@ -15,10 +15,10 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
   const handleCopyLink = () => {
     if (props.shareLink) {
       navigator.clipboard.writeText(props.shareLink)
-        .then(() => showToast({ title: "链接已复制" }))
-        .catch(() => showToast({ title: "复制失败", variant: "error" }))
+        .then(() => showOctoToast({ title: "链接已复制" }))
+        .catch(() => showOctoToast({ title: "复制失败", variant: "error" }))
     } else {
-      showToast({ title: "暂无分享链接" })
+      showOctoToast({ title: "暂无分享链接" })
     }
   }
 
@@ -78,6 +78,9 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border-radius: 12px;
             width: 400px;
             max-width: 90vw;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
             box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
             animation: dialog-slide-in 0.2s ease-out;
           }
@@ -96,6 +99,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             justify-content: space-between;
             align-items: center;
             padding: 20px 24px 0;
+            flex-shrink: 0;
           }
           .dialog-archive-success-title {
             display: flex;
@@ -126,12 +130,16 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
           }
           .dialog-archive-success-body {
             padding: 16px 24px;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
           }
           .archive-path-text {
             margin: 0;
             font-size: 14px;
             line-height: 22px;
             color: rgba(0, 0, 0, 0.9);
+            overflow-wrap: anywhere;
           }
           .archive-path-value {
             color: rgba(0, 0, 0, 0.9);
@@ -144,6 +152,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             justify-content: flex-end;
             gap: 8px;
             padding: 8px 24px 24px;
+            flex-shrink: 0;
           }
           .dialog-btn-primary {
             height: 32px;
