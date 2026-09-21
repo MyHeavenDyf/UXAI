@@ -99,8 +99,9 @@ export function getDefaultNativeConfig(kind: ManualEditKind, isLayoutContainer?:
       return [SIZE_GROUP, APPEARANCE_GROUP, PADDING_GROUP, MARGIN_GROUP, BORDER_GROUP, EFFECTS_GROUP]
     case 'container':
       return [
+        SIZE_GROUP,
         ...(isLayoutContainer ? [LAYOUT_GROUP] : []),
-        SIZE_GROUP, APPEARANCE_GROUP, PADDING_GROUP, MARGIN_GROUP, BORDER_GROUP, EFFECTS_GROUP, BG_IMAGE_GROUP,
+        APPEARANCE_GROUP, PADDING_GROUP, MARGIN_GROUP, BORDER_GROUP, EFFECTS_GROUP, BG_IMAGE_GROUP,
       ]
     case 'mixed':
       return [TEXT_GROUP, TYPOGRAPHY_GROUP]

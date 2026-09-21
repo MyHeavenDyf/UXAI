@@ -1366,11 +1366,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
   function compactContext(sessionID: string) {
     if (!sessionID || contextCompactionDisabled()) return
+    const model = currentModel()
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
       agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
+      model: model ? `${model.provider.id}/${model.id}` : undefined,
     })
   }
 
@@ -2990,6 +2992,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 切换历史版本：交由 controller 处理 */
   async function handleHistorySwitch(entry: VersionEntry) {
+    if (effectiveBusy()) return
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
@@ -5810,6 +5813,7 @@ onPreview={(url) => {
                 }}
                 onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
+                  if (effectiveBusy()) return
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
                     if (tab) await historyController.refreshVersions(tab)

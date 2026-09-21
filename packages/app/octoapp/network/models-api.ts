@@ -35,6 +35,7 @@ type ApiProvider = {
   api?: string
   npm?: string
   env?: string[]
+  title_model?: string[]
   models?: Record<string, ApiModel> | ApiModel[]
 }
 
@@ -345,6 +346,14 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
       source: "remote" as const,
       env: Array.isArray(item.env) ? item.env.filter((value): value is string => typeof value === "string") : [],
       options: item.api?.trim() ? { baseURL: item.api.trim() } : {},
+      ...(Array.isArray(item.title_model)
+        ? {
+            title_model: item.title_model
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          }
+        : {}),
       models: {},
     }
     return [

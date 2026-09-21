@@ -1352,6 +1352,7 @@ export type Provider = {
   options: {
     [key: string]: unknown
   }
+  title_model?: Array<string>
   models: {
     [key: string]: Model
   }

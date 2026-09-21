@@ -62,7 +62,7 @@ import {
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
-import { StudioComposer, StudioIntro, type StudioComposerMenu } from "./studio/studio-composer"
+import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
@@ -102,6 +102,7 @@ import {
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
+  studioMediaDownloadFilename,
   stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
@@ -268,6 +269,7 @@ type StudioGenerationOverrides = {
   effectivePrompt?: string
   sourceImage?: string
   referenceImages?: string[]
+  mentionImages?: Record<string, string>
   extra?: Record<string, unknown>
   videoFrames?: { first?: string; last?: string }
   styleModel?: string
@@ -617,7 +619,7 @@ export default function StudioPage() {
   let savedImageCount: 1 | 2 | 3 | 4 | undefined
   let savedVideoAspectRatio: StudioAspectRatio | undefined
   let savedVideoCount: 1 | 2 | 3 | 4 | undefined
-  const seedreamInputApi: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void } = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {} }
+  const seedreamInputApi: StudioComposerInputApi = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {}, stripMentions: () => {} }
   const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
     Persist.global("studio.left.collapsed"),
     createStore({ collapsed: false }),
@@ -1718,9 +1720,6 @@ export default function StudioPage() {
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
-  const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
-  // 首尾帧同时存在时强制 720p，但不写入持久化 store，保留用户手动选择的质量
-  const effectiveVideoQualityMode = createMemo(() => videoQualityLocked() ? "720" as StudioVideoQualityMode : videoQualityMode())
   const effectiveMaxReferenceImages = createMemo(() => {
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
@@ -1941,24 +1940,44 @@ export default function StudioPage() {
     const image = selectedImage()
     if (!image) return
     const source = image.remoteUrl ?? image.url
-    const label = currentImageLabel()
+    const fallbackMime = isVideoMedia(image) ? "video/mp4" : "image/png"
+    const downloaded = await fetch(source)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
+        const blob = await response.blob()
+        return {
+          blob,
+          label: studioMediaDownloadFilename({
+            url: response.url || source,
+            contentDisposition: response.headers.get("content-disposition"),
+            mime: blob.type || response.headers.get("content-type") || fallbackMime,
+          }),
+        }
+      })
+      .catch((error) => {
+        console.warn("[studio] image download fallback", error)
+        return undefined
+      })
+    const label = downloaded?.label ?? studioMediaDownloadFilename({ url: source, mime: fallbackMime })
     tracker.interaction({
       module: "studio",
       name: "download",
       extend: JSON.stringify({ name: label, url: source }),
     })
+    if (!downloaded) {
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
+      return
+    }
     try {
-      const response = await fetch(source)
-      if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const blob = await response.blob()
       if ((window as any).api?.saveFilePicker) {
         const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
         if (!filePath) return
-        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        await (window as any).api.writeFileBuffer(filePath, await downloaded.blob.arrayBuffer())
         showDownloadNotice("下载成功")
         return
       }
-      const objectUrl = URL.createObjectURL(blob)
+      const objectUrl = URL.createObjectURL(downloaded.blob)
       triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
       showDownloadNotice("下载成功")
@@ -2192,6 +2211,7 @@ export default function StudioPage() {
       }
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
+    if (currentTemplate && prevIsSeedream && !nextIsSeedream) seedreamInputApi.stripMentions()
     if (prevIsSeedream && !nextIsSeedream && !currentTemplate) {
       const hasMentions = Object.keys(seedreamInputApi.serializeMentionImages()).length > 0
       if (!hasMentions) seedreamAtSnapshot = undefined
@@ -2560,8 +2580,10 @@ export default function StudioPage() {
     const prevCapability = capability()
     const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
     const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    if (selectedStyleTemplate()) seedreamAtSnapshot = undefined
-    if (prevSeedreamImage && !nextSeedreamImage && !selectedStyleTemplate()) {
+    const currentStyleTemplate = selectedStyleTemplate()
+    if (currentStyleTemplate) seedreamAtSnapshot = undefined
+    if (value !== "image.generate" && currentStyleTemplate) clearStyleTemplate()
+    if (prevSeedreamImage && !nextSeedreamImage && !currentStyleTemplate) {
       seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
     }
     if (value === "video.generate" && prevCapability !== "video.generate") {
@@ -2647,7 +2669,7 @@ export default function StudioPage() {
       extend: JSON.stringify({
         aspectRatio: aspectRatio(),
         duration: videoDuration(),
-        quality: effectiveVideoQualityMode(),
+        quality: videoQualityMode(),
         mode: videoFrames.first ? "first_last_frame" : "text",
       }),
     })
@@ -2898,6 +2920,7 @@ export default function StudioPage() {
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
         extra: { ...(extra ?? {}), skipPromptRefine: true },
         styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
@@ -3083,6 +3106,25 @@ export default function StudioPage() {
         setRecipeExtraPrompt("")
       }
     })
+    if (template.prompt_setting !== "not_supported" && Object.keys(draft.mentionImages).length) {
+      queueMicrotask(() => {
+        if (template.template_type === "preset_recipe") {
+          seedreamInputApi.restore(
+            buildMentionHtml(stringValue(templatePrompt, "mainPrompt") ?? "", draft.mentionImages),
+            "recipeMain",
+          )
+          seedreamInputApi.restore(
+            buildMentionHtml(stringValue(templatePrompt, "extraPrompt") ?? "", draft.mentionImages),
+            "recipeExtra",
+          )
+          return
+        }
+        seedreamInputApi.restore(
+          buildMentionHtml(stringValue(templatePrompt, "custom") ?? "", draft.mentionImages),
+          "prompt",
+        )
+      })
+    }
     tracker.interaction({
       module: "studio",
       name: "edit-generation-template-draft",
@@ -3766,7 +3808,7 @@ export default function StudioPage() {
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
-    const nextVideoQualityMode = overrides?.videoQualityMode ?? effectiveVideoQualityMode()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -3779,7 +3821,7 @@ export default function StudioPage() {
     const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
     const actualUserPrompt = (overrides?.prompt ?? seedreamInputApi.serializeText()).trim()
-    const mentionImages = overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages()
+    const mentionImages = overrides?.mentionImages ?? (overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages())
     setMentionImagesMap(mentionImages)
     const text = actualUserPrompt || (
       nextCapability === "image.upscale"
@@ -4023,10 +4065,11 @@ export default function StudioPage() {
       return
     }
     const templateInput = {
-      custom: prompt().trim(),
-      extraPrompt: recipeExtraPrompt().trim(),
-      mainPrompt: recipeMainPrompt().trim(),
+      custom: (seedreamInputApi.serializeText("prompt") || prompt()).trim(),
+      extraPrompt: (seedreamInputApi.serializeText("recipeExtra") || recipeExtraPrompt()).trim(),
+      mainPrompt: (seedreamInputApi.serializeText("recipeMain") || recipeMainPrompt()).trim(),
     }
+    const mentionImages = seedreamInputApi.serializeMentionImages()
     const effectiveTemplate = template.template_type === "extract_style"
       ? { ...template, style_description: styleTemplateDescriptionDraft() ?? template.style_description }
       : template
@@ -4048,6 +4091,7 @@ export default function StudioPage() {
       refinedPrompt: finalPrompt,
       effectivePrompt: finalPrompt,
       styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      mentionImages,
       ...(referenceImages ? { referenceImages } : {}),
       extra: {
         skipPromptRefine: true,
@@ -4681,8 +4725,7 @@ export default function StudioPage() {
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
-                  videoQualityMode={effectiveVideoQualityMode()}
-                  videoQualityLocked={videoQualityLocked()}
+                  videoQualityMode={videoQualityMode()}
                   videoMode={videoMode()}
                   status={effectiveStatus()}
                   busy={isBusy()}
@@ -4913,8 +4956,7 @@ if (!headerTitle.pendingRename) return
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
-            videoQualityMode={effectiveVideoQualityMode()}
-            videoQualityLocked={videoQualityLocked()}
+            videoQualityMode={videoQualityMode()}
             videoMode={videoMode()}
             status={effectiveStatus()}
             busy={isBusy()}
