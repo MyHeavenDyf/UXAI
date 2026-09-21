@@ -1052,6 +1052,13 @@ input[type="number"].cc-value:focus {
   min-width: 0;
 }
 
+/* 宽高 2x2 网格：宽/高输入框 + 宽/高模式下拉 */
+.cc-size-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .cc-size-row > * {
   min-width: 0;
   flex: 1;

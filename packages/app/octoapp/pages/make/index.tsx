@@ -128,6 +128,7 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { isVisibleUserMessage } from "./utils/visible-message"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
@@ -630,6 +631,25 @@ const sessionMessagesLoaded = createMemo(() => {
         // 附件清空不在此处理：同上,Sync store 任何更新都会触发本 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      },
+    ),
+  )
+
+  // Fix 9: 切换 session 完整性校验。message[id] 已加载但无可见 user 消息时,可能是:
+  // ① 修复前残留的污染状态(空数组/仅 assistant);② SSE gap 丢掉 message.part.updated
+  // 而 message.updated 存活(parts 缺失被 visible 过滤)。两者都不会触发 missing 重取,
+  // 切换后对话区永久空白。此处 view-time 强制重拉一次兜底(force sync 会重写消息+parts);
+  // Set 防重复,失败时回退以便下次切换重试。
+  const integrityForced = new Set<string>()
+  createEffect(
+    on(
+      () => [params.id, sessionMessagesLoaded()] as const,
+      ([id, loaded]) => {
+        if (!id || !loaded || integrityForced.has(id)) return
+        const messages = (sync.data.message?.[id] ?? []) as Message[]
+        if (messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) return
+        integrityForced.add(id)
+        sync.session.sync(id, { force: true }).catch(() => integrityForced.delete(id))
       },
     ),
   )
@@ -1212,16 +1232,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const visible = (message: Message) => {
-      const parts = sync.data.part[message.id] ?? []
-      if (message.role !== "user" || parts.length === 0) return false
-      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
-      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
-      if (parts.some((part) => part.type === "compaction")) {
-        return parts.some((part) => part.type === "text")
-      }
-      return true
-    }
+    const visible = (message: Message) => isVisibleUserMessage(message, sync.data.part[message.id])
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childSessionIDs()) {
@@ -2557,12 +2568,14 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
-      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
-      persistActivePlanDraft()
-      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
-      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
-      tabStore.reset()
+      // 仅在 session 实际切换时重置 tabs:本 effect 还依赖 sync.data.session,
+      // 同一 session 内后台列表更新(warmSessions/首次加载)替换引用也会重跑,无条件 reset 会清空已打开的 tabs
+      if (newSid !== prevSid) {
+        // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+        // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+        persistActivePlanDraft()
+        tabStore.reset()
+      }
       // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
       if (newSid !== prevSid && _enteringPlan) {
         setPatternEnded(false)
@@ -2577,6 +2590,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternBlockMatchError(false)
         setPatternSubEnriching(false)
       }
+      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
+      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -3500,6 +3515,15 @@ const sessionMessagesLoaded = createMemo(() => {
       }).catch(err => {
         console.error("[MakePage] prompt failed", err)
         showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      }).finally(() => {
+        // Fix 8: 自愈校验。首条消息的 SSE 事件可能落在断线重连窗口内永久丢失
+        // (服务端无事件回放),而空的 message store 又被视为已加载/已缓存,
+        // 各处重取逻辑都不会触发 → InsightTurn 永久空白。
+        // stream 结束时若目标 session 里没有可渲染的 user 消息,强制重新拉取兜底。
+        const messages = (sync.data.message?.[sessionId] ?? []) as Message[]
+        if (!messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) {
+          void sync.session.sync(sessionId, { force: true }).catch(() => {})
+        }
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -4588,6 +4612,21 @@ if (dsId) {
       return
     }
 
+    // link 类型先校验,打不开直接 toast 返回,不切 tabs 模式(否则右侧停留在无 tab 的 tabs 视图)
+    if (card.type === "link") {
+      const linkContent = (card.content ?? "").trim()
+      if (!linkContent) {
+        showOctoToast({ title: "打开失败", description: "链接内容为空", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "empty-content" }) })
+        return
+      }
+      if (!/^([A-Za-z]:[/\\]|\/)/.test(linkContent) && !projectDir()) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "no-project-dir" }) })
+        return
+      }
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
@@ -4596,7 +4635,6 @@ if (dsId) {
     // 磁盘路径:   转绝对路径,按扩展名推断 type(复用本地文件渲染逻辑)
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
-      if (!linkContent) return
 
       // fastui 预览(SPEC-DES-004):卡片只记产物,地址由预览面板打开时向主进程当场取。
       // 本方案之前生成的卡片是 http://127.0.0.1:<port> —— 端口早已过期,
@@ -4685,6 +4723,9 @@ if (dsId) {
           if (fileContent && fileContent !== existingLocal.content) {
             tabStore.updateTabContent(existingLocal.id, fileContent)
             await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          } else {
+            // 内容未变也要走 onTabOpen：该文件无历史时补建 init
+            await historyController.onTabOpen(existingLocal, existingLocal)
           }
         }
         tabStore.activate(existingLocal.id)
@@ -4704,6 +4745,21 @@ if (dsId) {
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
       })
+
+      if (inferredType !== "design-plan") {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(absolutePath)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent) {
+            tabStore.updateTabContent(tabId, fileContent)
+          }
+        }
+        const tab = tabStore.tabs().find((t) => t.id === tabId)
+        if (tab) {
+          await historyController.onTabOpen(tab, undefined)
+        }
+      }
       tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", ext: absolutePath.split(".").pop() }) })
       return
     }
@@ -4766,6 +4822,9 @@ if (dsId) {
             if (fileContent && fileContent !== existingTab.content) {
               tabStore.updateTabContent(existingTab.id, fileContent)
               await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
+            } else {
+              // 内容未变也要走 onTabOpen：该文件无历史时补建 init
+              await historyController.onTabOpen(existingTab, existingTab)
             }
           }
         }
@@ -4874,7 +4933,10 @@ if (dsId) {
     if (isAbsolute) {
       absolutePath = normalizedPath
     } else {
-      if (!dir) return
+      if (!dir) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        return
+      }
       const normalizedDir = dir.replace(/\\/g, '/')
       absolutePath = normalizedDir
       if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
