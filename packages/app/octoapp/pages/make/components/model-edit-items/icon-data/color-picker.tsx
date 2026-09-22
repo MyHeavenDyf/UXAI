@@ -106,20 +106,83 @@ export function ColorPicker(props: {
 
   const placeholder = () => props.placeholder ?? '继承'
 
-  const displayLabel = createMemo(() => {
-    if (!props.value) return placeholder()
+  const matchedToken = createMemo(() => {
+    if (!props.value) return null
     if (lastTokenName()) {
       for (const t of props.tokens) {
         if (t.name !== lastTokenName()) continue
         const tokenAlpha = parseFloat(t.opacity) || 100
-        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
+        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t
       }
     }
     for (const t of props.tokens) {
       const tokenAlpha = parseFloat(t.opacity) || 100
-      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
+      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t
     }
-    return props.value
+    return null
+  })
+
+  const isCustomColor = createMemo(() => !!props.value && !matchedToken())
+
+  const displayLabel = createMemo(() => {
+    if (!props.value) return placeholder()
+    const t = matchedToken()
+    if (t) return t.displayName || t.name
+    return props.value.replace('#', '').slice(0, 6).toUpperCase()
+  })
+
+  const triggerAlpha = createMemo(() => hexToRgb(props.value)?.a ?? 100)
+
+  function currentBaseHex() {
+    return props.value.replace('#', '').slice(0, 6)
+  }
+
+  function commitAlphaInput() {
+    const trimmed = alphaText().trim()
+    const parsed = parseInt(trimmed)
+    if (trimmed === '' || isNaN(parsed)) {
+      setAlphaText(String(triggerAlpha()))
+      return
+    }
+    const a = Math.max(0, Math.min(100, parsed))
+    setLastTokenName('')
+    props.onTokenChange?.(null)
+    setAlpha(a)
+    setAlphaText(String(a))
+    props.onChange(hexWithAlpha(`#${currentBaseHex()}`, a))
+  }
+
+  function startAlphaTriggerDrag(e: MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startAlpha = hexToRgb(props.value)?.a ?? 100
+    const baseHex = currentBaseHex()
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:ew-resize'
+    document.body.appendChild(overlay)
+    const onMove = (ev: MouseEvent) => {
+      const a = Math.max(0, Math.min(100, startAlpha + Math.round((ev.clientX - startX) / 2)))
+      setLastTokenName('')
+      props.onTokenChange?.(null)
+      setAlpha(a)
+      props.onChange(hexWithAlpha(`#${baseHex.toLowerCase()}`, a))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      overlay.remove()
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const [alphaText, setAlphaText] = createSignal(String(triggerAlpha()))
+  let alphaInputEl: HTMLInputElement | undefined
+  createEffect(() => {
+    const next = String(triggerAlpha())
+    if (alphaInputEl && document.activeElement === alphaInputEl) return
+    setAlphaText(next)
   })
 
   function syncFromHex(hex = props.value) {
@@ -357,7 +420,31 @@ export function ColorPicker(props: {
         class="flex items-center gap-4 h-6 rounded-sm bg-[#F9F9F9] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
       >
         <span class="w-4 h-4 rounded-[2px] shrink-0" style={{ background: props.value || '#ffffff' }} />
-        <span class="truncate">{displayLabel()}</span>
+        <span class="flex-1 truncate text-left">{displayLabel()}</span>
+        <Show when={isCustomColor()}>
+          <span class="shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={(el) => { alphaInputEl = el }}
+              type="text"
+              inputmode="numeric"
+              value={alphaText()}
+              onInput={(e) => {
+                const v = e.currentTarget.value
+                if (/^-?\d*$/.test(v)) setAlphaText(v)
+                else setAlphaText('')
+              }}
+              onBlur={commitAlphaInput}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              class="w-7 bg-transparent outline-none text-right cursor-text"
+              title="输入透明度"
+            />
+            <span
+              class="cursor-ew-resize select-none text-slate-400"
+              title="拖拽调整透明度"
+              onMouseDown={startAlphaTriggerDrag}
+            > %</span>
+          </span>
+        </Show>
       </button>
       <Show when={open()}>
         <Portal>
