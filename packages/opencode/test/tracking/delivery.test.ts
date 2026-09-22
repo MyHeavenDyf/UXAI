@@ -1,6 +1,14 @@
 import { beforeEach, expect, test } from "bun:test"
 import { sql } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import { mkdir } from "node:fs/promises"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { ShellTool } from "../../src/tool/shell"
+import { Plugin } from "../../src/plugin"
+import { Truncate } from "../../src/tool/truncate"
+import { Config } from "../../src/config/config"
+import { Agent } from "../../src/agent/agent"
 import { FetchHttpClient } from "effect/unstable/http"
 import path from "node:path"
 import { createServer } from "node:http"
@@ -18,18 +26,33 @@ import { mcpFacts, fileFact } from "../../src/tracking/facts"
 import { claim, finish, deliver, endpoint } from "../../src/tracking/sender"
 import { resolveOutputType } from "../../src/tracking/output-type"
 import { resolveOutputType as frontendType } from "../../../app/octoapp/pages/insight/utils/output-type"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(FetchHttpClient.layer)
+const shellTests = testEffect(
+  Layer.mergeAll(
+    CrossSpawnSpawner.defaultLayer,
+    AppFileSystem.defaultLayer,
+    Plugin.defaultLayer,
+    Truncate.defaultLayer,
+    Config.defaultLayer,
+    Agent.defaultLayer,
+  ),
+)
 const rows = () => Database.use((db) => db.select().from(Events).all())
-function seed(sessionID = SessionID.descending(), account = "original-account", enroll = true) {
+function seed(
+  sessionID = SessionID.descending(),
+  account = "original-account",
+  enroll = true,
+  directory = "D:/project",
+) {
   const messageID = MessageID.ascending()
   if (enroll)
     begin({
       messageID,
       sessionID,
-      directory: "D:/project",
+      directory,
       extra: { account, artifactTracking: { module: "insight" } },
     })
   Database.use((db) => {
@@ -46,7 +69,7 @@ function part(
   turn: ReturnType<typeof seed>,
   tool = "write",
   metadata: Record<string, unknown> = {},
-  input = { filePath: "report.md" },
+  input: Record<string, unknown> = { filePath: "report.md" },
 ) {
   const assistant = MessageID.ascending()
   const value: MessageV2.ToolPart = {
@@ -122,6 +145,75 @@ test("startup recovery captures a saved result without a callback once", () => {
   recover()
   expect(rows()).toHaveLength(1)
 })
+
+shellTests.instance(
+  "real Shell declarations persist script facts, replay once, and retain original account",
+  () =>
+    Effect.gen(function* () {
+      const instance = yield* TestInstance
+      const turn = seed(undefined, "original-account", true, instance.directory)
+      const outputs = path.join(instance.directory, ".octo", turn.sessionID, "outputs")
+      yield* Effect.promise(() => mkdir(outputs, { recursive: true }))
+      const tool = yield* ShellTool.pipe(Effect.flatMap((info) => info.init()))
+      const create = part(turn, "bash")
+      const context = {
+        sessionID: turn.sessionID,
+        messageID: create.messageID,
+        callID: create.callID,
+        agent: "octo_insight",
+        abort: AbortSignal.any([]),
+        messages: [],
+        metadata: () => Effect.void,
+        ask: () => Effect.void,
+      }
+      const command =
+        process.platform === "win32"
+          ? "Set-Content -LiteralPath report.xlsx -Value first -NoNewline"
+          : "printf first > report.xlsx"
+      const input = { command, workdir: outputs, artifactFiles: ["report.xlsx"], description: "Create declared output" }
+      const result = yield* tool.execute(input, context)
+      expect(result.metadata.exit).toBe(0)
+      expect("artifactScript" in result.metadata).toBe(true)
+      // Save only the completed result: recovery must not inspect files again.
+      const saved = part(turn, "bash", result.metadata, input)
+      recover()
+      recover()
+      collect(saved)
+      expect(rows()).toHaveLength(1)
+      expect(rows()[0].name).toBe("artifact-file-write")
+      expect(rows()[0].payload.account).toBe("original-account")
+      expect(rows()[0].payload).toMatchObject({ datas: [{ extend: expect.stringContaining('"source":"script"') }] })
+      const editInput = { ...input, command: command.replace("first", "other") }
+      const edited = yield* tool.execute(editInput, context)
+      collect(part(turn, "bash", edited.metadata, editInput))
+      const unchanged = yield* tool.execute(editInput, context)
+      collect(part(turn, "bash", unchanged.metadata, editInput))
+      // A direct edit of the same file in this turn shares the event identity.
+      collect(part(turn, "edit", {}, { filePath: path.join(outputs, "report.xlsx") }))
+      expect(
+        rows()
+          .map((item) => item.name)
+          .sort(),
+      ).toEqual(["artifact-file-edit", "artifact-file-write"])
+      for (const item of rows())
+        expect(item.payload).toMatchObject({ datas: [{ extend: expect.stringContaining('"source":"script"') }] })
+      const failure = yield* tool.execute(
+        { ...input, command: command.replace("first", "broken") + "; exit 1" },
+        context,
+      )
+      collect(part(turn, "bash", failure.metadata, input))
+      expect(rows()).toHaveLength(2)
+      // Ordinary products still execute Shell without collecting script metadata.
+      const other = part(seed(undefined, "other-account", false), "bash")
+      const untracked = yield* tool.execute(input, {
+        ...context,
+        messageID: other.messageID,
+        sessionID: other.sessionID,
+      })
+      expect("artifactScript" in untracked.metadata).toBe(false)
+    }),
+  { config: { shell: process.platform === "win32" ? (Bun.which("powershell") ?? "powershell.exe") : "/bin/bash" } },
+)
 
 test("turn identity is immutable; missing original account never borrows a later account", () => {
   const turn = seed(undefined, "")

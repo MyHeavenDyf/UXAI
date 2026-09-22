@@ -4,7 +4,7 @@
 
 保留 `artifact-file-write`、`artifact-file-edit`、`artifact-mcp-return` 三个 name。产物事实由服务端完成回调采集，持久化后立即唤醒独立发送队列；不依赖当前页面、会话组件或 SSE 消费。
 
-本次接入 write、edit、同步 MCP，以及用户主动查询异步 MCP 后返回的产物。**不主动轮询 MCP**：提交只记录任务归属；用户没有查询就不统计尚未返回的异步产物。用户发起查询后切走页面，只要服务端调用继续完成，就照常采集。
+本次接入 write、edit、同步 MCP、用户主动查询异步 MCP 后返回的产物，以及 Shell 明确声明并通过前后核验的目标文件。**不主动轮询 MCP**：提交只记录任务归属；用户没有查询就不统计尚未返回的异步产物。用户发起查询后切走页面，只要服务端调用继续完成，就照常采集。
 
 服务端指桌面应用中的 sidecar 进程，不是远程 MCP 服务器。退出整个应用会停止该进程；已经持久化的事件在下次应用启动时补发。正在执行但尚未取得结果的 MCP 调用，不承诺退出后自动继续执行。
 
@@ -18,7 +18,10 @@
 | 异步 MCP 提交 | 保存 task_id、服务标识和原始轮次 | 不生成产物事件 | — |
 | 用户查询异步结果 | get_task_result 返回 completed 和有效产物清单 | artifact-mcp-return | mcp |
 | 查询 processing/pending/failed；stop_task | 未取得成功交付物或仅控制结果 | 不生成产物事件 | — |
-| bash/PowerShell/Python、apply_patch、自定义插件写盘 | 本批未接入可靠完成证据 | 不生成产物事件，留下未接入回执 | — |
+| Shell 声明的目标原先不存在 | 命令 exit=0、未取消，核验后是普通文件 | artifact-file-write | script |
+| Shell 声明的目标原先存在 | 命令 exit=0、未取消，前后 SHA-256 不同 | artifact-file-edit | script |
+| Shell 未声明目标、失败、超时、文件未变或未通过核验 | 只保存诊断 | 不生成产物事件 | — |
+| 独立 Python 工具、apply_patch、自定义插件直接写盘 | 尚未接入；通过 Shell 执行则按上述声明规则 | 不生成产物事件，留下未接入回执 | — |
 | 手动改文件、目录刷新、下载/落地已有 MCP 产物 | 不属于本批工具产物事实 | 不生成这三个事件 | — |
 
 write/edit 每个原始用户轮次、事件名、规范化文件路径计一次；同轮 write 后 edit 各计一次，下轮再次修改重新计数。子任务继承原始轮次；Windows 路径忽略大小写并统一分隔符，POSIX 路径保留大小写。
@@ -128,9 +131,53 @@ receipt 常见原因：file-enqueued / mcp-enqueued、task-not-completed、no-ar
 
 自动化用真实 SQLite、独立进程重启和本地 HTTP 接收器验证；类型检查及构建检查不能替代最后一项真实安装包联调。实际公司接收地址与接口幂等能力需要在用户打包环境验证。
 
-脚本产物作为后续独立交付：要求调用专属输出目录、受控写入接口或明确完成回执，才能归因并区分新增/修改。不能以共享目录差异、文件存在、哈希稳定证明脚本成功完成，也不能误统计手动修改和后台程序输出。接入后可沿用 write/edit 事件名与 source=script；本版没有启用该覆盖。
+### Shell 显式目标核验（2026-09-22）
 
-## 9. 本次验证记录（2026-09-18）
+Shell 的协议工具名仍为 `bash`，实际进程可以是 Bash、PowerShell、cmd，其内部也可以运行 Python、Excel/Word COM、Chrome PDF 导出。新增可选参数 `artifactFiles`，Insight 提示词要求对最终交付物声明路径，例如：
+
+```json
+{
+  "command": "python generate.py",
+  "description": "生成 Excel 报告",
+  "workdir": "D:/project/.octo/ses_example/outputs",
+  "artifactFiles": ["o.xlsx"]
+}
+```
+
+- 相对路径以实际工具 workdir 为基准，不跟随命令内部 cd；只接受原会话 outputs/uploads 内的目标。上传文件原地修改也可声明，不要求复制到 outputs。不扫描目录，不从文件管理页面判断新增。
+- 启动命令前采集文件存在性和 SHA-256，正常退出且未取消后再次核验。新建映射 write，已有文件字节发生变化映射 edit，内容相同不报。直接 write 工具覆盖文件仍保留原来的 write 语义。
+- 最多 32 个不同目标，单文件最大 64 MiB，每阶段文件大小预算 256 MiB，单文件哈希读取 5 秒上限。超限、目录、越界链接、读取失败等仅记录诊断，继续执行原命令。不要把辅助 Python 脚本、临时 HTML 等列为交付物。
+- 同一 sidecar 中，已登记 Insight 的 write/edit 与声明目标的 Shell 共用按路径排序的锁，覆盖核验前至核验后，避免受控调用同时改同一文件。多目标逆序不会互锁。其他产品保持原执行行为。
+- 核验结果保存在 completed part 的 `state.metadata.artifactScript`；完成回调入队，重启用保存结果重放，不再读取已可能改变的文件。账号及轮次继承现有规则，同轮同路径同 name 去重；来源保留首次入队值。发送端不依赖页面，不新增环境开关或 MCP 轮询。
+
+**能力边界：这是显式目标、命令成功和字节变化的组合核验，不是任意程序写盘的完备审计，也不证明文档内容正确。** 调用必须等待真实写入者退出、关闭文件；后台子进程继续写盘、外部手动修改、另一个 sidecar 进程无法靠进程内锁排除。它们若恰好修改声明目标，仍可能干扰归属；不可宣称严格零误报。严格隔离需要后续受控暂存及发布机制。本批不接入该机制，也不承诺捕获漏声明目标。
+
+格式错误但成功写出的字节可能符合文件变化规则；格式、内容、可打开性需另做业务验收。失败命令留下的文件一律不作为成功产物。命令产生文件后、completed part 持久化前进程崩溃仍可能漏报，不承诺文件系统与数据库原子提交。
+
+receipt 原因包括 `script-enqueued`、`script-no-change`、`script-targets-not-declared`、`script-target-limit`、`script-unverified`。具体逐文件原因和前后摘要在 part 中查询（哈希和路径仅本地保存，不加入上报载荷）：
+
+```sql
+SELECT id, message_id,
+       json_extract(data, '$.state.metadata.artifactScript') AS script_facts
+FROM part
+WHERE json_extract(data, '$.state.metadata.artifactScript') IS NOT NULL
+ORDER BY time_created DESC LIMIT 100;
+```
+
+新增验收：声明的 xlsx/pdf/docx 新建、uploads 内 TXT 同长度修改、内容不变、失败/超时/取消留下文件、未声明、越界链接、大小/数量超限、同文件并发、不同文件并行、completed 结果重放和非 Insight 隔离。实际 Office COM 和浏览器导出必须在安装包环境另做验收；用带扩展名的测试字节不等于验证 Office 文档有效。
+
+## 9. 验证记录
+
+### Shell 扩展（2026-09-22）
+
+- `packages/opencode` 中 `bun typecheck` 通过。
+- `bun test test/tracking/scripts.test.ts test/tracking/delivery.test.ts --timeout 30000`：22 项通过，含真实 PowerShell 声明目标写入、修改、不变、失败、非 Insight 隔离，以及 SQLite 保存结果重放去重。
+- `bun test test/session/processor-effect.test.ts --test-name-pattern 'artifact completion' --timeout 30000`：完成回调集成测试 1 项通过。
+- `bun test test/tool/shell.test.ts test/plugin/octo-session-workdir.test.ts --timeout 30000`：117 项通过、1 项既有跳过，覆盖 Bash/PowerShell/cmd 权限、取消、超时、输出截断及目录路由。
+- 新核验模块以 Node 目标构建，在本机 Node 20.18.0 下真实写盘，新增、修改和内容不变三个检查通过。此检查不等于完整 Electron sidecar 构建或 Beta 安装包验收。
+- 本轮未重新打包、安装 Beta，未调用真实 Office COM 或 Chrome 导出，未向公司接口发送测试数据。
+
+### 原服务端完成回调版本（2026-09-18）
 
 - `packages/opencode` 中运行 `bun test test/tracking/delivery.test.ts --timeout 30000`：15 项通过，包含断开连接后同 eventId 重试、独立进程重启、超过 30 天事件补发。
 - `packages/opencode` 中运行 `bun test test/session/processor-effect.test.ts --test-name-pattern 'artifact completion' --timeout 30000`：1 项集成测试通过，实际执行文件写入和修改，验证完成回调直接产生 write/edit 事件。

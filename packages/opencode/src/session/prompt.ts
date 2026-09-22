@@ -1,6 +1,7 @@
 import path from "path"
 import { ArtifactStore } from "@/tracking/store"
-import { mcpFacts } from "@/tracking/facts"
+import { mcpFacts, record, string } from "@/tracking/facts"
+import { withFiles } from "@/tracking/scripts"
 import os from "os"
 import * as EffectZod from "@/util/effect-zod"
 import { SessionID, MessageID, PartID } from "./schema"
@@ -450,7 +451,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
                 )
-                const result = yield* item.execute(args, ctx)
+                const file = (item.id === "write" || item.id === "edit") && string(record(args).filePath)
+                const tracked =
+                  file &&
+                  (yield* Effect.try({ try: () => ArtifactStore.enabled(ctx.messageID), catch: (error) => error }).pipe(
+                    Effect.catch(() => Effect.succeed(false)),
+                  ))
+                const execution = item.execute(args, ctx)
+                const result = yield* file && tracked
+                  ? withFiles([path.resolve(input.session.directory, file)], execution)
+                  : execution
                 const output = {
                   ...result,
                   attachments: result.attachments?.map((attachment) => ({

@@ -10,6 +10,7 @@ import {
 } from "./delivery.sql"
 import { fileFact, hash, record, string, type MCPFacts } from "./facts"
 import { resolveOutputType } from "./output-type"
+import type { ScriptFacts } from "./scripts"
 
 export function begin(input: {
   messageID: string
@@ -52,6 +53,14 @@ function parent(messageID: string) {
 
 export function enabled(assistantID: string) {
   return Boolean(parent(assistantID))
+}
+
+export function scriptContext(assistantID: string) {
+  const turn = parent(assistantID)
+  if (!turn) return
+  const root = Database.use((db) => db.select().from(Turn).where(eq(Turn.message_id, turn.root_message_id)).get())
+  if (!root) return
+  return { directory: root.directory, sessionID: root.root_session_id }
 }
 
 export function inherit(assistantID: string, messageID: string, sessionID: string, directory: string) {
@@ -156,6 +165,18 @@ export function collect(part: MessageV2.ToolPart) {
         return
       }
       if (!mcp) {
+        if (part.tool === "bash") {
+          const script = state.metadata.artifactScript as ScriptFacts | undefined
+          if (script?.version === 1 && state.metadata.exit === 0) {
+            for (const target of script.files) {
+              if (!target.operation || target.reason !== "verified-change") continue
+              const fact = fileFact(target.operation, { filePath: target.path }, {}, turn.directory)
+              if (fact) enqueue(turn, fact.name, fact.identity, fact.type, "script")
+            }
+          }
+          receipt(script?.reason ?? "script-targets-not-declared")
+          return
+        }
         receipt(part.tool === "write" || part.tool === "edit" ? "missing-file-path" : "tool-not-integrated")
         return
       }

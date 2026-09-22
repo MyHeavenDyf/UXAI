@@ -113,12 +113,12 @@
 > 也可能一次调用产出多个文件（server-mcp-used 1 次 but artifact-mcp-return 多个 type）。
 >
 > **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
-> 两者独立计数，按工具调用类型区分。bash 脚本副作用产生的文件不在此列（无法可靠识别，见方案 A）。
+> Shell（协议工具名 bash，含 PowerShell/Python/Office COM/浏览器导出）通过 `artifactFiles` 声明最终目标后，服务端在成功退出前后核验文件变化：新增映射 write、已有内容变化映射 edit，source=script。仅覆盖原会话 outputs/uploads，不扫描目录，也不保证覆盖未声明文件。详见 [服务端方案](./server-artifact-delivery.md)。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
-| artifact-file-write | write 工具成功完成，含覆盖写 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
-| artifact-file-edit | edit 工具成功完成 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-file-write | write 工具成功完成（含覆盖写），或 Shell 声明目标经核验新增 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-file-edit | edit 工具成功完成，或 Shell 声明的已有目标经核验字节变化 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
 | artifact-mcp-return | MCP 成功返回有效资源；异步任务等用户查询 completed | `files: [{type, count: 1, tool}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
 
 这三个事件已移除前端发送，不依赖会话页面。异步 MCP 不主动轮询；完整去重、重试、配置及验收说明见 [服务端产物打点方案](./server-artifact-delivery.md)。
