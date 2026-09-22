@@ -7,8 +7,10 @@ interface Props {
 }
 
 export function PdfRenderer(props: Props): JSX.Element {
-  const url = resolveMediaUrl(props.filePath, props.refreshKey)
   return (
-    <iframe src={url} style={{ width: "100%", height: "100%", border: "none" }} />
+    <iframe
+      src={resolveMediaUrl(props.filePath, props.refreshKey)}
+      style={{ width: "100%", height: "100%", border: "none" }}
+    />
   )
 }

@@ -4639,26 +4639,29 @@ const sessionMessagesLoaded = createMemo(() => {
         // ★ 先 activate,后台再比对磁盘内容(镜像 non-link 分支的优化)
         tabStore.activate(existingLocal.id)
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
-        // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
-        const existingBefore = { ...existingLocal } as ResultTab
-        void (async () => {
-          try {
-            const api = getDesktopApi()
-            const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
-            if (!buf) return
-            if (!tabStore.tabs().some(t => t.id === existingLocal.id)) return
-            const fileContent = new TextDecoder().decode(buf)
-            if (fileContent && fileContent !== existingBefore.content) {
-              tabStore.updateTabContent(existingLocal.id, fileContent)
-              const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
-              if (currentTab) {
-                await historyController.onTabOpen({ ...currentTab, content: fileContent }, existingBefore)
+        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU
+        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
+          // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
+          const existingBefore = { ...existingLocal } as ResultTab
+          void (async () => {
+            try {
+              const api = getDesktopApi()
+              const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+              if (!buf) return
+              if (!tabStore.tabs().some(t => t.id === existingLocal.id)) return
+              const fileContent = new TextDecoder().decode(buf)
+              if (fileContent && fileContent !== existingBefore.content) {
+                tabStore.updateTabContent(existingLocal.id, fileContent)
+                const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
+                if (currentTab) {
+                  await historyController.onTabOpen({ ...currentTab, content: fileContent }, existingBefore)
+                }
               }
+            } catch (err) {
+              console.error("[handleOpenLocalFile] background content compare failed", err)
             }
-          } catch (err) {
-            console.error("[handleOpenLocalFile] background content compare failed", err)
-          }
-        })()
+          })()
+        }
         return
       }
 
@@ -4718,16 +4721,17 @@ const sessionMessagesLoaded = createMemo(() => {
     }
 
     // ★ Step -0.5: 等待文件落盘。正常情况第一次 fileExists 就返回 true;
-    // 媒体类型(图片/视频/音频/PDF)渲染靠 local:// 直读文件,落盘慢会显示空白 → 保留 20 次(3s);
-    // 文本类有 card.content 兜底,短轮询 5 次(750ms)即可,超时放行不阻断用户。
+    // 非媒体类型有 card.content 兜底,短轮询 5 次(750ms)即可,超时放行不阻断用户。
+    // 媒体类型(图片/视频/音频/PDF)先开 tab 不阻塞,后台轮询落盘后 bump filesRefreshKey 触发重载。
     if (!isUrl && card.filePath) {
       const api = getDesktopApi()
       if (api?.fileExists) {
         const isMedia = ["image", "video", "audio", "pdf"].includes(card.type)
-        const maxAttempts = isMedia ? 20 : 5
-        for (let i = 0; i < maxAttempts; i++) {
-          if (await api.fileExists(card.filePath)) break
-          await new Promise((r) => setTimeout(r, 150))
+        if (!isMedia) {
+          for (let i = 0; i < 5; i++) {
+            if (await api.fileExists(card.filePath)) break
+            await new Promise((r) => setTimeout(r, 150))
+          }
         }
       }
     }
@@ -4750,7 +4754,8 @@ const sessionMessagesLoaded = createMemo(() => {
         // ★ 先 activate:在新架构下 iframe 已挂载,切换瞬时完成。
         tabStore.activate(existingTab.id)
         // ★ 后台比对磁盘内容:若外部编辑导致内容变化,异步更新 tab(iframe srcdoc 会重算)。
-        if (!isUrl && existingTab.type !== "design-plan") {
+        // 媒体类型(图片/视频/音频/PDF)渲染靠 local:// 直读文件,不用 tab.content → 跳过,避免二进制当文本解码。
+        if (!isUrl && existingTab.type !== "design-plan" && !["image", "video", "audio", "pdf"].includes(existingTab.type)) {
           const tabId = existingTab.id
           const tabFilePath = existingTab.filePath!
           // ★ createStore 下 tab 是 proxy,openTab/updateTabContent 之后读 .content 会变。
@@ -4809,6 +4814,23 @@ const sessionMessagesLoaded = createMemo(() => {
     tabStore.openTab(card)
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
+    }
+    // ★ 媒体类型后台轮询文件落盘,就绪后 bump filesRefreshKey 触发渲染器重载(<img>/<video> 等重载 src)
+    if (!isUrl && card.filePath && ["image", "video", "audio", "pdf"].includes(card.type)) {
+      const mediaApi = getDesktopApi()
+      const fileExists = mediaApi?.fileExists
+      if (fileExists) {
+        void (async () => {
+          if (await fileExists(card.filePath!)) return
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 150))
+            if (await fileExists(card.filePath!)) {
+              if (tabStore.tabs().some(t => t.id === card.id)) setFilesRefreshKey(k => k + 1)
+              return
+            }
+          }
+        })()
+      }
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
 
