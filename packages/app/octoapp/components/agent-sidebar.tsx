@@ -83,6 +83,8 @@ export type AgentSidebarProps = {
 
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
+  /** Called after scrolling expands the recent-session display limit. */
+  onLoadMore?: (limit: number) => void
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -360,6 +362,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const onScroll = () => {
       if (scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 100 && hasMoreSessions()) {
         setVisibleCount(prev => prev + VISIBLE_BATCH)
+        props.onLoadMore?.(visibleCount())
       }
     }
     scrollContainer.addEventListener("scroll", onScroll, { passive: true })

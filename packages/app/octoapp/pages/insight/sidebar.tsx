@@ -2,6 +2,7 @@ import { createEffect, createSignal, type JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { GroupedSidebar } from "@/components/grouped-sidebar"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+import { tracker } from "@/utils/tracker"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
 export const SIDEBAR_WIDTH_KEY = "octo:insight:sidebar-width"
@@ -75,6 +76,11 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         sectionTitle="最近"
         newButtonText="新建对话"
         trackerModule="insight"
+        onLoadMore={(limit) => tracker.interaction({
+          module: "insight",
+          name: "session-load-more",
+          extend: JSON.stringify({ limit, source: "panel" }),
+        })}
         sidebarSourceKey="insight"
         inlineBeforeSection
       />
