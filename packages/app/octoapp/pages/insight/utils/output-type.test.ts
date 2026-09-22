@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveOutputType, extOf, type OutputCardType } from "./output-type"
+import { resolveOutputType, extOf, extOfUri, attachmentMediaKind, type OutputCardType } from "./output-type"
 
 // SPEC-INS-026 §11.1 V4 / V5。
 
@@ -143,5 +143,53 @@ describe("extOf", () => {
   })
   test("目录名里的点不误伤", () => {
     expect(extOf("/proj/v1.2/README")).toBe("")
+  })
+})
+
+describe("extOfUri", () => {
+  test("剥查询串后取小写扩展名", () => {
+    expect(extOfUri("https://s3.amazonaws.com/bucket/video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256")).toBe("mp4")
+    expect(extOfUri("https://cdn.example.com/a/audio.mp3?sig=ab.c&expires=123")).toBe("mp3")
+  })
+  test("剥哈希片段", () => {
+    expect(extOfUri("https://cdn.example.com/a/doc.pdf#page=3")).toBe("pdf")
+  })
+  test("无扩展名返回空串", () => {
+    expect(extOfUri("https://example.com/Makefile?token=x")).toBe("")
+    expect(extOfUri("")).toBe("")
+  })
+  test("点号开头不是扩展名", () => {
+    expect(extOfUri("https://example.com/.gitignore?token=x")).toBe("")
+  })
+})
+
+describe("attachmentMediaKind", () => {
+  test("S3 签名 URL：fileName 干净时优先用 fileName", () => {
+    expect(attachmentMediaKind({
+      fileName: "clip.mp4",
+      uri: "https://s3.amazonaws.com/bucket/clip.mp4?X-Amz-Signature=abc.def",
+    })).toBe("video")
+  })
+  test("S3 签名 URL：无 fileName 时回退到去查询串的 uri(修复前会拿到 mp4?X-Amz-... 误落 FileFallback)", () => {
+    expect(attachmentMediaKind({
+      uri: "https://s3.amazonaws.com/bucket/clip.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=ab.c",
+    })).toBe("video")
+    expect(attachmentMediaKind({
+      uri: "https://cdn.example.com/track.mp3?sig=x&expires=999",
+    })).toBe("audio")
+    expect(attachmentMediaKind({
+      uri: "https://cdn.example.com/report.pdf?X-Amz-Signature=abc",
+    })).toBe("pdf")
+  })
+  test("office / 二进制 / 未知扩展名返回 null(走 FileFallback)", () => {
+    expect(attachmentMediaKind({ uri: "https://s3.amazonaws.com/bucket/report.xlsx?X-Amz-Sig=abc" })).toBe(null)
+    expect(attachmentMediaKind({ uri: "https://s3.amazonaws.com/bucket/archive.zip?X-Amz-Sig=abc" })).toBe(null)
+    expect(attachmentMediaKind({ uri: "https://s3.amazonaws.com/bucket/noext?X-Amz-Sig=abc" })).toBe(null)
+  })
+  test("title 兜底(无 fileName/uri 扩展名时)", () => {
+    expect(attachmentMediaKind({ title: "演示.mp4" })).toBe("video")
+  })
+  test("大写扩展名归一为小写", () => {
+    expect(attachmentMediaKind({ fileName: "CLIP.MP4" })).toBe("video")
   })
 })

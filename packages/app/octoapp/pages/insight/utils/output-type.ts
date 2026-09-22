@@ -82,6 +82,35 @@ export function extOf(filePath: string): string {
   return base.slice(dot + 1).toLowerCase()
 }
 
+// ── 远程附件内嵌媒体判定 ────────────────────────────────────
+//
+// `extOf` 不剥查询串:常见 S3 签名 URL 形如 `video.mp4?X-Amz-...`,base 仍是整串,
+// lastIndexOf(".") 落到查询串里的点 → 拿不到干净的 `mp4` → 媒体类型误判为 null →
+// 错误落入 FileFallback(三按钮)。这里先剥 `?#` 再取扩展名。
+/** 剥查询串/哈希后取小写扩展名(S3 签名 URL 不剥会拿到 `mp4?X-Amz-...`)。 */
+export function extOfUri(src: string): string {
+  const base = src.split(/[?#]/)[0].split(/[\\/]/).pop() ?? ""
+  const dot = base.lastIndexOf(".")
+  if (dot <= 0 || dot === base.length - 1) return ""
+  return base.slice(dot + 1).toLowerCase()
+}
+
+const VIDEO_EXT = new Set(["mp4", "mov", "avi", "mkv", "webm", "m4v", "flv", "wmv"])
+const AUDIO_EXT = new Set(["mp3", "wav", "flac", "m4a", "aac", "ogg", "opus"])
+
+/**
+ * 会话附件的内嵌媒体类型判定(video/audio/pdf)。优先干净的 fileName/title,
+ * 再回退去查询串的 filePath/uri —— 避免 S3 签名 URL 的查询串使扩展名识别失败。
+ * 非 video/audio/pdf(含 office/二进制)返回 null,由调用方落到 FileFallback。
+ */
+export function attachmentMediaKind(tab: { fileName?: string; title?: string; uri?: string; filePath?: string }): "video" | "audio" | "pdf" | null {
+  const ext = extOfUri(tab.fileName ?? "") || extOfUri(tab.title ?? "") || extOfUri(tab.filePath ?? "") || extOfUri(tab.uri ?? "")
+  if (VIDEO_EXT.has(ext)) return "video"
+  if (AUDIO_EXT.has(ext)) return "audio"
+  if (ext === "pdf") return "pdf"
+  return null
+}
+
 /**
  * 文件名(+ 可选 mimeType)→ 产物类型。**全系统唯一的类型判定入口**。
  *

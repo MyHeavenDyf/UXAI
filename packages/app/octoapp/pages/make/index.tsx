@@ -94,6 +94,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { createSnapshotStore } from "./utils/snapshot-store"
+import { createBgCompareGuard } from "./utils/bg-compare-guard"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
@@ -1848,6 +1849,9 @@ const sessionMessagesLoaded = createMemo(() => {
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
   })
+
+  // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
+  const bgCompareGuard = createBgCompareGuard()
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -4662,19 +4666,28 @@ const sessionMessagesLoaded = createMemo(() => {
         if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
           // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
           const existingBefore = { ...existingLocal } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(existingLocal.id)
           void (async () => {
             try {
               const api = getDesktopApi()
               const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
               if (!buf) return
-              if (!tabStore.tabs().some(t => t.id === existingLocal.id)) return
+              const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(existingLocal.id, token, currentTab.content, existingBefore.content)) return
               const fileContent = new TextDecoder().decode(buf)
               if (fileContent && fileContent !== existingBefore.content) {
                 tabStore.updateTabContent(existingLocal.id, fileContent)
-                const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
-                if (currentTab) {
-                  await historyController.onTabOpen({ ...currentTab, content: fileContent }, existingBefore)
+                const updated = tabStore.tabs().find(t => t.id === existingLocal.id)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
                 }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
               }
             } catch (err) {
               console.error("[handleOpenLocalFile] background content compare failed", err)
@@ -4780,20 +4793,28 @@ const sessionMessagesLoaded = createMemo(() => {
           // ★ createStore 下 tab 是 proxy,openTab/updateTabContent 之后读 .content 会变。
           //   historyController.onTabOpen 用 (current, before) 做前后对比,所以这里快照一份。
           const existingBefore = { ...existingTab } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(tabId)
           void (async () => {
             try {
               const api = getDesktopApi()
               const buf = await api?.readFileBuffer?.(tabFilePath)
               if (!buf) return
-              // 比对期间 tab 可能被关闭,跳过
-              if (!tabStore.tabs().some(t => t.id === tabId)) return
+              const currentTab = tabStore.tabs().find(t => t.id === tabId)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(tabId, token, currentTab.content, existingBefore.content)) return
               const fileContent = new TextDecoder().decode(buf)
               if (fileContent && fileContent !== existingBefore.content) {
                 tabStore.updateTabContent(tabId, fileContent)
-                const currentTab = tabStore.tabs().find(t => t.id === tabId)
-                if (currentTab) {
-                  await historyController.onTabOpen({ ...currentTab, content: fileContent }, existingBefore)
+                const updated = tabStore.tabs().find(t => t.id === tabId)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
                 }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
               }
             } catch (err) {
               console.error("[handleOpenResult] background content compare failed", err)

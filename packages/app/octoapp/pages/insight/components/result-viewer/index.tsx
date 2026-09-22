@@ -12,6 +12,7 @@ import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
+import { attachmentMediaKind } from "../../utils/output-type"
 import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
 import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
@@ -328,12 +329,7 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
   // 会话附件中的媒体(video/audio/pdf)应用内预览,与 Design 页一致;其余 file 走 FileFallback(下载/本地打开)
   const mediaKind = (): "video" | "audio" | "pdf" | null => {
     if (!props.tab.fromAttachment) return null
-    const src = props.tab.filePath ?? props.tab.uri ?? ""
-    const ext = src.split(".").pop()?.toLowerCase() ?? ""
-    if (["mp4", "mov", "avi", "mkv", "webm", "m4v", "flv", "wmv"].includes(ext)) return "video"
-    if (["mp3", "wav", "flac", "m4a", "aac", "ogg", "opus"].includes(ext)) return "audio"
-    if (ext === "pdf") return "pdf"
-    return null
+    return attachmentMediaKind(props.tab)
   }
   const mediaSrc = () => {
     const src = props.tab.filePath ?? props.tab.uri ?? ""
