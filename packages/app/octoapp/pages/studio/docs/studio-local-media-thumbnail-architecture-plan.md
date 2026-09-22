@@ -542,6 +542,8 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 #### `packages/opencode/src/studio/studio-media-thumbnail.ts`
 
+- 统一兼容开发源码、Node bundle 和 Electron sidecar 中 `sharp` 的 CommonJS/ESM 导出形态。
+
 - 创建缩略图任务。
 - Worker 调度、claim、重试和恢复。
 - 使用 Studio session/generation 所属的 `Instance.directory` 作为全局会话根；禁止使用用户项目目录或硬编码平台配置路径。

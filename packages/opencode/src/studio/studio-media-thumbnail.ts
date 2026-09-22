@@ -43,6 +43,22 @@ type StudioThumbnailResult = Record<string, unknown> & {
 }
 
 type StudioMediaThumbnailRecord = typeof StudioMediaThumbnailTable.$inferSelect
+type SharpFactory = typeof import("sharp")
+
+let sharpFactory: Promise<SharpFactory> | undefined
+
+function loadSharp() {
+  sharpFactory ??= import("sharp").then((module) => {
+    const direct: unknown = module.default
+    if (typeof direct === "function") return direct as SharpFactory
+    if (direct && typeof direct === "object" && "default" in direct) {
+      const nested = (direct as { default?: unknown }).default
+      if (typeof nested === "function") return nested as SharpFactory
+    }
+    throw new Error(`Sharp module did not expose a callable factory (default: ${typeof direct}).`)
+  })
+  return sharpFactory
+}
 
 export function studioThumbnailDimensions(sourceWidth: number, sourceHeight: number) {
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
@@ -261,7 +277,10 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
         and(
           eq(StudioMediaThumbnailTable.session_id, parsed),
           eq(StudioMediaThumbnailTable.status, "failed"),
-          eq(StudioMediaThumbnailTable.error, "Thumbnail source resolves to a private or reserved address."),
+          or(
+            eq(StudioMediaThumbnailTable.error, "Thumbnail source resolves to a private or reserved address."),
+            eq(StudioMediaThumbnailTable.error, "sharp is not a function"),
+          ),
         ),
       )
       .returning({ id: StudioMediaThumbnailTable.id })
@@ -318,7 +337,7 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
     sessionID: parsed,
     generationCount: records.length,
     queued,
-    recoveredPrivateAddressFailures: recovered,
+    recoveredLegacyFailures: recovered,
     directory: session.directory,
   })
   startStudioMediaThumbnailWorker()
@@ -395,8 +414,8 @@ async function validThumbnail(file: string) {
     .then((item) => item.isFile() && item.size > 0)
     .catch(() => false)
   if (!exists) return false
-  return import("sharp")
-    .then((module) => module.default(file).metadata())
+  return loadSharp()
+    .then((sharp) => sharp(file).metadata())
     .then((metadata) => metadata.format === "webp" && Boolean(metadata.width && metadata.height))
     .catch(() => false)
 }
@@ -482,7 +501,7 @@ async function materializeStudioVideoPoster(input: { generationID: string; media
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_VIDEO_POSTER_BYTES) {
     throw new Error("Studio video poster exceeds the maximum size.")
   }
-  const sharp = (await import("sharp")).default
+  const sharp = await loadSharp()
   const source = sharp(bytes, { animated: false, page: 0, limitInputPixels: MAX_INPUT_PIXELS })
   const metadata = await source.metadata()
   if (!metadata.width || !metadata.height) throw new Error("Studio video poster dimensions could not be read.")
@@ -525,7 +544,7 @@ async function materializeThumbnail(record: StudioMediaThumbnailRecord, signal: 
     clearTimeout(timeout)
     signal.removeEventListener("abort", abort)
   })
-  const sharp = (await import("sharp")).default
+  const sharp = await loadSharp()
   const input = sharp(bytes, { animated: false, page: 0, limitInputPixels: MAX_INPUT_PIXELS })
   const metadata = await input.metadata()
   const rotated = metadata.orientation && metadata.orientation >= 5 && metadata.orientation <= 8
