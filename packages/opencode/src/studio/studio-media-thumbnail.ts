@@ -1,30 +1,22 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { and, eq, isNull, lte, or } from "@/storage/db"
+import { and, eq, like, or } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import { PartTable, SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { SyncEvent } from "@/sync"
 import { Instance } from "@/project/instance"
-import { registerDisposer } from "@/effect/instance-registry"
 import { Identifier } from "@/id/id"
+import { sniffAttachmentMime } from "@/util/media"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { StudioMediaThumbnailTable } from "./studio-media-thumbnail.sql"
 
-const MAX_CSS_WIDTH = 420
-const MAX_CSS_HEIGHT = 210
-export const STUDIO_THUMBNAIL_TARGET_DPR = 1.5
-const ABSOLUTE_MAX_EDGE = 768
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024
-const MAX_VIDEO_POSTER_BYTES = 10 * 1024 * 1024
-const MAX_INPUT_PIXELS = 100_000_000
+const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
 const DOWNLOAD_TIMEOUT_MS = 30_000
 const MAX_REDIRECTS = 5
-const MAX_ATTEMPTS = 3
-const LEASE_MS = 60_000
-const LEASE_RENEW_INTERVAL_MS = 20_000
 
 type StudioThumbnailMedia = {
   id: string
@@ -38,43 +30,8 @@ type StudioThumbnailMedia = {
   duration?: number
 }
 
-type StudioThumbnailResult = Record<string, unknown> & {
-  images: StudioThumbnailMedia[]
-}
-
+type StudioThumbnailResult = Record<string, unknown> & { images: StudioThumbnailMedia[] }
 type StudioMediaThumbnailRecord = typeof StudioMediaThumbnailTable.$inferSelect
-type SharpFactory = typeof import("sharp")
-
-let sharpFactory: Promise<SharpFactory> | undefined
-
-function loadSharp() {
-  sharpFactory ??= import("sharp").then((module) => {
-    const direct: unknown = module.default
-    if (typeof direct === "function") return direct as SharpFactory
-    if (direct && typeof direct === "object" && "default" in direct) {
-      const nested = (direct as { default?: unknown }).default
-      if (typeof nested === "function") return nested as SharpFactory
-    }
-    throw new Error(`Sharp module did not expose a callable factory (default: ${typeof direct}).`)
-  })
-  return sharpFactory
-}
-
-export function studioThumbnailDimensions(sourceWidth: number, sourceHeight: number) {
-  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
-    throw new Error("Thumbnail source dimensions are invalid.")
-  }
-  const displayScale = Math.min(MAX_CSS_WIDTH / sourceWidth, MAX_CSS_HEIGHT / sourceHeight)
-  const scale = Math.min(
-    1,
-    displayScale * STUDIO_THUMBNAIL_TARGET_DPR,
-    ABSOLUTE_MAX_EDGE / Math.max(sourceWidth, sourceHeight),
-  )
-  return {
-    width: Math.max(1, Math.round(sourceWidth * scale)),
-    height: Math.max(1, Math.round(sourceHeight * scale)),
-  }
-}
 
 function isVideo(media: StudioThumbnailMedia) {
   return (
@@ -96,11 +53,7 @@ export function prepareStudioThumbnailMedia(media: StudioThumbnailMedia[]) {
     ...item,
     ...(usableLocalThumbnail(item)
       ? { thumbnailStatus: "ready" as const }
-      : isVideo(item)
-        ? { thumbnailUrl: undefined, thumbnailStatus: "pending" as const }
-        : item.thumbnailStatus === "failed"
-          ? { thumbnailUrl: undefined, thumbnailStatus: "failed" as const }
-          : { thumbnailUrl: undefined, thumbnailStatus: "pending" as const }),
+      : { thumbnailUrl: undefined, thumbnailStatus: "pending" as const }),
   }))
 }
 
@@ -145,7 +98,7 @@ function syncCompletedMessage(record: StudioMediaThumbnailRecord, result: Studio
   if (!row) return
   const part = { ...row.data, id: row.id, messageID: row.message_id, sessionID: row.session_id } as MessageV2.Part
   if (part.type !== "tool" || part.state.status !== "completed") return
-  const output = ((): Record<string, unknown> | undefined => {
+  const output = (() => {
     try {
       const parsed = JSON.parse(part.state.output) as unknown
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
@@ -163,13 +116,7 @@ function syncCompletedMessage(record: StudioMediaThumbnailRecord, result: Studio
   }
   SyncEvent.run(MessageV2.Event.PartUpdated, {
     sessionID: record.session_id,
-    part: {
-      ...part,
-      state: {
-        ...part.state,
-        output: JSON.stringify({ ...output, media: result.images }, null, 2),
-      },
-    },
+    part: { ...part, state: { ...part.state, output: JSON.stringify({ ...output, media: result.images }, null, 2) } },
     time: Date.now(),
   })
 }
@@ -198,7 +145,7 @@ function updateMedia(
 function enqueueResult(record: typeof StudioGenerationTable.$inferSelect, result: StudioThumbnailResult) {
   const now = Date.now()
   const jobs = result.images.flatMap((media, mediaIndex) => {
-    if (isVideo(media) || media.thumbnailStatus === "ready" || media.thumbnailStatus === "failed") return []
+    if (usableLocalThumbnail(media)) return []
     const source = media.remoteUrl ?? media.url
     if (!source) return []
     return [
@@ -208,7 +155,7 @@ function enqueueResult(record: typeof StudioGenerationTable.$inferSelect, result
         session_id: record.session_id,
         directory: record.directory,
         media_index: mediaIndex,
-        kind: "image" as const,
+        kind: isVideo(media) ? ("video" as const) : ("image" as const),
         source_url: source,
         status: "queued" as const,
         attempts: 0,
@@ -236,7 +183,7 @@ export function enqueueStudioMediaThumbnails(generationID: string) {
   )
   const result = mediaResult(record?.result)
   if (!record || !result) {
-    console.warn("[studio.thumbnail] image enqueue skipped", {
+    console.warn("[studio.thumbnail] enqueue skipped", {
       generationID,
       directory: Instance.directory,
       reason: !record ? "generation_not_found" : "generation_has_no_media",
@@ -244,47 +191,53 @@ export function enqueueStudioMediaThumbnails(generationID: string) {
     return 0
   }
   const queued = enqueueResult(record, result)
-  console.info("[studio.thumbnail] image enqueue checked", {
+  console.info("[studio.thumbnail] enqueue checked", {
     generationID,
     sessionID: record.session_id,
-    mediaCount: result.images.filter((item) => !isVideo(item)).length,
+    mediaCount: result.images.length,
     queued,
     directory: record.directory,
   })
-  startStudioMediaThumbnailWorker()
   return queued
 }
 
 export function ensureStudioSessionThumbnails(sessionID: string) {
   const parsed = SessionID.zod.parse(sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, parsed)).get())
-  if (!session || session.directory !== Instance.directory || session.agent !== "octo_studio") {
+  if (!session || session.directory !== Instance.directory || session.agent !== "octo_studio")
     throw new Error(`Studio session not found: ${parsed}`)
-  }
-  const recovered = Database.use((db) =>
-    db
-      .update(StudioMediaThumbnailTable)
-      .set({
-        status: "queued",
-        attempts: 0,
-        next_retry_at: Date.now(),
-        error: null,
-        lease_owner: null,
-        lease_expires_at: null,
-        time_updated: Date.now(),
-      })
-      .where(
-        and(
-          eq(StudioMediaThumbnailTable.session_id, parsed),
-          eq(StudioMediaThumbnailTable.status, "failed"),
-          or(
-            eq(StudioMediaThumbnailTable.error, "Thumbnail source resolves to a private or reserved address."),
-            eq(StudioMediaThumbnailTable.error, "sharp is not a function"),
+  const recovered = Database.use(
+    (db) =>
+      db
+        .update(StudioMediaThumbnailTable)
+        .set({
+          status: "queued",
+          attempts: 0,
+          next_retry_at: Date.now(),
+          error: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          time_updated: Date.now(),
+        })
+        .where(
+          and(
+            eq(StudioMediaThumbnailTable.session_id, parsed),
+            or(
+              eq(StudioMediaThumbnailTable.status, "running"),
+              and(
+                eq(StudioMediaThumbnailTable.status, "failed"),
+                or(
+                  eq(StudioMediaThumbnailTable.error, "Thumbnail source resolves to a private or reserved address."),
+                  eq(StudioMediaThumbnailTable.error, "sharp is not a function"),
+                  like(StudioMediaThumbnailTable.error, "Sharp module did not expose a callable factory%"),
+                  like(StudioMediaThumbnailTable.error, 'Could not load the "sharp" module using the % runtime%'),
+                ),
+              ),
+            ),
           ),
-        ),
-      )
-      .returning({ id: StudioMediaThumbnailTable.id })
-      .all().length,
+        )
+        .returning({ id: StudioMediaThumbnailTable.id })
+        .all().length,
   )
   const records = Database.use((db) =>
     db
@@ -293,46 +246,50 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
       .where(and(eq(StudioGenerationTable.session_id, parsed), eq(StudioGenerationTable.status, "succeeded")))
       .all(),
   )
-  const queued = recovered + records.reduce((total, record) => {
-    const result = mediaResult(record.result)
-    if (!result) return total
-    const next = prepareStudioThumbnailMedia(result.images)
-    const changed = next.some(
-      (item, index) =>
-        item.thumbnailUrl !== result.images[index]?.thumbnailUrl ||
-        item.thumbnailStatus !== result.images[index]?.thumbnailStatus,
-    )
-    const normalized = changed ? { ...result, images: next } : result
-    if (changed) {
-      Database.use((db) =>
-        db
-          .update(StudioGenerationTable)
-          .set({ result: normalized, time_updated: Date.now() })
-          .where(eq(StudioGenerationTable.id, record.id))
-          .run(),
+  const queued =
+    recovered +
+    records.reduce((total, record) => {
+      const result = mediaResult(record.result)
+      if (!result) return total
+      const next = prepareStudioThumbnailMedia(result.images)
+      const changed = next.some(
+        (item, index) =>
+          item.thumbnailUrl !== result.images[index]?.thumbnailUrl ||
+          item.thumbnailStatus !== result.images[index]?.thumbnailStatus,
       )
-      const synthetic = {
-        id: "",
-        generation_id: record.id,
-        session_id: record.session_id,
-        directory: record.directory,
-        media_index: 0,
-        kind: "image" as const,
-        source_url: "",
-        status: "queued" as const,
-        attempts: 0,
-        next_retry_at: 0,
-        lease_owner: null,
-        lease_expires_at: null,
-        thumbnail_path: null,
-        error: null,
-        time_created: 0,
-        time_updated: 0,
+      const normalized = changed ? { ...result, images: next } : result
+      if (changed) {
+        Database.use((db) =>
+          db
+            .update(StudioGenerationTable)
+            .set({ result: normalized, time_updated: Date.now() })
+            .where(eq(StudioGenerationTable.id, record.id))
+            .run(),
+        )
+        syncCompletedMessage(
+          {
+            id: "",
+            generation_id: record.id,
+            session_id: record.session_id,
+            directory: record.directory,
+            media_index: 0,
+            kind: "image",
+            source_url: "",
+            status: "queued",
+            attempts: 0,
+            next_retry_at: 0,
+            lease_owner: null,
+            lease_expires_at: null,
+            thumbnail_path: null,
+            error: null,
+            time_created: 0,
+            time_updated: 0,
+          },
+          normalized,
+        )
       }
-      syncCompletedMessage(synthetic, normalized)
-    }
-    return total + enqueueResult(record, normalized)
-  }, 0)
+      return total + enqueueResult(record, normalized)
+    }, 0)
   console.info("[studio.thumbnail] session backfill checked", {
     sessionID: parsed,
     generationCount: records.length,
@@ -340,8 +297,46 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
     recoveredLegacyFailures: recovered,
     directory: session.directory,
   })
-  startStudioMediaThumbnailWorker()
   return { queued }
+}
+
+function generationMedia(generationID: string, mediaIndex: number) {
+  if (!Number.isInteger(mediaIndex) || mediaIndex < 0) throw new Error("Studio thumbnail media index is invalid.")
+  const generation = Database.use((db) =>
+    db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
+  )
+  const result = mediaResult(generation?.result)
+  const media = result?.images[mediaIndex]
+  if (
+    !generation ||
+    generation.directory !== Instance.directory ||
+    generation.status !== "succeeded" ||
+    !result ||
+    !media
+  )
+    throw new Error(`Studio generation media not found: ${generationID}/${mediaIndex}`)
+  return { generation, result, media }
+}
+
+function thumbnailRecord(input: ReturnType<typeof generationMedia>, mediaIndex: number): StudioMediaThumbnailRecord {
+  return {
+    id: "",
+    generation_id: input.generation.id,
+    session_id: input.generation.session_id,
+    directory: input.generation.directory,
+    media_index: mediaIndex,
+    kind: isVideo(input.media) ? "video" : "image",
+    source_url: input.media.remoteUrl ?? input.media.url,
+    status: "queued",
+    attempts: 0,
+    next_retry_at: 0,
+    lease_owner: null,
+    lease_expires_at: null,
+    thumbnail_path: null,
+    error: null,
+    time_created: 0,
+    time_updated: 0,
+  }
 }
 
 function validateRemoteUrl(value: string) {
@@ -384,11 +379,12 @@ export async function studioThumbnailResponseBytes(response: Response, maximumBy
 
 async function downloadImage(source: string, signal: AbortSignal) {
   if (source.startsWith("data:image/")) {
-    const match = source.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/is)
+    const match = source.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is)
     if (!match) throw new Error("Thumbnail data URL is invalid.")
-    const bytes = Buffer.from(match[1], "base64")
-    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error("Thumbnail source exceeds the maximum download size.")
-    return bytes
+    const bytes = Buffer.from(match[2], "base64")
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES)
+      throw new Error("Thumbnail source exceeds the maximum download size.")
+    return { bytes, contentType: sniffAttachmentMime(bytes, match[1].toLowerCase()) }
   }
   let url = validateRemoteUrl(source)
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
@@ -400,48 +396,109 @@ async function downloadImage(source: string, signal: AbortSignal) {
       continue
     }
     if (!response.ok) throw new Error(`Thumbnail source request failed with status ${response.status}.`)
-    const contentType = response.headers.get("content-type")
-    if (!studioThumbnailContentTypeAllowed(contentType)) {
-      throw new Error(`Thumbnail source content type is not an image: ${contentType}`)
+    if (!studioThumbnailContentTypeAllowed(response.headers.get("content-type")))
+      throw new Error(`Thumbnail source content type is not an image: ${response.headers.get("content-type")}`)
+    const bytes = await studioThumbnailResponseBytes(response)
+    return {
+      bytes,
+      contentType: sniffAttachmentMime(bytes, response.headers.get("content-type") ?? "application/octet-stream"),
     }
-    return studioThumbnailResponseBytes(response)
   }
   throw new Error("Thumbnail source has too many redirects.")
 }
 
-async function validThumbnail(file: string) {
-  const exists = await stat(file)
-    .then((item) => item.isFile() && item.size > 0)
-    .catch(() => false)
-  if (!exists) return false
-  return loadSharp()
-    .then((sharp) => sharp(file).metadata())
-    .then((metadata) => metadata.format === "webp" && Boolean(metadata.width && metadata.height))
+function recordTaskError(generationID: string, mediaIndex: number, error: unknown) {
+  Database.use((db) =>
+    db
+      .update(StudioMediaThumbnailTable)
+      .set({
+        status: "queued",
+        error: error instanceof Error ? error.message : String(error),
+        lease_owner: null,
+        lease_expires_at: null,
+        time_updated: Date.now(),
+      })
+      .where(
+        and(
+          eq(StudioMediaThumbnailTable.generation_id, generationID),
+          eq(StudioMediaThumbnailTable.media_index, mediaIndex),
+        ),
+      )
+      .run(),
+  )
+}
+
+export async function loadStudioThumbnailSource(input: {
+  generationID: string
+  mediaIndex: number
+  signal?: AbortSignal
+}) {
+  const found = generationMedia(input.generationID, input.mediaIndex)
+  if (isVideo(found.media)) throw new Error("Studio thumbnail source target is not an image.")
+  const controller = new AbortController()
+  const abort = () => controller.abort(input.signal?.reason)
+  input.signal?.addEventListener("abort", abort, { once: true })
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Thumbnail source download timed out.")),
+    DOWNLOAD_TIMEOUT_MS,
+  )
+  return downloadImage(found.media.remoteUrl ?? found.media.url, controller.signal)
+    .then((result) => {
+      console.info("[studio.thumbnail] image source loaded", {
+        generationID: input.generationID,
+        mediaIndex: input.mediaIndex,
+        bytes: result.bytes.byteLength,
+      })
+      return result
+    })
+    .catch((error) => {
+      recordTaskError(input.generationID, input.mediaIndex, error)
+      throw error
+    })
+    .finally(() => {
+      clearTimeout(timeout)
+      input.signal?.removeEventListener("abort", abort)
+    })
+}
+
+export function studioThumbnailWebpAllowed(bytes: Uint8Array) {
+  if (bytes.byteLength < 12 || bytes.byteLength > MAX_THUMBNAIL_BYTES) return false
+  if (Buffer.from(bytes.subarray(0, 4)).toString("ascii") !== "RIFF") return false
+  if (Buffer.from(bytes.subarray(8, 12)).toString("ascii") !== "WEBP") return false
+  const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) + 8
+  return declared >= 12 && declared <= bytes.byteLength
+}
+
+async function validStoredThumbnail(file: string) {
+  const info = await stat(file).catch(() => undefined)
+  if (!info?.isFile() || info.size < 12 || info.size > MAX_THUMBNAIL_BYTES) return false
+  return readFile(file)
+    .then(studioThumbnailWebpAllowed)
     .catch(() => false)
 }
 
-const videoPosterWrites = new Map<string, Promise<{ thumbnailUrl: string }>>()
+const thumbnailWrites = new Map<string, Promise<{ thumbnailUrl: string }>>()
 
-export function saveStudioVideoPoster(input: { generationID: string; mediaIndex: number; content: string }) {
+export function saveStudioMediaThumbnail(input: { generationID: string; mediaIndex: number; content: string }) {
   const directory = Instance.directory
   const key = `${directory}:${input.generationID}:${input.mediaIndex}`
-  const active = videoPosterWrites.get(key)
+  const active = thumbnailWrites.get(key)
   if (active) {
-    console.info("[studio.thumbnail] video poster reused active write", {
+    console.info("[studio.thumbnail] reused active write", {
       generationID: input.generationID,
       mediaIndex: input.mediaIndex,
       directory,
     })
     return active
   }
-  console.info("[studio.thumbnail] video poster write started", {
+  console.info("[studio.thumbnail] thumbnail write started", {
     generationID: input.generationID,
     mediaIndex: input.mediaIndex,
     directory,
   })
-  const task = materializeStudioVideoPoster(input)
+  const task = materializeStudioMediaThumbnail(input)
     .then((result) => {
-      console.info("[studio.thumbnail] video poster write succeeded", {
+      console.info("[studio.thumbnail] thumbnail write succeeded", {
         generationID: input.generationID,
         mediaIndex: input.mediaIndex,
         thumbnailPath: path.join(directory, result.thumbnailUrl),
@@ -449,7 +506,8 @@ export function saveStudioVideoPoster(input: { generationID: string; mediaIndex:
       return result
     })
     .catch((error) => {
-      console.error("[studio.thumbnail] video poster write failed", {
+      recordTaskError(input.generationID, input.mediaIndex, error)
+      console.error("[studio.thumbnail] thumbnail write failed", {
         generationID: input.generationID,
         mediaIndex: input.mediaIndex,
         directory,
@@ -457,212 +515,37 @@ export function saveStudioVideoPoster(input: { generationID: string; mediaIndex:
       })
       throw error
     })
-    .finally(() => videoPosterWrites.delete(key))
-  videoPosterWrites.set(key, task)
+    .finally(() => thumbnailWrites.delete(key))
+  thumbnailWrites.set(key, task)
   return task
 }
 
-async function materializeStudioVideoPoster(input: { generationID: string; mediaIndex: number; content: string }) {
-  if (!Number.isInteger(input.mediaIndex) || input.mediaIndex < 0) throw new Error("Studio video poster media index is invalid.")
-  const generation = Database.use((db) =>
-    db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, input.generationID)).get(),
-  )
-  const result = mediaResult(generation?.result)
-  const media = result?.images[input.mediaIndex]
-  if (!generation || generation.directory !== Instance.directory || generation.status !== "succeeded" || !result || !media) {
-    throw new Error(`Studio generation media not found: ${input.generationID}/${input.mediaIndex}`)
-  }
-  if (!isVideo(media)) throw new Error("Studio video poster target is not a video.")
-  const record: StudioMediaThumbnailRecord = {
-    id: "",
-    generation_id: generation.id,
-    session_id: generation.session_id,
-    directory: generation.directory,
-    media_index: input.mediaIndex,
-    kind: "video",
-    source_url: media.remoteUrl ?? media.url,
-    status: "running",
-    attempts: 0,
-    next_retry_at: 0,
-    lease_owner: null,
-    lease_expires_at: null,
-    thumbnail_path: null,
-    error: null,
-    time_created: 0,
-    time_updated: 0,
-  }
+async function materializeStudioMediaThumbnail(input: { generationID: string; mediaIndex: number; content: string }) {
+  const found = generationMedia(input.generationID, input.mediaIndex)
+  enqueueResult(found.generation, found.result)
+  const record = thumbnailRecord(found, input.mediaIndex)
   const target = absoluteThumbnailPath(record)
   const relativePath = thumbnailPath(record)
-  if (await validThumbnail(target)) {
-    updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })
-    return { thumbnailUrl: relativePath }
+  if (!(await validStoredThumbnail(target))) {
+    if (input.content.length > Math.ceil((MAX_THUMBNAIL_BYTES * 4) / 3) + 8)
+      throw new Error("Studio thumbnail exceeds the maximum size.")
+    const bytes = Buffer.from(input.content, "base64")
+    if (!studioThumbnailWebpAllowed(bytes)) throw new Error("Studio thumbnail is not a valid WebP file.")
+    const temporary = `${target}.${randomUUID()}.tmp`
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(temporary, bytes)
+    if (!(await validStoredThumbnail(temporary))) {
+      await unlink(temporary).catch(() => undefined)
+      throw new Error("Generated Studio thumbnail failed validation.")
+    }
+    await unlink(target).catch(() => undefined)
+    await rename(temporary, target)
   }
-  const bytes = Buffer.from(input.content, "base64")
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_VIDEO_POSTER_BYTES) {
-    throw new Error("Studio video poster exceeds the maximum size.")
-  }
-  const sharp = await loadSharp()
-  const source = sharp(bytes, { animated: false, page: 0, limitInputPixels: MAX_INPUT_PIXELS })
-  const metadata = await source.metadata()
-  if (!metadata.width || !metadata.height) throw new Error("Studio video poster dimensions could not be read.")
-  const size = studioThumbnailDimensions(metadata.width, metadata.height)
-  const output = await source
-    .resize(size.width, size.height, { fit: "fill", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toBuffer()
-  const temporary = `${target}.${randomUUID()}.tmp`
-  await mkdir(path.dirname(target), { recursive: true })
-  await writeFile(temporary, output)
-  if (!(await validThumbnail(temporary))) {
-    await unlink(temporary).catch(() => undefined)
-    throw new Error("Generated Studio video poster failed validation.")
-  }
-  await unlink(target).catch(() => undefined)
-  await rename(temporary, target)
   if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
     await unlink(target).catch(() => undefined)
-    throw new Error("Studio generation was removed before its video poster completed.")
+    throw new Error("Studio generation was removed before its thumbnail completed.")
   }
-  return { thumbnailUrl: relativePath }
-}
-
-async function materializeThumbnail(record: StudioMediaThumbnailRecord, signal: AbortSignal) {
-  const target = absoluteThumbnailPath(record)
-  const temporary = `${target}.tmp`
-  if (await validThumbnail(target)) {
-    await unlink(temporary).catch(() => undefined)
-    return thumbnailPath(record)
-  }
-  const controller = new AbortController()
-  const abort = () => controller.abort(signal.reason)
-  signal.addEventListener("abort", abort, { once: true })
-  const timeout = setTimeout(
-    () => controller.abort(new Error("Thumbnail source download timed out.")),
-    DOWNLOAD_TIMEOUT_MS,
-  )
-  const bytes = await downloadImage(record.source_url, controller.signal).finally(() => {
-    clearTimeout(timeout)
-    signal.removeEventListener("abort", abort)
-  })
-  const sharp = await loadSharp()
-  const input = sharp(bytes, { animated: false, page: 0, limitInputPixels: MAX_INPUT_PIXELS })
-  const metadata = await input.metadata()
-  const rotated = metadata.orientation && metadata.orientation >= 5 && metadata.orientation <= 8
-  const sourceWidth = rotated ? metadata.height : metadata.width
-  const sourceHeight = rotated ? metadata.width : metadata.height
-  if (!sourceWidth || !sourceHeight) throw new Error("Thumbnail source dimensions could not be read.")
-  const size = studioThumbnailDimensions(sourceWidth, sourceHeight)
-  const output = await input
-    .rotate()
-    .resize(size.width, size.height, { fit: "fill", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toBuffer()
-  await mkdir(path.dirname(target), { recursive: true })
-  await writeFile(temporary, output)
-  if (!(await validThumbnail(temporary))) {
-    await unlink(temporary).catch(() => undefined)
-    throw new Error("Generated thumbnail failed validation.")
-  }
-  await unlink(target).catch(() => undefined)
-  await rename(temporary, target)
-  return thumbnailPath(record)
-}
-
-function claimJob(directory: string): StudioMediaThumbnailRecord | undefined {
-  const now = Date.now()
-  const candidate = Database.use((db) =>
-    db
-      .select()
-      .from(StudioMediaThumbnailTable)
-      .where(
-        and(
-          eq(StudioMediaThumbnailTable.directory, directory),
-          or(
-            and(eq(StudioMediaThumbnailTable.status, "queued"), lte(StudioMediaThumbnailTable.next_retry_at, now)),
-            and(
-              eq(StudioMediaThumbnailTable.status, "running"),
-              or(
-                isNull(StudioMediaThumbnailTable.lease_expires_at),
-                lte(StudioMediaThumbnailTable.lease_expires_at, now),
-              ),
-            ),
-          ),
-        ),
-      )
-      .limit(1)
-      .get(),
-  )
-  if (!candidate) return undefined
-  const owner = randomUUID()
-  return Database.transaction(
-    (db) => {
-      const current = db
-        .select()
-        .from(StudioMediaThumbnailTable)
-        .where(eq(StudioMediaThumbnailTable.id, candidate.id))
-        .get()
-      if (!current || current.directory !== directory) return undefined
-      const available =
-        current.status === "queued"
-          ? current.next_retry_at <= now
-          : current.status === "running" && (current.lease_expires_at ?? 0) <= now
-      if (!available) return undefined
-      db.update(StudioMediaThumbnailTable)
-        .set({
-          status: "running",
-          lease_owner: owner,
-          lease_expires_at: now + LEASE_MS,
-          time_updated: now,
-        })
-        .where(eq(StudioMediaThumbnailTable.id, current.id))
-        .run()
-      return { ...current, status: "running" as const, lease_owner: owner, lease_expires_at: now + LEASE_MS }
-    },
-    { behavior: "immediate" },
-  )
-}
-
-function renewJobLease(record: StudioMediaThumbnailRecord) {
-  const now = Date.now()
-  return Boolean(
-    Database.use((db) =>
-      db
-        .update(StudioMediaThumbnailTable)
-        .set({ lease_expires_at: now + LEASE_MS, time_updated: now })
-        .where(
-          and(
-            eq(StudioMediaThumbnailTable.id, record.id),
-            eq(StudioMediaThumbnailTable.status, "running"),
-            eq(StudioMediaThumbnailTable.lease_owner, record.lease_owner!),
-          ),
-        )
-        .returning({ id: StudioMediaThumbnailTable.id })
-        .get(),
-    ),
-  )
-}
-
-async function completeJob(record: StudioMediaThumbnailRecord, relativePath: string) {
-  if (!renewJobLease(record)) {
-    console.warn("[studio.thumbnail] image write discarded after lease loss", {
-      generationID: record.generation_id,
-      sessionID: record.session_id,
-      mediaIndex: record.media_index,
-      thumbnailPath: absoluteThumbnailPath(record),
-    })
-    return
-  }
-  if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
-    await unlink(absoluteThumbnailPath(record)).catch(() => undefined)
-    console.warn("[studio.thumbnail] image write discarded because media disappeared", {
-      generationID: record.generation_id,
-      sessionID: record.session_id,
-      mediaIndex: record.media_index,
-      thumbnailPath: absoluteThumbnailPath(record),
-    })
-    return
-  }
-  const completed = Database.use((db) =>
+  Database.use((db) =>
     db
       .update(StudioMediaThumbnailTable)
       .set({
@@ -675,114 +558,14 @@ async function completeJob(record: StudioMediaThumbnailRecord, relativePath: str
       })
       .where(
         and(
-          eq(StudioMediaThumbnailTable.id, record.id),
-          eq(StudioMediaThumbnailTable.lease_owner, record.lease_owner!),
+          eq(StudioMediaThumbnailTable.generation_id, input.generationID),
+          eq(StudioMediaThumbnailTable.media_index, input.mediaIndex),
         ),
       )
-      .returning({ id: StudioMediaThumbnailTable.id })
-      .get(),
+      .run(),
   )
-  if (!completed) return
-  console.info("[studio.thumbnail] image write succeeded", {
-    generationID: record.generation_id,
-    sessionID: record.session_id,
-    mediaIndex: record.media_index,
-    attempts: record.attempts + 1,
-    thumbnailPath: absoluteThumbnailPath(record),
-  })
+  return { thumbnailUrl: relativePath }
 }
 
-function failJob(record: StudioMediaThumbnailRecord, error: unknown, aborted: boolean) {
-  const message = error instanceof Error ? error.message : String(error)
-  const attempts = aborted ? record.attempts : record.attempts + 1
-  const terminal = !aborted && attempts >= MAX_ATTEMPTS
-  const updated = Database.use((db) =>
-    db
-      .update(StudioMediaThumbnailTable)
-      .set({
-        status: terminal ? "failed" : "queued",
-        attempts,
-        next_retry_at: aborted ? Date.now() : Date.now() + Math.min(30_000, 1000 * 2 ** attempts),
-        error: message,
-        lease_owner: null,
-        lease_expires_at: null,
-        time_updated: Date.now(),
-      })
-      .where(
-        and(
-          eq(StudioMediaThumbnailTable.id, record.id),
-          eq(StudioMediaThumbnailTable.lease_owner, record.lease_owner!),
-        ),
-      )
-      .returning({ id: StudioMediaThumbnailTable.id })
-      .get(),
-  )
-  if (!updated) return
-  const details = {
-    generationID: record.generation_id,
-    sessionID: record.session_id,
-    mediaIndex: record.media_index,
-    attempts,
-    status: terminal ? "failed" : "queued",
-    error: message,
-  }
-  if (terminal) {
-    updateMedia(record, { thumbnailUrl: undefined, thumbnailStatus: "failed" })
-    console.error("[studio.thumbnail] image write failed permanently", details)
-    return
-  }
-  console.warn("[studio.thumbnail] image write will retry", details)
-}
-
-const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
-const activeDirectories = new Set<string>()
-const activeControllers = new Map<string, AbortController>()
-
-async function tick(directory: string) {
-  if (activeDirectories.has(directory)) return
-  const record = claimJob(directory)
-  if (!record) return
-  console.info("[studio.thumbnail] image write started", {
-    generationID: record.generation_id,
-    sessionID: record.session_id,
-    mediaIndex: record.media_index,
-    attempt: record.attempts + 1,
-    thumbnailPath: absoluteThumbnailPath(record),
-  })
-  activeDirectories.add(directory)
-  const controller = new AbortController()
-  activeControllers.set(directory, controller)
-  const leaseTimer = setInterval(() => {
-    if (renewJobLease(record)) return
-    controller.abort(new Error("Studio thumbnail task lease was lost."))
-  }, LEASE_RENEW_INTERVAL_MS)
-  await materializeThumbnail(record, controller.signal)
-    .then((relativePath) => completeJob(record, relativePath))
-    .catch((error) => failJob(record, error, controller.signal.aborted))
-    .finally(() => {
-      clearInterval(leaseTimer)
-      activeDirectories.delete(directory)
-      activeControllers.delete(directory)
-    })
-}
-
-export function runStudioMediaThumbnailWorkerOnce() {
-  return tick(Instance.directory)
-}
-
-export function startStudioMediaThumbnailWorker() {
-  const directory = Instance.directory
-  if (workerTimers.has(directory)) return
-  const run = Instance.bind(() =>
-    tick(directory).catch((error) => console.error("[studio.thumbnail] tick failed", error)),
-  )
-  workerTimers.set(directory, setInterval(run, 1000))
-  void run()
-}
-
-registerDisposer(async (directory) => {
-  const timer = workerTimers.get(directory)
-  if (timer) clearInterval(timer)
-  workerTimers.delete(directory)
-  activeControllers.get(directory)?.abort(new Error("Studio instance disposed."))
-})
+/** @deprecated Use saveStudioMediaThumbnail. */
+export const saveStudioVideoPoster = saveStudioMediaThumbnail

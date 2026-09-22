@@ -52,7 +52,6 @@ import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-gen
 import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
-  startStudioMediaThumbnailWorker,
 } from "./studio-media-thumbnail"
 
 type StudioProvider = "jimeng" | "internel"
@@ -2425,7 +2424,6 @@ export function startStudioGenerationWorker() {
   )
   workerTimers.set(directory, setInterval(tick, 1000))
   void tick()
-  startStudioMediaThumbnailWorker()
 }
 
 registerDisposer(async (directory) => {

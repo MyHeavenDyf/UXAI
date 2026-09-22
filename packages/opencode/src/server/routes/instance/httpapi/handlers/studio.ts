@@ -25,7 +25,12 @@ import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
 import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
-import { ensureStudioSessionThumbnails, saveStudioVideoPoster } from "@/studio/studio-media-thumbnail"
+import {
+  ensureStudioSessionThumbnails,
+  loadStudioThumbnailSource,
+  saveStudioMediaThumbnail,
+  saveStudioVideoPoster,
+} from "@/studio/studio-media-thumbnail"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
   return {
@@ -241,6 +246,49 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const getThumbnailSource = Effect.fn("StudioHttpApi.getGenerationThumbnailSource")(function* (ctx: {
+      params: { generationID: string; mediaIndex: string }
+    }) {
+      const instance = yield* InstanceState.context
+      const source = yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => loadStudioThumbnailSource({
+          generationID: ctx.params.generationID,
+          mediaIndex: Number(ctx.params.mediaIndex),
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+      return HttpServerResponse.raw(source.bytes, {
+        contentType: source.contentType,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      })
+    })
+
+    const saveThumbnail = Effect.fn("StudioHttpApi.saveGenerationThumbnail")(function* (ctx: {
+      params: { generationID: string; mediaIndex: string }
+      payload: { content: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => saveStudioMediaThumbnail({
+          generationID: ctx.params.generationID,
+          mediaIndex: Number(ctx.params.mediaIndex),
+          content: ctx.payload.content,
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
     const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
       payload: typeof StudioPromptGenPayload.Type
     }) {
@@ -400,6 +448,8 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("createEditorEntry", createEntry)
       .handle("ensureSessionThumbnails", ensureThumbnails)
       .handle("saveGenerationVideoPoster", saveVideoPoster)
+      .handleRaw("getGenerationThumbnailSource", getThumbnailSource)
+      .handle("saveGenerationThumbnail", saveThumbnail)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)

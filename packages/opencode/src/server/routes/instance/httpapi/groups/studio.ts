@@ -23,6 +23,8 @@ export const StudioPaths = {
   generationCancel: `${root}/generations/:generationID/cancel`,
   generationReboot: `${root}/generations/:generationID/reboot`,
   generationVideoPoster: `${root}/generations/:generationID/video-poster`,
+  generationThumbnailSource: `${root}/generations/:generationID/media/:mediaIndex/thumbnail-source`,
+  generationThumbnail: `${root}/generations/:generationID/media/:mediaIndex/thumbnail`,
   sessionThumbnailsEnsure: `${root}/sessions/:sessionID/thumbnails/ensure`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
@@ -434,6 +436,29 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.video-poster.save",
             summary: "Save Studio video poster",
             description: "Persists a browser-captured video frame without changing generation status.",
+          }),
+        ),
+        HttpApiEndpoint.get("getGenerationThumbnailSource", StudioPaths.generationThumbnailSource, {
+          params: { generationID: Schema.String, mediaIndex: Schema.String },
+          success: described(Schema.String.pipe(HttpApiSchema.asText({ contentType: "*" })), "Studio thumbnail source"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.thumbnail-source.get",
+            summary: "Read Studio thumbnail source",
+            description: "Returns the persisted generation image bytes for same-origin browser thumbnail generation.",
+          }),
+        ),
+        HttpApiEndpoint.post("saveGenerationThumbnail", StudioPaths.generationThumbnail, {
+          params: { generationID: Schema.String, mediaIndex: Schema.String },
+          payload: Schema.Struct({ content: Schema.String }),
+          success: described(Schema.Struct({ thumbnailUrl: Schema.String }), "Saved Studio media thumbnail"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.thumbnail.save",
+            summary: "Save Studio media thumbnail",
+            description: "Persists a browser-generated WebP thumbnail without changing generation status.",
           }),
         ),
         HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {

@@ -122,6 +122,7 @@ import {
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
+import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
@@ -307,6 +308,13 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
+  createEffect(() => {
+    void params.id
+    const current = server.current
+    const directory = projectDir()
+    if (!current || !directory) return
+    onCleanup(() => stopStudioThumbnailQueue({ sdkUrl: current.http.url, directory }))
+  })
   const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
