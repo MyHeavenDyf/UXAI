@@ -223,6 +223,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (loadingMoreSessions() || sessionCursor() === undefined) return
     const d = resolvedDir()
     if (!d || !props.fetchSessionPage) return
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "load-more-sessions" })
     setLoadingMoreSessions(true)
     try {
       let cursor = sessionCursor()
