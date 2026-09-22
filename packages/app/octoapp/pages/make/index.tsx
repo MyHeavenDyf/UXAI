@@ -518,6 +518,7 @@ function MakeContent() {
 
   function handleMenuTogglePin(session: Session) {
     closeMenu()
+    tracker.interaction({ module: "design", name: session.pinned ? "unpin-session" : "pin-session" })
     void togglePinCurrent(session)
   }
 

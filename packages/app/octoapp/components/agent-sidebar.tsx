@@ -273,6 +273,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const d = resolvedDir()
     if (!d) return
     const newVal = !session.pinned
+    tracker.interaction({ module: props.trackerModule ?? "session", name: newVal ? "pin-session" : "unpin-session" })
     const previousSortOrder = session.sort_order
     if (newVal) {
       batch(() => {
@@ -360,6 +361,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   async function performSessionMove(target: SessionDropTarget) {
+    const mod = props.trackerModule ?? "session"
     const sourceId = draggingSessionId()
     if (!sourceId) { handleSessionDragEnd(); return }
     const source = sessionList.find(s => s.id === sourceId)
@@ -376,14 +378,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (sourceGroup) props.onRemoveFromGroup?.(source)
           void togglePin(sourceId)
         }
+        tracker.interaction({ module: mod, name: "reorder-pinned-session" })
         void reorderPinned(sourceId, targetId, position)
       } else if (section === "recent") {
         if (sourceIsPinned) void togglePin(sourceId)
         if (sourceGroup) props.onRemoveFromGroup?.(source)
+        tracker.interaction({ module: mod, name: "reorder-recent-session" })
         void reorderRecent(sourceId, targetId, position)
       } else if (section === "group" && groupId) {
         if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup !== groupId) await props.onMoveToGroup?.(source, groupId)
+        if (sourceGroup !== groupId) {
+          tracker.interaction({ module: mod, name: "drag-session-to-group" })
+          await props.onMoveToGroup?.(source, groupId)
+        } else {
+          tracker.interaction({ module: mod, name: "reorder-group-session" })
+        }
         props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
       }
     } else if (target.type === "section") {
@@ -392,13 +401,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (sourceGroup) props.onRemoveFromGroup?.(source)
           void togglePin(sourceId)
         }
+        tracker.interaction({ module: mod, name: "drag-session-to-pinned" })
       } else if (target.section === "recent") {
         if (sourceIsPinned) void togglePin(sourceId)
         if (sourceGroup) props.onRemoveFromGroup?.(source)
+        tracker.interaction({ module: mod, name: "drag-session-to-recent" })
       }
     } else if (target.type === "group" && target.groupId) {
       if (sourceIsPinned) void togglePin(sourceId)
-      if (sourceGroup !== target.groupId) await props.onMoveToGroup?.(source, target.groupId)
+      if (sourceGroup !== target.groupId) {
+        tracker.interaction({ module: mod, name: "drag-session-to-group" })
+        await props.onMoveToGroup?.(source, target.groupId)
+      }
     }
 
     handleSessionDragEnd()
@@ -812,7 +826,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
               classList={{ "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0) }}
             >
-              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => setPinnedCollapsed(v => !v)} class="section-header-inline" />
+              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-pinned-section" }); setPinnedCollapsed(v => !v) }} class="section-header-inline" />
             <Show when={!pinnedCollapsed()}>
               <SessionList
                 sessions={pinnedSessions()}
@@ -871,7 +885,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       )}
       inlineBeforeSection={props.inlineBeforeSection}
       collapsed={collapsed()}
-      onToggleCollapse={() => setCollapsed(v => !v)}
+      onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-recent-section" }); setCollapsed(v => !v) }}
       activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
       onNavClick={(key) => {
         if (key === "skill_market" || key === "knowledge_base") {
