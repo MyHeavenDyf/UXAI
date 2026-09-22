@@ -953,7 +953,7 @@ function MakeTemplateForm(props: {
       <TemplateCreatorField title="图片模板标题" required>
         <TemplateCreatorTitleInput value={props.title} onInput={props.onTitle} />
       </TemplateCreatorField>
-      <TemplateCreatorField title="模板分类" required>
+      <TemplateCreatorField title="模板类型" required>
         <TemplateCreatorCategoryCards value={props.category} onChange={props.onCategory} />
       </TemplateCreatorField>
       <Show

@@ -49,6 +49,11 @@ import { makeRuntime } from "@/effect/run-service"
 import { Effect, Stream } from "effect"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
+import {
+  enqueueStudioMediaThumbnails,
+  prepareStudioThumbnailMedia,
+  startStudioMediaThumbnailWorker,
+} from "./studio-media-thumbnail"
 
 type StudioProvider = "jimeng" | "internel"
 type StudioPersistedTurn = {
@@ -163,6 +168,7 @@ export type StudioGenerationResult = {
     kind?: "image" | "video"
     url: string
     thumbnailUrl?: string
+    thumbnailStatus?: "pending" | "ready" | "failed"
     remoteUrl?: string
     width?: number
     height?: number
@@ -1532,6 +1538,7 @@ function completeStudioSession(input: {
           width: input.result.images[0]?.width,
           height: input.result.images[0]?.height,
           imageCount: input.result.images.length,
+          media: input.result.images,
           images: input.result.images
             .filter((image) => !isVideoKind(image.kind))
             .map((image) => image.remoteUrl ?? image.url),
@@ -1967,16 +1974,16 @@ function buildGenerationResult(record: StudioGenerationRecord, output: ImageGene
           videoQualityMode: videoQualityMode(input),
         }
       : {}),
-    images: output.images.map((image, index) => ({
+    images: prepareStudioThumbnailMedia(output.images.map((image, index) => ({
       id: `studio_img_${record.id}_${index}`,
       ...(image.kind ? { kind: image.kind } : {}),
       url: image.url,
-      thumbnailUrl: image.thumbnailUrl ?? image.url,
+      ...(image.thumbnailUrl ? { thumbnailUrl: image.thumbnailUrl } : {}),
       remoteUrl: image.url,
       ...(image.width !== undefined ? { width: image.width } : {}),
       ...(image.height !== undefined ? { height: image.height } : {}),
       ...(image.duration !== undefined ? { duration: image.duration } : {}),
-    })),
+    }))),
     request: stripUndefined(output.request),
     response: stripUndefined(resultSummary({ provider: record.provider, raw: output.raw, rawBody: output.rawBody })),
     progress: 100,
@@ -2064,6 +2071,7 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
   )
   if (!claimed) return
   completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  enqueueStudioMediaThumbnails(record.id)
 }
 
 async function processGeneration(record: StudioGenerationRecord) {
@@ -2417,6 +2425,7 @@ export function startStudioGenerationWorker() {
   )
   workerTimers.set(directory, setInterval(tick, 1000))
   void tick()
+  startStudioMediaThumbnailWorker()
 }
 
 registerDisposer(async (directory) => {

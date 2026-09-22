@@ -25,6 +25,7 @@ import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
 import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
+import { ensureStudioSessionThumbnails } from "@/studio/studio-media-thumbnail"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
   return {
@@ -205,6 +206,22 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const ensureThumbnails = Effect.fn("StudioHttpApi.ensureSessionThumbnails")(function* (ctx: {
+      params: { sessionID: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => Promise.resolve(ensureStudioSessionThumbnails(ctx.params.sessionID))),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
       payload: typeof StudioPromptGenPayload.Type
     }) {
@@ -362,6 +379,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
+      .handle("ensureSessionThumbnails", ensureThumbnails)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)

@@ -1,5 +1,6 @@
 import { Slug } from "@opencode-ai/core/util/slug"
 import path from "path"
+import { rm } from "node:fs/promises"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
@@ -609,6 +610,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
         yield* sync.run(Event.Deleted, { sessionID, info: session }, { publish: hasInstance })
         yield* sync.remove(sessionID)
+        if (session.agent === "octo_studio") {
+          yield* Effect.promise(() =>
+            rm(path.join(session.directory, ".octo", sessionID, "thumbnails"), { recursive: true, force: true }),
+          )
+        }
       } catch (e) {
         log.error(e)
       }

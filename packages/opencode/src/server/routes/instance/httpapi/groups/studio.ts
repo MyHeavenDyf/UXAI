@@ -22,6 +22,7 @@ export const StudioPaths = {
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
   generationReboot: `${root}/generations/:generationID/reboot`,
+  sessionThumbnailsEnsure: `${root}/sessions/:sessionID/thumbnails/ensure`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
   promptGen: `${root}/prompt-gen`,
@@ -203,6 +204,11 @@ const StudioGenerationImage = Schema.Struct({
   kind: Schema.optional(Schema.Union([Schema.Literal("image"), Schema.Literal("video")])),
   url: Schema.String,
   thumbnailUrl: Schema.optional(Schema.String),
+  thumbnailStatus: Schema.optional(Schema.Union([
+    Schema.Literal("pending"),
+    Schema.Literal("ready"),
+    Schema.Literal("failed"),
+  ])),
   remoteUrl: Schema.optional(Schema.String),
   width: Schema.optional(Schema.Number),
   height: Schema.optional(Schema.Number),
@@ -415,6 +421,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.get",
             summary: "Get Studio generation",
             description: "Get the current status and result of an asynchronous Studio generation.",
+          }),
+        ),
+        HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {
+          params: { sessionID: Schema.String },
+          success: described(Schema.Struct({ queued: Schema.Number }), "Queued Studio thumbnail jobs"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.sessions.thumbnails.ensure",
+            summary: "Ensure Studio session thumbnails",
+            description: "Queues missing image thumbnails for a Studio session without waiting for processing.",
           }),
         ),
       )

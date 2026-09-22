@@ -3,6 +3,8 @@ import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioTurnData } from "./turns"
 import emptyPng from "../insight/icons/empty.png"
+import { StudioMediaThumbnail } from "./studio-media-thumbnail"
+import type { StudioImage } from "./types"
 
 type FileFilterTab = "all" | "image" | "video"
 
@@ -53,33 +55,7 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
   "扩图": "image.outpaint",
 }
 
-const EDIT_CAPABILITIES = new Set(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"])
-
-const dimensionCache = new Map<string, { w: number; h: number }>()
-
-function probeImageDimensions(url: string, onReady: () => void) {
-  if (dimensionCache.has(url)) return
-  const el = new Image()
-  el.onload = () => {
-    const w = el.naturalWidth
-    const h = el.naturalHeight
-    if (w && h) {
-      dimensionCache.set(url, { w, h })
-      onReady()
-    }
-  }
-  el.onerror = () => {}
-  el.src = url
-}
-
 function getRatioCategory(item: FileManagerMedia): string | null {
-  const real = dimensionCache.get(item.url)
-  if (real) {
-    const maxDim = Math.max(real.w, real.h)
-    if (Math.abs(real.w - real.h) / maxDim <= 0.01) return "正方形"
-    if (real.w > real.h) return "横版"
-    if (real.h > real.w) return "竖版"
-  }
   // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
   if (item.isCustom) {
     const w = item.width
@@ -111,13 +87,6 @@ function getRatioCategory(item: FileManagerMedia): string | null {
 }
 
 function getSizeCategory(item: FileManagerMedia): string | null {
-  const real = dimensionCache.get(item.url)
-  if (real) {
-    const longSide = Math.max(real.w, real.h)
-    if (longSide < 2000) return "1K"
-    if (longSide < 4000) return "2K"
-    return "4K"
-  }
   const w = item.width
   const h = item.height
   if (w && h) {
@@ -151,7 +120,8 @@ type FileManagerMedia = {
   id: string
   turnID: string
   url: string
-  thumbnailUrl: string
+  thumbnailUrl?: string
+  thumbnailStatus?: StudioImage["thumbnailStatus"]
   kind: "image" | "video"
   width?: number
   height?: number
@@ -195,7 +165,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
     if (!images || images.length === 0) continue
 
     for (const image of images) {
-      const url = image.url
+      const url = image.remoteUrl ?? image.url
       if (!url) continue
 
       // For edit results (inpaint/outpaint/cutout/upscale), the result-level
@@ -212,7 +182,8 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         id: image.id,
         turnID: turn.id,
         url,
-        thumbnailUrl: image.thumbnailUrl ?? url,
+        thumbnailUrl: image.thumbnailUrl,
+        thumbnailStatus: image.thumbnailStatus,
         kind: image.kind === "video" ? "video" : "image",
         width: itemWidth,
         height: itemHeight,
@@ -255,43 +226,6 @@ function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
       ...group,
       items: group.items.sort((a, b) => b.createdAt - a.createdAt),
     }))
-}
-
-function FileManagerVideoMedia(props: { item: FileManagerMedia }) {
-  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
-  const badgeDuration = () => {
-    const actual = actualDuration()
-    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
-    return props.item.duration
-  }
-  return (
-    <div class="studio-file-manager-media-video-wrapper">
-      <video
-        src={props.item.url}
-        muted
-        playsinline
-        preload="metadata"
-        class="studio-file-manager-media-image"
-        onError={(e) => {
-          const el = e.currentTarget as HTMLVideoElement
-          el.style.display = "none"
-        }}
-        onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration
-          setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
-        }}
-      />
-      <span class="studio-file-manager-media-video-badge">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
-          <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
-        </svg>
-        <Show when={badgeDuration()}>
-          <span class="studio-file-manager-media-video-badge-text">{badgeDuration()}s</span>
-        </Show>
-      </span>
-    </div>
-  )
 }
 
 export function StudioFileManager(props: {
@@ -461,24 +395,10 @@ export function StudioFileManager(props: {
     return groupMediaByDate(allMedia)
   })
 
-  const [dimsTick, setDimsTick] = createSignal(0)
-
-  createEffect(() => {
-    const groups = mediaByDate()
-    for (const group of groups) {
-      for (const item of group.items) {
-        if (item.kind === "image" && EDIT_CAPABILITIES.has(item.capability ?? "")) {
-          probeImageDimensions(item.url, () => setDimsTick((t) => t + 1))
-        }
-      }
-    }
-  })
-
   const globalEmpty = createMemo(() => mediaByDate().length === 0)
 
   // Filter media groups by all active filters
   const filteredGroups = createMemo(() => {
-    dimsTick()
     const groups = mediaByDate()
 
     const sourceSelected = confirmedSource()
@@ -737,20 +657,18 @@ export function StudioFileManager(props: {
                           class="studio-file-manager-media-item"
                           onClick={() => props.onSelectMedia?.(item)}
                         >
-                          <Show when={item.kind === "video"} fallback={
-                            <img
-                              src={item.thumbnailUrl}
-                              alt=""
-                              class="studio-file-manager-media-image"
-                              loading="lazy"
-                              onError={(e) => {
-                                const el = e.currentTarget as HTMLImageElement
-                                el.style.display = "none"
-                              }}
-                            />
-                          }>
-                            <FileManagerVideoMedia item={item} />
-                          </Show>
+                          <StudioMediaThumbnail
+                            image={{
+                              id: item.id,
+                              kind: item.kind,
+                              url: item.url,
+                              remoteUrl: item.url,
+                              thumbnailUrl: item.thumbnailUrl,
+                              thumbnailStatus: item.thumbnailStatus,
+                            }}
+                            duration={item.duration}
+                            class="studio-file-manager-media-image"
+                          />
                         </div>
                       )}
                     </For>

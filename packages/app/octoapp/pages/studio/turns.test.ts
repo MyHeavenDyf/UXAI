@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
-import { buildStudioConversationContext, buildStudioTurns } from "./turns"
+import { buildStudioConversationContext, buildStudioTurns, parseToolMedia } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
 describe("Studio generation status merging", () => {
@@ -44,6 +44,33 @@ describe("Studio model resolution mapping", () => {
   test("recognizes the persisted Seedream display name", () => {
     expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
     expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
+  })
+})
+
+describe("Studio structured media", () => {
+  test("preserves original and generated thumbnail fields", () => {
+    expect(parseToolMedia(JSON.stringify({
+      media: [{
+        id: "studio_img_1",
+        kind: "image",
+        url: "https://example.com/original.png",
+        remoteUrl: "https://example.com/original.png",
+        thumbnailUrl: ".octo/ses_1/thumbnails/studio_gen_1-0.webp",
+        thumbnailStatus: "ready",
+        width: 2048,
+        height: 1024,
+      }],
+    }))).toEqual([{
+      id: "studio_img_1",
+      kind: "image",
+      url: "https://example.com/original.png",
+      remoteUrl: "https://example.com/original.png",
+      thumbnailUrl: ".octo/ses_1/thumbnails/studio_gen_1-0.webp",
+      thumbnailStatus: "ready",
+      width: 2048,
+      height: 1024,
+      duration: undefined,
+    }])
   })
 })
 

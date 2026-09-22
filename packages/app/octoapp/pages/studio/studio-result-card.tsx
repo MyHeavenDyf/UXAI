@@ -1,8 +1,9 @@
-import { createSignal, For, Show } from "solid-js"
+import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
-import { isVideoMedia, studioResultCardStatus } from "./studio-shared"
-import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
+import { studioResultCardStatus } from "./studio-shared"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus } from "./types"
 import type { StudioTurnData } from "./turns"
+import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 
 const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
 const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3", "21:9"]
@@ -18,47 +19,6 @@ type StudioResultCardProps = {
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
-}
-
-function StudioMediaPreview(props: { image: StudioImage; duration?: string }) {
-  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
-  const badgeDuration = () => {
-    const actual = actualDuration()
-    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
-    return props.duration
-  }
-  return (
-    <Show when={isVideoMedia(props.image)} fallback={
-      <img
-        src={props.image.thumbnailUrl ?? props.image.url}
-        class="studio-result-thumb-media"
-        alt=""
-        onDragStart={(event) => {
-          event.dataTransfer?.setData("application/x-octo-studio-image", props.image.remoteUrl ?? props.image.url)
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
-        }}
-      />
-    }>
-      <span class="studio-result-thumb-video">
-        <video
-          src={props.image.remoteUrl ?? props.image.url}
-          class="studio-result-thumb-media"
-          muted
-          playsinline
-          preload="metadata"
-          onLoadedMetadata={(e) => {
-            const d = e.currentTarget.duration
-            setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
-          }}
-        />
-        <Show when={badgeDuration()}>
-          <span class="studio-file-manager-media-video-badge">
-            <span class="studio-file-manager-media-video-badge-text">00:{(badgeDuration() ?? "0").padStart(2, "0")}</span>
-          </span>
-        </Show>
-      </span>
-    </Show>
-  )
 }
 
 export function StudioResultCard(props: StudioResultCardProps) {
@@ -216,7 +176,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
                   onClick={() => props.turn.result && props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })}
                   class="studio-result-thumb"
                 >
-                  <StudioMediaPreview image={image} duration={props.turn.result?.duration} />
+                  <StudioMediaThumbnail image={image} duration={props.turn.result?.duration} class="studio-result-thumb-media" />
                 </button>
               )}
             </For>

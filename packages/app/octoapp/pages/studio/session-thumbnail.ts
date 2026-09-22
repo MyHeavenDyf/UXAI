@@ -2,9 +2,10 @@ import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { parseToolImages, parseToolAttachments } from "./turns"
+import { parseToolImages, parseToolMedia } from "./turns"
+import { isStudioThumbnailUrl, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
 
-export type ThumbnailEntry = { url: string; updatedAt: number }
+export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean }
 export type ThumbnailMap = Record<string, ThumbnailEntry>
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
@@ -12,9 +13,7 @@ function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
 }
 
 /**
- * Extract the first image URL from the latest successful generation in a session's messages.
- * Searches all assistant messages (newest first) for completed tool parts with images.
- * Returns undefined if no image is found.
+ * Extract a local thumbnail when ready, otherwise keep showing the original image until the thumbnail replaces it.
  */
 export function extractFirstImageFromMessages(
   items: Array<{ info: Message; parts: Part[] }>,
@@ -28,26 +27,14 @@ export function extractFirstImageFromMessages(
   for (const msg of assistantMessages) {
     const tools = msg.parts.filter(isToolPart)
 
-    // Find completed tool parts with images, newest first
-    const completed = [...tools]
-      .reverse()
-      .find((part) => {
-        if (part.state.status !== "completed") return false
-        const state = part.state
-        return parseToolAttachments(part).length > 0 || parseToolImages(state.output).length > 0
-      })
-
-    if (!completed) continue
-
-    const attachments = parseToolAttachments(completed)
-    if (attachments.length > 0) {
-      // Prefer non-video attachments for sidebar thumbnail
-      const img = attachments.find((a) => a.kind !== "video") ?? attachments[0]
-      return img.url
+    for (const part of [...tools].reverse()) {
+      if (part.state.status !== "completed") continue
+      const media = parseToolMedia(part.state.output).filter((item) => thumbnailMediaSrc(item))
+      const selected = media.find((item) => item.kind !== "video")
+      if (selected) return thumbnailMediaSrc(selected)
+      const legacy = parseToolImages(part.state.output)[0]
+      if (legacy) return legacy
     }
-
-    const images = parseToolImages((completed.state as { output: string }).output)
-    if (images.length > 0) return images[0]
   }
 
   return undefined
@@ -65,6 +52,7 @@ export function extractFirstImageFromMessages(
 export function createSessionThumbnailStore(input: {
   dir: () => string
   globalSDK: {
+    url: string
     client: { session: { messages: (params: { sessionID: string }) => Promise<{ data?: Array<{ info: Message; parts: Part[] }> }> } }
     createClient: (opts: { directory: string }) => { session: { messages: (params: { sessionID: string }) => Promise<{ data?: Array<{ info: Message; parts: Part[] }> }> } }
   }
@@ -84,12 +72,34 @@ export function createSessionThumbnailStore(input: {
   // before the server-side message persistence catches up.
   const recentlySet = new Set<string>()
 
-  function setThumbnail(sessionID: string, url: string) {
+  function normalizeThumbnail(url?: string, allowOriginal = false): string | undefined {
+    if (!isStudioThumbnailUrl(url) && !allowOriginal) return undefined
+    return resolveStudioMediaUrl({
+      value: url,
+      sdkUrl: input.globalSDK.url,
+      directory: input.dir(),
+    })
+  }
+
+  function setThumbnail(sessionID: string, value?: string) {
+    const fallback = Boolean(value && !isStudioThumbnailUrl(value))
+    const url = normalizeThumbnail(value, fallback)
+    if (!url) return
     recentlySet.add(sessionID)
     // Auto-clear after 30s so future genuine updates aren't blocked
     setTimeout(() => recentlySet.delete(sessionID), 30_000)
-    setPersistedThumbnails(sessionID, { url, updatedAt: Date.now() })
-    setVersion((v) => v + 1)
+    const commit = () => {
+      setPersistedThumbnails(sessionID, { url, updatedAt: Date.now(), ...(fallback ? { fallback: true } : {}) })
+      setVersion((v) => v + 1)
+    }
+    const current = persistedThumbnails[sessionID]
+    if (!fallback && current?.fallback && typeof Image !== "undefined") {
+      const loader = new Image()
+      loader.onload = commit
+      loader.src = url
+      return
+    }
+    commit()
   }
 
   function removeThumbnail(sessionID: string) {
@@ -110,7 +120,7 @@ export function createSessionThumbnailStore(input: {
     const stale = sessions.filter((s) => {
       if (recentlySet.has(s.id)) return false
       const entry = persistedThumbnails[s.id]
-      if (!entry) return true
+      if (!entry || !normalizeThumbnail(entry.url, entry.fallback === true)) return true
       return (s.time.updated ?? 0) > entry.updatedAt
     })
 
@@ -138,12 +148,15 @@ export function createSessionThumbnailStore(input: {
             })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
             console.log(`[Thumbnail] Session ${session.id} has ${items.length} messages`)
-            const url = extractFirstImageFromMessages(items)
+            const source = extractFirstImageFromMessages(items)
+            const fallback = Boolean(source && !isStudioThumbnailUrl(source))
+            const url = normalizeThumbnail(source, fallback)
             if (url) {
               console.log(`[Thumbnail] Found thumbnail for session ${session.id}: ${url.substring(0, 80)}...`)
               setPersistedThumbnails(session.id, {
                 url,
                 updatedAt: session.time.updated ?? Date.now(),
+                ...(fallback ? { fallback: true } : {}),
               })
               setVersion((v) => v + 1)
             } else {
@@ -167,10 +180,12 @@ export function createSessionThumbnailStore(input: {
           try {
             const result = await client.session.messages({ sessionID })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-            const url = extractFirstImageFromMessages(items)
+            const source = extractFirstImageFromMessages(items)
+            const fallback = Boolean(source && !isStudioThumbnailUrl(source))
+            const url = normalizeThumbnail(source, fallback)
             if (url) {
               console.log(`[Thumbnail] Retry found thumbnail for session ${sessionID}`)
-              setPersistedThumbnails(sessionID, { url, updatedAt: Date.now() })
+              setPersistedThumbnails(sessionID, { url, updatedAt: Date.now(), ...(fallback ? { fallback: true } : {}) })
               setVersion((v) => v + 1)
             }
           } catch (err) {
