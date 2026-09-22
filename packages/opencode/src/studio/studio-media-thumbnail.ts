@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { lookup } from "node:dns/promises"
 import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises"
-import { isIP } from "node:net"
 import path from "node:path"
 import { and, eq, isNull, lte, or } from "@/storage/db"
 import * as Database from "@/storage/db"
@@ -247,6 +245,28 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
   if (!session || session.directory !== Instance.directory || session.agent !== "octo_studio") {
     throw new Error(`Studio session not found: ${parsed}`)
   }
+  const recovered = Database.use((db) =>
+    db
+      .update(StudioMediaThumbnailTable)
+      .set({
+        status: "queued",
+        attempts: 0,
+        next_retry_at: Date.now(),
+        error: null,
+        lease_owner: null,
+        lease_expires_at: null,
+        time_updated: Date.now(),
+      })
+      .where(
+        and(
+          eq(StudioMediaThumbnailTable.session_id, parsed),
+          eq(StudioMediaThumbnailTable.status, "failed"),
+          eq(StudioMediaThumbnailTable.error, "Thumbnail source resolves to a private or reserved address."),
+        ),
+      )
+      .returning({ id: StudioMediaThumbnailTable.id })
+      .all().length,
+  )
   const records = Database.use((db) =>
     db
       .select()
@@ -254,7 +274,7 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
       .where(and(eq(StudioGenerationTable.session_id, parsed), eq(StudioGenerationTable.status, "succeeded")))
       .all(),
   )
-  const queued = records.reduce((total, record) => {
+  const queued = recovered + records.reduce((total, record) => {
     const result = mediaResult(record.result)
     if (!result) return total
     const next = prepareStudioThumbnailMedia(result.images)
@@ -298,49 +318,17 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
     sessionID: parsed,
     generationCount: records.length,
     queued,
+    recoveredPrivateAddressFailures: recovered,
     directory: session.directory,
   })
   startStudioMediaThumbnailWorker()
   return { queued }
 }
 
-function privateIPv4(address: string) {
-  const parts = address.split(".").map(Number)
-  if (parts.length !== 4 || parts.some((item) => !Number.isInteger(item) || item < 0 || item > 255)) return true
-  const [a, b, c] = parts
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 0 || b === 168)) ||
-    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-    (a === 203 && b === 0 && c === 113) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    a >= 224
-  )
-}
-
-export function studioThumbnailAddressAllowed(address: string) {
-  if (isIP(address) === 4) return !privateIPv4(address)
-  const normalized = address.toLowerCase()
-  if (normalized === "::" || normalized === "::1") return false
-  if (normalized.startsWith("fc") || normalized.startsWith("fd") || /^fe[89ab]/.test(normalized)) return false
-  if (normalized.startsWith("ff") || normalized.startsWith("2001:db8:")) return false
-  if (normalized.startsWith("::ffff:")) return !privateIPv4(normalized.slice(7))
-  return isIP(address) === 6
-}
-
-async function validateRemoteUrl(value: string) {
+function validateRemoteUrl(value: string) {
   const url = new URL(value)
   if (url.protocol !== "https:") throw new Error("Thumbnail source must use HTTPS.")
   if (url.username || url.password) throw new Error("Thumbnail source credentials are not allowed.")
-  if (url.hostname.toLowerCase() === "localhost") throw new Error("Thumbnail source host is not allowed.")
-  const addresses = await lookup(url.hostname, { all: true, verbatim: true })
-  if (addresses.length === 0 || addresses.some((item) => !studioThumbnailAddressAllowed(item.address))) {
-    throw new Error("Thumbnail source resolves to a private or reserved address.")
-  }
   return url
 }
 
@@ -383,13 +371,13 @@ async function downloadImage(source: string, signal: AbortSignal) {
     if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error("Thumbnail source exceeds the maximum download size.")
     return bytes
   }
-  let url = await validateRemoteUrl(source)
+  let url = validateRemoteUrl(source)
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
     const response = await fetch(url, { redirect: "manual", signal })
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location")
       if (!location || redirect === MAX_REDIRECTS) throw new Error("Thumbnail source redirect is invalid.")
-      url = await validateRemoteUrl(new URL(location, url).toString())
+      url = validateRemoteUrl(new URL(location, url).toString())
       continue
     }
     if (!response.ok) throw new Error(`Thumbnail source request failed with status ${response.status}.`)

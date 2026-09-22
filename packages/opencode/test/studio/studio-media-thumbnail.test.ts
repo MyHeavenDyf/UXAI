@@ -13,7 +13,6 @@ import {
   runStudioMediaThumbnailWorkerOnce,
   saveStudioVideoPoster,
   STUDIO_THUMBNAIL_TARGET_DPR,
-  studioThumbnailAddressAllowed,
   studioThumbnailContentTypeAllowed,
   studioThumbnailResponseBytes,
   studioThumbnailDimensions,
@@ -155,12 +154,7 @@ describe("Studio media thumbnails", () => {
     ).toMatchObject({ thumbnailUrl: undefined, thumbnailStatus: "pending" })
   })
 
-  test("rejects private addresses and non-image response types", () => {
-    expect(studioThumbnailAddressAllowed("127.0.0.1")).toBe(false)
-    expect(studioThumbnailAddressAllowed("192.168.1.20")).toBe(false)
-    expect(studioThumbnailAddressAllowed("::1")).toBe(false)
-    expect(studioThumbnailAddressAllowed("2001:db8::1")).toBe(false)
-    expect(studioThumbnailAddressAllowed("8.8.8.8")).toBe(true)
+  test("rejects non-image response types", () => {
     expect(studioThumbnailContentTypeAllowed("image/png; charset=binary")).toBe(true)
     expect(studioThumbnailContentTypeAllowed("application/octet-stream")).toBe(true)
     expect(studioThumbnailContentTypeAllowed("text/html")).toBe(false)

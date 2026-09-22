@@ -424,8 +424,8 @@ worker
 本地服务下载供应商资源时必须增加限制：
 
 - 只处理 generation provider 返回并持久化的 URL，不能接受任意前端 URL。
-- 允许访问任意公网 HTTPS 图片域名，不维护供应商域名 allowlist；跟随 redirect 后仍需重新校验协议和目标地址。
-- 禁止访问 loopback、私网、link-local 和本地文件协议，避免 SSRF。
+- 允许访问任意 HTTPS 图片地址，不维护供应商域名 allowlist，也不拦截 loopback、私网、link-local、保留地址或代理 Fake IP；Studio 的部署环境允许使用内网资源。
+- 跟随 redirect 后仍需重新校验 HTTPS 协议；本地文件等非 HTTPS 协议仍不允许。
 - 限制请求超时，例如 30 秒。
 - 限制最大响应体，例如图片 50 MiB、视频按产品上限配置。
 - 校验 HTTP status、Content-Type 和实际文件签名。
@@ -563,7 +563,7 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 - running 任务租约过期后重新 claim 测试。
 - 页面/模块切换不取消后台任务测试。
 - 在临时文件、rename、generation result 和 message 更新等不同阶段中断后的幂等恢复测试。
-- 私网 URL、超大文件、错误 MIME 拒绝测试。
+- 非 HTTPS URL、超大文件、错误 MIME 拒绝测试；私网和保留地址应允许访问。
 - completed message media 更新测试。
 - 浏览器提交的视频帧被规范化为 WebP poster、幂等复用且不创建图片 Worker 任务的测试。
 
