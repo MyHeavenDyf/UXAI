@@ -115,6 +115,14 @@ export type OutputCard = {
   createdAt: Date
 }
 
+export type UserAttachment = {
+  filename: string
+  url?: string
+  mime?: string
+  isLocal: boolean
+  path?: string
+}
+
 const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   html: "html",
   "text/html": "html",
@@ -515,7 +523,7 @@ function WaitingPill(props: {
 
 // ── Internal: ProducedFilesList ────────────────────────────
 
-function ProducedFilesList(props: { files: Array<{ path: string; name: string }> }): JSX.Element {
+function ProducedFilesList(props: { files: Array<{ path: string; name: string }>; onOpenFile?: (path: string) => void }): JSX.Element {
   return (
     <div class="mx-3">
       <div
@@ -531,13 +539,19 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
         </div>
         <For each={props.files}>
           {(file) => (
-            <div class="flex items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              title="点击预览"
+              onClick={() => props.onOpenFile?.(file.path)}
+              class="flex items-center gap-1.5 text-xs"
+              style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", "text-align": "left" }}
+            >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <rect x="2" y="1" width="8" height="10" rx="1" stroke="currentColor" stroke-width="1" />
                 <path d="M5 4h3M5 6h3M5 8h2" stroke="currentColor" stroke-width="0.7" />
               </svg>
               <span class="truncate" style={{ color: "var(--octo-text-primary)" }}>{file.name}</span>
-            </div>
+            </button>
           )}
         </For>
       </div>
@@ -629,6 +643,7 @@ export function InsightTurn(props: {
   onAbort?: () => void
   onOpenResult: (card: OutputCard) => void
   onOpenLocalFile?: (filePath: string) => void
+  onOpenAttachment?: (att: UserAttachment) => void
   projectDir?: string
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
@@ -696,7 +711,7 @@ export function InsightTurn(props: {
     const locals = userInputManifest()
     const desktop = isElectronDesktop()
     return [
-      ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
+      ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false, path: undefined })),
       ...locals.map(l => {
         const mime = mimeFromFilename(l.filename)
         const isImage = mime.startsWith("image/")
@@ -705,6 +720,7 @@ export function InsightTurn(props: {
           url: (desktop && isImage) ? pathToLocalUrl(l.path) : undefined,
           mime,
           isLocal: true,
+          path: l.path,
         }
       }),
     ]
@@ -1318,32 +1334,39 @@ const stateStatus = state.status as string | undefined
                   <Show
                     when={att.url && att.mime?.startsWith("image/")}
                     fallback={
-                      <div
-                        class="break-words flex items-center"
-                        style={{
-                          background: "rgba(0,0,0,0.05)",
-                          padding: "8px 12px",
-                          "border-radius": "8px",
-                          color: "rgba(0,0,0,0.9)",
-                          "font-size": "14px",
-                          "line-height": "22px",
-                          gap: "6px",
-                          display: "inline-flex",
-                          "max-width": "200px",
-                        }}
-                      >
-                        {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
-                        <span class="truncate">{att.filename}</span>
-                      </div>
+                    <div
+                      title="点击预览"
+                      onClick={() => props.onOpenAttachment?.(att)}
+                      class="break-words flex items-center"
+                      style={{
+                        background: "rgba(0,0,0,0.05)",
+                        padding: "8px 12px",
+                        "border-radius": "8px",
+                        color: "rgba(0,0,0,0.9)",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        gap: "6px",
+                        display: "inline-flex",
+                        "max-width": "200px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
+                      <span class="truncate">{att.filename}</span>
+                    </div>
                     }
                   >
-                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)" }}>
-                      <img
-                        src={att.url}
-                        alt={att.filename}
-                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                      />
-                    </div>
+                  <div
+                    title="点击预览"
+                    onClick={() => props.onOpenAttachment?.(att)}
+                    style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)", cursor: "pointer" }}
+                  >
+                    <img
+                      src={att.url}
+                      alt={att.filename}
+                      style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                    />
+                  </div>
                   </Show>
                 )}
               </For>
@@ -1614,7 +1637,7 @@ const stateStatus = state.status as string | undefined
 
       {/* 产出文件列表 */}
       <Show when={!showGenerating() && producedFiles().length > 0}>
-        <ProducedFilesList files={producedFiles()} />
+        <ProducedFilesList files={producedFiles()} onOpenFile={props.onOpenLocalFile} />
       </Show>
         </div>
       </Show>

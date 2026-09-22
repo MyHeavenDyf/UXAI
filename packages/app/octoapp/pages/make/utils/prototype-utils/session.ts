@@ -47,6 +47,13 @@ export function disposeSession(tabId: string | null) {
       }
     }
   }
+  // ★ 若处于编辑态,先通知 iframe 退出 dom-picker / drag 模式。
+  //   原本切 tab 会销毁 iframe,UI 自然清空;改为 <For> 渲染所有 tab 后,
+  //   iframe 不再销毁,需要显式通知,否则切回 tab 时残留 picker/drag UI。
+  if (session.editing) {
+    session.ctx.postMessageToIframe?.({ type: "od:dom-picker-mode", enabled: false })
+    session.ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
+  }
   if (session.messageHandler) {
     window.removeEventListener("message", session.messageHandler)
     session.messageHandler = null

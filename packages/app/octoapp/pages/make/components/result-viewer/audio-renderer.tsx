@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js"
+import { resolveMediaUrl } from "./media-url"
 
 interface Props {
   filePath: string
@@ -6,7 +7,7 @@ interface Props {
 }
 
 export function AudioRenderer(props: Props): JSX.Element {
-  const url = `local:///${props.filePath.replace(/\\/g, '/')}?v=${props.refreshKey}`
+  const url = resolveMediaUrl(props.filePath, props.refreshKey)
   return (
     <div class="flex items-center justify-center h-full p-4">
       <audio src={url} controls class="w-full max-w-md" />

@@ -3,8 +3,6 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -40,6 +38,15 @@ export type OutputCard = {
   description?: string      // uri 模式来自 resource_link.description,卡片副标题
   size?: number            // 字节数:仅文件管理开页签时带入(InsightFileEntry.size),供归档前置判定超限;其余来源无
   createdAt: Date
+  fromAttachment?: boolean  // 会话区点击附件打开 → ActionBar 走 design 风格(刷新/复制/下载/历史/全屏),不加归档/本地打开等
+}
+
+export type UserAttachment = {
+  filename: string
+  url?: string
+  mime?: string
+  isLocal: boolean
+  path?: string
 }
 
 // eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
@@ -193,10 +200,11 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   /** uri 产物落盘完成 → 把 pending 期间开的 tab 绑定到磁盘路径(SPEC-INS-026 §6.2 身份转正) */
   onMaterialized?: (cardId: string, localPath: string) => void
+  /** 点击用户附件(文件卡片/图片缩略图)→ 右侧 ResultViewer tab 预览(对齐 Design 页) */
+  onOpenAttachment?: (att: UserAttachment) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
-  const dialog = useDialog()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -701,23 +709,32 @@ export function InsightTurn(props: {
         <div class="octo-input-attachments">
           <For each={inputAttachments()}>
             {(f) => (
-              <div class="octo-input-attachment-card" title={f.filename}>
+              <button
+                type="button"
+                class="octo-input-attachment-card"
+                title="点击预览"
+                onClick={() => props.onOpenAttachment?.({ filename: f.filename, isLocal: true, path: f.path })}
+                style={{ cursor: "pointer", font: "inherit" }}
+              >
                 <img class="octo-input-attachment-card__icon" src={fileTypeIconUrl(f.filename)} width={24} height={24} alt="" aria-hidden="true" />
                 <span class="octo-input-attachment-card__name">{f.filename}</span>
-              </div>
+              </button>
             )}
           </For>
           <For each={inputImages()}>
             {(img) => (
-              <img
-                src={img.url}
+              <button
+                type="button"
                 title={img.filename}
-                alt={img.filename}
-                // 点击放大:复用上游 Message 用的同一个 ImagePreview 弹窗,这样"接管"之后
-                // 交互与上游那层等价,不是只把图挪个位置。
-                onClick={() => dialog.show(() => <ImagePreview src={img.url} alt={img.filename} />)}
-                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0", cursor: "pointer" }}
-              />
+                onClick={() => props.onOpenAttachment?.({ filename: img.filename, url: img.url, isLocal: false })}
+                style={{ width: "48px", height: "48px", padding: 0, border: "none", background: "transparent", cursor: "pointer", "flex-shrink": "0", "border-radius": "8px", overflow: "hidden" }}
+              >
+                <img
+                  src={img.url}
+                  alt={img.filename}
+                  style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                />
+              </button>
             )}
           </For>
         </div>
