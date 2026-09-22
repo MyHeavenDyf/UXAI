@@ -25,7 +25,7 @@ import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
 import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
-import { ensureStudioSessionThumbnails } from "@/studio/studio-media-thumbnail"
+import { ensureStudioSessionThumbnails, saveStudioVideoPoster } from "@/studio/studio-media-thumbnail"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
   return {
@@ -222,6 +222,25 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const saveVideoPoster = Effect.fn("StudioHttpApi.saveGenerationVideoPoster")(function* (ctx: {
+      params: { generationID: string }
+      payload: { mediaIndex: number; content: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => saveStudioVideoPoster({
+          generationID: ctx.params.generationID,
+          mediaIndex: ctx.payload.mediaIndex,
+          content: ctx.payload.content,
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
     const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
       payload: typeof StudioPromptGenPayload.Type
     }) {
@@ -380,6 +399,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
       .handle("ensureSessionThumbnails", ensureThumbnails)
+      .handle("saveGenerationVideoPoster", saveVideoPoster)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)

@@ -2,10 +2,10 @@ import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { parseToolImages, parseToolMedia } from "./turns"
-import { isStudioThumbnailUrl, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
+import { parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
+import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
 
-export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean }
+export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean; kind?: "image" | "video" }
 export type ThumbnailMap = Record<string, ThumbnailEntry>
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
@@ -15,9 +15,9 @@ function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
 /**
  * Extract a local thumbnail when ready, otherwise keep showing the original image until the thumbnail replaces it.
  */
-export function extractFirstImageFromMessages(
+function extractFirstMediaFromMessages(
   items: Array<{ info: Message; parts: Part[] }>,
-): string | undefined {
+): { url: string; kind: "image" | "video" } | undefined {
   // Sort messages by creation time descending (newest first)
   const sorted = [...items].sort((a, b) => b.info.time.created - a.info.time.created)
 
@@ -29,15 +29,24 @@ export function extractFirstImageFromMessages(
 
     for (const part of [...tools].reverse()) {
       if (part.state.status !== "completed") continue
-      const media = parseToolMedia(part.state.output).filter((item) => thumbnailMediaSrc(item))
-      const selected = media.find((item) => item.kind !== "video")
-      if (selected) return thumbnailMediaSrc(selected)
+      const media = parseToolMedia(part.state.output)
+      const selected = media.find((item) => item.kind !== "video") ?? media[0]
+      if (selected) {
+        const url = thumbnailMediaSrc(selected) ?? originalMediaSrc(selected)
+        return { url, kind: selected.kind === "video" ? "video" : "image" }
+      }
       const legacy = parseToolImages(part.state.output)[0]
-      if (legacy) return legacy
+      if (legacy) return { url: legacy, kind: "image" }
+      const video = parseToolVideos(part.state.output)[0]
+      if (video) return { url: video, kind: "video" }
     }
   }
 
   return undefined
+}
+
+export function extractFirstImageFromMessages(items: Array<{ info: Message; parts: Part[] }>) {
+  return extractFirstMediaFromMessages(items)?.url
 }
 
 /**
@@ -81,7 +90,7 @@ export function createSessionThumbnailStore(input: {
     })
   }
 
-  function setThumbnail(sessionID: string, value?: string) {
+  function setThumbnail(sessionID: string, value?: string, kind: "image" | "video" = "image") {
     const fallback = Boolean(value && !isStudioThumbnailUrl(value))
     const url = normalizeThumbnail(value, fallback)
     if (!url) return
@@ -89,7 +98,12 @@ export function createSessionThumbnailStore(input: {
     // Auto-clear after 30s so future genuine updates aren't blocked
     setTimeout(() => recentlySet.delete(sessionID), 30_000)
     const commit = () => {
-      setPersistedThumbnails(sessionID, { url, updatedAt: Date.now(), ...(fallback ? { fallback: true } : {}) })
+      setPersistedThumbnails(sessionID, {
+        url,
+        updatedAt: Date.now(),
+        kind,
+        ...(fallback ? { fallback: true } : {}),
+      })
       setVersion((v) => v + 1)
     }
     const current = persistedThumbnails[sessionID]
@@ -148,14 +162,15 @@ export function createSessionThumbnailStore(input: {
             })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
             console.log(`[Thumbnail] Session ${session.id} has ${items.length} messages`)
-            const source = extractFirstImageFromMessages(items)
-            const fallback = Boolean(source && !isStudioThumbnailUrl(source))
-            const url = normalizeThumbnail(source, fallback)
+            const media = extractFirstMediaFromMessages(items)
+            const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
+            const url = normalizeThumbnail(media?.url, fallback)
             if (url) {
               console.log(`[Thumbnail] Found thumbnail for session ${session.id}: ${url.substring(0, 80)}...`)
               setPersistedThumbnails(session.id, {
                 url,
                 updatedAt: session.time.updated ?? Date.now(),
+                kind: media?.kind,
                 ...(fallback ? { fallback: true } : {}),
               })
               setVersion((v) => v + 1)
@@ -180,12 +195,17 @@ export function createSessionThumbnailStore(input: {
           try {
             const result = await client.session.messages({ sessionID })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-            const source = extractFirstImageFromMessages(items)
-            const fallback = Boolean(source && !isStudioThumbnailUrl(source))
-            const url = normalizeThumbnail(source, fallback)
+            const media = extractFirstMediaFromMessages(items)
+            const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
+            const url = normalizeThumbnail(media?.url, fallback)
             if (url) {
               console.log(`[Thumbnail] Retry found thumbnail for session ${sessionID}`)
-              setPersistedThumbnails(sessionID, { url, updatedAt: Date.now(), ...(fallback ? { fallback: true } : {}) })
+              setPersistedThumbnails(sessionID, {
+                url,
+                updatedAt: Date.now(),
+                kind: media?.kind,
+                ...(fallback ? { fallback: true } : {}),
+              })
               setVersion((v) => v + 1)
             }
           } catch (err) {

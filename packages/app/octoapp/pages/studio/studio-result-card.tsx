@@ -170,13 +170,19 @@ export function StudioResultCard(props: StudioResultCardProps) {
         <Show when={status() === "succeeded" && props.turn.result?.images.length}>
           <div class="studio-result-grid" classList={{ "single-portrait": isSinglePortrait(), "single-landscape": isSingleLandscape(), "multi-portrait": isMultiPortrait(), "multi-landscape": isMultiLandscape(), "single-1x1": isSingle1x1(), "multi-1x1": isMulti1x1() }}>
             <For each={props.turn.result?.images ?? []}>
-              {(image) => (
+              {(image, mediaIndex) => (
                 <button
                   type="button"
                   onClick={() => props.turn.result && props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })}
                   class="studio-result-thumb"
                 >
-                  <StudioMediaThumbnail image={image} duration={props.turn.result?.duration} class="studio-result-thumb-media" />
+                  <StudioMediaThumbnail
+                    image={image}
+                    duration={props.turn.result?.duration}
+                    generationID={props.turn.result?.id}
+                    mediaIndex={mediaIndex()}
+                    class="studio-result-thumb-media"
+                  />
                 </button>
               )}
             </For>

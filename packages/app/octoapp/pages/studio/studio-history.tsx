@@ -311,17 +311,30 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                         </Show>
                                       }
                                     >
-                                      <img
-                                        src={thumbnailUrl()!}
-                                        alt=""
-                                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                        loading="lazy"
-                                        decoding="async"
-                                        onError={(e) => {
-                                          const el = e.currentTarget as HTMLImageElement
-                                          el.style.display = "none"
-                                        }}
-                                      />
+                                      <Show
+                                        when={props.thumbnails?.[session.id]?.kind === "video" && props.thumbnails?.[session.id]?.fallback}
+                                        fallback={
+                                          <img
+                                            src={thumbnailUrl()!}
+                                            alt=""
+                                            style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                            loading="lazy"
+                                            decoding="async"
+                                            onError={(e) => {
+                                              const el = e.currentTarget as HTMLImageElement
+                                              el.style.display = "none"
+                                            }}
+                                          />
+                                        }
+                                      >
+                                        <video
+                                          src={thumbnailUrl()!}
+                                          muted
+                                          playsinline
+                                          preload="metadata"
+                                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                        />
+                                      </Show>
                                     </Show>
                                   </div>
                                   <span ref={(el) => { titleSpanRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate">

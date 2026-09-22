@@ -161,7 +161,7 @@ export function parseToolImages(output: string) {
   }
 }
 
-function parseToolVideos(output: string) {
+export function parseToolVideos(output: string) {
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>
     const direct = [

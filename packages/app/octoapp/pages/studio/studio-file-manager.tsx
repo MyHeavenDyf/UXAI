@@ -119,6 +119,8 @@ function estimateLongSideFromRatio(aspectRatio: string): number | null {
 type FileManagerMedia = {
   id: string
   turnID: string
+  generationID: string
+  mediaIndex: number
   url: string
   thumbnailUrl?: string
   thumbnailStatus?: StudioImage["thumbnailStatus"]
@@ -164,7 +166,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
     const images = turn.result?.images
     if (!images || images.length === 0) continue
 
-    for (const image of images) {
+    for (const [mediaIndex, image] of images.entries()) {
       const url = image.remoteUrl ?? image.url
       if (!url) continue
 
@@ -181,6 +183,8 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
       media.push({
         id: image.id,
         turnID: turn.id,
+        generationID: turn.result!.id,
+        mediaIndex,
         url,
         thumbnailUrl: image.thumbnailUrl,
         thumbnailStatus: image.thumbnailStatus,
@@ -667,6 +671,8 @@ export function StudioFileManager(props: {
                               thumbnailStatus: item.thumbnailStatus,
                             }}
                             duration={item.duration}
+                            generationID={item.generationID}
+                            mediaIndex={item.mediaIndex}
                             class="studio-file-manager-media-image"
                           />
                         </div>

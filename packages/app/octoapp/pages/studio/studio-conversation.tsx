@@ -865,14 +865,20 @@ export function StudioDetails(props: {
     <ScrollView class="studio-detail-panel">
       <div class="studio-detail-cover">
         <For each={props.result.images}>
-          {(image) => (
+          {(image, mediaIndex) => (
             <button
               type="button"
               onClick={() => props.onSelectImage(image.id)}
               class="studio-detail-preview-button"
               classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
             >
-              <StudioMediaThumbnail image={image} class="studio-detail-preview-image" duration={props.result.duration} />
+              <StudioMediaThumbnail
+                image={image}
+                class="studio-detail-preview-image"
+                duration={props.result.duration}
+                generationID={props.result.id}
+                mediaIndex={mediaIndex()}
+              />
             </button>
           )}
         </For>

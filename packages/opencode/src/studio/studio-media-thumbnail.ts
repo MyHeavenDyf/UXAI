@@ -20,6 +20,7 @@ const MAX_CSS_HEIGHT = 210
 export const STUDIO_THUMBNAIL_TARGET_DPR = 1.5
 const ABSOLUTE_MAX_EDGE = 768
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024
+const MAX_VIDEO_POSTER_BYTES = 10 * 1024 * 1024
 const MAX_INPUT_PIXELS = 100_000_000
 const DOWNLOAD_TIMEOUT_MS = 30_000
 const MAX_REDIRECTS = 5
@@ -82,7 +83,7 @@ export function prepareStudioThumbnailMedia(media: StudioThumbnailMedia[]) {
     ...(usableLocalThumbnail(item)
       ? { thumbnailStatus: "ready" as const }
       : isVideo(item)
-        ? { thumbnailUrl: undefined, thumbnailStatus: "failed" as const }
+        ? { thumbnailUrl: undefined, thumbnailStatus: "pending" as const }
         : item.thumbnailStatus === "failed"
           ? { thumbnailUrl: undefined, thumbnailStatus: "failed" as const }
           : { thumbnailUrl: undefined, thumbnailStatus: "pending" as const }),
@@ -220,8 +221,22 @@ export function enqueueStudioMediaThumbnails(generationID: string) {
     db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
   )
   const result = mediaResult(record?.result)
-  if (!record || !result) return 0
+  if (!record || !result) {
+    console.warn("[studio.thumbnail] image enqueue skipped", {
+      generationID,
+      directory: Instance.directory,
+      reason: !record ? "generation_not_found" : "generation_has_no_media",
+    })
+    return 0
+  }
   const queued = enqueueResult(record, result)
+  console.info("[studio.thumbnail] image enqueue checked", {
+    generationID,
+    sessionID: record.session_id,
+    mediaCount: result.images.filter((item) => !isVideo(item)).length,
+    queued,
+    directory: record.directory,
+  })
   startStudioMediaThumbnailWorker()
   return queued
 }
@@ -279,6 +294,12 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
     }
     return total + enqueueResult(record, normalized)
   }, 0)
+  console.info("[studio.thumbnail] session backfill checked", {
+    sessionID: parsed,
+    generationCount: records.length,
+    queued,
+    directory: session.directory,
+  })
   startStudioMediaThumbnailWorker()
   return { queued }
 }
@@ -390,6 +411,112 @@ async function validThumbnail(file: string) {
     .then((module) => module.default(file).metadata())
     .then((metadata) => metadata.format === "webp" && Boolean(metadata.width && metadata.height))
     .catch(() => false)
+}
+
+const videoPosterWrites = new Map<string, Promise<{ thumbnailUrl: string }>>()
+
+export function saveStudioVideoPoster(input: { generationID: string; mediaIndex: number; content: string }) {
+  const directory = Instance.directory
+  const key = `${directory}:${input.generationID}:${input.mediaIndex}`
+  const active = videoPosterWrites.get(key)
+  if (active) {
+    console.info("[studio.thumbnail] video poster reused active write", {
+      generationID: input.generationID,
+      mediaIndex: input.mediaIndex,
+      directory,
+    })
+    return active
+  }
+  console.info("[studio.thumbnail] video poster write started", {
+    generationID: input.generationID,
+    mediaIndex: input.mediaIndex,
+    directory,
+  })
+  const task = materializeStudioVideoPoster(input)
+    .then((result) => {
+      console.info("[studio.thumbnail] video poster write succeeded", {
+        generationID: input.generationID,
+        mediaIndex: input.mediaIndex,
+        thumbnailPath: path.join(directory, result.thumbnailUrl),
+      })
+      return result
+    })
+    .catch((error) => {
+      console.error("[studio.thumbnail] video poster write failed", {
+        generationID: input.generationID,
+        mediaIndex: input.mediaIndex,
+        directory,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    })
+    .finally(() => videoPosterWrites.delete(key))
+  videoPosterWrites.set(key, task)
+  return task
+}
+
+async function materializeStudioVideoPoster(input: { generationID: string; mediaIndex: number; content: string }) {
+  if (!Number.isInteger(input.mediaIndex) || input.mediaIndex < 0) throw new Error("Studio video poster media index is invalid.")
+  const generation = Database.use((db) =>
+    db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, input.generationID)).get(),
+  )
+  const result = mediaResult(generation?.result)
+  const media = result?.images[input.mediaIndex]
+  if (!generation || generation.directory !== Instance.directory || generation.status !== "succeeded" || !result || !media) {
+    throw new Error(`Studio generation media not found: ${input.generationID}/${input.mediaIndex}`)
+  }
+  if (!isVideo(media)) throw new Error("Studio video poster target is not a video.")
+  const record: StudioMediaThumbnailRecord = {
+    id: "",
+    generation_id: generation.id,
+    session_id: generation.session_id,
+    directory: generation.directory,
+    media_index: input.mediaIndex,
+    kind: "video",
+    source_url: media.remoteUrl ?? media.url,
+    status: "running",
+    attempts: 0,
+    next_retry_at: 0,
+    lease_owner: null,
+    lease_expires_at: null,
+    thumbnail_path: null,
+    error: null,
+    time_created: 0,
+    time_updated: 0,
+  }
+  const target = absoluteThumbnailPath(record)
+  const relativePath = thumbnailPath(record)
+  if (await validThumbnail(target)) {
+    updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })
+    return { thumbnailUrl: relativePath }
+  }
+  const bytes = Buffer.from(input.content, "base64")
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_VIDEO_POSTER_BYTES) {
+    throw new Error("Studio video poster exceeds the maximum size.")
+  }
+  const sharp = (await import("sharp")).default
+  const source = sharp(bytes, { animated: false, page: 0, limitInputPixels: MAX_INPUT_PIXELS })
+  const metadata = await source.metadata()
+  if (!metadata.width || !metadata.height) throw new Error("Studio video poster dimensions could not be read.")
+  const size = studioThumbnailDimensions(metadata.width, metadata.height)
+  const output = await source
+    .resize(size.width, size.height, { fit: "fill", withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toBuffer()
+  const temporary = `${target}.${randomUUID()}.tmp`
+  await mkdir(path.dirname(target), { recursive: true })
+  await writeFile(temporary, output)
+  if (!(await validThumbnail(temporary))) {
+    await unlink(temporary).catch(() => undefined)
+    throw new Error("Generated Studio video poster failed validation.")
+  }
+  await unlink(target).catch(() => undefined)
+  await rename(temporary, target)
+  if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
+    await unlink(target).catch(() => undefined)
+    throw new Error("Studio generation was removed before its video poster completed.")
+  }
+  return { thumbnailUrl: relativePath }
 }
 
 async function materializeThumbnail(record: StudioMediaThumbnailRecord, signal: AbortSignal) {
@@ -509,12 +636,26 @@ function renewJobLease(record: StudioMediaThumbnailRecord) {
 }
 
 async function completeJob(record: StudioMediaThumbnailRecord, relativePath: string) {
-  if (!renewJobLease(record)) return
-  if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
-    await unlink(absoluteThumbnailPath(record)).catch(() => undefined)
+  if (!renewJobLease(record)) {
+    console.warn("[studio.thumbnail] image write discarded after lease loss", {
+      generationID: record.generation_id,
+      sessionID: record.session_id,
+      mediaIndex: record.media_index,
+      thumbnailPath: absoluteThumbnailPath(record),
+    })
     return
   }
-  Database.use((db) =>
+  if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
+    await unlink(absoluteThumbnailPath(record)).catch(() => undefined)
+    console.warn("[studio.thumbnail] image write discarded because media disappeared", {
+      generationID: record.generation_id,
+      sessionID: record.session_id,
+      mediaIndex: record.media_index,
+      thumbnailPath: absoluteThumbnailPath(record),
+    })
+    return
+  }
+  const completed = Database.use((db) =>
     db
       .update(StudioMediaThumbnailTable)
       .set({
@@ -531,8 +672,17 @@ async function completeJob(record: StudioMediaThumbnailRecord, relativePath: str
           eq(StudioMediaThumbnailTable.lease_owner, record.lease_owner!),
         ),
       )
-      .run(),
+      .returning({ id: StudioMediaThumbnailTable.id })
+      .get(),
   )
+  if (!completed) return
+  console.info("[studio.thumbnail] image write succeeded", {
+    generationID: record.generation_id,
+    sessionID: record.session_id,
+    mediaIndex: record.media_index,
+    attempts: record.attempts + 1,
+    thumbnailPath: absoluteThumbnailPath(record),
+  })
 }
 
 function failJob(record: StudioMediaThumbnailRecord, error: unknown, aborted: boolean) {
@@ -560,7 +710,21 @@ function failJob(record: StudioMediaThumbnailRecord, error: unknown, aborted: bo
       .returning({ id: StudioMediaThumbnailTable.id })
       .get(),
   )
-  if (updated && terminal) updateMedia(record, { thumbnailUrl: undefined, thumbnailStatus: "failed" })
+  if (!updated) return
+  const details = {
+    generationID: record.generation_id,
+    sessionID: record.session_id,
+    mediaIndex: record.media_index,
+    attempts,
+    status: terminal ? "failed" : "queued",
+    error: message,
+  }
+  if (terminal) {
+    updateMedia(record, { thumbnailUrl: undefined, thumbnailStatus: "failed" })
+    console.error("[studio.thumbnail] image write failed permanently", details)
+    return
+  }
+  console.warn("[studio.thumbnail] image write will retry", details)
 }
 
 const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -571,6 +735,13 @@ async function tick(directory: string) {
   if (activeDirectories.has(directory)) return
   const record = claimJob(directory)
   if (!record) return
+  console.info("[studio.thumbnail] image write started", {
+    generationID: record.generation_id,
+    sessionID: record.session_id,
+    mediaIndex: record.media_index,
+    attempt: record.attempts + 1,
+    thumbnailPath: absoluteThumbnailPath(record),
+  })
   activeDirectories.add(directory)
   const controller = new AbortController()
   activeControllers.set(directory, controller)

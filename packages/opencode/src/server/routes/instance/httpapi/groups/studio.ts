@@ -22,6 +22,7 @@ export const StudioPaths = {
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
   generationReboot: `${root}/generations/:generationID/reboot`,
+  generationVideoPoster: `${root}/generations/:generationID/video-poster`,
   sessionThumbnailsEnsure: `${root}/sessions/:sessionID/thumbnails/ensure`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
@@ -421,6 +422,18 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.get",
             summary: "Get Studio generation",
             description: "Get the current status and result of an asynchronous Studio generation.",
+          }),
+        ),
+        HttpApiEndpoint.post("saveGenerationVideoPoster", StudioPaths.generationVideoPoster, {
+          params: { generationID: Schema.String },
+          payload: Schema.Struct({ mediaIndex: Schema.Number, content: Schema.String }),
+          success: described(Schema.Struct({ thumbnailUrl: Schema.String }), "Saved Studio video poster"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.video-poster.save",
+            summary: "Save Studio video poster",
+            description: "Persists a browser-captured video frame without changing generation status.",
           }),
         ),
         HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {

@@ -55,4 +55,13 @@ describe("Studio session thumbnail extraction", () => {
       message({ media: [{ kind: "image", url: "http://localhost:3000/image.png", thumbnailStatus: "failed" }] }),
     ])).toBe("http://localhost:3000/image.png")
   })
+
+  test("uses the original video until a local poster is ready", () => {
+    expect(extractFirstImageFromMessages([
+      message({ media: [{ kind: "video", url: "https://example.com/video.mp4", thumbnailStatus: "failed" }] }),
+    ])).toBe("https://example.com/video.mp4")
+    expect(extractFirstImageFromMessages([
+      message({ media: [{ kind: "video", url: "https://example.com/video.mp4", thumbnailStatus: "ready", thumbnailUrl: ".octo/ses_1/thumbnails/video.webp" }] }),
+    ])).toBe(".octo/ses_1/thumbnails/video.webp")
+  })
 })

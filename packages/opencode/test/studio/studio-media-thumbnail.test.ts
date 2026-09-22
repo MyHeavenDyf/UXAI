@@ -11,6 +11,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
   runStudioMediaThumbnailWorkerOnce,
+  saveStudioVideoPoster,
   STUDIO_THUMBNAIL_TARGET_DPR,
   studioThumbnailAddressAllowed,
   studioThumbnailContentTypeAllowed,
@@ -34,6 +35,7 @@ async function waitFor<T>(read: () => T, accept: (value: T) => boolean) {
 async function withGeneration(
   source: string,
   run: (input: { generationID: string; sessionID: SessionID }) => Promise<void> | void,
+  kind: "image" | "video" = "image",
 ) {
   await using directory = await tmpdir()
   await provideTestInstance({
@@ -70,7 +72,13 @@ async function withGeneration(
             request: {},
             result: {
               images: [
-                { id: `${generationID}-0`, kind: "image", url: source, remoteUrl: source, thumbnailStatus: "pending" },
+                {
+                  id: `${generationID}-0`,
+                  kind,
+                  url: source,
+                  remoteUrl: source,
+                  thumbnailStatus: "pending",
+                },
               ],
             },
             next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -101,7 +109,7 @@ describe("Studio media thumbnails", () => {
     expect(studioThumbnailDimensions(4000, 500)).toEqual({ width: 630, height: 79 })
   })
 
-  test("queues images and gives videos a static-placeholder status", () => {
+  test("queues images and leaves videos pending for browser poster capture", () => {
     expect(
       prepareStudioThumbnailMedia([
         { id: "image", kind: "image", url: "https://example.com/image.png" },
@@ -120,7 +128,7 @@ describe("Studio media thumbnails", () => {
         kind: "video",
         url: "https://example.com/video.mp4",
         thumbnailUrl: undefined,
-        thumbnailStatus: "failed",
+        thumbnailStatus: "pending",
       },
     ])
   })
@@ -256,5 +264,33 @@ describe("Studio media thumbnails", () => {
         ),
       ).toBe("succeeded")
     })
+  })
+
+  test("persists a video poster idempotently without creating an image thumbnail task", async () => {
+    await withGeneration("https://example.com/video.mp4", async ({ generationID }) => {
+      const content = image.split(",")[1]!
+      const first = await saveStudioVideoPoster({ generationID, mediaIndex: 0, content })
+      const second = await saveStudioVideoPoster({ generationID, mediaIndex: 0, content })
+      expect(second.thumbnailUrl).toBe(first.thumbnailUrl)
+      const generation = Database.use((db) =>
+        db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
+      )
+      const media = generation?.result?.images
+      expect(Array.isArray(media) ? media[0] : undefined).toMatchObject({
+        thumbnailStatus: "ready",
+        thumbnailUrl: first.thumbnailUrl,
+      })
+      expect(
+        Database.use(
+          (db) =>
+            db
+              .select()
+              .from(StudioMediaThumbnailTable)
+              .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+              .all().length,
+        ),
+      ).toBe(0)
+      expect(generation?.status).toBe("succeeded")
+    }, "video")
   })
 })

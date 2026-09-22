@@ -10,31 +10,31 @@ Studio 当前把供应商返回的原始图片、视频 URL 同时用于右侧�
 
 1. 供应商生成成功后，立即保留原始资源信息。
 2. 本地服务异步生成并持久化轻量缩略图，不阻塞“生成成功”状态。
-3. 对话、文件管理、详情缩略图区和侧边栏只展示本地静态缩略图。
+3. 对话、文件管理、详情缩略图区和侧边栏在本地缩略图 ready 后只展示静态缩略图。
 4. 只有用户选中某个结果进入右侧画布、全屏、下载或编辑时才加载原始资源。
-5. 缩略图生成对用户无感：图片在任务排队和失败时继续显示原图，缩略图加载完成后原位平滑替换。
+5. 缩略图生成对用户无感：图片和视频在任务排队、抽帧或失败时继续显示原资源，缩略图加载完成后原位平滑替换。
 
 ## 2. 结论与技术选择
 
 采用“本地服务异步物化缩略图 + 前端按用途选择资源”的方案。
 
-不把渲染进程 Canvas 作为主链路，原因如下：
+图片不把渲染进程 Canvas 作为主链路，原因如下：
 
 - 跨域图片可以显示，但没有正确 CORS 响应头时无法从 Canvas 导出。
 - 浏览器仍需完整下载和解码 2K/4K 原图。
 - Canvas 编码若未放入 Worker，可能阻塞 UI 主线程。
-- 视频需要 metadata、seek、解码、抽帧，浏览器端可靠性较差。
+- 图片缩略图已经可以由本地服务通过 `sharp` 稳定处理，没有必要让 UI 主线程重复承担完整解码和编码。
 
-前端 `OffscreenCanvas` 可以保留为图片缩略图的可选兜底，但不作为数据完整性的依赖。
+视频采用一条独立的无感补全链路：列表先渲染原始 `<video>`；同时创建不插入 DOM 的 CORS 视频元素完成 metadata、seek 和帧解码，再用小 Canvas 捕获一帧，交给本地服务校验、转码和持久化为 WebP poster。可见视频不设置 `crossOrigin`，避免供应商不支持 CORS 时连原视频也无法展示；离屏抽帧或保存失败时继续显示原视频，不改变 generation 成功状态，也不显示占位图。
 
 ## 3. 资源使用规则
 
 | 使用位置 | 图片 | 视频 |
 | --- | --- | --- |
-| 对话结果卡片 | 缩略图 ready 前显示原图，ready 后平滑替换 | 本地 poster；没有 poster 时使用静态视频占位图 |
-| 文件管理网格 | 缩略图 ready 前显示原图，ready 后平滑替换 | 本地 poster；没有 poster 时使用静态视频占位图 |
-| 右侧详情缩略图区 | 缩略图 ready 前显示原图，ready 后平滑替换 | 本地 poster |
-| 左侧会话缩略图 | 缩略图 ready 前显示原图，ready 后平滑替换 | 本地 poster 或静态视频占位图 |
+| 对话结果卡片 | 缩略图 ready 前显示原图，ready 后平滑替换 | poster ready 前显示原视频并异步抽帧，ready 后平滑替换 |
+| 文件管理网格 | 缩略图 ready 前显示原图，ready 后平滑替换 | poster ready 前显示原视频并异步抽帧，ready 后平滑替换 |
+| 右侧详情缩略图区 | 缩略图 ready 前显示原图，ready 后平滑替换 | poster ready 前显示原视频并异步抽帧，ready 后平滑替换 |
+| 左侧会话缩略图 | 缩略图 ready 前显示原图，ready 后平滑替换 | poster ready 前显示原视频，ready 后平滑替换 |
 | 右侧主画布 | 原始资源 | 原始视频 |
 | 全屏、下载、编辑 | 原始资源 | 原始视频 |
 
@@ -46,7 +46,7 @@ thumbnailStatus === "ready" && thumbnailUrl
   : originalUrl
 ```
 
-从原图切换到缩略图前应先预加载缩略图，加载完成后再替换当前 `src`，避免闪白或短暂占位。视频仍不得在历史列表中创建真实 `<video>` 节点。
+从原资源切换到缩略图前应先预加载缩略图，加载完成后再替换当前节点，避免闪白或短暂占位。视频在 poster 尚未完成时允许临时创建真实 `<video>` 节点；poster ready 后改为静态 `<img>`，后续打开不再创建对应 `<video>`。
 
 ## 4. 数据结构
 
@@ -270,24 +270,20 @@ const thumbnailHeight = Math.max(1, Math.round(sourceHeight * scale))
 - 记录结构化错误。
 - 将该媒体标记为 `thumbnailStatus = failed`。
 - 生成结果仍保持 succeeded。
-- 图片列表项回退原图，视频仍显示静态占位图；该行为不改变 generation 的 succeeded 状态。
+- 图片列表项回退原图，视频列表项回退原视频；该行为不改变 generation 的 succeeded 状态。
 
 ## 7. 视频缩略图策略
 
-视频不能继续在历史列表中渲染真实 `<video preload="metadata">`。
+视频采用“原视频先展示、浏览器抽帧、服务端持久化、poster 预加载后替换”的无感流程：
 
-按以下优先级选择 poster：
+1. `thumbnailStatus !== "ready"` 时渲染原始 `<video muted playsinline preload="auto">`，不显示占位图；该可见节点不设置 `crossOrigin`。
+2. 并行创建不插入 DOM 的 `video`，在设置 `src` 前指定 `crossOrigin = "anonymous"`；metadata 就绪后 seek 到 `min(1 秒, duration × 10%)`，seek 完成后把当前帧绘制到小 Canvas。
+3. Canvas 尺寸沿用缩略图动态计算和 `TARGET_DPR = 1.5`，不放大源视频，最长边再受 768px 绝对上限约束。
+4. Canvas 编码为 WebP 后通过 `POST /studio/generations/:generationID/video-poster` 提交；本地服务再次用 `sharp` 校验、缩放和标准化编码，然后原子写入 `.octo/<sessionID>/thumbnails/<generationID>-<mediaIndex>.webp`。
+5. 后端更新 generation result 和 completed tool message 中的 `thumbnailUrl/thumbnailStatus`，并发送现有 `PartUpdated` 事件。
+6. 前端先预加载新 poster，成功后才把 `<video>` 原位替换成 `<img>`。
 
-1. 供应商结果中存在静态封面图时直接缩放该封面。
-2. 本地支持视频抽帧时，在 0.5～1 秒或视频时长 10% 附近抽一帧。
-3. 无法抽帧时使用统一静态视频占位图。
-
-视频抽帧需要可靠的 ffmpeg 或等价能力。由于当前项目没有直接的视频处理依赖，建议分两期实施：
-
-- 第一阶段：视频统一使用静态占位图，彻底移除历史列表中的 `<video>`。
-- 第二阶段：确认多平台打包方案后增加本地抽帧。
-
-不要为了首期 poster 引入对系统 ffmpeg 的隐式依赖；用户机器没有安装 ffmpeg 时行为会不一致。
+同一页面内使用 `server + directory + generationID + mediaIndex` 作为 Promise 去重键，同一帧只提交一次；成功结果在当前页面运行期缓存，后端再以确定性文件路径和同一媒体键保证幂等。所有离屏视频任务共用全局单并发串行队列，并通过 `requestIdleCallback`（不支持时退化为下一事件循环）启动，避免旧 session 同时创建大量视频解码器。离屏视频的 CORS 请求、Canvas 编码、视频 codec 或读取失败时，保留原视频继续展示，不创建占位状态，也不影响 generation 的 succeeded 状态。该实现不依赖系统 ffmpeg。
 
 ## 8. 异步任务模型
 
@@ -450,12 +446,13 @@ function originalMediaSrc(image: StudioImage) {
 }
 
 function thumbnailMediaSrc(image: StudioImage) {
-  if (image.thumbnailStatus !== "ready" || !image.thumbnailUrl) return STUDIO_MEDIA_PLACEHOLDER
-  return artifactServeUrl(image.thumbnailUrl)
+  if (image.thumbnailStatus === "ready" && image.thumbnailUrl) return artifactServeUrl(image.thumbnailUrl)
+  if (image.kind !== "video") return originalMediaSrc(image)
+  return undefined
 }
 ```
 
-`artifactServeUrl` 应复用 `getArtifactRelativePath` 和 `getArtifactServeUrl`，同时兼容已经是 HTTP/data/blob URL 的值。
+`artifactServeUrl` 应复用 `getArtifactRelativePath` 和 `getArtifactServeUrl`，同时兼容已经是 HTTP/data/blob URL 的值。视频返回 `undefined` 表示应暂时渲染原始 `<video>`，不是显示占位图。
 
 ### 10.2 拆分原图和缩略图组件
 
@@ -465,9 +462,11 @@ function thumbnailMediaSrc(image: StudioImage) {
 
 ```text
 StudioMediaThumbnail
-  - 永远使用 thumbnailMediaSrc
+  - 图片 pending/failed 时使用 originalMediaSrc，ready 后使用 thumbnailMediaSrc
   - 图片加 loading="lazy"、decoding="async"
-  - 视频也渲染成 <img poster> 或静态占位图
+  - 视频 pending/failed 时临时渲染原视频并触发抽帧
+  - 视频 poster 预加载成功后渲染成静态 <img>
+  - poster 加载失败时回退原视频，不显示占位图
 
 StudioOriginalMedia
   - 图片使用 originalMediaSrc
@@ -502,8 +501,8 @@ StudioOriginalMedia
 旧消息没有 `media` 和真实缩略图：
 
 - 仍能通过旧 `images/videos/attachments` 恢复原资源。
-- 列表先显示原图。
-- 缩略图 ready 后预加载本地资源，再原位替换原图。
+- 列表先显示原图片或原视频。
+- 缩略图/poster ready 后预加载本地资源，再原位替换原资源。
 
 ### 11.2 懒回填
 
@@ -527,7 +526,7 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 旧 session 图片很多时允许产生大量 queued 记录，但实际下载、解码并发仍限制为1，验证稳定后最多调整为2。切换模块不会清空队列；关闭软件会暂停队列；重新启动应用并初始化 Studio 全局会话 Instance 后继续执行。重复进入同一 session 会再次调用 ensure，但由于 `(generation_id, media_index)` 唯一约束，不会重复创建任务。
 
-第一阶段只为图片创建缩略图任务。视频在视频抽帧能力实现前直接使用统一静态占位图，不应创建永远无法完成的视频任务。
+持久化任务表只承载服务端可独立完成的图片任务。视频 poster 由页面中的原视频完成解码和抽帧，因此它不是持久化 Worker 任务：切换模块后已经提交到后端的保存请求可以继续完成；若在抽帧或提交前关闭软件，该次浏览器任务会消失，下次进入包含该视频的 session 时重新尝试。前端只对正在执行的同一媒体 Promise 去重，单个组件生命周期内也只尝试一次；后端使用确定性文件路径和媒体键幂等保存，不会产生重复 poster 文件。
 
 不要在应用启动时一次性扫描并处理全部历史 session，避免冷启动时大量下载和 CPU 占用。
 
@@ -566,6 +565,7 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 - 在临时文件、rename、generation result 和 message 更新等不同阶段中断后的幂等恢复测试。
 - 私网 URL、超大文件、错误 MIME 拒绝测试。
 - completed message media 更新测试。
+- 浏览器提交的视频帧被规范化为 WebP poster、幂等复用且不创建图片 Worker 任务的测试。
 
 #### `packages/app/octoapp/pages/studio/studio-media.ts`
 
@@ -573,13 +573,14 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 - `thumbnailMediaSrc`。
 - 本地 artifact path 转 serve URL。
 - 构造 serve URL 和 directory header 时使用 Studio 的 config-mode 全局会话根。
-- placeholder 选择逻辑。
+- 原资源和 ready 本地缩略图选择逻辑。
 
 #### `packages/app/octoapp/pages/studio/studio-media-thumbnail.tsx`
 
-- 统一静态缩略图组件。
+- 统一媒体缩略图组件。
 - lazy loading、async decoding。
-- 图片、视频 badge、原图到缩略图的平滑替换和真实加载失败占位状态。
+- 视频原资源展示、seek 抽帧、poster 提交与前端任务去重。
+- 图片、视频 badge、原资源到缩略图的平滑替换；poster 失败时回退原视频。
 
 #### `packages/app/octoapp/pages/studio/studio-media.test.ts`
 
@@ -606,10 +607,12 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 - API schema 增加 `thumbnailStatus`。
 - 增加 session thumbnails ensure endpoint schema。
+- 增加 `POST /studio/generations/:generationID/video-poster` schema，只接受媒体索引和浏览器捕获的帧数据。
 
 #### `packages/opencode/src/server/routes/instance/httpapi/handlers/studio.ts`
 
 - 实现 ensure endpoint，调用幂等入队函数后立即返回。
+- 实现 video poster 保存 endpoint，不等待或改变 generation 的成功状态。
 
 #### `packages/opencode/package.json`
 
@@ -640,9 +643,9 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 #### `packages/app/octoapp/pages/studio/studio-result-card.tsx`
 
-- 删除结果卡片内部的真实 `<video>`。
 - 图片和视频统一使用 `StudioMediaThumbnail`。
-- 缩略图 pending/failed 时展示原图，ready 后预加载并平滑替换。
+- 缩略图 pending/failed 时展示原图片或原视频，ready 后预加载并平滑替换。
+- 向缩略图组件传递 `generationID/mediaIndex`，用于视频 poster 的唯一身份和保存。
 
 #### `packages/app/octoapp/pages/studio/studio-conversation.tsx`
 
@@ -653,20 +656,20 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 #### `packages/app/octoapp/pages/studio/studio-file-manager.tsx`
 
-- 图片网格在缩略图 ready 前使用原图，ready 后切换缩略图；视频使用静态 poster 或占位图。
-- 视频只使用静态 poster，不创建 `<video>`。
+- 图片网格在缩略图 ready 前使用原图，ready 后切换缩略图。
+- 视频 poster ready 前使用原视频并抽帧，ready 后只创建静态 `<img>`。
 - 保留 `loading="lazy"`，增加 `decoding="async"`。
 
 #### `packages/app/octoapp/pages/studio/session-thumbnail.ts`
 
 - 优先从 `media` 中提取 ready thumbnail。
-- 不再从 attachments 中选择原视频 URL 并创建侧边栏 `<video>`。
-- localStorage 只持久化缩略图路径/URL。
+- 没有 poster 时仍可从结构化 `media` 或旧 `videos` 中恢复原视频 URL。
+- localStorage 同时持久化 URL、媒体 kind 和是否为原资源 fallback。
 
 #### `packages/app/octoapp/pages/studio/studio-history.tsx`
 
-- 侧边栏只渲染静态 `<img>`。
-- 视频 session 使用 poster 或统一占位图。
+- 视频 session 在 poster ready 前渲染原视频，ready 后渲染静态 `<img>`。
+- 不因 poster pending/failed 显示占位图。
 
 #### `packages/app/octoapp/pages/studio/studio-02.css`
 
@@ -689,18 +692,18 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 
 - 侧边栏优先真实 thumbnail。
 - 没有 thumbnail 时返回原图片，ready 后切换本地缩略图。
-- 视频不会返回原 mp4 作为缩略图。
+- 视频 poster 未 ready 时返回原 mp4，ready 后返回本地 poster。
 
 ## 13. 分阶段实施顺序
 
-### 第一阶段：图片缩略图和静态视频占位
+### 第一阶段：图片缩略图和视频无感 poster
 
 1. 增加结构化 `media` 持久化和兼容解析。
 2. 增加图片缩略图任务表及 Worker。
 3. 按 `420 × 210 CSS px`、`TARGET_DPR = 1.5` 和768px绝对上限动态生成 WebP。
 4. 拆分缩略图/原图组件。
 5. 对话、文件管理、详情小图和侧边栏先显示原图，再无感替换成本地缩略图。
-6. 历史视频先使用统一静态占位图。
+6. 历史视频先展示原视频，通过浏览器 Canvas 抽帧并由后端持久化 poster，完成后无感替换。
 7. 增加 lazy、async decoding 和 `content-visibility`。
 
 该阶段已经能解决大部分滚动卡顿。
@@ -712,12 +715,12 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 3. 限流处理旧媒体。
 4. 增加失败重试和可观测日志。
 
-### 第三阶段：视频 poster
+### 第三阶段：视频 poster 稳定性验证
 
-1. 确认多平台视频处理依赖和打包方式。
-2. 视频抽帧并输出 WebP poster。
-3. 替换统一静态占位图。
-4. 覆盖损坏视频、无法 seek、超时和 codec 不支持测试。
+1. 覆盖损坏视频、无法 seek、跨域 Canvas、超时和 codec 不支持测试。
+2. 验证切换模块、关闭重启后重新进入 session 能安全补做尚未持久化的 poster。
+3. 验证同一视频在结果卡片、文件管理和详情区同时挂载时只提交一次。
+4. 根据真实数据评估是否需要把浏览器抽帧升级成独立的跨平台本地媒体处理能力。
 
 ### 第四阶段：超长对话上限治理
 
@@ -730,13 +733,14 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 ### 功能
 
 - 新生成图片成功后，右侧可以立即查看原图。
-- 缩略图稍后生成，预加载完成后自动替换原图，过程中不出现占位图或闪白。
+- 新生成或旧 session 中的视频 poster 未 ready 时立即显示原视频，不出现视频图标占位。
+- 缩略图/poster 稍后生成，预加载完成后自动替换原资源，过程中不出现占位图或闪白。
 - 重启应用、重新进入 session 后仍使用本地缩略图。
 - 下载、全屏和编辑得到的是原资源，不是动态缩略图。
 - 缩略图生成失败不改变 generation succeeded 状态。
 - 旧 session 可以正常显示，并能按需回填。
-- 进入旧 session 后立即切换到其他模块，缩略图任务仍继续执行。
-- 缩略图排队或执行期间关闭软件，重新启动应用并初始化 Studio 全局会话 Instance 后任务继续且不产生重复文件。
+- 进入旧 session 后立即切换到其他模块，图片 Worker 任务以及已经进入前端队列的视频 poster 任务仍继续执行。
+- 图片缩略图排队或执行期间关闭软件，重新启动应用并初始化 Studio 全局会话 Instance 后任务继续；尚未落盘的视频 poster 在下次进入 session 时补做，且两类任务都不产生重复文件。
 - 切换用户项目目录不会改变 Studio 缩略图的物理根目录，也不会导致同一 session 生成多套缩略图。
 - 强制退出留下的 running 任务在租约过期后可以自动恢复。
 - session 删除后对应 thumbnail 文件和任务记录被清理。
@@ -744,7 +748,7 @@ POST /studio/sessions/:sessionID/thumbnails/ensure
 ### 性能
 
 - 已完成缩略图回填的长对话再次打开时，Network 中不批量请求全部原图和原视频；首次回填旧会话时允许先加载原图以保证内容连续可见。
-- 对话列表中不存在历史 `<video>` 节点。
+- poster 已 ready 的视频在对话列表中只创建静态 `<img>`；首次抽帧期间允许临时存在 `<video>`。
 - 滚动历史时只解码按显示包围盒动态生成的缩略图。
 - 50 个 turn、每个 4 张图片且缩略图已 ready 的测试数据下，原图请求数应接近 0；旧会话首次回填期间不适用该指标。
 - 缩略图 Worker 并发受控，不造成明显 UI 卡顿或 CPU 峰值。

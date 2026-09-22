@@ -701,7 +701,7 @@ export default function StudioPage() {
     const images = result.images
     if (sid && images && images.length > 0) {
       console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
-      studioThumbnails.setThumbnail(sid, pickThumbnail(images))
+      setSessionThumbnail(sid, images)
     }
   })
   // Global listener: update thumbnails when any session's generation completes,
@@ -716,10 +716,10 @@ export default function StudioPage() {
     if (state.status !== "completed") return
     const sessionID = part.sessionID
     if (!sessionID) return
-    const url = pickThumbnail(parseToolMedia(state.output))
-    if (url) {
+    const media = parseToolMedia(state.output)
+    if (media.length > 0) {
       console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
-      studioThumbnails.setThumbnail(sessionID, url)
+      setSessionThumbnail(sessionID, media)
     }
   })
   onCleanup(thumbnailUnsub)
@@ -790,12 +790,18 @@ export default function StudioPage() {
   }
 
   /** Show the original image until a generated thumbnail is ready to replace it. */
-  function pickThumbnail(images: StudioImage[]): string | undefined {
+  function pickThumbnailMedia(images: StudioImage[]) {
     const ready = images.filter((image) => image.thumbnailStatus === "ready" && image.thumbnailUrl)
-    const thumbnail = (ready.find((image) => !isVideoMedia(image)) ?? ready[0])?.thumbnailUrl
-    if (thumbnail) return thumbnail
-    const original = images.find((image) => !isVideoMedia(image))
-    return original ? originalMediaSrc(original) : undefined
+    return ready.find((image) => !isVideoMedia(image)) ?? ready[0] ?? images.find((image) => !isVideoMedia(image)) ?? images[0]
+  }
+
+  function setSessionThumbnail(sessionID: string, images: StudioImage[]) {
+    const media = pickThumbnailMedia(images)
+    if (!media) return
+    const value = media.thumbnailStatus === "ready" && media.thumbnailUrl
+      ? media.thumbnailUrl
+      : originalMediaSrc(media)
+    studioThumbnails.setThumbnail(sessionID, value, isVideoMedia(media) ? "video" : "image")
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
@@ -1628,7 +1634,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(images))
+        setSessionThumbnail(sid, images)
       }
     }
     setPendingResult(undefined)
@@ -1645,7 +1651,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(turn!.result!.images))
+        setSessionThumbnail(sid, turn!.result!.images)
       }
       setPendingResult(undefined)
       setStatus("succeeded")
@@ -4085,7 +4091,7 @@ export default function StudioPage() {
         const images = generation.images
         if (images && images.length > 0) {
           console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
-          studioThumbnails.setThumbnail(sessionID, pickThumbnail(images))
+          setSessionThumbnail(sessionID, images)
         }
       }
     } catch (error) {
@@ -4268,7 +4274,7 @@ export default function StudioPage() {
                 const images = generation.images
                 if (images && images.length > 0) {
                   console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
-                  studioThumbnails.setThumbnail(sessionID, pickThumbnail(images))
+                  setSessionThumbnail(sessionID, images)
                 } else {
                   console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
                 }
