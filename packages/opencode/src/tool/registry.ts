@@ -15,6 +15,7 @@ import { SkillTool } from "./skill"
 import { JimengImageGenerateTool } from "./jimeng_image_generate"
 import { InternelImageGenerateTool } from "./internel_image_generate"
 import { KnowledgeSearchTool } from "./knowledge_search"
+import { GetSessionIdentityTool } from "./get_session_identity"
 import { ExtractDocumentTool } from "./extract_document"
 import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
 import * as Tool from "./tool"
@@ -122,6 +123,7 @@ export const layer: Layer.Layer<
     const jimengtool = yield* JimengImageGenerateTool
     const interneltool = yield* InternelImageGenerateTool
     const knowledgesearch = yield* KnowledgeSearchTool
+    const sessionidentity = yield* GetSessionIdentityTool
     const extractdocument = yield* ExtractDocumentTool
     const loadComponentsDocs = yield* LoadComponentsDocsTool
     const agent = yield* Agent.Service
@@ -223,6 +225,7 @@ export const layer: Layer.Layer<
           jimeng: Tool.init(jimengtool),
           internel: Tool.init(interneltool),
           knowledge: Tool.init(knowledgesearch),
+          session_identity: Tool.init(sessionidentity),
           extract_document: Tool.init(extractdocument),
           components_docs: Tool.init(loadComponentsDocs),
           patch: Tool.init(patchtool),
@@ -250,6 +253,7 @@ export const layer: Layer.Layer<
             tool.jimeng,
             tool.internel,
             tool.knowledge,
+            tool.session_identity,
             tool.extract_document,
             tool.components_docs,
             tool.patch,
@@ -314,6 +318,12 @@ export const layer: Layer.Layer<
         // 内网知识库工具只给 insight 的 octo_insight(SPEC-INS-030:chat 下线,该能力迁入 insight),
         // 避免泄漏到 make / studio / pattern。
         if (tool.id === KnowledgeSearchTool.id) {
+          return input.agent.name === "octo_insight"
+        }
+
+        // 会话身份工具同样只给 octo_insight(SPEC-INS-033):身份值来自 insight 发送链路的 extra,
+        // 其他 agent 的 extra 里没有 userId,放出去只会得到一次必然的「未获取到身份」。
+        if (tool.id === GetSessionIdentityTool.id) {
           return input.agent.name === "octo_insight"
         }
 
