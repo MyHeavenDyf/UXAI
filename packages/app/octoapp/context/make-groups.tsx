@@ -48,6 +48,19 @@ export function useMakeGroupsContext(): MakeGroupsContextValue | undefined {
   return useContext(MakeGroupsContext)
 }
 
+// Module-level pending-group store per namespace. When a new session is created
+// from a group's context menu ("新建对话"), the session should be auto-assigned
+// to this group. The sidebar sets it; the page's session-creation flow consumes it.
+const pendingGroups = new Map<string, string>()
+export function setPendingGroup(namespace: string, groupId: string) {
+  pendingGroups.set(namespace, groupId)
+}
+export function consumePendingGroup(namespace: string): string | null {
+  const id = pendingGroups.get(namespace) ?? null
+  pendingGroups.delete(namespace)
+  return id
+}
+
 // Module-level singleton expanded-groups signal per namespace. Persists across
 // navigation (provider unmount/remount) and is shared by the sidebar and the
 // header kebab so either can expand a group the other renders.

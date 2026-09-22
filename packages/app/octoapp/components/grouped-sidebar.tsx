@@ -1,12 +1,12 @@
 import { createEffect, createSignal, Show, For, on } from "solid-js"
 import { Portal } from "solid-js/web"
-import { useLocation } from "@solidjs/router"
+import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups } from "@/hooks/use-session-groups"
-import { useMakeGroupsContext } from "@/context/make-groups"
+import { useMakeGroupsContext, setPendingGroup } from "@/context/make-groups"
 import { AgentSidebar, type AgentSidebarProps, type BeforeSectionApi } from "@/components/agent-sidebar"
 import { SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList, ScrollableText } from "@/components/session-list"
@@ -14,6 +14,7 @@ import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogRemoveGroup } from "@/components/dialog-remove-group"
 import { IconTableEllipsis } from "@/pages/make/icons/design-files-icons"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLinePng from "@/pages/_shell/icons/Folder_line.png"
@@ -36,6 +37,7 @@ const expandedGroupsByNamespace = new Map<string, Set<string>>()
 
 export function GroupedSidebar(props: GroupedSidebarProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const globalSync = useGlobalSync()
   const projectDir = useProjectDir()
   const dialog = useDialog()
@@ -94,6 +96,13 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   }
 
   const handleRemoveGroup = (group: MakeGroup) => setRemoveTarget(group)
+
+  const handleNewSessionInGroup = (group: MakeGroup) => {
+    setPendingGroup(props.namespace, group.id)
+    setExpandedGroups(prev => { const next = new Set(prev); next.add(group.id); return next })
+    shared?.expandGroup(group.id)
+    navigate(props.buildNewRoute())
+  }
 
   const getGroupSessions = (groupId: string) => {
     const api = sectionApi
@@ -301,7 +310,11 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                             </DropdownMenu.Trigger>
                           </div>
                           <DropdownMenu.Portal>
-                            <DropdownMenu.Content style={{ width: "175px", "min-height": "84px", padding: "4px", display: "flex", "flex-direction": "column", gap: "4px" }}>
+                            <DropdownMenu.Content style={{ width: "175px", "min-height": "116px", padding: "4px", display: "flex", "flex-direction": "column", gap: "4px" }}>
+                              <DropdownMenu.Item class="flex items-center gap-2" onSelect={() => handleNewSessionInGroup(group)}>
+                                <Icon name="plus" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0", color: "rgba(0,0,0,0.6)" }} />
+                                <DropdownMenu.ItemLabel>新建对话</DropdownMenu.ItemLabel>
+                              </DropdownMenu.Item>
                               <DropdownMenu.Item class="flex items-center gap-2" onSelect={() => handleRenameGroup(group)}>
                                 <img src={squareAndPencilPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
                                 <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>

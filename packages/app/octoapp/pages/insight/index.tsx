@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -47,7 +48,7 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
-import { MakeGroupsProvider } from "@/context/make-groups"
+import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
@@ -257,6 +258,11 @@ function InsightContent() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
+  const groupsCtx = useMakeGroupsContext()
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) consumePendingGroup(groupsCtx?.namespace ?? "insight")
+  }, { defer: true }))
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -1297,6 +1303,17 @@ function InsightContent() {
           }),
         )
         local.session.promote(dir, session.id)
+
+        // Auto-assign to pending group (from "新建对话" in group context menu)
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight")
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "insight"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          void globalSDK.createClient({ directory: dir }).sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
+
         navigate(`/insight/${session.id}`)
         tracker.interaction({ module: "insight", name: "new-session" })
         return session.id

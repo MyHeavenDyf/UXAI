@@ -68,7 +68,8 @@ import { useSessionPin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
-import { useMakeGroupsContext } from "@/context/make-groups"
+import { useMakeGroupsContext, consumePendingGroup } from "@/context/make-groups"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
@@ -659,6 +660,10 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments([])
     setDeltaLog([])
     closePrototypePanels()
+  }, { defer: true }))
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) consumePendingGroup(groupsCtx?.namespace ?? "make")
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -3526,6 +3531,19 @@ const sessionMessagesLoaded = createMemo(() => {
         const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
         const session = result.data as Session | undefined
         if (!session) return
+
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make")
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "make"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          const gDir = sdk.directory
+          if (gDir) {
+            const groupClient = globalSDK.createClient({ directory: gDir })
+            void groupClient.sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          }
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
 
         if (shouldStartInitialPlan) {
           const dir = sdk.directory
