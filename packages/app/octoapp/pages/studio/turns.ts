@@ -520,6 +520,7 @@ function buildResult(input: {
       ? undefined
       : extractUserDemand(input.userText)
   const detailTitle = stringField(inputRecord, "detailTitle")
+  const completedGenerationID = studioProgress(completed).generationID
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
@@ -551,7 +552,7 @@ function buildResult(input: {
     toolRunning: Boolean(running),
     result: media.length
       ? {
-          id: `studio_${completed?.id ?? input.messageID}`,
+          id: completedGenerationID ?? `studio_${completed?.id ?? input.messageID}`,
           status: "succeeded",
           capability,
           prompt,

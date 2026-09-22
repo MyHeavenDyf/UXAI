@@ -5,7 +5,7 @@ import { and, eq, like, or } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import { PartTable, SessionTable } from "@/session/session.sql"
-import { SessionID } from "@/session/schema"
+import { PartID, SessionID } from "@/session/schema"
 import { SyncEvent } from "@/sync"
 import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
@@ -300,11 +300,24 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
   return { queued }
 }
 
-function generationMedia(generationID: string, mediaIndex: number) {
-  if (!Number.isInteger(mediaIndex) || mediaIndex < 0) throw new Error("Studio thumbnail media index is invalid.")
-  const generation = Database.use((db) =>
+function generationRecord(generationID: string) {
+  const direct = Database.use((db) =>
     db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
   )
+  if (direct) return direct
+  if (!generationID.startsWith("studio_prt_")) return
+  return Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(eq(StudioGenerationTable.tool_part_id, PartID.zod.parse(generationID.slice("studio_".length))))
+      .get(),
+  )
+}
+
+function generationMedia(generationID: string, mediaIndex: number) {
+  if (!Number.isInteger(mediaIndex) || mediaIndex < 0) throw new Error("Studio thumbnail media index is invalid.")
+  const generation = generationRecord(generationID)
   const result = mediaResult(generation?.result)
   const media = result?.images[mediaIndex]
   if (
@@ -408,6 +421,7 @@ async function downloadImage(source: string, signal: AbortSignal) {
 }
 
 function recordTaskError(generationID: string, mediaIndex: number, error: unknown) {
+  const resolvedID = generationRecord(generationID)?.id ?? generationID
   Database.use((db) =>
     db
       .update(StudioMediaThumbnailTable)
@@ -420,7 +434,7 @@ function recordTaskError(generationID: string, mediaIndex: number, error: unknow
       })
       .where(
         and(
-          eq(StudioMediaThumbnailTable.generation_id, generationID),
+          eq(StudioMediaThumbnailTable.generation_id, resolvedID),
           eq(StudioMediaThumbnailTable.media_index, mediaIndex),
         ),
       )
@@ -452,7 +466,7 @@ export async function loadStudioThumbnailSource(input: {
       return result
     })
     .catch((error) => {
-      recordTaskError(input.generationID, input.mediaIndex, error)
+      recordTaskError(found.generation.id, input.mediaIndex, error)
       throw error
     })
     .finally(() => {
@@ -558,7 +572,7 @@ async function materializeStudioMediaThumbnail(input: { generationID: string; me
       })
       .where(
         and(
-          eq(StudioMediaThumbnailTable.generation_id, input.generationID),
+          eq(StudioMediaThumbnailTable.generation_id, record.generation_id),
           eq(StudioMediaThumbnailTable.media_index, input.mediaIndex),
         ),
       )

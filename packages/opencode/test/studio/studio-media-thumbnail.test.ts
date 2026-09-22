@@ -25,7 +25,7 @@ const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 
 
 async function withGeneration(
   source: string,
-  run: (input: { generationID: string; sessionID: SessionID }) => Promise<void> | void,
+  run: (input: { generationID: string; sessionID: SessionID; toolPartID: string }) => Promise<void> | void,
   kind: "image" | "video" = "image",
 ) {
   await using directory = await tmpdir()
@@ -35,6 +35,7 @@ async function withGeneration(
       const now = Date.now()
       const sessionID = SessionID.descending()
       const generationID = Identifier.create("studio_gen", "ascending")
+      const toolPartID = PartID.ascending()
       Database.use((db) => {
         db.insert(SessionTable)
           .values({
@@ -55,7 +56,7 @@ async function withGeneration(
             session_id: sessionID,
             directory: Instance.directory,
             assistant_message_id: MessageID.ascending(),
-            tool_part_id: PartID.ascending(),
+            tool_part_id: toolPartID,
             provider: "internel",
             capability: "image.generate",
             status: "succeeded",
@@ -76,7 +77,7 @@ async function withGeneration(
           })
           .run()
       })
-      await Promise.resolve(run({ generationID, sessionID })).finally(() => {
+      await Promise.resolve(run({ generationID, sessionID, toolPartID })).finally(() => {
         Database.use((db) => db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run())
       })
     },
@@ -155,6 +156,26 @@ describe("Studio media thumbnails", () => {
       const source = await loadStudioThumbnailSource({ generationID, mediaIndex: 0 })
       expect(source.contentType).toBe("image/png")
       expect(source.bytes.byteLength).toBeGreaterThan(0)
+    })
+  })
+
+  test("resolves a legacy completed-part result id to its generation", async () => {
+    await withGeneration(image, async ({ generationID, toolPartID }) => {
+      enqueueStudioMediaThumbnails(generationID)
+      const legacyID = `studio_${toolPartID}`
+      const source = await loadStudioThumbnailSource({ generationID: legacyID, mediaIndex: 0 })
+      expect(source.contentType).toBe("image/png")
+      const saved = await saveStudioMediaThumbnail({
+        generationID: legacyID,
+        mediaIndex: 0,
+        content: webp.toString("base64"),
+      })
+      expect(saved.thumbnailUrl).toContain(generationID)
+      expect(Database.use((db) => db
+        .select()
+        .from(StudioMediaThumbnailTable)
+        .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+        .get()?.status)).toBe("succeeded")
     })
   })
 
