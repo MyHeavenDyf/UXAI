@@ -135,12 +135,69 @@ export function VAlignIcon(props: { value: string }) {
 
 export function VerticalPaddingIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-vertical-space-around h-3 w-3"><rect width="10" height="6" x="7" y="9" rx="2"></rect><path d="M22 20H2"></path><path d="M22 4H2"></path></svg>
-  )
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16.000000" height="16.000000" fill="none">
+	<mask id="mask_1" width="10.500000" height="9.916667" x="2.750000" y="3.041504" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_luminance)">
+			<g id="ipTVerticallyCentered0">
+				<g id="组合 71689">
+					<path id="矢量 4841" d="M2.75 3.0415L13.25 3.0415" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-width="1.000000" />
+					<path id="矢量 4842" d="M5.6665 5.6665L10.3332 5.6665L10.3332 10.3332L5.6665 10.3332L5.6665 5.6665Z" fill="rgb(85,85,85)" fill-opacity="0" fill-rule="evenodd" />
+					<path id="矢量 4842" d="M10.3332 5.6665L10.3332 10.3332L5.6665 10.3332L5.6665 5.6665L10.3332 5.6665Z" fill-rule="evenodd" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+					<path id="矢量 4843" d="M2.75 12.9585L13.25 12.9585" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-width="1.000000" />
+				</g>
+			</g>
+		</g>
+	</mask>
+	<defs>
+		<clipPath id="clipPath_1">
+			<rect width="14.000000" height="14.000000" x="1.000000" y="1.000000" fill="rgb(255,255,255)" />
+		</clipPath>
+		<filter id="pixso_custom_mask_type_luminance">
+			<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 " />
+		</filter>
+	</defs>
+	<rect id="容器 72242" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+	<g id="vertically-centered" clip-path="url(#clipPath_1)">
+		<rect id="vertically-centered" width="14.000000" height="14.000000" x="1.000000" y="1.000000" />
+		<g id="mask" mask="url(#mask_1)">
+			<path id="矢量 4840" d="M1 1L15 1L15 15L1 15L1 1Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
+		</g>
+	</g>
+</svg>
+
+    )
 }
 export function HorizontalPaddingIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-horizontal-space-around h-3 w-3"><rect width="6" height="10" x="9" y="7" rx="2"></rect><path d="M4 22V2"></path><path d="M20 22V2"></path></svg>
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16.000000" height="16.000000" fill="none">
+	<mask id="mask_0" width="11.083334" height="9.333334" x="2.458496" y="3.333496" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_luminance)">
+			<g id="ipTHorizontallyCentered0">
+				<g id="组合 71690">
+					<path id="矢量 4845" d="M5.6665 5.6665L10.3332 5.6665L10.3332 10.3332L5.6665 10.3332L5.6665 5.6665Z" fill="rgb(85,85,85)" fill-opacity="0" fill-rule="evenodd" />
+					<path id="矢量 4845" d="M10.3332 5.6665L10.3332 10.3332L5.6665 10.3332L5.6665 5.6665L10.3332 5.6665Z" fill-rule="evenodd" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+					<path id="矢量 4846" d="M2.4585 12.6668L2.4585 3.3335M13.5418 12.6668L13.5418 3.3335" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-width="1.000000" />
+				</g>
+			</g>
+		</g>
+	</mask>
+	<defs>
+		<clipPath id="clipPath_0">
+			<rect width="14.000000" height="14.000000" x="1.000000" y="1.000000" fill="rgb(255,255,255)" />
+		</clipPath>
+		<filter id="pixso_custom_mask_type_luminance">
+			<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 " />
+		</filter>
+	</defs>
+	<rect id="容器 72242" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+	<g id="horizontally-centered" clip-path="url(#clipPath_0)" >
+		<rect id="horizontally-centered" width="14.000000" height="14.000000" x="1.000000" y="1.000000" />
+		<g id="mask" mask="url(#mask_0)">
+			<path id="矢量 4844" d="M1 1L15 1L15 15L1 15L1 1Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
+		</g>
+	</g>
+</svg>
+
   )
 }
 export function BorderRadiusIcon() {

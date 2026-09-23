@@ -3,7 +3,7 @@ import type { JSX } from 'solid-js'
 import { ColorPicker } from '../model-edit-items/icon-data/color-picker'
 import { HUI_COLOR_TOKENS, type ColorToken } from '../model-edit-items/icon-data/hui-color-tokens'
 import { DragInput } from './drag-input'
-import { CustomSelect } from '../../../pattern/modules/preview/property-editor-popup/custom-select'
+import { CustomSelect } from '../model-edit-items/icon-data/custom-select'
 import {
   FreeformIcon, RowIcon, ColIcon,
   HAlignIcon, VAlignIcon,
@@ -14,6 +14,7 @@ import {
   SettingsIcon,
 } from '../../../pattern/modules/preview/property-editor-popup/icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
+import { IconSizeCheckmark, IconPaddingLeft, IconPaddingTop, IconPaddingRight, IconPaddingBottom } from '../../icons'
 import '../../../pattern/assets/style/preview/PropertyEditorPopup.css'
 
 export { ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect }
@@ -122,9 +123,16 @@ export function QuadModeSection(props: {
       </button>
       <Show when={modeOpen()}>
         <div class="cc-quad-mode-dropdown" onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { setMode('all'); setModeOpen(false) }}>四周</button>
-          <button onClick={() => { setMode('hv'); setModeOpen(false) }}>水平/垂直</button>
-          <button onClick={() => { setMode('trbl'); setModeOpen(false) }}>上/右/下/左</button>
+          <For each={[{ v: 'all' as const, label: '四周' }, { v: 'hv' as const, label: '水平/垂直' }, { v: 'trbl' as const, label: '独立边距' }]}>
+            {(m) => (
+              <button onClick={() => { setMode(m.v); setModeOpen(false) }}>
+                <span class="cc-quad-mode-check" style={{ visibility: mode() === m.v ? 'visible' : 'hidden' }}>
+                  <IconSizeCheckmark />
+                </span>
+                <span>{m.label}</span>
+              </button>
+            )}
+          </For>
         </div>
       </Show>
     </div>
@@ -145,10 +153,10 @@ export function QuadModeSection(props: {
       </Show>
       <Show when={mode() === 'trbl'}>
         <div class="cc-quad-trbl">
-          <DragInput value={side('t')} setValue={setSide('t')} setFound={() => {}} found={() => true} placeholder="上" icon="↑" />
-          <DragInput value={side('r')} setValue={setSide('r')} setFound={() => {}} found={() => true} placeholder="右" icon="→" />
-          <DragInput value={side('b')} setValue={setSide('b')} setFound={() => {}} found={() => true} placeholder="下" icon="↓" />
-          <DragInput value={side('l')} setValue={setSide('l')} setFound={() => {}} found={() => true} placeholder="左" icon="←" />
+          <DragInput value={side('l')} setValue={setSide('l')} setFound={() => {}} found={() => true} placeholder="左" icon={<IconPaddingLeft />} />
+          <DragInput value={side('t')} setValue={setSide('t')} setFound={() => {}} found={() => true} placeholder="上" icon={<IconPaddingTop />} />
+          <DragInput value={side('r')} setValue={setSide('r')} setFound={() => {}} found={() => true} placeholder="右" icon={<IconPaddingRight />} />
+          <DragInput value={side('b')} setValue={setSide('b')} setFound={() => {}} found={() => true} placeholder="下" icon={<IconPaddingBottom />} />
         </div>
       </Show>
     </Section>

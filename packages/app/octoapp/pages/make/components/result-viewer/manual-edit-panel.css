@@ -1016,28 +1016,44 @@ input[type="number"].cc-value:focus {
   top: 100%;
   margin-top: 4px;
   z-index: 301;
-  width: 100px;
-  padding: 4px 0;
+  width: 166px;
+  padding: 4px;
   background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: none;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .cc-quad-mode-dropdown > button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 0 8px;
+  line-height: 32px;
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(25, 25, 25, 1);
   background: transparent;
   border: none;
   cursor: pointer;
-  color: inherit;
+  border-radius: 4px;
 }
 
 .cc-quad-mode-dropdown > button:hover {
-  background: #f9f9f9;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.cc-quad-mode-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.9);
 }
 
 .cc-quad-row {
@@ -1055,8 +1071,8 @@ input[type="number"].cc-value:focus {
 
 .cc-quad-trbl {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   width: 100%;
 }
 
@@ -1189,27 +1205,68 @@ input[type="number"].cc-value:focus {
 .cc-stroke-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
 }
 
 .cc-stroke-expand {
-  flex-shrink: 0;
-  width: 24px;
+  flex: 1;
+  min-width: 0;
   height: 24px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #F9F9F9;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.cc-stroke-expand-active {
+  background: #ffffff;
+  box-shadow: 0px 1px 6px 0px rgba(0, 0, 0, 0.08);
 }
 
 .cc-stroke-trbl {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   width: 100%;
   margin-top: 4px;
+}
+
+/* 与内边距下拉框一致的菜单样式 */
+.cc-select-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+}
+
+.cc-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 8px;
+  line-height: 32px;
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(25, 25, 25, 1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.cc-select-item:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* === Effects section === */

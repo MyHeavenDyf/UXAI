@@ -13,7 +13,7 @@ import {
   Section, QuadModeSection, EffectsSection,
   LAYOUT_GRID,
 } from '../result-viewer/row-primitives'
-import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark } from '../../icons'
+import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark, IconBorderMenu, IconBorderAll, IconBorderLeft, IconBorderTop, IconBorderRight, IconBorderBottom } from '../../icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
 import { parseEffects } from '../../edit-mode/source-patches'
 
@@ -617,6 +617,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         <Section title="描边">
           <ColorPicker label="Color" value={bc()} tokens={props.colors} onChange={(v) => update({ borderColor: v })} />
           <div class="cc-stroke-row">
+            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} checkmark dropdownWidth={166} />
             <DragInput
               value={() => numFromString(btw())}
               setValue={(v) => {
@@ -625,18 +626,18 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
               }}
               setFound={() => {}} found={() => true}
               placeholder="宽度"
+              icon={<IconBorderMenu />}
             />
-            <button type="button" class={borderIndividualOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="四角独立" aria-label="四角独立">
-              <span style={{ "font-size": "10px" }}>◱</span>
+            <button type="button" class={borderIndividualOpen() ? 'cc-stroke-expand cc-stroke-expand-active' : 'cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="独立边距" aria-label="独立边距">
+              <IconBorderAll />
             </button>
-            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} />
           </div>
           <Show when={borderIndividualOpen()}>
             <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" />
-              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" />
-              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" />
-              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" />
+              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" icon={<IconBorderLeft />} />
+              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" icon={<IconBorderTop />} />
+              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" icon={<IconBorderRight />} />
+              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" icon={<IconBorderBottom />} />
             </div>
           </Show>
         </Section>
