@@ -61,6 +61,9 @@ export const ContextOverflowError = namedSchemaError("ContextOverflowError", {
   message: Schema.String,
   responseBody: Schema.optional(Schema.String),
 })
+export const ContentFilterError = namedSchemaError("ContentFilterError", {
+  message: Schema.String,
+})
 
 export class OutputFormatText extends Schema.Class<OutputFormatText>("OutputFormatText")({
   type: Schema.Literal("text"),
@@ -458,6 +461,7 @@ const AssistantErrorZod = z.discriminatedUnion("name", [
   AbortedError.Schema,
   StructuredOutputError.Schema,
   ContextOverflowError.Schema,
+  ContentFilterError.Schema,
   APIError.Schema,
 ])
 type AssistantError = z.infer<typeof AssistantErrorZod>
@@ -472,6 +476,7 @@ const AssistantErrorSchema = Schema.Union([
   AbortedError.EffectSchema,
   StructuredOutputError.EffectSchema,
   ContextOverflowError.EffectSchema,
+  ContentFilterError.EffectSchema,
   APIError.EffectSchema,
 ]).annotate({ discriminator: "name" })
 

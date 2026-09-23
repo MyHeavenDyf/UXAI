@@ -1726,7 +1726,7 @@ describe("session.compaction.process", () => {
           auto: false,
         })
 
-        const rt = liveRuntime(stub.layer, wide())
+        const rt = liveRuntime(stub.layer, wide(), cfg({ tail_turns: 2, preserve_recent_tokens: 10_000 }))
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const parent = msgs.at(-1)?.info.id

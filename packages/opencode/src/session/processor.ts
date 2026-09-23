@@ -845,6 +845,7 @@ export const layer: Layer.Layer<
             ),
             Effect.retry(
               SessionRetry.policy({
+                provider: ctx.model.providerID,
                 parse,
                 set: (info) => {
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.

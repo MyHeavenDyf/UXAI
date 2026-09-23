@@ -89,6 +89,12 @@ const STUDIO_IMAGE_TOOLS = new Set(["jimeng_image_generate", "internel_image_gen
 // title.txt 要求标题 ≤10 字；清洗后首行超过 TITLE_MAX 不再弃用，先截断展示再后台压缩
 const TITLE_MAX = 30
 
+function isOrphanedInterruptedTool(part: MessageV2.ToolPart) {
+  // cleanup() marks abandoned tool_use blocks this way after retries/aborts.
+  // They are not pending work and must not trigger an assistant-prefill request.
+  return part.state.status === "error" && part.state.metadata?.interrupted === true
+}
+
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
@@ -1702,15 +1708,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // Keep the loop running so tool results can be sent back to the model.
           // Skip provider-executed tool parts — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
+          // Ignore cleanup-marked interrupted orphans so they don't re-trigger a request.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
+            ) ?? false
 
           if (
             lastAssistant?.finish &&
-            !["tool-calls"].includes(lastAssistant.finish) &&
+            !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
             lastUser.time.created <= lastAssistant.time.created
           ) {
+            const orphan = lastAssistantMsg?.parts.find(
+              (part): part is MessageV2.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
+            )
+            if (orphan) {
+              yield* slog.warn("loop exit with orphaned interrupted tool", {
+                messageID: lastAssistant.id,
+                tool: orphan.tool,
+                callID: orphan.callID,
+              })
+            }
             yield* slog.info("exiting loop")
             break
           }
@@ -1918,6 +1937,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
             if (finished && !handle.message.error) {
+              // Surface any content-filter finish (e.g. Anthropic stop_reason:
+              // refusal) as an error. These turns may have produced no visible
+              // output at all — previously the session went idle silently — or
+              // partial text that was cut off by the provider's filter.
+              if (handle.message.finish === "content-filter") {
+                handle.message.error = new MessageV2.ContentFilterError({
+                  message: "The response was blocked by the provider's content filter",
+                }).toObject()
+                yield* sessions.updateMessage(handle.message)
+                yield* bus.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                return "break" as const
+              }
               if (request.format.type === "json_schema") {
                 handle.message.error = new MessageV2.StructuredOutputError({
                   message: "Model did not produce structured output",
