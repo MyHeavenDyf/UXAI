@@ -1,4 +1,5 @@
 import { generateSpecs } from "hono-openapi"
+import { ArtifactSender } from "@/tracking/sender"
 import { Hono } from "hono"
 import { adapter } from "#hono"
 import { lazy } from "@/util/lazy"
@@ -195,6 +196,7 @@ export async function listen(opts: ListenOptions): Promise<Listener> {
 
   const next = new URL(inner.url)
   url = next
+  ArtifactSender.wake()
 
   const mdns =
     opts.mdns && inner.port && opts.hostname !== "127.0.0.1" && opts.hostname !== "localhost" && opts.hostname !== "::1"

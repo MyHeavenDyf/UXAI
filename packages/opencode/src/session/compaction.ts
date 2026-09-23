@@ -50,9 +50,8 @@ export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
-const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
-const MAX_PRESERVE_RECENT_TOKENS = 8_000
+const MAX_PRESERVE_RECENT_TOKENS = 15_000
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -106,6 +105,42 @@ type CompletedCompaction = {
   summary: string | undefined
 }
 
+const truncate = (value: string) =>
+  value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
+
+const serialize = (message: MessageV2.WithParts) => {
+  if (message.info.role === "user") {
+    const text = message.parts
+      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.ignored)
+      .map((part) => part.text)
+      .filter(Boolean)
+      .join("\n")
+    const files = message.parts.flatMap((part) =>
+      part.type === "file" ? [`[Attached ${part.mime}: ${part.filename ?? "file"}]`] : [],
+    )
+    return [...(text ? [`[User]: ${text}`] : []), ...files].join("\n")
+  }
+  return message.parts
+    .flatMap((part) => {
+      if (part.type === "text") return part.text ? [`[Assistant]: ${part.text}`] : []
+      if (part.type === "reasoning") return part.text ? [`[Assistant reasoning]: ${part.text}`] : []
+      if (part.type !== "tool") return []
+      const call = `[Assistant tool call]: ${part.tool}(${JSON.stringify(part.state.input)})`
+      if (part.state.status === "completed") {
+        const attachments = (part.state.attachments ?? []).map(
+          (item) => `[Attached ${item.mime}: ${item.filename ?? "file"}]`,
+        )
+        const output = part.state.time.compacted
+          ? "[Old tool result content cleared]"
+          : truncate([part.state.output, ...attachments].join("\n"))
+        return [call, `[Tool result]: ${output}`]
+      }
+      if (part.state.status === "error") return [call, `[Tool error]: ${part.state.error}`]
+      return [call]
+    })
+    .join("\n")
+}
+
 function summaryText(message: MessageV2.WithParts) {
   const text = message.parts
     .filter((part): part is MessageV2.TextPart => part.type === "text")
@@ -139,16 +174,15 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
 }
 
 function buildPrompt(input: { previousSummary?: string; context: string[] }) {
+  const conversation = `Here is the conversation so far:\n\n<conversation>\n${input.context.join("\n\n")}\n</conversation>`
   const anchor = input.previousSummary
     ? [
-        "Update the anchored summary below using the conversation history above.",
+        `Here is the summary of the conversation before the <conversation> above:\n\n<previous-summary>\n${input.previousSummary}\n</previous-summary>`,
+        "Update the anchored summary using the conversation in the <conversation> tags above.",
         "Preserve still-true details, remove stale details, and merge in the new facts.",
-        "<previous-summary>",
-        input.previousSummary,
-        "</previous-summary>",
       ].join("\n")
-    : "Create a new anchored summary from the conversation history above."
-  return [anchor, SUMMARY_TEMPLATE, ...input.context].join("\n\n")
+    : "Create a new anchored summary from the conversation history in the <conversation> tags above so another coding agent can continue the work."
+  return [conversation, anchor, SUMMARY_TEMPLATE].join("\n\n")
 }
 
 function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.Model }) {
@@ -267,27 +301,22 @@ export const layer: Layer.Layer<
       cfg: Config.Info
       model: Provider.Model
     }) {
-      const limit = input.cfg.compaction?.tail_turns ?? DEFAULT_TAIL_TURNS
-      if (limit <= 0) return { head: input.messages, tail_start_id: undefined }
+      const limit = input.cfg.compaction?.tail_turns
+      if (limit !== undefined && limit <= 0) return { head: input.messages, tail_start_id: undefined }
       const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
       const all = turns(input.messages)
       if (!all.length) return { head: input.messages, tail_start_id: undefined }
-      const recent = all.slice(-limit)
-      const sizes = yield* Effect.forEach(
-        recent,
-        (turn) =>
-          estimate({
-            messages: input.messages.slice(turn.start, turn.end),
-            model: input.model,
-          }),
-        { concurrency: 1 },
-      )
+      const recent = limit === undefined ? all : all.slice(-limit)
 
       let total = 0
       let keep: Tail | undefined
       for (let i = recent.length - 1; i >= 0; i--) {
         const turn = recent[i]!
-        const size = sizes[i]
+        // estimate lazily so cost stays proportional to the retained tail, not the whole session
+        const size = yield* estimate({
+          messages: input.messages.slice(turn.start, turn.end),
+          model: input.model,
+        })
         if (total + size <= budget) {
           total += size
           keep = { start: turn.start, id: turn.id }
@@ -421,13 +450,20 @@ export const layer: Layer.Layer<
         { sessionID: input.sessionID },
         { context: [], prompt: undefined },
       )
-      const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
-        stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
-      })
+      const conversation = msgs.map(serialize).filter(Boolean).join("\n\n")
+      const nextPrompt =
+        compacting.prompt ??
+        [
+          buildPrompt({
+            previousSummary,
+            context: [conversation],
+          }),
+          ...compacting.context,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
       const ctx = yield* InstanceState.context
       const summarize = Effect.fnUntraced(function* (prompt: string) {
         const msg: MessageV2.Assistant = {
@@ -469,10 +505,19 @@ export const layer: Layer.Layer<
           tools: {},
           system: [],
           messages: [
-            ...modelMessages,
             {
               role: "user",
-              content: [{ type: "text", text: prompt }],
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    prompt,
+                    ...(compacting.prompt ? ["The following is the conversation history:", conversation] : []),
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n"),
+                },
+              ],
             },
           ],
           model,
@@ -507,6 +552,8 @@ export const layer: Layer.Layer<
                 first.summary,
                 "</invalid-summary>",
                 SUMMARY_TEMPLATE,
+                "The following is the conversation history:",
+                conversation,
               ].join("\n\n"),
             )
           })

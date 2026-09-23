@@ -1,11 +1,14 @@
 import { createEffect, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
+import { IconSizeCheckmark } from "../../../icons"
 
 export function CustomSelect(props: {
   value: string
   options: { label: string; value: string }[]
   onChange: (value: string) => void
   class?: string
+  checkmark?: boolean
+  dropdownWidth?: number
 }) {
   const [open, setOpen] = createSignal(false)
   const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
@@ -50,11 +53,23 @@ export function CustomSelect(props: {
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
-          <div ref={listRef} data-custom-select-list class="octo-dropdown-menu fixed"
-            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px' }}
+          <div ref={listRef} data-custom-select-list
+            class={props.checkmark ? 'cc-select-panel fixed' : 'octo-dropdown-menu fixed'}
+            style={{ left: pos().x + 'px', top: pos().y + 'px', ...(props.dropdownWidth ? { width: props.dropdownWidth + 'px' } : { 'min-width': pos().w + 'px' }) }}
             onClick={() => setOpen(false)}>
             <For each={props.options}>
-              {(opt) => (
+              {(opt) => props.checkmark ? (
+                <button
+                  type="button"
+                  onClick={() => props.onChange(opt.value)}
+                  class="cc-select-item"
+                >
+                  <span class="cc-quad-mode-check" style={{ visibility: opt.value === props.value ? 'visible' : 'hidden' }}>
+                    <IconSizeCheckmark />
+                  </span>
+                  <span>{opt.label}</span>
+                </button>
+              ) : (
                 <button
                   type="button"
                   onClick={() => props.onChange(opt.value)}

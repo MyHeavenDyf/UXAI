@@ -23,6 +23,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { createPrototypeArchiveZip } from "../../utils/archive-prototype"
 import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
 import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
@@ -619,7 +620,9 @@ export function HtmlRenderer(props: {
       // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
       const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
 
-      const zipBlob = await createArchiveZip({
+      // 归档按子类型走独立入口：prototype → archive-prototype.ts（components.json +
+      // 旧引用放置逻辑）；其余 → archive-utils.ts（NCA 引用镜像）
+      const archiveOptions = {
         comments,
         screenshotBlob,
         htmlContent,
@@ -631,8 +634,10 @@ export function HtmlRenderer(props: {
         srcFiles,
         previewExtraDirs,
         previewExtraRels,
-        prototypeSnapshotHtml,
-      })
+      }
+      const zipBlob = props.subtype === "prototype"
+        ? await createPrototypeArchiveZip({ ...archiveOptions, prototypeSnapshotHtml })
+        : await createArchiveZip(archiveOptions)
       
       if (isLoggedIn) {
         let uploadResult: { success: boolean }

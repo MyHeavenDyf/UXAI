@@ -199,6 +199,7 @@ export function ConversationHeader(
 
   function handleMenuTogglePin(session: Session) {
     closeMenu()
+    tracker.interaction({ module: "insight", name: session.pinned ? "unpin-session" : "pin-session" })
     void togglePinCurrent(session)
   }
 

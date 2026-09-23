@@ -21,6 +21,15 @@ export default defineConfig(({ mode, command }) => {
     if (raw === "dev" || raw === "beta" || raw === "prod") return raw
     return "dev"
   })()
+  const reportBase = (env.VITE_OCTO_REPORT_BASE_URL ?? "").trim()
+  if (command === "build" && (channel === "beta" || channel === "prod")) {
+    if (!URL.canParse(reportBase) || !["http:", "https:"].includes(new URL(reportBase).protocol)) {
+      throw new Error(`[artifact] .env.${mode} 必须配置有效的 VITE_OCTO_REPORT_BASE_URL 服务根地址`)
+    }
+    if (/\/record\/logger\/(interaction|page)\/?$/.test(reportBase)) {
+      throw new Error("[artifact] VITE_OCTO_REPORT_BASE_URL 应填服务根地址，不能包含 /record/logger/interaction 或 /page")
+    }
+  }
 
   // [octo:env] 以 .env.example 声明的业务变量(OCTO_*/VITE_*)为清单,逐个打印**实际生效值**
   // (loadEnv 结果,优先级 process.env > .env.<mode> > .env;未配置标 (未设置))。这样 dev/build 都能
@@ -104,6 +113,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_UPLOAD_ENDPOINT": JSON.stringify(
           env.OCTO_UPLOAD_ENDPOINT ?? env.VITE_OCTO_UPLOAD_ENDPOINT ?? "",
         ),
+        "import.meta.env.OCTO_REPORT_BASE_URL": JSON.stringify(reportBase),
+        "import.meta.env.OCTO_ARTIFACT_SUCCESS": JSON.stringify(env.OCTO_ARTIFACT_SUCCESS || "http-2xx"),
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-start
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-end
       },

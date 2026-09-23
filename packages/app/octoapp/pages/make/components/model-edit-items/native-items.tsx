@@ -6,14 +6,14 @@ import type { ColorToken } from './icon-data/hui-color-tokens'
 import {
   ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect,
   HAlignIcon, VAlignIcon,
-  FreeformIcon, RowIcon, ColIcon,
+  FreeformIcon,
   OpacityIcon, CornerCurveIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
   LineHeightIcon, LetterSpacingIcon,
   Section, QuadModeSection, EffectsSection,
   LAYOUT_GRID,
 } from '../result-viewer/row-primitives'
-import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark } from '../../icons'
+import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark, IconBorderMenu, IconBorderAll, IconBorderLeft, IconBorderTop, IconBorderRight, IconBorderBottom } from '../../icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
 import { parseEffects } from '../../edit-mode/source-patches'
 
@@ -64,6 +64,27 @@ function numFromString(s: string): number {
 
 function parseJson(s: string): Record<string, string> {
   try { return JSON.parse(s) } catch { return {} }
+}
+
+function LayoutColIcon() {
+  return (
+    <svg viewBox="0 0 14 14" width="14" height="14" fill="none">
+      <path d="M2.51563 1.53125L11.4844 1.53125C11.5445 1.53125 11.5938 1.58047 11.5938 1.64063L11.5938 2.46093C11.5938 2.52109 11.5445 2.57031 11.4844 2.57031L2.51563 2.57031C2.45547 2.57031 2.40625 2.52109 2.40625 2.46093L2.40625 1.64063C2.40625 1.58047 2.45547 1.53125 2.51563 1.53125ZM2.51563 11.4297L11.4844 11.4297C11.5445 11.4297 11.5938 11.4789 11.5938 11.5391L11.5938 12.3594C11.5938 12.4195 11.5445 12.4688 11.4844 12.4688L2.51563 12.4688C2.45547 12.4688 2.40625 12.4195 2.40625 12.3594L2.40625 11.5391C2.40625 11.4789 2.45547 11.4297 2.51563 11.4297Z" fill="currentColor" fill-rule="evenodd" />
+      <path d="M6.47854 7.86035L6.47854 4.19629L7.46292 4.19629L7.46292 7.86035L8.37483 7.86035C8.45823 7.86035 8.50335 7.95606 8.45276 8.02031L7.07464 9.76348C7.03635 9.81406 6.95979 9.81406 6.92014 9.76348L5.54202 8.02031C5.49143 7.95606 5.53792 7.86035 5.61995 7.86035L6.47854 7.86035Z" fill="currentColor" fill-rule="evenodd" />
+    </svg>
+  )
+}
+
+function LayoutGapIcon() {
+  return (
+    <svg viewBox="0 0 12.25 12.25" width="12" height="12" fill="none">
+      <path d="M8.45833 6.125L4.375 6.125" stroke="currentColor" stroke-linejoin="round" stroke-width="0.875" />
+      <rect width="0.875" height="2.625" x="3.5" y="4.8125" fill="currentColor" />
+      <rect width="0.875" height="2.625" x="7.875" y="4.8125" fill="currentColor" />
+      <path d="M0 1.75L2.1875 1.75L2.1875 10.5L0 10.5" stroke="currentColor" stroke-width="0.875" />
+      <path d="M0 0L2.1875 0L2.1875 8.75L0 8.75" stroke="currentColor" stroke-width="0.875" transform="matrix(-1,0,0,1,12.6875,1.75)" />
+    </svg>
+  )
 }
 
 type SizeMode = 'fixed' | 'fit' | 'fill'
@@ -369,9 +390,9 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       return (
         <Section title="布局">
           <div class="cc-layout-direction">
-            <button type="button" onClick={() => update({ flexDirection: '' })} class={!fd() ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="自由布局" aria-label="自由布局"><FreeformIcon /></button>
-            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="行布局" aria-label="行布局"><RowIcon /></button>
-            <button type="button" onClick={() => update({ flexDirection: 'column' })} class={fd() === 'column' || fd() === 'column-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="列布局" aria-label="列布局"><ColIcon /></button>
+            <button type="button" onClick={() => update({ flexDirection: 'column' })} class={fd() === 'column' || fd() === 'column-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="列布局" aria-label="列布局"><LayoutColIcon /></button>
+            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="行布局" aria-label="行布局"><span class="inline-flex" style={{ transform: 'rotate(90deg)' }}><LayoutColIcon /></span></button>
+            <button type="button" onClick={() => update({ flexDirection: '' })} class={!fd() ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="自由布局" aria-label="自由布局"><FreeformIcon /></button>
           </div>
           <Show when={!!fd()}>
             <div class="cc-layout-grid-wrap">
@@ -388,7 +409,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
                 </For>
               </div>
               <div class="cc-layout-gap-col">
-                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" />
+                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" icon={<LayoutGapIcon />} />
                 <label class="cc-layout-radio">
                   <input type="radio" name="layout-justify-mode" checked={data().justifyContent === 'space-between'} onChange={() => update({ justifyContent: 'space-between' })} />
                   <span>两端对齐</span>
@@ -596,6 +617,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         <Section title="描边">
           <ColorPicker label="Color" value={bc()} tokens={props.colors} onChange={(v) => update({ borderColor: v })} />
           <div class="cc-stroke-row">
+            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} checkmark dropdownWidth={166} />
             <DragInput
               value={() => numFromString(btw())}
               setValue={(v) => {
@@ -604,18 +626,18 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
               }}
               setFound={() => {}} found={() => true}
               placeholder="宽度"
+              icon={<IconBorderMenu />}
             />
-            <button type="button" class={borderIndividualOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="四角独立" aria-label="四角独立">
-              <span style={{ "font-size": "10px" }}>◱</span>
+            <button type="button" class={borderIndividualOpen() ? 'cc-stroke-expand cc-stroke-expand-active' : 'cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="独立边距" aria-label="独立边距">
+              <IconBorderAll />
             </button>
-            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} />
           </div>
           <Show when={borderIndividualOpen()}>
             <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" />
-              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" />
-              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" />
-              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" />
+              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" icon={<IconBorderLeft />} />
+              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" icon={<IconBorderTop />} />
+              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" icon={<IconBorderRight />} />
+              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" icon={<IconBorderBottom />} />
             </div>
           </Show>
         </Section>

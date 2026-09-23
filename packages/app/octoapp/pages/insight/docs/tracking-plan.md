@@ -70,6 +70,13 @@
 | `insight_nav_click` / `insight_settings_open` | 壳层导航，非 insight 核心行为；如需要应归属壳层 module |
 | `insight_task_detail_toggle` / `insight_result_view_mode` / `insight_result_copy_uri` | 低频查看类微操作，分析价值低 |
 
+### 会话滚动加载补齐（2026-09-22）
+
+- 沿用 `session-load-more`，module 为 `insight`；没有新增替代事件。
+- Insight 最近会话列表距底部不足 100px 且还有更多会话时，滚动事件触发服务端分页，并成功追加新会话后上报一次。首次加载、自动补页、失败、重复请求和无新增会话不报。
+- extend 保留 `{limit, source: "panel"}`：limit 为追加后「最近」列表实际可见会话数，不表示服务端请求数量。旧外壳按钮的 `source: "shell"` 保持原义。
+- 共享 AgentSidebar 只提供可选 `onLoadMore(limit)` 回调，Insight 侧栏负责上报；其他调用方不接回调，行为保持不变。
+
 ## 三、代码写法范式
 
 统一从 `@/utils/tracker` 引入，**打点放在动作成功之后**，失败路径不打（除非事件本身就是结果型，如 `attachment-import-result`）：
