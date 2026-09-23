@@ -5975,6 +5975,80 @@ export type SessionStatusResponses = {
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
 
+export type SessionPortableImportData = {
+  body?: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionPortableImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionPortableImportError = SessionPortableImportErrors[keyof SessionPortableImportErrors]
+
+export type SessionPortableImportResponses = {
+  /**
+   * Imported portable session
+   */
+  200: {
+    sessionID: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableImportResponse = SessionPortableImportResponses[keyof SessionPortableImportResponses]
+
+export type SessionPortableExportData = {
+  body?: {
+    path: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/export"
+}
+
+export type SessionPortableExportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableExportError = SessionPortableExportErrors[keyof SessionPortableExportErrors]
+
+export type SessionPortableExportResponses = {
+  /**
+   * Exported portable session
+   */
+  200: {
+    output: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
+
 export type SessionDeleteData = {
   body?: never
   path: {

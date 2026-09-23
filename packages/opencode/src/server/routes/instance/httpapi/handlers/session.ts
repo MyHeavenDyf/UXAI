@@ -8,6 +8,7 @@ import { PermissionID } from "@/permission/schema"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
+import { exportPortableSession, importPortableSession } from "@/session/portable"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -33,6 +34,7 @@ import {
   ListQuery,
   MessagesQuery,
   PermissionResponsePayload,
+  PortablePathPayload,
   PromptPayload,
   ReorderPayload,
   RevertPayload,
@@ -84,6 +86,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const status = Effect.fn("SessionHttpApi.status")(function* () {
       return Object.fromEntries(yield* statusSvc.list())
+    })
+
+    const portableImport = Effect.fn("SessionHttpApi.portableImport")(function* (ctx: {
+      payload: typeof PortablePathPayload.Type
+    }) {
+      return yield* importPortableSession(ctx.payload.path)
+    })
+
+    const portableExport = Effect.fn("SessionHttpApi.portableExport")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof PortablePathPayload.Type
+    }) {
+      return yield* SessionError.mapStorageNotFound(
+        exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path }),
+      )
     })
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -386,6 +403,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     return handlers
       .handle("list", list)
       .handle("status", status)
+      .handle("portableImport", portableImport)
+      .handle("portableExport", portableExport)
       .handle("get", get)
       .handle("children", children)
       .handle("todo", todo)

@@ -4,6 +4,7 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
+import { exportPortableSession, importPortableSession } from "@/session/portable"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -121,6 +122,70 @@ export const SessionRoutes = lazy(() =>
         jsonRequest("SessionRoutes.status", c, function* () {
           const svc = yield* SessionStatus.Service
           return Object.fromEntries(yield* svc.list())
+        }),
+    )
+    .post(
+      "/import",
+      describeRoute({
+        summary: "Import portable session",
+        description: "Import a complete session tree, including messages, todos, uploads, and outputs.",
+        operationId: "session.portableImport",
+        responses: {
+          200: {
+            description: "Imported portable session",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    sessionID: SessionID.zod,
+                    sessions: z.number(),
+                    files: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string().min(1) })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableImport", c, function* () {
+          return yield* importPortableSession(c.req.valid("json").path)
+        }),
+    )
+    .post(
+      "/:sessionID/export",
+      describeRoute({
+        summary: "Export portable session",
+        description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
+        operationId: "session.portableExport",
+        responses: {
+          200: {
+            description: "Exported portable session",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    output: z.string(),
+                    sessions: z.number(),
+                    files: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", z.object({ path: z.string().min(1) })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableExport", c, function* () {
+          return yield* exportPortableSession({
+            sessionID: c.req.valid("param").sessionID,
+            output: c.req.valid("json").path,
+          })
         }),
     )
     .get(
