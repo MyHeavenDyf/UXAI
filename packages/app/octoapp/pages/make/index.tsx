@@ -68,14 +68,15 @@ import { useSessionPin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
-import { useMakeGroupsContext } from "@/context/make-groups"
+import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { encodeFilePath } from "@/context/file/path"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -84,7 +85,7 @@ import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
-import { createTabStore } from "./components/result-viewer/tab-store"
+import { createTabStore, type ResultTab } from "./components/result-viewer/tab-store"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -93,6 +94,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { createSnapshotStore } from "./utils/snapshot-store"
+import { createBgCompareGuard } from "./utils/bg-compare-guard"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
@@ -517,6 +519,7 @@ function MakeContent() {
 
   function handleMenuTogglePin(session: Session) {
     closeMenu()
+    tracker.interaction({ module: "design", name: session.pinned ? "unpin-session" : "pin-session" })
     void togglePinCurrent(session)
   }
 
@@ -659,6 +662,10 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments([])
     setDeltaLog([])
     closePrototypePanels()
+  }, { defer: true }))
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "make")
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -1842,6 +1849,9 @@ const sessionMessagesLoaded = createMemo(() => {
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
   })
+
+  // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
+  const bgCompareGuard = createBgCompareGuard()
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -3527,6 +3537,19 @@ const sessionMessagesLoaded = createMemo(() => {
         const session = result.data as Session | undefined
         if (!session) return
 
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "make"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          const gDir = sdk.directory
+          if (gDir) {
+            const groupClient = globalSDK.createClient({ directory: gDir })
+            void groupClient.sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          }
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
+
         if (shouldStartInitialPlan) {
           const dir = sdk.directory
           const skills = mentions
@@ -4636,20 +4659,41 @@ const sessionMessagesLoaded = createMemo(() => {
         return t.filePath.replace(/\\/g, "/") === absolutePath
       })
       if (existingLocal) {
-        const api = getDesktopApi()
-        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
-        if (buf) {
-          const fileContent = new TextDecoder().decode(buf)
-          if (fileContent && fileContent !== existingLocal.content) {
-            tabStore.updateTabContent(existingLocal.id, fileContent)
-            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
-          } else {
-            // 内容未变也要走 onTabOpen：该文件无历史时补建 init
-            await historyController.onTabOpen(existingLocal, existingLocal)
-          }
-        }
+        // ★ 先 activate,后台再比对磁盘内容(镜像 non-link 分支的优化)
         tabStore.activate(existingLocal.id)
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU
+        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
+          // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
+          const existingBefore = { ...existingLocal } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(existingLocal.id)
+          void (async () => {
+            try {
+              const api = getDesktopApi()
+              const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+              if (!buf) return
+              const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(existingLocal.id, token, currentTab.content, existingBefore.content)) return
+              const fileContent = new TextDecoder().decode(buf)
+              if (fileContent && fileContent !== existingBefore.content) {
+                tabStore.updateTabContent(existingLocal.id, fileContent)
+                const updated = tabStore.tabs().find(t => t.id === existingLocal.id)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
+                }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
+              }
+            } catch (err) {
+              console.error("[handleOpenLocalFile] background content compare failed", err)
+            }
+          })()
+        }
         return
       }
 
@@ -4708,18 +4752,23 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
 
-    // ★ Step -0.5: 等待文件落盘。
+    // ★ Step -0.5: 等待文件落盘。正常情况第一次 fileExists 就返回 true;
+    // 非媒体类型有 card.content 兜底,短轮询 5 次(750ms)即可,超时放行不阻断用户。
+    // 媒体类型(图片/视频/音频/PDF)先开 tab 不阻塞,后台轮询落盘后 bump filesRefreshKey 触发重载。
     if (!isUrl && card.filePath) {
       const api = getDesktopApi()
       if (api?.fileExists) {
-        for (let i = 0; i < 20; i++) {
-          if (await api.fileExists(card.filePath)) break
-          await new Promise((r) => setTimeout(r, 150))
+        const isMedia = ["image", "video", "audio", "pdf"].includes(card.type)
+        if (!isMedia) {
+          for (let i = 0; i < 5; i++) {
+            if (await api.fileExists(card.filePath)) break
+            await new Promise((r) => setTimeout(r, 150))
+          }
         }
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
+    // ★ Step 0: 如果已有匹配的 tab，直接激活；文件内容比对走后台异步,不阻塞 UI。
     if (card.filePath) {
       // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
       // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
@@ -4734,21 +4783,44 @@ const sessionMessagesLoaded = createMemo(() => {
         return false
       })
       if (existingTab) {
-        if (!isUrl && existingTab.type !== "design-plan") {
-          const api = getDesktopApi()
-          const buf = await api?.readFileBuffer?.(existingTab.filePath!)
-          if (buf) {
-            const fileContent = new TextDecoder().decode(buf)
-            if (fileContent && fileContent !== existingTab.content) {
-              tabStore.updateTabContent(existingTab.id, fileContent)
-              await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
-            } else {
-              // 内容未变也要走 onTabOpen：该文件无历史时补建 init
-              await historyController.onTabOpen(existingTab, existingTab)
-            }
-          }
-        }
+        // ★ 先 activate:在新架构下 iframe 已挂载,切换瞬时完成。
         tabStore.activate(existingTab.id)
+        // ★ 后台比对磁盘内容:若外部编辑导致内容变化,异步更新 tab(iframe srcdoc 会重算)。
+        // 媒体类型(图片/视频/音频/PDF)渲染靠 local:// 直读文件,不用 tab.content → 跳过,避免二进制当文本解码。
+        if (!isUrl && existingTab.type !== "design-plan" && !["image", "video", "audio", "pdf"].includes(existingTab.type)) {
+          const tabId = existingTab.id
+          const tabFilePath = existingTab.filePath!
+          // ★ createStore 下 tab 是 proxy,openTab/updateTabContent 之后读 .content 会变。
+          //   historyController.onTabOpen 用 (current, before) 做前后对比,所以这里快照一份。
+          const existingBefore = { ...existingTab } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(tabId)
+          void (async () => {
+            try {
+              const api = getDesktopApi()
+              const buf = await api?.readFileBuffer?.(tabFilePath)
+              if (!buf) return
+              const currentTab = tabStore.tabs().find(t => t.id === tabId)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(tabId, token, currentTab.content, existingBefore.content)) return
+              const fileContent = new TextDecoder().decode(buf)
+              if (fileContent && fileContent !== existingBefore.content) {
+                tabStore.updateTabContent(tabId, fileContent)
+                const updated = tabStore.tabs().find(t => t.id === tabId)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
+                }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
+              }
+            } catch (err) {
+              console.error("[handleOpenResult] background content compare failed", err)
+            }
+          })()
+        }
         return
       }
     }
@@ -4775,10 +4847,30 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
     
-    const existingBefore = tabStore.tabs().find((t) => t.id === card.id)
+    const existingBeforeProxy = tabStore.tabs().find((t) => t.id === card.id)
+    // ★ createStore 下 tab 是 proxy,openTab 之后读 existingBeforeProxy.content 会拿到最新值,
+    //   破坏 historyController.onTabOpen 的"前后对比"逻辑。这里浅拷贝做快照。
+    const existingBefore = existingBeforeProxy ? { ...existingBeforeProxy } as ResultTab : undefined
     tabStore.openTab(card)
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
+    }
+    // ★ 媒体类型后台轮询文件落盘,就绪后 bump filesRefreshKey 触发渲染器重载(<img>/<video> 等重载 src)
+    if (!isUrl && card.filePath && ["image", "video", "audio", "pdf"].includes(card.type)) {
+      const mediaApi = getDesktopApi()
+      const fileExists = mediaApi?.fileExists
+      if (fileExists) {
+        void (async () => {
+          if (await fileExists(card.filePath!)) return
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 150))
+            if (await fileExists(card.filePath!)) {
+              if (tabStore.tabs().some(t => t.id === card.id)) setFilesRefreshKey(k => k + 1)
+              return
+            }
+          }
+        })()
+      }
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
 
@@ -4870,6 +4962,21 @@ const sessionMessagesLoaded = createMemo(() => {
     const type = inferOutputType(filePath)
     const title = filePath.split(/[/\\]/).pop() ?? filePath
     
+    // Office 等不支持直接预览的格式:沿用原有"预览不可用"弹窗(含下载),不强行渲染
+    const fileExt = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(fileExt)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={title}
+          filePath={absolutePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "office-unavailable", ext: fileExt }) })
+      return
+    }
+
     handleOpenResult({
       id: tabId,
       title,
@@ -4880,6 +4987,65 @@ const sessionMessagesLoaded = createMemo(() => {
       createdAt: new Date(),
     })
     tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
+  }
+
+  /** 打开用户消息附件预览(图片/视频/音频/PDF → tab;Office 等不可预览 → 沿用不可用弹窗) */
+  function handleOpenAttachment(att: UserAttachment) {
+    const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
+
+    // Office 等不支持直接预览:沿用原有"预览不可用"弹窗(含下载)
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(ext)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "office-unavailable", ext }) })
+      return
+    }
+
+    // 本地附件:复用本地文件预览流程(图片/视频/音频/PDF/文本/代码 → 对应 tab)
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path)
+      return
+    }
+
+    // FilePart(S3 URL)图片/音视频:按 mime 构造卡片,复用 handleOpenResult 的去重与 tab 打开逻辑
+    const type: OutputCardType = att.mime?.startsWith("image/")
+      ? "image"
+      : att.mime?.startsWith("video/")
+        ? "video"
+        : att.mime?.startsWith("audio/")
+          ? "audio"
+          : att.mime === "application/pdf"
+            ? "pdf"
+            : "file"
+
+    if (type === "file") {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
+      return
+    }
+
+    void handleOpenResult({
+      id: `att-url-${att.url ?? att.filename}`,
+      title: att.filename,
+      type,
+      content: "",
+      filePath: att.url,
+      createdAt: new Date(),
+    })
+    tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type, ext }) })
   }
 
   /** Continue generation (append truncated content as prompt) */
@@ -5397,6 +5563,7 @@ onPreview={(url) => {
                         onAbort={halt}
                         onOpenResult={handleOpenResult}
                         onOpenLocalFile={handleOpenLocalFile}
+                        onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
@@ -5428,6 +5595,7 @@ onPreview={(url) => {
                             onAbort={halt}
                             onOpenResult={handleOpenResult}
                             onOpenLocalFile={handleOpenLocalFile}
+                            onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
                             onChildSession={ensureChildSession}

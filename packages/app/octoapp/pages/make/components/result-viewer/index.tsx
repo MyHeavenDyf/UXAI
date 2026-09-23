@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, on, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showOctoToast } from "../octo-toast"
@@ -37,7 +37,7 @@ import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
 import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
-import { disposeAllPrototypeSessions, getSessionById } from "../../utils/prototype-utils"
+import { disposeAllPrototypeSessions, disposePrototypeSession, getSessionById } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -176,13 +176,41 @@ export function ResultViewer(props: {
   }, { defer: true }))
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [refreshKey, setRefreshKey] = createSignal(0)
-  // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
-  let observedUrlsGetter: (() => string[]) | null = null
-  // 向当前 HTML tab 的 iframe contentWindow 发送 postMessage 的函数（由 HtmlRenderer 注册）
-  let iframePostMessage: ((data: unknown) => void) | null = null
-  // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
-  let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
+  // ★ 每个 HTML tab 的 iframe 句柄,按 tabId 索引(切换 tab 时不再销毁 iframe,所以句柄要分开存)
+  // 由 HtmlRenderer onMount 注册,onCleanup 时清除
+  const observedUrlsGetters: Record<string, () => string[]> = {}
+  const iframePostMessages: Record<string, (data: unknown) => void> = {}
+  const iframeElementGetters: Record<string, () => HTMLIFrameElement | undefined> = {}
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
+
+  // ★ LRU 驱逐:最多同时挂载 N 个 HTML tab 的 iframe,超出则卸载最久未访问的。
+  //   被驱逐的 tab 仍在标签栏(display:none),切回时 iframe 重新挂载,内容从 tab.content 还原。
+  //   驱逐时机:activate/openTab 更新 lastActivatedAt → memo 重算 → <Show> 切换 → HtmlRenderer onCleanup。
+  //   注意:effect 在 memo 之后跑,disposePrototypeSession 调用时 iframe 已销毁,
+  //   buildSubtypeCtx 的 postMessageToIframe 用 ?. 防御(见下方)。
+  const MAX_MOUNTED_HTML_TABS = 5
+  const mountedHtmlTabIds = createMemo(() => {
+    const activeId = props.activeId
+    const htmlTabs = props.tabs
+      .filter(t => t.type === "html")
+      .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
+    const result = new Set<string>()
+    for (const t of htmlTabs) {
+      // 激活 tab 始终挂载,即使超出上限
+      if (result.size >= MAX_MOUNTED_HTML_TABS && t.id !== activeId) continue
+      result.add(t.id)
+    }
+    return result
+  })
+  let prevMountedIds = new Set<string>()
+  createEffect(() => {
+    const mounted = mountedHtmlTabIds()
+    // 只 dispose 从"已挂载"变为"未挂载"的 tab(含被关闭的 tab),避免对无 session 的 tab 重复 dispose
+    for (const id of prevMountedIds) {
+      if (!mounted.has(id)) disposePrototypeSession(id)
+    }
+    prevMountedIds = mounted
+  })
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -193,6 +221,7 @@ export function ResultViewer(props: {
   const buildSubtypeCtx = () => {
     const tab = activeTab()
     if (!tab) return null
+    const tid = tab.id
     return {
       tab,
       sessionId: tab.sessionId ?? props.sessionId,
@@ -200,10 +229,10 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      observedUrlsGetter: observedUrlsGetters[tid] ? () => observedUrlsGetters[tid]?.() ?? [] : undefined,
       usePixsoTransport,
-      postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
-      iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+      postMessageToIframe: iframePostMessages[tid] ? (data: unknown) => { iframePostMessages[tid]?.(data) } : undefined,
+      iframeElementGetter: iframeElementGetters[tid] ? () => iframeElementGetters[tid]?.() : undefined,
       sdkDirectory: props.sdkDirectory,
     }
   }
@@ -632,188 +661,203 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
         </Show>
       </Show>
 
-      <Show when={props.viewMode === "tabs"}>
-        <Show when={activeTab()?.id} keyed>
-          {(tabId) => {
-            const tab = props.tabs.find(t => t.id === tabId)!
-            const tabType = tab.type
-          const canToggle = canToggleMode(tab)
-          const htmlMode = createMemo(() => getHtmlMode(tabId))
-          const showRefresh = true
-          const showFocusToggle = tabType !== "design-plan"
+        <Show when={props.viewMode === "tabs"}>
+          {/* ★ 渲染所有已打开 tab,非激活的 display:none 隐藏。
+              切换 tab 不再销毁/重建 iframe,HtmlRenderer 内部状态(滚动位置、
+              编辑草稿等)保留。注意:prototype 编辑 session 仍在 activeId 变化时
+              由 disposeAllPrototypeSessions() 销毁(见上方 createEffect),切回需
+              重新进入编辑模式。 */}
+          <For each={props.tabs}>
+            {(tab) => {
+              const tabId = tab.id
+              const tabType = tab.type
+              const canToggle = canToggleMode(tab)
+              const htmlMode = createMemo(() => getHtmlMode(tabId))
+              const showFocusToggle = tabType !== "design-plan"
+              const isActive = () => tab.id === props.activeId
+              // tab 被关闭时(<For> 移除该项),清理 per-tab 句柄 Map,避免持有已销毁 iframe 的引用
+              onCleanup(() => {
+                delete observedUrlsGetters[tabId]
+                delete iframePostMessages[tabId]
+                delete iframeElementGetters[tabId]
+              })
 
-          return (
-            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
-              <Show when={tabType !== "design-plan"}>
-                <ActionBar
-                  tab={tab}
-                  mode={canToggle ? htmlMode() : undefined}
-                  onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
-                  viewport={viewport()}
-                  onViewportChange={handleViewportChange}
-                  palette={palette()}
-                  onPaletteChange={setPalette}
-                  editing={featureMutex.state.editing}
-                  onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
-                  modelEditing={featureMutex.state.modelEditing}
-                  onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
-                  drawing={featureMutex.state.drawing}
-                  onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
-                  commenting={featureMutex.state.commenting}
-                  onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
-
-                  archiving={featureMutex.state.archiving}
-                  onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
-                  onRefresh={handleRefresh}
-                  observedResourceUrls={() => observedUrlsGetter?.() || []}
-                   focusMode={props.focusMode}
-                   onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                   historyActive={props.historyActive}
-                   historyEntries={props.historyEntries}
-                   currentVersionId={props.currentVersionId}
-                   onHistorySwitch={props.onHistorySwitch}
-                   onHistoryToggle={props.onHistoryToggle}
-                   sessionId={props.sessionId}
-                   sdkDirectory={props.sdkDirectory}
-                   postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
-                   onFilesRefresh={props.onFilesRefresh}
-                   disabled={props.disabled}
-                  />
-
-                  
-                
-                   
-           
-
-              </Show>
-              <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
-                <Switch
-                  fallback={
-                    <div class="p-4 overflow-auto h-full">
-                      <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{tab.content}</pre>
-                    </div>
-                  }
+              return (
+                <div
+                  class="flex flex-col flex-1 min-w-0 overflow-hidden"
+                  style={{ display: isActive() ? "flex" : "none" }}
                 >
-                  <Match when={tabType === "table"}>
-                    <TableRenderer content={tab.content} />
-                  </Match>
-                  <Match when={tabType === "markdown" || tabType === "markdown-document"}>
-                    <MarkdownRenderer content={tab.content} />
-                  </Match>
-                  <Match when={tabType === "mindmap" || tabType === "diagram"}>
-                    <DiagramRenderer content={tab.content} />
-                  </Match>
-                  <Match when={tabType === "json"}>
-                    <JsonRenderer content={tab.content} />
-                  </Match>
-                  <Match when={tabType === "html"}>
-                    <HtmlRenderer
-                         content={tab.content}
-                         mode={htmlMode()}
-                         viewport={viewport()}
-                         palette={palette()}
-                         inspecting={featureMutex.state.inspecting}
-                         editing={featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
-                         modelEditing={featureMutex.state.modelEditing}
-                         modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
-                         onModelEditSave={handleModelEditSave}
-                         onModelEditDelete={handleModelEditDelete}
-                         drawing={featureMutex.state.drawing}
-                         commenting={featureMutex.state.commenting}
-                         archiving={featureMutex.state.archiving}
-                         onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
-                         onResetArchiving={() => featureMutex.toggleFeature('archiving')}
-                         inspectPanel={true}
-                         onInspectTarget={setInspectTarget}
-                         onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                         onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                         refreshKey={combinedRefreshKey()}
-                         filePath={tab.filePath}
-                         commentFilePath={tab.commentFilePath}
-                         sessionId={tab.sessionId ?? props.sessionId}
-                         sdkUrl={globalSDK.url}
-                         sdkDirectory={props.sdkDirectory}
-                         onSaveFile={async (content) => {
-                           if (!tab.filePath) return
-                           const html = extractCodeBlock(content, "html")
-                           await saveArtifactContent(tab.filePath, html)
-                         }}
-                         onRefreshNeeded={handleRefresh}
-                          tabTitle={tab.title}
-                          onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
-                           observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                           registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                           iframeElementGetter={(g) => { iframeElementGetter = g }}
-                           subtype={tab.subtype}
-                           tabId={tab.id}
-                           disabled={props.disabled}
-                           skillConfig={props.skillConfig}
-                           artifactFiles={props.artifactFiles}
-                           productId={props.productId}
-                           onDownloadProductAsset={props.onDownloadProductAsset}
-                           onUpdateMentionPath={props.onUpdateMentionPath}
-                          />
-                  </Match>
-                  <Match when={tabType === "deck"}>
-                    <DeckRenderer content={tab.content} />
-                  </Match>
-                  <Match when={tabType === "svg"}>
-                    <iframe
-                      src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
-                      style={{ width: "100%", height: "100%", border: "none" }}
-                    />
-                  </Match>
-                  <Match when={tabType === "react-component"}>
-                    <ReactComponentRenderer content={tab.content} title={tab.title} />
-                  </Match>
-                  <Match when={tabType === "design-plan"}>
-                    <DesignPlanRenderer
-                      content={tab.content}
-                      title={tab.title}
-                      artifactIdentifier={tab.artifactIdentifier}
-                      confirmed={props.isPlanConfirmed?.() ?? false}
-                      disabled={props.planEnded}
-                      onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                      onContentChange={props.planEnded ? undefined : (content) => { props.onContentChange?.(tabId, content) }}
-                    />
-                  </Match>
-                  <Match when={tabType === "local-file"}>
-                    <iframe
-                      src={tab.absoluteFilePath?.match(/^https?:\/\//i)
-                        ? tab.absoluteFilePath
-                        : `local:///${tab.absoluteFilePath?.replace(/\\/g, '/')}`}
-                      style={{ width: "100%", height: "100%", border: "none" }}
-                    />
-                  </Match>
-                  <Match when={tabType === "image"}>
-                    <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
-                  </Match>
-                  <Match when={tabType === "video"}>
-                    <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
-                  </Match>
-                  <Match when={tabType === "audio"}>
-                    <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
-                  </Match>
-                  <Match when={tabType === "pdf"}>
-                    <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
-                  </Match>
-                  <Match when={tabType === "text"}>
-                    <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
-                  </Match>
-                  <Match when={tabType === "file"}>
-                    <div class="flex items-center justify-center h-full">
-                      <span style={{ color: "var(--octo-text-secondary)", "font-size": "14px" }}>
-                        此格式不支持预览
-                      </span>
-                    </div>
-                  </Match>
-                </Switch>
-              </div>
-            </div>
-          )
-        }}
-      </Show>
-    </Show>
+                <Show when={tabType !== "design-plan"}>
+<ActionBar
+                    tab={tab}
+                    mode={canToggle ? htmlMode() : undefined}
+                    onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                    viewport={viewport()}
+                    onViewportChange={handleViewportChange}
+                    palette={palette()}
+                    onPaletteChange={setPalette}
+                    editing={featureMutex.state.editing}
+                    onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
+                    modelEditing={featureMutex.state.modelEditing}
+                    onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
+                    drawing={featureMutex.state.drawing}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
+                    commenting={featureMutex.state.commenting}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
+
+archiving={featureMutex.state.archiving}
+                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      onRefresh={handleRefresh}
+                      observedResourceUrls={() => observedUrlsGetters[tabId]?.() || []}
+                      focusMode={props.focusMode}
+                      onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                      historyActive={props.historyActive}
+                      historyEntries={props.historyEntries}
+                      currentVersionId={props.currentVersionId}
+                      onHistorySwitch={props.onHistorySwitch}
+                      onHistoryToggle={props.onHistoryToggle}
+                      sessionId={props.sessionId}
+                      sdkDirectory={props.sdkDirectory}
+                       postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
+                       onFilesRefresh={props.onFilesRefresh}
+                       disabled={props.disabled}
+                      />
+
+
+
+
+
+                </Show>
+                <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
+                  <Switch
+                    fallback={
+                      <div class="p-4 overflow-auto h-full">
+                        <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{tab.content}</pre>
+                      </div>
+                    }
+                  >
+                    <Match when={tabType === "table"}>
+                      <TableRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "markdown" || tabType === "markdown-document"}>
+                      <MarkdownRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "mindmap" || tabType === "diagram"}>
+                      <DiagramRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "json"}>
+                      <JsonRenderer content={tab.content} />
+                    </Match>
+<Match when={tabType === "html"}>
+<Show when={mountedHtmlTabIds().has(tabId)} fallback={<div class="flex-1 min-h-0" />}>
+<HtmlRenderer
+                            content={tab.content}
+                            mode={htmlMode()}
+                            viewport={viewport()}
+                            palette={palette()}
+                            inspecting={isActive() && featureMutex.state.inspecting}
+                            editing={isActive() && featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
+                            modelEditing={isActive() && featureMutex.state.modelEditing}
+                            modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
+                            onModelEditSave={handleModelEditSave}
+                            onModelEditDelete={handleModelEditDelete}
+                            drawing={isActive() && featureMutex.state.drawing}
+                            commenting={isActive() && featureMutex.state.commenting}
+                            archiving={isActive() && featureMutex.state.archiving}
+                            onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
+                            onResetArchiving={() => featureMutex.toggleFeature('archiving')}
+                            inspectPanel={true}
+                            onInspectTarget={setInspectTarget}
+                            onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                            onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                            refreshKey={combinedRefreshKey()}
+                            filePath={tab.filePath}
+                            commentFilePath={tab.commentFilePath}
+                            sessionId={tab.sessionId ?? props.sessionId}
+                            sdkUrl={globalSDK.url}
+                            sdkDirectory={props.sdkDirectory}
+                            onSaveFile={async (content) => {
+                              if (!tab.filePath) return
+                              const html = extractCodeBlock(content, "html")
+                              await saveArtifactContent(tab.filePath, html)
+                            }}
+                            onRefreshNeeded={handleRefresh}
+                              tabTitle={tab.title}
+                              onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                              observedUrlsGetter={(g) => { if (g) observedUrlsGetters[tabId] = g }}
+                              registerIframePostMessage={(fn) => { if (fn) iframePostMessages[tabId] = fn }}
+                              iframeElementGetter={(g) => { if (g) iframeElementGetters[tabId] = g }}
+                              subtype={tab.subtype}
+                              tabId={tab.id}
+                              disabled={props.disabled}
+                              skillConfig={props.skillConfig}
+                              artifactFiles={props.artifactFiles}
+                              productId={props.productId}
+                              onDownloadProductAsset={props.onDownloadProductAsset}
+                              onUpdateMentionPath={props.onUpdateMentionPath}
+                              />
+                    </Show>
+                    </Match>
+                    <Match when={tabType === "deck"}>
+                      <DeckRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "svg"}>
+                      <iframe
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
+                        style={{ width: "100%", height: "100%", border: "none" }}
+                      />
+                    </Match>
+                    <Match when={tabType === "react-component"}>
+                      <ReactComponentRenderer content={tab.content} title={tab.title} />
+                    </Match>
+                    <Match when={tabType === "design-plan"}>
+                      <DesignPlanRenderer
+                        content={tab.content}
+                        title={tab.title}
+                        artifactIdentifier={tab.artifactIdentifier}
+                        confirmed={props.isPlanConfirmed?.() ?? false}
+                        disabled={props.planEnded}
+                        onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
+                        onContentChange={props.planEnded ? undefined : (content) => { props.onContentChange?.(tabId, content) }}
+                      />
+                    </Match>
+                    <Match when={tabType === "local-file"}>
+                      <iframe
+                        src={tab.absoluteFilePath?.match(/^https?:\/\//i)
+                          ? tab.absoluteFilePath
+                          : `local:///${tab.absoluteFilePath?.replace(/\\/g, '/')}`}
+                        style={{ width: "100%", height: "100%", border: "none" }}
+                      />
+                    </Match>
+                    <Match when={tabType === "image"}>
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
+                    </Match>
+                    <Match when={tabType === "video"}>
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
+                    </Match>
+                    <Match when={tabType === "audio"}>
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
+                    </Match>
+                    <Match when={tabType === "pdf"}>
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
+                    </Match>
+                    <Match when={tabType === "text"}>
+                      <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
+                    </Match>
+                    <Match when={tabType === "file"}>
+                      <div class="flex items-center justify-center h-full">
+                        <span style={{ color: "var(--octo-text-secondary)", "font-size": "14px" }}>
+                          此格式不支持预览
+                        </span>
+                      </div>
+                    </Match>
+                  </Switch>
+                </div>
+                </div>
+              )
+            }}
+          </For>
+        </Show>
     <PrototypeCtxMenu />
     <PrototypePropertyEditor
       sessionId={props.sessionId}

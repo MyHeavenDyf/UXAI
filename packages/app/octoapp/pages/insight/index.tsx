@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -47,10 +48,11 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
-import { MakeGroupsProvider } from "@/context/make-groups"
+import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
+import { DialogPreviewUnavailable } from "../make/components/dialog-preview-unavailable"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
 import { McpChip } from "./components/mcp-chip"
@@ -256,6 +258,11 @@ function InsightContent() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
+  const groupsCtx = useMakeGroupsContext()
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "insight")
+  }, { defer: true }))
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -1070,6 +1077,63 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件 → 右侧 ResultViewer 预览(对齐 Design 页 handleOpenLocalFile)。
+   *  URL → html tab;本地文件 → resolveOutputType 推断类型,走 path source 读盘。 */
+  function handleOpenLocalFile(filePath: string) {
+    if (/^https?:\/\//i.test(filePath)) {
+      handleOpenResult({
+        id: `local-file-${filePath.replace(/[/\\:?#&=]/g, "-")}`,
+        title: filePath,
+        type: "html",
+        source: "uri",
+        uri: filePath,
+        content: "",
+        createdAt: new Date(),
+        fromAttachment: true,
+      })
+      return
+    }
+
+    const normalizedPath = filePath.replace(/\\/g, "/")
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    const dir = projectDir()
+    if (!isAbsolute && !dir) return
+    let absolutePath = normalizedPath
+    if (!isAbsolute && dir) {
+      const normalizedDir = dir.replace(/\\/g, "/")
+      absolutePath = (normalizedDir.endsWith("/") || normalizedPath.startsWith("/"))
+        ? normalizedDir + normalizedPath
+        : normalizedDir + "/" + normalizedPath
+      absolutePath = absolutePath.replace(/\/+/g, "/")
+    }
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    const officeExt = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(officeExt)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={fileName}
+          filePath={absolutePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-local-file", extend: JSON.stringify({ type: "office-unavailable", ext: officeExt }) })
+      return
+    }
+    handleOpenResult({
+      id: `local-file-${absolutePath.replace(/[/\\:]/g, "-")}`,
+      title: fileName,
+      type: resolveOutputType(fileName),
+      source: "path",
+      filePath: absolutePath,
+      fileName,
+      mimeType: mimeForName(fileName),
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
   /** 添加至会话区:作为已就绪附件加入输入区。图片与非图片同链路(2026-09 去 S3):已落盘、有 path
    *  → done;发送时图片产 FilePart{url:file://…}(服务端读盘转 base64)、非图片进 [附件] 清单。 */
@@ -1239,6 +1303,17 @@ function InsightContent() {
           }),
         )
         local.session.promote(dir, session.id)
+
+        // Auto-assign to pending group (from "新建对话" in group context menu)
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight", dir, groupsCtx?.groups ?? [])
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "insight"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          void globalSDK.createClient({ directory: dir }).sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
+
         navigate(`/insight/${session.id}`)
         tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
@@ -2215,6 +2290,41 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件(文件卡片 / 图片缩略图)→ 右侧 ResultViewer tab 预览(对齐 Design 页)。
+   *  本地附件 → handleOpenLocalFile;URL 附件(FilePart)→ 按 resolveOutputType 路由。 */
+  function handleOpenAttachment(att: UserAttachment) {
+    const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(ext)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "office-unavailable", ext }) })
+      return
+    }
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path)
+      return
+    }
+    if (!att.url) return
+    handleOpenResult({
+      id: `att-url-${att.url}`,
+      title: att.filename,
+      type: resolveOutputType(att.filename, att.mime),
+      source: "uri",
+      uri: att.url,
+      fileName: att.filename,
+      mimeType: att.mime,
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
 
   function handleTaskRefresh(taskId: string) {
@@ -2455,6 +2565,7 @@ function InsightContent() {
       onRemoveAttachmentsByPath={removeAttachmentsByPath}
       refreshKey={filesRefreshKey()}
       onFilesRefresh={() => setFilesRefreshKey((k) => k + 1)}
+      onRefresh={() => setFilesRefreshKey((k) => k + 1)}
     />
   )
 
@@ -2717,6 +2828,7 @@ function InsightContent() {
                           status={sessionStatus()}
                           active={isBusy()}
                           onOpenResult={handleOpenResult}
+                          onOpenAttachment={handleOpenAttachment}
                           taskCards={taskCardsByAnchor().get(msgID) ?? []}
                           onTaskRefresh={handleTaskRefresh}
                           onTaskStop={handleTaskStop}
