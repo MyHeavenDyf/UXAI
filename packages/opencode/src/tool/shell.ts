@@ -595,6 +595,18 @@ export const ShellTool = Tool.define(
           parameters: prompt.parameters,
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
+              const tracking = yield* Effect.try({
+                try: () => ArtifactStore.scriptContext(ctx.messageID),
+                catch: (error) => error,
+              }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (tracking && params.artifactFiles === undefined) {
+                throw new Error(
+                  'Insight Shell requires artifactFiles. This command has NOT executed and has NOT changed any files. ' +
+                  'Resubmit this unexecuted call with the final files it will create/edit, e.g. artifactFiles: ["123.txt"]. ' +
+                  'For read-only commands or commands with no final deliverables, explicitly use artifactFiles: []. ' +
+                  'Never repeat a previously completed write merely to collect tracking data.',
+                )
+              }
               const executeInstance = yield* InstanceState.context
               const cwd = params.workdir
                 ? yield* resolvePath(params.workdir, executeInstance.directory, shell)
@@ -626,10 +638,6 @@ export const ShellTool = Tool.define(
                 },
                 ctx,
               )
-              const tracking = yield* Effect.try({
-                try: () => ArtifactStore.scriptContext(ctx.messageID),
-                catch: (error) => error,
-              }).pipe(Effect.catch(() => Effect.succeed(undefined)))
               if (!tracking) return yield* command
               const files = yield* Effect.forEach(params.artifactFiles ?? [], (file) => resolvePath(file, cwd, shell))
               return yield* observe({ ...tracking, files, abort: ctx.abort }, command)

@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test"
 import { sql } from "drizzle-orm"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { mkdir } from "node:fs/promises"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -23,7 +23,14 @@ import {
 } from "../../src/tracking/delivery.sql"
 import { begin, collect, recover, inherit } from "../../src/tracking/store"
 import { mcpFacts, fileFact } from "../../src/tracking/facts"
-import { claim, finish, deliver, endpoint, layer as senderLayer, Service as SenderService } from "../../src/tracking/sender"
+import {
+  claim,
+  finish,
+  deliver,
+  endpoint,
+  layer as senderLayer,
+  Service as SenderService,
+} from "../../src/tracking/sender"
 import { resolveOutputType } from "../../src/tracking/output-type"
 import { resolveOutputType as frontendType } from "../../../app/octoapp/pages/insight/utils/output-type"
 import { tmpdir, TestInstance } from "../fixture/fixture"
@@ -145,6 +152,112 @@ test("startup recovery captures a saved result without a callback once", () => {
   recover()
   expect(rows()).toHaveLength(1)
 })
+
+shellTests.instance(
+  "Insight rejects missing declarations before writes and corrected calls append only once",
+  () =>
+    Effect.gen(function* () {
+      const instance = yield* TestInstance
+      const turn = seed(undefined, "original-account", true, instance.directory)
+      const outputs = path.join(instance.directory, ".octo", turn.sessionID, "outputs")
+      const uploads = path.join(instance.directory, ".octo", turn.sessionID, "uploads")
+      yield* Effect.promise(() =>
+        Promise.all([mkdir(outputs, { recursive: true }), mkdir(uploads, { recursive: true })]),
+      )
+      const uploaded = path.join(uploads, "uploaded.txt")
+      yield* Effect.promise(() => Bun.write(uploaded, "12345\n"))
+      const tool = yield* ShellTool.pipe(Effect.flatMap((info) => info.init()))
+      const parent = part(turn, "bash")
+      const context = {
+        sessionID: turn.sessionID,
+        messageID: parent.messageID,
+        callID: parent.callID,
+        agent: "octo_insight",
+        abort: AbortSignal.any([]),
+        messages: [],
+        metadata: () => Effect.void,
+        ask: () => Effect.void,
+      }
+      const commands =
+        process.platform === "win32"
+          ? [
+              'Set-Content -Path "123.txt" -Value "abc"',
+              `Add-Content -LiteralPath '${uploaded.replaceAll("'", "''")}' -Value '7890'`,
+              '$randomContent = (New-Guid).ToString(); Set-Content -Path "123.txt" -Value $randomContent',
+            ]
+          : ["printf abc > 123.txt", "printf '7890\\n' >> ../uploads/uploaded.txt", "printf changed > 123.txt"]
+      for (const [index, command] of commands.entries()) {
+        const file = index === 1 ? uploaded : path.join(outputs, "123.txt")
+        const before = yield* Effect.promise(async () =>
+          (await Bun.file(file).exists()) ? Bun.file(file).text() : undefined,
+        )
+        const input = { command, workdir: outputs, description: "Write user file" }
+        const rejected = yield* Effect.exit(
+          tool.execute(input, {
+            ...context,
+            ask: () => Effect.die("missing declaration must fail before permission request"),
+            metadata: () => Effect.die("missing declaration must fail before process starts"),
+          }),
+        )
+        expect(Exit.isFailure(rejected)).toBe(true)
+        if (Exit.isFailure(rejected)) expect(String(Cause.squash(rejected.cause))).toContain("has NOT executed")
+        expect(
+          yield* Effect.promise(async () => ((await Bun.file(file).exists()) ? Bun.file(file).text() : undefined)),
+        ).toBe(before)
+        const result = yield* tool.execute({ ...input, artifactFiles: [index === 1 ? uploaded : "123.txt"] }, context)
+        expect(result.metadata.exit).toBe(0)
+        collect(part(turn, "bash", result.metadata, { ...input, artifactFiles: [file] }))
+      }
+      expect((yield* Effect.promise(() => Bun.file(uploaded).text())).match(/7890/g)).toHaveLength(1)
+      expect(
+        rows()
+          .map((row) => row.name)
+          .sort(),
+      ).toEqual(["artifact-file-edit", "artifact-file-edit", "artifact-file-write"])
+      const readonly = yield* tool.execute(
+        {
+          command: process.platform === "win32" ? 'Get-Content -Path "123.txt"' : "cat 123.txt",
+          workdir: outputs,
+          description: "Read existing file",
+          artifactFiles: [],
+        },
+        context,
+      )
+      expect(readonly.metadata.exit).toBe(0)
+      expect(readonly.metadata).toMatchObject({ artifactScript: { reason: "script-no-targets" } })
+      collect(part(turn, "bash", readonly.metadata))
+      expect(rows()).toHaveLength(3)
+      const child = seed(undefined, "child-account", false)
+      inherit(parent.messageID, child.messageID, child.sessionID, instance.directory)
+      const childPart = part(child, "bash")
+      const childResult = yield* Effect.exit(
+        tool.execute(
+          { command: commands[1], workdir: outputs, description: "Child append" },
+          {
+            ...context,
+            agent: "insight_reader",
+            sessionID: child.sessionID,
+            messageID: childPart.messageID,
+          },
+        ),
+      )
+      expect(Exit.isFailure(childResult)).toBe(true)
+      if (Exit.isFailure(childResult)) expect(String(Cause.squash(childResult.cause))).toContain("has NOT executed")
+      expect((yield* Effect.promise(() => Bun.file(uploaded).text())).match(/7890/g)).toHaveLength(1)
+      const other = part(seed(undefined, "other", false), "bash")
+      const untracked = yield* tool.execute(
+        { command: commands[0], workdir: outputs, description: "Ordinary Shell" },
+        {
+          ...context,
+          sessionID: other.sessionID,
+          messageID: other.messageID,
+        },
+      )
+      expect(untracked.metadata.exit).toBe(0)
+      expect("artifactScript" in untracked.metadata).toBe(false)
+    }),
+  { config: { shell: process.platform === "win32" ? (Bun.which("powershell") ?? "powershell.exe") : "/bin/bash" } },
+)
 
 shellTests.instance(
   "real Shell declarations persist script facts, replay once, and retain original account",

@@ -20,7 +20,8 @@
 | 查询 processing/pending/failed；stop_task | 未取得成功交付物或仅控制结果 | 不生成产物事件 | — |
 | Shell 声明的目标原先不存在 | 命令 exit=0、未取消，核验后是普通文件 | artifact-file-write | script |
 | Shell 声明的目标原先存在 | 命令 exit=0、未取消，前后 SHA-256 不同 | artifact-file-edit | script |
-| Shell 未声明目标、失败、超时、文件未变或未通过核验 | 只保存诊断 | 不生成产物事件 | — |
+| 已登记 Insight 的 Shell 漏传 artifactFiles | 启动命令前拒绝，工具 error 中说明尚未执行 | 不生成产物事件 | — |
+| Shell 显式空目标、失败、超时、文件未变或未通过核验 | 只保存诊断 | 不生成产物事件 | — |
 | 独立 Python 工具、apply_patch、自定义插件直接写盘 | 尚未接入；通过 Shell 执行则按上述声明规则 | 不生成产物事件，留下未接入回执 | — |
 | 手动改文件、目录刷新、下载/落地已有 MCP 产物 | 不属于本批工具产物事实 | 不生成这三个事件 | — |
 
@@ -133,7 +134,7 @@ receipt 常见原因：file-enqueued / mcp-enqueued、task-not-completed、no-ar
 
 ### Shell 显式目标核验（2026-09-22）
 
-Shell 的协议工具名仍为 `bash`，实际进程可以是 Bash、PowerShell、cmd，其内部也可以运行 Python、Excel/Word COM、Chrome PDF 导出。新增可选参数 `artifactFiles`，Insight 提示词要求对最终交付物声明路径，例如：
+Shell 的协议工具名仍为 `bash`，实际进程可以是 Bash、PowerShell、cmd，其内部也可以运行 Python、Excel/Word COM、Chrome PDF 导出。`artifactFiles` 对已登记的 Insight 轮次及其子任务必填：模型工具 schema 标记 required，服务端也在启动命令前检查。其他产品仍可省略。最终交付物声明示例：
 
 ```json
 {
@@ -145,6 +146,8 @@ Shell 的协议工具名仍为 `bash`，实际进程可以是 Bash、PowerShell�
 ```
 
 - 相对路径以实际工具 workdir 为基准，不跟随命令内部 cd；只接受原会话 outputs/uploads 内的目标。上传文件原地修改也可声明，不要求复制到 outputs。不扫描目录，不从文件管理页面判断新增。
+- 只读或无最终交付物的命令显式传 `artifactFiles: []`，对应诊断 `script-no-targets`。漏传则产生工具 error，尚未执行命令，模型可补齐参数后重试该未执行调用；已完成的写入不得为补打点重复执行。历史 completed part 中的 `script-targets-not-declared` 保留原含义，不补造旧事件。
+- 此次修复防止“参数完全漏传却已经写盘”；不能证明模型填入的目标完整。写入时错误地传空列表或漏列部分目标仍可能漏报，当前不解析任意脚本意图。
 - 启动命令前采集文件存在性和 SHA-256，正常退出且未取消后再次核验。新建映射 write，已有文件字节发生变化映射 edit，内容相同不报。直接 write 工具覆盖文件仍保留原来的 write 语义。
 - 最多 32 个不同目标，单文件最大 64 MiB，每阶段文件大小预算 256 MiB，单文件哈希读取 5 秒上限。超限、目录、越界链接、读取失败等仅记录诊断，继续执行原命令。不要把辅助 Python 脚本、临时 HTML 等列为交付物。
 - 同一 sidecar 中，已登记 Insight 的 write/edit 与声明目标的 Shell 共用按路径排序的锁，覆盖核验前至核验后，避免受控调用同时改同一文件。多目标逆序不会互锁。其他产品保持原执行行为。
@@ -167,6 +170,12 @@ ORDER BY time_created DESC LIMIT 100;
 新增验收：声明的 xlsx/pdf/docx 新建、uploads 内 TXT 同长度修改、内容不变、失败/超时/取消留下文件、未声明、越界链接、大小/数量超限、同文件并发、不同文件并行、completed 结果重放和非 Insight 隔离。实际 Office COM 和浏览器导出必须在安装包环境另做验收；用带扩展名的测试字节不等于验证 Office 文档有效。
 
 ## 9. 验证记录
+
+### 漏传目标声明保护（2026-09-23）
+
+- 采集/发送测试第一轮 24 项通过；补充子任务继承断言及显式空列表诊断后，定向复验 3 项通过。最终 `packages/opencode` 中 `bun typecheck` 通过。
+- 真实 Shell 回归验证三种 TXT 写入：缺少声明时拒绝且文件不变，补齐后执行，追加 7890 仅一次；产生预期的一条 write 和两条 edit。另检查只读空列表、子任务及非 Insight 兼容行为。
+- 本轮未构建或安装新包；需重新构建后复验实际模型补齐参数的流程。历史漏报不伪造补发，空列表误用或目标不完整仍属于覆盖边界。
 
 ### Shell 扩展（2026-09-22）
 
