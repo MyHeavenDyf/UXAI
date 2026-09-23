@@ -81,7 +81,7 @@ export function DragInput(props: {
         }
         window.addEventListener('mousemove', onMove)
         window.addEventListener('mouseup', onUp)
-      }} class={`select-none ${isV ? 'cursor-ns-resize' : 'cursor-ew-resize'} text-slate-400 text-[10px] font-medium px-1.5 h-full flex items-center`}>{icon}</span>
+      }} class={`select-none ${isV ? 'cursor-ns-resize' : 'cursor-ew-resize'} text-slate-400 text-[10px] font-medium pl-1.5 pr-4 h-full flex items-center`}>{icon}</span>
       <input ref={(el) => { inputEl = el }} type="text" inputmode="numeric" placeholder={props.placeholder}
         value={text()}
         onInput={(e) => {
