@@ -2,6 +2,7 @@ import { createEffect, createSignal, type JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { GroupedSidebar } from "@/components/grouped-sidebar"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+import { tracker } from "@/utils/tracker"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
 export const SIDEBAR_WIDTH_KEY = "octo:insight:sidebar-width"
@@ -73,6 +74,17 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     return (result.data ?? []) as Session[]
   }
 
+  const fetchGroupSessions = async (dir: string) => {
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.experimental.session.list({
+      directory: dir,
+      grouped: "true",
+      agent: "octo_insight",
+      limit: 9999,
+    })
+    return (result.data ?? []) as Session[]
+  }
+
   const fetchSessionById = async (dir: string, sessionID: string) => {
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.session.get({ sessionID, directory: dir })
@@ -90,6 +102,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         agentFilter="octo_insight"
         fetchSessionPage={fetchSessionPage}
         fetchPinnedSessions={fetchPinnedSessions}
+        fetchGroupSessions={fetchGroupSessions}
         fetchSessionById={fetchSessionById}
         buildSessionRoute={(s: Session) => `/insight/${s.id}`}
         buildNewRoute={() => "/insight"}
@@ -97,6 +110,11 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         sectionTitle="最近"
         newButtonText="新建对话"
         trackerModule="insight"
+        onLoadMore={(limit) => tracker.interaction({
+          module: "insight",
+          name: "session-load-more",
+          extend: JSON.stringify({ limit, source: "panel" }),
+        })}
         sidebarSourceKey="insight"
         inlineBeforeSection
       />

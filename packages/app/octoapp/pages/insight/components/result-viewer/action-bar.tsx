@@ -2,7 +2,7 @@ import { createSignal, onCleanup, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { isToggleType } from "./tab-store"
-import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
+import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder, IconRefresh } from "../../icons"
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON, uxrJsonToOctoWhiteboard } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -26,6 +26,19 @@ function copyToClipboard(text: string) {
 
 function downloadBlob(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function downloadBytes(bytes: Uint8Array, filename: string, mimeType: string) {
+  const blobPart: BlobPart = new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength)
+  const blob = new Blob([blobPart], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
@@ -243,6 +256,11 @@ export function ActionBar(props: {
   onEdit?: () => void
   /** 取预览 iframe(由 result-viewer 容器作用域提供,避免全局 querySelector 取到其他 tab/分屏的 iframe) */
   getIframe?: () => HTMLIFrameElement | null
+  /** 刷新预览(重新读盘/重拉 uri);未传则不渲染刷新按钮 */
+  onRefresh?: () => void
+  /** 全屏预览切换 */
+  focusMode?: boolean
+  onFocusModeToggle?: () => void
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -305,115 +323,182 @@ export function ActionBar(props: {
     tracker.interaction({ module: "insight", name: "result-archive", extend: JSON.stringify({ tabType: props.tab.type }) })
   }
 
+  // 会话附件 tab 下载:文本类走 downloadOptions;图片/二进制走 uri/filePath 直取
+  async function handleAttachmentDownload() {
+    try {
+      const tab = props.tab
+      const filename = tab.fileName || sanitizeFilename(tab.title) || "download"
+      if (tab.content != null && ["html", "markdown", "json", "code"].includes(tab.type)) {
+        downloadOptions(tab)[0]?.onClick()
+        return
+      }
+      const api = getDesktopApi()
+      const mime = tab.mimeType || "application/octet-stream"
+      if (tab.uri && /^data:/i.test(tab.uri)) {
+        const comma = tab.uri.indexOf(",")
+        if (comma > 0) {
+          const meta = tab.uri.slice(5, comma)
+          const payload = tab.uri.slice(comma + 1)
+          const isBase64 = /;base64/i.test(meta)
+          const binStr = isBase64 ? atob(payload) : decodeURIComponent(payload)
+          const bytes = new Uint8Array(binStr.length)
+          for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i)
+          downloadBytes(bytes, filename, mime)
+        }
+        return
+      }
+      if (tab.filePath && api?.readFileBuffer) {
+        const buf = await api.readFileBuffer(tab.filePath)
+        if (buf) downloadBytes(new Uint8Array(buf), filename, mime)
+        return
+      }
+      if (tab.uri && /^https?:/i.test(tab.uri)) {
+        const res = await fetch(tab.uri)
+        if (res.ok) downloadBytes(new Uint8Array(await res.arrayBuffer()), filename, res.headers.get("content-type") || mime)
+      }
+    } catch (err) {
+      showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   return (
     <>
-    <div
-      class="insight-action-bar flex items-center justify-between flex-wrap px-4 py-1.5 shrink-0 gap-x-2 gap-y-3"
-      style={{
-        "border-bottom": "1px solid var(--octo-border-divider)",
-        background: "var(--octo-surface-page)",
-        "min-height": "36px",
-      }}
-    >
-      <Show
-        when={showToggle()}
-        fallback={
-          <TruncatedText
-            class="max-w-[55%]"
-            textClass="block w-full min-w-0 text-xs truncate"
-            style={{ color: "var(--octo-text-secondary)" }}
-            text={props.tab.title}
-          />
-        }
+    <Show when={props.tab.fromAttachment} fallback={
+      // ── 非会话附件 tab:原 insight ActionBar(归档/本地打开/编辑等,全部不变)──
+      <>
+      <div
+        class="insight-action-bar flex items-center justify-between flex-wrap px-4 py-1.5 shrink-0 gap-x-2 gap-y-3"
+        style={{
+          "border-bottom": "1px solid var(--octo-border-divider)",
+          background: "var(--octo-surface-page)",
+          "min-height": "36px",
+        }}
       >
-        <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />
-      </Show>
-      <div class="flex items-center gap-0.5">
-        <Show when={showActions()}>
-          {/* path 源(write 文本产物):额外给"本地打开/文件夹打开"——文件在本地磁盘,
-              方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
-          <Show when={props.tab.source === "path" && props.tab.filePath}>
-            <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
-            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
-          </Show>
-          <Show when={canEdit()}>
-            <ActionBtn
-              icon={<IconEditPencil size={14} />}
-              label="编辑"
-              onClick={() => {
-                tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
-                props.onEdit!()
-              }}
+        <Show
+          when={showToggle()}
+          fallback={
+            <TruncatedText
+              class="max-w-[55%]"
+              textClass="block w-full min-w-0 text-xs truncate"
+              style={{ color: "var(--octo-text-secondary)" }}
+              text={props.tab.title}
             />
-          </Show>
-          {/* uri md 卡「文件夹」定位——落点在可见的 .octo/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
-          <Show when={canRevealUri()}>
-            <ActionBtn
-              icon={<IconActionFolder size={14} />}
-              label="文件夹"
-              onClick={() => {
-                tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: "md" }) })
-                void revealUriLocal(props.tab, projectDir() || "", params.id ?? "")
-              }}
-            />
-          </Show>
-          <ActionBtn
-            icon={<IconActionCopy size={14} />}
-            label="复制"
-            disabled={!ready()}
-            onClick={() => {
-              if (!ready()) return
-              tracker.interaction({
-                module: "insight",
-                name: "result-copy-content",
-                extend: JSON.stringify({ tabType: props.tab.type, viewMode: props.viewMode }),
-              })
-              // 复制整份内容。原 table 卡曾在这里抽表格本体(extractTableMarkdown),
-              // 随 table 退役一并去掉(§7)。
-              copyToClipboard(props.tab.content!)
-            }}
-          />
-          <DownloadMenu tab={props.tab} disabled={!ready()} />
-        </Show>
-        {/* 归档(60×32,#0A59F7):置于头部操作项最右侧;二进制无来源 / 文本未 ready / HTML 代码视图 / 大小超出 1B~4GiB 时置灰。
-            disabled 按钮原生 title 不显示(浏览器抑制禁用元素的鼠标事件),故用 Tooltip(div trigger)包裹,禁用态也能悬浮出原因。 */}
-        <Tooltip
-          placement="top"
-          value={archiveTitle()}
-          inactive={!archiveDisabled()}
-          contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
-          class="shrink-0"
+          }
         >
-          <button
-            type="button"
-            onClick={handleArchiveClick}
-            disabled={archiveDisabled()}
-            class="flex items-center justify-center transition-opacity"
-            classList={{
-              "hover:opacity-90 cursor-pointer": !archiveDisabled(),
-              "opacity-40 cursor-not-allowed": archiveDisabled(),
-            }}
-            style={{
-              width: "60px",
-              height: "32px",
-              "border-radius": "20px",
-              background: "#0A59F7",
-              color: "#FFFFFF",
-              "font-size": "14px",
-              "line-height": "22px",
-              "flex-shrink": "0",
-            }}
+          <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />
+        </Show>
+        <div class="flex items-center gap-0.5">
+          <Show when={showActions()}>
+            <Show when={props.tab.source === "path" && props.tab.filePath}>
+              <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
+              <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
+            </Show>
+            <Show when={canEdit()}>
+              <ActionBtn
+                icon={<IconEditPencil size={14} />}
+                label="编辑"
+                onClick={() => {
+                  tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
+                  props.onEdit!()
+                }}
+              />
+            </Show>
+            <Show when={canRevealUri()}>
+              <ActionBtn
+                icon={<IconActionFolder size={14} />}
+                label="文件夹"
+                onClick={() => {
+                  tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: "md" }) })
+                  void revealUriLocal(props.tab, projectDir() || "", params.id ?? "")
+                }}
+              />
+            </Show>
+            <ActionBtn
+              icon={<IconActionCopy size={14} />}
+              label="复制"
+              disabled={!ready()}
+              onClick={() => {
+                if (!ready()) return
+                tracker.interaction({ module: "insight", name: "result-copy-content", extend: JSON.stringify({ tabType: props.tab.type, viewMode: props.viewMode }) })
+                copyToClipboard(props.tab.content!)
+              }}
+            />
+            <DownloadMenu tab={props.tab} disabled={!ready()} />
+          </Show>
+          <Tooltip
+            placement="top"
+            value={archiveTitle()}
+            inactive={!archiveDisabled()}
+            contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
+            class="shrink-0"
           >
-            归档
-          </button>
-        </Tooltip>
+            <button
+              type="button"
+              onClick={handleArchiveClick}
+              disabled={archiveDisabled()}
+              class="flex items-center justify-center transition-opacity"
+              classList={{
+                "hover:opacity-90 cursor-pointer": !archiveDisabled(),
+                "opacity-40 cursor-not-allowed": archiveDisabled(),
+              }}
+              style={{ width: "60px", height: "32px", "border-radius": "20px", background: "#0A59F7", color: "#FFFFFF", "font-size": "14px", "line-height": "22px", "flex-shrink": "0" }}
+            >
+              归档
+            </button>
+          </Tooltip>
+        </div>
       </div>
-    </div>
-    <ArchiveDialogs
-      target={archiveTarget()}
-      open={archiveDialogOpen()}
-      onClose={() => setArchiveDialogOpen(false)}
-    />
+      <ArchiveDialogs target={archiveTarget()} open={archiveDialogOpen()} onClose={() => setArchiveDialogOpen(false)} />
+      </>
+    }>
+      {/* 会话附件 tab:design 风格 — 只有 4 个按钮:刷新、下载、历史、全屏 */}
+      <div class="octo-action-bar shrink-0">
+        <div class="octo-action-bar-left">
+          <Show when={props.onRefresh}>
+            <button type="button" class="octo-action-btn octo-action-btn-refresh" onClick={props.onRefresh} title="刷新预览">
+              <IconRefresh size={16} />
+            </button>
+          </Show>
+        </div>
+        <div class="octo-action-bar-right">
+          <div class="octo-action-bar-fixed">
+            <button
+              type="button"
+              class="octo-action-btn octo-action-btn-download"
+              onClick={() => void handleAttachmentDownload()}
+              title="下载"
+            >
+              <IconActionDownload size={16} />
+              <span>下载</span>
+            </button>
+            <Show when={props.onFocusModeToggle}>
+              <button
+                type="button"
+                class="octo-action-btn"
+                onClick={props.onFocusModeToggle}
+                title={props.focusMode ? "退出全屏" : "全屏"}
+              >
+                <Show when={props.focusMode} fallback={
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                }>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </Show>
+              </button>
+            </Show>
+          </div>
+        </div>
+      </div>
+    </Show>
     </>
   )
 }

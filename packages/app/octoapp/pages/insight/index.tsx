@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -47,10 +48,11 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
-import { MakeGroupsProvider } from "@/context/make-groups"
+import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
+import { DialogPreviewUnavailable } from "../make/components/dialog-preview-unavailable"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
 import { McpChip } from "./components/mcp-chip"
@@ -81,7 +83,7 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
-import { currentAccount } from "./utils/account"
+import { currentAccount, currentUserId } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
@@ -256,6 +258,11 @@ function InsightContent() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
+  const groupsCtx = useMakeGroupsContext()
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "insight")
+  }, { defer: true }))
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -1070,6 +1077,63 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件 → 右侧 ResultViewer 预览(对齐 Design 页 handleOpenLocalFile)。
+   *  URL → html tab;本地文件 → resolveOutputType 推断类型,走 path source 读盘。 */
+  function handleOpenLocalFile(filePath: string) {
+    if (/^https?:\/\//i.test(filePath)) {
+      handleOpenResult({
+        id: `local-file-${filePath.replace(/[/\\:?#&=]/g, "-")}`,
+        title: filePath,
+        type: "html",
+        source: "uri",
+        uri: filePath,
+        content: "",
+        createdAt: new Date(),
+        fromAttachment: true,
+      })
+      return
+    }
+
+    const normalizedPath = filePath.replace(/\\/g, "/")
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    const dir = projectDir()
+    if (!isAbsolute && !dir) return
+    let absolutePath = normalizedPath
+    if (!isAbsolute && dir) {
+      const normalizedDir = dir.replace(/\\/g, "/")
+      absolutePath = (normalizedDir.endsWith("/") || normalizedPath.startsWith("/"))
+        ? normalizedDir + normalizedPath
+        : normalizedDir + "/" + normalizedPath
+      absolutePath = absolutePath.replace(/\/+/g, "/")
+    }
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    const officeExt = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(officeExt)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={fileName}
+          filePath={absolutePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-local-file", extend: JSON.stringify({ type: "office-unavailable", ext: officeExt }) })
+      return
+    }
+    handleOpenResult({
+      id: `local-file-${absolutePath.replace(/[/\\:]/g, "-")}`,
+      title: fileName,
+      type: resolveOutputType(fileName),
+      source: "path",
+      filePath: absolutePath,
+      fileName,
+      mimeType: mimeForName(fileName),
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
   /** 添加至会话区:作为已就绪附件加入输入区。图片与非图片同链路(2026-09 去 S3):已落盘、有 path
    *  → done;发送时图片产 FilePart{url:file://…}(服务端读盘转 base64)、非图片进 [附件] 清单。 */
@@ -1239,6 +1303,17 @@ function InsightContent() {
           }),
         )
         local.session.promote(dir, session.id)
+
+        // Auto-assign to pending group (from "新建对话" in group context menu)
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight", dir, groupsCtx?.groups ?? [])
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "insight"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          void globalSDK.createClient({ directory: dir }).sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
+
         navigate(`/insight/${session.id}`)
         tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
@@ -1606,10 +1681,12 @@ function InsightContent() {
     // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
     // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
     const account = currentAccount()
-    const promptExtra =
-      injectedSkills.length || account
-        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-        : undefined
+    const userId = currentUserId()
+    const promptExtra = {
+      ...(injectedSkills.length ? { skills: injectedSkills } : {}),
+      ...(account ? { account } : {}),
+      ...(userId ? { userId } : {}),
+    }
 
     sync.session.optimistic.add({
       sessionID: sessionId,
@@ -1636,8 +1713,12 @@ function InsightContent() {
         //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
         //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
         //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        //   - userId(SPEC-INS-033):当前登录用户 ID,供 get_session_identity 原样交给模型(skill 调内部接口用)。
+        //     同样拿不到就不传,由工具侧显式失败。
+        // **每轮都传,字段都没有时传空对象**(SPEC-INS-033 §1):服务端只在收到 extra 时才覆盖 sessionExtras,
+        // 某轮不传就会沿用上一轮的值——登录态丢失后工具仍拿到旧身份,而不是显式失败。空对象只进 insight
+        // 会话的 sessionExtras,不影响 make / studio。
+        extra: promptExtra,
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
@@ -2209,6 +2290,41 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件(文件卡片 / 图片缩略图)→ 右侧 ResultViewer tab 预览(对齐 Design 页)。
+   *  本地附件 → handleOpenLocalFile;URL 附件(FilePart)→ 按 resolveOutputType 路由。 */
+  function handleOpenAttachment(att: UserAttachment) {
+    const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
+    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(ext)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "office-unavailable", ext }) })
+      return
+    }
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path)
+      return
+    }
+    if (!att.url) return
+    handleOpenResult({
+      id: `att-url-${att.url}`,
+      title: att.filename,
+      type: resolveOutputType(att.filename, att.mime),
+      source: "uri",
+      uri: att.url,
+      fileName: att.filename,
+      mimeType: att.mime,
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
 
   function handleTaskRefresh(taskId: string) {
@@ -2449,6 +2565,7 @@ function InsightContent() {
       onRemoveAttachmentsByPath={removeAttachmentsByPath}
       refreshKey={filesRefreshKey()}
       onFilesRefresh={() => setFilesRefreshKey((k) => k + 1)}
+      onRefresh={() => setFilesRefreshKey((k) => k + 1)}
     />
   )
 
@@ -2711,6 +2828,7 @@ function InsightContent() {
                           status={sessionStatus()}
                           active={isBusy()}
                           onOpenResult={handleOpenResult}
+                          onOpenAttachment={handleOpenAttachment}
                           taskCards={taskCardsByAnchor().get(msgID) ?? []}
                           onTaskRefresh={handleTaskRefresh}
                           onTaskStop={handleTaskStop}

@@ -1360,6 +1360,7 @@ export type Provider = {
   options: {
     [key: string]: unknown
   }
+  title_model?: Array<string>
   models: {
     [key: string]: Model
   }
@@ -4578,6 +4579,7 @@ export type ExperimentalSessionListData = {
     search?: string
     limit?: number
     pinned?: boolean | "true" | "false"
+    grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
   }

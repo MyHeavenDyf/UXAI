@@ -58,9 +58,9 @@ export function sessionDirOf(sdkDirectory?: string, sessionId?: string): string 
 }
 
 // ── 判据:这个会话是不是 fastui 工程 ───────────────────────────────
-// subtype "url" 是所有 http(s) 链接 tab 的通用形态(链接卡片、文件管理打开外链都走它),
-// 所以不能只看 tab 形态就挂导出按钮。判据取「会话目录下有没有 .octo-fastui.json」——
-// 只有 fastui skill 的 new-session 会写出那个文件,是确定的存在性判断,不是猜。
+// 导出按钮挂在 subtype "fastui" 的 tab 上(SPEC-DES-005),但仍以磁盘事实为准,不只看 tab 形态:
+// 判据取「会话目录下有没有 .octo-fastui.json」—— 只有 fastui skill 的 new-session 会写出
+// 那个文件,是确定的存在性判断,不是猜。旧版卡片转 fastui:// 时也用它判断会话(见 index.tsx)。
 const [fastuiSessions, setFastuiSessions] = createSignal<Record<string, boolean>>({})
 /** 已探测过的次数;肯定结果直接从 signal 走,不再进这里 */
 const probeCount = new Map<string, number>()

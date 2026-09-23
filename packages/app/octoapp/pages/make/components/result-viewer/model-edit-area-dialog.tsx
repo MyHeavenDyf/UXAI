@@ -17,6 +17,7 @@ type EditorRef = {
   insertText: (text: string) => void
   isAlive: () => boolean
   closeMention: () => void
+  updateMentionPath: (id: string, path: string) => void
 }
 
 type AreaDialogElement = {
@@ -305,7 +306,7 @@ export function ModelEditAreaDialog(props: {
             ref={(el: EditorRef) => { editorRef = el }}
             productId={props.productId}
             onDownloadProductAsset={props.onDownloadProductAsset}
-            onUpdateMentionPath={props.onUpdateMentionPath}
+            onUpdateMentionPath={(id, path) => editorRef?.updateMentionPath(id, path)}
           />
         </div>
         <div class="model-edit-area-footer">

@@ -158,6 +158,7 @@ export const layer = Layer.effect(
         files,
         Effect.fnUntraced(function* (match) {
           const name = match[1]
+          if (!name) return
           if (seen.has(name)) return
           seen.add(name)
           const filepath = name.startsWith("~/")
@@ -256,10 +257,17 @@ export const layer = Layer.effect(
 
       const ag = yield* agents.get("title")
       if (!ag) return
-      const mdl = ag.model
-        ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
-        : ((yield* provider.getSmallModel(input.providerID)) ??
-          (yield* provider.getModel(input.providerID, input.modelID)))
+      const mdl = yield* provider.getTitleModel(input.providerID, input.modelID)
+      const titleModelLog = {
+        sessionID: input.session.id,
+        selectedProviderID: input.providerID,
+        selectedModelID: input.modelID,
+        titleProviderID: mdl.providerID,
+        titleModelID: mdl.id,
+        switched: mdl.providerID !== input.providerID || mdl.id !== input.modelID,
+      }
+      yield* elog.info("title model selected", titleModelLog)
+      console.info("[TitleModel] selected", titleModelLog)
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)

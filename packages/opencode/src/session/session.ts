@@ -919,6 +919,7 @@ export function* listGlobal(input?: {
   archived?: boolean
   agent?: string
   pinned?: boolean
+  grouped?: boolean
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)
 }

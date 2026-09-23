@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
 import { Server } from "../../src/server/server"
 import { ExperimentalPaths } from "../../src/server/routes/instance/httpapi/groups/experimental"
 import { Session } from "@/session/session"
+import { SessionGroup } from "@/session/session-group"
 import { SessionTable } from "@/session/session.sql"
 import { Database } from "@/storage/db"
 import { eq } from "drizzle-orm"
@@ -25,8 +26,18 @@ function app() {
   return Server.Default().app
 }
 
+function legacyApp() {
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = false
+  return Server.Default().app
+}
+
 function runSession<A, E>(fx: Effect.Effect<A, E, Session.Service>) {
   return Effect.runPromise(fx.pipe(Effect.provide(Session.defaultLayer)))
+}
+
+const sessionGroupLayer = Layer.mergeAll(Session.defaultLayer, SessionGroup.defaultLayer)
+function runWithGroup<A, E>(fx: Effect.Effect<A, E, Session.Service | SessionGroup.Service>) {
+  return Effect.runPromise(fx.pipe(Effect.provide(sessionGroupLayer)))
 }
 
 function createSession(input?: Session.CreateInput) {
@@ -244,6 +255,94 @@ describe("experimental HttpApi", () => {
     const allBody = (await all.json()) as Session.GlobalInfo[]
     expect(allBody.map((session) => session.id)).toContain(make.id)
     expect(allBody.map((session) => session.id)).toContain(insight.id)
+  })
+
+  test("filters global session list by grouped flag", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+
+    const grouped = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "grouped-session", agent: "octo_make" }),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const ungrouped = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "ungrouped-session", agent: "octo_make" }),
+    })
+
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const group = await runWithGroup(
+          SessionGroup.Service.use((svc) =>
+            svc.create({ projectID: grouped.projectID, directory: tmp.path, namespace: "make", name: "Test Group" }),
+          ),
+        )
+        await runWithGroup(
+          SessionGroup.Service.use((svc) => svc.mapSession(grouped.id, group.id)),
+        )
+      },
+    })
+
+    const headers = { "x-opencode-directory": tmp.path }
+    const filtered = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, grouped: "true", agent: "octo_make" })}`,
+      { headers },
+    )
+    expect(filtered.status).toBe(200)
+    const filteredBody = (await filtered.json()) as Session.GlobalInfo[]
+    expect(filteredBody.map((s) => s.id)).toEqual([grouped.id])
+
+    const all = await app().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, agent: "octo_make" })}`,
+      { headers },
+    )
+    const allBody = (await all.json()) as Session.GlobalInfo[]
+    expect(allBody.map((s) => s.id)).toContain(grouped.id)
+    expect(allBody.map((s) => s.id)).toContain(ungrouped.id)
+  })
+
+  test("filters global session list by grouped flag through legacy Hono backend", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+
+    const grouped = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "grouped-session", agent: "octo_make" }),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const ungrouped = await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => createSession({ title: "ungrouped-session", agent: "octo_make" }),
+    })
+
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const group = await runWithGroup(
+          SessionGroup.Service.use((svc) =>
+            svc.create({ projectID: grouped.projectID, directory: tmp.path, namespace: "make", name: "Test Group" }),
+          ),
+        )
+        await runWithGroup(SessionGroup.Service.use((svc) => svc.mapSession(grouped.id, group.id)))
+      },
+    })
+
+    const headers = { "x-opencode-directory": tmp.path }
+    const filtered = await legacyApp().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, grouped: "true", agent: "octo_make" })}`,
+      { headers },
+    )
+    expect(filtered.status).toBe(200)
+    const filteredBody = (await filtered.json()) as Session.GlobalInfo[]
+    expect(filteredBody.map((s) => s.id)).toEqual([grouped.id])
+
+    const all = await legacyApp().request(
+      `${ExperimentalPaths.session}?${new URLSearchParams({ directory: tmp.path, agent: "octo_make" })}`,
+      { headers },
+    )
+    const allBody = (await all.json()) as Session.GlobalInfo[]
+    expect(allBody.map((s) => s.id)).toContain(grouped.id)
+    expect(allBody.map((s) => s.id)).toContain(ungrouped.id)
   })
 
   testWorktreeMutations("serves worktree mutations through Hono bridge", async () => {
