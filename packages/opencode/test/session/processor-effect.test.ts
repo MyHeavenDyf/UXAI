@@ -23,6 +23,10 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
+import { tool, jsonSchema } from "ai"
+import { begin as beginArtifactTurn } from "../../src/tracking/store"
+import { ArtifactEventTable } from "../../src/tracking/delivery.sql"
+import { Database, eq } from "../../src/storage/db"
 
 void Log.init({ print: false })
 
@@ -179,6 +183,39 @@ const boot = Effect.fn("test.boot")(function* () {
   const provider = yield* Provider.Service
   return { processors, session, provider }
 })
+
+it.live("artifact completion callback captures successful write and edit without a page observer", () =>
+  provideTmpdirServer(({ dir, llm }) => Effect.gen(function* () {
+    const { processors, session, provider } = yield* boot()
+    const chat = yield* session.create({})
+    const parent = yield* user(chat.id, "create and edit report")
+    beginArtifactTurn({ messageID: parent.id, sessionID: chat.id, directory: dir,
+      extra: { account: "callback-account", artifactTracking: { module: "insight" } } })
+    for (const name of ["write", "edit"]) {
+      yield* llm.tool(name, { filePath: path.join(dir, "report.md") })
+      const msg = yield* assistant(chat.id, parent.id, dir)
+      const model = yield* provider.getModel(ref.providerID, ref.modelID)
+      const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model })
+      yield* handle.process({
+        user: parent, sessionID: chat.id, model, agent: agent(), system: [],
+        messages: [{ role: "user", content: name }],
+        tools: { [name]: tool({
+          inputSchema: jsonSchema<{ filePath: string }>({ type: "object", properties: { filePath: { type: "string" } }, required: ["filePath"] }),
+          execute: async (args) => {
+            await Bun.write(args.filePath, name === "write" ? "first" : "edited")
+            return { title: "report", metadata: { filepath: args.filePath }, output: "done" }
+          },
+        }) },
+      })
+    }
+    const events = Database.use((db) => db.select().from(ArtifactEventTable)
+      .where(eq(ArtifactEventTable.message_id, parent.id)).all())
+    expect(events.map((event) => event.name).sort()).toEqual(["artifact-file-edit", "artifact-file-write"])
+    expect(events.every((event) => event.payload.account === "callback-account")).toBe(true)
+    expect(yield* Effect.promise(() => Bun.file(path.join(dir, "report.md")).text())).toBe("edited")
+  }), { git: true, config: (url) => providerCfg(url) }),
+  30_000,
+)
 
 // ---------------------------------------------------------------------------
 // Tests

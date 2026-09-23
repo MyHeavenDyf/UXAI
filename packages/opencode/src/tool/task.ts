@@ -1,4 +1,5 @@
 import * as Tool from "./tool"
+import { ArtifactStore } from "@/tracking/store"
 import DESCRIPTION from "./task.txt"
 import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
@@ -128,6 +129,8 @@ export const TaskTool = Tool.define(
       const runCancel = yield* EffectBridge.make()
 
       const messageID = MessageID.ascending()
+      yield* Effect.sync(() => ArtifactStore.inherit(ctx.messageID, messageID, nextSession.id, nextSession.directory))
+        .pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] child attribution failed")))
       const cancel = ops.cancel(nextSession.id)
 
       function onAbort() {

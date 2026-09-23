@@ -22,6 +22,8 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { ArtifactStore } from "@/tracking/store"
+import { observe } from "@/tracking/scripts"
 
 export { Parameters } from "./shell/prompt"
 
@@ -613,7 +615,7 @@ export const ShellTool = Tool.define(
                 }),
               )
 
-              return yield* run(
+              const command = run(
                 {
                   shell,
                   command: params.command,
@@ -624,6 +626,13 @@ export const ShellTool = Tool.define(
                 },
                 ctx,
               )
+              const tracking = yield* Effect.try({
+                try: () => ArtifactStore.scriptContext(ctx.messageID),
+                catch: (error) => error,
+              }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (!tracking) return yield* command
+              const files = yield* Effect.forEach(params.artifactFiles ?? [], (file) => resolvePath(file, cwd, shell))
+              return yield* observe({ ...tracking, files, abort: ctx.abort }, command)
             }),
         }
       })

@@ -284,6 +284,12 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
     env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
+  if (!env.OCTO_REPORT_BASE_URL && import.meta.env.OCTO_REPORT_BASE_URL) {
+    env.OCTO_REPORT_BASE_URL = import.meta.env.OCTO_REPORT_BASE_URL
+  }
+  if (!env.OCTO_ARTIFACT_SUCCESS && import.meta.env.OCTO_ARTIFACT_SUCCESS) {
+    env.OCTO_ARTIFACT_SUCCESS = import.meta.env.OCTO_ARTIFACT_SUCCESS
+  }
   return env
 }
 
