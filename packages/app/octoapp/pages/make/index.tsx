@@ -68,7 +68,7 @@ import { useSessionPin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
-import { useMakeGroupsContext, consumePendingGroup } from "@/context/make-groups"
+import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
@@ -665,7 +665,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }, { defer: true }))
 
   createEffect(on(() => params.id, (id) => {
-    if (id) consumePendingGroup(groupsCtx?.namespace ?? "make")
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "make")
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -3537,7 +3537,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const session = result.data as Session | undefined
         if (!session) return
 
-        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make")
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
         if (pendingGroupId) {
           const ns = groupsCtx?.namespace ?? "make"
           const { setMapping } = getMappingStore(ns)

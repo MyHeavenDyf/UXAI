@@ -48,7 +48,7 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
-import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup } from "@/context/make-groups"
+import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
@@ -261,7 +261,7 @@ function InsightContent() {
   const groupsCtx = useMakeGroupsContext()
 
   createEffect(on(() => params.id, (id) => {
-    if (id) consumePendingGroup(groupsCtx?.namespace ?? "insight")
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "insight")
   }, { defer: true }))
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
@@ -1305,7 +1305,7 @@ function InsightContent() {
         local.session.promote(dir, session.id)
 
         // Auto-assign to pending group (from "新建对话" in group context menu)
-        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight")
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight", dir, groupsCtx?.groups ?? [])
         if (pendingGroupId) {
           const ns = groupsCtx?.namespace ?? "insight"
           const { setMapping } = getMappingStore(ns)

@@ -105,7 +105,8 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
 
   const handleNewSessionInGroup = (group: MakeGroup) => {
     tracker.interaction({ module: props.trackerModule ?? "session", name: "new-session-in-group" })
-    setPendingGroup(props.namespace, group.id)
+    const dir = resolvedDir()
+    if (dir) setPendingGroup(props.namespace, group.id, dir)
     setExpandedGroups(prev => { const next = new Set(prev); next.add(group.id); return next })
     shared?.expandGroup(group.id)
     navigate(props.buildNewRoute())
