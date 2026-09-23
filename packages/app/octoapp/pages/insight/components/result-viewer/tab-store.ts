@@ -52,6 +52,7 @@ export type ResultTab = {
   size?: number             // 字节数:文件管理开页签带入(供归档超限前置判定);uri/inline/写产物无
   viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");html/markdown + 思维导图 shape 的 json 用
   createdAt: Date
+  fromAttachment?: boolean  // 会话区点击附件打开 → ActionBar 走 design 风格
 }
 
 export function createTabStore() {
@@ -94,6 +95,10 @@ export function createTabStore() {
           incomingType: card.type,
           filePath: incomingPath,
         })
+        // 合并 fromAttachment:后打开的入口决定 ActionBar 风格(附件→design 风格,文件管理→原 insight 风格)
+        if (card.fromAttachment !== undefined && card.fromAttachment !== byPath.fromAttachment) {
+          setTabs(prev => prev.map(t => t.id === byPath.id ? { ...t, fromAttachment: card.fromAttachment } : t))
+        }
         setActiveId(byPath.id)
         return byPath.id
       }
@@ -108,6 +113,9 @@ export function createTabStore() {
           incomingType: card.type,
           uri: card.uri,
         })
+        if (card.fromAttachment !== undefined && card.fromAttachment !== byUri.fromAttachment) {
+          setTabs(prev => prev.map(t => t.id === byUri.id ? { ...t, fromAttachment: card.fromAttachment } : t))
+        }
         setActiveId(byUri.id)
         return byUri.id
       }
@@ -131,6 +139,7 @@ export function createTabStore() {
       description: card.description,
       size: card.size,
       createdAt: card.createdAt,
+      fromAttachment: card.fromAttachment,
     }
     console.log("[octo:tab] openTab", {
       id: card.id,

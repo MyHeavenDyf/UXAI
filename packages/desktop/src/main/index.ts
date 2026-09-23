@@ -57,6 +57,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as FastuiExport from "./fastui-export"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
@@ -182,8 +183,8 @@ function setupApp() {
   })
 
   app.on("will-quit", () => {
-    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-001 §8.6.1)——
-    // 不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
+    // fastui dev server 由主进程持有,退出时统一清理(SPEC-DES-004 §3.8)——
+    // 没有数量上限,不清理的话设计师做几个页面就会留下一堆常驻 webpack,每个吃数百 MB
     FastuiDevServer.stopAll()
     void killSidecar()
   })
@@ -213,6 +214,10 @@ function setupApp() {
     registerLocalProtocol()
     setDockIcon()
     startPreviewServer()
+    // fastui 预览(SPEC-DES-004):先收掉上次崩溃遗留的 dev server,再开始响应 skill 的起服务请求
+    void FastuiDevServer.cleanupOrphans()
+      .catch((error) => console.warn("[fastui] 清理遗留 dev server 失败", error))
+      .finally(() => FastuiDevServer.startRequestWatcher())
     setupAutoUpdater()
     powerMonitor.on("resume", () => {
       BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
@@ -312,7 +317,11 @@ async function initialize() {
           onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
           onStdout: (message) => logger.log("sidecar stdout", { message }),
           onStderr: (message) => logger.warn("sidecar stderr", { message }),
-          onExit: (code) => logger.warn("sidecar exited", { code }),
+          onExit: (code) => {
+            logger.warn("sidecar exited", { code })
+            // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
+            FastuiExport.setServerInfo(null)
+          },
         },
       )
 
@@ -328,6 +337,10 @@ async function initialize() {
       return startSidecar(fallbackStorage)
     })
     server = listener
+    // 导出代码包要问 server 要 skill 的实际位置(fastui-export.ts `skillDirFromServer`):
+    // 主进程与 sidecar 的 XDG_CONFIG_HOME 可能不是同一个值,自己算 `<octoConfig>/skill/`
+    // 会算到一个空目录上。
+    FastuiExport.setServerInfo({ url, username: "opencode", password })
     serverReady.resolve({
       url,
       username: "opencode",

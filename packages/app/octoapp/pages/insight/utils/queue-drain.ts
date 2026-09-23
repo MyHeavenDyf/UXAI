@@ -6,7 +6,7 @@ import { getDesktopApi } from "../lib/electron-api"
 import { formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, isImageFile } from "../lib/upload"
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
-import { currentAccount } from "./account"
+import { currentAccount, currentUserId } from "./account"
 import { artifactTrackingExtra } from "./artifact-tracking"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./prompt-local-files"
 import type { Attachment } from "../components/attachment-bar"
@@ -200,10 +200,12 @@ export async function sendQueuedItem(
   })
 
   const account = currentAccount()
-  const promptExtra =
-    injectedSkills.length || account
-      ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-      : undefined
+  const userId = currentUserId()
+  const promptExtra = {
+    ...(injectedSkills.length ? { skills: injectedSkills } : {}),
+    ...(account ? { account } : {}),
+    ...(userId ? { userId } : {}),
+  }
 
   const client = globalSDK.createClient({ directory, throwOnError: true })
   await client.session.promptAsync({
@@ -216,6 +218,8 @@ export async function sendQueuedItem(
     // extra 与即时发送(index.tsx doSendPrompt)保持同构，否则「busy 时排队发出的那条」会缺字段：
     //   - skills(SPEC-INS-029)：不带则技能用量统计缺一块。
     //   - account(SPEC-INS-030 §5)：不带则该轮 knowledge_search 拿不到工号、直接拒答。
+    //   - userId(SPEC-INS-033)：不带则该轮 get_session_identity 显式失败。
+    // 同样每轮都传(字段都没有时为空对象)，否则服务端沿用上一轮的 sessionExtras，见 index.tsx 同处注释。
     extra: { ...promptExtra, ...artifactTrackingExtra() },
   })
 }

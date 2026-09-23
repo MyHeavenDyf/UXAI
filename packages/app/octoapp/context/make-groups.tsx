@@ -2,6 +2,7 @@ import {
   createContext,
   createEffect,
   createSignal,
+  on,
   useContext,
   type Accessor,
   type ParentProps,
@@ -11,6 +12,13 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups, type SessionGroupMapping } from "@/hooks/use-session-groups"
+import {
+  setPendingGroup,
+  consumePendingGroup,
+  clearPendingGroup,
+  clearStalePendingGroup,
+} from "./pending-group"
+export { setPendingGroup, consumePendingGroup, clearPendingGroup }
 
 /**
  * Shared groups + session-group mapping state for the "make" namespace.
@@ -88,6 +96,15 @@ export function MakeGroupsProvider(props: ParentProps<{ namespace?: string }>) {
       if (d) setResolvedDir(d)
     }
   })
+
+  // Drop a stale pending-group entry when the active project directory changes
+  // (e.g. switching from project A to B). The entry is bound to its origin
+  // directory; once that no longer matches the current directory it must not
+  // survive into the new project's session-creation flow.
+  createEffect(on(resolvedDir, (dir) => {
+    if (dir === undefined) return
+    clearStalePendingGroup(namespace, dir)
+  }, { defer: true }))
 
   const [expandedGroups, setExpandedGroups] = getExpandedGroupsSignal(namespace)
   const expandGroup = (groupId: string) =>

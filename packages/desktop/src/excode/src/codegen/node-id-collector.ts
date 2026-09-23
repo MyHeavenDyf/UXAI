@@ -1,7 +1,7 @@
 /**
  * node-id-collector — 收集产物文件 emitted 的 A2UI 元素基础 id
  *
- * 用途（见 PLAN-manifest.md）：设计平台框选 DOM 节点 → 拿到带 `:index` 后缀的
+ * 用途：设计平台框选 DOM 节点 → 拿到带 `:index` 后缀的
  * 循环展开 id → wiki.js strip 后缀得基础 id → 查 manifest.tree 找该 id 所在的
  * .tsx 产物文件。故管线需在转换时记录「每个 .tsx 产物文件 emitted 了哪些基础 id」。
  *

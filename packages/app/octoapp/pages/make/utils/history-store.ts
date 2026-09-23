@@ -103,6 +103,7 @@ export function createHistoryStore() {
     tab: ResultTab,
     actor: HistoryActor,
     files: string[],
+    maxVersions?: number,
   ): Promise<VersionEntry | null> {
     if (!api?.copyFileTo || !api?.listDirectory || !api?.deleteFile) return null
     if (!tab.filePath) return null
@@ -111,30 +112,38 @@ export function createHistoryStore() {
     const sep = getSep(tab.filePath)
     const historyDir = getHistoryDir(tab.filePath)
     const baseName = getBaseName(tab.filePath)
-    // 版本时间取源文件 mtime（内容真实写入时刻），stat 失败回退当前时间
-    let ts = new Date()
-    try {
-      const stat = await api.statFile?.(tab.filePath)
-      if (stat?.mtimeMs) ts = new Date(stat.mtimeMs)
-    } catch {}
+    /** 版本时间取文件集的最大 mtime（= 该组内容最后变更时刻，NTFS 系统时钟可靠）。
+     *  必须取全集最大值而非主文件：如 components 页 html 生成后不变、变化都在 data.js，
+     *  只取 html 会让每条记录同名互相覆盖（表现为"新记录没出现 + 时间停在生成时刻"）。stat 全失败回退当前时间 */
+    let tsMs = 0
+    for (const rel of files) {
+      const st = await api.statFile?.(resolveRelativePath(rel, tab.filePath!)).catch(() => null)
+      if (st?.mtimeMs && st.mtimeMs > tsMs) tsMs = st.mtimeMs
+    }
+    const ts = tsMs > 0 ? new Date(tsMs) : new Date()
     const versionName = buildVersionFolderName(baseName, ts, actor)
     const versionDir = historyDir + sep + versionName
 
     const copyFileTo = api.copyFileTo
+    const readFileBuffer = api.readFileBuffer
+    /** 复制 + 写后校验：源正被写入时（autoSaveArtifact 进行中）复制可能抛 EBUSY，
+     *  或复制出半截内容（字节数不符）。多级退避重试，且以「源/目标字节数一致」为成功标准 */
     const copyWithRetry = async (src: string, dest: string): Promise<boolean> => {
-      try {
-        await copyFileTo(src, dest)
-        return true
-      } catch {
-        // 源文件可能正被写入（如 autoSaveArtifact 进行中，Windows 下复制会 EBUSY），延迟后重试一次
-        await new Promise((r) => setTimeout(r, 300))
+      const delays = [0, 300, 1200]
+      for (const delay of delays) {
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay))
         try {
           await copyFileTo(src, dest)
-          return true
+          const srcBuf = await readFileBuffer?.(src)
+          const destBuf = await readFileBuffer?.(dest)
+          if (srcBuf && destBuf && srcBuf.byteLength === destBuf.byteLength) {
+            return true
+          }
         } catch {
-          return false
+          // 重试
         }
       }
+      return false
     }
 
     let copied = 0
@@ -159,7 +168,7 @@ export function createHistoryStore() {
       actor,
     }
 
-    await prune(historyDir, baseName)
+    await prune(historyDir, baseName, maxVersions)
     return entry
   }
 
@@ -227,7 +236,8 @@ export function createHistoryStore() {
       .sort((a, b) => b.timestamp - a.timestamp)
   }
 
-  async function prune(historyDir: string, baseName: string): Promise<void> {
+  async function prune(historyDir: string, baseName: string, maxVersions?: number): Promise<void> {
+    const cap = maxVersions ?? MAX_VERSIONS
     if (!api?.listDirectory || !api?.deleteFile) return
     const prefix = baseName + "."
     const entries = await api.listDirectory(historyDir)
@@ -248,8 +258,8 @@ export function createHistoryStore() {
       .filter((v) => v.actor !== "init")
       .sort((a, b) => b.ts - a.ts)
 
-    if (versions.length <= MAX_VERSIONS) return
-    for (const item of versions.slice(MAX_VERSIONS)) {
+    if (versions.length <= cap) return
+    for (const item of versions.slice(cap)) {
       const filesInVersion = entries.filter((e) => e.path.split(/[/\\]/)[0] === item.id && e.type === "file")
       for (const f of filesInVersion) {
         await api.deleteFile(f.path)

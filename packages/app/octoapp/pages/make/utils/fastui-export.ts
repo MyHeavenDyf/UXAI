@@ -10,7 +10,35 @@ import { createSignal } from "solid-js"
 import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 
-/** dev server 跑在 127.0.0.1:<port>,一个会话一个端口 */
+// ── 预览卡片的身份(SPEC-DES-004)──────────────────────────────────
+// 卡片只记产物,不记端口:`fastui://<产物名>`。端口会过期(服务一停就还给系统,会被别的
+// 对话捡走),产物名不会。真正的地址在预览面板打开时向主进程当场取。
+const FASTUI_SCHEME = "fastui://"
+
+export function fastuiPreviewUrl(projectName: string): string {
+  return `${FASTUI_SCHEME}${projectName}`
+}
+
+/**
+ * `fastui://<产物名>` → 产物名;不是这个形态返回 null。
+ * 产物名为空串表示「产物未知」—— 由旧版 `http://127.0.0.1:<port>` 卡片转来,交给主进程在
+ * 对话只有一个工程时确定。
+ */
+export function parseFastuiPreview(url?: string | null): string | null {
+  const raw = (url ?? "").trim()
+  if (!raw.toLowerCase().startsWith(FASTUI_SCHEME)) return null
+  let name = raw.slice(FASTUI_SCHEME.length).replace(/\/+$/, "")
+  try {
+    name = decodeURIComponent(name)
+  } catch {
+    /* 不是编码过的就原样用 */
+  }
+  // 产物名是单段目录名;带路径分隔符或查询串的不是合法卡片
+  if (/[/\\?#]/.test(name)) return null
+  return name
+}
+
+/** loopback 的 http(s) 地址(旧版 fastui 卡片与其他本地服务都是这个形态) */
 export function isLocalPreviewUrl(url?: string | null): boolean {
   if (!url) return false
   try {
@@ -30,9 +58,9 @@ export function sessionDirOf(sdkDirectory?: string, sessionId?: string): string 
 }
 
 // ── 判据:这个会话是不是 fastui 工程 ───────────────────────────────
-// subtype "url" 是所有 http(s) 链接 tab 的通用形态(链接卡片、文件管理打开外链都走它),
-// 所以不能只看 tab 形态就挂导出按钮。判据取「会话目录下有没有 .octo-fastui.json」——
-// 只有 fastui skill 的 new-session 会写出那个文件,是确定的存在性判断,不是猜。
+// 导出按钮挂在 subtype "fastui" 的 tab 上(SPEC-DES-005),但仍以磁盘事实为准,不只看 tab 形态:
+// 判据取「会话目录下有没有 .octo-fastui.json」—— 只有 fastui skill 的 new-session 会写出
+// 那个文件,是确定的存在性判断,不是猜。旧版卡片转 fastui:// 时也用它判断会话(见 index.tsx)。
 const [fastuiSessions, setFastuiSessions] = createSignal<Record<string, boolean>>({})
 /** 已探测过的次数;肯定结果直接从 signal 走,不再进这里 */
 const probeCount = new Map<string, number>()
@@ -60,19 +88,22 @@ export function isFastuiSession(sessionDir: string): boolean {
   return false
 }
 
-async function probeFastuiSession(sessionDir: string): Promise<void> {
+/** 会话目录下有没有 fastui 状态文件(确定的存在性判断);结果顺带写入缓存 */
+export async function sessionHasFastuiState(sessionDir: string): Promise<boolean> {
   const api = getDesktopApi()
   const sep = sessionDir.includes("\\") ? "\\" : "/"
-  const statePath = [sessionDir, ".octo-fastui.json"].join(sep)
-
   let exists = false
   try {
-    exists = !!(await api?.fileExists?.(statePath))
+    exists = !!(await api?.fileExists?.([sessionDir, ".octo-fastui.json"].join(sep)))
   } catch {
-    /* 读不到就当不是 fastui 会话,按钮不出现 */
+    /* 读不到就当不是 fastui 会话 */
   }
-
   setFastuiSessions((prev) => (prev[sessionDir] === exists ? prev : { ...prev, [sessionDir]: exists }))
+  return exists
+}
+
+async function probeFastuiSession(sessionDir: string): Promise<void> {
+  const exists = await sessionHasFastuiState(sessionDir)
   if (exists) return
 
   const tried = probeCount.get(sessionDir) ?? 1
@@ -111,7 +142,7 @@ function baseNameOf(p: string): string {
  * 打包 → 让用户选保存位置 → 拷过去。
  * zip 已经在磁盘上,不走 action-bar 里 `downloadBlob` 那套(那是给内容型 tab 用的)。
  */
-export async function exportFastuiZip(sessionDir: string): Promise<void> {
+export async function exportFastuiZip(sessionDir: string, projectName?: string): Promise<void> {
   if (exportingDir()) return
   const api = getDesktopApi()
   if (!api?.fastuiExportZip) {
@@ -121,7 +152,8 @@ export async function exportFastuiZip(sessionDir: string): Promise<void> {
 
   setExportingDir(sessionDir)
   try {
-    const result = await api.fastuiExportZip(sessionDir)
+    // 带产物名导出该工程:同一对话可以有多个工程,状态文件只记最后建的那个
+    const result = await api.fastuiExportZip(sessionDir, projectName || undefined)
     if (!result?.ok) {
       showOctoToast({
         title: "导出代码包失败",

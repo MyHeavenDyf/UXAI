@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, on, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showOctoToast } from "../octo-toast"
@@ -23,7 +23,6 @@ import { StrategyFormRenderer } from "./strategy-form-renderer"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
-import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -38,7 +37,7 @@ import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
 import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
-import { disposeAllPrototypeSessions, getSessionById } from "../../utils/prototype-utils"
+import { disposeAllPrototypeSessions, disposePrototypeSession, getSessionById } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -177,13 +176,41 @@ export function ResultViewer(props: {
   }, { defer: true }))
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [refreshKey, setRefreshKey] = createSignal(0)
-  // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
-  let observedUrlsGetter: (() => string[]) | null = null
-  // 向当前 HTML tab 的 iframe contentWindow 发送 postMessage 的函数（由 HtmlRenderer 注册）
-  let iframePostMessage: ((data: unknown) => void) | null = null
-  // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
-  let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
+  // ★ 每个 HTML tab 的 iframe 句柄,按 tabId 索引(切换 tab 时不再销毁 iframe,所以句柄要分开存)
+  // 由 HtmlRenderer onMount 注册,onCleanup 时清除
+  const observedUrlsGetters: Record<string, () => string[]> = {}
+  const iframePostMessages: Record<string, (data: unknown) => void> = {}
+  const iframeElementGetters: Record<string, () => HTMLIFrameElement | undefined> = {}
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
+
+  // ★ LRU 驱逐:最多同时挂载 N 个 HTML tab 的 iframe,超出则卸载最久未访问的。
+  //   被驱逐的 tab 仍在标签栏(display:none),切回时 iframe 重新挂载,内容从 tab.content 还原。
+  //   驱逐时机:activate/openTab 更新 lastActivatedAt → memo 重算 → <Show> 切换 → HtmlRenderer onCleanup。
+  //   注意:effect 在 memo 之后跑,disposePrototypeSession 调用时 iframe 已销毁,
+  //   buildSubtypeCtx 的 postMessageToIframe 用 ?. 防御(见下方)。
+  const MAX_MOUNTED_HTML_TABS = 5
+  const mountedHtmlTabIds = createMemo(() => {
+    const activeId = props.activeId
+    const htmlTabs = props.tabs
+      .filter(t => t.type === "html")
+      .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
+    const result = new Set<string>()
+    for (const t of htmlTabs) {
+      // 激活 tab 始终挂载,即使超出上限
+      if (result.size >= MAX_MOUNTED_HTML_TABS && t.id !== activeId) continue
+      result.add(t.id)
+    }
+    return result
+  })
+  let prevMountedIds = new Set<string>()
+  createEffect(() => {
+    const mounted = mountedHtmlTabIds()
+    // 只 dispose 从"已挂载"变为"未挂载"的 tab(含被关闭的 tab),避免对无 session 的 tab 重复 dispose
+    for (const id of prevMountedIds) {
+      if (!mounted.has(id)) disposePrototypeSession(id)
+    }
+    prevMountedIds = mounted
+  })
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -194,6 +221,7 @@ export function ResultViewer(props: {
   const buildSubtypeCtx = () => {
     const tab = activeTab()
     if (!tab) return null
+    const tid = tab.id
     return {
       tab,
       sessionId: tab.sessionId ?? props.sessionId,
@@ -201,10 +229,10 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      observedUrlsGetter: observedUrlsGetters[tid] ? () => observedUrlsGetters[tid]?.() ?? [] : undefined,
       usePixsoTransport,
-      postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
-      iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+      postMessageToIframe: iframePostMessages[tid] ? (data: unknown) => { iframePostMessages[tid]?.(data) } : undefined,
+      iframeElementGetter: iframeElementGetters[tid] ? () => iframeElementGetters[tid]?.() : undefined,
       sdkDirectory: props.sdkDirectory,
     }
   }
@@ -415,7 +443,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
     const card = artifactFileToOutputCard(file)
     props.onOpenArtifact?.(card)
     // file 类型不支持预览,handleOpenResult 会弹窗提示,不打开 tab。
-    // 这里不能切到 tabs 模式,否则右侧会显示空 ResultViewer("对话产出将在这里展示")。
+    // 这里不能切到 tabs 模式,否则右侧会停留在无 tab 的空白 tabs 视图。
     if (card.type !== "file") {
       props.onViewModeChange("tabs")
     }
@@ -444,208 +472,221 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
       class="flex flex-col flex-1 min-w-0 min-h-0"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
-        <TabBar
-          tabs={props.tabs}
-          activeId={props.activeId}
-          onActivate={props.onActivate}
-          onClose={props.onClose}
-          viewMode={props.viewMode}
-          onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
-          showPlanEntry={!!props.planCard}
-          planActive={props.planActive}
-          planConfirmed={props.isPlanConfirmed?.()}
-          planEnded={props.planEnded}
-          onCollapseDrawer={props.onCollapseDrawer}
-        />
+      <TabBar
+        tabs={props.tabs}
+        activeId={props.activeId}
+        onActivate={props.onActivate}
+        onClose={props.onClose}
+        viewMode={props.viewMode}
+        onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
+        showPlanEntry={!!props.planCard}
+        planActive={props.planActive}
+        planConfirmed={props.isPlanConfirmed?.()}
+        planEnded={props.planEnded}
+        onCollapseDrawer={props.onCollapseDrawer}
+      />
 
-        <Show when={props.sessionId}>
-          {(sid) => (
-            <div
-              class="flex flex-col flex-1 min-h-0"
-              style={{ display: props.viewMode === "files" ? "flex" : "none" }}
-            >
-              <DesignFilesPanel
-                sessionId={sid()}
-                refreshKey={props.filesRefreshKey ?? 0}
-                onOpenFile={handleOpenArtifactFile}
-                onAddToSession={props.onAddArtifactToSession}
-                onCloseTabsByPath={handleCloseTabsByPath}
-                onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-                onFilesRefresh={props.onFilesRefresh}
+      <Show when={props.sessionId}>
+        {(sid) => (
+          <div
+            class="flex flex-col flex-1 min-h-0"
+            style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+          >
+            <DesignFilesPanel
+              sessionId={sid()}
+              refreshKey={props.filesRefreshKey ?? 0}
+              onOpenFile={handleOpenArtifactFile}
+              onAddToSession={props.onAddArtifactToSession}
+              onCloseTabsByPath={handleCloseTabsByPath}
+              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+              onFilesRefresh={props.onFilesRefresh}
+            />
+          </div>
+        )}
+      </Show>
+
+      {/* plan 模式 — 已退出/已结束，只读显示 plan 内容 */}
+      <Show when={props.viewMode === "plan" && props.planEnded && !props.planConfirmPending}>
+        <Show when={props.planCard} keyed>
+          {(plan) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={plan.content}
+                title={plan.title}
+                artifactIdentifier={plan.artifactIdentifier}
+                confirmed={true}
+                disabled={true}
+                onConfirm={() => {}}
+                onContentChange={undefined}
+                onBackToStrategy={() => {}}
+                currentStep={2}
               />
             </div>
           )}
         </Show>
-
-        {/* plan 模式 — 已退出/已结束，只读显示 plan 内容 */}
-        <Show when={props.viewMode === "plan" && props.planEnded && !props.planConfirmPending}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={true}
-                  disabled={true}
-                  onConfirm={() => {}}
-                  onContentChange={undefined}
-                  onBackToStrategy={() => {}}
-                  currentStep={2}
-                />
-              </div>
-            )}
-          </Show>
-          <Show when={!props.planCard}>
-            <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
-              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划已结束</span>
-            </div>
-          </Show>
+        <Show when={!props.planCard}>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划已结束</span>
+          </div>
         </Show>
+      </Show>
 
-        {/* plan 模式 — 策略准备阶段（排除已确认和已结束状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase === "strategy" && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
+      {/* plan 模式 — 策略准备阶段（排除已确认和已结束状态） */}
+      <Show when={props.viewMode === "plan" && props.planPhase === "strategy" && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
+        <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <StrategyFormRenderer
+            formData={props.strategyFormData ?? {
+              需求背景: "", 设计目标: "", 设计方法: "", 其他: "",
+              用户画像: "", 用户旅程: "", 研究报告: "",
+            }}
+            onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
+            onGenerate={() => props.onGenerateStrategy?.()}
+            isGenerating={props.isGenerating}
+            disabled={props.childBusy}
+            currentStep={1}
+          />
+        </div>
+      </Show>
+
+      {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
+      <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
+        <Show when={props.planCard}>
           <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <StrategyFormRenderer
-              formData={props.strategyFormData ?? {
-                需求背景: "", 设计目标: "", 设计方法: "", 其他: "",
-                用户画像: "", 用户旅程: "", 研究报告: "",
-              }}
-              onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
-              onGenerate={() => props.onGenerateStrategy?.()}
-              isGenerating={props.isGenerating}
+            <DesignPlanRenderer
+              content={planContent()}  // 优先取 tabStore，保留编辑
+              title={props.planCard?.title ?? ""}
+              artifactIdentifier={props.planCard?.artifactIdentifier}
+              confirmed={props.isPlanConfirmed?.() ?? false}
               disabled={props.childBusy}
-              currentStep={1}
+              onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
+              onContentChange={(content) => {
+                if (props.onContentChange && props.planCard?.id) {
+                  props.onContentChange(props.planCard.id, content)
+                }
+              }}
+              onBackToStrategy={() => props.onBackToStrategy?.()}
+              currentStep={2}
             />
           </div>
         </Show>
+      </Show>
 
-        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
-          <Show when={props.planCard}>
+      {/* plan 模式 — 方案已确认，等待主 agent 生成 HTML（按钮禁用状态，内容只读） */}
+      <Show when={props.viewMode === "plan" && props.planConfirmPending}>
+        <Show when={props.planCard} keyed>
+          {(plan) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <DesignPlanRenderer
-                content={planContent()}  // 优先取 tabStore，保留编辑
-                title={props.planCard?.title ?? ""}
-                artifactIdentifier={props.planCard?.artifactIdentifier}
-                confirmed={props.isPlanConfirmed?.() ?? false}
-                disabled={props.childBusy}
-                onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
-                onContentChange={(content) => {
-                  if (props.onContentChange && props.planCard?.id) {
-                    props.onContentChange(props.planCard.id, content)
-                  }
-                }}
-                onBackToStrategy={() => props.onBackToStrategy?.()}
+                content={plan.content}
+                title={plan.title}
+                artifactIdentifier={plan.artifactIdentifier}
+                confirmed={true}
+                disabled={true}
+                onConfirm={() => {}}
+                onContentChange={undefined}
+                onBackToStrategy={() => {}}
+                currentStep={2}
+              />
+              <div class="flex items-center justify-center gap-2 shrink-0" style="padding: 12px 24px; border-top: 1px solid rgba(0,0,0,0.06); background: var(--octo-surface-page);">
+                <span class="i-svg-spinners-clock size-4" />
+                <span style="color: var(--octo-text-secondary); font-size: 13px;">方案已确认，正在通知主 agent 生成 HTML...</span>
+              </div>
+            </div>
+          )}
+        </Show>
+        {/* planCard 尚未同步时的兜底 */}
+        <Show when={!props.planCard}>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <div class="flex items-center gap-2">
+              <span class="i-svg-spinners-clock size-5" />
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">方案已确认，正在生成 HTML...</span>
+            </div>
+          </div>
+        </Show>
+      </Show>
+
+      {/* plan 模式 — 已确认的第二阶段（跨重启后/已结束），按钮禁用，内容只读 */}
+      <Show when={props.viewMode === "plan" && props.childPlanConfirmed && !props.planConfirmPending}>
+        <Show when={props.planCard} keyed>
+          {(plan) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={plan.content}
+                title={plan.title}
+                artifactIdentifier={plan.artifactIdentifier}
+                confirmed={true}
+                disabled={true}
+                onConfirm={() => {}}
+                onContentChange={undefined}
+                onBackToStrategy={() => {}}
                 currentStep={2}
               />
             </div>
-          </Show>
+          )}
         </Show>
+      </Show>
 
-        {/* plan 模式 — 方案已确认，等待主 agent 生成 HTML（按钮禁用状态，内容只读） */}
-        <Show when={props.viewMode === "plan" && props.planConfirmPending}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={true}
-                  disabled={true}
-                  onConfirm={() => {}}
-                  onContentChange={undefined}
-                  onBackToStrategy={() => {}}
-                  currentStep={2}
-                />
-                <div class="flex items-center justify-center gap-2 shrink-0" style="padding: 12px 24px; border-top: 1px solid rgba(0,0,0,0.06); background: var(--octo-surface-page);">
-                  <span class="i-svg-spinners-clock size-4" />
-                  <span style="color: var(--octo-text-secondary); font-size: 13px;">方案已确认，正在通知主 agent 生成 HTML...</span>
-                </div>
-              </div>
-            )}
-          </Show>
-          {/* planCard 尚未同步时的兜底 */}
-          <Show when={!props.planCard}>
+      {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan（排除已确认/已结束状态） */}
+      <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
+        <Show when={props.childSessionStatus?.type === "idle" && props.childSessionStatus !== undefined}
+          fallback={
             <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
               <div class="flex items-center gap-2">
                 <span class="i-svg-spinners-clock size-5" />
-                <span style="color: var(--octo-text-secondary); font-size: 14px;">方案已确认，正在生成 HTML...</span>
+                <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
               </div>
             </div>
-          </Show>
-        </Show>
-
-        {/* plan 模式 — 已确认的第二阶段（跨重启后/已结束），按钮禁用，内容只读 */}
-        <Show when={props.viewMode === "plan" && props.childPlanConfirmed && !props.planConfirmPending}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={true}
-                  disabled={true}
-                  onConfirm={() => {}}
-                  onContentChange={undefined}
-                  onBackToStrategy={() => {}}
-                  currentStep={2}
-                />
-              </div>
-            )}
-          </Show>
-        </Show>
-
-        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan（排除已确认/已结束状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
-          <Show when={props.childSessionStatus?.type === "idle" && props.childSessionStatus !== undefined}
-            fallback={
-              <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
-                <div class="flex items-center gap-2">
-                  <span class="i-svg-spinners-clock size-5" />
-                  <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
-                </div>
-              </div>
-            }>
-            <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
-              <div class="flex flex-col items-center gap-2">
-                <span style="color: var(--octo-text-secondary); font-size: 14px;">模型生成的策略格式异常，请重新生成</span>
-                <button
-                  type="button"
-                  onClick={() => props.onBackToStrategy?.()}
-                  class="text-[14px] font-medium rounded-[999px] transition-colors cursor-pointer"
-                  style={{
-                    height: "32px",
-                    padding: "0 16px",
-                    "line-height": "22px",
-                    background: "#0a59f7",
-                    color: "white",
-                    border: "none",
-                    "margin-top": "8px",
-                  }}
-                >
-                  返回策略准备
-                </button>
-              </div>
+          }>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <div class="flex flex-col items-center gap-2">
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">模型生成的策略格式异常，请重新生成</span>
+              <button
+                type="button"
+                onClick={() => props.onBackToStrategy?.()}
+                class="text-[14px] font-medium rounded-[999px] transition-colors cursor-pointer"
+                style={{
+                  height: "32px",
+                  padding: "0 16px",
+                  "line-height": "22px",
+                  background: "#0a59f7",
+                  color: "white",
+                  border: "none",
+                  "margin-top": "8px",
+                }}
+              >
+                返回策略准备
+              </button>
             </div>
-          </Show>
+          </div>
         </Show>
+      </Show>
 
         <Show when={props.viewMode === "tabs"}>
-          <Show when={activeTab()?.id} keyed>
-            {(tabId) => {
-              const tab = props.tabs.find(t => t.id === tabId)!
+          {/* ★ 渲染所有已打开 tab,非激活的 display:none 隐藏。
+              切换 tab 不再销毁/重建 iframe,HtmlRenderer 内部状态(滚动位置、
+              编辑草稿等)保留。注意:prototype 编辑 session 仍在 activeId 变化时
+              由 disposeAllPrototypeSessions() 销毁(见上方 createEffect),切回需
+              重新进入编辑模式。 */}
+          <For each={props.tabs}>
+            {(tab) => {
+              const tabId = tab.id
               const tabType = tab.type
-            const canToggle = canToggleMode(tab)
-            const htmlMode = createMemo(() => getHtmlMode(tabId))
-            const showRefresh = true
-            const showFocusToggle = tabType !== "design-plan"
+              const canToggle = canToggleMode(tab)
+              const htmlMode = createMemo(() => getHtmlMode(tabId))
+              const showFocusToggle = tabType !== "design-plan"
+              const isActive = () => tab.id === props.activeId
+              // tab 被关闭时(<For> 移除该项),清理 per-tab 句柄 Map,避免持有已销毁 iframe 的引用
+              onCleanup(() => {
+                delete observedUrlsGetters[tabId]
+                delete iframePostMessages[tabId]
+                delete iframeElementGetters[tabId]
+              })
 
-            return (
-              <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+              return (
+                <div
+                  class="flex flex-col flex-1 min-w-0 overflow-hidden"
+                  style={{ display: isActive() ? "flex" : "none" }}
+                >
                 <Show when={tabType !== "design-plan"}>
 <ActionBar
                     tab={tab}
@@ -667,24 +708,24 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 archiving={featureMutex.state.archiving}
                      onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
                       onRefresh={handleRefresh}
-                     observedResourceUrls={() => observedUrlsGetter?.() || []}
-                     focusMode={props.focusMode}
-                     onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                     historyActive={props.historyActive}
-                     historyEntries={props.historyEntries}
-                     currentVersionId={props.currentVersionId}
-                     onHistorySwitch={props.onHistorySwitch}
-                     onHistoryToggle={props.onHistoryToggle}
-                     sessionId={props.sessionId}
-                     sdkDirectory={props.sdkDirectory}
-                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
-                     onFilesRefresh={props.onFilesRefresh}
-                    />
+                      observedResourceUrls={() => observedUrlsGetters[tabId]?.() || []}
+                      focusMode={props.focusMode}
+                      onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                      historyActive={props.historyActive}
+                      historyEntries={props.historyEntries}
+                      currentVersionId={props.currentVersionId}
+                      onHistorySwitch={props.onHistorySwitch}
+                      onHistoryToggle={props.onHistoryToggle}
+                      sessionId={props.sessionId}
+                      sdkDirectory={props.sdkDirectory}
+                       postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
+                       onFilesRefresh={props.onFilesRefresh}
+                       disabled={props.disabled}
+                      />
 
-                    
-                  
-                     
-             
+
+
+
 
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -708,52 +749,54 @@ archiving={featureMutex.state.archiving}
                       <JsonRenderer content={tab.content} />
                     </Match>
 <Match when={tabType === "html"}>
+<Show when={mountedHtmlTabIds().has(tabId)} fallback={<div class="flex-1 min-h-0" />}>
 <HtmlRenderer
-                           content={tab.content}
-                           mode={htmlMode()}
-                           viewport={viewport()}
-                           palette={palette()}
-                           inspecting={featureMutex.state.inspecting}
-                           editing={featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
-                           modelEditing={featureMutex.state.modelEditing}
-                           modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
-                           onModelEditSave={handleModelEditSave}
-                           onModelEditDelete={handleModelEditDelete}
-                           drawing={featureMutex.state.drawing}
-                           commenting={featureMutex.state.commenting}
-                           archiving={featureMutex.state.archiving}
-                           onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
-                           onResetArchiving={() => featureMutex.toggleFeature('archiving')}
-                           inspectPanel={true}
-                           onInspectTarget={setInspectTarget}
-                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                           refreshKey={combinedRefreshKey()}
-                           filePath={tab.filePath}
-                           commentFilePath={tab.commentFilePath}
-                           sessionId={tab.sessionId ?? props.sessionId}
-                           sdkUrl={globalSDK.url}
-                           sdkDirectory={props.sdkDirectory}
-                           onSaveFile={async (content) => {
-                             if (!tab.filePath) return
-                             const html = extractCodeBlock(content, "html")
-                             await saveArtifactContent(tab.filePath, html)
-                           }}
-                           onRefreshNeeded={handleRefresh}
-                            tabTitle={tab.title}
-                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
-                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                             iframeElementGetter={(g) => { iframeElementGetter = g }}
-                             subtype={tab.subtype}
-                             tabId={tab.id}
-                             disabled={props.disabled}
-                             skillConfig={props.skillConfig}
-                             artifactFiles={props.artifactFiles}
-                             productId={props.productId}
-                             onDownloadProductAsset={props.onDownloadProductAsset}
-                             onUpdateMentionPath={props.onUpdateMentionPath}
-                            />
+                            content={tab.content}
+                            mode={htmlMode()}
+                            viewport={viewport()}
+                            palette={palette()}
+                            inspecting={isActive() && featureMutex.state.inspecting}
+                            editing={isActive() && featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
+                            modelEditing={isActive() && featureMutex.state.modelEditing}
+                            modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
+                            onModelEditSave={handleModelEditSave}
+                            onModelEditDelete={handleModelEditDelete}
+                            drawing={isActive() && featureMutex.state.drawing}
+                            commenting={isActive() && featureMutex.state.commenting}
+                            archiving={isActive() && featureMutex.state.archiving}
+                            onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
+                            onResetArchiving={() => featureMutex.toggleFeature('archiving')}
+                            inspectPanel={true}
+                            onInspectTarget={setInspectTarget}
+                            onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                            onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                            refreshKey={combinedRefreshKey()}
+                            filePath={tab.filePath}
+                            commentFilePath={tab.commentFilePath}
+                            sessionId={tab.sessionId ?? props.sessionId}
+                            sdkUrl={globalSDK.url}
+                            sdkDirectory={props.sdkDirectory}
+                            onSaveFile={async (content) => {
+                              if (!tab.filePath) return
+                              const html = extractCodeBlock(content, "html")
+                              await saveArtifactContent(tab.filePath, html)
+                            }}
+                            onRefreshNeeded={handleRefresh}
+                              tabTitle={tab.title}
+                              onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                              observedUrlsGetter={(g) => { if (g) observedUrlsGetters[tabId] = g }}
+                              registerIframePostMessage={(fn) => { if (fn) iframePostMessages[tabId] = fn }}
+                              iframeElementGetter={(g) => { if (g) iframeElementGetters[tabId] = g }}
+                              subtype={tab.subtype}
+                              tabId={tab.id}
+                              disabled={props.disabled}
+                              skillConfig={props.skillConfig}
+                              artifactFiles={props.artifactFiles}
+                              productId={props.productId}
+                              onDownloadProductAsset={props.onDownloadProductAsset}
+                              onUpdateMentionPath={props.onUpdateMentionPath}
+                              />
+                    </Show>
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -810,12 +853,11 @@ archiving={featureMutex.state.archiving}
                     </Match>
                   </Switch>
                 </div>
-              </div>
-            )
-          }}
+                </div>
+              )
+            }}
+          </For>
         </Show>
-      </Show>
-    </Show>
     <PrototypeCtxMenu />
     <PrototypePropertyEditor
       sessionId={props.sessionId}
@@ -827,14 +869,4 @@ archiving={featureMutex.state.archiving}
     />
   </div>
 )
-}
-
-function ResultViewerEmpty(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-      <IllustrationResultEmpty width={80} height={80} />
-      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>对话产出将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled)" }}>点击左侧输出卡片即可打开</div>
-    </div>
-  )
 }

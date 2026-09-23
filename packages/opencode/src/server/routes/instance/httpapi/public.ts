@@ -72,11 +72,12 @@ const InstanceQueryParameters = [
 // public call shape. These keep SDK callers passing numbers/booleans while the
 // server still decodes string query params at runtime.
 const QueryNumberParameters = new Set(["start", "cursor", "limit", "method"])
-const QueryBooleanParameters = new Set(["roots", "archived"])
+const QueryBooleanParameters = new Set(["roots", "archived", "pinned", "grouped"])
 const QueryParameterSchemas = {
   "GET /find/file limit": { type: "integer", minimum: 1, maximum: 200 },
   "GET /session/{sessionID}/diff messageID": { type: "string", pattern: "^msg.*" },
   "GET /session/{sessionID}/message limit": { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  "GET /experimental/session cursor": { type: "string" },
 } satisfies Record<string, OpenApiSchema>
 
 const PathParameterSchemas = {

@@ -1,7 +1,7 @@
 /**
  * manifest-builder — 从产物文件列表构建 CodeManifest（tree.json + content.json）
  *
- * 用途（见 PLAN-manifest.md）：设计平台右侧「推荐代码」面板需要
+ * 用途：设计平台右侧「推荐代码」面板需要
  *   1. 下拉框展示 src 目录树（tree）—— 故 manifest 只收 `src/` 下的文件，
  *      根级模板文件（.gitignore / package.json / vite.config.ts 等）不进 manifest；
  *   2. 代码视图展示文件内容（content）；
