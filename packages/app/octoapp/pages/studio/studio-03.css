@@ -272,21 +272,7 @@
   border-left: 5px solid currentColor;
 }
 
-.studio-media-thumbnail-video-icon.small {
-  width: 13px;
-  height: 10px;
-  color: white;
-}
-
-.studio-media-thumbnail-video-icon.small::before {
-  left: 4px;
-  top: 2px;
-  border-top-width: 2px;
-  border-bottom-width: 2px;
-  border-left-width: 4px;
-}
-
-.studio-result-thumb-video .studio-file-manager-media-video-badge-text {
+.studio-result-video-duration-badge .studio-file-manager-media-video-badge-text {
   margin-left: 0;
 }
 

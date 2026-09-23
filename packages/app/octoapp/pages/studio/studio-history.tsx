@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { ThumbnailMap } from "./session-thumbnail"
+import { sessionThumbnailUsesVideoElement, type ThumbnailMap } from "./session-thumbnail"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
@@ -312,7 +312,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                       }
                                     >
                                       <Show
-                                        when={props.thumbnails?.[session.id]?.kind === "video" && props.thumbnails?.[session.id]?.fallback}
+                                        when={sessionThumbnailUsesVideoElement(props.thumbnails?.[session.id])}
                                         fallback={
                                           <img
                                             src={thumbnailUrl()!}

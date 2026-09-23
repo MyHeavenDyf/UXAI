@@ -179,6 +179,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
                   <StudioMediaThumbnail
                     image={image}
                     duration={props.turn.result?.duration}
+                    durationBadge="result"
                     generationID={props.turn.result?.id}
                     mediaIndex={mediaIndex()}
                     class="studio-result-thumb-media"

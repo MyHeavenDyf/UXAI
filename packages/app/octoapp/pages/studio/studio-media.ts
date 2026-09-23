@@ -1,6 +1,13 @@
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import type { StudioImage } from "./types"
 
+export function formatStudioThumbnailDuration(value?: number | string) {
+  const duration = typeof value === "string" ? Number(value) : value
+  if (duration === undefined || !Number.isFinite(duration) || duration < 0) return
+  const seconds = Math.floor(duration)
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
+}
+
 export function originalMediaSrc(image: StudioImage) {
   return image.remoteUrl ?? image.url
 }

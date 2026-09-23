@@ -671,6 +671,7 @@ export function StudioFileManager(props: {
                               thumbnailStatus: item.thumbnailStatus,
                             }}
                             duration={item.duration}
+                            durationBadge="file-manager"
                             generationID={item.generationID}
                             mediaIndex={item.mediaIndex}
                             class="studio-file-manager-media-image"

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { isStudioThumbnailUrl, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
+import { formatStudioThumbnailDuration, isStudioThumbnailUrl, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
 
 describe("Studio media URL selection", () => {
+  test("formats the result video duration as minutes and seconds", () => {
+    expect(formatStudioThumbnailDuration(5)).toBe("00:05")
+    expect(formatStudioThumbnailDuration("65")).toBe("01:05")
+  })
+
   test("converts a local thumbnail path to artifact serve", () => {
     const url = resolveStudioMediaUrl({
       value: ".octo/ses_1/thumbnails/studio_gen_1-0.webp",

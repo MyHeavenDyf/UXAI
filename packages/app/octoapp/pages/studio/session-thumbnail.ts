@@ -8,6 +8,10 @@ import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl, thumbnai
 export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean; kind?: "image" | "video" }
 export type ThumbnailMap = Record<string, ThumbnailEntry>
 
+export function sessionThumbnailUsesVideoElement(entry?: ThumbnailEntry) {
+  return entry?.kind === "video" && !isStudioThumbnailUrl(entry.url)
+}
+
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool"
 }
@@ -102,7 +106,7 @@ export function createSessionThumbnailStore(input: {
         url,
         updatedAt: Date.now(),
         kind,
-        ...(fallback ? { fallback: true } : {}),
+        fallback,
       })
       setVersion((v) => v + 1)
     }
@@ -171,7 +175,7 @@ export function createSessionThumbnailStore(input: {
                 url,
                 updatedAt: session.time.updated ?? Date.now(),
                 kind: media?.kind,
-                ...(fallback ? { fallback: true } : {}),
+                fallback,
               })
               setVersion((v) => v + 1)
             } else {
@@ -204,7 +208,7 @@ export function createSessionThumbnailStore(input: {
                 url,
                 updatedAt: Date.now(),
                 kind: media?.kind,
-                ...(fallback ? { fallback: true } : {}),
+                fallback,
               })
               setVersion((v) => v + 1)
             }

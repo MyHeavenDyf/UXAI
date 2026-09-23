@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { extractFirstImageFromMessages } from "./session-thumbnail"
+import { extractFirstImageFromMessages, sessionThumbnailUsesVideoElement } from "./session-thumbnail"
 
 function message(output: Record<string, unknown>, created = 1) {
   return {
@@ -28,6 +28,21 @@ function message(output: Record<string, unknown>, created = 1) {
 }
 
 describe("Studio session thumbnail extraction", () => {
+  test("renders a ready video poster as an image even when an old fallback flag remains", () => {
+    expect(sessionThumbnailUsesVideoElement({
+      url: ".octo/ses_1/thumbnails/video.webp",
+      updatedAt: 1,
+      kind: "video",
+      fallback: true,
+    })).toBe(false)
+    expect(sessionThumbnailUsesVideoElement({
+      url: "https://example.com/video.mp4",
+      updatedAt: 1,
+      kind: "video",
+      fallback: true,
+    })).toBe(true)
+  })
+
   test("uses a legacy original image until a thumbnail is available", () => {
     expect(extractFirstImageFromMessages([
       message({ images: ["https://example.com/original.png"] }),
