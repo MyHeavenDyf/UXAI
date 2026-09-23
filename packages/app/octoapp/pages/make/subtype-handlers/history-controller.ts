@@ -204,7 +204,13 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     if (!existingBefore) {
       await trigger(tab, { type: "open", isNew: true }, "init")
     } else if (contentChanged) {
-      await trigger(tab, { type: "agent-update" }, "agent")
+      // 内容变了但该文件无任何历史（首次 init 失败的残留场景）：建 init 作为首次快照，
+      const existing = await historyStore.listVersions(tab)
+      if (existing.length === 0) {
+        await trigger(tab, { type: "open", isNew: false }, "init")
+      } else {
+        await trigger(tab, { type: "agent-update" }, "agent")
+      }
     } else {
       // 已有 tab 重开（内容未变）：无历史时补建 init；有历史时 trigger 内部查重跳过
       await trigger(tab, { type: "open", isNew: false }, "init")

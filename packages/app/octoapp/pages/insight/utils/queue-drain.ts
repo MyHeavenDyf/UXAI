@@ -7,6 +7,7 @@ import { formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNo
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
 import { currentAccount, currentUserId } from "./account"
+import { artifactTrackingExtra } from "./artifact-tracking"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./prompt-local-files"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
@@ -219,6 +220,6 @@ export async function sendQueuedItem(
     //   - account(SPEC-INS-030 §5)：不带则该轮 knowledge_search 拿不到工号、直接拒答。
     //   - userId(SPEC-INS-033)：不带则该轮 get_session_identity 显式失败。
     // 同样每轮都传(字段都没有时为空对象)，否则服务端沿用上一轮的 sessionExtras，见 index.tsx 同处注释。
-    extra: promptExtra,
+    extra: { ...promptExtra, ...artifactTrackingExtra() },
   })
 }

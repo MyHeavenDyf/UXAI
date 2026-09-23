@@ -84,6 +84,7 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
 import { currentAccount, currentUserId } from "./utils/account"
+import { artifactTrackingExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
@@ -1718,7 +1719,7 @@ function InsightContent() {
         // **每轮都传,字段都没有时传空对象**(SPEC-INS-033 §1):服务端只在收到 extra 时才覆盖 sessionExtras,
         // 某轮不传就会沿用上一轮的值——登录态丢失后工具仍拿到旧身份,而不是显式失败。空对象只进 insight
         // 会话的 sessionExtras,不影响 make / studio。
-        extra: promptExtra,
+        extra: { ...promptExtra, ...artifactTrackingExtra() },
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {

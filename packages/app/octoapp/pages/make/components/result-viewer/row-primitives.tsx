@@ -1,9 +1,10 @@
-import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js'
+import { Show, For, createSignal, createEffect, createMemo, onCleanup } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { JSX } from 'solid-js'
-import { ColorPicker } from '../model-edit-items/icon-data/color-picker'
+import { ColorPicker, hexWithAlpha, hexToRgb } from '../model-edit-items/icon-data/color-picker'
 import { HUI_COLOR_TOKENS, type ColorToken } from '../model-edit-items/icon-data/hui-color-tokens'
 import { DragInput } from './drag-input'
-import { CustomSelect } from '../../../pattern/modules/preview/property-editor-popup/custom-select'
+import { CustomSelect } from '../model-edit-items/icon-data/custom-select'
 import {
   FreeformIcon, RowIcon, ColIcon,
   HAlignIcon, VAlignIcon,
@@ -14,6 +15,7 @@ import {
   SettingsIcon,
 } from '../../../pattern/modules/preview/property-editor-popup/icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
+import { IconSizeCheckmark, IconPaddingLeft, IconPaddingTop, IconPaddingRight, IconPaddingBottom, IconEye, IconEyeSlash, IconHighlights, IconEffectMinus, IconEffectPlus, IconGranule, IconXmark } from '../../icons'
 import '../../../pattern/assets/style/preview/PropertyEditorPopup.css'
 
 export { ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect }
@@ -122,9 +124,16 @@ export function QuadModeSection(props: {
       </button>
       <Show when={modeOpen()}>
         <div class="cc-quad-mode-dropdown" onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { setMode('all'); setModeOpen(false) }}>四周</button>
-          <button onClick={() => { setMode('hv'); setModeOpen(false) }}>水平/垂直</button>
-          <button onClick={() => { setMode('trbl'); setModeOpen(false) }}>上/右/下/左</button>
+          <For each={[{ v: 'all' as const, label: '四周' }, { v: 'hv' as const, label: '水平/垂直' }, { v: 'trbl' as const, label: '独立边距' }]}>
+            {(m) => (
+              <button onClick={() => { setMode(m.v); setModeOpen(false) }}>
+                <span class="cc-quad-mode-check" style={{ visibility: mode() === m.v ? 'visible' : 'hidden' }}>
+                  <IconSizeCheckmark />
+                </span>
+                <span>{m.label}</span>
+              </button>
+            )}
+          </For>
         </div>
       </Show>
     </div>
@@ -145,14 +154,24 @@ export function QuadModeSection(props: {
       </Show>
       <Show when={mode() === 'trbl'}>
         <div class="cc-quad-trbl">
-          <DragInput value={side('t')} setValue={setSide('t')} setFound={() => {}} found={() => true} placeholder="上" icon="↑" />
-          <DragInput value={side('r')} setValue={setSide('r')} setFound={() => {}} found={() => true} placeholder="右" icon="→" />
-          <DragInput value={side('b')} setValue={setSide('b')} setFound={() => {}} found={() => true} placeholder="下" icon="↓" />
-          <DragInput value={side('l')} setValue={setSide('l')} setFound={() => {}} found={() => true} placeholder="左" icon="←" />
+          <DragInput value={side('l')} setValue={setSide('l')} setFound={() => {}} found={() => true} placeholder="左" icon={<IconPaddingLeft />} />
+          <DragInput value={side('t')} setValue={setSide('t')} setFound={() => {}} found={() => true} placeholder="上" icon={<IconPaddingTop />} />
+          <DragInput value={side('r')} setValue={setSide('r')} setFound={() => {}} found={() => true} placeholder="右" icon={<IconPaddingRight />} />
+          <DragInput value={side('b')} setValue={setSide('b')} setFound={() => {}} found={() => true} placeholder="下" icon={<IconPaddingBottom />} />
         </div>
       </Show>
     </Section>
   )
+}
+
+const EFFECT_TYPE_LABELS: Record<EffectEntry['type'], string> = {
+  'drop-shadow': '阴影',
+  'layer-blur': '模糊',
+  'background-blur': '背景模糊',
+}
+
+function rgbToHexStr(r: number, g: number, b: number): string {
+  return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function EffectsSection(props: {
@@ -169,7 +188,7 @@ export function EffectsSection(props: {
       id: `effect-${Date.now()}-${props.effects.length}`,
       type: 'drop-shadow',
       visible: true,
-      expanded: true,
+      expanded: false,
       color: '#000000',
       opacity: 100,
       blur: 0,
@@ -186,7 +205,61 @@ export function EffectsSection(props: {
     props.onChange([...props.effects, next])
   }
   const removeEffect = (id: string) => {
+    if (popupEffectId() === id) setPopupEffectId(null)
     props.onChange(props.effects.filter(e => e.id !== id))
+  }
+
+  const [popupEffectId, setPopupEffectId] = createSignal<string | null>(null)
+  const [popupPos, setPopupPos] = createSignal({ left: 0, top: 0 })
+  const popupEffect = createMemo(() => props.effects.find(e => e.id === popupEffectId()) ?? null)
+  let popupRef: HTMLDivElement | undefined
+  let popupCardRef: HTMLElement | undefined
+
+  const togglePopup = (id: string, el: HTMLElement) => {
+    if (popupEffectId() === id) { setPopupEffectId(null); return }
+    setPopupEffectId(id)
+    popupCardRef = el.closest('.cc-effect-card') ?? undefined
+    const rect = el.getBoundingClientRect()
+    const pw = 220
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - pw - 4))
+    const top = Math.min(rect.bottom + 8, Math.max(4, window.innerHeight - 240))
+    setPopupPos({ left, top })
+  }
+
+  const startTitleDrag = (e: MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX - popupPos().left
+    const startY = e.clientY - popupPos().top
+    const onMove = (ev: MouseEvent) => {
+      setPopupPos({ left: Math.max(0, ev.clientX - startX), top: Math.max(0, ev.clientY - startY) })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  createEffect(() => {
+    if (!popupEffectId()) return
+    const handler = (ev: MouseEvent) => {
+      const t = ev.target as HTMLElement
+      if (popupRef && popupRef.contains(t)) return
+      if (popupCardRef && popupCardRef.contains(t)) return
+      if (t.closest?.('[data-color-picker-popup]')) return
+      if (t.closest?.('[data-custom-select-list]')) return
+      setPopupEffectId(null)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  const colorValue = (e: EffectEntry) => hexWithAlpha(e.color, e.opacity)
+  const onColorChange = (id: string, hex: string) => {
+    const rgb = hexToRgb(hex)
+    if (!rgb) return
+    update(id, { color: rgbToHexStr(rgb.r, rgb.g, rgb.b), opacity: rgb.a })
   }
 
   const content = (
@@ -194,14 +267,24 @@ export function EffectsSection(props: {
       <div class="cc-effects-head">
         <span>效果</span>
         <button type="button" class="prop-chip cc-effect-add" onClick={addEffect} title="添加" aria-label="添加">
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+          <IconEffectPlus />
         </button>
       </div>
       <For each={props.effects}>
         {(e) => (
           <div class="cc-effect-card">
             <div class="cc-effect-row">
+              <button
+                type="button"
+                class="prop-chip cc-effect-toggle"
+                onClick={() => update(e.id, { visible: !e.visible })}
+                title={e.visible ? '隐藏' : '显示'}
+                aria-label={e.visible ? '隐藏' : '显示'}
+              >
+                <Show when={e.visible} fallback={<IconEyeSlash />}><IconEye /></Show>
+              </button>
               <CustomSelect
+                checkmark
                 value={e.type}
                 options={[
                   { label: '阴影', value: 'drop-shadow' },
@@ -212,16 +295,13 @@ export function EffectsSection(props: {
               />
               <button
                 type="button"
-                class="prop-chip cc-effect-toggle"
-                onClick={() => update(e.id, { visible: !e.visible })}
-                title={e.visible ? '隐藏' : '显示'}
-                aria-label={e.visible ? '隐藏' : '显示'}
+                class="prop-chip cc-effect-config"
+                onClick={(ev) => togglePopup(e.id, ev.currentTarget)}
+                onMouseDown={(ev) => ev.stopPropagation()}
+                title="配置"
+                aria-label="配置"
               >
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  {e.visible
-                    ? <><path d="M2 8s2-5 6-5 6 5 6 5-2 5-6 5-6-5-6-5z" /><circle cx="8" cy="8" r="2" /></>
-                    : <><path d="M1 1l14 14M4 4c-1.3.8-2.5 2-3 4 0 0 2 5 6 5 1.5 0 2.8-.5 3.8-1.2M14 12c1.3-.8 2.5-2 3-4 0 0-2-5-6-5-1.5 0-2.8.5-3.8 1.2" /></>}
-                </svg>
+                <IconHighlights />
               </button>
               <button
                 type="button"
@@ -230,44 +310,54 @@ export function EffectsSection(props: {
                 title="删除"
                 aria-label="删除"
               >
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                <IconEffectMinus />
               </button>
             </div>
-            <Show when={e.expanded && e.type === 'drop-shadow'}>
-              <div class="cc-effect-row">
-                <ColorPicker label="Color" value={e.color} tokens={props.colors ?? HUI_COLOR_TOKENS} onChange={(v) => update(e.id, { color: v })} />
-              </div>
-              <div class="cc-effect-row">
-                <DragInput value={() => e.opacity} setValue={(v) => update(e.id, { opacity: Math.max(0, Math.min(100, v)) })} setFound={() => {}} found={() => true} placeholder="100%" max={100} suffix="%" />
-              </div>
-              <div class="cc-effect-row">
-                <DragInput value={() => e.blur} setValue={(v) => update(e.id, { blur: v, foundBlur: true })} setFound={() => {}} found={() => e.foundBlur} placeholder="模糊值" />
-              </div>
-              <div class="cc-effect-row">
-                <DragInput value={() => e.offsetX} setValue={(v) => update(e.id, { offsetX: v, foundOffsetX: true })} setFound={() => {}} found={() => e.foundOffsetX} placeholder="X" />
-                <DragInput value={() => e.offsetY} setValue={(v) => update(e.id, { offsetY: v, foundOffsetY: true })} setFound={() => {}} found={() => e.foundOffsetY} placeholder="Y" />
-              </div>
-            </Show>
-            <Show when={e.expanded && e.type === 'layer-blur'}>
-              <div class="cc-effect-row">
-                <DragInput value={() => e.layerBlur} setValue={(v) => update(e.id, { layerBlur: v, foundLayerBlur: true })} setFound={() => {}} found={() => e.foundLayerBlur} placeholder="模糊值" />
-              </div>
-            </Show>
-            <Show when={e.expanded && e.type === 'background-blur'}>
-              <div class="cc-effect-row">
-                <DragInput value={() => e.bgBlur} setValue={(v) => update(e.id, { bgBlur: v, foundBgBlur: true })} setFound={() => {}} found={() => e.foundBgBlur} placeholder="模糊值" />
-              </div>
-            </Show>
-            <button
-              type="button"
-              class="prop-chip cc-effect-expand-toggle"
-              onClick={() => update(e.id, { expanded: !e.expanded })}
-            >
-              {e.expanded ? '收起' : '展开'}
-            </button>
           </div>
         )}
       </For>
+      <Show when={popupEffect()}>
+        <Portal>
+          <div ref={popupRef} class="cc-effect-popup" style={{ left: `${popupPos().left}px`, top: `${popupPos().top}px` }}>
+            <div class="cc-effect-popup-title" onMouseDown={startTitleDrag}>
+              <span>{EFFECT_TYPE_LABELS[popupEffect()!.type]}</span>
+              <button type="button" class="cc-effect-popup-close" onClick={() => setPopupEffectId(null)} title="关闭" aria-label="关闭">
+                <IconXmark />
+              </button>
+            </div>
+            <Show when={popupEffect()!.type === 'drop-shadow'}>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label">位置</span>
+                <DragInput value={() => popupEffect()!.offsetX} setValue={(v) => update(popupEffect()!.id, { offsetX: v, foundOffsetX: true })} setFound={() => {}} found={() => popupEffect()!.foundOffsetX} placeholder="X" icon={<span class="cc-effect-icon-text">X</span>} />
+              </div>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label" style={{ visibility: 'hidden' }}>位置</span>
+                <DragInput value={() => popupEffect()!.offsetY} setValue={(v) => update(popupEffect()!.id, { offsetY: v, foundOffsetY: true })} setFound={() => {}} found={() => popupEffect()!.foundOffsetY} placeholder="Y" icon={<span class="cc-effect-icon-text">Y</span>} />
+              </div>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label">模糊</span>
+                <DragInput value={() => popupEffect()!.blur} setValue={(v) => update(popupEffect()!.id, { blur: v, foundBlur: true })} setFound={() => {}} found={() => popupEffect()!.foundBlur} placeholder="模糊值" icon={<IconGranule />} />
+              </div>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label">颜色</span>
+                <ColorPicker label="颜色" value={colorValue(popupEffect()!)} tokens={props.colors ?? HUI_COLOR_TOKENS} onChange={(hex) => onColorChange(popupEffect()!.id, hex)} />
+              </div>
+            </Show>
+            <Show when={popupEffect()!.type === 'layer-blur'}>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label">模糊</span>
+                <DragInput value={() => popupEffect()!.layerBlur} setValue={(v) => update(popupEffect()!.id, { layerBlur: v, foundLayerBlur: true })} setFound={() => {}} found={() => popupEffect()!.foundLayerBlur} placeholder="模糊值" icon={<IconGranule />} />
+              </div>
+            </Show>
+            <Show when={popupEffect()!.type === 'background-blur'}>
+              <div class="cc-effect-popup-row">
+                <span class="cc-effect-popup-label">模糊</span>
+                <DragInput value={() => popupEffect()!.bgBlur} setValue={(v) => update(popupEffect()!.id, { bgBlur: v, foundBgBlur: true })} setFound={() => {}} found={() => popupEffect()!.foundBgBlur} placeholder="模糊值" icon={<IconGranule />} />
+              </div>
+            </Show>
+          </div>
+        </Portal>
+      </Show>
     </div>
   )
 

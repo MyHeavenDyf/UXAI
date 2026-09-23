@@ -285,6 +285,12 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
     env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
+  if (!env.OCTO_REPORT_BASE_URL && import.meta.env.OCTO_REPORT_BASE_URL) {
+    env.OCTO_REPORT_BASE_URL = import.meta.env.OCTO_REPORT_BASE_URL
+  }
+  if (!env.OCTO_ARTIFACT_SUCCESS && import.meta.env.OCTO_ARTIFACT_SUCCESS) {
+    env.OCTO_ARTIFACT_SUCCESS = import.meta.env.OCTO_ARTIFACT_SUCCESS
+  }
 
   // 捆绑 rg 二进制的绝对路径。~/.cache/opencode/bin 不可写时(如曾用 sudo 跑 CLI 留下
   // root 属主目录),deployRipgrep 的预装拷贝与服务端 GitHub 兜底下载都会 EACCES 失败,
