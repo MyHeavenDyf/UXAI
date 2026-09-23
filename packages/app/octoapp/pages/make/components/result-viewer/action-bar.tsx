@@ -268,8 +268,9 @@ function CanvasEditDropdown(props: {
   sessionId?: string
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
-  onFilesRefresh?: () => void
-}): JSX.Element {
+    onFilesRefresh?: () => void
+    disabled?: boolean
+   }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
   const [actions, setActions] = createSignal<PixsoAction[]>([])
@@ -510,6 +511,7 @@ export function ActionBar(props: {
     sdkDirectory?: string
     postMessageToIframe?: (data: unknown) => void
     onFilesRefresh?: () => void
+    disabled?: boolean
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -904,7 +906,8 @@ export function ActionBar(props: {
               ref={historyBtnRef}
               type="button"
               class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.historyActive }}
+              classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
+              disabled={!!props.disabled}
               onClick={props.onHistoryToggle}
               title="历史版本"
             >

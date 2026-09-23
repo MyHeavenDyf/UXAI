@@ -19,6 +19,8 @@ describe("buildToolGate", () => {
     expect("webfetch" in gate).toBe(false)
     // 非 chip turn 绝不能关它:office 文件没有别的读法(read 对二进制直接报错)
     expect("extract_document" in gate).toBe(false)
+    // SPEC-INS-033:会话身份工具普通轮次常驻(skill 调内部接口前要先读身份)
+    expect("get_session_identity" in gate).toBe(false)
   })
 
   test("chip turn:仅放行所选业务工具,并关 task/bash/webfetch/extract_document", () => {
@@ -31,5 +33,6 @@ describe("buildToolGate", () => {
     expect(gate["bash"]).toBe(false)
     expect(gate["webfetch"]).toBe(false)
     expect(gate["extract_document"]).toBe(false)
+    expect(gate["get_session_identity"]).toBe(false)
   })
 })

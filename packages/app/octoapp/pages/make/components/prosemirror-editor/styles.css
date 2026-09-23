@@ -116,6 +116,10 @@
 .pm-mention {
   display: inline-block;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
   padding: 3px 8px;
   font-size: 12px;
   border-radius: 999px;

@@ -9,6 +9,7 @@ describe("modelsApiProviders", () => {
         name: "Octo AI",
         api: "http://octoai-llm.ucd.huawei.com/v1",
         npm: "@ai-sdk/openai-compatible",
+        title_model: [" missing ", " GLM-V5_1 "],
         models: [
           {
             id: "GLM-V5_1",
@@ -45,6 +46,7 @@ describe("modelsApiProviders", () => {
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe("w3")
     expect(result[0].source).toBe("remote")
+    expect(result[0].title_model).toEqual(["missing", "GLM-V5_1"])
     expect(result[0].models["GLM-V5_1"]).toMatchObject({
       id: "GLM-V5_1",
       providerID: "w3",

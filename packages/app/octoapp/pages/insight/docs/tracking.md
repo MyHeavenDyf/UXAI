@@ -24,7 +24,7 @@
 | session-switch | 在会话列表点击切到另一个历史会话（点当前会话不计） | `targetSessionId` | `session-list/index.tsx` 会话条目 onClick |
 | session-rename | 会话重命名提交成功 | `entry`(menu=列表右键 / header=对话头部) | `session-list/index.tsx` `handleRenameConfirm` + `conversation-header.tsx` `saveTitleEditor` |
 | session-delete | 会话删除成功 | `entry`(menu / header) | `session-list/index.tsx` `handleDelete` + `conversation-header.tsx` `deleteSession` |
-| session-load-more | Insight 最近列表滚动距底部不足 100px、还有未显示会话时，每增加 30 条显示上限后一次；初始加载、刷新、全部显示后滚动不报。旧外壳仍为按钮触发 | `limit`(增加后的显示上限，可大于实际条数；panel 不代表接口请求数量)、`source`(panel=insight 侧栏 / shell=旧外壳侧栏) | `components/agent-sidebar.tsx` 滚动回调 → `insight/sidebar.tsx` `onLoadMore`；旧 `_shell/sidebar.tsx` `loadMore` |
+| session-load-more | Insight 最近列表由滚动事件触发服务端分页、成功追加新会话后一次；首次加载、自动补页、失败和无新增会话不报。旧外壳仍为按钮触发 | `limit`(追加后「最近」列表实际可见会话数；panel 不代表接口请求数量)、`source`(panel=insight 侧栏 / shell=旧外壳侧栏) | `components/agent-sidebar.tsx` 分页成功回调 → `insight/sidebar.tsx` `onLoadMore`；旧 `_shell/sidebar.tsx` `loadMore` |
 
 ## 三、消息发送 / 对话
 

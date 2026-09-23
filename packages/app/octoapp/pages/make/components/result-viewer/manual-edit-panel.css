@@ -175,7 +175,7 @@
   height: 24px;
   font-size: 10px;
   border: none;
-  background: #f4f4f5;
+  background: #f9f9f9;
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -455,7 +455,7 @@ input[type="number"].cc-value:focus {
   border: 1px solid transparent;
   border-radius: 4px;
   font-family: inherit;
-  background: #f4f4f5;
+  background: #f9f9f9;
   resize: vertical;
   line-height: 1.4;
   margin: 0;
@@ -474,7 +474,7 @@ input[type="number"].cc-value:focus {
   font-size: 12px;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: #f4f4f5;
+  background: #f9f9f9;
   margin: 0;
   box-sizing: border-box;
 }
@@ -868,9 +868,9 @@ input[type="number"].cc-value:focus {
 .cc-layout-direction {
   display: flex;
   gap: 1px;
-  background: #e4e4e7;
+  background: #F9F9F9;
   border-radius: 6px;
-  padding: 1px;
+  padding: 4px;
 }
 
 .cc-layout-dir-btn {
@@ -885,6 +885,11 @@ input[type="number"].cc-value:focus {
   border-radius: 5px;
 }
 
+.cc-layout-dir-btn-active {
+  background: #ffffff;
+  box-shadow: 0px 1px 6px 0px rgba(0, 0, 0, 0.08);
+}
+
 .cc-layout-grid-wrap {
   display: flex;
   gap: 8px;
@@ -896,7 +901,7 @@ input[type="number"].cc-value:focus {
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   gap: 1px;
-  background: #f4f4f5;
+  background: #f9f9f9;
   border-radius: 6px;
   padding: 2px;
   width: 96px;
@@ -953,6 +958,18 @@ input[type="number"].cc-value:focus {
 
 .cc-layout-radio input[type="radio"] {
   margin: 0;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid #939393;
+  background: #fff;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.cc-layout-radio input[type="radio"]:checked {
+  border: 4px solid #0a59f7;
 }
 
 /* === Section head + actions === */
@@ -1020,7 +1037,7 @@ input[type="number"].cc-value:focus {
 }
 
 .cc-quad-mode-dropdown > button:hover {
-  background: #f4f4f5;
+  background: #f9f9f9;
 }
 
 .cc-quad-row {
@@ -1050,6 +1067,13 @@ input[type="number"].cc-value:focus {
   gap: 6px;
   width: 100%;
   min-width: 0;
+}
+
+/* 宽高 2x2 网格：宽/高输入框 + 宽/高模式下拉 */
+.cc-size-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .cc-size-row > * {

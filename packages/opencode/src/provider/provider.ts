@@ -1261,6 +1261,7 @@ export const Info = Schema.Struct({
   env: Schema.Array(Schema.String),
   key: optionalOmitUndefined(Schema.String),
   options: Schema.Record(Schema.String, Schema.Any),
+  title_model: optionalOmitUndefined(Schema.Array(Schema.String)),
   models: Schema.Record(Schema.String, Model),
 })
   .annotate({ identifier: "Provider" })
@@ -1290,6 +1291,7 @@ export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderID, Info>>
   readonly getProvider: (providerID: ProviderID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model>
+  readonly getTitleModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3>
   readonly closest: (
     providerID: ProviderID,
@@ -1308,6 +1310,13 @@ interface State {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
+
+export function resolveTitleModelID(provider: Info | undefined, modelID: ModelID) {
+  if (!provider) return modelID
+  if (provider.source === "custom" || provider.options?.["__octo_custom_provider"] === true) return modelID
+  const candidate = provider.title_model?.find((item) => provider.models[item] !== undefined)
+  return candidate ? ModelID.make(candidate) : modelID
+}
 
 function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   const result: Model["cost"] = {
@@ -1413,6 +1422,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider, source: Info
     name: provider.name,
     env: [...(provider.env ?? [])],
     options: {},
+    title_model: provider.title_model ? [...provider.title_model] : undefined,
     models,
   }
 }
@@ -2347,6 +2357,12 @@ const layer: Layer.Layer<
       return undefined
     })
 
+    const getTitleModel = Effect.fn("Provider.getTitleModel")(function* (providerID: ProviderID, modelID: ModelID) {
+      yield* syncRemoteProviders()
+      const s = yield* InstanceState.get(state)
+      return yield* getModel(providerID, resolveTitleModelID(s.providers[providerID], modelID))
+    })
+
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {
       const cfg = yield* config.get()
       if (cfg.model) return parseModel(cfg.model)
@@ -2381,7 +2397,7 @@ const layer: Layer.Layer<
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({ list, getProvider, getModel, getTitleModel, getLanguage, closest, getSmallModel, defaultModel })
   }),
 )
 

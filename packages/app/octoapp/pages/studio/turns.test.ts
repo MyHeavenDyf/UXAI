@@ -774,6 +774,39 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.images[0]?.width).toBe(1280)
   })
 
+  test("restores mentions from a style-template generation", () => {
+    const m1 = userMessage("msg_template_user")
+    const a1 = assistantMessage("msg_template_assistant", 2)
+    const mention = "@人物\u200B制作一张海报"
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_template_user", m1.id, mention)],
+        [a1.id]: [toolPart(
+          "p_template_tool",
+          a1.id,
+          JSON.stringify({ images: ["https://example.com/result.png"] }),
+          "internel_image_generate",
+          {
+            capability: "image.generate",
+            prompt: mention,
+            displayPrompt: mention,
+            referenceImages: ["https://example.com/person.png"],
+            extra: {
+              mentionImages: { 人物: "https://example.com/person.png" },
+              referenceImageNames: ["人物.png"],
+              template: { id: 1, prompt: { custom: mention } },
+            },
+          },
+        )],
+      },
+    })
+
+    expect(turns[0].userText).toBe(mention)
+    expect(turns[0].mentionImages).toEqual({ 人物: "https://example.com/person.png" })
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual(["https://example.com/person.png"])
+  })
+
   test("ignores request urls when extracting images from tool output", () => {
     const m1 = userMessage("msg_1")
     const a1 = assistantMessage("msg_2")

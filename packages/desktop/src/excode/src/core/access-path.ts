@@ -174,3 +174,43 @@ function pathToTopKey(path: string): string {
 export function makeEnrichmentConstName(path: string, parentNodeId: string): string {
   return `${pathToTopKey(path)}_${parentNodeId}Enriched`
 }
+
+// ─── loop className binding 命名 ───
+//
+// relative className binding 在循环内逐项编译：tree-finalizer 注册文件顶部
+//   `const ${prefix}Classes = [styles.${prefix}Item0, ...]` 数组 + 把 className prop
+//   替成 rawExpr `${prefix}Classes[idx]`；style-converter 编 `.${prefix}Item{i}` 规则。
+// 命名集中于此，tree-finalizer 与 style-converter 同源、不漂移。
+//
+// 格式：lowerCamel(pathTopKey) + Pascal(nodeId)。
+//   - pathTopKey 取相对路径首段（如 'itemCls'），lowerCamel 由 jsxConstName 保证
+//     （含特殊字符的段也按非标识符字符切段小驼峰拼接）。
+//   - nodeId 是带 className 的节点 id，Pascal 化（首字母大写）。
+//   - 两者组合保证同文件多循环不撞名（不同 loop 的 nodeId 不同）；撞键由 tree-finalizer
+//     的 _1 后缀去重兜底。主名小驼峰、不用 _ 连接（用户要求），仅去重层用 _。
+
+/** 首字母大写（Pascal 化第一步，用于 nodeId 段）。 */
+function upperFirst(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
+}
+
+/** loop className binding 的 per-item 前缀：lowerCamel(pathTopKey) + Pascal(nodeId)。 */
+export function loopClassNamePrefix(relPath: string, nodeId: string): string {
+  const head = jsxConstName(pathToTopKey(relPath) || 'cls')   // lowerCamel
+  const tail = upperFirst(jsxConstName(nodeId || 'node'))    // Pascal
+  return head + tail
+}
+
+/** loop className binding 的 const 数组名：前缀 + 'Classes'（main-tree 循环 per-item idx 数组）。 */
+export function loopClassNameConstName(relPath: string, nodeId: string): string {
+  return loopClassNamePrefix(relPath, nodeId) + 'Classes'
+}
+
+/**
+ * loop className binding 的值映射 const 名：前缀 + 'ClassMap'（render fn body 内
+ * cell 自身 className=row-relative binding 的场景，无 idx 可用，改用「串→styles.{prefix}Item{i}」
+ * 查表 map）。与 loopClassNameConstName（'Classes' 数组）区分，避免同名碰撞。
+ */
+export function loopClassNameMapName(relPath: string, nodeId: string): string {
+  return loopClassNamePrefix(relPath, nodeId) + 'ClassMap'
+}

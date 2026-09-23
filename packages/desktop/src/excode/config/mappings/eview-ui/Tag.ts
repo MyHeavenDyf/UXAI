@@ -134,10 +134,24 @@ const TagMapping: MappingDef = {
     // ─── closeIcon — 丢弃 ───
 
     // ─── className 透传（与 filled 合并） ───
+    // 字面量 className：与静态 classNameParts 合并成单串（既有路径，style-converter 编译 tailwind token；
+    //   注意 'filled' 是非 tailwind 的原始 DOM 类，在 CSS Modules 下会被 style-converter 丢弃——
+    //   字面量场景的 'filled' 丢失是既有 latent 问题，单独 follow-up）。
+    // binding className（循环内 per-item）：透传 binding（tree-finalizer 走 #2/B7 per-item 机制），
+    //   静态 classNameParts（'filled'）经 __staticClassName 标记作为**原始 DOM 类前缀**并入 className
+    //   表达式（`` `filled ${prefixClasses[idx]}` ``），不进 style-converter 编译——'filled' 靠共享
+    //   CSS .eui_tag.filled.eui_tag_info 生效，per-item .less 规则只编 data 的 tailwind token。
     if (props.className && typeof props.className === 'string') {
       classNameParts.push(props.className)
     }
-    if (classNameParts.length > 0) {
+
+    if (props.className && typeof props.className === 'object' && (props.className as any).type === 'binding') {
+      const binding = props.className as any
+      if (classNameParts.length > 0) {
+        binding.__staticClassName = classNameParts.join(' ')
+      }
+      outputProps.className = binding
+    } else if (classNameParts.length > 0) {
       outputProps.className = classNameParts.join(' ')
     }
 

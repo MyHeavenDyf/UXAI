@@ -1,5 +1,6 @@
 import { createHistoryStore, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
 import { getSubtypeHandler } from "../utils/subtype-registry"
+import { getSubtypeConfig } from "../utils/subtype-config"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { getDesktopApi } from "../lib/electron-api"
@@ -84,7 +85,8 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   function isEligible(tab: ResultTab): boolean {
     if (!tab.filePath || HISTORY_SKIP_TYPES.includes(tab.type)) return false
-    if (tab.type === "link" || tab.filePath.startsWith("http")) return false
+    // fastui:// 是预览卡片的产物身份,不是磁盘文件(SPEC-DES-004)
+    if (tab.type === "link" || tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
     return true
   }
 
@@ -95,7 +97,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const files = await handler?.onHistoryTrigger?.(event, ctx)
     if (!files || files.length === 0) return
 
-    if (event.type === "open" && event.isNew) {
+    if (event.type === "open") {
+      // init 条件：该文件无任何历史（不要求 tab 首次打开）。
+      // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
         callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
@@ -103,7 +107,28 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       }
     }
 
-    const entry = await historyStore.recordVersion(tab, actor, files)
+    // 同内容同 actor 去重：一次模型编辑会并发触发多路事件（file.edited / watcher /
+    // tool.success / step.ended / onFilesRefresh，可能再加路径 A），每路都可能走到
+    // recordVersion；若最新版本已由同一 actor 记录且内容一致，跳过本次记录。
+    if (actor !== "init") {
+      const existing = await historyStore.listVersions(tab)
+      const newest = existing[0]
+      if (newest && newest.actor === actor) {
+        const currentHash = await getTabFileSetHash(tab)
+        const versionFiles = await historyStore.getVersionFiles(newest.id, tab, files)
+        const hashes: string[] = []
+        for (const vf of versionFiles) {
+          const h = await getFileHash(vf.filePath)
+          if (h) hashes.push(h)
+        }
+        if (currentHash && hashes.join("|") === currentHash) {
+          callbacks.setCurrentVersionId(() => newest.id)
+          return
+        }
+      }
+    }
+
+    const entry = await historyStore.recordVersion(tab, actor, files, getSubtypeConfig(tab.subtype).history?.maxVersions)
     if (entry) {
       // 使进行中的 loadVersions/refreshVersions 失效（它们的快照可能不含本条记录）
       listGeneration++
@@ -180,6 +205,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       await trigger(tab, { type: "open", isNew: true }, "init")
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
+    } else {
+      // 已有 tab 重开（内容未变）：无历史时补建 init；有历史时 trigger 内部查重跳过
+      await trigger(tab, { type: "open", isNew: false }, "init")
     }
     const hash = await getTabFileSetHash(tab)
     if (hash) {
@@ -187,26 +215,87 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     }
   }
 
-  async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
-    for (const tab of tabs) {
-      if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) continue
-      const hash = await getTabFileSetHash(tab)
-      if (!hash) continue
-      const prevHash = lastFileHash.get(tab.filePath!)
-      lastFileHash.set(tab.filePath!, hash)
-      if (prevHash === undefined) continue
-      if (prevHash === hash) continue
-      const api = getDesktopApi()
-      const buf = await api?.readFileBuffer?.(tab.filePath!)
-      if (!buf) continue
-      const fileContent = new TextDecoder().decode(buf)
-      if (!fileContent) continue
-      if (fileContent !== tab.content) {
-        callbacks.updateTabContent(tab.id, fileContent)
-      }
-      await trigger(tab, { type: "agent-file-edit" }, "agent")
-      callbacks.setFilesRefreshKey((k) => k + 1)
+  // onFileRefresh 串行化：一次模型编辑会并发触发多路事件，若并发执行，
+  // 各调用可能读到写入中间态的 hash（或基线读写交错），导致一次编辑记多条版本。
+  // 在途时只置 pending 标记，当前轮跑完后补跑一轮（合并突发事件）。
+  let refreshInFlight = false
+  let refreshQueued = false
+  let refreshQueuedTurnEnd = false
+
+  // 'turn' 模式的静默期结算：轮内变化后若 SETTLE_DELAY_MS 内无新事件，
+  // 自动补一次 turnEnd 记录。不依赖 turnEnd 事件时序——session.idle 可能赶在
+  // 文件写入完成前到达（此时 hash==基线被跳过），之后的 file.edited 已无 turnEnd，
+  // 改动会被永久搁置（表现为"停在原始版本/没有模型编辑记录"）。
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  const SETTLE_DELAY_MS = 1500
+
+  function scheduleSettle(tabs: ResultTab[]): void {
+    if (settleTimer) clearTimeout(settleTimer)
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined
+      void onFileRefresh(tabs, { turnEnd: true })
+    }, SETTLE_DELAY_MS)
+  }
+
+  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean }): Promise<void> {
+    if (refreshInFlight) {
+      refreshQueued = true
+      if (opts?.turnEnd) refreshQueuedTurnEnd = true
+      return
+    }
+    refreshInFlight = true
+    try {
+      do {
+        const turnEnd = !!opts?.turnEnd || refreshQueuedTurnEnd
+        refreshQueued = false
+        refreshQueuedTurnEnd = false
+        for (const tab of tabs) {
+          if (!isEligible(tab)) continue
+          if (writingTabs.has(tab.id)) continue
+          const hash = await getTabFileSetHash(tab)
+          if (!hash) continue
+          const prevHash = lastFileHash.get(tab.filePath!)
+          if (prevHash === undefined) {
+            // 首次见到：只建基线，不记录
+            lastFileHash.set(tab.filePath!, hash)
+            continue
+          }
+          if (prevHash === hash) continue
+          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !turnEnd
+          const api = getDesktopApi()
+          if (coalesce) {
+            // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录。
+            // 安排静默期结算：1.5s 内无新事件（或到达 turnEnd）时记一条，
+            // 避免依赖 turnEnd 事件时序导致改动被永久搁置。
+            scheduleSettle(tabs)
+            const buf = await api?.readFileBuffer?.(tab.filePath!)
+            if (!buf) continue
+            const fileContent = new TextDecoder().decode(buf)
+            if (fileContent && fileContent !== tab.content) {
+              callbacks.updateTabContent(tab.id, fileContent)
+              callbacks.setFilesRefreshKey((k) => k + 1)
+            }
+            continue
+          }
+          // 记录路径（turnEnd 或 'each' 模式）：推进基线 + 记录
+          if (settleTimer) {
+            clearTimeout(settleTimer)
+            settleTimer = undefined
+          }
+          lastFileHash.set(tab.filePath!, hash)
+          const buf = await api?.readFileBuffer?.(tab.filePath!)
+          if (!buf) continue
+          const fileContent = new TextDecoder().decode(buf)
+          if (!fileContent) continue
+          if (fileContent !== tab.content) {
+            callbacks.updateTabContent(tab.id, fileContent)
+          }
+          await trigger(tab, { type: "agent-file-edit" }, "agent")
+          callbacks.setFilesRefreshKey((k) => k + 1)
+        }
+      } while (refreshQueued)
+    } finally {
+      refreshInFlight = false
     }
   }
 

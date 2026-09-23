@@ -2035,6 +2035,65 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.release_date).toBe("")
 })
 
+test("models.dev normalization preserves title model candidates", () => {
+  const provider = Provider.fromModelsDevProvider(
+    {
+      id: "gateway",
+      name: "Gateway",
+      env: [],
+      title_model: ["title-missing", "title-fast"],
+      models: {
+        "title-fast": {
+          id: "title-fast",
+          name: "Title Fast",
+          release_date: "2025-01-01",
+          attachment: false,
+          reasoning: false,
+          temperature: true,
+          tool_call: true,
+          limit: { context: 128_000, output: 1_000 },
+        },
+        selected: {
+          id: "selected",
+          name: "Selected",
+          release_date: "2025-01-01",
+          attachment: false,
+          reasoning: false,
+          temperature: true,
+          tool_call: true,
+          limit: { context: 128_000, output: 16_000 },
+        },
+      },
+    },
+    "remote",
+  )
+
+  expect(provider.title_model).toEqual(["title-missing", "title-fast"])
+  expect(Provider.resolveTitleModelID(provider, ModelID.make("selected"))).toBe(ModelID.make("title-fast"))
+})
+
+test("title model selection falls back to the selected model", () => {
+  const selected = ModelID.make("selected")
+  const provider = Provider.fromModelsDevProvider(
+    {
+      id: "gateway",
+      name: "Gateway",
+      env: [],
+      title_model: [],
+      models: {},
+    },
+    "remote",
+  )
+
+  expect(Provider.resolveTitleModelID(provider, selected)).toBe(selected)
+  expect(
+    Provider.resolveTitleModelID(
+      { ...provider, title_model: ["title-fast"], source: "config", options: { __octo_custom_provider: true } },
+      selected,
+    ),
+  ).toBe(selected)
+})
+
 test("model variants are generated for reasoning models", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
