@@ -15,11 +15,11 @@ import { Todo } from "./todo"
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
 const sessionDirectory = ".octo"
-const portableDirectories = ["uploads", "outputs"] as const
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
-  directory: Schema.Union([Schema.Literal("uploads"), Schema.Literal("outputs")]),
+  scope: Schema.optional(Schema.Union([Schema.Literal("session"), Schema.Literal("design-history")])),
+  directory: Schema.String,
   path: Schema.String,
   size: NonNegativeInt,
   sha256: Schema.String,
@@ -51,7 +51,8 @@ type SessionEntry = {
 
 type FileEntry = {
   sessionID: SessionID
-  directory: (typeof portableDirectories)[number]
+  scope?: "session" | "design-history"
+  directory: string
   path: string
   size: number
   sha256: string
@@ -145,11 +146,19 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
     const files = (
       await Promise.all(
         entries.flatMap((entry) =>
-          portableDirectories.map(async (directory) => {
-            const root = path.join(sourceDirectory, sessionDirectory, entry.info.id, directory)
-            return Promise.all(
-              (await listFiles(root)).map(async (file): Promise<FileEntry> => {
-                const relative = path.relative(root, file).replaceAll("\\", "/")
+          [
+            {
+              scope: "session" as const,
+              root: path.join(sourceDirectory, sessionDirectory, entry.info.id),
+            },
+            {
+              scope: "design-history" as const,
+              root: path.join(sourceDirectory, sessionDirectory, "design", "history", entry.info.id),
+            },
+          ].map(async (location) =>
+            Promise.all(
+              (await listFiles(location.root)).map(async (file): Promise<FileEntry> => {
+                const relative = path.relative(location.root, file).replaceAll("\\", "/")
                 const content = new Uint8Array(await readFile(file))
                 const sha256 = digest(content)
                 const blob = `blobs/${sha256}`
@@ -159,15 +168,16 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
                 }
                 return {
                   sessionID: entry.info.id,
-                  directory,
+                  scope: location.scope,
+                  directory: ".",
                   path: relative,
                   size: content.byteLength,
                   sha256,
                   blob,
                 }
               }),
-            )
-          }),
+            ),
+          ),
         ),
       )
     ).flat(2)
@@ -227,10 +237,17 @@ function rewritePath(
   const source = normalize(input.sourceDirectory)
   const inside = (target: string) => raw === target || raw.startsWith(`${target}/`)
   const session = [...input.sessionIDs]
-    .map(([oldID, newID]) => ({ newID, root: `${source}/${sessionDirectory}/${oldID}` }))
+    .flatMap(([oldID, newID]) => [
+      { newID, root: `${source}/${sessionDirectory}/${oldID}`, target: `${sessionDirectory}/${newID}` },
+      {
+        newID,
+        root: `${source}/${sessionDirectory}/design/history/${oldID}`,
+        target: `${sessionDirectory}/design/history/${newID}`,
+      },
+    ])
     .find((candidate) => inside(candidate.root))
   const relative = session
-    ? `${sessionDirectory}/${session.newID}${raw.slice(session.root.length)}`
+    ? `${session.target}${raw.slice(session.root.length)}`
     : inside(source)
       ? raw.slice(source.length).replace(/^\/+/, "")
       : undefined
@@ -253,6 +270,35 @@ function rewriteFilePart(
         ? { ...part.source, path: rewritePath(part.source.path, input) }
         : part.source,
   }
+}
+
+function rewriteReferences(
+  value: unknown,
+  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+): unknown {
+  if (typeof value === "string") {
+    const sessions = [...input.sessionIDs].reduce(
+      (result, [oldID, newID]) => result.replaceAll(oldID, newID),
+      value,
+    )
+    const sources = [
+      input.sourceDirectory,
+      input.sourceDirectory.replaceAll("\\", "/"),
+      input.sourceDirectory.replaceAll("/", "\\"),
+    ].filter((source, index, values) => source && values.indexOf(source) === index)
+    const rewritten = sources.reduce((result, source) => result.replaceAll(source, input.targetDirectory), sessions)
+    return sources.some((source) => value.includes(source)) ? rewritten.replaceAll("\\", "/") : rewritten
+  }
+  if (Array.isArray(value)) return value.map((entry) => rewriteReferences(entry, input))
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rewriteReferences(entry, input)]))
+}
+
+function rewritePartReferences(
+  part: MessageV2.Part,
+  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+) {
+  return rewriteReferences(part, input) as MessageV2.Part
 }
 
 export function remapPart(
@@ -278,30 +324,33 @@ export function remapPart(
     targetDirectory: input.targetDirectory,
     sessionIDs: input.sessionIDs,
   }
-  if (base.type === "file") return rewriteFilePart(base, paths)
+  if (base.type === "file") return rewritePartReferences(rewriteFilePart(base, paths), paths)
   if (base.type === "compaction" && base.tail_start_id) {
-    return { ...base, tail_start_id: input.messageIDs.get(base.tail_start_id) }
+    return rewritePartReferences({ ...base, tail_start_id: input.messageIDs.get(base.tail_start_id) }, paths)
   }
   if (base.type === "tool" && base.state.status === "completed" && base.state.attachments) {
-    return {
-      ...base,
-      state: {
-        ...base.state,
-        attachments: base.state.attachments.map((attachment) =>
-          rewriteFilePart(
-            {
-              ...attachment,
-              id: PartID.ascending(),
-              sessionID: input.sessionID,
-              messageID: input.messageID,
-            },
-            paths,
+    return rewritePartReferences(
+      {
+        ...base,
+        state: {
+          ...base.state,
+          attachments: base.state.attachments.map((attachment) =>
+            rewriteFilePart(
+              {
+                ...attachment,
+                id: PartID.ascending(),
+                sessionID: input.sessionID,
+                messageID: input.messageID,
+              },
+              paths,
+            ),
           ),
-        ),
+        },
       },
-    }
+      paths,
+    )
   }
-  return base
+  return rewritePartReferences(base, paths)
 }
 
 function validateManifest(manifest: Manifest, zip: JSZip) {
@@ -314,7 +363,7 @@ function validateManifest(manifest: Manifest, zip: JSZip) {
   }
   for (const file of manifest.files) {
     if (!ids.has(file.sessionID)) throw new Error("Portable session file references an unknown session")
-    if (!isPortablePath(file.path) || !isPortablePath(file.blob))
+    if (!isPortablePath(file.directory) || !isPortablePath(file.path) || !isPortablePath(file.blob))
       throw new Error("Portable session contains an unsafe path")
     if (!zip.file(file.blob)) throw new Error(`Portable session is missing ${file.blob}`)
   }
@@ -425,7 +474,18 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
 
     for (const fileEntry of bundle.manifest.files) {
       const sessionID = sessionIDs.get(fileEntry.sessionID)!
-      const target = path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
+      const target =
+        fileEntry.scope === "design-history"
+          ? path.join(
+              context.directory,
+              sessionDirectory,
+              "design",
+              "history",
+              sessionID,
+              fileEntry.directory,
+              fileEntry.path,
+            )
+          : path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
       yield* Effect.promise(() => Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!))
     }
 
