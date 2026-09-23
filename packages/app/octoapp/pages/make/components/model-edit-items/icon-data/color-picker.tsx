@@ -44,12 +44,12 @@ function rgbToHex(rgb: { r: number; g: number; b: number }) {
   return `#${rgb.r.toString(16).padStart(2, '0')}${rgb.g.toString(16).padStart(2, '0')}${rgb.b.toString(16).padStart(2, '0')}`
 }
 
-function hexWithAlpha(hex: string, a: number): string {
+export function hexWithAlpha(hex: string, a: number): string {
   if (a >= 100) return hex
   return hex + Math.round(a * 2.55).toString(16).padStart(2, '0')
 }
 
-function hexToRgb(hex: string) {
+export function hexToRgb(hex: string) {
   const match = hex.match(/^#?([a-fA-F0-9]{6})([a-fA-F0-9]{2})?$/)
   if (!match) return null
   return {
@@ -450,6 +450,7 @@ export function ColorPicker(props: {
         <Portal>
           <div
             ref={(el) => { popupRef = el }}
+            data-color-picker-popup
             class="fixed z-[302] w-[260px] rounded-md bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.18)]"
             style={{ left: popupPos().x + 'px', top: popupPos().y + 'px', background: '#ffffff' }}
           >

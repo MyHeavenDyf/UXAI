@@ -62,7 +62,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
-import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
+import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useSessionPin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
@@ -1351,12 +1351,12 @@ const sessionMessagesLoaded = createMemo(() => {
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
     try {
       const result = await sdk.client.session.command(input)
-      if (input.command !== "compact" && input.command !== "summarize") return
+      if (input.command !== "compact" && input.command !== "summarize") return true
 
       const info = result.data?.info
       if (info && info.summary === true && info.finish && !info.error) {
         showOctoToast({ title: "上下文压缩完成" })
-        return
+        return true
       }
       const error = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
       showOctoToast({
@@ -1364,14 +1364,23 @@ const sessionMessagesLoaded = createMemo(() => {
         description: error?.data?.message ?? error?.message ?? "请稍后重试",
         variant: "error",
       })
+      return false
     } catch (error) {
       console.error(`[MakePage] command /${input.command} failed`, error)
-      if (input.command !== "compact" && input.command !== "summarize") return
+      if (input.command !== "compact" && input.command !== "summarize") {
+        showOctoToast({
+          title: `命令 /${input.command} 执行失败`,
+          description: sessionErrorMessage(error, "请稍后重试"),
+          variant: "error",
+        })
+        return false
+      }
       showOctoToast({
         title: "上下文压缩失败",
-        description: error instanceof Error ? error.message : "请稍后重试",
+        description: sessionErrorMessage(error, "请稍后重试"),
         variant: "error",
       })
+      return false
     }
   }
 
@@ -3330,6 +3339,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
           : null
 
+        const failedCmds: string[] = []
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
 
@@ -3362,7 +3372,7 @@ const sessionMessagesLoaded = createMemo(() => {
             inputText: (fullDisplayText || text).slice(0, 30)
           })
 
-          await executeSessionCommand({
+          const ok = await executeSessionCommand({
             sessionID: sessionId,
             command: seg.cmd,
             arguments: seg.args,
@@ -3370,9 +3380,20 @@ const sessionMessagesLoaded = createMemo(() => {
             model: modelStr,
             parts: cmdParts.length > 0 ? cmdParts : undefined,
           })
+          if (!ok) failedCmds.push(seg.cmd)
         }
 
         setAttachments([])
+        if (failedCmds.length > 0) {
+          const restoreText = failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : "")
+          const restoreDoc = docJSONFromPlainText(restoreText)
+          const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+          if (ref) ref.replaceDoc(restoreDoc)
+          else {
+            setPrompt(restoreText)
+            setPromptDoc(restoreDoc)
+          }
+        }
         return  // Commands are self-contained, skip prompt
       }
       // ── End command detection ──
