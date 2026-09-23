@@ -130,6 +130,40 @@ function commands(node: Node) {
   return node.descendantsOfType("command").filter((child): child is Node => Boolean(child))
 }
 
+// Only literal TXT targets of direct PowerShell content cmdlets. Do not interpret
+// variables, expressions or wildcard expansions as file names.
+function artifactTargets(node: Node, cwd: string) {
+  const calls = commands(node).map(parts)
+  const moved = calls.some((call) => CWD.has(call[0]?.text.toLowerCase()) || call[0]?.text.toLowerCase() === "sl")
+  const targets = calls
+    .filter((call) => ["set-content", "add-content"].includes(call[0]?.text.toLowerCase()))
+    .map((call) => {
+      if (node.hasError) return
+      const flag = call.findIndex(
+        (item) => item.type === "command_parameter" && ["-path", "-literalpath"].includes(item.text.toLowerCase()),
+      )
+      const raw = flag >= 0 ? call[flag + 1]?.text : call[1]?.type !== "command_parameter" ? call[1]?.text : undefined
+      if (!raw) return
+      const value = /^'(?:[^']|'')*'$/.test(raw)
+        ? raw.slice(1, -1).replaceAll("''", "'")
+        : /^"[^"$`]*"$/.test(raw)
+          ? raw.slice(1, -1)
+          : /^[^\s'"$`@(),;{}\[\]*?]+$/.test(raw)
+            ? raw
+            : undefined
+      if (!value || value.startsWith("~") || /^[a-z]{2,}:/i.test(value)) return
+      if (/^[a-z]:/i.test(value) && !path.win32.isAbsolute(value)) return
+      if (call[flag]?.text.toLowerCase() !== "-literalpath" && /[*?\[\]]/.test(value)) return
+      if (moved && !path.isAbsolute(value)) return
+      // Leave script/HTML intermediates and existing Office delivery declarations alone.
+      return path.extname(value).toLowerCase() === ".txt" ? path.resolve(cwd, value) : null
+    })
+  return {
+    files: targets.filter((file): file is string => typeof file === "string"),
+    unresolved: targets.some((file) => file === undefined),
+  }
+}
+
 function unquote(text: string) {
   if (text.length < 2) return text
   const first = text[0]
@@ -601,10 +635,10 @@ export const ShellTool = Tool.define(
               }).pipe(Effect.catch(() => Effect.succeed(undefined)))
               if (tracking && params.artifactFiles === undefined) {
                 throw new Error(
-                  'Insight Shell requires artifactFiles. This command has NOT executed and has NOT changed any files. ' +
-                  'Resubmit this unexecuted call with the final files it will create/edit, e.g. artifactFiles: ["123.txt"]. ' +
-                  'For read-only commands or commands with no final deliverables, explicitly use artifactFiles: []. ' +
-                  'Never repeat a previously completed write merely to collect tracking data.',
+                  "Insight Shell requires artifactFiles. This command has NOT executed and has NOT changed any files. " +
+                    'Resubmit this unexecuted call with the final files it will create/edit, e.g. artifactFiles: ["123.txt"]. ' +
+                    "For read-only commands or commands with no final deliverables, explicitly use artifactFiles: []. " +
+                    "Never repeat a previously completed write merely to collect tracking data.",
                 )
               }
               const executeInstance = yield* InstanceState.context
@@ -616,14 +650,24 @@ export const ShellTool = Tool.define(
               }
               const timeout = params.timeout ?? DEFAULT_TIMEOUT
               const ps = Shell.ps(shell)
-              yield* Effect.scoped(
+              const inferred = yield* Effect.scoped(
                 Effect.gen(function* () {
                   const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
                     Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, executeInstance)
+                  const targets =
+                    tracking && ps ? artifactTargets(tree.rootNode, cwd) : { files: [], unresolved: false }
+                  if (targets.unresolved && !params.artifactFiles?.length) {
+                    throw new Error(
+                      "This PowerShell command writes files, but its targets cannot be resolved safely. " +
+                        "The command has NOT executed. Supply the exact file paths in artifactFiles; [] is not valid for this write. " +
+                        "Do not repeat any previously completed write.",
+                    )
+                  }
                   if (!containsPath(cwd, executeInstance)) scan.dirs.add(cwd)
                   yield* ask(ctx, scan)
+                  return targets.files
                 }),
               )
 
@@ -640,7 +684,16 @@ export const ShellTool = Tool.define(
               )
               if (!tracking) return yield* command
               const files = yield* Effect.forEach(params.artifactFiles ?? [], (file) => resolvePath(file, cwd, shell))
-              return yield* observe({ ...tracking, files, abort: ctx.abort }, command)
+              const result = yield* observe({ ...tracking, files: [...files, ...inferred], abort: ctx.abort }, command)
+              return {
+                ...result,
+                metadata: {
+                  ...result.metadata,
+                  ...(inferred.length
+                    ? { artifactTargetDiscovery: { method: "powershell-content-cmdlet", files: inferred } }
+                    : {}),
+                },
+              }
             }),
         }
       })

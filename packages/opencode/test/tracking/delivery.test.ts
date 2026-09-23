@@ -259,6 +259,111 @@ shellTests.instance(
   { config: { shell: process.platform === "win32" ? (Bun.which("powershell") ?? "powershell.exe") : "/bin/bash" } },
 )
 
+if (process.platform === "win32")
+  shellTests.instance(
+    "PowerShell infers uploaded and generated content targets despite empty or incomplete declarations",
+    () =>
+      Effect.gen(function* () {
+        const instance = yield* TestInstance
+        const turn = seed(undefined, "original-account", true, instance.directory)
+        const outputs = path.join(instance.directory, ".octo", turn.sessionID, "outputs")
+        const uploads = path.join(instance.directory, ".octo", turn.sessionID, "uploads")
+        yield* Effect.promise(() =>
+          Promise.all([mkdir(outputs, { recursive: true }), mkdir(uploads, { recursive: true })]),
+        )
+        const uploaded = path.join(uploads, "）需求列表 表头[1]'s.txt")
+        yield* Effect.promise(() => Bun.write(uploaded, "original\n"))
+        const literal = `'${uploaded.replaceAll("'", "''")}'`
+        const tool = yield* ShellTool.pipe(Effect.flatMap((info) => info.init()))
+        const parent = part(turn, "bash")
+        const context = {
+          sessionID: turn.sessionID,
+          messageID: parent.messageID,
+          callID: parent.callID,
+          agent: "octo_insight",
+          abort: AbortSignal.any([]),
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+        for (const input of [
+          { command: `Add-Content -LiteralPath ${literal} -Value '7890'`, artifactFiles: [] },
+          { command: 'Set-Content -Path "123.txt" -Value "abc"', artifactFiles: [] },
+          {
+            command: '$v = (New-Guid).ToString(); Set-Content -Path "123.txt" -Value $v',
+            artifactFiles: ["unrelated.txt"],
+          },
+        ]) {
+          const result = yield* tool.execute({ ...input, workdir: outputs, description: "Write content" }, context)
+          expect(result.metadata.exit).toBe(0)
+          expect(result.metadata).toMatchObject({ artifactTargetDiscovery: { method: "powershell-content-cmdlet" } })
+          const saved = part(turn, "bash", result.metadata, input)
+          collect(saved)
+          collect(saved)
+        }
+        expect((yield* Effect.promise(() => Bun.file(uploaded).text())).match(/7890/g)).toHaveLength(1)
+        expect(
+          rows()
+            .map((row) => row.name)
+            .sort(),
+        ).toEqual(["artifact-file-edit", "artifact-file-edit", "artifact-file-write"])
+        for (const row of rows())
+          expect(row.payload).toMatchObject({ datas: [{ extend: expect.stringContaining('"source":"script"') }] })
+        for (const command of [
+          `Get-Content -LiteralPath ${literal}`,
+          "Write-Output 'Add-Content -Path \"fake.txt\" -Value 7890'",
+        ]) {
+          const result = yield* tool.execute(
+            { command, workdir: outputs, artifactFiles: [], description: "Read only" },
+            context,
+          )
+          expect(result.metadata.exit).toBe(0)
+          expect(result.metadata).toMatchObject({ artifactScript: { reason: "script-no-targets" } })
+          collect(part(turn, "bash", result.metadata))
+        }
+        for (const command of [
+          `$target = ${literal}; Add-Content -LiteralPath $target -Value 'must-not-run'`,
+          'Set-Content -Path "*.txt" -Value "must-not-run"',
+          'Set-Location ../uploads; Add-Content -Path "other.txt" -Value "must-not-run"',
+        ]) {
+          const result = yield* Effect.exit(
+            tool.execute({ command, workdir: outputs, artifactFiles: [], description: "Ambiguous target" }, context),
+          )
+          expect(Exit.isFailure(result)).toBe(true)
+          if (Exit.isFailure(result)) expect(String(Cause.squash(result.cause))).toContain("has NOT executed")
+        }
+        expect(yield* Effect.promise(() => Bun.file(uploaded).text())).not.toContain("must-not-run")
+        expect(rows()).toHaveLength(3)
+        const intermediate = yield* tool.execute(
+          {
+            command: 'Set-Content -Path "helper.ps1" -Value "Write-Output done"',
+            workdir: outputs,
+            artifactFiles: [],
+            description: "Prepare helper script",
+          },
+          context,
+        )
+        expect(intermediate.metadata.exit).toBe(0)
+        expect(intermediate.metadata).toMatchObject({ artifactScript: { reason: "script-no-targets" } })
+        collect(part(turn, "bash", intermediate.metadata))
+        expect(rows()).toHaveLength(3)
+        const declared = yield* tool.execute(
+          {
+            command: `$target = ${literal}; Add-Content -LiteralPath $target -Value 'declared'`,
+            workdir: outputs,
+            artifactFiles: [uploaded],
+            description: "Declared dynamic target",
+          },
+          context,
+        )
+        expect(declared.metadata.exit).toBe(0)
+        expect(declared.metadata).toMatchObject({ artifactScript: { reason: "script-enqueued" } })
+        collect(part(turn, "bash", declared.metadata))
+        expect(rows()).toHaveLength(3)
+      }),
+    { config: { shell: Bun.which("powershell") ?? "powershell.exe" } },
+  )
+
 shellTests.instance(
   "real Shell declarations persist script facts, replay once, and retain original account",
   () =>
