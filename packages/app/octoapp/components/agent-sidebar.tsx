@@ -240,8 +240,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         const existingIds = new Set(sessionList.map(s => s.id))
         const deduped = filtered.filter(s => !existingIds.has(s.id))
         if (deduped.length > 0) {
+          const previousRecentCount = recentSessions().length
           setSessionList(produce((draft) => { draft.push(...deduped) }))
-          if (fromScroll) props.onLoadMore?.(recentSessions().length)
+          if (fromScroll && recentSessions().length > previousRecentCount) props.onLoadMore?.(recentSessions().length)
           loadedAny = true
           break
         }
