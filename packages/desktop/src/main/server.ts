@@ -5,6 +5,7 @@ import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
+import { bundledRipgrepPath } from "./migrate"
 import { getStore } from "./store"
 import type { DesktopStorage } from "./storage"
 import type { SqliteMigrationProgress } from "../preload/types"
@@ -284,6 +285,12 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
     env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
+
+  // 捆绑 rg 二进制的绝对路径。~/.cache/opencode/bin 不可写时(如曾用 sudo 跑 CLI 留下
+  // root 属主目录),deployRipgrep 的预装拷贝与服务端 GitHub 兜底下载都会 EACCES 失败,
+  // skill/glob/grep 全部不可用。显式告知路径让服务端跳过 which/缓存/下载三级解析。
+  const bundledRg = bundledRipgrepPath()
+  if (bundledRg) env.OPENCODE_RIPGREP_PATH = bundledRg
   return env
 }
 
