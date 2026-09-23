@@ -100,6 +100,8 @@ export type AgentSidebarProps = {
 
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
+  /** Called after scrolling reveals more recent sessions. */
+  onLoadMore?: (limit: number) => void
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -219,7 +221,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     useServerPagination() ? sessionCursor() !== undefined : visibleCount() < recentSessions().length
   )
 
-  const loadMoreFromServer = async () => {
+  const loadMoreFromServer = async (fromScroll = false) => {
     if (loadingMoreSessions() || sessionCursor() === undefined) return
     const d = resolvedDir()
     if (!d || !props.fetchSessionPage) return
@@ -239,7 +241,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         const existingIds = new Set(sessionList.map(s => s.id))
         const deduped = filtered.filter(s => !existingIds.has(s.id))
         if (deduped.length > 0) {
+          const previousRecentCount = recentSessions().length
           setSessionList(produce((draft) => { draft.push(...deduped) }))
+          if (fromScroll && recentSessions().length > previousRecentCount) props.onLoadMore?.(recentSessions().length)
           loadedAny = true
           break
         }
@@ -567,8 +571,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!el) return
     const onScroll = () => {
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions()) {
-        if (useServerPagination()) void loadMoreFromServer()
-        else setVisibleCount(prev => prev + VISIBLE_BATCH)
+        if (useServerPagination()) void loadMoreFromServer(true)
+        else {
+          setVisibleCount(prev => prev + VISIBLE_BATCH)
+          props.onLoadMore?.(Math.min(visibleCount(), recentSessions().length))
+        }
       }
     }
     el.addEventListener("scroll", onScroll, { passive: true })
