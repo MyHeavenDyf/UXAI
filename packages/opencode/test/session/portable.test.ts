@@ -50,6 +50,26 @@ describe("portable session", () => {
     const expected = `/Users/bob/project/.octo/${importedSessionID}/uploads/brief.txt`
     expect(part.url).toBe(pathToFileURL(expected).href)
     expect(part.source?.type === "file" && part.source.path).toBe(expected)
+
+    const text = remapPart(
+      {
+        id: PartID.ascending(),
+        messageID,
+        sessionID: originalSessionID,
+        type: "text",
+        text: `[Artifact Folder]: C:\\Users\\Alice\\project\\.octo\\${originalSessionID}\\outputs`,
+      },
+      {
+        sessionID: importedSessionID,
+        messageID,
+        partID: PartID.ascending(),
+        messageIDs: new Map(),
+        sessionIDs: new Map([[originalSessionID, importedSessionID]]),
+        sourceDirectory: "C:\\Users\\Alice\\project",
+        targetDirectory: "/Users/bob/project",
+      },
+    ) as MessageV2.TextPart
+    expect(text.text).toBe(`[Artifact Folder]: /Users/bob/project/.octo/${importedSessionID}/outputs`)
   })
 
   test(
@@ -69,6 +89,15 @@ describe("portable session", () => {
           const output = path.join(source.path, ".octo", child.id, "outputs", "result.txt")
           await Bun.write(upload, "source attachment")
           await Bun.write(output, "generated artifact")
+          await Bun.write(
+            path.join(source.path, ".octo", root.id, "resource", "assets_config.json"),
+            JSON.stringify({ asset: "keep" }),
+          )
+          await Bun.write(path.join(source.path, ".octo", root.id, ".octo-fastui.json"), "{}")
+          await Bun.write(
+            path.join(source.path, ".octo", "design", "history", root.id, "theme.json"),
+            JSON.stringify({ theme: "portable" }),
+          )
           await runSession((service) =>
             service.updateMessage({
               id: messageID,
@@ -113,7 +142,7 @@ describe("portable session", () => {
       })
 
       expect(original.exported.sessions).toBe(2)
-      expect(original.exported.files).toBe(2)
+      expect(original.exported.files).toBe(5)
       expect(await isPortableSessionFile(archive)).toBe(true)
 
       const imported = await provideTestInstance({
@@ -128,7 +157,7 @@ describe("portable session", () => {
         },
       })
 
-      expect(imported.result).toEqual({ sessionID: imported.root.id, sessions: 2, files: 2 })
+      expect(imported.result).toEqual({ sessionID: imported.root.id, sessions: 2, files: 5 })
       expect(imported.root.id).not.toBe(original.root.id)
       expect(imported.child.id).not.toBe(original.child.id)
       expect(imported.child.parentID).toBe(imported.root.id)
@@ -147,6 +176,15 @@ describe("portable session", () => {
       expect(await Bun.file(path.join(target.path, ".octo", imported.child.id, "outputs", "result.txt")).text()).toBe(
         "generated artifact",
       )
+      expect(
+        await Bun.file(path.join(target.path, ".octo", imported.root.id, "resource", "assets_config.json")).json(),
+      ).toEqual({ asset: "keep" })
+      expect(await Bun.file(path.join(target.path, ".octo", imported.root.id, ".octo-fastui.json")).text()).toBe("{}")
+      expect(
+        await Bun.file(
+          path.join(target.path, ".octo", "design", "history", imported.root.id, "theme.json"),
+        ).json(),
+      ).toEqual({ theme: "portable" })
 
       await provideTestInstance({
         directory: target.path,
