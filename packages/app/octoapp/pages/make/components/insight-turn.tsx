@@ -113,6 +113,7 @@ export type OutputCard = {
   designSystemId?: string | null
   truncated?: boolean
   createdAt: Date
+  fromAttachment?: boolean  // 会话区点击附件打开 → 隐藏历史按钮(对齐 insight design 风格)
 }
 
 export type UserAttachment = {

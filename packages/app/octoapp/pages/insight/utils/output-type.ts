@@ -135,3 +135,22 @@ export function resolveOutputType(filename: string, mimeType?: string): OutputCa
   }
   return "code"
 }
+
+/** 会话区右侧预览:仅 图片/视频/音频/PDF 可预览,其余格式走遮罩层下载弹窗。 */
+export function isPreviewableMedia(filename: string, mimeType?: string): boolean {
+  const ext = extOf(filename)
+  if (ext) {
+    if (RENDER_EXT[ext] === "image") return true
+    if (VIDEO_EXT.has(ext)) return true
+    if (AUDIO_EXT.has(ext)) return true
+    if (ext === "pdf") return true
+    return false
+  }
+  if (mimeType) {
+    if (mimeType.startsWith("image/")) return true
+    if (mimeType.startsWith("video/")) return true
+    if (mimeType.startsWith("audio/")) return true
+    if (mimeType === "application/pdf") return true
+  }
+  return false
+}

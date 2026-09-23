@@ -89,7 +89,7 @@ import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
-import { resolveOutputType } from "./utils/output-type"
+import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
 import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-file-api"
@@ -1108,8 +1108,8 @@ function InsightContent() {
       absolutePath = absolutePath.replace(/\/+/g, "/")
     }
     const fileName = filePath.split(/[/\\]/).pop() ?? filePath
-    const officeExt = filePath.split('.').pop()?.toLowerCase() ?? ''
-    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(officeExt)) {
+    // 仅 图片/视频/音频/PDF 支持右侧预览,其余格式 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(fileName)) {
       dialog.show(() => (
         <DialogPreviewUnavailable
           filename={fileName}
@@ -1118,7 +1118,7 @@ function InsightContent() {
           sdkDirectory={sdk.directory || ""}
         />
       ))
-      tracker.interaction({ module: "insight", name: "preview-local-file", extend: JSON.stringify({ type: "office-unavailable", ext: officeExt }) })
+      tracker.interaction({ module: "insight", name: "preview-local-file", extend: JSON.stringify({ type: "unavailable", ext: filePath.split('.').pop() }) })
       return
     }
     handleOpenResult({
@@ -2312,6 +2312,19 @@ function InsightContent() {
       return
     }
     if (!att.url) return
+    // 仅 图片/视频/音频/PDF 支持右侧预览,其余格式 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(att.filename, att.mime)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
+      return
+    }
     handleOpenResult({
       id: `att-url-${att.url}`,
       title: att.filename,
