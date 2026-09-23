@@ -115,7 +115,7 @@ export const layer = Layer.effect(
     const tick = Effect.gen(function* () {
       const base = process.env.OCTO_REPORT_BASE_URL || process.env.VITE_OCTO_REPORT_BASE_URL
       const contract = process.env.OCTO_ARTIFACT_SUCCESS || "http-2xx"
-      const url = yield* Effect.try({ try: () => (base ? endpoint(base) : ""), catch: () => "invalid-url" }).pipe(
+      const url = yield* Effect.try({ try: () => (base ? endpoint(base) : ""), catch: () => "" }).pipe(
         Effect.catch(() => Effect.succeed("")),
       )
       if (!url || !["http-2xx", "code-0"].includes(contract)) {

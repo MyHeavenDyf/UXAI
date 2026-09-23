@@ -23,7 +23,7 @@ import {
 } from "../../src/tracking/delivery.sql"
 import { begin, collect, recover, inherit } from "../../src/tracking/store"
 import { mcpFacts, fileFact } from "../../src/tracking/facts"
-import { claim, finish, deliver, endpoint } from "../../src/tracking/sender"
+import { claim, finish, deliver, endpoint, layer as senderLayer, Service as SenderService } from "../../src/tracking/sender"
 import { resolveOutputType } from "../../src/tracking/output-type"
 import { resolveOutputType as frontendType } from "../../../app/octoapp/pages/insight/utils/output-type"
 import { tmpdir, TestInstance } from "../fixture/fixture"
@@ -373,6 +373,28 @@ test("report URL accepts base or full endpoint; file classification matches the 
   ).text()
   for (const match of source.matchAll(/\b[a-z0-9]+\b/g))
     expect(resolveOutputType(`x.${match[0]}`)).toBe(frontendType(`x.${match[0]}`))
+})
+
+test("invalid report URL retains pending events without attempting delivery", async () => {
+  collect(part(seed()))
+  const previous = process.env.OCTO_REPORT_BASE_URL
+  process.env.OCTO_REPORT_BASE_URL = "https://example.test/report?token=invalid"
+  try {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const sender = yield* SenderService
+        yield* sender.tick
+      }).pipe(Effect.provide(senderLayer.pipe(Layer.provide(FetchHttpClient.layer))), Effect.scoped),
+    )
+    expect(rows()[0]).toMatchObject({
+      state: "pending",
+      attempts: 0,
+      reason: "missing-or-invalid-report-url",
+    })
+  } finally {
+    if (previous === undefined) delete process.env.OCTO_REPORT_BASE_URL
+    else process.env.OCTO_REPORT_BASE_URL = previous
+  }
 })
 
 test("restart sends a 45-day-old event without opening its project or session", async () => {
