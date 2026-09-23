@@ -288,6 +288,11 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
 
       const filepath = yield* Effect.cached(
         Effect.gen(function* () {
+          // 桌面端通过 OPENCODE_RIPGREP_PATH 直接指定捆绑二进制,优先级最高:
+          // ~/.cache/opencode/bin 可能因权限问题不可写(预装部署与 GitHub 兜底下载都会失败)
+          const bundled = process.env.OPENCODE_RIPGREP_PATH
+          if (bundled && (yield* fs.isFile(bundled).pipe(Effect.orDie))) return bundled
+
           const system = yield* Effect.sync(() => which(process.platform === "win32" ? "rg.exe" : "rg"))
           if (system && (yield* fs.isFile(system).pipe(Effect.orDie))) return system
 
