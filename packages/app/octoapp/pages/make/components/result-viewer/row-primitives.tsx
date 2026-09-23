@@ -2,7 +2,7 @@ import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { ColorPicker } from '../model-edit-items/icon-data/color-picker'
 import { HUI_COLOR_TOKENS, type ColorToken } from '../model-edit-items/icon-data/hui-color-tokens'
-import { DragInput } from '../../../pattern/modules/preview/property-editor-popup/drag-input'
+import { DragInput } from './drag-input'
 import { CustomSelect } from '../../../pattern/modules/preview/property-editor-popup/custom-select'
 import {
   FreeformIcon, RowIcon, ColIcon,

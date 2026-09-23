@@ -106,20 +106,83 @@ export function ColorPicker(props: {
 
   const placeholder = () => props.placeholder ?? '继承'
 
-  const displayLabel = createMemo(() => {
-    if (!props.value) return placeholder()
+  const matchedToken = createMemo(() => {
+    if (!props.value) return null
     if (lastTokenName()) {
       for (const t of props.tokens) {
         if (t.name !== lastTokenName()) continue
         const tokenAlpha = parseFloat(t.opacity) || 100
-        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
+        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t
       }
     }
     for (const t of props.tokens) {
       const tokenAlpha = parseFloat(t.opacity) || 100
-      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
+      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t
     }
-    return props.value
+    return null
+  })
+
+  const isCustomColor = createMemo(() => !!props.value && !matchedToken())
+
+  const displayLabel = createMemo(() => {
+    if (!props.value) return placeholder()
+    const t = matchedToken()
+    if (t) return t.displayName || t.name
+    return props.value.replace('#', '').slice(0, 6).toUpperCase()
+  })
+
+  const triggerAlpha = createMemo(() => hexToRgb(props.value)?.a ?? 100)
+
+  function currentBaseHex() {
+    return props.value.replace('#', '').slice(0, 6)
+  }
+
+  function commitAlphaInput() {
+    const trimmed = alphaText().trim()
+    const parsed = parseInt(trimmed)
+    if (trimmed === '' || isNaN(parsed)) {
+      setAlphaText(String(triggerAlpha()))
+      return
+    }
+    const a = Math.max(0, Math.min(100, parsed))
+    setLastTokenName('')
+    props.onTokenChange?.(null)
+    setAlpha(a)
+    setAlphaText(String(a))
+    props.onChange(hexWithAlpha(`#${currentBaseHex()}`, a))
+  }
+
+  function startAlphaTriggerDrag(e: MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startAlpha = hexToRgb(props.value)?.a ?? 100
+    const baseHex = currentBaseHex()
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:ew-resize'
+    document.body.appendChild(overlay)
+    const onMove = (ev: MouseEvent) => {
+      const a = Math.max(0, Math.min(100, startAlpha + Math.round((ev.clientX - startX) / 2)))
+      setLastTokenName('')
+      props.onTokenChange?.(null)
+      setAlpha(a)
+      props.onChange(hexWithAlpha(`#${baseHex.toLowerCase()}`, a))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      overlay.remove()
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const [alphaText, setAlphaText] = createSignal(String(triggerAlpha()))
+  let alphaInputEl: HTMLInputElement | undefined
+  createEffect(() => {
+    const next = String(triggerAlpha())
+    if (alphaInputEl && document.activeElement === alphaInputEl) return
+    setAlphaText(next)
   })
 
   function syncFromHex(hex = props.value) {
@@ -354,10 +417,34 @@ export function ColorPicker(props: {
         ref={(el) => { buttonRef = el }}
         type="button"
         onClick={(e) => { e.stopPropagation(); toggle() }}
-        class="flex items-center gap-4 h-6 rounded-sm bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
+        class="flex items-center gap-4 h-6 rounded-sm bg-[#F9F9F9] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
       >
         <span class="w-4 h-4 rounded-[2px] shrink-0" style={{ background: props.value || '#ffffff' }} />
-        <span class="truncate">{displayLabel()}</span>
+        <span class="flex-1 truncate text-left">{displayLabel()}</span>
+        <Show when={isCustomColor()}>
+          <span class="shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={(el) => { alphaInputEl = el }}
+              type="text"
+              inputmode="numeric"
+              value={alphaText()}
+              onInput={(e) => {
+                const v = e.currentTarget.value
+                if (/^-?\d*$/.test(v)) setAlphaText(v)
+                else setAlphaText('')
+              }}
+              onBlur={commitAlphaInput}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              class="w-7 bg-transparent outline-none text-right cursor-text"
+              title="输入透明度"
+            />
+            <span
+              class="cursor-ew-resize select-none text-slate-400"
+              title="拖拽调整透明度"
+              onMouseDown={startAlphaTriggerDrag}
+            > %</span>
+          </span>
+        </Show>
       </button>
       <Show when={open()}>
         <Portal>
@@ -370,14 +457,14 @@ export function ColorPicker(props: {
               <button
                 type="button"
                 onClick={() => { setLastTokenName(''); props.onTokenChange?.(null); syncFromHex(); setTab('custom'); updatePos() }}
-                class={tab() === 'custom' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F4F4F5]'}
+                class={tab() === 'custom' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F9F9F9]'}
               >
                 自定义
               </button>
               <button
                 type="button"
                 onClick={() => { setTab('token'); updatePos() }}
-                class={tab() === 'token' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F4F4F5]'}
+                class={tab() === 'token' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F9F9F9]'}
               >
                 token色
               </button>
@@ -420,7 +507,7 @@ export function ColorPicker(props: {
                   </div>
 
                   <div class="mt-2 flex items-center gap-2">
-                    <div class="flex h-7 flex-1 items-center bg-[#F4F4F5] px-2 rounded-[4px] focus-within:shadow-[0_0_0_1px_#336fff]">
+                    <div class="flex h-7 flex-1 items-center bg-[#F9F9F9] px-2 rounded-[4px] focus-within:shadow-[0_0_0_1px_#336fff]">
                       <span class="mr-1 text-[12px] text-slate-400">#</span>
                       <input value={(props.value || '#000000').replace('#', '').toUpperCase()} onInput={(e) => setCustomHex(e.currentTarget.value)}
                         class="rounded-l-[4px] min-w-0 flex-1 bg-transparent font-mono text-[12px] text-slate-600 outline-none" />
@@ -442,13 +529,13 @@ export function ColorPicker(props: {
                         <For each={channelValues()}>
                           {(value, index) => (
                             <input value={value} onInput={(e) => setChannel(index(), Number(e.currentTarget.value))}
-                              class={index() === 0 ? 'h-7 rounded-l-[4px] bg-[#F4F4F5] px-1 text-center text-[12px] text-slate-600 outline-none' : 'h-7 border-l border-[#ffffff] bg-[#F4F4F5] px-1 text-center text-[12px] text-slate-600 outline-none'} />
+                              class={index() === 0 ? 'h-7 rounded-l-[4px] bg-[#F9F9F9] px-1 text-center text-[12px] text-slate-600 outline-none' : 'h-7 border-l border-[#ffffff] bg-[#F9F9F9] px-1 text-center text-[12px] text-slate-600 outline-none'} />
                           )}
                         </For>
                       </div>
                       <div class="relative">
                         <button type="button" onClick={(e) => { e.stopPropagation(); setModeOpen(!modeOpen()) }}
-                          class="flex h-7 w-7 items-center justify-center rounded-r-[4px] border-l border-[#ffffff] bg-[#F4F4F5] text-slate-500 hover:bg-[#E4E4E7]">
+                          class="flex h-7 w-7 items-center justify-center rounded-r-[4px] border-l border-[#ffffff] bg-[#F9F9F9] text-slate-500 hover:bg-[#E4E4E7]">
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#747476" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down-icon lucide-chevron-down">
                             <path d="m6 9 6 6 6-6" />
                           </svg>
@@ -492,7 +579,7 @@ export function ColorPicker(props: {
                       onClick={() => { const tokenAlpha = parseFloat(token.opacity) || 100; const hex = hexWithAlpha(token.color, tokenAlpha); props.onChange(hex); syncFromHex(hex); setLastTokenName(token.name); props.onTokenChange?.(token.name); setOpen(false) }}
                       onMouseEnter={(e) => showTooltip(token, e)}
                       onMouseLeave={() => setTooltipData(null)}
-                      class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-slate-600 hover:bg-[#F4F4F5]"
+                      class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-slate-600 hover:bg-[#F9F9F9]"
                     >
                       <span class="h-3.5 w-3.5 shrink-0 rounded-full border border-[#12112a12]" style={{ background: token.color, opacity: token.opacity }} />
                       <span class="truncate">{token.displayName || token.name}</span>

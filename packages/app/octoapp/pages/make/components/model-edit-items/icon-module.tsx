@@ -521,41 +521,43 @@ function IconPickerPopup(props: {
         </div>
 
         <div class="mt-4 shrink-0 px-4">
-          <div class="flex items-center gap-2">
-            <div class="w-[110px] shrink-0"><CustomSelect value={state.shapeKey} options={shapeOptions} onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }} class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" /></div>
-            <div class="w-[110px] shrink-0"><CustomSelect value={iconStore.state.iconSize} options={sizeOptions} onChange={v => iconStore.setSize(v)} class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" /></div>
-            <div class="w-[110px] shrink-0">
-              <button
-                ref={colorBtnRef}
-                type="button"
-                onClick={() => setState('colorOpen', !state.colorOpen)}
-                class="flex h-9 w-full items-center gap-1 rounded-[36px] bg-[#F2F3F5] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9]"
-              >
-                <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: iconCssColor(state.iconColorKey) }} />
-                <span class="flex-1 truncate" style={{ color: '#191919' }}>{colors[state.iconColorKey]?.label ?? state.iconColorKey}</span>
-                <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              </button>
-              <Show when={state.colorOpen}>
-                <Portal mount={document.body}>
-                  <div ref={colorListRef} class="octo-dropdown-menu fixed" style={{ left: state.colorPos.x + 'px', top: state.colorPos.y + 'px', 'min-width': state.colorPos.w + 'px' }}>
-                    <For each={Object.entries(colors)}>
-                      {([k, v]) => (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setState('iconColorKey', k); setState('colorOpen', false); iconStore.setColor(iconCssColor(k)) }}
-                          class={`octo-dropdown-item${k === state.iconColorKey ? ' octo-dropdown-item-active' : ''}`}
-                          style={{ 'text-align': 'left', 'justify-content': 'flex-start' }}
-                        >
-                          <span class="h-4 w-4 shrink-0 rounded-full" style={{ background: iconCssColor(k) }} />
-                          <span>{v.label}</span>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Portal>
-              </Show>
+          <Show when={state.source !== 'custom'}>
+            <div class="flex items-center gap-2">
+              <div class="w-[110px] shrink-0"><CustomSelect value={state.shapeKey} options={shapeOptions} onChange={v => { setState('shapeKey', v); iconStore.setShape(shapeKeyToStyle(v)) }} class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" /></div>
+              <div class="w-[110px] shrink-0"><CustomSelect value={iconStore.state.iconSize} options={sizeOptions} onChange={v => iconStore.setSize(v)} class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" /></div>
+              <div class="w-[110px] shrink-0">
+                <button
+                  ref={colorBtnRef}
+                  type="button"
+                  onClick={() => setState('colorOpen', !state.colorOpen)}
+                  class="flex h-9 w-full items-center gap-1 rounded-[36px] bg-[#F2F3F5] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9]"
+                >
+                  <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: iconCssColor(state.iconColorKey) }} />
+                  <span class="flex-1 truncate" style={{ color: '#191919' }}>{colors[state.iconColorKey]?.label ?? state.iconColorKey}</span>
+                  <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </button>
+                <Show when={state.colorOpen}>
+                  <Portal mount={document.body}>
+                    <div ref={colorListRef} class="octo-dropdown-menu fixed" style={{ left: state.colorPos.x + 'px', top: state.colorPos.y + 'px', 'min-width': state.colorPos.w + 'px' }}>
+                      <For each={Object.entries(colors)}>
+                        {([k, v]) => (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setState('iconColorKey', k); setState('colorOpen', false); iconStore.setColor(iconCssColor(k)) }}
+                            class={`octo-dropdown-item${k === state.iconColorKey ? ' octo-dropdown-item-active' : ''}`}
+                            style={{ 'text-align': 'left', 'justify-content': 'flex-start' }}
+                          >
+                            <span class="h-4 w-4 shrink-0 rounded-full" style={{ background: iconCssColor(k) }} />
+                            <span>{v.label}</span>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Portal>
+                </Show>
+              </div>
             </div>
-          </div>
+          </Show>
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onClick={() => props.onClose()} class="h-7 shrink-0 rounded-[28px] bg-[#F2F3F5] px-[22px] text-[12px] hover:bg-[#E8E9EC]" style={{ color: '#191919' }}>取消</button>
             <button type="button" onClick={handleConfirm} class="h-7 shrink-0 rounded-[28px] bg-[#0A59F7] px-[22px] text-[12px] hover:bg-[#3B76F9]" style={{ color: '#fff' }}>确认</button>
@@ -593,31 +595,35 @@ export function IconModule(props: {
   const [iconValue, setIconValue] = createSignal<IconState>({})
   let anchorRef: HTMLButtonElement | undefined
 
+  const loadIconPreview = (state: IconState) => {
+    if (state.src && props.filePath) {
+      const fullPath = `${props.filePath.replace(/[\\/][^\\/]+$/, '')}/${state.src}`
+      const api = getDesktopApi()
+      if (api?.readFileBuffer) {
+        api.readFileBuffer(fullPath).then(buf => {
+          if (buf) {
+            const mime = (state.src ?? '').endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+            blobToDataURL(new Blob([buf], { type: mime })).then(dataUrl => {
+              setIconValue(prev => ({ ...prev, url: dataUrl }))
+            })
+          }
+        }).catch(() => {})
+      }
+    }
+  }
+
   createEffect(() => {
     if (props.dom && props.iconConfig.getInitialState) {
       const state = props.iconConfig.getInitialState(props.dom)
       setIconValue(state)
-      // 自定义图标：readFileBuffer 转 dataURL 用于预览
-      if (state.isCustom && state.src && props.filePath) {
-        const fullPath = `${props.filePath.replace(/[\\/][^\\/]+$/, '')}/${state.src}`
-        const api = getDesktopApi()
-        if (api?.readFileBuffer) {
-          api.readFileBuffer(fullPath).then(buf => {
-            if (buf) {
-              const mime = (state.src ?? '').endsWith('.svg') ? 'image/svg+xml' : 'image/png'
-              blobToDataURL(new Blob([buf], { type: mime })).then(dataUrl => {
-                setIconValue(prev => ({ ...prev, url: dataUrl }))
-              })
-            }
-          }).catch(() => {})
-        }
-      }
+      loadIconPreview(state)
     }
   })
 
   const handleConfirm = async (current: IconState) => {
     const prev = iconValue()
     setIconValue(current)
+    loadIconPreview(current)
     const prompt = await props.iconConfig.onConfirm({
       prev, current,
       dom: props.dom!,

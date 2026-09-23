@@ -95,6 +95,12 @@ export function localUrlToPath(url: string): string {
   if (s.startsWith("local:///")) {
     // local:///C:/foo → 剥前缀后是 C:/foo
     rest = s.slice("local:///".length)
+    // Unix 绝对路径的起始 / 可能被前缀吸收(local:///Users/foo 剥完是 Users/foo)。
+    // 按 URL 语义 local:// 后是空 authority + 路径,路径应为 /Users/foo;
+    // Windows 盘符形态(C:/...)不受影响
+    if (!/^[A-Za-z]:/.test(rest) && !rest.startsWith("/")) {
+      rest = "/" + rest
+    }
   } else if (s.startsWith("local://")) {
     // local://d/code/foo → 剥 'local://' 后是 'd/code/foo'，首段 d 是盘符 host
     rest = s.slice("local://".length)

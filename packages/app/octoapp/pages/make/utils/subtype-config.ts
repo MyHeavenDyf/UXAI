@@ -17,6 +17,10 @@ export type SubtypeCapabilities = {
   }
   history?: {
     files: string[]
+    /** 每文件保留的最大版本数（不含 init），默认 50 */
+    maxVersions?: number
+    /** agent 一轮对话的记录粒度：'each' 每次工具写盘记一条（默认）；'turn' 整轮只记最终态一条 */
+    agentTurnRecord?: 'each' | 'turn'
   }
   rendering?: {
     designSystem?: string
@@ -53,6 +57,25 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: false,
       viewport: false,
+      localEdit: false,
+      modelEdit: false,
+      drawEdit: false,
+      canvasEdit: false,
+      comment: false,
+      archive: false,
+      history: false,
+      download: false,
+      fullscreen: true,
+    }
+  },
+
+  // fastui 预览卡片(SPEC-DES-005):页面是 127.0.0.1 上的跨域 dev server,没有 bridge、
+  // 没有单文件源码,所以和 url 一样只留刷新 / 全屏;唯一多开的是分辨率切换(纯 CSS 缩放)
+  fastui: {
+    features: {
+      refresh: true,
+      modeToggle: false,
+      viewport: true,
       localEdit: false,
       modelEdit: false,
       drawEdit: false,
@@ -125,6 +148,28 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
     history: {
       files: ['.'],
+      agentTurnRecord: 'turn',
+    },
+  },
+
+  gts: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+      agentTurnRecord: 'turn',
     },
   },
 

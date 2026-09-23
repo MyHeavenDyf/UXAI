@@ -1352,6 +1352,7 @@ export type Provider = {
   options: {
     [key: string]: unknown
   }
+  title_model?: Array<string>
   models: {
     [key: string]: Model
   }
@@ -4565,10 +4566,13 @@ export type ExperimentalSessionListData = {
     workspace?: string
     roots?: boolean | "true" | "false"
     start?: number
-    cursor?: number
+    cursor?: string
     search?: string
     limit?: number
+    pinned?: boolean | "true" | "false"
+    grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
+    agent?: string
   }
   url: "/experimental/session"
 }

@@ -81,7 +81,7 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
-import { currentAccount } from "./utils/account"
+import { currentAccount, currentUserId } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
@@ -1606,10 +1606,12 @@ function InsightContent() {
     // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
     // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
     const account = currentAccount()
-    const promptExtra =
-      injectedSkills.length || account
-        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-        : undefined
+    const userId = currentUserId()
+    const promptExtra = {
+      ...(injectedSkills.length ? { skills: injectedSkills } : {}),
+      ...(account ? { account } : {}),
+      ...(userId ? { userId } : {}),
+    }
 
     sync.session.optimistic.add({
       sessionID: sessionId,
@@ -1636,8 +1638,12 @@ function InsightContent() {
         //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
         //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
         //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        //   - userId(SPEC-INS-033):当前登录用户 ID,供 get_session_identity 原样交给模型(skill 调内部接口用)。
+        //     同样拿不到就不传,由工具侧显式失败。
+        // **每轮都传,字段都没有时传空对象**(SPEC-INS-033 §1):服务端只在收到 extra 时才覆盖 sessionExtras,
+        // 某轮不传就会沿用上一轮的值——登录态丢失后工具仍拿到旧身份,而不是显式失败。空对象只进 insight
+        // 会话的 sessionExtras,不影响 make / studio。
+        extra: promptExtra,
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {

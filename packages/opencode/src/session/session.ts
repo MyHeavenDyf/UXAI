@@ -919,10 +919,13 @@ export function* listGlobal(input?: {
   directory?: string
   roots?: boolean
   start?: number
-  cursor?: number
+  cursor?: string | number
   search?: string
   limit?: number
   archived?: boolean
+  agent?: string
+  pinned?: boolean
+  grouped?: boolean
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)
 }

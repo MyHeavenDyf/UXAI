@@ -20,13 +20,27 @@ export function currentAccount(): string | undefined {
   return account
 }
 
+// 当前登录用户 ID(SPEC-INS-033),如 `uuid~bDYwMDYyNjUw`。
+//
+// 用途:随 `extra.userId` 透传给 sidecar,由 get_session_identity 工具原样交给模型,供 skill 调内网接口。
+// 取值:`localStorage.userInfo.userId`;拿不到返回 undefined、不传该字段,**不做兜底**——工具侧显式失败
+// 并打 server 端 `[octo:ctx] identity missing`。这里不另打客户端日志:缺 userId 只影响调用该工具的 skill,
+// 且与 account 同源(同一个 userInfo),`[octo:kb] account missing` 已覆盖「userInfo 整体缺失」的情形。
+export function currentUserId(): string | undefined {
+  return readUserInfoField("userId")
+}
+
 function readAccount(): string | undefined {
+  return readUserInfoField("account")
+}
+
+function readUserInfoField(key: "account" | "userId"): string | undefined {
   const raw = localStorage.getItem("userInfo")
   if (!raw) return undefined
   try {
-    const account = (JSON.parse(raw) as { account?: unknown }).account
-    if (typeof account !== "string") return undefined
-    const trimmed = account.trim()
+    const value = (JSON.parse(raw) as Record<string, unknown>)[key]
+    if (typeof value !== "string") return undefined
+    const trimmed = value.trim()
     return trimmed.length > 0 ? trimmed : undefined
   } catch {
     return undefined

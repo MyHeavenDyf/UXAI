@@ -244,7 +244,7 @@ const directModelEditConfig: ModelEditConfig = {
 
       // 1. 下载 SVG 到 uploads（在线/lucide 图标有 svgContent）
       if (current.svgContent && writeFileBuffer && sessionDir) {
-        const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/${sessionDir}/assets`
+        const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/assets`
         const safeName = (current.name ?? 'icon').replace(/[\\/:*?"<>|]/g, '_')
         const iconPath = `${iconDir}/icon_${safeName}.svg`
         try {

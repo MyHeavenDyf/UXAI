@@ -1,4 +1,4 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { OpencodeClient, SessionGroupListResponse } from "@opencode-ai/sdk/v2/client"
 
 const migrated = new Set<string>()
 const inFlight = new Map<string, Promise<void>>()
@@ -75,4 +75,27 @@ async function doMigrate({ dir, namespace, client }: {
 
   localStorage.removeItem(gKey)
   localStorage.removeItem(mKey)
+}
+
+// Deduplicated session-group list fetch. Both useMakeGroups and useSessionGroups
+// call this with the same dir+namespace; only the first call makes the network
+// request, the second reuses the in-flight Promise.
+const listInFlight = new Map<string, Promise<SessionGroupListResponse | undefined>>()
+
+export function fetchSessionGroupList(opts: {
+  dir: string
+  namespace: string
+  client: OpencodeClient
+}): Promise<SessionGroupListResponse | undefined> {
+  const key = `${opts.dir}:${opts.namespace}`
+  const existing = listInFlight.get(key)
+  if (existing) return existing
+  const p = (async () => {
+    await migrateLocalGroupsToDB(opts)
+    const result = await opts.client.sessionGroup.list({ namespace: opts.namespace as "make" | "insight" })
+    return result.data
+  })()
+  listInFlight.set(key, p)
+  p.finally(() => { listInFlight.delete(key) })
+  return p
 }

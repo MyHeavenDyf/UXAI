@@ -234,6 +234,12 @@
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
 }
+.octo-action-btn:disabled,
+.octo-action-btn.octo-action-btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 .octo-action-btn > svg {
   flex-shrink: 0;

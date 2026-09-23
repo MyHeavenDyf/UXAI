@@ -162,11 +162,18 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>): string {
   // RawExprValue：原始 JS 表达式 → 裸 value
   if (v.type === 'rawExpr') return v.value
 
-  // ActionValue：事件 setState → () => setSharedState(key, value)
+  // ActionValue：事件动作 → setSharedState 调用
   // 调用方（emitProps）包 {} → onClick={() => setSharedState('isDetailOpen', true)}
-  // key = path 剥前导 `/` 取顶层段（协议：共享 path 只在顶层）；value 暂只字面量。
+  // key = path 剥前导 `/` 取顶层段（协议：共享 path 只在顶层）。
+  //   setState:   直写字面量值。
+  //   cycleState: 函数式 updater，在 value 数组中轮转取下一项、末尾循环回首项；
+  //               prev 不在数组时 indexOf=-1 → (0)%len 回 value[0]（健壮兜底）。
   if (v.type === 'action') {
     const key = String(v.path || '').replace(/^\//, '').split('/')[0]
+    if (v.action === 'cycleState') {
+      const arr = JSON.stringify(v.value)
+      return `() => setSharedState('${key}', (prev) => { const cycleValues = ${arr}; return cycleValues[(cycleValues.indexOf(prev) + 1) % cycleValues.length]; })`
+    }
     return `() => setSharedState('${key}', ${JSON.stringify(v.value)})`
   }
 
@@ -309,16 +316,33 @@ export function emitNode(node: BuildNode | null | undefined, opts?: EmitOptions)
   if (!node) return 'null'
 
   const o = mergedOpts(opts)
+  let inner: string
   switch (node.kind) {
     case 'component':
-      return emitComponent(node as ComponentNode, o)
+      inner = emitComponent(node as ComponentNode, o)
+      break
     case 'html':
-      return emitHtml(node as HtmlNode, o)
+      inner = emitHtml(node as HtmlNode, o)
+      break
     case 'text':
-      return emitText(node as TextNode, o)
+      inner = emitText(node as TextNode, o)
+      break
     default:
-      return 'null'
+      inner = 'null'
   }
+
+  // condition 守卫（A2UI Scenario 3）：节点带 condition.varName 时整体包
+  //   {[...in].includes(varName) && (<Node/>)}
+  // 守卫包在最外层（含 wrapper）；统一 .includes（单元素不特化 ===）。
+  // false && <X/> 在 React 不渲染 → 满足「非匹配元素完全不渲染、不占位」。
+  // varName 由 tree-finalizer lift useSharedState 时写回；无 condition 或未 lift 时短路。
+  const cond = (node as any).condition as { path: string; in: string[]; varName?: string } | undefined
+  if (cond && cond.varName) {
+    // JSON.stringify(in) 已产 ["a","b"] 含方括号，直接 .includes，勿再外套 []（否则变嵌套数组永不匹配）
+    const guard = `${JSON.stringify(cond.in)}.includes(${cond.varName})`
+    return `{${guard} && (${inner})}`
+  }
+  return inner
 }
 
 function emitComponent(node: ComponentNode, opts: Required<EmitOptions>): string {

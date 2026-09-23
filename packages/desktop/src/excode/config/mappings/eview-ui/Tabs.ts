@@ -142,12 +142,24 @@ export function createTabsMapping(pkg: string): MappingDef {
           // 闭包捕获 staticChildren / loop（编译期已知），transform 内用 cvCtx 读循环数据算索引
           const staticChildrenCapture = staticChildren
           const loopCapture = isLoop ? (children as LoopNode) : null
+          // 静态 children 的 key 数组（编译期已知，供 shared 时运行时 key→index 查表）。
+          // 与 eview-react 同款 runtimeKeyMap；shared 提升时 tree-finalizer 统一产
+          // KEYS.indexOf(raw) 派生 const + 改写 onClick 写回 key（此处 Number(index) 差异
+          // 仅在非 shared 自驱动路径生效，shared 时提升逻辑统一生成 onClick）。
+          const staticKeys = staticChildrenCapture
+            .map(c => c?.props?.key)
+            .filter(k => k !== undefined && k !== null)
+          const useStateMarker: { event: string; extractor: (s: string) => string; runtimeKeyMap?: { keys: any[] } } = {
+            event: 'onClick',
+            extractor,
+          }
+          if (staticKeys.length > 0) useStateMarker.runtimeKeyMap = { keys: staticKeys }
           outputProps.selectedIndex = Value.computed({
             path: activeKeyRaw.path,
             pathType: activeKeyRaw.pathType ?? 'absolute',
             accessPath: activeKeyRaw.accessPath,
             containsJSX: false,
-            useState: { event: 'onClick', extractor },
+            useState: useStateMarker,
             transform: (rawActiveKey: any, cvCtx?: any) => {
               const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
               if (!activeKeyVal || activeKeyVal === '') return 0
