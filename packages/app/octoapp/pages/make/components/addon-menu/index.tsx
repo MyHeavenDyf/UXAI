@@ -11,40 +11,20 @@ import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
-import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
+import { LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
 import { assetFileId, type AssetFile } from "./asset-library"
 import { AssetDialog } from "./asset-dialog"
 import { tracker } from "@/utils/tracker"
-import type { MentionSelection } from "../mention-popover"
+import type { AddonMenuProps, AddonMenuItemKey, MenuSelection, AddonSkillConfig } from "./types"
 import "./styles.css"
 
-interface AddonMenuProps {
-  skillConfig: {
-    skill?: Record<string, SkillConfigEntry>
-    panel?: {
-      common?: PanelSkill[]
-      octo_make?: PanelSkill[]
-    }
-  }
-  artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
-  selections: MentionSelection[]
-  onSelect: (selection: MentionSelection) => void
-  onDeselect: (selection: MentionSelection) => void
-  onAddAttachment: () => void
-  onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<void>
-  onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
-  onUpdateMentionPath?: (filename: string, path: string) => void
-  productId?: number
-  onEnterDesignStrategy?: () => void
-  planActive?: boolean
-  onEnterPatternPage?: () => void
-  patternPageActive?: boolean
-  onOpen?: () => void
-  disabled: boolean
-}
+export type { AddonMenuItemKey, AddonMenuSlot, MenuSelection, AddonSkillConfig } from "./types"
+type MentionSelection = MenuSelection
 
 export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const { request, gate } = useUploadRiskGate()
+  const trackerModule = () => props.trackerModule ?? "design"
+  const skillCfg = () => props.skillConfig ?? {}
 
   const [open, setOpen] = createSignal(false)
   const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
@@ -131,14 +111,14 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   let filesSecondaryRef: HTMLDivElement | undefined
 
   const platformSkills = createMemo(() => {
-    const panel = props.skillConfig.panel
+    const panel = skillCfg().panel
     if (!panel) return []
     const commonLabels = new Set((panel.common ?? []).map(s => s.label))
     return (panel.octo_make ?? []).filter(s => !commonLabels.has(s.label))
   })
 
   const customSkills = createMemo(() => {
-    return props.skillConfig.panel?.common ?? []
+    return skillCfg().panel?.common ?? []
   })
 
   const isSelected = (selection: MentionSelection) => {
@@ -165,7 +145,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       setOpen(true)
       setActiveSecondary(null)
       setSkillsCategory('platform')
-      props.onOpen?.()
+      props.onSkillsOpen?.()
     } else {
       setOpen(false)
     }
@@ -179,13 +159,13 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
-    const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+    const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
     const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
-      tracker.interaction({ module: "design", name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
+      tracker.interaction({ module: trackerModule(), name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
     }
   }
 
@@ -197,7 +177,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     } else {
       setLocalFileSelections(prev => [...prev, selection])
       props.onSelect(selection)
-      tracker.interaction({ module: "design", name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
+      tracker.interaction({ module: trackerModule(), name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
     }
   }
 
@@ -268,7 +248,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const handleAddAttachment = () => {
     request(() => {
       closeMenu()
-      props.onAddAttachment()
+      props.onAddAttachment?.()
     })
   }
 
@@ -413,6 +393,96 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setUrlDialogBOpen(false)
   }
 
+  // 内置菜单项渲染(items 配置编排用)
+  const renderBuiltinItem = (key: AddonMenuItemKey): JSX.Element => {
+    switch (key) {
+      case "skills":
+        return (
+          <button
+            type="button"
+            class={`addon-menu-item addon-menu-item--skills ${activeSecondary() === 'skills' ? 'addon-menu-item--active' : ''}`}
+            onClick={() => {
+              if (activeSecondary() === 'skills') {
+                setActiveSecondary(null)
+              } else {
+                setActiveSecondary('skills')
+                setSkillsCategory('platform')
+              }
+            }}
+          >
+            <span class="addon-menu-item-icon"><SkillsIcon /></span>
+            <span class="addon-menu-item-text">技能库</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "productAssets":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            onClick={() => {
+              request(() => {
+                // 快照当前 chip id,取消/关闭时移除本次新增的
+                assetChipSnapshot = new Set(
+                  props.selections.map(s => (s as any).id as string).filter(Boolean),
+                )
+                closeMenu()
+                setAssetDialogOpen(true)
+              })
+            }}
+          >
+            <span class="addon-menu-item-icon"><AssetsIcon /></span>
+            <span class="addon-menu-item-text">产品资产库</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "designFiles":
+        return (
+          <button
+            type="button"
+            class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
+            onClick={() => {
+              if (activeSecondary() === 'files') {
+                setActiveSecondary(null)
+                return
+              }
+              request(() => setActiveSecondary('files'))
+            }}
+          >
+            <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
+            <span class="addon-menu-item-text">设计文件</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "urlImport":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            onClick={() => {
+              setUrlDialogOpen(true)
+              closeMenu()
+            }}
+          >
+            <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
+            <span class="addon-menu-item-text">接收设计资产链接URL</span>
+          </button>
+        )
+      case "addAttachment":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            disabled={props.maxAttachments}
+            onClick={handleAddAttachment}
+          >
+            <span class="addon-menu-item-icon"><AttachmentIcon /></span>
+            <span class="addon-menu-item-text">添加附件</span>
+          </button>
+        )
+    }
+  }
+
   return (
     <>
       <Tooltip placement="top" value="添加附件">
@@ -430,112 +500,22 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       <Show when={open() && menuPosition()}>
         <Portal>
           <div class="addon-menu-container" ref={menuRef} style={menuStyle()}>
-            {/* 技能库 */}
-            <button
-              type="button"
-              class={`addon-menu-item addon-menu-item--skills ${activeSecondary() === 'skills' ? 'addon-menu-item--active' : ''}`}
-              onClick={() => {
-                if (activeSecondary() === 'skills') {
-                  setActiveSecondary(null)
-                } else {
-                  setActiveSecondary('skills')
-                  setSkillsCategory('platform')
-                }
+            {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
+                缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
+            <For each={(() => {
+              const builtin: AddonMenuItemKey[] = ["skills", "productAssets", "designFiles", "urlImport", "addAttachment"]
+              const slots = props.slots ?? []
+              if (!props.items) return [...builtin, ...slots.map(s => s.key)]
+              return props.items.filter(key =>
+                builtin.includes(key as AddonMenuItemKey) || slots.some(s => s.key === key),
+              )
+            })()}>
+              {(key) => {
+                const slot = props.slots?.find(s => s.key === key)
+                if (slot) return slot.render({ closeMenu })
+                return renderBuiltinItem(key as AddonMenuItemKey)
               }}
-            >
-              <span class="addon-menu-item-icon"><SkillsIcon /></span>
-              <span class="addon-menu-item-text">技能库</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 产品资源库 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              onClick={() => {
-                request(() => {
-                  // 快照当前 chip id,取消/关闭时移除本次新增的
-                  assetChipSnapshot = new Set(
-                    props.selections.map(s => (s as any).id as string).filter(Boolean),
-                  )
-                  closeMenu()
-                  setAssetDialogOpen(true)
-                })
-              }}
-            >
-              <span class="addon-menu-item-icon"><AssetsIcon /></span>
-              <span class="addon-menu-item-text">产品资产库</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 设计文件 */}
-            <button
-              type="button"
-              class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
-              onClick={() => {
-                if (activeSecondary() === 'files') {
-                  setActiveSecondary(null)
-                  return
-                }
-                request(() => setActiveSecondary('files'))
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
-              <span class="addon-menu-item-text">设计文件</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 进入设计策略模式 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.planActive || props.patternPageActive}
-              onClick={() => {
-                closeMenu()
-                props.onEnterDesignStrategy?.()
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
-              <span class="addon-menu-item-text">进入设计策略模式</span>
-            </button>
-
-             {/* 进入patternPage模式 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.planActive || props.patternPageActive}
-              onClick={() => {
-                closeMenu()
-                props.onEnterPatternPage?.()
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
-              <span class="addon-menu-item-text">进入Pattern模式</span>
-            </button>
-
-            {/* 接收设计资产链接URL — 暂时隐藏 */}
-            {/* <button
-              type="button"
-              class="addon-menu-item"
-              onClick={() => {
-                setUrlDialogOpen(true)
-                closeMenu()
-              }}
-            >
-              <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
-              <span class="addon-menu-item-text">接收设计资产链接URL</span>
-            </button> */}
-
-            {/* 添加附件 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.disabled}
-              onClick={handleAddAttachment}
-            >
-              <span class="addon-menu-item-icon"><AttachmentIcon /></span>
-              <span class="addon-menu-item-text">添加附件</span>
-            </button>
+            </For>
 
             {/* Secondary panel for 技能库 (categories + tertiary skills list) */}
             <Show when={activeSecondary() === 'skills'}>
@@ -571,7 +551,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={platformSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
                           const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                           return (
                             <button
@@ -603,7 +583,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={customSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
                           const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                           return (
                             <button
@@ -854,9 +834,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       <AssetDialog
         open={assetDialogOpen()}
         productId={props.productId}
-        selections={props.selections}
-        onSelect={props.onSelect}
-        onDeselect={props.onDeselect}
+        selections={props.selections as MentionSelection[]}
+        onSelect={(sel) => props.onSelect(sel as MentionSelection)}
+        onDeselect={(sel) => props.onDeselect(sel as MentionSelection)}
         onConfirm={handleAssetDialogConfirm}
         onCancel={handleAssetDialogCancel}
       />

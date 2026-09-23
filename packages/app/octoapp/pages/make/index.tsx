@@ -4,6 +4,7 @@ import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
+import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
@@ -803,22 +804,20 @@ const sessionMessagesLoaded = createMemo(() => {
         return
       }
 
-      try {
-        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
-        tracker.interaction({
-          module: 'design',
-          name: 'send-text-event',
-          extend: JSON.stringify({
-            textLength: detail.text.length,
-            source: detail.source ?? 'unknown',
-          }),
-        })
-        detail.ack?.({ ok: true })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        showOctoToast({ title: '发送失败', description: message, variant: 'error' })
-        detail.ack?.({ ok: false, message })
+      const ok = await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
+      if (!ok) {
+        detail.ack?.({ ok: false, message: '发送失败' })
+        return
       }
+      tracker.interaction({
+        module: 'design',
+        name: 'send-text-event',
+        extend: JSON.stringify({
+          textLength: detail.text.length,
+          source: detail.source ?? 'unknown',
+        }),
+      })
+      detail.ack?.({ ok: true })
     }
 
     window.addEventListener(SEND_TEXT_EVENT, handleSendText)
@@ -1813,6 +1812,15 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     })
   }, { defer: true }))
+  function restoreComposerText(text: string) {
+    const doc = docJSONFromPlainText(text)
+    const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+    if (ref) ref.replaceDoc(doc)
+    else {
+      setPrompt(text)
+      setPromptDoc(doc)
+    }
+  }
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -2119,20 +2127,20 @@ const sessionMessagesLoaded = createMemo(() => {
   }, { defer: true }))
 
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
-  function handleGenerateStrategy() {
+  async function handleGenerateStrategy() {
     const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
     const data = strategyFormData()
     const prompt = `[strategy-complete]\n\n以下是已填写的设计策略信息：\n\n## 设计需求\n- 需求背景：${data.需求背景 || "（未填写）"}\n- 设计目标：${data.设计目标 || "（未填写）"}\n- 设计方法：${data.设计方法 || "（未填写）"}\n- 其他：${data.其他 || "（未填写）"}\n\n## 洞察&研究\n- 用户画像：${data.用户画像 || "（未填写）"}\n- 用户旅程：${data.用户旅程 || "（未填写）"}\n- 研究报告：${data.研究报告 || "（未填写）"}\n\n请根据以上信息输出完整的设计策略文档。`
-    sendMessage(planSid, prompt, key).catch((err) => {
-      console.error("[MakePage] generate strategy failed", err)
-      setIsGenerating(false)  // 失败时恢复
-      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
-    })
     setUserChangedPhase(false)  // 重置手动切换标记
     setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
+    const ok = await sendMessage(planSid, prompt, key)
+    if (!ok) {
+      setIsGenerating(false)  // 失败时恢复
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
+    }
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
@@ -2216,6 +2224,7 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] confirm plan to main session failed", err)
       setOptimisticConfirmed(false)
       setPlanConfirmPending(false)
+      showOctoToast({ title: "确认方案发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
       return
     }
 
@@ -2328,11 +2337,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // 有输入直接发，无输入等用户提交
       if (userInput) {
         sdk.client.session.prompt({ sessionID: childSession.id, agent: "ict_pattern", model: modelKey, parts: [{ type: "text", text: userInput }] })
-          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false) })
+          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false); showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" }) })
       } else {
         requestAnimationFrame(() => textareaRef?.focus())
       }
-    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false) }
+    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false); showOctoToast({ title: "进入 Pattern 失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" }) }
   }
 
   /** IntentConfirmCard onMatchPattern：用户选定 Pattern → 拉页面规范 MD → 发 [模块匹配] */
@@ -2361,7 +2370,12 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     const ui = patternUserInput() || selectedItem?.name || ""
     const prompt = `[模块匹配]\n\nPattern: ${selectedItem?.name ?? ""} (ID: ${selectedItem?.id ?? ""})\n\n【1.典型页面规范】\n${pageSpecMd || "（未获取到页面规范，请基于 Pattern 名称自行推演）"}\n\n【2.用户业务需求描述】\n${ui}`
-    sendMessage(subSid, prompt, mk).catch((err) => { console.error("[MakePage] select pattern sub failed", err); setPatternBlockMatching(false); setPatternSubPhase("match") })
+    const ok = await sendMessage(subSid, prompt, mk)
+    if (!ok) {
+      console.error("[MakePage] select pattern sub failed")
+      setPatternBlockMatching(false)
+      setPatternSubPhase("match")
+    }
   }
 
   /** IntentConfirmCard onConfirm：用户选定 block → 下载 content → 保存 pattern 数据到 outputs（不生成 HTML） */
@@ -2519,6 +2533,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }).catch((err: any) => {
         console.error("[MakePage] prompt child agent failed", err)
         setOptimisticIntentResolved(false)
+        showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
       })
     } catch (err) {
       console.error("[MakePage] enter plan failed", err)
@@ -2527,6 +2542,7 @@ const sessionMessagesLoaded = createMemo(() => {
       setPlanParentSessionId(null)
       setPlanChildSessionIDs(new Set<string>())
       setHasChildPlanSession(false)
+      showOctoToast({ title: "进入规划模式失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     }
   }
 
@@ -3102,6 +3118,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const planSkillStash: Array<{ name: string; label: string }> = []
       const baseDir = projectDir()
       const api = getDesktopApi()
+      const moveFailed: string[] = []
       if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
         const sep = baseDir.includes("\\") ? "\\" : "/"
         const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
@@ -3138,8 +3155,12 @@ const sessionMessagesLoaded = createMemo(() => {
             sel.path = newPath
           } catch (err) {
             console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+            moveFailed.push(sel.name)
           }
         }
+      }
+      if (moveFailed.length > 0) {
+        showOctoToast({ title: "附件迁移失败", description: `${moveFailed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
       }
 
       // Process mention selections: replace chip text with model format
@@ -3181,6 +3202,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const api = getDesktopApi()
         const baseDir = projectDir()
         if (baseDir && typeof api?.movePendingUploadToSession === "function" && sessionId) {
+          const pendingFailed: string[] = []
           const pendingFiles = done.filter(a => a.source === 'pending' && a.path)
           await Promise.all(pendingFiles.map(async a => {
             try {
@@ -3188,10 +3210,14 @@ const sessionMessagesLoaded = createMemo(() => {
               movedPaths.set(a.id, newPath)
             } catch (err) {
               console.warn("[octo:make] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+              pendingFailed.push(a.filename)
             }
           }))
           if (movedPaths.size > 0) {
             setAttachments(prev => prev.map(x => movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id)!, source: 'local' as const } : x))
+          }
+          if (pendingFailed.length > 0) {
+            showOctoToast({ title: "附件迁移失败", description: `${pendingFailed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
           }
         }
       }
@@ -3377,14 +3403,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setAttachments([])
         if (failedCmds.length > 0) {
-          const restoreText = failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : "")
-          const restoreDoc = docJSONFromPlainText(restoreText)
-          const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
-          if (ref) ref.replaceDoc(restoreDoc)
-          else {
-            setPrompt(restoreText)
-            setPromptDoc(restoreDoc)
-          }
+          restoreComposerText(failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : ""))
         }
         return  // Commands are self-contained, skip prompt
       }
@@ -3484,9 +3503,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
       // "streaming 期间用户添加的新附件"。失败时也保留附件便于用户重试。
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      return true
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
       showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      return false
     }
   }
 
@@ -3553,10 +3574,18 @@ const sessionMessagesLoaded = createMemo(() => {
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
-        if (!dir) return
+        if (!dir) {
+          restoreComposerText(text)
+          showOctoToast({ title: "发送失败", description: "项目目录未就绪，请重新选择项目目录", variant: "error" })
+          return
+        }
         const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
         const session = result.data as Session | undefined
-        if (!session) return
+        if (!session) {
+          restoreComposerText(text)
+          showOctoToast({ title: "发送失败", description: "创建会话失败，请稍后重试", variant: "error" })
+          return
+        }
 
         const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
         if (pendingGroupId) {
@@ -3637,7 +3666,8 @@ const sessionMessagesLoaded = createMemo(() => {
           const userInput2 = text.replace(/^[\s\S]*?---\n/, "").trim()
           const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
           const patternChildSession = patternChild.data as Session | undefined
-          if (patternChildSession) {
+          if (!patternChildSession) throw new Error("创建 Pattern 子会话失败")
+          {
             lastEnrichedPatternMatchMsgId = null
             lastEnrichedModuleListMsgId = null
             loadedChildSessions.add(patternChildSession.id)
@@ -3653,7 +3683,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
           local.session.promote(sdk.directory, session.id)
           navigate(`/make/${session.id}`)
-          if (patternChildSession && userInput2) {
+          if (userInput2) {
             await sdk.client.session.prompt({
               sessionID: patternChildSession.id, agent: "ict_pattern", model: capturedModelKey,
               parts: [{ type: "text", text: userInput2 }],
@@ -3747,7 +3777,8 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
-      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      restoreComposerText(text)
+      showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     } finally {
       // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
       if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid) || (patternSubSid && activePatternSessionId() === patternSubSid)) {
@@ -4486,6 +4517,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!api?.movePendingUploadToSession && !api?.readFileBuffer) return
 
     const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
+    const failed: string[] = []
 
     for (const att of pendingAttachments) {
       try {
@@ -4506,7 +4538,11 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       } catch (err) {
         console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
+        failed.push(att.filename)
       }
+    }
+    if (failed.length > 0) {
+      showOctoToast({ title: "附件迁移失败", description: `${failed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
     }
   }
 
@@ -4527,6 +4563,7 @@ const sessionMessagesLoaded = createMemo(() => {
       await api.writeFileBuffer(finalPath, buffer)
     } catch (err) {
       console.error("[moveAssetsConfigToSession] Failed:", err)
+      showOctoToast({ title: "设计规范配置同步失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     }
   }
 
@@ -5453,22 +5490,55 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          skillConfig={skillConfig() ?? {}}
-                          artifactFiles={artifactFilesMirror()}
+                          items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          slots={[
+                            {
+                              key: "designStrategy",
+                              render: ({ closeMenu }) => (
+                                <button
+                                  type="button"
+                                  class="addon-menu-item"
+                                  disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                  onClick={() => {
+                                    closeMenu()
+                                    handleOpenPlanConfirm()
+                                  }}
+                                >
+                                  <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                  <span class="addon-menu-item-text">进入设计策略模式</span>
+                                </button>
+                              ),
+                            },
+                            {
+                              key: "patternPage",
+                              render: ({ closeMenu }) => (
+                                <button
+                                  type="button"
+                                  class="addon-menu-item"
+                                  disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                  onClick={() => {
+                                    closeMenu()
+                                    handleOpenPatternPageConfirm()
+                                  }}
+                                >
+                                  <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                  <span class="addon-menu-item-text">进入Pattern模式</span>
+                                </button>
+                              ),
+                            },
+                          ]}
                           selections={mentionSelections()}
                           onSelect={handleAddonSelect}
                           onDeselect={handleAddonDeselect}
-                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          onAddAttachmentFromUrl={downloadUrlToSession}
+                          skillConfig={skillConfig() ?? {}}
+                          onSkillsOpen={loadSkillConfig}
+                          artifactFiles={artifactFilesMirror()}
+                          productId={projectSelection()?.product?.id}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
-                          productId={projectSelection()?.product?.id}
-                          onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
-                          onEnterPatternPage={handleOpenPatternPageConfirm}
-                          patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
-                          onOpen={loadSkillConfig}
-                          disabled={maxAttachments()}
+                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          maxAttachments={maxAttachments()}
+                          trackerModule="design"
                         />
 <ModelSelectorPopover
                            model={local.model}
@@ -5825,22 +5895,55 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        skillConfig={skillConfig() ?? {}}
-                        artifactFiles={artifactFilesMirror()}
+                        items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        slots={[
+                          {
+                            key: "designStrategy",
+                            render: ({ closeMenu }) => (
+                              <button
+                                type="button"
+                                class="addon-menu-item"
+                                disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                onClick={() => {
+                                  closeMenu()
+                                  handleOpenPlanConfirm()
+                                }}
+                              >
+                                <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                <span class="addon-menu-item-text">进入设计策略模式</span>
+                              </button>
+                            ),
+                          },
+                          {
+                            key: "patternPage",
+                            render: ({ closeMenu }) => (
+                              <button
+                                type="button"
+                                class="addon-menu-item"
+                                disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                onClick={() => {
+                                  closeMenu()
+                                  handleOpenPatternPageConfirm()
+                                }}
+                              >
+                                <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                <span class="addon-menu-item-text">进入Pattern模式</span>
+                              </button>
+                            ),
+                          },
+                        ]}
                         selections={mentionSelections()}
                         onSelect={handleAddonSelect}
                         onDeselect={handleAddonDeselect}
-                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        onAddAttachmentFromUrl={downloadUrlToSession}
+                        skillConfig={skillConfig() ?? {}}
+                        onSkillsOpen={loadSkillConfig}
+                        artifactFiles={artifactFilesMirror()}
+                        productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
-                        productId={projectSelection()?.product?.id}
-                        onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
-                        onEnterPatternPage={handleOpenPatternPageConfirm}
-                        patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
-                        onOpen={loadSkillConfig}
-                        disabled={maxAttachments()}
+                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        maxAttachments={maxAttachments()}
+                        trackerModule="design"
                       />
 <ModelSelectorPopover
                          model={local.model}
