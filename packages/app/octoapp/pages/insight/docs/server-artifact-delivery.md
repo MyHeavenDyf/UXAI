@@ -148,7 +148,7 @@ Shell 的协议工具名仍为 `bash`，实际进程可以是 Bash、PowerShell�
 - 相对路径以实际工具 workdir 为基准，不跟随命令内部 cd；只接受原会话 outputs/uploads 内的目标。上传文件原地修改也可声明，不要求复制到 outputs。不扫描目录，不从文件管理页面判断新增。
 - 只读或无最终交付物的命令显式传 `artifactFiles: []`，对应诊断 `script-no-targets`。漏传则产生工具 error，尚未执行命令，模型可补齐参数后重试该未执行调用；已完成的写入不得为补打点重复执行。历史 completed part 中的 `script-targets-not-declared` 保留原含义，不补造旧事件。
 - 服务端额外识别直接 PowerShell `Add-Content` / `Set-Content` 的静态 TXT 路径（`-LiteralPath`、`-Path` 或首个位置参数），在执行前与模型声明合并后统一取快照。对这类目标，`artifactFiles: []` 或漏列目标也能采集；适用原会话 uploads/outputs。目标发现保存为 `state.metadata.artifactTargetDiscovery`，不改写原 input、不重新执行命令。
-- 这两类命令的变量、数组、通配符路径，或切换目录后的相对路径无法静态确定时，若目标列表为空，执行前报错并要求明确目标。非 TXT 文件仍沿用显式声明，不将辅助脚本或 HTML 中间文件自动计入。本次不解析任意 Bash/Python/PowerShell 程序，也不能保证填错的非空列表正确。
+- 这两类命令的变量、数组、通配符路径，或切换目录后的相对路径无法静态确定时，跳过自动推断，不阻止命令执行；最终交付物仍须在 artifactFiles 中显式声明，否则可能漏采集。辅助脚本及未调用函数中的动态路径不强制要求非空列表。非 TXT 文件仍沿用显式声明，不将辅助脚本或 HTML 中间文件自动计入。本次不解析任意 Bash/Python/PowerShell 程序，也不能保证填错的非空列表正确。
 - 启动命令前采集文件存在性和 SHA-256，正常退出且未取消后再次核验。新建映射 write，已有文件字节发生变化映射 edit，内容相同不报。直接 write 工具覆盖文件仍保留原来的 write 语义。
 - 最多 32 个不同目标，单文件最大 64 MiB，每阶段文件大小预算 256 MiB，单文件哈希读取 5 秒上限。超限、目录、越界链接、读取失败等仅记录诊断，继续执行原命令。不要把辅助 Python 脚本、临时 HTML 等列为交付物。
 - 同一 sidecar 中，已登记 Insight 的 write/edit 与声明目标的 Shell 共用按路径排序的锁，覆盖核验前至核验后，避免受控调用同时改同一文件。多目标逆序不会互锁。其他产品保持原执行行为。

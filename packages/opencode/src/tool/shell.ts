@@ -131,7 +131,8 @@ function commands(node: Node) {
 }
 
 // Only literal TXT targets of direct PowerShell content cmdlets. Do not interpret
-// variables, expressions or wildcard expansions as file names.
+// variables, expressions or wildcard expansions as file names. Discovery is
+// best-effort: an unresolved path may belong to a helper or an uncalled function.
 function artifactTargets(node: Node, cwd: string) {
   const calls = commands(node).map(parts)
   const moved = calls.some((call) => CWD.has(call[0]?.text.toLowerCase()) || call[0]?.text.toLowerCase() === "sl")
@@ -158,10 +159,7 @@ function artifactTargets(node: Node, cwd: string) {
       // Leave script/HTML intermediates and existing Office delivery declarations alone.
       return path.extname(value).toLowerCase() === ".txt" ? path.resolve(cwd, value) : null
     })
-  return {
-    files: targets.filter((file): file is string => typeof file === "string"),
-    unresolved: targets.some((file) => file === undefined),
-  }
+  return targets.filter((file): file is string => typeof file === "string")
 }
 
 function unquote(text: string) {
@@ -656,18 +654,10 @@ export const ShellTool = Tool.define(
                     Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, executeInstance)
-                  const targets =
-                    tracking && ps ? artifactTargets(tree.rootNode, cwd) : { files: [], unresolved: false }
-                  if (targets.unresolved && !params.artifactFiles?.length) {
-                    throw new Error(
-                      "This PowerShell command writes files, but its targets cannot be resolved safely. " +
-                        "The command has NOT executed. Supply the exact file paths in artifactFiles; [] is not valid for this write. " +
-                        "Do not repeat any previously completed write.",
-                    )
-                  }
+                  const targets = tracking && ps ? artifactTargets(tree.rootNode, cwd) : []
                   if (!containsPath(cwd, executeInstance)) scan.dirs.add(cwd)
                   yield* ask(ctx, scan)
-                  return targets.files
+                  return targets
                 }),
               )
 

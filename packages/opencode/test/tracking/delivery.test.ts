@@ -312,6 +312,7 @@ if (process.platform === "win32")
         for (const command of [
           `Get-Content -LiteralPath ${literal}`,
           "Write-Output 'Add-Content -Path \"fake.txt\" -Value 7890'",
+          'function Save-Report($p) { Set-Content -LiteralPath $p -Value "data" }; Write-Output "ready"',
         ]) {
           const result = yield* tool.execute(
             { command, workdir: outputs, artifactFiles: [], description: "Read only" },
@@ -322,21 +323,28 @@ if (process.platform === "win32")
           collect(part(turn, "bash", result.metadata))
         }
         for (const command of [
-          `$target = ${literal}; Add-Content -LiteralPath $target -Value 'must-not-run'`,
-          'Set-Content -Path "*.txt" -Value "must-not-run"',
-          'Set-Location ../uploads; Add-Content -Path "other.txt" -Value "must-not-run"',
+          '$target = "dynamic.txt"; Set-Content -LiteralPath $target -Value "untracked"',
+          'Set-Content -Path "dynamic*.txt" -Value "untracked wildcard"',
+          'Set-Location ../uploads; Add-Content -Path "other.txt" -Value "untracked relative"',
         ]) {
-          const result = yield* Effect.exit(
-            tool.execute({ command, workdir: outputs, artifactFiles: [], description: "Ambiguous target" }, context),
+          const result = yield* tool.execute(
+            { command, workdir: outputs, artifactFiles: [], description: "Ambiguous target" },
+            context,
           )
-          expect(Exit.isFailure(result)).toBe(true)
-          if (Exit.isFailure(result)) expect(String(Cause.squash(result.cause))).toContain("has NOT executed")
+          expect(result.metadata.exit).toBe(0)
+          expect(result.metadata).toMatchObject({ artifactScript: { reason: "script-no-targets" } })
+          collect(part(turn, "bash", result.metadata))
         }
-        expect(yield* Effect.promise(() => Bun.file(uploaded).text())).not.toContain("must-not-run")
+        expect(yield* Effect.promise(() => Bun.file(path.join(outputs, "dynamic.txt")).text())).toContain(
+          "untracked wildcard",
+        )
+        expect(yield* Effect.promise(() => Bun.file(path.join(uploads, "other.txt")).text())).toContain(
+          "untracked relative",
+        )
         expect(rows()).toHaveLength(3)
         const intermediate = yield* tool.execute(
           {
-            command: 'Set-Content -Path "helper.ps1" -Value "Write-Output done"',
+            command: '$helper = Join-Path $PWD "helper.ps1"; Set-Content -Path $helper -Value "Write-Output done"',
             workdir: outputs,
             artifactFiles: [],
             description: "Prepare helper script",
@@ -345,6 +353,9 @@ if (process.platform === "win32")
         )
         expect(intermediate.metadata.exit).toBe(0)
         expect(intermediate.metadata).toMatchObject({ artifactScript: { reason: "script-no-targets" } })
+        expect(yield* Effect.promise(() => Bun.file(path.join(outputs, "helper.ps1")).text())).toContain(
+          "Write-Output done",
+        )
         collect(part(turn, "bash", intermediate.metadata))
         expect(rows()).toHaveLength(3)
         const declared = yield* tool.execute(
