@@ -114,6 +114,16 @@ const directModelEditConfig: ModelEditConfig = {
       case 'od_lineHeight': send({ lineHeight: value }); break
       case 'od_letterSpacing': send({ letterSpacing: value }); break
       case 'od_verticalAlign': send({ verticalAlign: value }); break
+      case 'od_fontProps': {
+        const d = parseJson(value)
+        send({ fontWeight: d.fontWeight || '', fontSize: d.fontSize || '' })
+        break
+      }
+      case 'od_typSpacing': {
+        const d = parseJson(value)
+        send({ letterSpacing: d.letterSpacing || '', lineHeight: d.lineHeight || '' })
+        break
+      }
       case 'od_backgroundColor': send({ backgroundColor: value }); break
       case 'od_opacity': send({ opacity: value }); break
       case 'od_borderRadius': send({ borderRadius: value }); break
