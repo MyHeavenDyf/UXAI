@@ -503,7 +503,7 @@ function MakeContent() {
       }
     })
     try {
-      await togglePinSession(session.id, newPinned, sdk.directory)
+      await togglePinSession(session.id, newPinned, sdk.directory, !newPinned ? session.time.updated : undefined)
     } catch (err) {
       setSessionInfoMirror((prev) => {
         if (!prev) return prev

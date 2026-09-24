@@ -11,16 +11,22 @@ import { useGlobalSDK } from "@/context/global-sdk"
  * `pinned` is the DESIRED new state (not the current state) so callers can
  * pass the value computed before their optimistic store mutation — avoids
  * reading a stale/mutated proxy inside the hook.
+ *
+ * `sortOrder` — when unpinning, pass the desired sort_order (typically
+ * `session.time.updated`) so the server stays in sync with the optimistic
+ * local update. Without this the server retains the stale pinned sort_order
+ * and a subsequent refetch would scramble the list.
  */
 export function useSessionPin() {
   const sdk = useGlobalSDK()
 
-  async function togglePin(sessionID: string, pinned: boolean, directory: string) {
+  async function togglePin(sessionID: string, pinned: boolean, directory: string, sortOrder?: number) {
     const client = sdk.createClient({ directory })
     await client.session.update({
       sessionID,
       pinned,
       directory,
+      ...(sortOrder !== undefined ? { sort_order: sortOrder } : {}),
     })
 
     if (pinned) {
