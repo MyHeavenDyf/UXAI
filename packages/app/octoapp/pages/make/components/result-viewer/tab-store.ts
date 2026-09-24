@@ -18,6 +18,7 @@ export type ResultTab = {
   pinned?: boolean
   createdAt: Date
   lastActivatedAt?: number
+  fromAttachment?: boolean  // 会话区点击附件打开 → 隐藏历史按钮
 }
 
 // ★ 用 createStore + produce 替代 createSignal:
@@ -54,6 +55,7 @@ export function createTabStore() {
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
         lastActivatedAt: Date.now(),
+        fromAttachment: card.fromAttachment,
       })
     }))
     setActiveId(card.id)
@@ -159,6 +161,7 @@ export function createTabStore() {
         exports: card.exports,
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
+        fromAttachment: card.fromAttachment,
       })
     }))
   }

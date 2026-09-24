@@ -76,6 +76,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
+import { isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
@@ -4597,6 +4598,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    const fromAttachment = card.fromAttachment ?? false
     // 不支持预览的 file 类型:弹窗提示 + 提供下载入口,不打开 result-viewer tab。
     // 必须在 setResultViewMode/ml.showRight 之前拦截,否则会切到 tabs 模式显示空 ResultViewer。
     // link 类型的磁盘路径会经 inferOutputType 推断,只有真正无法预览的扩展名才会落到 'file'。
@@ -4662,6 +4664,7 @@ const sessionMessagesLoaded = createMemo(() => {
           filePath: previewUrl,
           artifactIdentifier: card.artifactIdentifier,
           createdAt: card.createdAt,
+          fromAttachment,
         })
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", legacy: legacyFastui }) })
         return
@@ -4685,6 +4688,7 @@ const sessionMessagesLoaded = createMemo(() => {
           filePath: linkContent,
           artifactIdentifier: card.artifactIdentifier,
           createdAt: card.createdAt,
+          fromAttachment,
         })
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url" }) })
         return
@@ -4766,6 +4770,7 @@ const sessionMessagesLoaded = createMemo(() => {
         filePath: absolutePath,
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
+        fromAttachment,
       })
 
       if (inferredType !== "design-plan") {
@@ -4909,7 +4914,7 @@ const sessionMessagesLoaded = createMemo(() => {
     // ★ createStore 下 tab 是 proxy,openTab 之后读 existingBeforeProxy.content 会拿到最新值,
     //   破坏 historyController.onTabOpen 的"前后对比"逻辑。这里浅拷贝做快照。
     const existingBefore = existingBeforeProxy ? { ...existingBeforeProxy } as ResultTab : undefined
-    tabStore.openTab(card)
+    tabStore.openTab({ ...card, fromAttachment })
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
@@ -4967,7 +4972,7 @@ const sessionMessagesLoaded = createMemo(() => {
     return 'text'
   }
 
-  function handleOpenLocalFile(filePath: string) {
+  function handleOpenLocalFile(filePath: string, sessionArea = false) {
     const dir = projectDir()
 
     // URL 处理
@@ -5019,10 +5024,11 @@ const sessionMessagesLoaded = createMemo(() => {
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     const type = inferOutputType(filePath)
     const title = filePath.split(/[/\\]/).pop() ?? filePath
-    
-    // Office 等不支持直接预览的格式:沿用原有"预览不可用"弹窗(含下载),不强行渲染
+    // Office 等不支持直接预览:沿用原有"预览不可用"弹窗(含下载),不强行渲染
     const fileExt = filePath.split('.').pop()?.toLowerCase() ?? ''
-    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(fileExt)) {
+    const blocked = ["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(fileExt)
+
+    if (blocked) {
       dialog.show(() => (
         <DialogPreviewUnavailable
           filename={title}
@@ -5044,10 +5050,10 @@ const sessionMessagesLoaded = createMemo(() => {
       filePath: absolutePath,
       createdAt: new Date(),
     })
-    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: fileExt }) })
   }
 
-  /** 打开用户消息附件预览(图片/视频/音频/PDF → tab;Office 等不可预览 → 沿用不可用弹窗) */
+  /** 打开用户消息附件预览(图片/视频/音频/PDF → 右侧预览;其余格式 → 遮罩层下载弹窗) */
   function handleOpenAttachment(att: UserAttachment) {
     const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
 
@@ -5057,6 +5063,7 @@ const sessionMessagesLoaded = createMemo(() => {
         <DialogPreviewUnavailable
           filename={att.filename}
           filePath={att.path}
+          url={att.url}
           sdkUrl={sdk.url}
           sdkDirectory={sdk.directory || ""}
         />
@@ -5065,13 +5072,27 @@ const sessionMessagesLoaded = createMemo(() => {
       return
     }
 
-    // 本地附件:复用本地文件预览流程(图片/视频/音频/PDF/文本/代码 → 对应 tab)
+    // 本地附件:复用本地文件预览流程(会话区入口 → 仅 图片/视频/音频/PDF 走预览)
     if (att.isLocal && att.path) {
-      handleOpenLocalFile(att.path)
+      handleOpenLocalFile(att.path, true)
       return
     }
 
-    // FilePart(S3 URL)图片/音视频:按 mime 构造卡片,复用 handleOpenResult 的去重与 tab 打开逻辑
+    // FilePart(S3 URL):不可预览类型 → 遮罩层下载弹窗;可预览类型按 mime/扩展名构造卡片
+    if (!isPreviewableMedia(att.filename, att.mime)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          url={att.url}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
+      return
+    }
+
     const type: OutputCardType = att.mime?.startsWith("image/")
       ? "image"
       : att.mime?.startsWith("video/")
@@ -5080,20 +5101,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ? "audio"
           : att.mime === "application/pdf"
             ? "pdf"
-            : "file"
-
-    if (type === "file") {
-      dialog.show(() => (
-        <DialogPreviewUnavailable
-          filename={att.filename}
-          filePath={att.path}
-          sdkUrl={sdk.url}
-          sdkDirectory={sdk.directory || ""}
-        />
-      ))
-      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
-      return
-    }
+            : inferOutputType(att.filename)
 
     void handleOpenResult({
       id: `att-url-${att.url ?? att.filename}`,
@@ -5653,7 +5661,7 @@ onPreview={(url) => {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleOpenResult}
-                        onOpenLocalFile={handleOpenLocalFile}
+                        onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
@@ -5685,7 +5693,7 @@ onPreview={(url) => {
                             blockTime={blockTime()}
                             onAbort={halt}
                             onOpenResult={handleOpenResult}
-                            onOpenLocalFile={handleOpenLocalFile}
+                            onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
@@ -6056,7 +6064,7 @@ onPreview={(url) => {
                 onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 sessionId={params.id}
-                onOpenArtifact={handleOpenResult}
+                onOpenArtifact={(card) => handleOpenResult({ ...card, fromAttachment: false })}
                 viewMode={resultViewMode()}
                 onViewModeChange={setResultViewMode}
                 onAddArtifactToSession={addArtifactToSession}

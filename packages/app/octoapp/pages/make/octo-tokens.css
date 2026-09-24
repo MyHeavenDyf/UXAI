@@ -469,6 +469,7 @@
 
 @container octo-action-bar (max-width: 780px) {
   .octo-action-bar-collapsible .octo-action-btn span { display: none; }
+  .octo-action-bar-collapsible .octo-action-btn.octo-action-btn-download span { display: inline; }
 }
 
 /* ── Dropdown ──────────────────── */
