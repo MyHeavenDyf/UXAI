@@ -253,6 +253,28 @@ describe("tool.registry", () => {
     { timeout: 30_000 },
   )
 
+  // SPEC-INS-034:研究报告库检索与 knowledge_search 并列,网关同样只给 octo_insight。
+  it.instance("insight_report_search is gated to octo_insight only (SPEC-INS-034 §6)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const idsFor = (agent: Agent.Info) =>
+        registry
+          .tools({
+            providerID: "anthropic" as Parameters<typeof registry.tools>[0]["providerID"],
+            modelID: "claude-sonnet" as Parameters<typeof registry.tools>[0]["modelID"],
+            agent,
+          })
+          .pipe(Effect.map((tools) => tools.map((t) => t.id)))
+
+      const insight = yield* Agent.Service.use((svc) => svc.get("octo_insight"))
+      expect(yield* idsFor(insight)).toContain("insight_report_search")
+
+      const make = yield* Agent.Service.use((svc) => svc.get("octo_make"))
+      expect(yield* idsFor(make)).not.toContain("insight_report_search")
+    }),
+    { timeout: 30_000 },
+  )
+
   // SPEC-INS-033:会话身份工具只给 octo_insight;其他 agent 的 extra 里没有 userId。
   it.instance("get_session_identity is gated to octo_insight only (SPEC-INS-033)", () =>
     Effect.gen(function* () {

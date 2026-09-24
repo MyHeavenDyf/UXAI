@@ -15,6 +15,7 @@ import { SkillTool } from "./skill"
 import { JimengImageGenerateTool } from "./jimeng_image_generate"
 import { InternelImageGenerateTool } from "./internel_image_generate"
 import { KnowledgeSearchTool } from "./knowledge_search"
+import { InsightReportSearchTool } from "./insight_report_search"
 import { GetSessionIdentityTool } from "./get_session_identity"
 import { ExtractDocumentTool } from "./extract_document"
 import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
@@ -123,6 +124,7 @@ export const layer: Layer.Layer<
     const jimengtool = yield* JimengImageGenerateTool
     const interneltool = yield* InternelImageGenerateTool
     const knowledgesearch = yield* KnowledgeSearchTool
+    const reportsearch = yield* InsightReportSearchTool
     const sessionidentity = yield* GetSessionIdentityTool
     const extractdocument = yield* ExtractDocumentTool
     const loadComponentsDocs = yield* LoadComponentsDocsTool
@@ -225,6 +227,7 @@ export const layer: Layer.Layer<
           jimeng: Tool.init(jimengtool),
           internel: Tool.init(interneltool),
           knowledge: Tool.init(knowledgesearch),
+          report_search: Tool.init(reportsearch),
           session_identity: Tool.init(sessionidentity),
           extract_document: Tool.init(extractdocument),
           components_docs: Tool.init(loadComponentsDocs),
@@ -253,6 +256,7 @@ export const layer: Layer.Layer<
             tool.jimeng,
             tool.internel,
             tool.knowledge,
+            tool.report_search,
             tool.session_identity,
             tool.extract_document,
             tool.components_docs,
@@ -318,6 +322,12 @@ export const layer: Layer.Layer<
         // 内网知识库工具只给 insight 的 octo_insight(SPEC-INS-030:chat 下线,该能力迁入 insight),
         // 避免泄漏到 make / studio / pattern。
         if (tool.id === KnowledgeSearchTool.id) {
+          return input.agent.name === "octo_insight"
+        }
+
+        // 研究报告库检索同理(SPEC-INS-034):与 knowledge_search 并列的另一个内网检索工具,
+        // 查的是独立的研究报告库。同样只给 octo_insight,不泄漏到 make / studio / pattern。
+        if (tool.id === InsightReportSearchTool.id) {
           return input.agent.name === "octo_insight"
         }
 
