@@ -120,7 +120,7 @@ import {
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
-import { createSessionThumbnailStore } from "./studio/session-thumbnail"
+import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
 import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
@@ -728,7 +728,12 @@ export default function StudioPage() {
     if (media.length > 0) {
       console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
       setSessionThumbnail(sessionID, media)
+      return
     }
+    const legacy = extractStudioThumbnailMedia(part)
+    if (!legacy) return
+    console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
+    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind)
   })
   onCleanup(thumbnailUnsub)
 

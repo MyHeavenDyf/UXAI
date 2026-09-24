@@ -228,7 +228,7 @@ export function enqueueStudioMediaThumbnails(generationID: string) {
   return queued
 }
 
-export function ensureStudioSessionThumbnails(sessionID: string) {
+export async function ensureStudioSessionThumbnails(sessionID: string) {
   const parsed = SessionID.zod.parse(sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, parsed)).get())
   if (!session || session.directory !== Instance.directory || session.agent !== "octo_studio")
@@ -273,23 +273,70 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
       .where(and(eq(StudioGenerationTable.session_id, parsed), eq(StudioGenerationTable.status, "succeeded")))
       .all(),
   )
-  const queued =
-    recovered +
-    records.reduce((total, record) => {
+  const checked = await Promise.all(
+    records.map(async (record) => {
       const result = mediaResult(record.result)
-      if (!result) return total
-      const next = prepareStudioThumbnailMedia(result.images)
+      if (!result) return { queued: 0, recoveredMissing: 0 }
+      const checkedMedia = await Promise.all(
+        result.images.map(async (item, mediaIndex) => {
+          if (!usableLocalThumbnail(item)) {
+            return {
+              media: { ...item, thumbnailUrl: undefined, thumbnailStatus: "pending" as const },
+              missing: false,
+              requeued: 0,
+            }
+          }
+          if (
+            await validStoredThumbnail(
+              absoluteThumbnailPath({
+                directory: record.directory,
+                session_id: record.session_id,
+                generation_id: record.id,
+                media_index: mediaIndex,
+              }),
+            )
+          ) return { media: { ...item, thumbnailStatus: "ready" as const }, missing: false, requeued: 0 }
+          const requeued = Database.use((db) =>
+            db
+              .update(StudioMediaThumbnailTable)
+              .set({
+                status: "queued",
+                attempts: 0,
+                next_retry_at: Date.now(),
+                thumbnail_path: null,
+                error: null,
+                lease_owner: null,
+                lease_expires_at: null,
+                time_updated: Date.now(),
+              })
+              .where(
+                and(
+                  eq(StudioMediaThumbnailTable.generation_id, record.id),
+                  eq(StudioMediaThumbnailTable.media_index, mediaIndex),
+                ),
+              )
+              .returning({ id: StudioMediaThumbnailTable.id })
+              .all().length,
+          )
+          return {
+            media: { ...item, thumbnailUrl: undefined, thumbnailStatus: "pending" as const },
+            missing: true,
+            requeued,
+          }
+        }),
+      )
+      const next = checkedMedia.map((item) => item.media)
       const changed = next.some(
         (item, index) =>
           item.thumbnailUrl !== result.images[index]?.thumbnailUrl ||
           item.thumbnailStatus !== result.images[index]?.thumbnailStatus,
       )
-      const normalized = changed ? { ...result, images: next } : result
+      const nextResult = changed ? { ...result, images: next } : result
       if (changed) {
         Database.use((db) =>
           db
             .update(StudioGenerationTable)
-            .set({ result: normalized, time_updated: Date.now() })
+            .set({ result: nextResult, time_updated: Date.now() })
             .where(eq(StudioGenerationTable.id, record.id))
             .run(),
         )
@@ -312,16 +359,22 @@ export function ensureStudioSessionThumbnails(sessionID: string) {
             time_created: 0,
             time_updated: 0,
           },
-          normalized,
+          nextResult,
         )
       }
-      return total + enqueueResult(record, normalized)
-    }, 0)
+      return {
+        queued: checkedMedia.reduce((total, item) => total + item.requeued, 0) + enqueueResult(record, nextResult),
+        recoveredMissing: checkedMedia.filter((item) => item.missing).length,
+      }
+    }),
+  )
+  const queued = recovered + checked.reduce((total, item) => total + item.queued, 0)
   console.info("[studio.thumbnail] session backfill checked", {
     sessionID: parsed,
     generationCount: records.length,
     queued,
     recoveredLegacyFailures: recovered,
+    recoveredMissingFiles: checked.reduce((total, item) => total + item.recoveredMissing, 0),
     directory: session.directory,
   })
   return { queued }

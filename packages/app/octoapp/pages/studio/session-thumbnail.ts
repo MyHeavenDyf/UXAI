@@ -2,7 +2,7 @@ import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
+import { parseToolAttachments, parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
 
 export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean; kind?: "image" | "video" }
@@ -14,6 +14,25 @@ export function sessionThumbnailUsesVideoElement(entry?: ThumbnailEntry) {
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool"
+}
+
+export function extractStudioThumbnailMedia(
+  part: Extract<Part, { type: "tool" }>,
+): { url: string; kind: "image" | "video" } | undefined {
+  if (part.state.status !== "completed") return
+  const media = parseToolMedia(part.state.output)
+  const selected = media.find((item) => item.kind !== "video") ?? media[0]
+  if (selected) {
+    const url = thumbnailMediaSrc(selected) ?? originalMediaSrc(selected)
+    return { url, kind: selected.kind === "video" ? "video" : "image" }
+  }
+  const attachments = parseToolAttachments(part)
+  const attachment = attachments.find((item) => item.kind !== "video") ?? attachments[0]
+  if (attachment) return { url: attachment.url, kind: attachment.kind === "video" ? "video" : "image" }
+  const legacy = parseToolImages(part.state.output)[0]
+  if (legacy) return { url: legacy, kind: "image" }
+  const video = parseToolVideos(part.state.output)[0]
+  if (video) return { url: video, kind: "video" }
 }
 
 /**
@@ -32,17 +51,8 @@ function extractFirstMediaFromMessages(
     const tools = msg.parts.filter(isToolPart)
 
     for (const part of [...tools].reverse()) {
-      if (part.state.status !== "completed") continue
-      const media = parseToolMedia(part.state.output)
-      const selected = media.find((item) => item.kind !== "video") ?? media[0]
-      if (selected) {
-        const url = thumbnailMediaSrc(selected) ?? originalMediaSrc(selected)
-        return { url, kind: selected.kind === "video" ? "video" : "image" }
-      }
-      const legacy = parseToolImages(part.state.output)[0]
-      if (legacy) return { url: legacy, kind: "image" }
-      const video = parseToolVideos(part.state.output)[0]
-      if (video) return { url: video, kind: "video" }
+      const media = extractStudioThumbnailMedia(part)
+      if (media) return media
     }
   }
 

@@ -210,12 +210,54 @@ describe("Studio media thumbnails", () => {
         time_created: now,
         time_updated: now,
       }).run())
-      ensureStudioSessionThumbnails(sessionID)
+      await ensureStudioSessionThumbnails(sessionID)
       expect(Database.use((db) => db
         .select()
         .from(StudioMediaThumbnailTable)
         .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
         .get()?.status)).toBe("queued")
+    })
+  })
+
+  test("requeues a ready thumbnail when its local file is missing", async () => {
+    await withGeneration(image, async ({ generationID, sessionID }) => {
+      expect(enqueueStudioMediaThumbnails(generationID)).toBe(1)
+      const thumbnailUrl = `.octo/${sessionID}/thumbnails/${generationID}-0.webp`
+      Database.use((db) => {
+        db.update(StudioGenerationTable)
+          .set({
+            result: {
+              images: [{
+                id: `${generationID}-0`,
+                kind: "image",
+                url: image,
+                remoteUrl: image,
+                thumbnailStatus: "ready",
+                thumbnailUrl,
+              }],
+            },
+          })
+          .where(eq(StudioGenerationTable.id, generationID))
+          .run()
+        db.update(StudioMediaThumbnailTable)
+          .set({ status: "succeeded", thumbnail_path: thumbnailUrl })
+          .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+          .run()
+      })
+
+      await ensureStudioSessionThumbnails(sessionID)
+
+      const generation = Database.use((db) =>
+        db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
+      )
+      const media = Array.isArray(generation?.result?.images) ? generation.result.images[0] : undefined
+      expect(media).toMatchObject({ thumbnailStatus: "pending" })
+      expect(media?.thumbnailUrl).toBeUndefined()
+      expect(Database.use((db) =>
+        db.select().from(StudioMediaThumbnailTable)
+          .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+          .get(),
+      )).toMatchObject({ status: "queued", thumbnail_path: null })
     })
   })
 

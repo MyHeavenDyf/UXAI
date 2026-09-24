@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { extractFirstImageFromMessages, sessionThumbnailUsesVideoElement } from "./session-thumbnail"
 
-function message(output: Record<string, unknown>, created = 1) {
+function message(
+  output: Record<string, unknown>,
+  created = 1,
+  attachments?: Array<{ url: string; kind?: "image" | "video"; mime?: string }>,
+) {
   return {
     info: {
       id: `msg_${created}`,
@@ -21,6 +25,7 @@ function message(output: Record<string, unknown>, created = 1) {
         title: "图片生成",
         input: {},
         output: JSON.stringify(output),
+        attachments,
         time: { start: created, end: created + 1 },
       },
     } as Part],
@@ -47,6 +52,15 @@ describe("Studio session thumbnail extraction", () => {
     expect(extractFirstImageFromMessages([
       message({ images: ["https://example.com/original.png"] }),
     ])).toBe("https://example.com/original.png")
+  })
+
+  test("uses legacy tool attachments when structured output has no media", () => {
+    expect(extractFirstImageFromMessages([
+      message({}, 1, [
+        { url: "https://example.com/video.mp4", kind: "video" },
+        { url: "https://example.com/attachment.png", kind: "image" },
+      ]),
+    ])).toBe("https://example.com/attachment.png")
   })
 
   test("uses the newest ready local thumbnail and prefers images", () => {
