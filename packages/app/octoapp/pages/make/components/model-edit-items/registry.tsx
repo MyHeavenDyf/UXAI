@@ -8,15 +8,13 @@ export { NATIVE_ITEMS }
 export type { NativeItemDef }
 
 const TYPOGRAPHY_GROUP: ConfigGroup = {
-  title: '文字',
+  title: '文本',
   items: [
     { type: 'fontFamily', key: 'od_fontFamily' },
-    { type: 'fontWeight', key: 'od_fontWeight' },
-    { type: 'fontSize', key: 'od_fontSize' },
+    { type: 'fontProps', key: 'od_fontProps' },
+    { type: 'typSpacing', key: 'od_typSpacing' },
     { type: 'color', key: 'od_color' },
     { type: 'textAlign', key: 'od_textAlign' },
-    { type: 'lineHeight', key: 'od_lineHeight' },
-    { type: 'letterSpacing', key: 'od_letterSpacing' },
     { type: 'verticalAlign', key: 'od_verticalAlign' },
   ],
 }
@@ -76,7 +74,7 @@ const BG_IMAGE_GROUP: ConfigGroup = {
 }
 
 const TEXT_GROUP: ConfigGroup = {
-  title: '文本',
+  title: '文字',
   items: [
     { type: 'textContent', key: 'od_textContent' },
   ],

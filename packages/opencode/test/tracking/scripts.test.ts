@@ -85,7 +85,7 @@ it.live("undeclared, outside, missing, directories and oversized files do not be
       reason: "size-limit",
     })
     const omitted = yield* observe({ ...input, files: [] }, write([missing], "created"))
-    expect(omitted.metadata.artifactScript.reason).toBe("script-targets-not-declared")
+    expect(omitted.metadata.artifactScript.reason).toBe("script-no-targets")
     const excessive = yield* observe(
       { ...input, files: Array.from({ length: 33 }, (_, i) => path.join(input.outputs, `${i}.txt`)) },
       write([missing], "edited"),
