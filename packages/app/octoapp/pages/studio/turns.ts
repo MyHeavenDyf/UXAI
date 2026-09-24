@@ -1,5 +1,5 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
 import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
@@ -161,7 +161,7 @@ export function parseToolImages(output: string) {
   }
 }
 
-function parseToolVideos(output: string) {
+export function parseToolVideos(output: string) {
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>
     const direct = [
@@ -194,6 +194,33 @@ function parseToolOutput(output?: string) {
   } catch {
     return {}
   }
+}
+
+export function parseToolMedia(output?: string): StudioImage[] {
+  const parsed = parseToolOutput(output)
+  if (!Array.isArray(parsed.media)) return []
+  return parsed.media.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return []
+    const record = item as Record<string, unknown>
+    const url = stringField(record, "url") ?? stringField(record, "remoteUrl")
+    if (!url) return []
+    const kind = stringField(record, "kind") === "video" ? "video" as const : "image" as const
+    const thumbnailStatus = stringField(record, "thumbnailStatus")
+    return [{
+      id: stringField(record, "id") ?? `studio_media_${index}`,
+      kind,
+      url,
+      remoteUrl: stringField(record, "remoteUrl") ?? url,
+      thumbnailUrl: stringField(record, "thumbnailUrl"),
+      thumbnailStatus:
+        thumbnailStatus === "pending" || thumbnailStatus === "ready" || thumbnailStatus === "failed"
+          ? thumbnailStatus
+          : undefined,
+      width: numberField(record, "width"),
+      height: numberField(record, "height"),
+      duration: numberField(record, "duration"),
+    }]
+  })
 }
 
 const VALID_VIDEO_QUALITY_MODES = new Set<string>(["480", "720", "1080", "4k"])
@@ -434,7 +461,7 @@ function buildResult(input: {
   const completed = [...input.tools]
     .reverse()
     .find((part): part is Extract<Part, { type: "tool" }> & { state: Extract<Extract<Part, { type: "tool" }>["state"], { status: "completed" }> } =>
-      part.state.status === "completed" && (parseToolAttachments(part).length > 0 || parseToolImages(part.state.output).length > 0 || parseToolVideos(part.state.output).length > 0),
+      part.state.status === "completed" && (parseToolMedia(part.state.output).length > 0 || parseToolAttachments(part).length > 0 || parseToolImages(part.state.output).length > 0 || parseToolVideos(part.state.output).length > 0),
     )
   const running = [...input.tools]
     .reverse()
@@ -446,13 +473,16 @@ function buildResult(input: {
     .find((part): part is Extract<Part, { type: "tool" }> & { state: Extract<Extract<Part, { type: "tool" }>["state"], { status: "error" }> } =>
       part.state.status === "error",
     )
-  const media = completed
-    ? [
-        ...parseToolAttachments(completed),
-        ...parseToolVideos(completed.state.output).map((url) => ({ kind: "video" as const, url })),
-        ...parseToolImages(completed.state.output).map((url) => ({ kind: "image" as const, url })),
-      ].filter((item, index, list) => list.findIndex((entry) => entry.url === item.url) === index)
-    : []
+  const structuredMedia = completed ? parseToolMedia(completed.state.output) : []
+  const media = structuredMedia.length > 0
+    ? structuredMedia
+    : completed
+      ? [
+          ...parseToolAttachments(completed),
+          ...parseToolVideos(completed.state.output).map((url) => ({ kind: "video" as const, url })),
+          ...parseToolImages(completed.state.output).map((url) => ({ kind: "image" as const, url })),
+        ].filter((item, index, list) => list.findIndex((entry) => entry.url === item.url) === index)
+      : []
   const output = parseToolOutput(completed?.state.output)
   const activeTool = completed ?? running ?? errored
   const inputRecord = toolInput(activeTool)
@@ -490,6 +520,7 @@ function buildResult(input: {
       ? undefined
       : extractUserDemand(input.userText)
   const detailTitle = stringField(inputRecord, "detailTitle")
+  const completedGenerationID = studioProgress(completed).generationID
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
@@ -521,7 +552,7 @@ function buildResult(input: {
     toolRunning: Boolean(running),
     result: media.length
       ? {
-          id: `studio_${completed?.id ?? input.messageID}`,
+          id: completedGenerationID ?? `studio_${completed?.id ?? input.messageID}`,
           status: "succeeded",
           capability,
           prompt,
@@ -542,13 +573,15 @@ function buildResult(input: {
           duration: (stringField(output, "duration") ?? stringField(extra, "duration")) as StudioGenerationResult["duration"],
           videoQualityMode: resolveVideoQualityMode(output, extra),
           images: media.map((item, index) => ({
-            id: `studio_img_${completed?.id ?? input.messageID}_${index}`,
+            id: "id" in item && typeof item.id === "string" ? item.id : `studio_img_${completed?.id ?? input.messageID}_${index}`,
             kind: item.kind,
             url: item.url,
-            thumbnailUrl: item.url,
-            remoteUrl: item.url,
-            width: numberField(output, "width") ?? numberField(recordField(output, "response"), "width") ?? width ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.width,
-            height: numberField(output, "height") ?? numberField(recordField(output, "response"), "height") ?? height ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.height,
+            remoteUrl: "remoteUrl" in item && typeof item.remoteUrl === "string" ? item.remoteUrl : item.url,
+            thumbnailUrl: "thumbnailUrl" in item && typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : undefined,
+            thumbnailStatus: "thumbnailStatus" in item ? item.thumbnailStatus : undefined,
+            width: "width" in item && typeof item.width === "number" ? item.width : numberField(output, "width") ?? numberField(recordField(output, "response"), "width") ?? width ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.width,
+            height: "height" in item && typeof item.height === "number" ? item.height : numberField(output, "height") ?? numberField(recordField(output, "response"), "height") ?? height ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.height,
+            duration: "duration" in item && typeof item.duration === "number" ? item.duration : undefined,
           })),
           progress: numberField(output, "progress") ?? 100,
           order: numberField(output, "order"),

@@ -57,8 +57,7 @@ import {
   buildStudioInputImages,
   buildStudioTurns,
   closestStudioAspectRatio,
-  parseToolAttachments,
-  parseToolImages,
+  parseToolMedia,
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
@@ -121,7 +120,9 @@ import {
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
-import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
+import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
+import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
+import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
@@ -307,6 +308,13 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
+  createEffect(() => {
+    void params.id
+    const current = server.current
+    const directory = projectDir()
+    if (!current || !directory) return
+    onCleanup(() => stopStudioThumbnailQueue({ sdkUrl: current.http.url, directory }))
+  })
   const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
@@ -648,6 +656,49 @@ export default function StudioPage() {
     dir: () => projectDir(),
     globalSDK,
   })
+  const ensuredThumbnailSessions = new Set<string>()
+  createEffect(() => {
+    const sessionID = params.id
+    const current = server.current
+    const directory = projectDir()
+    if (!sessionID || !current || !directory || ensuredThumbnailSessions.has(sessionID)) return
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      ...directoryHeader(directory),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const controller = new AbortController()
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let attempts = 0
+    const ensure = () => {
+      if (controller.signal.aborted || ensuredThumbnailSessions.has(sessionID)) return
+      void fetch(new URL(`/studio/sessions/${encodeURIComponent(sessionID)}/thumbnails/ensure`, current.http.url), {
+        method: "POST",
+        headers,
+        signal: controller.signal,
+      }).then((response) => {
+        if (response.ok) {
+          ensuredThumbnailSessions.add(sessionID)
+          return
+        }
+        throw new Error(`Studio thumbnail ensure failed with status ${response.status}.`)
+      }).catch(() => {
+        if (controller.signal.aborted) return
+        attempts += 1
+        retryTimer = setTimeout(ensure, Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5)))
+      })
+    }
+    ensure()
+    onCleanup(() => {
+      controller.abort()
+      if (retryTimer) clearTimeout(retryTimer)
+    })
+  })
 
   // Reactive effect: auto-update thumbnail whenever pendingResult transitions to succeeded.
   createEffect(() => {
@@ -658,7 +709,7 @@ export default function StudioPage() {
     const images = result.images
     if (sid && images && images.length > 0) {
       console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
-      studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+      setSessionThumbnail(sid, images, result.createdAt)
     }
   })
   // Global listener: update thumbnails when any session's generation completes,
@@ -669,20 +720,20 @@ export default function StudioPage() {
     if (payload.type !== "message.part.updated") return
     const part = payload.properties.part as Part & { sessionID?: string }
     if (part.type !== "tool") return
-    const state = part.state as { status?: string; output?: string; attachments?: Array<{ url: string; kind?: string }> }
-    if (state.status !== "completed") return
+    if (part.state.status !== "completed") return
+    const state = part.state
     const sessionID = part.sessionID
     if (!sessionID) return
-    const attachments = parseToolAttachments(part as Extract<Part, { type: "tool" }>)
-    const images = parseToolImages(state.output ?? "")
-    if (attachments.length === 0 && images.length === 0) return
-    const url = attachments.length > 0
-      ? (attachments.find((a) => a.kind !== "video") ?? attachments[0]).url
-      : images[0]
-    if (url) {
+    const media = parseToolMedia(state.output)
+    if (media.length > 0) {
       console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
-      studioThumbnails.setThumbnail(sessionID, url)
+      setSessionThumbnail(sessionID, media, state.time.start)
+      return
     }
+    const legacy = extractStudioThumbnailMedia(part)
+    if (!legacy) return
+    console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
+    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, state.time.start)
   })
   onCleanup(thumbnailUnsub)
 
@@ -751,20 +802,35 @@ export default function StudioPage() {
     return next
   }
 
-  /** Pick the best thumbnail URL from a list of StudioImages. Prefers non-video images. */
-  function pickThumbnail(images: StudioImage[]): string | undefined {
-    const img = images.find((i) => !isVideoMedia(i)) ?? images[0]
-    return img ? (img.thumbnailUrl ?? img.url) : undefined
+  /** Show the original image until a generated thumbnail is ready to replace it. */
+  function pickThumbnailMedia(images: StudioImage[]) {
+    const ready = images.filter((image) => image.thumbnailStatus === "ready" && image.thumbnailUrl)
+    return ready.find((image) => !isVideoMedia(image)) ?? ready[0] ?? images.find((image) => !isVideoMedia(image)) ?? images[0]
+  }
+
+  function setSessionThumbnail(sessionID: string, images: StudioImage[], generationAt?: number) {
+    const media = pickThumbnailMedia(images)
+    if (!media) return
+    const value = media.thumbnailStatus === "ready" && media.thumbnailUrl
+      ? media.thumbnailUrl
+      : originalMediaSrc(media)
+    studioThumbnails.setThumbnail(sessionID, value, isVideoMedia(media) ? "video" : "image", generationAt)
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
     const remoteUrl = image.remoteUrl ?? image.url
-    const thumbnailSource = image.thumbnailUrl ?? image.url
+    const thumbnailUrl = image.thumbnailStatus === "ready" && isStudioThumbnailUrl(image.thumbnailUrl)
+      ? resolveStudioMediaUrl({
+          value: image.thumbnailUrl,
+          sdkUrl: globalSDK.url,
+          directory: projectDir(),
+        })
+      : undefined
     return {
       ...image,
       kind: image.kind ?? (isVideoMedia(image) ? "video" : "image"),
       url: displayUrl(image.url),
-      thumbnailUrl: displayUrl(thumbnailSource),
+      thumbnailUrl: thumbnailUrl ? displayUrl(thumbnailUrl) : undefined,
       remoteUrl,
     }
   }
@@ -783,6 +849,7 @@ export default function StudioPage() {
           id: crypto.randomUUID(),
           url: displayUrl(dataUrl),
           thumbnailUrl: displayUrl(dataUrl),
+          thumbnailStatus: "ready",
           remoteUrl: dataUrl,
           width: image.naturalWidth,
           height: image.naturalHeight,
@@ -791,6 +858,7 @@ export default function StudioPage() {
           id: crypto.randomUUID(),
           url: displayUrl(dataUrl),
           thumbnailUrl: displayUrl(dataUrl),
+          thumbnailStatus: "ready",
           remoteUrl: dataUrl,
         })
         image.src = dataUrl
@@ -1579,7 +1647,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+        setSessionThumbnail(sid, images, pending.createdAt)
       }
     }
     setPendingResult(undefined)
@@ -1596,7 +1664,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(turn!.result!.images)!)
+        setSessionThumbnail(sid, turn!.result!.images, turn!.result!.createdAt)
       }
       setPendingResult(undefined)
       setStatus("succeeded")
@@ -4036,7 +4104,7 @@ export default function StudioPage() {
         const images = generation.images
         if (images && images.length > 0) {
           console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
-          studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+          setSessionThumbnail(sessionID, images, generation.createdAt)
         }
       }
     } catch (error) {
@@ -4219,7 +4287,7 @@ export default function StudioPage() {
                 const images = generation.images
                 if (images && images.length > 0) {
                   console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
-                  studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+                  setSessionThumbnail(sessionID, images, generation.createdAt)
                 } else {
                   console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
                 }

@@ -1610,3 +1610,9 @@
 .delete-dialog .flex.flex-col.gap-4 > .flex.flex-col.gap-1::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Keep off-screen historical turns out of layout and paint work. */
+.studio-conversation-turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 560px;
+}

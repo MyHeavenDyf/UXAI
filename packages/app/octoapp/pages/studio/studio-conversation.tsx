@@ -21,6 +21,8 @@ import {
 } from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
+import { StudioMediaThumbnail } from "./studio-media-thumbnail"
+import { originalMediaSrc } from "./studio-media"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -250,13 +252,13 @@ function sanitizeStudioAssistantText(text?: string) {
     .trim()
 }
 
-export function StudioMediaPreview(props: { image: StudioImage; class?: string; controls?: boolean; onClick?: (e: MouseEvent) => void }): JSX.Element {
+export function StudioOriginalMedia(props: { image: StudioImage; class?: string; controls?: boolean; onClick?: (e: MouseEvent) => void }): JSX.Element {
   return (
     <Show when={isVideoMedia(props.image)} fallback={
-      <img src={props.image.thumbnailUrl ?? props.image.url} class={props.class} alt="" onClick={props.onClick} />
+      <img src={originalMediaSrc(props.image)} class={props.class} alt="" onClick={props.onClick} />
     }>
       <video
-        src={props.image.remoteUrl ?? props.image.url}
+        src={originalMediaSrc(props.image)}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}
@@ -582,7 +584,7 @@ export function StudioResultCanvas(props: {
                     {(img) => (
                       <Show
                         when={isVideoMedia(img())}
-                        fallback={<StudioMediaPreview image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => setFullscreenImage(img())} />}
+                        fallback={<StudioOriginalMedia image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => setFullscreenImage(img())} />}
                       >
                         <StudioVideoPlayer
                           src={img().remoteUrl ?? img().url}
@@ -732,7 +734,7 @@ export function StudioResultCanvas(props: {
                 <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </button>
-            <img src={fullscreenImage()!.url} class="studio-fullscreen-image" alt="" />
+            <img src={originalMediaSrc(fullscreenImage()!)} class="studio-fullscreen-image" alt="" />
           </div>
         </Portal>
       )}
@@ -863,14 +865,20 @@ export function StudioDetails(props: {
     <ScrollView class="studio-detail-panel">
       <div class="studio-detail-cover">
         <For each={props.result.images}>
-          {(image) => (
+          {(image, mediaIndex) => (
             <button
               type="button"
               onClick={() => props.onSelectImage(image.id)}
               class="studio-detail-preview-button"
               classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
             >
-              <StudioMediaPreview image={image} class="studio-detail-preview-image" />
+              <StudioMediaThumbnail
+                image={image}
+                class="studio-detail-preview-image"
+                duration={props.result.duration}
+                generationID={props.result.id}
+                mediaIndex={mediaIndex()}
+              />
             </button>
           )}
         </For>
