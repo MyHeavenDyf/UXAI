@@ -138,7 +138,7 @@ export function observe<A extends { metadata: { exit: number | null } }, E, R>(
 ) {
   return Effect.gen(function* () {
     const files = [...new Set(input.files.map((file) => key(file)))]
-    const reason = !files.length ? "script-targets-not-declared" : files.length > MAX_FILES ? "script-target-limit" : ""
+    const reason = !files.length ? "script-no-targets" : files.length > MAX_FILES ? "script-target-limit" : ""
     if (reason) {
       const result = yield* command
       return {

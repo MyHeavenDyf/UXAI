@@ -609,7 +609,7 @@ export function ActionBar(props: {
   const showArchive = () => featureVisible(config().features.archive) && showViewport()
   const showDownload = () => featureVisible(config().features.download)
   const showFullscreen = () => featureVisible(config().features.fullscreen)
-  const showHistory = () => featureVisible(config().features.history) && !!props.tab.filePath && !props.tab.fromAttachment
+  const showHistory = () => featureVisible(config().features.history) && props.tab.type === "html" && !!props.tab.filePath && !props.tab.fromAttachment
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
