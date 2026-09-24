@@ -1,0 +1,38 @@
+.insight-addon-mcp-panel {
+  padding: 8px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px #00000029;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  z-index: 1001;
+}
+.insight-addon-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 16px 0;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #3346ab;
+  font-size: 13px;
+}
+.insight-addon-mode button { cursor: pointer; padding: 0 4px; }
+.insight-addon-pending {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  right: 16px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  font-size: 12px;
+}
+.insight-addon-pending > div { display: flex; gap: 8px; align-items: center; }
+.insight-addon-pending span { flex: 1; overflow-wrap: anywhere; }
+.insight-addon-pending button { cursor: pointer; white-space: nowrap; color: #3346ab; }

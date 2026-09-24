@@ -1,5 +1,27 @@
 # AddonMenu 附件面板组件使用文档
 
+## Insight 接入补充（2026-09-24）
+
+Insight 使用本组件的 `items={["skills", "productAssets", "designFiles", "addAttachment", "insightMcp"]}`，
+页面包装器位于 `pages/insight/components/insight-addon-menu.tsx`。`insightMcp` 是页面定义的 slot，公共组件不处理 MCP 协议。
+
+`slots.render` 在原 `closeMenu` 外提供 `active(): boolean` 和 `togglePanel(): void`，
+用于与内置技能/文件面板互斥。自定义面板应留在当前菜单 DOM 内，自行处理边界定位；现有仅调用 `closeMenu` 的 Design 插槽保持兼容。
+
+可选接入参数（缺省保持原行为）：
+
+- `controlledFiles`：文件勾选从 `selections` 派生，而不是本轮临时勾选。
+- `skillsLoading` / `filesLoading`：空列表加载文案。
+- `cancelOnDispose`：输入实例卸载时中止菜单导入任务；Insight 启用，Design 缺省不改变生命周期行为。
+- `productAssetsDisabledReason`：资产入口不可用原因。
+- `onAssetSelect` / `onAssetDeselect`：资产选择单独交给宿主，缺省回退 `onSelect/onDeselect`。Insight 在本地暂存选择，下载成功后才批量写入编辑器，避免占位 ID 进入消息。
+- `onAssetDownloadError`：处理逐项失败；提供此回调时保留成功项并继续后续项，宿主负责重试/移除及发送校验。
+- `trackerModule` 同时透传产品资产弹窗，缺省仍为 `design`。
+
+Insight 的 `onAddAttachment` 直接打开原 file input，不能再调用已包含风险提示的 `requestAttachmentUpload`，否则会重复提示。
+
+Insight 的产品资产服务保留 ZIP 目录结构并展开成文件引用，使用唯一引用名称避免 MCP 材料同名冲突。首次发送时整目录迁入会话 uploads；导入失败/取消可能留下未注册的临时目录，不自动删除既有文件。
+
 跨页面可复用的"添加附件"面板:触发按钮 + 弹出菜单,内置技能库、产品资产库、设计文件、接收设计资产链接URL、添加附件五类能力,支持通过 `items` 配置显示哪些项及顺序,通过 `slots` 插入页面专属菜单项。所有与页面数据的交互均通过 props 回调完成,组件不感知页面内部实现。
 
 ## 快速上手

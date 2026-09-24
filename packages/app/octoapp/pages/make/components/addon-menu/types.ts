@@ -13,7 +13,7 @@ export type AddonMenuItemKey =
 /** 页面专属菜单项插槽:render 在主菜单(items 之后)内渲染,ctx.closeMenu 关闭整个面板 */
 export interface AddonMenuSlot {
   key: string
-  render: (ctx: { closeMenu: () => void }) => JSX.Element
+  render: (ctx: { closeMenu: () => void; active: () => boolean; togglePanel: () => void }) => JSX.Element
 }
 
 /** chip 联动核心类型(结构与 mention-popover 的 MentionSelection 一致) */
@@ -48,6 +48,15 @@ export interface AddonMenuProps {
   /** 页面专属菜单项插槽(渲染在内置项之后) */
   slots?: AddonMenuSlot[]
   disabled?: boolean
+  /** 可选的受控文件选择；缺省保持 Design 的本轮选择行为。 */
+  controlledFiles?: boolean
+  skillsLoading?: boolean
+  filesLoading?: boolean
+  cancelOnDispose?: boolean
+  productAssetsDisabledReason?: string
+  onAssetDownloadError?: (error: unknown) => void
+  onAssetSelect?: (selection: MenuSelection) => void
+  onAssetDeselect?: (selection: MenuSelection) => void
 
   /** doc 中已有 chip(由页面编辑器同步) */
   selections: MenuSelection[]
