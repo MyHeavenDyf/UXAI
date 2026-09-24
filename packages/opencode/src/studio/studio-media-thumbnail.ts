@@ -121,23 +121,50 @@ function syncCompletedMessage(record: StudioMediaThumbnailRecord, result: Studio
   })
 }
 
-function updateMedia(
-  record: StudioMediaThumbnailRecord,
-  update: Pick<StudioThumbnailMedia, "thumbnailUrl" | "thumbnailStatus">,
-) {
-  const generation = Database.use((db) =>
-    db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, record.generation_id)).get(),
+function commitMediaThumbnail(record: StudioMediaThumbnailRecord, relativePath: string) {
+  const result = Database.transaction(
+    (db) => {
+      const generation = db
+        .select()
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, record.generation_id))
+        .get()
+      const current = mediaResult(generation?.result)
+      if (!generation || !current || !current.images[record.media_index]) return
+      const next = {
+        ...current,
+        images: current.images.map((item, index) =>
+          index === record.media_index
+            ? { ...item, thumbnailUrl: relativePath, thumbnailStatus: "ready" as const }
+            : item,
+        ),
+      }
+      const now = Date.now()
+      db.update(StudioGenerationTable)
+        .set({ result: next, time_updated: now })
+        .where(eq(StudioGenerationTable.id, record.generation_id))
+        .run()
+      db.update(StudioMediaThumbnailTable)
+        .set({
+          status: "succeeded",
+          thumbnail_path: relativePath,
+          error: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          time_updated: now,
+        })
+        .where(
+          and(
+            eq(StudioMediaThumbnailTable.generation_id, record.generation_id),
+            eq(StudioMediaThumbnailTable.media_index, record.media_index),
+          ),
+        )
+        .run()
+      return next
+    },
+    { behavior: "immediate" },
   )
-  const result = mediaResult(generation?.result)
-  if (!generation || !result || !result.images[record.media_index]) return false
-  result.images = result.images.map((item, index) => (index === record.media_index ? { ...item, ...update } : item))
-  Database.use((db) =>
-    db
-      .update(StudioGenerationTable)
-      .set({ result, time_updated: Date.now() })
-      .where(eq(StudioGenerationTable.id, record.generation_id))
-      .run(),
-  )
+  if (!result) return false
   syncCompletedMessage(record, result)
   return true
 }
@@ -555,29 +582,10 @@ async function materializeStudioMediaThumbnail(input: { generationID: string; me
     await unlink(target).catch(() => undefined)
     await rename(temporary, target)
   }
-  if (!updateMedia(record, { thumbnailUrl: relativePath, thumbnailStatus: "ready" })) {
+  if (!commitMediaThumbnail(record, relativePath)) {
     await unlink(target).catch(() => undefined)
     throw new Error("Studio generation was removed before its thumbnail completed.")
   }
-  Database.use((db) =>
-    db
-      .update(StudioMediaThumbnailTable)
-      .set({
-        status: "succeeded",
-        thumbnail_path: relativePath,
-        error: null,
-        lease_owner: null,
-        lease_expires_at: null,
-        time_updated: Date.now(),
-      })
-      .where(
-        and(
-          eq(StudioMediaThumbnailTable.generation_id, record.generation_id),
-          eq(StudioMediaThumbnailTable.media_index, input.mediaIndex),
-        ),
-      )
-      .run(),
-  )
   return { thumbnailUrl: relativePath }
 }
 

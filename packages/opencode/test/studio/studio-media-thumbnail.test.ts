@@ -24,7 +24,7 @@ const image =
 const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
 
 async function withGeneration(
-  source: string,
+  source: string | string[],
   run: (input: { generationID: string; sessionID: SessionID; toolPartID: string }) => Promise<void> | void,
   kind: "image" | "video" = "image",
 ) {
@@ -63,13 +63,13 @@ async function withGeneration(
             progress: 100,
             request: {},
             result: {
-              images: [{
-                id: `${generationID}-0`,
+              images: (Array.isArray(source) ? source : [source]).map((url, index) => ({
+                id: `${generationID}-${index}`,
                 kind,
-                url: source,
-                remoteUrl: source,
+                url,
+                remoteUrl: url,
                 thumbnailStatus: "pending",
-              }],
+              })),
             },
             next_poll_at: Number.MAX_SAFE_INTEGER,
             time_created: now,
@@ -254,5 +254,33 @@ describe("Studio media thumbnails", () => {
         .all().length)).toBe(1)
       expect(generation?.status).toBe("succeeded")
     }, "video")
+  })
+
+  test("keeps every media ready when thumbnails are saved concurrently", async () => {
+    await withGeneration([image, image], async ({ generationID }) => {
+      expect(enqueueStudioMediaThumbnails(generationID)).toBe(2)
+      const content = webp.toString("base64")
+      const thumbnails = await Promise.all([
+        saveStudioMediaThumbnail({ generationID, mediaIndex: 0, content }),
+        saveStudioMediaThumbnail({ generationID, mediaIndex: 1, content }),
+      ])
+      const generation = Database.use((db) =>
+        db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
+      )
+      expect(generation?.result?.images).toMatchObject([
+        { thumbnailStatus: "ready", thumbnailUrl: thumbnails[0].thumbnailUrl },
+        { thumbnailStatus: "ready", thumbnailUrl: thumbnails[1].thumbnailUrl },
+      ])
+      expect(
+        Database.use((db) =>
+          db
+            .select()
+            .from(StudioMediaThumbnailTable)
+            .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+            .all()
+            .map((item) => item.status),
+        ),
+      ).toEqual(["succeeded", "succeeded"])
+    })
   })
 })
