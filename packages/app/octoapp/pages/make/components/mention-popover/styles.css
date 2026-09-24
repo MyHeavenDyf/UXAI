@@ -8,6 +8,14 @@
   background: transparent;
 }
 
+/* When flipped below the editor (top overflow → show below) */
+.mention-popover-below .mention-popover-container {
+  top: 100%;
+  bottom: auto;
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
 /* Main popover container — rendered via Portal (outside .octo-make scope),
    so re-declare the tokens it needs locally, matching .octo-dropdown-menu. */
 .mention-popover-container {

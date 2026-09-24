@@ -24,6 +24,7 @@ import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
 import { TaskStore } from "@/context/task"
 import { useParams } from "@solidjs/router"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -348,18 +349,19 @@ function CanvasEditDropdown(props: {
 
   return (
     <div class="octo-dropdown">
-      <button
-        ref={btnRef}
-        type="button"
-        class="octo-action-btn"
-        classList={{ "octo-dropdown-disabled": loading(), "octo-dropdown-open": open() }}
-        onClick={handleClick}
-        disabled={loading()}
-        title="画布编辑"
-      >
-        <IconCanvasEdit size={16} />
-        <span>{loading() ? "加载中..." : "画布编辑"}</span>
-      </button>
+      <Tooltip placement="top" value="画布编辑" inactive={open()}>
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-action-btn"
+          classList={{ "octo-dropdown-disabled": loading(), "octo-dropdown-open": open() }}
+          onClick={handleClick}
+          disabled={loading()}
+        >
+          <IconCanvasEdit size={16} />
+          <span>{loading() ? "加载中..." : "画布编辑"}</span>
+        </button>
+      </Tooltip>
       <Show when={open() && actions().length > 0}>
         <Portal mount={document.body}>
           {(() => {
@@ -722,17 +724,18 @@ export function ActionBar(props: {
     }
     
     return (
-      <button
-        type="button"
-        class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
-        classList={{ "octo-viewport-btn-active": isActive() }}
-        onClick={() => button.onClick?.(ctx)}
-        disabled={isDisabled}
-        title={resolveTitle()}
-      >
-        {resolveIcon()}
-        <span>{resolveLabel()}</span>
-      </button>
+      <Tooltip placement="top" value={resolveTitle()}>
+        <button
+          type="button"
+          class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
+          classList={{ "octo-viewport-btn-active": isActive() }}
+          onClick={() => button.onClick?.(ctx)}
+          disabled={isDisabled}
+        >
+          {resolveIcon()}
+          <span>{resolveLabel()}</span>
+        </button>
+      </Tooltip>
     )
   }
 
@@ -742,14 +745,15 @@ export function ActionBar(props: {
       <div class="octo-action-bar-left">
         {renderButtonsAtPosition('start')}
         {showRefreshButton() && props.onRefresh && (
-          <button
-            type="button"
-            class="octo-action-btn octo-action-btn-refresh"
-            onClick={props.onRefresh}
-            title="刷新预览"
-          >
-            <IconFileRefresh size={16} />
-          </button>
+          <Tooltip placement="top" value="刷新预览">
+            <button
+              type="button"
+              class="octo-action-btn octo-action-btn-refresh"
+              onClick={props.onRefresh}
+            >
+              <IconFileRefresh size={16} />
+            </button>
+          </Tooltip>
         )}
         {canToggleMode() && props.onModeChange && (
           <>
@@ -776,40 +780,43 @@ export function ActionBar(props: {
         {/* Collapsible buttons - can become icons */}
         <div class="octo-action-bar-collapsible">
           {showLocalEdit() && props.onEditToggle && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.editing }}
-              onClick={props.onEditToggle}
-              title="局部修改"
-            >
-              <IconLocalModify size={16} />
-              <span>局部修改</span>
-            </button>
+            <Tooltip placement="top" value="局部修改">
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.editing }}
+                onClick={props.onEditToggle}
+              >
+                <IconLocalModify size={16} />
+                <span>局部修改</span>
+              </button>
+            </Tooltip>
           )}
           {showModelEdit() && props.onModelEditToggle && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
-              onClick={props.onModelEditToggle}
-              title="局部修改"
-            >
-              <IconLocalModify size={16} />
-              <span>局部修改</span>
-            </button>
+            <Tooltip placement="top" value="局部修改">
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.modelEditing }}
+                onClick={props.onModelEditToggle}
+              >
+                <IconLocalModify size={16} />
+                <span>局部修改</span>
+              </button>
+            </Tooltip>
           )}
           {showDrawEdit() && props.onDrawToggle && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.drawing }}
-              onClick={props.onDrawToggle}
-              title="框选编辑"
-            >
-              <IconBoxSelectEdit size={16} />
-              <span>框选编辑</span>
-            </button>
+            <Tooltip placement="top" value="框选编辑">
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.drawing }}
+                onClick={props.onDrawToggle}
+              >
+                <IconBoxSelectEdit size={16} />
+                <span>框选编辑</span>
+              </button>
+            </Tooltip>
           )}
           {showCanvasEdit() && (
             <CanvasEditDropdown
@@ -821,13 +828,15 @@ export function ActionBar(props: {
             />
           )}
           <Show when={shouldShowCopy()}>
-            <button type="button" class="octo-action-btn" onClick={() => {
-              tracker.interaction({ module: "design", name: "copy-content", extend: JSON.stringify({ type: props.tab.type }) })
-              copyToClipboard(props.tab.content)
-            }} title="复制">
-              <IconActionCopy size={13} />
-              <span>复制</span>
-            </button>
+            <Tooltip placement="top" value="复制">
+              <button type="button" class="octo-action-btn" onClick={() => {
+                tracker.interaction({ module: "design", name: "copy-content", extend: JSON.stringify({ type: props.tab.type }) })
+                copyToClipboard(props.tab.content)
+              }}>
+                <IconActionCopy size={13} />
+                <span>复制</span>
+              </button>
+            </Tooltip>
           </Show>
           <Show when={showDownload() && props.tab.type !== "local-file" && props.tab.type !== "html"}>
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
@@ -846,104 +855,110 @@ export function ActionBar(props: {
           <Show when={!shouldReplaceDefaultButtons()}>
             {showViewport() && props.onPaletteChange && (
             <div class="flex items-center gap-[2px] mr-1 hidden">
-              <button
-                type="button"
-                class="octo-viewport-btn"
-                classList={{ "octo-viewport-btn-active": !props.palette }}
-                onClick={() => props.onPaletteChange!(null)}
-                title="默认配色"
-              >
-                <span style={{ "font-size": "11px", "font-weight": 600, color: "inherit" }}>A</span>
-              </button>
+              <Tooltip placement="top" value="默认配色">
+                <button
+                  type="button"
+                  class="octo-viewport-btn"
+                  classList={{ "octo-viewport-btn-active": !props.palette }}
+                  onClick={() => props.onPaletteChange!(null)}
+                >
+                  <span style={{ "font-size": "11px", "font-weight": 600, color: "inherit" }}>A</span>
+                </button>
+              </Tooltip>
               <For each={PALETTE_PRESETS}>
                 {(p) => (
-                  <button
-                    type="button"
-                    class="octo-viewport-btn"
-                    classList={{ "octo-viewport-btn-active": props.palette === p.id }}
-                    onClick={() => props.onPaletteChange!(props.palette === p.id ? null : p.id)}
-                    title={p.label}
-                  >
-                    <span class="flex items-center gap-[1px]">
-                      <For each={p.colors.slice(0, 2)}>
-                        {(c) => <span style={{ width: "6px", height: "6px", "border-radius": "50%", background: c, display: "inline-block" }} />}
-                      </For>
-                    </span>
-                  </button>
+                  <Tooltip placement="top" value={p.label}>
+                    <button
+                      type="button"
+                      class="octo-viewport-btn"
+                      classList={{ "octo-viewport-btn-active": props.palette === p.id }}
+                      onClick={() => props.onPaletteChange!(props.palette === p.id ? null : p.id)}
+                    >
+                      <span class="flex items-center gap-[1px]">
+                        <For each={p.colors.slice(0, 2)}>
+                          {(c) => <span style={{ width: "6px", height: "6px", "border-radius": "50%", background: c, display: "inline-block" }} />}
+                        </For>
+                      </span>
+                    </button>
+                  </Tooltip>
                 )}
               </For>
             </div>
           )}
           {renderButtonsAtPosition('before-comment')}
           {showComment() && props.onCommentToggle && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.commenting }}
-              onClick={props.onCommentToggle}
-              title="标注"
-            >
-              <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
-              </svg>
-              <span>标注</span>
-            </button>
+            <Tooltip placement="top" value="标注">
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.commenting }}
+                onClick={props.onCommentToggle}
+              >
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
+                </svg>
+                <span>标注</span>
+              </button>
+            </Tooltip>
           )}
           {showArchive() && props.onArchiveToggle && (
-            <button
-              type="button"
-              class="octo-action-btn octo-action-btn-archive"
-              classList={{ "octo-action-btn-archive-active": !!props.archiving }}
-              onClick={props.onArchiveToggle}
-              title="归档"
-            >
-              <span>归档</span>
-            </button>
+            <Tooltip placement="top" value="归档">
+              <button
+                type="button"
+                class="octo-action-btn octo-action-btn-archive"
+                classList={{ "octo-action-btn-archive-active": !!props.archiving }}
+                onClick={props.onArchiveToggle}
+              >
+                <span>归档</span>
+              </button>
+            </Tooltip>
           )}
           {renderButtonsAtPosition('before-history')}
           {showHistory() && props.onHistoryToggle && (
-            <button
-              ref={historyBtnRef}
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
-              disabled={!!props.disabled}
-              onClick={props.onHistoryToggle}
-              title="历史版本"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span>历史</span>
-            </button>
+            <Tooltip placement="top" value="历史版本">
+              <button
+                ref={historyBtnRef}
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
+                disabled={!!props.disabled}
+                onClick={props.onHistoryToggle}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>历史</span>
+              </button>
+            </Tooltip>
           )}
           {renderButtonsAtPosition('after-archive')}
           {renderButtonsAtPosition('before-fullscreen')}
           <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
-            <button
-              type="button"
-              class="octo-action-btn"
-              classList={{ "octo-viewport-btn-active": !!props.focusMode }}
-              onClick={props.onFocusModeToggle}
-              title={props.focusMode ? "退出全屏" : "全屏"}
-            >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <Show when={props.focusMode} fallback={
-                  <>
-                    <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </>
-                }>
-                  <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-                </Show>
-              </svg>
-            </button>
+            <Tooltip placement="top" value={props.focusMode ? "退出全屏" : "全屏"}>
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.focusMode }}
+                onClick={props.onFocusModeToggle}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <Show when={props.focusMode} fallback={
+                    <>
+                      <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </>
+                  }>
+                    <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                  </Show>
+                </svg>
+              </button>
+            </Tooltip>
           </Show>
           </Show>
           {renderButtonsAtPosition('end')}
@@ -991,23 +1006,26 @@ function ExportButton(props: {
     <Show
       when={hasMultiple()}
       fallback={
-        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={props.onPrimaryDownload} title="下载">
-          <IconDownloadNew size={16} />
-          <span>下载</span>
-        </button>
+        <Tooltip placement="top" value="下载">
+          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={props.onPrimaryDownload}>
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+          </button>
+        </Tooltip>
       }
     >
       <div class="relative" style={{ display: "inline-flex" }}>
-        <button
-          ref={btnRef}
-          type="button"
-          class="octo-action-btn octo-action-btn-download"
-          onClick={() => setOpen(!open())}
-          title="导出"
-        >
-          <IconDownloadNew size={16} />
-          <span>导出</span>
-        </button>
+        <Tooltip placement="top" value="导出" inactive={open()}>
+          <button
+            ref={btnRef}
+            type="button"
+            class="octo-action-btn octo-action-btn-download"
+            onClick={() => setOpen(!open())}
+          >
+            <IconDownloadNew size={16} />
+            <span>导出</span>
+          </button>
+        </Tooltip>
         <Show when={open()}>
           <Portal mount={document.body}>
             {(() => {
@@ -1088,26 +1106,29 @@ function DownloadButton(props: {
     <Show
       when={hasMultiple()}
       fallback={
-        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()} title="下载">
-          <IconDownloadNew size={16} />
-          <span>下载</span>
-        </button>
+        <Tooltip placement="top" value="下载">
+          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()}>
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+          </button>
+        </Tooltip>
       }
     >
       <div class="octo-dropdown">
-        <button
-          ref={btnRef}
-          type="button"
-          class="octo-action-btn octo-action-btn-download"
-          classList={{ "octo-dropdown-open": open() }}
-          style={{ width: "auto" }}
-          onClick={() => setOpen(!open())}
-          title="下载"
-        >
-          <IconDownloadNew size={16} />
-          <span>下载</span>
-          <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
-        </button>
+        <Tooltip placement="top" value="下载" inactive={open()}>
+          <button
+            ref={btnRef}
+            type="button"
+            class="octo-action-btn octo-action-btn-download"
+            classList={{ "octo-dropdown-open": open() }}
+            style={{ width: "auto" }}
+            onClick={() => setOpen(!open())}
+          >
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+            <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
+          </button>
+        </Tooltip>
         <Show when={open()}>
           <Portal mount={document.body}>
             {(() => {
