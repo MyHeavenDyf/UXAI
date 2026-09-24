@@ -3,7 +3,13 @@ import { createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { parseToolAttachments, parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
-import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
+import {
+  isStudioThumbnailUrl,
+  originalMediaSrc,
+  resolveStudioThumbnailUrl,
+  studioThumbnailStorageValue,
+  thumbnailMediaSrc,
+} from "./studio-media"
 
 export type ThumbnailEntry = {
   url: string
@@ -111,11 +117,11 @@ export function createSessionThumbnailStore(input: {
 
   function normalizeThumbnail(url?: string, allowOriginal = false): string | undefined {
     if (!isStudioThumbnailUrl(url) && !allowOriginal) return undefined
-    return resolveStudioMediaUrl({
-      value: url,
-      sdkUrl: input.globalSDK.url,
-      directory: input.dir(),
-    })
+    return studioThumbnailStorageValue(url)
+  }
+
+  function displayThumbnail(url?: string) {
+    return resolveStudioThumbnailUrl({ value: url, sdkUrl: input.globalSDK.url, directory: input.dir() })
   }
 
   function setThumbnail(
@@ -146,7 +152,7 @@ export function createSessionThumbnailStore(input: {
     if (!fallback && current?.fallback && typeof Image !== "undefined") {
       const loader = new Image()
       loader.onload = commit
-      loader.src = url
+      loader.src = displayThumbnail(url) ?? url
       return
     }
     commit()

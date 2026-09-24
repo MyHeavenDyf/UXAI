@@ -19,6 +19,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { decode64 } from "@/utils/base64"
+import { resolveStudioThumbnailUrl } from "./studio-media"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -218,7 +219,11 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                         // Depend on version to re-evaluate when a thumbnail is set elsewhere
                         void props.thumbnailVersion
                         const entry = props.thumbnails?.[session.id]
-                        return entry?.url
+                        return resolveStudioThumbnailUrl({
+                          value: entry?.url,
+                          sdkUrl: globalSDK.url,
+                          directory: props.directory,
+                        })
                       })
                       const [isTruncated, setIsTruncated] = createSignal(false)
                       let titleSpanRef!: HTMLSpanElement
