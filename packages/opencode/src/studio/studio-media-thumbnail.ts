@@ -614,6 +614,60 @@ export function saveStudioMediaThumbnail(input: { generationID: string; mediaInd
   return task
 }
 
+export async function invalidateStudioMediaThumbnail(input: { generationID: string; mediaIndex: number }) {
+  const found = generationMedia(input.generationID, input.mediaIndex)
+  const record = thumbnailRecord(found, input.mediaIndex)
+  await unlink(absoluteThumbnailPath(record)).catch(() => undefined)
+  const result = Database.transaction(
+    (db) => {
+      const generation = db
+        .select()
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, found.generation.id))
+        .get()
+      const current = mediaResult(generation?.result)
+      if (!generation || !current || !current.images[input.mediaIndex]) return
+      const next = {
+        ...current,
+        images: current.images.map((item, index) =>
+          index === input.mediaIndex
+            ? { ...item, thumbnailUrl: undefined, thumbnailStatus: "pending" as const }
+            : item,
+        ),
+      }
+      const now = Date.now()
+      db.update(StudioGenerationTable)
+        .set({ result: next, time_updated: now })
+        .where(eq(StudioGenerationTable.id, generation.id))
+        .run()
+      db.update(StudioMediaThumbnailTable)
+        .set({
+          status: "queued",
+          attempts: 0,
+          next_retry_at: now,
+          thumbnail_path: null,
+          error: "Browser failed to decode the stored thumbnail.",
+          lease_owner: null,
+          lease_expires_at: null,
+          time_updated: now,
+        })
+        .where(
+          and(
+            eq(StudioMediaThumbnailTable.generation_id, generation.id),
+            eq(StudioMediaThumbnailTable.media_index, input.mediaIndex),
+          ),
+        )
+        .run()
+      return next
+    },
+    { behavior: "immediate" },
+  )
+  if (!result) throw new Error("Studio generation was removed before its thumbnail could be invalidated.")
+  enqueueResult(found.generation, result)
+  syncCompletedMessage(record, result)
+  return { invalidated: true }
+}
+
 async function materializeStudioMediaThumbnail(input: { generationID: string; mediaIndex: number; content: string }) {
   const found = generationMedia(input.generationID, input.mediaIndex)
   enqueueResult(found.generation, found.result)

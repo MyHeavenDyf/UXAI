@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import path from "node:path"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { Instance } from "@/project/instance"
@@ -10,6 +11,7 @@ import { StudioMediaThumbnailTable } from "@/studio/studio-media-thumbnail.sql"
 import {
   enqueueStudioMediaThumbnails,
   ensureStudioSessionThumbnails,
+  invalidateStudioMediaThumbnail,
   loadStudioThumbnailSource,
   prepareStudioThumbnailMedia,
   saveStudioMediaThumbnail,
@@ -258,6 +260,38 @@ describe("Studio media thumbnails", () => {
           .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
           .get(),
       )).toMatchObject({ status: "queued", thumbnail_path: null })
+    })
+  })
+
+  test("invalidates a browser-rejected thumbnail and queues regeneration", async () => {
+    await withGeneration(image, async ({ generationID }) => {
+      const saved = await saveStudioMediaThumbnail({
+        generationID,
+        mediaIndex: 0,
+        content: webp.toString("base64"),
+      })
+
+      await Promise.all([
+        invalidateStudioMediaThumbnail({ generationID, mediaIndex: 0 }),
+        invalidateStudioMediaThumbnail({ generationID, mediaIndex: 0 }),
+      ])
+
+      const generation = Database.use((db) =>
+        db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, generationID)).get(),
+      )
+      const media = Array.isArray(generation?.result?.images) ? generation.result.images[0] : undefined
+      expect(media).toMatchObject({ thumbnailStatus: "pending" })
+      expect(media?.thumbnailUrl).toBeUndefined()
+      expect(Database.use((db) =>
+        db.select().from(StudioMediaThumbnailTable)
+          .where(eq(StudioMediaThumbnailTable.generation_id, generationID))
+          .get(),
+      )).toMatchObject({
+        status: "queued",
+        thumbnail_path: null,
+        error: "Browser failed to decode the stored thumbnail.",
+      })
+      expect(await Bun.file(path.join(Instance.directory, saved.thumbnailUrl)).exists()).toBe(false)
     })
   })
 

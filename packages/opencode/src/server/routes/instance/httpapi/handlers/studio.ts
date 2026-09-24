@@ -27,6 +27,7 @@ import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPay
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import {
   ensureStudioSessionThumbnails,
+  invalidateStudioMediaThumbnail,
   loadStudioThumbnailSource,
   saveStudioMediaThumbnail,
   saveStudioVideoPoster,
@@ -289,6 +290,23 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const invalidateThumbnail = Effect.fn("StudioHttpApi.invalidateGenerationThumbnail")(function* (ctx: {
+      params: { generationID: string; mediaIndex: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => invalidateStudioMediaThumbnail({
+          generationID: ctx.params.generationID,
+          mediaIndex: Number(ctx.params.mediaIndex),
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
     const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
       payload: typeof StudioPromptGenPayload.Type
     }) {
@@ -450,6 +468,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("saveGenerationVideoPoster", saveVideoPoster)
       .handleRaw("getGenerationThumbnailSource", getThumbnailSource)
       .handle("saveGenerationThumbnail", saveThumbnail)
+      .handle("invalidateGenerationThumbnail", invalidateThumbnail)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)

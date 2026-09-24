@@ -2,8 +2,8 @@ import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
 import { isVideoMedia } from "./studio-shared"
-import { formatStudioThumbnailDuration, originalMediaSrc, thumbnailMediaSrc } from "./studio-media"
-import { queueStudioImageThumbnail, queueStudioVideoThumbnail } from "./studio-thumbnail-generation"
+import { formatStudioThumbnailDuration, isStudioThumbnailUrl, originalMediaSrc, thumbnailMediaSrc } from "./studio-media"
+import { invalidateStudioThumbnail, queueStudioImageThumbnail, queueStudioVideoThumbnail } from "./studio-thumbnail-generation"
 import type { StudioImage } from "./types"
 
 const mediaThumbnailStatuses = new Map<string, string>()
@@ -22,9 +22,15 @@ export function StudioMediaThumbnail(props: {
   const [failed, setFailed] = createSignal(false)
   const [generatedThumbnail, setGeneratedThumbnail] = createSignal<string>()
   const [thumbnailFailed, setThumbnailFailed] = createSignal(false)
+  const [invalidThumbnail, setInvalidThumbnail] = createSignal(false)
   const [actualDuration, setActualDuration] = createSignal<number>()
   let thumbnailAttempted = false
-  const source = () => generatedThumbnail() ?? thumbnailMediaSrc(props.image)
+  let thumbnailInvalidating = false
+  let disposed = false
+  let thumbnailValidation: { url: string; image: HTMLImageElement } | undefined
+  const source = () => invalidThumbnail()
+    ? (isVideoMedia(props.image) ? undefined : originalMediaSrc(props.image))
+    : generatedThumbnail() ?? thumbnailMediaSrc(props.image)
   const videoSource = () => thumbnailFailed() ? undefined : source()
   const [displayedSource, setDisplayedSource] = createSignal(source())
 
@@ -67,6 +73,7 @@ export function StudioMediaThumbnail(props: {
       setFailed(false)
     }
     loader.onload = apply
+    loader.onerror = () => invalidateThumbnail(next)
     loader.src = next
     onCleanup(() => {
       loader.onload = null
@@ -76,28 +83,127 @@ export function StudioMediaThumbnail(props: {
 
   const duration = () => actualDuration() ?? props.image.duration ?? props.duration
 
+  function reloadThumbnailUrl(url: string) {
+    const separator = url.includes("?") ? "&" : "?"
+    return `${url}${separator}studioThumbnailReload=${Date.now()}`
+  }
+
+  function invalidateThumbnail(url: string) {
+    if (
+      disposed ||
+      invalidThumbnail() ||
+      !isStudioThumbnailUrl(url) ||
+      !props.generationID ||
+      props.mediaIndex === undefined ||
+      thumbnailValidation?.url === url
+    ) return
+    if (thumbnailValidation) {
+      thumbnailValidation.image.onload = null
+      thumbnailValidation.image.onerror = null
+      thumbnailValidation = undefined
+    }
+    const generationID = props.generationID
+    const mediaIndex = props.mediaIndex
+    const validation = new Image()
+    thumbnailValidation = { url, image: validation }
+    const finishValidation = () => {
+      if (thumbnailValidation?.image !== validation) return false
+      thumbnailValidation = undefined
+      validation.onload = null
+      validation.onerror = null
+      return true
+    }
+    validation.onload = () => {
+      if (!finishValidation()) return
+      if (props.generationID !== generationID || props.mediaIndex !== mediaIndex) return
+      setThumbnailFailed(false)
+      setGeneratedThumbnail(validation.src)
+      setDisplayedSource(validation.src)
+      setFailed(false)
+    }
+    validation.onerror = () => {
+      if (!finishValidation()) return
+      if (props.generationID !== generationID || props.mediaIndex !== mediaIndex) return
+      rejectThumbnail(url)
+    }
+    validation.src = reloadThumbnailUrl(url)
+  }
+
+  onCleanup(() => {
+    disposed = true
+    if (!thumbnailValidation) return
+    thumbnailValidation.image.onload = null
+    thumbnailValidation.image.onerror = null
+    thumbnailValidation = undefined
+  })
+
+  function rejectThumbnail(url: string) {
+    if (
+      disposed ||
+      invalidThumbnail() ||
+      !isStudioThumbnailUrl(url) ||
+      !props.generationID ||
+      props.mediaIndex === undefined
+    ) return
+    const current = server.current
+    const directory = projectDir()
+    if (!current || !directory) return
+    thumbnailInvalidating = true
+    setInvalidThumbnail(true)
+    setGeneratedThumbnail(undefined)
+    setDisplayedSource(isVideoMedia(props.image) ? undefined : originalMediaSrc(props.image))
+    setThumbnailFailed(isVideoMedia(props.image))
+    void invalidateStudioThumbnail({
+      sdkUrl: current.http.url,
+      username: current.http.username,
+      password: current.http.password,
+      directory,
+      generationID: props.generationID,
+      mediaIndex: props.mediaIndex,
+      source: originalMediaSrc(props.image),
+    }).then(() => {
+      if (disposed) return
+      thumbnailAttempted = false
+      thumbnailInvalidating = false
+      captureThumbnail()
+    }).catch((error) => {
+      if (disposed) return
+      console.error("[studio.thumbnail] invalid thumbnail could not be requeued", {
+        generationID: props.generationID,
+        mediaIndex: props.mediaIndex,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
   const showThumbnail = (url: string) => {
     const loader = new Image()
     loader.onload = () => {
+      if (disposed) return
       setThumbnailFailed(false)
+      setInvalidThumbnail(false)
       setGeneratedThumbnail(url)
     }
     loader.onerror = () => {
+      if (disposed) return
       console.error("[studio.thumbnail] thumbnail preload failed", {
         generationID: props.generationID,
         mediaIndex: props.mediaIndex,
         thumbnailUrl: url,
       })
+      invalidateThumbnail(url)
     }
     loader.src = url
   }
 
-  const captureThumbnail = () => {
+  function captureThumbnail() {
     if (
+      disposed ||
+      thumbnailInvalidating ||
       thumbnailAttempted ||
       !props.generationID ||
       props.mediaIndex === undefined ||
-      props.image.thumbnailStatus === "ready"
+      (props.image.thumbnailStatus === "ready" && !invalidThumbnail())
     ) return
     const current = server.current
     const directory = projectDir()
@@ -154,6 +260,8 @@ export function StudioMediaThumbnail(props: {
           decoding="async"
           onClick={props.onClick}
           onError={() => {
+            const broken = displayedSource()
+            if (broken) invalidateThumbnail(broken)
             if (isVideoMedia(props.image)) {
               setThumbnailFailed(true)
               setFailed(false)

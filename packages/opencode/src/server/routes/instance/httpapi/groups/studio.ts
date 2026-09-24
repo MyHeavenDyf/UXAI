@@ -25,6 +25,7 @@ export const StudioPaths = {
   generationVideoPoster: `${root}/generations/:generationID/video-poster`,
   generationThumbnailSource: `${root}/generations/:generationID/media/:mediaIndex/thumbnail-source`,
   generationThumbnail: `${root}/generations/:generationID/media/:mediaIndex/thumbnail`,
+  generationThumbnailInvalidate: `${root}/generations/:generationID/media/:mediaIndex/thumbnail/invalidate`,
   sessionThumbnailsEnsure: `${root}/sessions/:sessionID/thumbnails/ensure`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
@@ -459,6 +460,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail.save",
             summary: "Save Studio media thumbnail",
             description: "Persists a browser-generated WebP thumbnail without changing generation status.",
+          }),
+        ),
+        HttpApiEndpoint.post("invalidateGenerationThumbnail", StudioPaths.generationThumbnailInvalidate, {
+          params: { generationID: Schema.String, mediaIndex: Schema.String },
+          success: described(Schema.Struct({ invalidated: Schema.Boolean }), "Invalidated Studio media thumbnail"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.thumbnail.invalidate",
+            summary: "Invalidate Studio media thumbnail",
+            description: "Removes a thumbnail that the browser could not decode and queues it for regeneration.",
           }),
         ),
         HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {

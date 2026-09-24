@@ -345,6 +345,18 @@ export function queueStudioVideoThumbnail(input: StudioThumbnailQueueInput) {
   return queue(input, "video")
 }
 
+export async function invalidateStudioThumbnail(input: StudioThumbnailQueueInput) {
+  const response = await fetch(
+    new URL(
+      `/studio/generations/${encodeURIComponent(input.generationID)}/media/${input.mediaIndex}/thumbnail/invalidate`,
+      input.sdkUrl,
+    ),
+    { method: "POST", headers: authHeaders(input) },
+  )
+  if (!response.ok) throw new Error(`Studio thumbnail invalidation failed with status ${response.status}.`)
+  results.delete(taskKey(input))
+}
+
 export function stopStudioThumbnailQueue(input: Pick<StudioThumbnailQueueInput, "sdkUrl" | "directory">) {
   const prefix = scopeKey(input)
   Array.from(controllers.entries())
