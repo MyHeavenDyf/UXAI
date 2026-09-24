@@ -97,6 +97,9 @@ export function buildToolGate(selectedTool?: string): Record<string, boolean> {
     // knowledge_search 同理(SPEC-INS-030 迁入 insight 后新增):内网知识库检索与「这一轮直调所选 MCP 工具」
     // 无关,却是弱模型在 MCP 工具缺失时的又一个模拟通道(拿知识库片段编一份"解析结果")。
     gate["knowledge_search"] = false
+    // insight_report_search 同理(SPEC-INS-034):研究报告库检索与「这一轮直调所选 MCP 工具」无关,
+    // 同样是弱模型在 MCP 工具缺失时可以拿来编"解析结果"的通道。
+    gate["insight_report_search"] = false
     // get_session_identity 同理(SPEC-INS-033):身份值只供 skill 调内部接口,与这一轮直调所选 MCP 工具无关。
     gate["get_session_identity"] = false
   }
