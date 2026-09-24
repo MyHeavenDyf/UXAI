@@ -263,38 +263,69 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_fontFamily',
     readValue: (el) => normalizeStyle('fontFamily', el.styles.fontFamily || ''),
     render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字体</span>
-        <CustomSelect value={props.value()} options={FONT_FAMILY_OPTS} onChange={props.onChange} />
-      </div>
+      <CustomSelect value={props.value()} options={FONT_FAMILY_OPTS} onChange={props.onChange} checkmark dropdownWidth={166} class="[&>button]:h-8" />
     ),
   },
   {
-    type: 'fontWeight',
-    defaultKey: 'od_fontWeight',
-    readValue: (el) => normalizeStyle('fontWeight', el.styles.fontWeight || ''),
-    render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字重</span>
-        <CustomSelect value={props.value()} options={FONT_WEIGHT_OPTS} onChange={props.onChange} />
-      </div>
-    ),
+    type: 'fontProps',
+    defaultKey: 'od_fontProps',
+    readValue: (el) => JSON.stringify({
+      fontWeight: normalizeStyle('fontWeight', el.styles.fontWeight || ''),
+      fontSize: normalizeStyle('fontSize', el.styles.fontSize || ''),
+    }),
+    render: (props) => {
+      const data = () => parseJson(props.value())
+      const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
+      return (
+        <div class="cc-typ-pair-row">
+          <CustomSelect value={data().fontWeight || ''} options={FONT_WEIGHT_OPTS} onChange={(v) => update({ fontWeight: v })} checkmark dropdownWidth={166} class="[&>button]:h-8" />
+          <DragInput
+            value={() => numFromString(data().fontSize)}
+            setValue={(v) => update({ fontSize: `${v}px` })}
+            setFound={() => {}} found={() => true}
+            placeholder="字号" flex1={false}
+            icon={<span class="cc-typ-drag-text">字号</span>}
+            height="h-8"
+          />
+        </div>
+      )
+    },
   },
   {
-    type: 'fontSize',
-    defaultKey: 'od_fontSize',
-    readValue: (el) => normalizeStyle('fontSize', el.styles.fontSize || ''),
-    render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字号</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => props.onChange(`${v}px`)}
-          setFound={() => {}} found={() => true}
-          placeholder="字号" icon="S"
-        />
-      </div>
-    ),
+    type: 'typSpacing',
+    defaultKey: 'od_typSpacing',
+    readValue: (el) => JSON.stringify({
+      letterSpacing: normalizeStyle('letterSpacing', el.styles.letterSpacing || ''),
+      lineHeight: el.styles.lineHeight || '',
+    }),
+    render: (props) => {
+      const data = () => parseJson(props.value())
+      const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
+      return (
+        <div class="cc-typ-pair-row">
+          <DragInput
+            value={() => numFromString(data().letterSpacing)}
+            setValue={(v) => update({ letterSpacing: `${v}px` })}
+            setFound={() => {}} found={() => true}
+            placeholder="0" flex1={false}
+            icon={<span class="cc-typ-drag-text">字间距</span>}
+            height="h-8"
+          />
+          <DragInput
+            value={() => numFromString(data().lineHeight)}
+            setValue={(v) => {
+              const raw = data().lineHeight.trim()
+              const unitless = /^\d+(\.\d+)?$/.test(raw)
+              update({ lineHeight: unitless ? String(v) : `${v}px` })
+            }}
+            setFound={() => {}} found={() => true}
+            placeholder="auto" flex1={false}
+            icon={<span class="cc-typ-drag-text">行高</span>}
+            height="h-8"
+          />
+        </div>
+      )
+    },
   },
   {
     type: 'color',
@@ -313,48 +344,12 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         <div class="cc-typ-align-cell">
           <span class="cc-typ-sublabel">水平对齐</span>
           <div class="cc-typ-align-group">
-            <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
+            <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
+            <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
+            <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
+            <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
           </div>
         </div>
-      </div>
-    ),
-  },
-  {
-    type: 'lineHeight',
-    defaultKey: 'od_lineHeight',
-    readValue: (el) => el.styles.lineHeight || '',
-    render: (props) => (
-      <div class="cc-typ-pair-cell">
-        <span class="cc-typ-sublabel">行高</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => {
-            const raw = props.value().trim()
-            const unitless = /^\d+(\.\d+)?$/.test(raw)
-            props.onChange(unitless ? String(v) : `${v}px`)
-          }}
-          setFound={() => {}} found={() => true}
-          placeholder="auto" flex1={false}
-        />
-      </div>
-    ),
-  },
-  {
-    type: 'letterSpacing',
-    defaultKey: 'od_letterSpacing',
-    readValue: (el) => el.styles.letterSpacing || '',
-    render: (props) => (
-      <div class="cc-typ-pair-cell">
-        <span class="cc-typ-sublabel">字间距</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => props.onChange(`${v}px`)}
-          setFound={() => {}} found={() => true}
-          placeholder="0" flex1={false}
-        />
       </div>
     ),
   },
@@ -366,9 +361,9 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       <div class="cc-typ-align-cell">
         <span class="cc-typ-sublabel">垂直对齐</span>
         <div class="cc-typ-align-group">
-          <button type="button" onClick={() => props.onChange(props.value() === 'top' ? '' : 'top')} class={props.value() === 'top' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
-          <button type="button" onClick={() => props.onChange(props.value() === 'middle' ? '' : 'middle')} class={props.value() === 'middle' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
-          <button type="button" onClick={() => props.onChange(props.value() === 'bottom' ? '' : 'bottom')} class={props.value() === 'bottom' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'top' ? '' : 'top')} class={props.value() === 'top' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'middle' ? '' : 'middle')} class={props.value() === 'middle' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'bottom' ? '' : 'bottom')} class={props.value() === 'bottom' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
         </div>
       </div>
     ),
