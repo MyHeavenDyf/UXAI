@@ -861,6 +861,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   return (
+    <>
     <SidebarShell
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
@@ -979,7 +980,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
         onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
         plainEmptyDropZone
       />
-      <SessionContextMenu
+    </SidebarShell>
+    <SessionContextMenu
         show={contextMenu.show && !!contextMenu.session}
         x={contextMenu.x}
         y={contextMenu.y}
@@ -1007,6 +1009,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           closeContextMenu()
         }}
       />
-    </SidebarShell>
+    </>
   )
 }
