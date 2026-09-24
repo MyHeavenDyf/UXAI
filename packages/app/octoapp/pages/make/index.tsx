@@ -545,7 +545,6 @@ function MakeContent() {
 
   function handleMenuCreateGroupForSession(session: Session) {
     closeMenu()
-    tracker.interaction({ module: "design", name: "create-group-for-session" })
     if (session.pinned) void togglePinCurrent(session)
     dialog.show(() => (
       <DialogCreateGroup
@@ -553,6 +552,7 @@ function MakeContent() {
       onCreate={async (name) => {
         const id = await groupsCtx?.addGroup(name)
         if (id) {
+          tracker.interaction({ module: "design", name: "create-group-for-session" })
           await groupsCtx?.moveSessionToGroup(session.id, id)
           groupsCtx?.expandGroup(id)
         }

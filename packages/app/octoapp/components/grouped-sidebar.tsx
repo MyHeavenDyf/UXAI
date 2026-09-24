@@ -86,20 +86,21 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   }
 
   const handleRenameGroup = (group: MakeGroup) => {
-    tracker.interaction({ module: props.trackerModule ?? "session", name: "rename-group" })
     dialog.show(() => (
       <DialogCreateGroup
         title="编辑对话分组"
         actionLabel="创建分组"
         initialName={group.name}
         existingNames={groups.map(g => g.name)}
-        onCreate={(name) => renameGroup(group.id, name)}
+        onCreate={(name) => {
+          tracker.interaction({ module: props.trackerModule ?? "session", name: "rename-group" })
+          renameGroup(group.id, name)
+        }}
       />
     ))
   }
 
   const handleRemoveGroup = (group: MakeGroup) => {
-    tracker.interaction({ module: props.trackerModule ?? "session", name: "remove-group" })
     setRemoveTarget(group)
   }
 
@@ -171,6 +172,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
           onCreate={async (name) => {
             const id = await addGroup(name)
             if (id) {
+              tracker.interaction({ module: props.trackerModule ?? "session", name: "create-group-for-session" })
               await moveSessionToGroup(session.id, id)
               setExpandedGroups(prev => { const next = new Set(prev); next.add(id); return next })
             }
@@ -192,7 +194,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                 <path d="M10.6167 9.38336L10.6167 2.50003C10.6167 2.32781 10.5583 2.18058 10.4417 2.05836C10.3194 1.9417 10.1722 1.88336 10 1.88336C9.82777 1.88336 9.68055 1.9417 9.55833 2.05836C9.44166 2.18058 9.38333 2.32781 9.38333 2.50003L9.38333 9.38336L2.5 9.38336C2.32778 9.38336 2.18055 9.44169 2.05833 9.55836C1.94166 9.68058 1.88333 9.8278 1.88333 10C1.88333 10.1722 1.94166 10.3195 2.05833 10.4417C2.18055 10.5584 2.32778 10.6167 2.5 10.6167L9.38333 10.6167L9.38333 17.5C9.38333 17.6722 9.44166 17.8195 9.55833 17.9417C9.68055 18.0584 9.82777 18.1167 10 18.1167C10.1722 18.1167 10.3194 18.0584 10.4417 17.9417C10.5583 17.8195 10.6167 17.6722 10.6167 17.5L10.6167 10.6167L17.5 10.6167C17.6722 10.6167 17.8194 10.5584 17.9417 10.4417C18.0583 10.3195 18.1167 10.1722 18.1167 10C18.1167 9.8278 18.0583 9.68058 17.9417 9.55836C17.8194 9.44169 17.6722 9.38336 17.5 9.38336L10.6167 9.38336Z" fill="#777777" fill-rule="nonzero" />
               </svg>
             )}
-            onAction={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "create-group" }); dialog.show(() => <DialogCreateGroup existingNames={groups.map(g => g.name)} onCreate={addGroup} />) }}
+            onAction={() => { dialog.show(() => <DialogCreateGroup existingNames={groups.map(g => g.name)} onCreate={(name) => { tracker.interaction({ module: props.trackerModule ?? "session", name: "create-group" }); addGroup(name) }} />) }}
           />
           <Show when={!recentCollapsed()}>
             <div class="flex flex-col" style={{ "flex-shrink": "0" }}>
@@ -388,6 +390,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
           onConfirm={async () => {
             const target = removeTarget()
             if (target) {
+              tracker.interaction({ module: props.trackerModule ?? "session", name: "remove-group" })
               clearGroup(target.id)
               await removeGroup(target.id)
               setExpandedGroups(prev => { const next = new Set(prev); next.delete(target.id); return next })
