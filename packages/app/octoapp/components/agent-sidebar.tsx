@@ -133,6 +133,23 @@ export type AgentSidebarProps = {
   skillsActive?: boolean
 }
 
+// Module-level cache: AgentSidebar unmounts on every route switch (design↔insight),
+// and createResource is per-instance — without caching, each remount fires
+// fetchSessionPage + fetchPinnedSessions + fetchGroupSessions (3 requests) even
+// when nothing changed. This seeds the fetcher from the last result within
+// SIDEBAR_STALE_MS so rapid tab toggling (no session events between) is free.
+// Bust on SSE session events / explicit refetch so stale data never lingers.
+const SIDEBAR_STALE_MS = 30_000
+const SIDEBAR_CACHE_MAX = 8
+const sidebarCache = new Map<string, { sessions: Session[]; cursor?: string; at: number }>()
+
+function writeSidebarCache(key: string, value: { sessions: Session[]; cursor?: string; at: number }) {
+  sidebarCache.set(key, value)
+  if (sidebarCache.size <= SIDEBAR_CACHE_MAX) return
+  const oldest = [...sidebarCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+  if (oldest) sidebarCache.delete(oldest[0])
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
   const navigate = useNavigate()
@@ -147,12 +164,23 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
-  const [sessions, { refetch }] = createResource(
+  // Declared before createResource: the fetcher runs synchronously up to its
+  // first await, and the cache-hit branch calls setSessionCursor synchronously.
+  const [sessionCursor, setSessionCursor] = createSignal<string | undefined>(undefined)
+
+  const [sessions, { refetch: refetchResource }] = createResource(
     () => isOnboarding() ? "" : (resolvedDir() ?? ""),
     async (d: string) => {
       if (!d) {
         setFetchedDir(d)
         return [] as Session[]
+      }
+      const cacheKey = `${props.agentFilter}\n${d}`
+      const cached = sidebarCache.get(cacheKey)
+      if (cached && Date.now() - cached.at < SIDEBAR_STALE_MS) {
+        setSessionCursor(cached.cursor)
+        setFetchedDir(d)
+        return cached.sessions
       }
       try {
         if (props.fetchSessionPage) {
@@ -169,15 +197,19 @@ export function AgentSidebar(props: AgentSidebarProps) {
           const sorted = result.sessions
             .filter(s => !existingIds.has(s.id))
             .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          const merged = [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
+          writeSidebarCache(cacheKey, { sessions: merged, cursor: result.nextCursor, at: Date.now() })
           setFetchedDir(d)
-          return [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
+          return merged
         }
         const data = props.fetchSessions
           ? await props.fetchSessions(d)
           : ((await globalSDK.createClient({ directory: d }).session.list(props.listParams as any)).data ?? []) as Session[]
         const sorted = data.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+        const merged = sorted.filter(s => s.agent === props.agentFilter)
+        writeSidebarCache(cacheKey, { sessions: merged, cursor: undefined, at: Date.now() })
         setFetchedDir(d)
-        return sorted.filter(s => s.agent === props.agentFilter)
+        return merged
       } catch (err) {
         if (resolvedDir() !== d) return [] as Session[]
         setFetchedDir(d)
@@ -187,8 +219,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
     },
   )
 
+  // Bust the per-directory sidebar cache. Called on SSE session events and every
+  // explicit refetch so the fetcher always hits the network when data may have changed.
+  const bustSidebarCache = () => {
+    const d = resolvedDir()
+    if (d) sidebarCache.delete(`${props.agentFilter}\n${d}`)
+  }
+  // Wrap refetch to bust cache first — without this, refetch() would serve stale
+  // cache instead of re-requesting from the server.
+  const refetch = () => { bustSidebarCache(); return refetchResource() }
+
   const [sessionList, setSessionList] = createStore<Session[]>([])
-  const [sessionCursor, setSessionCursor] = createSignal<string | undefined>(undefined)
   const [loadingMoreSessions, setLoadingMoreSessions] = createSignal(false)
   const useServerPagination = () => !!props.fetchSessionPage
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
@@ -291,8 +332,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setSessionList(idx, "sort_order", session.time.updated)
       })
     }
+    bustSidebarCache()
     try {
-      await togglePinSession(id, newVal, d)
+      await togglePinSession(id, newVal, d, !newVal ? session.time.updated : undefined)
     } catch (err) {
       // Revert optimistic update on failure
       batch(() => {
@@ -314,6 +356,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     })
     const d = resolvedDir()
     if (!d) return
+    bustSidebarCache()
     const client = globalSDK.createClient({ directory: d })
     await client.session.reorder({ ids })
   }
@@ -330,6 +373,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     })
     const d = resolvedDir()
     if (!d) return
+    bustSidebarCache()
     const client = globalSDK.createClient({ directory: d })
     await client.session.reorder({ ids })
   }
@@ -535,6 +579,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
+      bustSidebarCache()
       if (t === "session.updated") {
         const activeId = props.activeSessionId()
         if (activeId) pendingScrollId = activeId
@@ -735,6 +780,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
     const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
     if (!ok) return
+    bustSidebarCache()
 
     closeContextMenu()
     setSessionList(
@@ -745,7 +791,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
     )
     if (props.activeSessionId() === session.id) {
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(session))
-      void refetch()
     }
   }
 
@@ -759,6 +804,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       if (ok) deleted.add(s.id)
     }))
     if (deleted.size) {
+      bustSidebarCache()
       setSessionList(
         produce((draft) => {
           for (let i = draft.length - 1; i >= 0; i--) {
@@ -772,7 +818,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
       const remaining = sessionList.filter((s) => !ids.has(s.id) && !s.time?.archived)
       const nextSession = pickNextSession(remaining, activeId)
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(sessions[0]))
-      void refetch()
     }
   }
 

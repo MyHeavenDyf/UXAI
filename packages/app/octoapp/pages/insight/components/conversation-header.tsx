@@ -181,7 +181,7 @@ export function ConversationHeader(
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    await togglePinSession(session.id, newPinned, sdk.directory)
+    await togglePinSession(session.id, newPinned, sdk.directory, !newPinned ? session.time.updated : undefined)
     sync.set(
       produce((draft) => {
         const index = draft.session.findIndex((s) => s.id === session.id)
