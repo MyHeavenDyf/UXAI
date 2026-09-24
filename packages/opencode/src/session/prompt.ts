@@ -506,12 +506,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             .pipe(Effect.orDie),
       })
 
+      const artifactTracking = yield* Effect.try({
+        try: () => ArtifactStore.enabled(input.processor.message.id),
+        catch: (error) => error,
+      }).pipe(Effect.catch(() => Effect.succeed(false)))
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
+        if (artifactTracking && item.id === ShellID.ToolID) {
+          schema.required = [...new Set([...(schema.required ?? []), "artifactFiles"])]
+        }
         tools[item.id] = tool({
           description: item.description,
           inputSchema: jsonSchema(schema),

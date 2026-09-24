@@ -611,7 +611,7 @@ export function ActionBar(props: {
   const showArchive = () => featureVisible(config().features.archive) && showViewport()
   const showDownload = () => featureVisible(config().features.download)
   const showFullscreen = () => featureVisible(config().features.fullscreen)
-  const showHistory = () => featureVisible(config().features.history) && props.tab.type === "html" && !!props.tab.filePath
+  const showHistory = () => featureVisible(config().features.history) && props.tab.type === "html" && !!props.tab.filePath && !props.tab.fromAttachment
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -1119,7 +1119,7 @@ function DownloadButton(props: {
           <button
             ref={btnRef}
             type="button"
-            class="octo-action-btn"
+            class="octo-action-btn octo-action-btn-download"
             classList={{ "octo-dropdown-open": open() }}
             style={{ width: "auto" }}
             onClick={() => setOpen(!open())}
