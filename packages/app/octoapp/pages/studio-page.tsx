@@ -709,7 +709,7 @@ export default function StudioPage() {
     const images = result.images
     if (sid && images && images.length > 0) {
       console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
-      setSessionThumbnail(sid, images)
+      setSessionThumbnail(sid, images, result.createdAt)
     }
   })
   // Global listener: update thumbnails when any session's generation completes,
@@ -720,20 +720,20 @@ export default function StudioPage() {
     if (payload.type !== "message.part.updated") return
     const part = payload.properties.part as Part & { sessionID?: string }
     if (part.type !== "tool") return
-    const state = part.state as { status?: string; output?: string }
-    if (state.status !== "completed") return
+    if (part.state.status !== "completed") return
+    const state = part.state
     const sessionID = part.sessionID
     if (!sessionID) return
     const media = parseToolMedia(state.output)
     if (media.length > 0) {
       console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
-      setSessionThumbnail(sessionID, media)
+      setSessionThumbnail(sessionID, media, state.time.start)
       return
     }
     const legacy = extractStudioThumbnailMedia(part)
     if (!legacy) return
     console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
-    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind)
+    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, state.time.start)
   })
   onCleanup(thumbnailUnsub)
 
@@ -808,13 +808,13 @@ export default function StudioPage() {
     return ready.find((image) => !isVideoMedia(image)) ?? ready[0] ?? images.find((image) => !isVideoMedia(image)) ?? images[0]
   }
 
-  function setSessionThumbnail(sessionID: string, images: StudioImage[]) {
+  function setSessionThumbnail(sessionID: string, images: StudioImage[], generationAt?: number) {
     const media = pickThumbnailMedia(images)
     if (!media) return
     const value = media.thumbnailStatus === "ready" && media.thumbnailUrl
       ? media.thumbnailUrl
       : originalMediaSrc(media)
-    studioThumbnails.setThumbnail(sessionID, value, isVideoMedia(media) ? "video" : "image")
+    studioThumbnails.setThumbnail(sessionID, value, isVideoMedia(media) ? "video" : "image", generationAt)
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
@@ -1647,7 +1647,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
-        setSessionThumbnail(sid, images)
+        setSessionThumbnail(sid, images, pending.createdAt)
       }
     }
     setPendingResult(undefined)
@@ -1664,7 +1664,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
-        setSessionThumbnail(sid, turn!.result!.images)
+        setSessionThumbnail(sid, turn!.result!.images, turn!.result!.createdAt)
       }
       setPendingResult(undefined)
       setStatus("succeeded")
@@ -4104,7 +4104,7 @@ export default function StudioPage() {
         const images = generation.images
         if (images && images.length > 0) {
           console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
-          setSessionThumbnail(sessionID, images)
+          setSessionThumbnail(sessionID, images, generation.createdAt)
         }
       }
     } catch (error) {
@@ -4287,7 +4287,7 @@ export default function StudioPage() {
                 const images = generation.images
                 if (images && images.length > 0) {
                   console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
-                  setSessionThumbnail(sessionID, images)
+                  setSessionThumbnail(sessionID, images, generation.createdAt)
                 } else {
                   console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
                 }

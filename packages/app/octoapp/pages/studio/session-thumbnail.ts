@@ -5,8 +5,19 @@ import { persisted, Persist } from "@/utils/persist"
 import { parseToolAttachments, parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl, thumbnailMediaSrc } from "./studio-media"
 
-export type ThumbnailEntry = { url: string; updatedAt: number; fallback?: boolean; kind?: "image" | "video" }
+export type ThumbnailEntry = {
+  url: string
+  updatedAt: number
+  generationAt?: number
+  fallback?: boolean
+  kind?: "image" | "video"
+}
 export type ThumbnailMap = Record<string, ThumbnailEntry>
+
+export function shouldReplaceSessionThumbnail(current: ThumbnailEntry | undefined, generationAt?: number) {
+  if (generationAt === undefined || current?.generationAt === undefined) return true
+  return generationAt >= current.generationAt
+}
 
 export function sessionThumbnailUsesVideoElement(entry?: ThumbnailEntry) {
   return entry?.kind === "video" && !isStudioThumbnailUrl(entry.url)
@@ -40,7 +51,7 @@ export function extractStudioThumbnailMedia(
  */
 function extractFirstMediaFromMessages(
   items: Array<{ info: Message; parts: Part[] }>,
-): { url: string; kind: "image" | "video" } | undefined {
+): { url: string; kind: "image" | "video"; generationAt: number } | undefined {
   // Sort messages by creation time descending (newest first)
   const sorted = [...items].sort((a, b) => b.info.time.created - a.info.time.created)
 
@@ -52,7 +63,10 @@ function extractFirstMediaFromMessages(
 
     for (const part of [...tools].reverse()) {
       const media = extractStudioThumbnailMedia(part)
-      if (media) return media
+      if (media) {
+        const generationAt = part.state.status === "completed" ? part.state.time.start : msg.info.time.created
+        return { ...media, generationAt }
+      }
     }
   }
 
@@ -104,17 +118,25 @@ export function createSessionThumbnailStore(input: {
     })
   }
 
-  function setThumbnail(sessionID: string, value?: string, kind: "image" | "video" = "image") {
+  function setThumbnail(
+    sessionID: string,
+    value?: string,
+    kind: "image" | "video" = "image",
+    generationAt?: number,
+  ) {
     const fallback = Boolean(value && !isStudioThumbnailUrl(value))
     const url = normalizeThumbnail(value, fallback)
     if (!url) return
+    if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) return
     recentlySet.add(sessionID)
     // Auto-clear after 30s so future genuine updates aren't blocked
     setTimeout(() => recentlySet.delete(sessionID), 30_000)
     const commit = () => {
+      if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) return
       setPersistedThumbnails(sessionID, {
         url,
         updatedAt: Date.now(),
+        generationAt,
         kind,
         fallback,
       })
@@ -149,6 +171,7 @@ export function createSessionThumbnailStore(input: {
       if (recentlySet.has(s.id)) return false
       const entry = persistedThumbnails[s.id]
       if (!entry || !normalizeThumbnail(entry.url, entry.fallback === true)) return true
+      if (entry.generationAt === undefined) return true
       return (s.time.updated ?? 0) > entry.updatedAt
     })
 
@@ -179,11 +202,12 @@ export function createSessionThumbnailStore(input: {
             const media = extractFirstMediaFromMessages(items)
             const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
             const url = normalizeThumbnail(media?.url, fallback)
-            if (url) {
+            if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[session.id], media.generationAt)) {
               console.log(`[Thumbnail] Found thumbnail for session ${session.id}: ${url.substring(0, 80)}...`)
               setPersistedThumbnails(session.id, {
                 url,
                 updatedAt: session.time.updated ?? Date.now(),
+                generationAt: media.generationAt,
                 kind: media?.kind,
                 fallback,
               })
@@ -212,11 +236,12 @@ export function createSessionThumbnailStore(input: {
             const media = extractFirstMediaFromMessages(items)
             const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
             const url = normalizeThumbnail(media?.url, fallback)
-            if (url) {
+            if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], media.generationAt)) {
               console.log(`[Thumbnail] Retry found thumbnail for session ${sessionID}`)
               setPersistedThumbnails(sessionID, {
                 url,
                 updatedAt: Date.now(),
+                generationAt: media.generationAt,
                 kind: media?.kind,
                 fallback,
               })

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { extractFirstImageFromMessages, sessionThumbnailUsesVideoElement } from "./session-thumbnail"
+import {
+  extractFirstImageFromMessages,
+  sessionThumbnailUsesVideoElement,
+  shouldReplaceSessionThumbnail,
+} from "./session-thumbnail"
 
 function message(
   output: Record<string, unknown>,
@@ -33,6 +37,17 @@ function message(
 }
 
 describe("Studio session thumbnail extraction", () => {
+  test("does not let an older generation overwrite the latest session thumbnail", () => {
+    const latest = {
+      url: ".octo/ses_1/thumbnails/latest.webp",
+      updatedAt: 30,
+      generationAt: 20,
+    }
+    expect(shouldReplaceSessionThumbnail(latest, 10)).toBe(false)
+    expect(shouldReplaceSessionThumbnail(latest, 20)).toBe(true)
+    expect(shouldReplaceSessionThumbnail(latest, 30)).toBe(true)
+  })
+
   test("renders a ready video poster as an image even when an old fallback flag remains", () => {
     expect(sessionThumbnailUsesVideoElement({
       url: ".octo/ses_1/thumbnails/video.webp",
