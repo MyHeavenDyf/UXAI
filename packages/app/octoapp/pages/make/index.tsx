@@ -546,12 +546,12 @@ function MakeContent() {
 
   function handleMenuCreateGroupForSession(session: Session) {
     closeMenu()
-    tracker.interaction({ module: "design", name: "create-group-for-session" })
     if (session.pinned) void togglePinCurrent(session)
     dialog.show(() => (
       <DialogCreateGroup
         existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
       onCreate={async (name) => {
+        tracker.interaction({ module: "design", name: "create-group-for-session" })
         const id = await groupsCtx?.addGroup(name)
         if (id) {
           await groupsCtx?.moveSessionToGroup(session.id, id)
@@ -4995,6 +4995,7 @@ const sessionMessagesLoaded = createMemo(() => {
         content: '',
         filePath,
         createdAt: new Date(),
+        fromAttachment: sessionArea,
       })
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
@@ -5024,11 +5025,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     const type = inferOutputType(filePath)
     const title = filePath.split(/[/\\]/).pop() ?? filePath
-    // Office 等不支持直接预览:沿用原有"预览不可用"弹窗(含下载),不强行渲染
     const fileExt = filePath.split('.').pop()?.toLowerCase() ?? ''
-    const blocked = ["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(fileExt)
 
-    if (blocked) {
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(title)) {
       dialog.show(() => (
         <DialogPreviewUnavailable
           filename={title}
@@ -5037,7 +5037,7 @@ const sessionMessagesLoaded = createMemo(() => {
           sdkDirectory={sdk.directory || ""}
         />
       ))
-      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "office-unavailable", ext: fileExt }) })
+      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "unavailable", ext: fileExt }) })
       return
     }
 
@@ -5049,6 +5049,7 @@ const sessionMessagesLoaded = createMemo(() => {
       content: '',
       filePath: absolutePath,
       createdAt: new Date(),
+      fromAttachment: sessionArea,
     })
     tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: fileExt }) })
   }
@@ -5057,28 +5058,7 @@ const sessionMessagesLoaded = createMemo(() => {
   function handleOpenAttachment(att: UserAttachment) {
     const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
 
-    // Office 等不支持直接预览:沿用原有"预览不可用"弹窗(含下载)
-    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(ext)) {
-      dialog.show(() => (
-        <DialogPreviewUnavailable
-          filename={att.filename}
-          filePath={att.path}
-          url={att.url}
-          sdkUrl={sdk.url}
-          sdkDirectory={sdk.directory || ""}
-        />
-      ))
-      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "office-unavailable", ext }) })
-      return
-    }
-
-    // 本地附件:复用本地文件预览流程(会话区入口 → 仅 图片/视频/音频/PDF 走预览)
-    if (att.isLocal && att.path) {
-      handleOpenLocalFile(att.path, true)
-      return
-    }
-
-    // FilePart(S3 URL):不可预览类型 → 遮罩层下载弹窗;可预览类型按 mime/扩展名构造卡片
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
     if (!isPreviewableMedia(att.filename, att.mime)) {
       dialog.show(() => (
         <DialogPreviewUnavailable
@@ -5092,6 +5072,13 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
       return
     }
+
+    // 本地附件:复用本地文件预览流程(会话区入口 → 仅 图片/视频/音频/PDF 走预览)
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path, true)
+      return
+    }
+    if (!att.url) return
 
     const type: OutputCardType = att.mime?.startsWith("image/")
       ? "image"
@@ -5110,6 +5097,7 @@ const sessionMessagesLoaded = createMemo(() => {
       content: "",
       filePath: att.url,
       createdAt: new Date(),
+      fromAttachment: true,
     })
     tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type, ext }) })
   }

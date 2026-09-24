@@ -2296,25 +2296,8 @@ function InsightContent() {
    *  本地附件 → handleOpenLocalFile;URL 附件(FilePart)→ 按 resolveOutputType 路由。 */
   function handleOpenAttachment(att: UserAttachment) {
     const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
-    if (["ppt", "pptx", "pps", "ppsx", "xls", "xlsx", "xlsm", "doc", "docx"].includes(ext)) {
-      dialog.show(() => (
-        <DialogPreviewUnavailable
-          filename={att.filename}
-          filePath={att.path}
-          url={att.url}
-          sdkUrl={sdk.url}
-          sdkDirectory={sdk.directory || ""}
-        />
-      ))
-      tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "office-unavailable", ext }) })
-      return
-    }
-    if (att.isLocal && att.path) {
-      handleOpenLocalFile(att.path)
-      return
-    }
-    if (!att.url) return
-    // 仅 图片/视频/音频/PDF 支持右侧预览,其余格式 → 遮罩层下载弹窗
+
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
     if (!isPreviewableMedia(att.filename, att.mime)) {
       dialog.show(() => (
         <DialogPreviewUnavailable
@@ -2328,6 +2311,11 @@ function InsightContent() {
       tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
       return
     }
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path)
+      return
+    }
+    if (!att.url) return
     handleOpenResult({
       id: `att-url-${att.url}`,
       title: att.filename,
