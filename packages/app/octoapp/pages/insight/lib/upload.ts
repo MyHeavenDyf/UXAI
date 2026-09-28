@@ -16,17 +16,17 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
- // 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
- // - txt/md/json/html → FilePart 内联（路由 ①，与 txt/md 同链路，read 直接读正文）；
- //   docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
- //   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
- //   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
- // - 图片(png/jpg/jpeg/gif/webp)是前端单独放开的白名单项：产品要求输入框能粘贴/上传图片，
- //   但服务端白名单（由 analyze_interview 可处理格式决定）暂未含图片。这是「前端先放校验、
- //   后端后续跟进」的有意为之，别照 file-upload spec 把图片项删掉——删了图片就上传不了。
- // - json/html（2026-09 需求 #120）：同属「前端先放校验」——两者是纯文本格式，
- //   路由 ① read 可直接读，MCP 侧若 415 与图片同性质回灌。
- // UPLOAD_ACCEPT / UPLOAD_HINT / validateFile 都从本常量派生，单一事实源。
+// 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
+// - txt/md/json/html → FilePart 内联（路由 ①，与 txt/md 同链路，read 直接读正文）；
+//   docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
+//   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
+//   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
+// - 图片(png/jpg/jpeg/gif/webp)是前端单独放开的白名单项：产品要求输入框能粘贴/上传图片，
+//   但服务端白名单（由 analyze_interview 可处理格式决定）暂未含图片。这是「前端先放校验、
+//   后端后续跟进」的有意为之，别照 file-upload spec 把图片项删掉——删了图片就上传不了。
+// - json/html（2026-09 需求 #120）：同属「前端先放校验」——两者是纯文本格式，
+//   路由 ① read 可直接读，MCP 侧若 415 与图片同性质回灌。
+// UPLOAD_ACCEPT / UPLOAD_HINT / validateFile 都从本常量派生，单一事实源。
 export const ALLOWED_EXT = ["txt", "md", "json", "html", "docx", "xlsx", "pdf", "pptx", "png", "jpg", "jpeg", "gif", "webp"] as const
 
 export type UploadResult = {

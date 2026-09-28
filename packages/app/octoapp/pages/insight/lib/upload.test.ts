@@ -6,6 +6,7 @@ import {
   isExtractableDocFile,
   isTextInlineFile,
   validateFile,
+  validateFileForExternal,
 } from "./upload"
 
 /**
@@ -92,6 +93,12 @@ describe("文件分类谓词", () => {
       expect(isTextInlineFile(name)).toBe(true)
       expect(isExtractableDocFile(name)).toBe(false)
     }
+  })
+
+  // 锁住「json 刻意不进外网白名单」(数据安全)这一决策：html 两边都放开(设计稿常见)。
+  test("外网白名单：json 被拒、html 放行", () => {
+    expect(validateFileForExternal(new File(["{}"], "data.json"))?.code).toBe("EXT_NOT_ALLOWED")
+    expect(validateFileForExternal(new File(["<p/>"], "index.html"))).toBeNull()
   })
 })
 
