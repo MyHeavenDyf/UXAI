@@ -5,6 +5,7 @@ import {
   imageMimeFor,
   isExtractableDocFile,
   isTextInlineFile,
+  validateFile,
 } from "./upload"
 
 /**
@@ -79,6 +80,15 @@ describe("文件分类谓词", () => {
 
   test("其余一律按可内联文本处理（反向排除，与上游 read 口径一致）", () => {
     for (const name of ["a.md", "b.txt", "c.csv", "d.json", "e.log", "无扩展名"]) {
+      expect(isTextInlineFile(name)).toBe(true)
+      expect(isExtractableDocFile(name)).toBe(false)
+    }
+  })
+
+  // 需求 #120：输入框上传格式加 json / html。纯文本格式，与 txt/md 同走路由 ① 内联。
+  test("json / html 过 validateFile 且按可内联文本处理", () => {
+    for (const name of ["data.json", "index.html"]) {
+      expect(validateFile(new File(["{}"], name))).toBeNull()
       expect(isTextInlineFile(name)).toBe(true)
       expect(isExtractableDocFile(name)).toBe(false)
     }
