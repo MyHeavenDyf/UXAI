@@ -135,3 +135,26 @@ export function resolveOutputType(filename: string, mimeType?: string): OutputCa
   }
   return "code"
 }
+
+/** 会话区右侧预览:所有可渲染类型(html/markdown/json/image/code)+ 视频/音频/PDF 可预览;
+ * 仅 office/二进制/压缩包/字体/可执行等(FILE_EXT 中非媒体的部分)走遮罩层下载弹窗。 */
+export function isPreviewableMedia(filename: string, mimeType?: string): boolean {
+  const ext = extOf(filename)
+  if (ext) {
+    if (RENDER_EXT[ext]) return true
+    if (VIDEO_EXT.has(ext)) return true
+    if (AUDIO_EXT.has(ext)) return true
+    if (ext === "pdf") return true
+    if (!FILE_EXT.has(ext)) return true
+    return false
+  }
+  if (mimeType) {
+    if (mimeType.startsWith("image/")) return true
+    if (mimeType.startsWith("video/")) return true
+    if (mimeType.startsWith("audio/")) return true
+    if (mimeType === "application/pdf") return true
+    if (mimeType.startsWith("text/")) return true
+    if (mimeType === "application/json") return true
+  }
+  return false
+}

@@ -224,12 +224,12 @@ export function ConversationHeader(
 
   function handleMenuCreateGroupForSession(session: Session) {
     closeMenu()
-    tracker.interaction({ module: "insight", name: "create-group-for-session" })
     if (session.pinned) void togglePinCurrent(session)
     dialog.show(() => (
       <DialogCreateGroup
         existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
       onCreate={async (name) => {
+        tracker.interaction({ module: "insight", name: "create-group-for-session" })
         const id = await groupsCtx?.addGroup(name)
         if (id) {
           await groupsCtx?.moveSessionToGroup(session.id, id)

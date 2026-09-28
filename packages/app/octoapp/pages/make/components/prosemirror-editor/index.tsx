@@ -69,14 +69,31 @@ export const ProseMirrorEditor = (props: Props) => {
   const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
   const [focused, setFocused] = createSignal(false)
   const [isEmpty, setIsEmpty] = createSignal(true)
-  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; bottom: number } | null>(null)
+  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; top: number; bottom: number } | null>(null)
+  const [popoverFlipBelow, setPopoverFlipBelow] = createSignal(false)
+  const [popoverLeftShift, setPopoverLeftShift] = createSignal(0)
+  let popoverWrapperRef: HTMLDivElement | undefined
+
+  // Track active transition to reset flip/shift only on open (not every keystroke)
+  let wasMentionActive = false
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     setTriggerState(state)
     if (state?.active && containerRef) {
+      if (!wasMentionActive) {
+        setPopoverFlipBelow(false)
+        setPopoverLeftShift(0)
+      }
+      wasMentionActive = true
       const rect = containerRef.getBoundingClientRect()
-      setPopoverPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+      // Reuse prev ref when values unchanged to avoid effect churn on every keystroke
+      setPopoverPosition((prev) =>
+        prev && prev.left === rect.left && prev.top === rect.top && prev.bottom === rect.bottom
+          ? prev
+          : { left: rect.left, top: rect.top, bottom: rect.bottom },
+      )
     } else {
+      wasMentionActive = false
       setPopoverPosition(null)
     }
     props.onTriggerStateChange?.(!!state?.active)
@@ -457,6 +474,47 @@ export const ProseMirrorEditor = (props: Props) => {
     setTriggerState(null)
   }
 
+  // Boundary detection: vertical flip + horizontal clamp for the popover container.
+  // Runs after the popover renders (popoverPosition is set), re-measures on container
+  // size changes (ResizeObserver) and window resize, so it adapts to tab switches /
+  // content loads that change the panel width/height.
+  createEffect(() => {
+    const pos = popoverPosition()
+    if (!pos || !popoverWrapperRef) return
+    const container = popoverWrapperRef.querySelector(".mention-popover-container") as HTMLElement | null
+    if (!container) return
+
+    const measure = () => {
+      const rect = container.getBoundingClientRect()
+
+      // Vertical: flip below when above doesn't fit and below has more room.
+      // Once flipped, stays flipped for the duration of this open session
+      // (reset on reopen in the trigger callback) to avoid oscillation.
+      if (!popoverFlipBelow()) {
+        const spaceAbove = pos.top - 16
+        const spaceBelow = window.innerHeight - pos.bottom - 16
+        if (rect.height > spaceAbove && spaceBelow > spaceAbove) {
+          setPopoverFlipBelow(true)
+        }
+      }
+
+      // Horizontal: clamp so the container's right edge stays within the viewport.
+      // shift <= 0 (moves left). Never pushes the left edge past the 16px margin.
+      const maxLeft = window.innerWidth - 16 - rect.width
+      const shift = pos.left <= maxLeft ? 0 : Math.max(maxLeft - pos.left, 16 - pos.left)
+      setPopoverLeftShift(shift)
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    window.addEventListener("resize", measure)
+    onCleanup(() => {
+      ro.disconnect()
+      window.removeEventListener("resize", measure)
+    })
+  })
+
   // Close slash popover when clicking outside
   createEffect(() => {
     const state = slashTriggerState()
@@ -578,10 +636,14 @@ export const ProseMirrorEditor = (props: Props) => {
         <Portal>
           <div class="mention-popover-overlay" onClick={closeMention} />
           <div
+            ref={popoverWrapperRef}
+            class={popoverFlipBelow() ? "mention-popover-below" : undefined}
             style={{
               position: "fixed",
-              left: `${popoverPosition()!.left}px`,
-              bottom: `${popoverPosition()!.bottom + 1}px`,
+              left: `${popoverPosition()!.left + popoverLeftShift()}px`,
+              ...(popoverFlipBelow()
+                ? { top: `${popoverPosition()!.bottom + 1}px` }
+                : { bottom: `${window.innerHeight - popoverPosition()!.top + 1}px` }),
               "z-index": 1000,
             }}
             onClick={(e) => e.stopPropagation()}

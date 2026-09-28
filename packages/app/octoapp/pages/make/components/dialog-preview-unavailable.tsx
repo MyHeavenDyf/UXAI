@@ -10,6 +10,7 @@ import { directoryHeader } from "@/utils/headers"
 interface Props {
   filename: string
   filePath?: string
+  url?: string
   sdkUrl: string
   sdkDirectory: string
 }
@@ -20,16 +21,23 @@ export function DialogPreviewUnavailable(props: Props): JSX.Element {
 
   async function handleDownload() {
     if (downloading()) return
-    if (!props.filePath) {
+    if (!props.filePath && !props.url) {
       showOctoToast({ title: "下载失败", description: "文件路径缺失" })
       return
     }
     setDownloading(true)
     try {
-      const content = await fetchArtifactContent(props.sdkUrl, props.sdkDirectory, props.filePath)
-      const blob = content.encoding === "base64"
-        ? await fetch(`data:${content.mimeType || "application/octet-stream"};base64,${content.content}`).then((r) => r.blob())
-        : new Blob([content.content], { type: content.mimeType || "application/octet-stream" })
+      let blob: Blob
+      if (props.url) {
+        const resp = await fetch(props.url)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        blob = await resp.blob()
+      } else {
+        const content = await fetchArtifactContent(props.sdkUrl, props.sdkDirectory, props.filePath!)
+        blob = content.encoding === "base64"
+          ? await fetch(`data:${content.mimeType || "application/octet-stream"};base64,${content.content}`).then((r) => r.blob())
+          : new Blob([content.content], { type: content.mimeType || "application/octet-stream" })
+      }
 
       const api = (window as any).api
       if (api?.saveFilePicker && api?.writeFileBuffer) {
@@ -41,12 +49,12 @@ export function DialogPreviewUnavailable(props: Props): JSX.Element {
         return
       }
 
-      const url = URL.createObjectURL(blob)
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement("a")
-      a.href = url
+      a.href = blobUrl
       a.download = props.filename
       a.click()
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(blobUrl)
       showOctoToast({ title: "下载完成", description: props.filename })
       tracker.interaction({ module: "design", name: "files-download-file" })
     } catch (err) {

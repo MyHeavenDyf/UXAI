@@ -112,7 +112,7 @@ export function StudioStyleTemplateMenu(props: {
   return (
     <div class="studio-menu studio-style-template-menu">
       <div class="studio-style-template-header">
-        <div class="studio-style-template-tabs" role="tablist" aria-label="风格模板分类">
+        <div class="studio-style-template-tabs" role="tablist" aria-label="风格模板类型">
           <button
             type="button"
             role="tab"

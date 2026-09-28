@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { ThumbnailMap } from "./session-thumbnail"
+import { sessionThumbnailUsesVideoElement, type ThumbnailMap } from "./session-thumbnail"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
@@ -19,6 +19,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { decode64 } from "@/utils/base64"
+import { resolveStudioThumbnailUrl } from "./studio-media"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -32,11 +33,6 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
       <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
     </svg>
   )
-}
-
-function isVideoThumbnailUrl(url: string): boolean {
-  if (/^data:video\//i.test(url)) return true
-  return /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url)
 }
 
 export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
@@ -222,7 +218,12 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                       const thumbnailUrl = createMemo(() => {
                         // Depend on version to re-evaluate when a thumbnail is set elsewhere
                         void props.thumbnailVersion
-                        return props.thumbnails?.[session.id]?.url
+                        const entry = props.thumbnails?.[session.id]
+                        return resolveStudioThumbnailUrl({
+                          value: entry?.url,
+                          sdkUrl: globalSDK.url,
+                          directory: props.directory,
+                        })
                       })
                       const [isTruncated, setIsTruncated] = createSignal(false)
                       let titleSpanRef!: HTMLSpanElement
@@ -315,28 +316,28 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                         </Show>
                                       }
                                     >
-                                      <Show when={isVideoThumbnailUrl(thumbnailUrl()!)} fallback={
-                                        <img
-                                          src={thumbnailUrl()!}
-                                          alt=""
-                                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                          loading="lazy"
-                                          onError={(e) => {
-                                            const el = e.currentTarget as HTMLImageElement
-                                            el.style.display = "none"
-                                          }}
-                                        />
-                                      }>
+                                      <Show
+                                        when={sessionThumbnailUsesVideoElement(props.thumbnails?.[session.id])}
+                                        fallback={
+                                          <img
+                                            src={thumbnailUrl()!}
+                                            alt=""
+                                            style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                            loading="lazy"
+                                            decoding="async"
+                                            onError={(e) => {
+                                              const el = e.currentTarget as HTMLImageElement
+                                              el.style.display = "none"
+                                            }}
+                                          />
+                                        }
+                                      >
                                         <video
                                           src={thumbnailUrl()!}
                                           muted
                                           playsinline
                                           preload="metadata"
                                           style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                          onError={(e) => {
-                                            const el = e.currentTarget as HTMLVideoElement
-                                            el.style.display = "none"
-                                          }}
                                         />
                                       </Show>
                                     </Show>

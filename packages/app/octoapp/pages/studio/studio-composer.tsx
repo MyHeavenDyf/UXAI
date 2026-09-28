@@ -13,6 +13,7 @@ import {
   type StudioTemplateStyleDescription,
 } from "./studio-style-template-utils"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showFloatingNotice } from "@/components/floating-notice"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -1251,17 +1252,19 @@ export function StudioComposer(props: {
               </Show>
               <Show when={showMentionEntry() && !toolbarOverflow().includes("at")}>
                 <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
-                  <IconTool
-                    label="引用参考"
-                    title="引用参考"
-                    class="studio-composer-icon-at"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
-                    onClick={() => {
-                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                      openMentionMenu()
-                    }}
-                  />
+                  <StudioToolbarTooltip label="引用参考">
+                    <IconTool
+                      label="引用参考"
+                      title=""
+                      class="studio-composer-icon-at"
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
+                      onClick={() => {
+                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                        openMentionMenu()
+                      }}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("style-template")}>
@@ -1296,23 +1299,29 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
-                  <IconTool
-                    label="图文反推"
-                    class="studio-composer-icon-reverse"
-                    disabled={isBusy()}
-                    onClick={() => props.onReversePrompt?.()}
-                  />
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                  <StudioToolbarTooltip label="图文反推">
+                    <IconTool
+                      label="图文反推"
+                      title=""
+                      class="studio-composer-icon-reverse"
+                      disabled={isBusy()}
+                      onClick={() => props.onReversePrompt?.()}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("material")}>
                 <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material" ref={(el) => buttonRefs.set("material", el)} data-toolbar-item="material">
-                  <IconTool
-                    label="词书"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-                  />
+                  <StudioToolbarTooltip label="词书">
+                    <IconTool
+                      label="词书"
+                      title=""
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={toolbarOverflow().length > 0}>
@@ -1804,6 +1813,31 @@ function IconTool(props: { label: string; title?: string; children?: JSX.Element
         <span class="studio-composer-icon-tool-label">{props.children}</span>
       </Show>
     </button>
+  )
+}
+
+function StudioToolbarTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      value={props.label}
+      contentStyle={{
+        height: "30px",
+        padding: "4px 8px",
+        "box-sizing": "border-box",
+        "max-width": "none",
+        "white-space": "nowrap",
+        background: "#191919",
+        color: "#fff",
+        border: "none",
+        "font-size": "14px",
+        "font-weight": "400",
+        "line-height": "22px",
+      }}
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 
