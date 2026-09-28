@@ -92,6 +92,11 @@ export const demoIconConfig: IconConfig = {
 
 const demoModelEditConfig: ModelEditConfig = {
   ...defaultModelEditConfig,
+  selectionStyle: (dom) => {
+    if (dom.elementKind === 'image') return { color: '#7c3aed', lineStyle: 'dashed' }
+    if (dom.elementKind === 'link') return { color: '#ea580c' }
+    return null
+  },
   promptCallback: (filePath, selector) => {
     return [
       `[文件: ${filePath}]`,

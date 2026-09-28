@@ -557,15 +557,18 @@
   z-index: 102;
 }
 
+.mention-asset-root::-webkit-scrollbar,
 .mention-asset-level::-webkit-scrollbar {
   width: 4px;
 }
 
+.mention-asset-root::-webkit-scrollbar-thumb,
 .mention-asset-level::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 2px;
 }
 
+.mention-asset-root::-webkit-scrollbar-track,
 .mention-asset-level::-webkit-scrollbar-track {
   background: transparent;
 }
