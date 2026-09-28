@@ -605,6 +605,7 @@ export const ShellTool = Tool.define(
         metadata: {
           output: last || preview(output),
           exit: code,
+          ...(ctx.onExecute ? { timedOut: expired, aborted, shell: input.shell } : {}),
           description: input.description,
           truncated: cut,
           ...(cut && file ? { outputPath: file } : {}),
