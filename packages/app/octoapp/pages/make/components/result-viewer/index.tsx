@@ -92,12 +92,8 @@ export function ResultViewer(props: {
   focusMode?: boolean
   onFocusModeToggle?: () => void
   onHistoryToggle?: () => void
-  historyActive?: boolean
   historyEntries?: VersionEntry[]
   currentVersionId?: string | null
-  onModeChange?: (mode: "preview" | "edit") => void
-  /** 进入局部修改（editing）时触发，父侧用于关闭历史记录等浮层 */
-  onLocalEditStart?: () => void
   onHistorySwitch?: (entry: VersionEntry) => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
@@ -243,7 +239,6 @@ export function ResultViewer(props: {
       const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
       if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
     }
-    if (!prev && editing) props.onLocalEditStart?.()
   }))
 
   const handleLocalEditToggle = async () => {
@@ -253,7 +248,6 @@ export function ResultViewer(props: {
     const enabling = handler?.handleLocalEdit
       ? !getSessionById(ctx.tab.id)?.editing
       : !featureMutex.state.editing
-    if (enabling) props.onLocalEditStart?.()
     if (handler?.handleLocalEdit) {
       const handled = await handler.handleLocalEdit(ctx)
       if (handled === true) return
@@ -374,7 +368,6 @@ export function ResultViewer(props: {
     if (nextMode === "edit") {
       featureMutex.disableAll()
     }
-    props.onModeChange?.(nextMode)
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html"
@@ -711,7 +704,6 @@ archiving={featureMutex.state.archiving}
                       observedResourceUrls={() => observedUrlsGetters[tabId]?.() || []}
                       focusMode={props.focusMode}
                       onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                      historyActive={props.historyActive}
                       historyEntries={props.historyEntries}
                       currentVersionId={props.currentVersionId}
                       onHistorySwitch={props.onHistorySwitch}
