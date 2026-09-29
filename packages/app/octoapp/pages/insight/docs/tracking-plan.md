@@ -203,7 +203,17 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - 外网 `bun run dev`：逐个触发行为，terminal 看 `[octo:tracker-mock]` payload，确认 `name` / `extend` 正确、`datas.path` 含会话 id
 - 内网 `bun run dev:beta`：Network 面板确认命中真实域名、响应 200/204
 
-## 六、维护闭环
+## 六、统一 Tool / MCP 调用（2026-09）
+
+- 新增 `agent-tool-call-start` / `agent-tool-call-end`，一次调用共用 invocationId，事件分别以 eventId 幂等发送。调用次数按 start 的 invocationId 去重，不能将两条事件相加。
+- 服务端统一采集内置、插件和 MCP 工具，首期仅对已登记的 Insight 轮次及子代理启用；其他模块不发送。已有用户操作、server-*、artifact-* 的触发口径不变。
+- extend 保存工具来源、Agent、当前/根会话和消息、父调用、模型、独立开始时间、请求参数；end 保存最终状态、执行/权限等待/总耗时、参数变化、结果摘要及结构化错误。MCP 查询成功与 businessStatus 分开。
+- 原参数在 start 保存，参数改变时 end 补 effectiveArguments。递归过滤凭证、签名 URL、二进制，参数限 16 KiB，结果限 4 KiB，错误限 2 KiB，单个 extend 限 32 KiB；保留截断/过滤标记。未知字段不补零。
+- 状态为 success/failure/denied/cancelled/timeout/interrupted；MCP isError、Shell 非零退出码、文档结构化错误归 failure。远程异步任务 pending/failed 不是查询工具失败。
+- 调用记录与现有产物记录分表；复用既有持久化发送队列及接口，失败重试不重复执行工具。重启只恢复已登记的新调用，不追溯历史；活进程的调用不因超时扫描被判中断。
+- 验收覆盖成功/失败/权限/取消/超时、子代理归属、MCP 业务状态、参数过滤和体积、去重重试/恢复，以及原产物埋点回归。
+
+## 七、维护闭环
 
 **先方案后清单（硬性顺序，不可颠倒）：** 要新增 / 修改打点，**先在本文件（`tracking-plan.md`）里定 name / extend / 映射规则 / 命名约定**，方案敲定后**再去 `tracking.md` 记已实现的那一行**。本文件是「怎么定」，`tracking.md` 是「定了什么、落在哪」；顺序反了会出现「清单里有行、但没有对应的命名 / 映射依据」的漂移。
 

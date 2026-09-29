@@ -1,5 +1,7 @@
 import path from "path"
 import { ArtifactStore } from "@/tracking/store"
+import { ToolCalls } from "@/tracking/calls"
+import { resultFacts } from "@/tracking/call-data"
 import { mcpFacts, record, string } from "@/tracking/facts"
 import { withFiles } from "@/tracking/scripts"
 import os from "os"
@@ -470,6 +472,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     }) {
       using _ = log.time("resolveTools")
       const tools: Record<string, AITool> = {}
+      const descriptors: Parameters<typeof ToolCalls.configure>[1] = {}
       const run = yield* runner()
       const promptOps = yield* ops()
 
@@ -480,6 +483,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         callID: options.toolCallId,
         extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, ...sessionExtras.get(input.session.id) },
         agent: input.agent.name,
+        onExecute: artifactTracking
+          ? (decoded) => ToolCalls.safely(() => {
+              ToolCalls.parameters(input.processor.message.id, options.toolCallId, decoded)
+              ToolCalls.executing(input.processor.message.id, options.toolCallId)
+            }).pipe(Effect.asVoid)
+          : undefined,
         messages: input.messages,
         metadata: (val) =>
           input.processor.updateToolCall(options.toolCallId, (match) => {
@@ -495,7 +504,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               },
             }
           }),
-        ask: (req) =>
+        ask: (req) => ToolCalls.permission(input.processor.message.id, options.toolCallId,
           permission
             .ask({
               ...req,
@@ -503,7 +512,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tool: { messageID: input.processor.message.id, callID: options.toolCallId },
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
             })
-            .pipe(Effect.orDie),
+            .pipe(Effect.orDie)),
       })
 
       const artifactTracking = yield* Effect.try({
@@ -515,6 +524,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         providerID: input.model.providerID,
         agent: input.agent,
       })) {
+        descriptors[item.id] = { kind: item.origin }
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         if (artifactTracking && item.id === ShellID.ToolID) {
           schema.required = [...new Set([...(schema.required ?? []), "artifactFiles"])]
@@ -522,15 +532,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         tools[item.id] = tool({
           description: item.description,
           inputSchema: jsonSchema(schema),
-          execute(args, options) {
+          execute(requestedArgs, options) {
+            // Session parts may freeze SDK input while before-hooks await I/O.
+            // Keep the tracked request snapshot separate from mutable execution arguments.
+            const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
             return run.promise(
-              Effect.gen(function* () {
+              ToolCalls.observe({ messageID: input.processor.message.id, sessionID: input.session.id,
+                callID: options.toolCallId, tool: item.id, args: requestedArgs }, Effect.gen(function* () {
                 const ctx = context(args, options)
                 yield* plugin.trigger(
                   "tool.execute.before",
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
                 )
+                yield* ToolCalls.safely(() => ToolCalls.parameters(ctx.messageID, options.toolCallId, args))
                 const file = (item.id === "write" || item.id === "edit") && string(record(args).filePath)
                 const tracked =
                   file &&
@@ -559,7 +574,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   yield* input.processor.completeToolCall(options.toolCallId, output)
                 }
                 return output
-              }),
+              }), options.abortSignal),
             )
           },
         })
@@ -578,23 +593,34 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       for (const [key, item] of Object.entries(mcpTools)) {
+        const provider = Object.keys(cfg.mcp ?? {}).sort((a, b) => b.length - a.length)
+          .find((name) => key.startsWith(name.replace(/[^a-zA-Z0-9_-]/g, "_") + "_"))
+        descriptors[key] = {
+          kind: "mcp", provider,
+          // Remote servers negotiate HTTP/SSE at connection time; do not guess a transport from "remote".
+          transport: provider && record(cfg.mcp?.[provider]).type === "local" ? "stdio" : undefined,
+        }
         const execute = item.execute
         if (!execute) continue
 
         const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
         const transformed = ProviderTransform.schema(input.model, schema)
         item.inputSchema = jsonSchema(transformed)
-        item.execute = (args, opts) =>
-          run.promise(
-            Effect.gen(function* () {
+        item.execute = (requestedArgs, opts) => {
+          const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
+          return run.promise(
+            ToolCalls.observe({ messageID: input.processor.message.id, sessionID: input.session.id,
+              callID: opts.toolCallId, tool: key, args: requestedArgs }, Effect.gen(function* () {
               const ctx = context(args, opts)
               yield* plugin.trigger(
                 "tool.execute.before",
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
                 { args },
               )
+              yield* ToolCalls.safely(() => ToolCalls.parameters(ctx.messageID, opts.toolCallId, args))
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                 yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                yield* ToolCalls.safely(() => ToolCalls.executing(ctx.messageID, opts.toolCallId))
                 return yield* Effect.promise(() => execute(args, opts))
               }).pipe(
                 Effect.withSpan("Tool.execute", {
@@ -611,6 +637,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
                 result,
               )
+              yield* ToolCalls.safely(() => ToolCalls.update(ctx.messageID, opts.toolCallId, {
+                executionStage: "result", mcpResult: resultFacts(key, provider, result),
+              }))
 
               const textParts: string[] = []
               const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
@@ -669,11 +698,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* input.processor.completeToolCall(opts.toolCallId, output)
               }
               return output
-            }),
+            }), opts.abortSignal),
           )
+        }
         tools[key] = item
       }
 
+      yield* ToolCalls.safely(() => ToolCalls.configure(input.processor.message.id, descriptors))
       return tools
     })
 

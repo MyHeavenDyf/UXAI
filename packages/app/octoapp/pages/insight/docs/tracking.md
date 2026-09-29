@@ -132,6 +132,15 @@
 | mention-open | 输入框首次键入 `@` 唤起引用面板（面板由关到开的那一次） | — | `index.tsx` `trackMentionOpen`（由 `prosemirror-editor` 的 `onMentionOpen` 回调触发） |
 | mention-select | 在面板中选中一项（技能或文件） | `type`(skill / file) | `index.tsx` `trackMentionSelect`（由 `prosemirror-editor` 的 `onMentionSelect` 回调触发） |
 
+## 十二、统一工具调用
+
+| name | 触发时机 | extend 字段 | 代码位置 |
+|------|----------|------------|----------|
+| agent-tool-call-start | 服务端收到完整调用；执行前参数快照，每 invocationId 一次 | 工具名/类型、参数、会话/消息/Agent/模型及父调用、开始时间 | `tracking/calls.ts`，`session/prompt.ts` / `processor.ts` / `llm.ts` |
+| agent-tool-call-end | 成功/失败/拒绝/取消/超时/中断；每 invocationId 一次 | status、耗时、结果摘要、错误、变化后的参数及关联字段 | 同上；`tracking/sender.ts` 恢复和持久化发送 |
+
+完整字段、限长过滤、异步 MCP 与业务状态区别、子代理关联和统计口径见 [统一工具调用埋点](./tool-call-tracking.md)。一次调用两条事件，不能相加当调用量；已有业务和产物事件保持独立。
+
 ## 已废弃
 
 | name | 废弃说明 |

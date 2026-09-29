@@ -6,6 +6,7 @@ import { Database } from "@/storage/db"
 import { makeRuntime } from "@/effect/run-service"
 import { ArtifactEventTable as Events } from "./delivery.sql"
 import { recover } from "./store"
+import { ToolCalls } from "./calls"
 import { record } from "./facts"
 
 export function endpoint(base: string) {
@@ -141,6 +142,10 @@ export const layer = Layer.effect(
     // This never executes MCP tools or polls remote business tasks.
     yield* Effect.sync(recover).pipe(
       Effect.catchCause(() => Effect.logWarning("[octo:artifact] recovery deferred")),
+      Effect.repeat(Schedule.spaced("1 minute")),
+      Effect.forkScoped,
+    )
+    yield* ToolCalls.safely(ToolCalls.recover).pipe(
       Effect.repeat(Schedule.spaced("1 minute")),
       Effect.forkScoped,
     )
