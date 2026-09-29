@@ -11,7 +11,10 @@ import "./knowledge-references.css"
 //
 // 行内 `[[n]](url)` 是模型直出的原生 markdown 链接,由上游 SessionTurn 渲染,不在本组件职责内。
 
-/** 一条来源(对齐 knowledge_search 工具 metadata.sources 的元素结构)。 */
+/** 检索类工具:两者的 metadata.sources 结构同构,引用列表对二者一视同仁(SPEC-INS-034 §7)。 */
+const SEARCH_TOOLS = ["knowledge_search", "insight_report_search"] as const
+
+/** 一条来源(对齐 knowledge_search / insight_report_search 工具 metadata.sources 的元素结构)。 */
 export type KnowledgeSource = {
   n: number
   id: string
@@ -19,17 +22,22 @@ export type KnowledgeSource = {
   url?: string
   classification?: string
   score?: number
+  /** 原文档下载地址,仅 insight_report_search 提供(SPEC-INS-034 §4)。
+   *  **本期只解析存储、不渲染** —— 真实数据里恒为 null,没有可验的地址,下载交互属后续项。
+   *  列在这里只为类型完整,本组件不读它。 */
+  downloadUrl?: string
 }
 
 /**
- * 从任意 part 数组里取出本轮的 knowledge_search sources。
+ * 从任意 part 数组里取出本轮检索工具的 sources(knowledge_search / insight_report_search)。
  *
  * 防御式解析:part 结构来自 sync store(any 化的 SDK 类型),这里逐字段校验后才当 source 用
  * —— 脏数据宁可当"没有引用"(列表不显示),不能让对话流整个渲染崩掉。
  */
 export function readKnowledgeSources(parts: Array<Record<string, unknown>>): KnowledgeSource[] {
   for (const part of parts) {
-    if (part?.["type"] !== "tool" || part?.["tool"] !== "knowledge_search") continue
+    if (part?.["type"] !== "tool") continue
+    if (!SEARCH_TOOLS.includes(part?.["tool"] as (typeof SEARCH_TOOLS)[number])) continue
     const state = part["state"] as Record<string, unknown> | undefined
     const metadata = state?.["metadata"] as Record<string, unknown> | undefined
     const raw = metadata?.["sources"]
