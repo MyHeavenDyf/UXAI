@@ -130,6 +130,13 @@ export type IconConfig = {
   onConfirm: (args: IconConfirmArgs) => string | Promise<string>
 }
 
+export type SelectionStyle = {
+  color?: string
+  width?: number
+  lineStyle?: 'solid' | 'dashed' | 'dotted' | 'double'
+  offset?: number
+}
+
 export type ModelEditConfig = {
   componentFlag?: string
   componentConfig?: Record<string, ComponentTypeConfig>
@@ -142,6 +149,7 @@ export type ModelEditConfig = {
   onChange?: (args: OnChangeArgs) => void
   iconConfig?: IconConfig
   assetConfig?: AssetConfig
+  selectionStyle?: (dom: ModelEditElement) => SelectionStyle | null | undefined
 }
 
 export type AssetState = {

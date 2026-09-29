@@ -8,15 +8,24 @@ import { iconColors } from '../components/model-edit-items/icon-data/icon-colors
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 import JSZip from 'jszip'
 
+function formatHexWithAlpha(v: string): string {
+  const m = v.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/)
+  if (!m) return v
+  const r = parseInt(m[1].slice(0, 2), 16)
+  const g = parseInt(m[1].slice(2, 4), 16)
+  const b = parseInt(m[1].slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${(parseInt(m[2], 16) / 255).toFixed(2)})`
+}
+
 function flattenJsonValue(key: string, value: string): string[] {
   const trimmed = value.trim()
-  if (!trimmed.startsWith('{')) return [`${key}: ${value}`]
+  if (!trimmed.startsWith('{')) return [`${key}: ${formatHexWithAlpha(value)}`]
   try {
     const obj = JSON.parse(trimmed)
     const lines: string[] = []
     for (const [subKey, subVal] of Object.entries(obj)) {
       if (subVal !== '' && subVal !== null && subVal !== undefined) {
-        lines.push(`  ${subKey}: ${String(subVal)}`)
+        lines.push(`  ${subKey}: ${formatHexWithAlpha(String(subVal))}`)
       }
     }
     return lines
@@ -49,7 +58,7 @@ function buildModelEditPrompt(
       const beforeLines = flattenJsonValue(key, before)
       const afterLines = flattenJsonValue(key, after)
       if (beforeLines.length <= 1 && afterLines.length <= 1) {
-        changes.push(`  ${displayName}: ${before || '(empty)'} → ${after || '(empty)'}`)
+        changes.push(`  ${displayName}: ${formatHexWithAlpha(before) || '(empty)'} → ${formatHexWithAlpha(after) || '(empty)'}`)
       } else {
         changes.push(`  ${displayName}:`)
         changes.push(`    修改前:`)

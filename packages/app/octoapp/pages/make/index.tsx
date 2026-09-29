@@ -44,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { closePrototypePanels, onPrototypeQuickFix, onPrototypeCtxMenu } from "./utils/prototype-utils"
+import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -1851,7 +1851,6 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
-  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
   const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
@@ -1925,24 +1924,6 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
-  })
-
-  // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
-  // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
-  // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
-  // design（纯 HTML）页面同理：sandbox allow-same-origin 后点击 iframe 不触发 parent
-  // 的 window.blur，由 html-renderer 在选中元素时派发 design:element-selected，此处监听关闭。
-  createEffect(() => {
-    const close = () => setShowHistoryPanel(false)
-    const unsubQuickFix = onPrototypeQuickFix(close)
-    const unsubCtxMenu = onPrototypeCtxMenu(close)
-    const onElementSelected = () => close()
-    window.addEventListener("design:element-selected", onElementSelected)
-    onCleanup(() => {
-      unsubQuickFix()
-      unsubCtxMenu()
-      window.removeEventListener("design:element-selected", onElementSelected)
-    })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
@@ -3039,7 +3020,6 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
-    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
@@ -6062,22 +6042,14 @@ onPreview={(url) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
-                historyActive={showHistoryPanel()}
                 historyEntries={versionList()}
                 currentVersionId={currentVersionId()}
                 onHistorySwitch={handleHistorySwitch}
-                onModeChange={(mode) => {
-                  if (mode === "edit") setShowHistoryPanel(false)
-                }}
-                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
                   if (effectiveBusy()) return
-                  if (!showHistoryPanel()) {
-                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
-                    if (tab) await historyController.refreshVersions(tab)
-                  }
-                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
-                  setShowHistoryPanel(!showHistoryPanel())
+                  const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                  if (tab) await historyController.refreshVersions(tab)
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: "open" }) })
                 }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
