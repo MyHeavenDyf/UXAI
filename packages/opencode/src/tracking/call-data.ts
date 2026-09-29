@@ -1,10 +1,13 @@
 import { record, string, mcpFacts } from "./facts"
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js"
+import { errors as toolErrors } from "../mcp/tool-error"
 
 const secret = /(?:password|passwd|secret|token|authorization|cookie|api[_-]?key|credential|signature|^sig$)/i
 
 export function cleanText(value: string) {
   return value
+    // Cookie headers contain multiple credentials separated by semicolons.
+    .replace(/(\b(?:set-cookie|cookie)\b["']?[ \t]*:[ \t]*)("[^"\r\n]*"|'[^'\r\n]*'|[^"'\r\n]*)/gi, "$1[redacted]")
     .replace(/data:[^\s;,]+;base64,[a-z\d+/=]+/gi, "[binary omitted]")
     .replace(/\b(Bearer|Basic)\s+[a-z\d._~+/=-]+/gi, "$1 [redacted]")
     .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
@@ -70,6 +73,14 @@ export function capture(value: unknown, limit = 16 * 1024) {
       }
       const name = cleanText(key).slice(0, 128)
       budget.left -= Buffer.byteLength(JSON.stringify(name)) + 4
+      if (
+        (key === "data" && ["image", "audio"].includes(string(record(value).type))) ||
+        (key === "blob" && typeof record(value).uri === "string")
+      ) {
+        output[name] = "[binary omitted]"
+        if (omittedFields.length < 16) omittedFields.push(`${field}.${name}`.slice(0, 256))
+        continue
+      }
       if (secret.test(key)) {
         output[name] = "[redacted]"
         if (redactedFields.length < 16) redactedFields.push(`${field}.${name}`.slice(0, 256))
@@ -113,6 +124,7 @@ export function resultFacts(tool: string, provider: string | undefined, value: u
   const result = record(value)
   const metadata = record(result.metadata)
   const mcp = provider ? mcpFacts(provider, tool, value) : undefined
+  const error = mcp?.isError && toolErrors.has(result) ? failure(toolErrors.get(result)) : undefined
   const failed =
     mcp?.isError ||
     (tool === "bash" && typeof metadata.exit === "number" && metadata.exit !== 0) ||
@@ -120,15 +132,15 @@ export function resultFacts(tool: string, provider: string | undefined, value: u
   const summary = capture(result.output ?? result.content ?? result.structuredContent ?? value, 4096)
   return {
     status:
-      metadata.timedOut === true ? "timeout" : metadata.aborted === true ? "cancelled" : failed ? "failure" : "success",
+      error?.status ?? (metadata.timedOut === true ? "timeout" : metadata.aborted === true ? "cancelled" : failed ? "failure" : "success"),
     resultSummary: summary.value,
     outputBytes: typeof result.output === "string" ? Buffer.byteLength(result.output) : undefined,
     outputTruncated: metadata.truncated === true || summary.truncated,
     resultRedactedFields: summary.redactedFields,
     resultOmittedFields: summary.omittedFields,
     resourceCount: mcp?.resources.length ?? (Array.isArray(result.attachments) ? result.attachments.length : undefined),
-    errorCode: mcp?.isError ? "MCP_TOOL_ERROR" : failed ? string(metadata.error) || "NON_ZERO_EXIT" : undefined,
-    errorType: failed ? "ToolResultError" : metadata.timedOut === true ? "TimeoutError" : undefined,
+    errorCode: error?.errorCode ?? (mcp?.isError ? "MCP_TOOL_ERROR" : failed ? string(metadata.error) || "NON_ZERO_EXIT" : undefined),
+    errorType: error?.errorType ?? (failed ? "ToolResultError" : metadata.timedOut === true ? "TimeoutError" : undefined),
     errorMessage: failed
       ? capture(metadata.errorMessage ?? metadata.error ?? result.output ?? result.content, 2048).value
       : undefined,

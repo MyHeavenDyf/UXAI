@@ -287,3 +287,56 @@ test("recovery retries a saved completion even while the owning process is still
   expect(events()).toHaveLength(2)
   expect(data("end")).toMatchObject({ status: "success", recovered: true, durationMs: 1000, endedAt: 2000 })
 })
+
+test("Cookie headers are fully filtered before persistence and delivery", () => {
+  const input = {
+    ...seed(),
+    args: { command: 'curl -H "Cookie: theme=light; sessionid=private-session; sid=private-sid" https://example.test' },
+  }
+  ToolCalls.start(input)
+  ToolCalls.parameters(input.messageID, input.callID, {
+    command: "Cookie: theme=dark; sessionid=changed-session\nAccept: application/json",
+  })
+  ToolCalls.settled(input, {
+    output: 'Set-Cookie: sessionid=result-session; Path=/; HttpOnly\nContent-Type: text/plain',
+    metadata: {},
+  })
+  const encoded = JSON.stringify([events(), Database.use((db) => db.select().from(Calls).all())])
+  for (const secret of ["private-session", "private-sid", "changed-session", "result-session"]) {
+    expect(encoded).not.toContain(secret)
+  }
+  expect(data("end").effectiveArguments.command).toContain("Accept: application/json")
+  expect(data("end").resultSummary).toContain("Content-Type: text/plain")
+  expect(capture(JSON.stringify({ Cookie: "theme=light; sessionid=json-session" })).value).not.toContain("json-session")
+})
+
+test("MCP binary content is omitted from successful and failed result payloads", () => {
+  const input = { ...seed(), tool: "uxr-tool_key_findings" }
+  const content = [
+    { type: "image", mimeType: "image/png", data: "aW1hZ2UtcHJpdmF0ZQ==" },
+    { type: "audio", mimeType: "audio/wav", data: "YXVkaW8tcHJpdmF0ZQ==" },
+    { type: "resource", resource: { uri: "file:///report.bin", blob: "YmxvYi1wcml2YXRl" } },
+    { type: "text", text: "plain result" },
+  ]
+  const original = JSON.stringify(content)
+  for (const isError of [false, true]) {
+    const facts = resultFacts(input.tool, "uxr-tool", { isError, content })
+    const encoded = JSON.stringify(facts)
+    for (const binary of ["aW1hZ2UtcHJpdmF0ZQ==", "YXVkaW8tcHJpdmF0ZQ==", "YmxvYi1wcml2YXRl"]) {
+      expect(encoded).not.toContain(binary)
+    }
+    expect(encoded).toContain("plain result")
+    expect(facts.resultOmittedFields).toEqual(["$[0].data", "$[1].data", "$[2].resource.blob"])
+    ToolCalls.start({ ...input, callID: String(isError) })
+    ToolCalls.update(input.messageID, String(isError), { mcpResult: facts })
+    ToolCalls.settled({ ...input, callID: String(isError) }, { output: "converted" })
+  }
+  const persisted = JSON.stringify([events(), Database.use((db) => db.select().from(Calls).all())])
+  expect(persisted).not.toContain("aW1hZ2UtcHJpdmF0ZQ==")
+  expect(persisted).not.toContain("YXVkaW8tcHJpdmF0ZQ==")
+  expect(persisted).not.toContain("YmxvYi1wcml2YXRl")
+  expect(JSON.stringify(content)).toBe(original)
+  expect(capture({ data: "ordinary data", blob: "ordinary text" }).value).toEqual({
+    data: "ordinary data", blob: "ordinary text",
+  })
+})
