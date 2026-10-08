@@ -208,6 +208,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
+    const ae = document.activeElement as HTMLElement | null
+    if (ae && !ae.isConnected) ae.blur?.()
     const target = e.currentTarget as HTMLElement
     const getRect = () => target.getBoundingClientRect()
     const rect = getRect()
