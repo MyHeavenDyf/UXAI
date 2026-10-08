@@ -204,14 +204,24 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
+    const rect = triggerRef?.getBoundingClientRect()
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      setOpen(false)
+      setMenuPosition(null)
+      return
+    }
     if (!open()) {
-      openMenuAt()
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+      setLocalFileSelections([])
+      setOpen(true)
+      setActiveSecondary(null)
+      setSkillsCategory('platform')
+      props.onSkillsOpen?.()
     } else {
       // 已打开:若记录的位置与按钮实际位置漂移(登录/布局变化所致),重新定位并保持打开,不误关闭
-      const rect = triggerRef?.getBoundingClientRect()
       const pos = menuPosition()
-      const expectedLeft = rect?.left ?? 0
-      const expectedBottom = rect ? window.innerHeight - rect.top : 0
+      const expectedLeft = rect.left
+      const expectedBottom = window.innerHeight - rect.top
       if (!pos || pos.left !== expectedLeft || pos.bottom !== expectedBottom) {
         setMenuPosition({ left: expectedLeft, bottom: expectedBottom })
         return
