@@ -159,6 +159,20 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     })
   })
 
+  // 兜底打开后的位置追踪:按钮恢复可见(rect 非全零)时把面板校正到按钮旁(最多 10s)
+  const repositionWhenTriggerVisible = (attempt = 0) => {
+    if (!open()) return
+    const rect = triggerRef?.getBoundingClientRect()
+    const zero = !rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)
+    if (!zero) {
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+      return
+    }
+    if (attempt < 50) {
+      setTimeout(() => repositionWhenTriggerVisible(attempt + 1), 200)
+    }
+  }
+
   // 打开面板;触发按钮 rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,
   // 重试耗尽仍全零则以固定位置兜底打开(保证面板可用,可见性待查)
   const openMenuAt = (attempt = 0) => {
@@ -169,7 +183,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         requestAnimationFrame(() => openMenuAt(attempt + 1))
         return
       }
-      // Fallback: open at a fixed visible position
+      // Fallback: open at a fixed visible position, then reposition once the trigger becomes visible
       console.warn("[addon-menu] trigger rect still zero after retries, fallback position")
       setMenuPosition({ left: 24, bottom: 24 })
       setLocalFileSelections([])
@@ -177,6 +191,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       setActiveSecondary(null)
       setSkillsCategory('platform')
       props.onSkillsOpen?.()
+      repositionWhenTriggerVisible()
       return
     }
     setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
