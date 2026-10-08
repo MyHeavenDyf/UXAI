@@ -100,6 +100,8 @@ export type AgentSidebarProps = {
 
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
+  /** Called when the user clicks the top "new session" button, before navigation. */
+  onNewSession?: () => void
   /** Called after scrolling reveals more recent sessions. */
   onLoadMore?: (limit: number) => void
 
@@ -298,7 +300,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
-  createEffect(on(resolvedDir, () => { setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
+  createEffect(on(resolvedDir, () => { userScrolled = false; setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
 
   createEffect(on(displayedRecentSessions, () => {
     requestAnimationFrame(() => {
@@ -476,6 +478,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let pendingScrollId: string | null = null
+  let userScrolled = false
+  let programmaticScroll = false
+  let programmaticScrollTimer: ReturnType<typeof setTimeout> | undefined
 
   type PendingSessionEvent = {
     type: "session.created" | "session.updated" | "session.deleted"
@@ -484,13 +489,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
   const pendingSessionEvents: PendingSessionEvent[] = []
 
+  // Smooth scrolling keeps emitting scroll events; onScroll refreshes the
+  // timer while they arrive, so the flag clears shortly after scrolling stops
+  // instead of after an arbitrary fixed delay.
+  function armProgrammaticScrollReset() {
+    clearTimeout(programmaticScrollTimer)
+    programmaticScrollTimer = setTimeout(() => { programmaticScroll = false }, 250)
+  }
+
   function scrollToSession(id: string) {
+    programmaticScroll = true
+    clearTimeout(programmaticScrollTimer)
     setTimeout(() => {
-      if (!scrollContainer) return
+      if (!scrollContainer) { programmaticScroll = false; return }
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
-      if (!el) return
+      if (!el) { programmaticScroll = false; return }
       const elTop = el.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top + scrollContainer.scrollTop
       scrollContainer.scrollTo({ top: Math.max(0, elTop - 46), behavior: "smooth" })
+      armProgrammaticScrollReset()
     }, 50)
   }
 
@@ -582,7 +598,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       bustSidebarCache()
       if (t === "session.updated") {
         const activeId = props.activeSessionId()
-        if (activeId) pendingScrollId = activeId
+        if (activeId && !userScrolled) pendingScrollId = activeId
       }
       clearTimeout(refetchTimer)
       const evtProps = e.details.properties as { sessionID?: string; info?: Session }
@@ -595,7 +611,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (pendingScrollId) {
             const id = pendingScrollId
             pendingScrollId = null
-            scrollToSession(id)
+            if (!userScrolled) scrollToSession(id)
           }
         } else {
           pendingSessionEvents.length = 0
@@ -603,7 +619,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (pendingScrollId) {
             const id = pendingScrollId
             pendingScrollId = null
-            scrollToSession(id)
+            if (!userScrolled) scrollToSession(id)
           }
         }
       }, 1000)
@@ -615,6 +631,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const el = scrollContainer
     if (!el) return
     const onScroll = () => {
+      if (programmaticScroll) armProgrammaticScrollReset()
+      else userScrolled = true
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions()) {
         if (useServerPagination()) void loadMoreFromServer(true)
         else {
@@ -636,6 +654,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => resizeObserver.disconnect())
   })
   onCleanup(() => { clearTimeout(refetchTimer) })
+  onCleanup(() => clearTimeout(programmaticScrollTimer))
 
   // Listen for rename events from chat area to scroll to active session
   const handleSessionRenamed = () => {
@@ -672,6 +691,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // Refetch on active session change (safety net for event races)
   createEffect(on(props.activeSessionId, (newId, oldId) => {
     if (newId && newId !== oldId) {
+      // Navigating to a different session re-enables auto-scroll; a manual
+      // scroll should only suppress it while reading a given session.
+      userScrolled = false
       scheduleSidebarAction(500, () => {
         if (!useServerPagination()) void refetch()
         else void backfillActiveSession()
@@ -857,6 +879,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     createTimer = setTimeout(() => setCreating(false), 500)
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "new-session" })
+    props.onNewSession?.()
     navigate(props.buildNewRoute())
   }
 

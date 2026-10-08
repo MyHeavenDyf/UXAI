@@ -6,18 +6,15 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups } from "@/hooks/use-session-groups"
-import { useMakeGroupsContext, setPendingGroup } from "@/context/make-groups"
+import { useMakeGroupsContext, setPendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { AgentSidebar, type AgentSidebarProps, type BeforeSectionApi } from "@/components/agent-sidebar"
 import { SidebarSectionHeader } from "@/components/sidebar-shell"
 import { SessionList, ScrollableText } from "@/components/session-list"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogRemoveGroup } from "@/components/dialog-remove-group"
+import { GroupContextMenu } from "@/components/group-context-menu"
 import { IconTableEllipsis } from "@/pages/make/icons/design-files-icons"
 import { tracker } from "@/utils/tracker"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Icon } from "@opencode-ai/ui/icon"
-import trashPng from "@/pages/_shell/icons/trash.png"
-import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLinePng from "@/pages/_shell/icons/Folder_line.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 import folderOpenedPng from "@/pages/_shell/icons/ic_bpit_floder_opened.png"
@@ -49,7 +46,15 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   createEffect(() => groupExpandedByNamespace.set(props.namespace, groupExpanded()))
   const [selectedGroupId, setSelectedGroupId] = createSignal<string | null>(null)
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
-  const [menuOpenId, setMenuOpenId] = createSignal<string | null>(null)
+  const [groupMenu, setGroupMenu] = createSignal<{ id: string; x: number; y: number } | null>(null)
+  const menuOpenId = () => groupMenu()?.id ?? null
+  const openGroupMenu = (group: MakeGroup, e: MouseEvent) => setGroupMenu({ id: group.id, x: e.clientX, y: e.clientY })
+  const closeGroupMenu = () => setGroupMenu(null)
+  const menuGroup = () => {
+    const m = groupMenu()
+    if (!m) return null
+    return groups.find(g => g.id === m.id) ?? null
+  }
   const [removeTarget, setRemoveTarget] = createSignal<MakeGroup | null>(null)
   const [draggingId, setDraggingId] = createSignal<string | null>(null)
   const [dragOverId, setDragOverId] = createSignal<string | null>(null)
@@ -153,6 +158,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       directory={resolvedDir()}
       activeSessionId={activeSessionId}
       onSessionClick={() => setSelectedGroupId(null)}
+      onNewSession={() => clearPendingGroup(props.namespace)}
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
       onMoveToGroup={(session, groupId) => {
@@ -270,7 +276,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                         }}
                         onMouseEnter={() => setHoveredId(group.id)}
                         onMouseLeave={() => setHoveredId(null)}
-                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpenId(group.id) }}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openGroupMenu(group, e) }}
                         onClick={() => toggleGroup(group.id)}
                       >
                         <Show when={dragOverId() === group.id && draggingId() && draggingId() !== group.id}>
@@ -296,42 +302,19 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                             style={{ height: "28px", width: "4px", background: "#0A59F7", transform: "translateY(-50%)" }}
                           />
                         </Show>
-                        <DropdownMenu
-                          gutter={4}
-                          placement="bottom-end"
-                          open={menuOpenId() === group.id}
-                          onOpenChange={(open) => setMenuOpenId(open ? group.id : null)}
+                        <div
+                          class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center"
+                          style={{ width: "20px", height: "20px", opacity: showMenu() ? 1 : 0, "pointer-events": showMenu() ? "auto" : "none" }}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <div
-                            class="absolute right-[4px] top-1/2 -translate-y-1/2 flex items-center justify-center"
-                            style={{ width: "20px", height: "20px", opacity: showMenu() ? 1 : 0, "pointer-events": showMenu() ? "auto" : "none" }}
-                            onClick={(e) => e.stopPropagation()}
+                          <button
+                            class="flex items-center justify-center hover:bg-[rgba(0,0,0,0.06)]"
+                            style={{ width: "20px", height: "20px", "border-radius": "4px", cursor: "pointer" }}
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); openGroupMenu(group, e) }}
                           >
-                            <DropdownMenu.Trigger
-                              as="button"
-                              class="flex items-center justify-center hover:bg-[rgba(0,0,0,0.06)]"
-                              style={{ width: "20px", height: "20px", "border-radius": "4px", cursor: "pointer" }}
-                            >
-                              <IconTableEllipsis size={16} style={{ color: "rgba(0,0,0,0.6)" }} />
-                            </DropdownMenu.Trigger>
-                          </div>
-                          <DropdownMenu.Portal>
-                            <DropdownMenu.Content style={{ width: "175px", "min-height": "116px", padding: "4px", display: "flex", "flex-direction": "column", gap: "4px" }}>
-                              <DropdownMenu.Item class="flex items-center gap-2" onSelect={() => handleNewSessionInGroup(group)}>
-                                <Icon name="plus" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0", color: "rgba(0,0,0,0.6)" }} />
-                                <DropdownMenu.ItemLabel>新建对话</DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                              <DropdownMenu.Item class="flex items-center gap-2" onSelect={() => handleRenameGroup(group)}>
-                                <img src={squareAndPencilPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                                <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                              <DropdownMenu.Item class="flex items-center gap-2" onSelect={() => handleRemoveGroup(group)}>
-                                <img src={trashPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                                <DropdownMenu.ItemLabel>移除对话分组</DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                            </DropdownMenu.Content>
-                          </DropdownMenu.Portal>
-                        </DropdownMenu>
+                            <IconTableEllipsis size={16} style={{ color: "rgba(0,0,0,0.6)" }} />
+                          </button>
+                        </div>
                       </div>
                       <Show when={expandedGroups().has(group.id)}>
                         <SessionList
@@ -395,6 +378,26 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
         />
       </Portal>
     </Show>
+    <GroupContextMenu
+      show={!!groupMenu()}
+      x={groupMenu()?.x ?? 0}
+      y={groupMenu()?.y ?? 0}
+      group={menuGroup()}
+      onClose={closeGroupMenu}
+      onNewSession={handleNewSessionInGroup}
+      onRename={handleRenameGroup}
+      onRemove={handleRemoveGroup}
+      onContextMenuBackdrop={(e) => {
+        for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+          const id = el.closest("[data-group-id]")?.getAttribute("data-group-id")
+          if (!id) continue
+          if (!groups.find(g => g.id === id)) { closeGroupMenu(); return }
+          setGroupMenu({ id, x: e.clientX, y: e.clientY })
+          return
+        }
+        closeGroupMenu()
+      }}
+    />
     </>
   )
 }
