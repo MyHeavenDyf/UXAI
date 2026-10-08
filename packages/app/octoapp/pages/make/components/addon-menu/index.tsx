@@ -159,14 +159,24 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     })
   })
 
-  // 打开面板;触发按钮 rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,恢复可见后再定位
+  // 打开面板;触发按钮 rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,
+  // 重试耗尽仍全零则以固定位置兜底打开(保证面板可用,可见性待查)
   const openMenuAt = (attempt = 0) => {
     const rect = triggerRef?.getBoundingClientRect()
     const zero = !rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)
     if (zero) {
       if (attempt < 10) {
         requestAnimationFrame(() => openMenuAt(attempt + 1))
+        return
       }
+      // Fallback: open at a fixed visible position
+      console.warn("[addon-menu] trigger rect still zero after retries, fallback position")
+      setMenuPosition({ left: 24, bottom: 24 })
+      setLocalFileSelections([])
+      setOpen(true)
+      setActiveSecondary(null)
+      setSkillsCategory('platform')
+      props.onSkillsOpen?.()
       return
     }
     setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
