@@ -30,9 +30,24 @@ type Store = {
 }
 
 const RECENT_LIMIT = 5
+const STARTUP_TOKEN_WAIT_MS = 30_000
+const STARTUP_TOKEN_CHECK_MS = 250
 
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
+}
+
+function waitForStartupToken(signal: AbortSignal) {
+  return new Promise<boolean>((resolve) => {
+    const deadline = Date.now() + STARTUP_TOKEN_WAIT_MS
+    const check = () => {
+      if (signal.aborted) return resolve(false)
+      if (hasModelsApiToken()) return resolve(true)
+      if (Date.now() >= deadline) return resolve(false)
+      window.setTimeout(check, STARTUP_TOKEN_CHECK_MS)
+    }
+    check()
+  })
 }
 
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
@@ -72,8 +87,12 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     onMount(() => {
-      if (!hasModelsApiToken()) return
-      void refreshApiModels()
+      const controller = new AbortController()
+      void waitForStartupToken(controller.signal).then((ready) => {
+        if (!ready || controller.signal.aborted) return
+        void refreshApiModels()
+      })
+      onCleanup(() => controller.abort())
     })
 
     onCleanup(
