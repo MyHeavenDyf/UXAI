@@ -134,6 +134,23 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     )
   }
 
+  // 打开状态下监听 resize/scroll,实时校正面板位置(登录/布局变化会使旧坐标失效,面板漂移出视口)
+  createEffect(() => {
+    if (!open()) return
+    const update = () => {
+      const rect = triggerRef?.getBoundingClientRect()
+      if (!rect || (rect.left === 0 && rect.top === 0 && rect.bottom === 0)) return
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    }
+    update()
+    window.addEventListener("resize", update)
+    window.addEventListener("scroll", update, true)
+    onCleanup(() => {
+      window.removeEventListener("resize", update)
+      window.removeEventListener("scroll", update, true)
+    })
+  })
+
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
     if (!open()) {
@@ -147,6 +164,15 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       setSkillsCategory('platform')
       props.onSkillsOpen?.()
     } else {
+      // 已打开:若记录的位置与按钮实际位置漂移(登录/布局变化所致),重新定位并保持打开,不误关闭
+      const rect = triggerRef?.getBoundingClientRect()
+      const pos = menuPosition()
+      const expectedLeft = rect?.left ?? 0
+      const expectedBottom = rect ? window.innerHeight - rect.top : 0
+      if (!pos || pos.left !== expectedLeft || pos.bottom !== expectedBottom) {
+        setMenuPosition({ left: expectedLeft, bottom: expectedBottom })
+        return
+      }
       setOpen(false)
     }
   }
