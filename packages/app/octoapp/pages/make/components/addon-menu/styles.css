@@ -89,6 +89,25 @@
   color: rgba(0, 0, 0, 0.4);
 }
 
+/* 触发按钮 tooltip(非 portal,挂在按钮 wrapper 内,随组件 DOM 一起销毁,不残留) */
+.addon-menu-trigger-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #191919;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+}
+
 /* Secondary panel (categories for skills, or files list for design files) */
 .addon-menu-secondary {
   position: absolute;

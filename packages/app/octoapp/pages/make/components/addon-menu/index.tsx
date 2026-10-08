@@ -1,9 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
-import { Portal } from "solid-js/web"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
@@ -98,6 +96,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }, 100)
   }
   let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
+  const [triggerTip, setTriggerTip] = createSignal(false)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
   // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
@@ -568,24 +567,27 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   return (
     <>
-      <Tooltip placement="top" value="添加附件">
+      {/* Tooltip 非 portal 实现:挂在按钮 wrapper 内,detached 时随 DOM 一起移除,不会残留累积 */}
+      <span
+        class="relative inline-flex"
+        onMouseEnter={() => setTriggerTip(true)}
+        onMouseLeave={() => setTriggerTip(false)}
+      >
         <Button
           ref={triggerRef}
           type="button"
           variant="ghost"
           class="size-8 p-0 addon-menu-trigger"
-          onMouseEnter={() => {
-            const ae = document.activeElement as HTMLElement | null
-            if (ae && !ae.isConnected) ae.blur?.()
-          }}
           onClick={handleTriggerClick}
         >
           <Icon name="plus" class="size-5" />
         </Button>
-      </Tooltip>
+        <Show when={triggerTip()}>
+          <span class="addon-menu-trigger-tip">添加附件</span>
+        </Show>
+      </span>
 
       <Show when={open() && menuPosition()}>
-        <Portal>
           <div class="addon-menu-container" ref={menuRef} style={menuStyle()}>
             {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
                 缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
@@ -819,12 +821,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </Show>
           </div>
-        </Portal>
       </Show>
 
       {/* URL Dialog */}
       <Show when={urlDialogOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay" onClick={closeUrlDialog}>
             <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -855,12 +855,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* URL Dialog B — loading + progress + step text */}
       <Show when={urlDialogBOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -887,12 +885,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -914,7 +910,6 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}
