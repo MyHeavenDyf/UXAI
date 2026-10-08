@@ -34,6 +34,7 @@ function templateTypeLabel(item: StudioStyleTemplateListItem) {
 }
 
 export function StudioStyleTemplateMenu(props: {
+  canCreateTemplate: boolean
   onCreateTemplate: () => void
   onListTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
   onSelectTemplate?: (item: StudioStyleTemplateListItem) => void
@@ -134,10 +135,12 @@ export function StudioStyleTemplateMenu(props: {
             我的模板
           </button>
         </div>
-        <button type="button" class="studio-style-template-create" onClick={props.onCreateTemplate}>
-          <span class="studio-style-template-create-plus" aria-hidden="true" />
-          <span>创建模板</span>
-        </button>
+        <Show when={props.canCreateTemplate}>
+          <button type="button" class="studio-style-template-create" onClick={props.onCreateTemplate}>
+            <span class="studio-style-template-create-plus" aria-hidden="true" />
+            <span>创建模板</span>
+          </button>
+        </Show>
       </div>
       <ScrollView class="studio-style-template-content" role="tabpanel" onScroll={handleScroll}>
         <Show
