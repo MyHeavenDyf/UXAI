@@ -134,12 +134,20 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     )
   }
 
-  // 打开状态下监听 resize/scroll,实时校正面板位置(登录/布局变化会使旧坐标失效,面板漂移出视口)
+  // 打开状态下监听 resize/scroll,实时校正面板位置;按钮滚出视口(登录/布局变化)时自动关闭面板,
+  // 避免面板以失效坐标渲染在视口外、后续点击表现为"开/关一个看不见的面板"
   createEffect(() => {
     if (!open()) return
     const update = () => {
       const rect = triggerRef?.getBoundingClientRect()
-      if (!rect || (rect.left === 0 && rect.top === 0 && rect.bottom === 0)) return
+      if (!rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)) return
+      const inViewport =
+        rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth
+      if (!inViewport) {
+        setOpen(false)
+        setMenuPosition(null)
+        return
+      }
       setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
     }
     update()
@@ -151,18 +159,28 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     })
   })
 
+  // 打开面板;触发按钮 rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,恢复可见后再定位
+  const openMenuAt = (attempt = 0) => {
+    const rect = triggerRef?.getBoundingClientRect()
+    const zero = !rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)
+    if (zero) {
+      if (attempt < 10) {
+        requestAnimationFrame(() => openMenuAt(attempt + 1))
+      }
+      return
+    }
+    setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    setLocalFileSelections([])
+    setOpen(true)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+    props.onSkillsOpen?.()
+  }
+
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
     if (!open()) {
-      const rect = triggerRef?.getBoundingClientRect()
-      if (rect) {
-        setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
-      }
-      setLocalFileSelections([])
-      setOpen(true)
-      setActiveSecondary(null)
-      setSkillsCategory('platform')
-      props.onSkillsOpen?.()
+      openMenuAt()
     } else {
       // 已打开:若记录的位置与按钮实际位置漂移(登录/布局变化所致),重新定位并保持打开,不误关闭
       const rect = triggerRef?.getBoundingClientRect()
