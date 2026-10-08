@@ -96,7 +96,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }, 100)
   }
   let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
-  const [triggerTip, setTriggerTip] = createSignal(false)
+  const [triggerTip, setTriggerTip] = createSignal<{ left: number; top: number } | null>(null)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
   // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
@@ -567,11 +567,15 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   return (
     <>
-      {/* Tooltip 非 portal 实现:挂在按钮 wrapper 内,detached 时随 DOM 一起移除,不会残留累积 */}
+      {/* Tooltip 非 portal 实现:fixed 定位不受祖先 overflow 裁剪,位置按按钮实时 rect 计算;
+          detached 时随组件 DOM 一起移除,不会残留累积 */}
       <span
         class="relative inline-flex"
-        onMouseEnter={() => setTriggerTip(true)}
-        onMouseLeave={() => setTriggerTip(false)}
+        onMouseEnter={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          setTriggerTip({ left: rect.left + rect.width / 2, top: rect.top - 6 })
+        }}
+        onMouseLeave={() => setTriggerTip(null)}
       >
         <Button
           ref={triggerRef}
@@ -583,7 +587,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           <Icon name="plus" class="size-5" />
         </Button>
         <Show when={triggerTip()}>
-          <span class="addon-menu-trigger-tip">添加附件</span>
+          <span
+            class="addon-menu-trigger-tip"
+            style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
+          >
+            添加附件
+          </span>
         </Show>
       </span>
 

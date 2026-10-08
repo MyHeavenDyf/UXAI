@@ -89,13 +89,11 @@
   color: rgba(0, 0, 0, 0.4);
 }
 
-/* 触发按钮 tooltip(非 portal,挂在按钮 wrapper 内,随组件 DOM 一起销毁,不残留) */
+/* 触发按钮 tooltip(非 portal,fixed 定位不受祖先 overflow 裁剪,随组件 DOM 一起销毁不残留) */
 .addon-menu-trigger-tip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 10000;
   white-space: nowrap;
   padding: 2px 8px;
   border-radius: 4px;
