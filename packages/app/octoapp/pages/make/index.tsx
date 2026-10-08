@@ -143,7 +143,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -202,6 +202,31 @@ function MakeContent() {
   })
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
+
+  onMount(() => {
+    // Guard against the async restore navigating after the user has left /make.
+    let disposed = false
+    onCleanup(() => { disposed = true })
+    if (params.id) return
+    if (layout.lastSessionPerTab.newConversation("make")) return
+    const savedId = layout.lastSessionPerTab.make(sdk.directory)
+    if (!savedId) return
+    // Fast path: session already present in the sync store.
+    if (sync.data.session.some((s) => s.id === savedId && s.agent === "octo_make")) {
+      navigate(`/make/${savedId}`, { replace: true })
+      return
+    }
+    // Otherwise confirm it still exists before restoring, so a stale id
+    // (e.g. deleted elsewhere) doesn't navigate to a missing session.
+    void globalSDK.createClient({ directory: sdk.directory }).session.get({ sessionID: savedId })
+      .then((result) => {
+        if (disposed || params.id) return
+        const info = result.data
+        if (info?.id === savedId && info.agent === "octo_make") navigate(`/make/${savedId}`, { replace: true })
+        else layout.lastSessionPerTab.setMake(sdk.directory, "")
+      })
+      .catch(() => layout.lastSessionPerTab.setMake(sdk.directory, ""))
+  })
 
   const projectDir = useProjectDir()
   const projectSelection = useProjectSelection()
@@ -620,6 +645,8 @@ const sessionMessagesLoaded = createMemo(() => {
           // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
           // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
           if (missing) void sync.session.sync(id).catch(() => {})
+        } else {
+          layout.lastSessionPerTab.setMake(sdk.directory, "")
         }
 
         setSending(false)
