@@ -173,28 +173,32 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // 打开面板;触发按钮 rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,
-  // 重试耗尽仍全零则以固定位置兜底打开(保证面板可用,可见性待查)
-  const openMenuAt = (attempt = 0) => {
-    const rect = triggerRef?.getBoundingClientRect()
-    const zero = !rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)
+  // 打开面板(按实际点击元素定位);rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,
+  // 重试耗尽仍全零则以固定位置兜底打开,并启动位置追踪等按钮恢复可见后校正
+  const openMenuAt = (getRect: () => DOMRect): void => {
+    const rect = getRect()
+    const zero = rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0
     if (zero) {
-      if (attempt < 10) {
-        requestAnimationFrame(() => openMenuAt(attempt + 1))
+      if (attemptCounter < 10) {
+        attemptCounter++
+        requestAnimationFrame(() => openMenuAt(getRect))
         return
       }
-      // Fallback: open at a fixed visible position, then reposition once the trigger becomes visible
+      attemptCounter = 0
       console.warn("[addon-menu] trigger rect still zero after retries, fallback position")
       setMenuPosition({ left: 24, bottom: 24 })
-      setLocalFileSelections([])
-      setOpen(true)
-      setActiveSecondary(null)
-      setSkillsCategory('platform')
-      props.onSkillsOpen?.()
+      finishOpen()
       repositionWhenTriggerVisible()
       return
     }
+    attemptCounter = 0
     setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    finishOpen()
+  }
+
+  let attemptCounter = 0
+
+  const finishOpen = () => {
     setLocalFileSelections([])
     setOpen(true)
     setActiveSecondary(null)
@@ -204,19 +208,17 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
-    const rect = triggerRef?.getBoundingClientRect()
-    if (!rect || rect.width === 0 || rect.height === 0) {
+    const target = e.currentTarget as HTMLElement
+    const getRect = () => target.getBoundingClientRect()
+    const rect = getRect()
+    // 按钮不可见(rect 全零):收起可能残留的僵尸面板,待恢复可见后重新打开
+    if (rect.width === 0 || rect.height === 0) {
       setOpen(false)
       setMenuPosition(null)
       return
     }
     if (!open()) {
-      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
-      setLocalFileSelections([])
-      setOpen(true)
-      setActiveSecondary(null)
-      setSkillsCategory('platform')
-      props.onSkillsOpen?.()
+      openMenuAt(getRect)
     } else {
       // 已打开:若记录的位置与按钮实际位置漂移(登录/布局变化所致),重新定位并保持打开,不误关闭
       const pos = menuPosition()
