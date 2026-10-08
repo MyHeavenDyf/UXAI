@@ -574,6 +574,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           type="button"
           variant="ghost"
           class="size-8 p-0 addon-menu-trigger"
+          onMouseEnter={() => {
+            const ae = document.activeElement as HTMLElement | null
+            if (ae && !ae.isConnected) ae.blur?.()
+          }}
           onClick={handleTriggerClick}
         >
           <Icon name="plus" class="size-5" />
