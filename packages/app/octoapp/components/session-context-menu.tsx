@@ -153,6 +153,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
           <div
             ref={setContextMenuRef}
             data-component="dropdown-menu-content"
+            data-context-menu
             style={{
               position: "absolute",
               left: menuStyle().left,
