@@ -4593,7 +4593,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setIsDragOver(false)
   }
 
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
 
   function handleDrop(e: DragEvent) {
     e.preventDefault()

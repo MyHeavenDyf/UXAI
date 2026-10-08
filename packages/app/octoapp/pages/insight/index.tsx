@@ -2545,7 +2545,7 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "insight" })
   function requestAttachmentUpload() {
     if (maxAttachments()) return
     request(() => fileInputRef.click())

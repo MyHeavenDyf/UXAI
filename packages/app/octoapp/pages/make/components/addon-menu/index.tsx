@@ -22,8 +22,8 @@ export type { AddonMenuItemKey, AddonMenuSlot, MenuSelection, AddonSkillConfig }
 type MentionSelection = MenuSelection
 
 export function AddonMenu(props: AddonMenuProps): JSX.Element {
-  const { request, gate } = useUploadRiskGate()
   const trackerModule = () => props.trackerModule ?? "design"
+  const { request, gate } = useUploadRiskGate({ module: trackerModule() })
   const skillCfg = () => props.skillConfig ?? {}
 
   const [open, setOpen] = createSignal(false)
@@ -428,7 +428,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 )
                 closeMenu()
                 setAssetDialogOpen(true)
-              })
+              }, true)
             }}
           >
             <span class="addon-menu-item-icon"><AssetsIcon /></span>
@@ -446,7 +446,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 setActiveSecondary(null)
                 return
               }
-              request(() => setActiveSecondary('files'))
+              request(() => setActiveSecondary('files'), true)
             }}
           >
             <span class="addon-menu-item-icon"><DesignFilesIcon /></span>

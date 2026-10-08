@@ -111,7 +111,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   // 外网模型上传风险确认:点击「上传」或拖入文件时,若当前模型为外网(isExternal),先弹风险提示弹框,
   // 确认后才执行上传。内网模型不拦截。
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
   const requestUploadFile = () => request(() => fileInputRef?.click())
   const requestUploadFolder = () => request(() => folderInputRef?.click())
 
@@ -1310,8 +1310,10 @@ function FileRow(props: {
   const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
+  const { request: requestAddToSession, gate: addToSessionGate } = useUploadRiskGate({ module: "design" })
 
   return (
+    <>
     <tr
       class="transition-colors cursor-pointer"
       style={{
@@ -1408,9 +1410,11 @@ function FileRow(props: {
                 <button
                   type="button"
                   onClick={() => {
-                    props.onAddToSession!()
-                    tracker.interaction({ module: "design", name: "files-add-to-session" })
                     setShowMenu(false)
+                    requestAddToSession(() => {
+                      props.onAddToSession!()
+                      tracker.interaction({ module: "design", name: "files-add-to-session" })
+                    })
                   }}
                   class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[#eee] transition-colors"
                   style={{ color: "rgba(0,0,0,0.9)" }}
@@ -1477,5 +1481,7 @@ function FileRow(props: {
         </Kobalte>
       </td>
     </tr>
+    {addToSessionGate}
+    </>
   )
 }
