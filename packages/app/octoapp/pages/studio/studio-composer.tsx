@@ -966,7 +966,10 @@ export function StudioComposer(props: {
   }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (event.target instanceof Element && event.target.closest(".studio-menu")) return
+    if (
+      event.target instanceof Element
+      && event.target.closest(".studio-menu, .studio-style-template-delete-overlay")
+    ) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
     if (atMenuOpen()) setAtMenuOpen(false)
@@ -1650,32 +1653,49 @@ function SelectedTemplateButton(props: {
       <span class="studio-composer-template-applied-label">{displayTitle()}</span>
       <div class="studio-composer-template-applied-actions">
         <Show when={props.editable}>
+          <StudioTemplateActionTooltip label="编辑模板">
+            <button
+              type="button"
+              class="studio-composer-template-applied-icon"
+              classList={{ active: props.editorOpen }}
+              disabled={props.disabled}
+              aria-label="编辑模板"
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onEdit?.()
+              }}
+            />
+          </StudioTemplateActionTooltip>
+        </Show>
+        <StudioTemplateActionTooltip label="移除模板">
           <button
             type="button"
-            class="studio-composer-template-applied-icon"
-            classList={{ active: props.editorOpen }}
+            class="studio-composer-template-applied-clear"
             disabled={props.disabled}
-            aria-label="调整模板预设"
-            title="调整模板预设"
+            aria-label="移除模板"
             onClick={(event) => {
               event.stopPropagation()
-              props.onEdit?.()
+              props.onClear?.()
             }}
           />
-        </Show>
-        <button
-          type="button"
-          class="studio-composer-template-applied-clear"
-          disabled={props.disabled}
-          aria-label="取消应用模板"
-          title="取消应用模板"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onClear?.()
-          }}
-        />
+        </StudioTemplateActionTooltip>
       </div>
     </div>
+  )
+}
+
+function StudioTemplateActionTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      arrow
+      value={props.label}
+      class="studio-composer-template-applied-tooltip-trigger"
+      contentClass="studio-composer-template-applied-tooltip"
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 
