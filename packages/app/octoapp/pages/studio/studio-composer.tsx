@@ -49,6 +49,7 @@ export function StudioComposer(props: {
   capability: StudioCapability
   canGenerateVideo: boolean
   canUseSeedream: boolean
+  canCreateStyleTemplate: boolean
   permissionStatus: "loading" | "ready" | "error"
   onRetryPermission: () => void
   styleModel: string
@@ -1495,6 +1496,7 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
+                canCreateTemplate={props.canCreateStyleTemplate}
                 onCreateTemplate={() => {
                   props.onOpenMenu(null)
                   props.onCreateTemplate?.()

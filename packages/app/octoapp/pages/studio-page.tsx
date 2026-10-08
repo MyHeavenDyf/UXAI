@@ -518,6 +518,7 @@ export default function StudioPage() {
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [canCreateStyleTemplate, setCanCreateStyleTemplate] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   const [permissionRetryVersion, setPermissionRetryVersion] = createSignal(0)
@@ -565,6 +566,7 @@ export default function StudioPage() {
     batch(() => {
       setCanGenerateVideo(false)
       setCanUseSeedream(false)
+      setCanCreateStyleTemplate(false)
       setStudioPermissionStatus("loading")
       if (styleModelRequiresSeedreamPermission(untrack(() => imageSettingStore.styleModel))) setStyleModel("qwen")
     })
@@ -592,9 +594,11 @@ export default function StudioPage() {
         const permissionData = Array.isArray(result.data) ? result.data : []
         const permissionOk = result.code === 200 || result.resp_code === 200
         const canUseSeedream = permissionOk && permissionData[1] === true
+        const canCreateStyleTemplate = permissionOk && permissionData[2] === true
         batch(() => {
           setCanGenerateVideo(permissionOk && permissionData[0] === true)
           setCanUseSeedream(canUseSeedream)
+          setCanCreateStyleTemplate(canCreateStyleTemplate)
           setStudioPermissionStatus("ready")
           if (!canUseSeedream && styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
         })
@@ -605,6 +609,7 @@ export default function StudioPage() {
         batch(() => {
           setCanGenerateVideo(false)
           setCanUseSeedream(false)
+          setCanCreateStyleTemplate(false)
           setStudioPermissionStatus("error")
           if (styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
         })
@@ -4781,6 +4786,7 @@ export default function StudioPage() {
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
+                  canCreateStyleTemplate={canCreateStyleTemplate()}
                   permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
                   onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
                   styleModel={styleModel()}
@@ -5012,6 +5018,7 @@ if (!headerTitle.pendingRename) return
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
+            canCreateStyleTemplate={canCreateStyleTemplate()}
             permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
             onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
             styleModel={styleModel()}
