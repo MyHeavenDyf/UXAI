@@ -24,6 +24,7 @@ export type StudioImage = {
   kind?: "image" | "video"
   url: string
   thumbnailUrl?: string
+  thumbnailStatus?: "pending" | "ready" | "failed"
   width?: number
   height?: number
   duration?: number

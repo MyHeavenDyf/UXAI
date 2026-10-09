@@ -373,7 +373,7 @@ export async function checkStudioPermission(
         method: METHOD,
         headers: internalImageHeaders(),
         body: JSON.stringify({
-          checkPermList: ["view:keling_entry", "view:jimeng_entry"],
+          checkPermList: ["view:keling_entry", "view:jimeng_entry", "octoai:image_template"],
           uid,
         }),
       }).catch((error) => {

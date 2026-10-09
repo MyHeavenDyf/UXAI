@@ -83,3 +83,9 @@
 .submenu-scroll:hover::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.35);
 }
+
+/* 侧边栏右键菜单(分组/会话)文案不加粗:覆写 ui 包 dropdown-menu 的 medium 字重。
+   data-context-menu 标记仅由 session-context-menu / group-context-menu 使用。 */
+[data-component="dropdown-menu-content"][data-context-menu] [data-slot="dropdown-menu-item"] {
+  font-weight: var(--font-weight-regular);
+}

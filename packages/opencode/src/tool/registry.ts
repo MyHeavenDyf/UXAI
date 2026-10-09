@@ -70,7 +70,7 @@ export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
   readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
-  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<Tool.Def[]>
+  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<(Tool.Def & { origin: "builtin" | "plugin" })[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
@@ -147,6 +147,7 @@ export const layer: Layer.Layer<
             description: def.description,
             execute: (args, toolCtx) =>
               Effect.gen(function* () {
+                if (toolCtx.onExecute) yield* toolCtx.onExecute(args)
                 const pluginCtx: PluginToolContext = {
                   ...toolCtx,
                   ask: (req) => toolCtx.ask(req),
@@ -310,6 +311,7 @@ export const layer: Layer.Layer<
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+      const registered = yield* InstanceState.get(state)
       const filtered = (yield* all()).filter((tool) => {
         if (tool.id === WebSearchTool.id) {
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
@@ -366,6 +368,7 @@ export const layer: Layer.Layer<
           yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
           return {
             id: tool.id,
+            origin: registered.custom.includes(tool) ? "plugin" as const : "builtin" as const,
             description: [
               output.description,
               tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,

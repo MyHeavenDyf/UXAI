@@ -9,6 +9,8 @@ import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import type { Agent } from "@/agent/agent"
+import { ToolCalls } from "@/tracking/calls"
+import { failure } from "@/tracking/call-data"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
@@ -34,6 +36,7 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
   mergeDeep(target, source ?? {}) as Record<string, any>
 
 export type StreamInput = {
+  trackingMessageID?: string
   user: MessageV2.User
   sessionID: string
   parentSessionID?: string
@@ -349,6 +352,16 @@ const live: Layer.Layer<
               ...failed.toolCall,
               toolName: lower,
             }
+          }
+          if (input.trackingMessageID) {
+            const messageID = input.trackingMessageID
+            await Effect.runPromise(ToolCalls.safely(() => {
+              ToolCalls.start({ messageID, sessionID: input.sessionID, callID: failed.toolCall.toolCallId,
+                tool: failed.toolCall.toolName, args: failed.toolCall.input })
+              ToolCalls.end(messageID, failed.toolCall.toolCallId, {
+                ...failure(failed.error), executionStarted: false, executionStage: "validation",
+              })
+            }))
           }
           return {
             ...failed.toolCall,

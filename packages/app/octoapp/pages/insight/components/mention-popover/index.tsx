@@ -54,7 +54,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [category, setCategory] = createSignal<"platform" | "custom" | "session">("platform")
 
   // 外网模型:点击「用研资产」时先弹风险提示,确认后才展示会话文件列表。tab 点击不拦截。
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "insight" })
 
   const q = () => props.query.toLowerCase()
 
@@ -223,7 +223,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`ins-mention-primary-item ${category() === "session" ? "ins-mention-primary-item--selected" : ""}`}
-            onClick={() => request(() => setCategory("session"))}
+            onClick={() => request(() => setCategory("session"), true)}
           >
             <ResearchAssetIcon />
             <span class="ins-mention-primary-text">用研资产</span>

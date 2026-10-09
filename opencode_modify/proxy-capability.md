@@ -97,7 +97,7 @@ export type ProxyConfig = {
 3. **切换全局 dispatcher**：`http.setGlobalProxyFromEnv()`，返回 restore 函数（验证失败时还原）。
 4. **验证（与 webfetch 同栈）**：主进程 Node `fetch("https://ifconfig.me/ip")`，20s 超时，**证书正常校验**，要求出口 IP 以 `119.` 开头才算通过。旧实现用 `curl -k` 会跳过证书校验——代理对 HTTPS 做证书替换（MITM）时验证"通过"但 sidecar 里 webfetch 实际失败。
 5. **成功**：写 `~/.config/octo/proxy_config.json`，环境变量保持注入 → 即时生效，无需重启（commit `5320dd86a`）。
-6. **失败**：趁 env 仍指向新代理跑 curl 双探针对照诊断——严格证书 vs `-k` 跳过证书。若"严格失败而跳过成功"，提示通常是代理 MITM 证书替换，需在系统钥匙串安装代理根证书。然后恢复旧环境变量 + 调 restore 函数还原 dispatcher，把诊断信息随错误返回 UI。
+6. **失败**：趁 env 仍指向新代理跑 curl 三探针对照诊断——严格证书 / `-k` 跳过证书 / **显式 `--proxy`（绕过 env 与 no_proxy）**。判读：①严格失败而 `-k` 成功 → 代理 MITM 证书替换，需在系统钥匙串安装代理根证书；②显式代理仍失败 → 代理节点不可达或认证失败（检查账号密码/是否在华为内网 VPN），展示 curl stderr 真实错误；③显式成功而 env 双探针失败 → NO_PROXY 把目标域名绕过了代理直连。同时 fetch 错误展开 cause 链（`TypeError: fetch failed <- ConnectTimeoutError [...]`）。然后恢复旧环境变量 + 调 restore 函数还原 dispatcher，把诊断信息随错误返回 UI。
 
 日志脱敏：IPC 返回与前端日志中不输出账号密码（commit `6fcb6c98b`）。
 
@@ -195,7 +195,7 @@ mcpFetch(proxy, url):
 |---|---|
 | 主进程加载配置 | `octo proxy config loaded`（含脱敏后的代理地址、配置文件路径） |
 | 配置验证 | `[configure-proxy] 开始配置代理 / 环境变量已注入 / 执行 Node fetch 验证 / 代理验证通过 / 配置写入成功 / 配置失败` |
-| MITM 诊断 | `curl 对照诊断 — 严格证书: … \| 跳过证书(-k): …` |
+| MITM 诊断 | `curl 对照诊断 — 严格证书: … \| 跳过证书(-k): … \| 显式代理: …`（2026-10-09 增强：stderr 真实错误 + 显式代理探针 + fetch cause 链） |
 | sidecar | `[sidecar:proxy] proxy env ready` / `setGlobalProxyFromEnv OK` / `no proxy_config.json, env proxy: <unset>` / `proxy env MISSING — setGlobalProxyFromEnv is a NO-OP`(env 缺失,fetch 必直连) |
 | sidecar dispatcher 强校验（2026-09-16 新增） | `global dispatcher verified: EnvHttpProxyAgent`（读回 undici 全局槽确认已装上）；WARN `dispatcher slot is "Agent"/"<unset>" (expected EnvHttpProxyAgent) — fetch will go DIRECT` = setGlobalProxyFromEnv 声称 OK 但槽里不是代理 dispatcher，所有 fetch 必直连 |
 | webfetch 失败 | 错误信息含 cause 链:`webfetch failed (url): TypeError [ECONNREFUSED] ...`(连接层)或 `HTTP 4xx/5xx`(状态层)或 `Request timed out`(超时)，尾部附 `[net-diag: proxy=on/off dispatcher=<ctor> runtime=<bun|electron|node>]`（2026-09-16 新增） |
@@ -241,6 +241,12 @@ net-diag 判读（实现见 `packages/opencode/src/util/network.ts` `networkDiag
      - TUI/CLI 完全无代理能力：入口（`index.ts`/`node.ts`/`worker.ts`）不读 `proxy_config.json`，Bun fetch 只认启动时 env → 修法：在**任何 fetch 发生前**读配置注入 env（Node 环境再补 `setGlobalProxyFromEnv()`）。
      - `noProxyFetch`（`mcp/index.ts`）在桌面端配了代理时**无效**：EnvHttpProxyAgent 构造时缓存 ProxyAgent，删 env 改不了已装 dispatcher，uxr-tool 等内网 MCP 的 `proxy: false` 并未真正绕过代理 → 应改为 provider.ts 式每请求裸 `dispatcher`。
      - `configure-proxy` 只更新主进程，sidecar 需重启才拿到新代理（UI 仅 toast 提示）→ 可经 parentPort 通知 sidecar 重跑 `ensureProxyFromConfig()+setGlobalProxyFromEnv()` 实现热更新。
+
+7. **「fetch failed + curl 双探针全失败」被误读为证书问题**（2026-10-09，Windows）：用户配置代理失败，toast 显示 `fetch failed` + 严格证书失败 + `-k` 也失败。**关键判读：`-k` 也失败就不是证书问题**（MITM 证书问题的特征是"严格失败、`-k` 成功"），而是连接层问题——代理不可达 / 认证失败 / DNS 解析失败（不在内网 VPN）/ NO_PROXY 误伤直连。但旧诊断有两个缺陷导致真实原因完全丢失：
+   - `collectProxyDiagnostics` 的 `e.message.split("\n")[0]` 只保留了 `Command failed: curl ...` 命令回显，把 stderr 里 curl 的真实错误（`curl: (5) Could not resolve proxy` / `curl: (7) Failed to connect` / `(56) 407 after CONNECT`）全部丢掉；
+   - Node fetch 失败只透出顶层 `fetch failed`，cause 链（ECONNREFUSED/CONNECT_TIMEOUT/隧道错误）未展开——webfetch.ts 早有 `describeRequestError`，ipc.ts 未复用。
+   
+   **修复**（`ipc.ts`）：①curl 探针改 `execFileSync` 参数数组（顺带消除 shell 拼接），失败时从 `err.stderr` 提取首个非空行（含错误码），输出前脱敏 `//user:pass@`；②新增显式代理探针 `curl -k --noproxy "" --proxy <url>`（绕过 env/no_proxy），三分支判读——严格失败+`-k` 成功 = MITM（原逻辑）；显式代理仍失败 = 代理不可达/认证失败；显式成功+env 双探针失败 = NO_PROXY 把目标绕过代理；③catch 中 `describeFetchError(err)` 展开 cause 链（与 webfetch 同格式 ` <- ` 连接）。实测（`_diag_proxy_stderr_test.cjs`，已删）：DNS 失败 → `curl: (5) Could not resolve proxy: ...`；连接被拒 → `curl: (7) Failed to connect ... via <代理IP>`，均一眼可判。附带发现：主进程 `ipc.ts` 顶部有 `NODE_TLS_REJECT_UNAUTHORIZED = "0"`，主进程 fetch 本就不校验证书，MITM 场景下主进程验证反而可能通过（证书问题在 sidecar webfetch 才暴露），诊断时注意。
 
 ## 11. 演进时间线
 

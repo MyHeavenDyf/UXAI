@@ -20,6 +20,7 @@ import {
 import { PartID } from "./schema"
 import { ArtifactStore } from "@/tracking/store"
 import { ArtifactSender } from "@/tracking/sender"
+import { ToolCalls } from "@/tracking/calls"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
@@ -233,12 +234,20 @@ export const layer: Layer.Layer<
         yield* Effect.sync(() => {
           if (completed.type === "tool" && ArtifactStore.collect(completed)) ArtifactSender.wake()
         }).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] capture deferred; completed part retained")))
+        yield* ToolCalls.safely(() => ToolCalls.settled({
+          messageID: match.part.messageID, sessionID: match.part.sessionID, callID: toolCallID,
+          tool: match.part.tool, args: match.part.state.input, partID: match.part.id,
+        }, output))
         yield* settleToolCall(toolCallID)
       })
 
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return false
+        yield* ToolCalls.safely(() => ToolCalls.settled({
+          messageID: match.part.messageID, sessionID: match.part.sessionID, callID: toolCallID,
+          tool: match.part.tool, args: match.part.state.input, partID: match.part.id,
+        }, undefined, error))
         yield* session.updatePart({
           ...match.part,
           state: {
@@ -360,6 +369,13 @@ export const layer: Layer.Layer<
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
             const toolCall = yield* readToolCall(value.toolCallId)
+            yield* ToolCalls.safely(() => ToolCalls.start({
+              messageID: ctx.assistantMessage.id, sessionID: ctx.sessionID, callID: value.toolCallId,
+              tool: value.toolName, args: value.input, partID: toolCall?.part.id,
+            }))
+            if (toolCall?.part.metadata?.providerExecuted === true) {
+              yield* ToolCalls.safely(() => ToolCalls.executing(ctx.assistantMessage.id, value.toolCallId))
+            }
             ctx.estimatedOutputChars += value.toolName.length + JSON.stringify(value.input).length
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             EventV2.run(SessionEvent.Tool.Called.Sync, {
@@ -703,6 +719,10 @@ export const layer: Layer.Layer<
           if (!match) continue
           const part = match.part
           const end = Date.now()
+          yield* ToolCalls.safely(() => ToolCalls.settled({
+            messageID: part.messageID, sessionID: part.sessionID, callID: toolCallID,
+            tool: part.tool, args: part.state.input, partID: part.id,
+          }, undefined, new Error("Tool execution interrupted"), aborted ? "cancelled" : "interrupted"))
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
           yield* session.updatePart({
             ...part,
@@ -716,6 +736,7 @@ export const layer: Layer.Layer<
           })
         }
         ctx.toolcalls = {}
+        ToolCalls.forget(ctx.assistantMessage.id)
         ctx.assistantMessage.time.completed = Date.now()
         yield* session.updateMessage(ctx.assistantMessage)
       })
@@ -823,7 +844,7 @@ export const layer: Layer.Layer<
             }
             ctx.currentText = undefined
             ctx.reasoningMap = {}
-            const stream = llm.stream(streamInput)
+            const stream = llm.stream({ ...streamInput, trackingMessageID: ctx.assistantMessage.id })
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),

@@ -60,7 +60,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
   // 确认后才展示资产/文件列表。tab 点击不拦截。
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
   
   // 产品资产库状态
   const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
@@ -658,7 +658,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => request(() => setSelectedCategory('design'))}
+            onClick={() => request(() => setSelectedCategory('design'), true)}
           >
             <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
@@ -689,7 +689,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <button
                   type="button"
                   class={`mention-primary-item ${selectedTopFolderId() === folder.id.toString() ? 'mention-primary-item--selected' : ''}`}
-                  onClick={() => request(() => handleTopFolderClick(folder))}
+                  onClick={() => request(() => handleTopFolderClick(folder), true)}
                 >
                   <Icon name="folder" size="small" />
                   <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
