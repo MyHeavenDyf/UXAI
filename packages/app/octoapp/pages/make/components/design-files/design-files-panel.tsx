@@ -130,22 +130,23 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const PREVIEW_MIN = 150
   const LIST_MIN = 390
-  const [previewWidth, setPreviewWidth] = createSignal(360)
+  const [previewRatio, setPreviewRatio] = createSignal(0.5)
+  const [containerW, setContainerW] = createSignal(0)
   let rowRef: HTMLDivElement | undefined
+
+  // 预览宽度 = 比例 × 容器宽（默认与文件列表各占一半），clamp 保证列表/预览最小宽度
+  const previewWidth = createMemo(() => {
+    const w = containerW()
+    if (w - LIST_MIN < PREVIEW_MIN) return PREVIEW_MIN
+    return Math.max(PREVIEW_MIN, Math.min(w - LIST_MIN, previewRatio() * w))
+  })
 
   createEffect(() => {
     if (!rowRef) return
     const el = rowRef
-    const clamp = () => {
-      const maxW = el.getBoundingClientRect().width - LIST_MIN
-      if (maxW < PREVIEW_MIN) {
-        setPreviewWidth(PREVIEW_MIN)
-      } else {
-        setPreviewWidth((w) => Math.max(PREVIEW_MIN, Math.min(maxW, w)))
-      }
-    }
-    clamp()
-    const ro = new ResizeObserver(clamp)
+    const update = () => setContainerW(el.getBoundingClientRect().width)
+    update()
+    const ro = new ResizeObserver(update)
     ro.observe(el)
     onCleanup(() => ro.disconnect())
   })
@@ -154,14 +155,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     e.preventDefault()
     if (!rowRef) return
     const rect = rowRef.getBoundingClientRect()
-    const maxW = rect.width - LIST_MIN
-    if (maxW < PREVIEW_MIN) return
+    if (rect.width - LIST_MIN < PREVIEW_MIN) return
     const overlay = document.createElement("div")
     overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;"
     document.body.appendChild(overlay)
     const onMove = (ev: MouseEvent) => {
-      const w = rect.right - ev.clientX
-      setPreviewWidth(Math.max(PREVIEW_MIN, Math.min(maxW, w)))
+      setPreviewRatio((rect.right - ev.clientX) / rect.width)
     }
     const onUp = () => {
       overlay.remove()
