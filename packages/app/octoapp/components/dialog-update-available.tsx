@@ -65,8 +65,8 @@ export function DialogUpdateAvailable(props: {
       </section>
 
       <section class="octo-update-dialog-content">
-        <h2>检测到更新</h2>
-        <UpdateDescription version={props.version} releaseNotes={props.releaseNotes} />
+        <h2>检测到更新（v{props.version.replace(/^v/i, "")}）</h2>
+        <UpdateDescription releaseNotes={props.releaseNotes} />
         {downloading() && (
           <div class="octo-update-dialog-progress">
             <div>
