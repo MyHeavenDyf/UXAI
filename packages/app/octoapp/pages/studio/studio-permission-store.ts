@@ -9,6 +9,19 @@ const [state, setState] = createStore<{
 }>({ status: "idle", video: false, seedream: false, createStyleTemplate: false })
 
 let pending: { controller: AbortController; promise: Promise<void> } | undefined
+const loginSuccessListeners = new Set<() => void>()
+
+/** Call after the new user's account and credentials have been saved.
+ * Only mounted Studio pages query permissions; otherwise entry remains lazy.
+ */
+export function notifyStudioLoginSuccess() {
+  loginSuccessListeners.forEach((listener) => listener())
+}
+
+export function onStudioLoginSuccess(listener: () => void) {
+  loginSuccessListeners.add(listener)
+  return () => { loginSuccessListeners.delete(listener) }
+}
 
 /** Call on logout/account switch before installing the next user's login state.
  * Clears permissions without starting another request, even while Studio is mounted.

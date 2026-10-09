@@ -1,5 +1,5 @@
 import "./studio/studio.css"
-import { clearStudioPermissionCache, ensureStudioPermission, studioPermissionState } from "./studio/studio-permission-store"
+import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
@@ -564,6 +564,7 @@ export default function StudioPage() {
     if (!current) return
     void ensureStudioPermission(current.http, uiplusUserAccount())
   }
+  onCleanup(onStudioLoginSuccess(loadPermission))
   createEffect(() => {
     const current = server.current
     if (!current) return
