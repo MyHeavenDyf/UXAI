@@ -65,7 +65,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -519,16 +519,22 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
+    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         pinned: newPinned,
-        sort_order: newPinned ? -1 : (prev.time.updated ?? 0),
+        sort_order: newPinned ? -1 : restore,
       }
     })
     try {
-      await togglePinSession(session.id, newPinned, sdk.directory, !newPinned ? session.time.updated : undefined)
+      await togglePinSession(
+        session.id,
+        newPinned,
+        sdk.directory,
+        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+      )
     } catch (err) {
       setSessionInfoMirror((prev) => {
         if (!prev) return prev

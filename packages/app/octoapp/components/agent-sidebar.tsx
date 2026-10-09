@@ -14,7 +14,7 @@ import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 // disableIframesDuringDrag is currently unused after recent refactors
 // import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
@@ -323,6 +323,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const newVal = !session.pinned
     tracker.interaction({ module: props.trackerModule ?? "session", name: newVal ? "pin-session" : "unpin-session" })
     const previousSortOrder = session.sort_order
+    const restore = peekRecentSortOrderBeforePin(id) ?? 0
     if (newVal) {
       batch(() => {
         setSessionList(idx, "sort_order", -1)
@@ -331,12 +332,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
     } else {
       batch(() => {
         setSessionList(idx, "pinned", false)
-        setSessionList(idx, "sort_order", session.time.updated)
+        setSessionList(idx, "sort_order", restore)
       })
     }
     bustSidebarCache()
     try {
-      await togglePinSession(id, newVal, d, !newVal ? session.time.updated : undefined)
+      await togglePinSession(
+        id,
+        newVal,
+        d,
+        newVal ? { rememberRecentOrder: Number(previousSortOrder) } : { restoreRecentOrder: restore },
+      )
     } catch (err) {
       // Revert optimistic update on failure
       batch(() => {
@@ -412,61 +418,74 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   async function performSessionMove(target: SessionDropTarget) {
-    const mod = props.trackerModule ?? "session"
     const sourceId = draggingSessionId()
-    if (!sourceId) { handleSessionDragEnd(); return }
-    const source = sessionList.find(s => s.id === sourceId)
-    if (!source) { handleSessionDragEnd(); return }
-
-    const sourceIsPinned = !!source.pinned
-    const sourceGroup = props.sessionGroupMapping?.[sourceId]?.groupId
-
-    if (target.type === "session") {
-      const { sessionId: targetId, position, section, groupId } = target
-      if (sourceId === targetId) { handleSessionDragEnd(); return }
-      if (section === "pinned") {
-        if (!sourceIsPinned) {
-          if (sourceGroup) props.onRemoveFromGroup?.(source)
-          void togglePin(sourceId)
-        }
-        tracker.interaction({ module: mod, name: "reorder-pinned-session" })
-        void reorderPinned(sourceId, targetId, position)
-      } else if (section === "recent") {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup) props.onRemoveFromGroup?.(source)
-        tracker.interaction({ module: mod, name: "reorder-recent-session" })
-        void reorderRecent(sourceId, targetId, position)
-      } else if (section === "group" && groupId) {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup !== groupId) {
-          tracker.interaction({ module: mod, name: "drag-session-to-group" })
-          await props.onMoveToGroup?.(source, groupId)
-        } else {
-          tracker.interaction({ module: mod, name: "reorder-group-session" })
-        }
-        props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
-      }
-    } else if (target.type === "section") {
-      if (target.section === "pinned") {
-        if (!sourceIsPinned) {
-          if (sourceGroup) props.onRemoveFromGroup?.(source)
-          void togglePin(sourceId)
-        }
-        tracker.interaction({ module: mod, name: "drag-session-to-pinned" })
-      } else if (target.section === "recent") {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup) props.onRemoveFromGroup?.(source)
-        tracker.interaction({ module: mod, name: "drag-session-to-recent" })
-      }
-    } else if (target.type === "group" && target.groupId) {
-      if (sourceIsPinned) void togglePin(sourceId)
-      if (sourceGroup !== target.groupId) {
-        tracker.interaction({ module: mod, name: "drag-session-to-group" })
-        await props.onMoveToGroup?.(source, target.groupId)
-      }
-    }
-
+    // Reset the drag UI up front (clears the highlight, restores iframe
+    // pointer-events) instead of waiting for the awaited pin/unpin below, which
+    // can take a network round-trip and would otherwise leave the sidebar in a
+    // "still dragging" state after the drop.
     handleSessionDragEnd()
+    if (!sourceId) return
+    const source = sessionList.find(s => s.id === sourceId)
+    if (!source) return
+
+    try {
+      const mod = props.trackerModule ?? "session"
+      const sourceIsPinned = !!source.pinned
+      const sourceGroup = props.sessionGroupMapping?.[sourceId]?.groupId
+
+      if (target.type === "session") {
+        const { sessionId: targetId, position, section, groupId } = target
+        if (sourceId === targetId) return
+        if (section === "pinned") {
+          if (!sourceIsPinned) {
+            if (sourceGroup) props.onRemoveFromGroup?.(source)
+            // Await the pin toggle so its server-side reorder lands before the
+            // explicit drag reorder below (otherwise they can interleave and the
+            // dragged position is lost on refetch).
+            await togglePin(sourceId)
+          }
+          tracker.interaction({ module: mod, name: "reorder-pinned-session" })
+          void reorderPinned(sourceId, targetId, position)
+        } else if (section === "recent") {
+          // Await the unpin toggle so its sort_order write lands before the drag
+          // reorder below; concurrent requests can otherwise persist the wrong
+          // order on the server.
+          if (sourceIsPinned) await togglePin(sourceId)
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          tracker.interaction({ module: mod, name: "reorder-recent-session" })
+          void reorderRecent(sourceId, targetId, position)
+        } else if (section === "group" && groupId) {
+          if (sourceIsPinned) void togglePin(sourceId)
+          if (sourceGroup !== groupId) {
+            tracker.interaction({ module: mod, name: "drag-session-to-group" })
+            await props.onMoveToGroup?.(source, groupId)
+          } else {
+            tracker.interaction({ module: mod, name: "reorder-group-session" })
+          }
+          void props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
+        }
+      } else if (target.type === "section") {
+        if (target.section === "pinned") {
+          if (!sourceIsPinned) {
+            if (sourceGroup) props.onRemoveFromGroup?.(source)
+            void togglePin(sourceId)
+          }
+          tracker.interaction({ module: mod, name: "drag-session-to-pinned" })
+        } else if (target.section === "recent") {
+          if (sourceIsPinned) void togglePin(sourceId)
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          tracker.interaction({ module: mod, name: "drag-session-to-recent" })
+        }
+      } else if (target.type === "group" && target.groupId) {
+        if (sourceIsPinned) void togglePin(sourceId)
+        if (sourceGroup !== target.groupId) {
+          tracker.interaction({ module: mod, name: "drag-session-to-group" })
+          await props.onMoveToGroup?.(source, target.groupId)
+        }
+      }
+    } catch (err) {
+      console.error("[agent-sidebar] performSessionMove failed", { error: String(err) })
+    }
   }
 
   createEffect(on(sessions, (data) => {
