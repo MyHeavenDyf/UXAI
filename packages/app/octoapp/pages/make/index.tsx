@@ -56,7 +56,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
-import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN } from "@/context/make-layout"
+import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN, MAKE_CRATIO_DEFAULT } from "@/context/make-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
@@ -130,9 +130,13 @@ import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlo
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
+import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+
+// 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
+const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -2009,6 +2013,10 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => planCard()?.artifactIdentifier, (id, prev) => {
     if (id && id !== prev) {
       setOptimisticConfirmed(false)
+      if (!planTrackReported.has(id)) {
+        planTrackReported.add(id)
+        tracker.interaction({ module: "design", name: "design-plan-generated" })
+      }
     }
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
@@ -3568,6 +3576,9 @@ const sessionMessagesLoaded = createMemo(() => {
           return
         }
 
+        // 新建对话并发送首条消息：重置中/右分栏比例为默认 0.5
+        ml.setCRatio(MAKE_CRATIO_DEFAULT)
+
         const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
         if (pendingGroupId) {
           const ns = groupsCtx?.namespace ?? "make"
@@ -4574,6 +4585,16 @@ const sessionMessagesLoaded = createMemo(() => {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) return
     request(() => handleAddFiles(files, "drop"))
+  }
+
+  /** 对话区卡片点击：上报打点后转交 handleOpenResult */
+  function handleConversationCardOpen(card: OutputCard) {
+    tracker.interaction({
+      module: "design",
+      name: "result-card-open",
+      extend: JSON.stringify({ type: card.type, subtype: card.subtype }),
+    })
+    void handleOpenResult(card)
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
@@ -5628,7 +5649,7 @@ onPreview={(url) => {
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
-                        onOpenResult={handleOpenResult}
+                        onOpenResult={handleConversationCardOpen}
                         onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
@@ -5660,7 +5681,7 @@ onPreview={(url) => {
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
-                            onOpenResult={handleOpenResult}
+                            onOpenResult={handleConversationCardOpen}
                             onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}

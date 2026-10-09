@@ -13,6 +13,8 @@ import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
+import { createReportedSet } from "../utils/track-dedup"
+import { tracker } from "@/utils/tracker"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
 
@@ -77,6 +79,9 @@ export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Ele
 
 // 跟踪已 autoSave 的 artifact（避免重复调用）
 const autoSavedArtifacts = new Set<string>()
+
+// 跟踪已上报打点的 artifact（localStorage 持久化去重，跨重启不重报）
+const artifactTrackReported = createReportedSet("octo:make:artifact-reported")
 
 export type DeltaLogEntry = {
   timestamp: number
@@ -1319,6 +1324,25 @@ const stateStatus = state.status as string | undefined
         props.onFilesRefresh?.()
       }).catch(err => {
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
+      })
+    }
+  })
+
+  // 对话生成产物打点：每轮产物最终物化时上报一次（localStorage 去重，跨重启不重报）
+  // 不沿用自动保存的 projectDir 门控 / saveable-type 白名单，覆盖全部卡片类型
+  createEffect(() => {
+    for (const card of outputCards()) {
+      if (artifactTrackReported.has(card.id)) continue
+      artifactTrackReported.add(card.id)
+      tracker.interaction({
+        module: "design",
+        name: "artifact-generated",
+        extend: JSON.stringify({
+          type: card.type,
+          subtype: card.subtype,
+          artifactKind: card.artifactKind,
+          truncated: card.truncated ?? false,
+        }),
       })
     }
   })
