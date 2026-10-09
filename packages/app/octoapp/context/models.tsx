@@ -9,9 +9,9 @@ import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   hasApiModels,
-  hasModelsApiToken,
   modelsApiListForProviders,
   modelsApiProviders,
+  modelsApiToken,
   modelsApiUrl,
   modelsLocalListForProviders,
   refreshRemoteModels,
@@ -37,16 +37,19 @@ function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
 }
 
-function waitForStartupToken(signal: AbortSignal) {
-  return new Promise<boolean>((resolve) => {
-    const deadline = Date.now() + STARTUP_TOKEN_WAIT_MS
-    const check = () => {
-      if (signal.aborted) return resolve(false)
-      if (hasModelsApiToken()) return resolve(true)
-      if (Date.now() >= deadline) return resolve(false)
-      window.setTimeout(check, STARTUP_TOKEN_CHECK_MS)
+function waitForStartupCheck(signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve()
+    const done = () => {
+      signal.removeEventListener("abort", abort)
+      resolve()
     }
-    check()
+    const timer = window.setTimeout(done, STARTUP_TOKEN_CHECK_MS)
+    const abort = () => {
+      window.clearTimeout(timer)
+      done()
+    }
+    signal.addEventListener("abort", abort, { once: true })
   })
 }
 
@@ -73,25 +76,39 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
     const refreshApiModels = async () => {
-      if (!modelsApiUrl()) return
-      if (refreshing()) return
+      if (!modelsApiUrl()) return false
+      if (refreshing()) return false
       setRefreshing(true)
       setRefreshError(undefined)
       try {
         await refreshRemoteModels()
+        return true
       } catch (error) {
         setRefreshError(error)
+        return false
       } finally {
         setRefreshing(false)
       }
     }
 
+    const refreshStartupModels = async (signal: AbortSignal) => {
+      const deadline = Date.now() + STARTUP_TOKEN_WAIT_MS
+      let attemptedToken = ""
+
+      while (!signal.aborted && Date.now() < deadline) {
+        const token = modelsApiToken()
+        if (token && token !== attemptedToken) {
+          attemptedToken = token
+          const success = await refreshApiModels()
+          if (success && modelsApiToken() === token) return
+        }
+        await waitForStartupCheck(signal)
+      }
+    }
+
     onMount(() => {
       const controller = new AbortController()
-      void waitForStartupToken(controller.signal).then((ready) => {
-        if (!ready || controller.signal.aborted) return
-        void refreshApiModels()
-      })
+      void refreshStartupModels(controller.signal)
       onCleanup(() => controller.abort())
     })
 

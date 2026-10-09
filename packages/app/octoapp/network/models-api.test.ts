@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { modelsApiHeaders, modelsApiProviders } from "./models-api"
+import { hasModelsApiToken, modelsApiHeaders, modelsApiProviders, modelsApiToken } from "./models-api"
 
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
@@ -82,6 +82,14 @@ describe("modelsApiProviders", () => {
 
 describe("modelsApiHeaders", () => {
   beforeEach(() => localStorage.clear())
+
+  test("reads the latest token value from storage", () => {
+    expect(hasModelsApiToken()).toBe(false)
+    localStorage.setItem("uiplusToken", " old-token ")
+    expect(modelsApiToken()).toBe("old-token")
+    localStorage.setItem("uiplusToken", "new-token")
+    expect(modelsApiToken()).toBe("new-token")
+  })
 
   test("includes the account from userInfo for the local server", () => {
     localStorage.setItem("userInfo", JSON.stringify({ account: " j60099994 " }))
