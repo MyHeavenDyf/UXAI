@@ -109,6 +109,7 @@ import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
 import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
@@ -1850,7 +1851,12 @@ const sessionMessagesLoaded = createMemo(() => {
     overlay.addEventListener("mouseup", onUp)
   }
 
-  const tabStore = createTabStore()
+  // tab 结构变更时按当前 session 持久化,切换切回/刷新/跨页面(Make→Insight→Make)返回后恢复。
+  // 空列表跳过:reset()/restoreTabs() 不触发 onPersist,但防御 activate 等空态调用误覆盖存档;
+  // "用户关闭全部 tab"的空态由 handleCloseTab 显式保存。
+  const tabStore = createTabStore({
+    onPersist: () => persistTabsFor(params.id),
+  })
   const snapshotStore = createSnapshotStore(() => params.id)
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
@@ -1873,6 +1879,20 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
   const bgCompareGuard = createBgCompareGuard()
+
+  /** 把当前 tabs 持久化到指定 session。
+   *  allowEmpty=false(onPersist 路径):空态跳过,防止误覆盖存档;
+   *  allowEmpty=true(切换/卸载兜底路径):空态也保存,保证存档与实际一致。 */
+  function persistTabsFor(sid: string | null | undefined, allowEmpty = false) {
+    if (!sid) return
+    const current = tabStore.tabs()
+    if (current.length === 0 && !allowEmpty) return
+    saveSessionTabs(sid, current, tabStore.activeId())
+  }
+
+  // 卸载兜底(Make→Insight/Pattern 等跨页面导航时 MakeContent 会被卸载):
+  // onCleanup 不保证在浏览器刷新时执行,刷新场景由每次 mutation 即存覆盖。
+  onCleanup(() => persistTabsFor(params.id, true))
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -2548,6 +2568,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
+          // tabs 保留在内存中(此分支不 reset),但仍保存一份最新状态:
+          // 后续从 /make 直接进入其他 session 时 prevSid 为 null,无处再存
+          persistTabsFor(prevSid, true)
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
@@ -2581,6 +2604,8 @@ const sessionMessagesLoaded = createMemo(() => {
         // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
         // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
         persistActivePlanDraft()
+        // 切走前保存 tab 状态(含空态),供切回时恢复
+        persistTabsFor(prevSid, true)
         tabStore.reset()
       }
       // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
@@ -2639,7 +2664,19 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternEnded(false)
         setShowPatternPageConfirm(false)
         setPatternPageCapsule(false)
-        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+      }
+      // 恢复该 session 上次打开的 tabs(切换切回/刷新/跨页面返回均走此路径——effect 无 defer,
+      // mount 时 prevSid 为 null 同样命中)。位于通用重置块(设 files)之后、plan 恢复之前:
+      // 活跃 plan session 仍由下方 plan 恢复逻辑优先进 plan 视图(保持既有行为)。
+      if (newSid && newSid !== prevSid) {
+        const savedTabs = loadSessionTabs(newSid)
+        if (savedTabs && savedTabs.tabs.length > 0) {
+          tabStore.restoreTabs(savedTabs.tabs, savedTabs.activeId)
+          setResultViewMode("tabs")
+          tracker.interaction({ module: "design", name: "restore-tabs", extend: JSON.stringify({ count: savedTabs.tabs.length }) })
+          void hydrateRestoredTabs(savedTabs.tabs)
+        }
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -2962,6 +2999,38 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
   }
+
+  /** 恢复后的内容水合:有 filePath 的 tab 从服务端读文件内容(复用 handleOpenResult Step 1 模式),
+   *  并为 html tab 重建版本历史基线(镜像 handleOpenResult 的 onTabOpen 调用)。*/
+  async function hydrateRestoredTabs(restored: ResultTab[]) {
+    const sid = params.id
+    if (!sid) return
+    const skipContentLoad = ["image", "video", "audio", "pdf", "svg"]
+    for (const tab of restored) {
+      // 水合期间用户又切走:放弃剩余工作,避免跨 session 写入
+      if (params.id !== sid) return
+      // fastui:// 协议与 http 外链由渲染器直接导航 URL,无需内容
+      if (!tab.filePath || /^https?:\/\//i.test(tab.filePath) || tab.subtype === "fastui") continue
+      if (skipContentLoad.includes(tab.type) || tab.content) continue
+      try {
+        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(tab.filePath)}`, {
+          headers: { ...directoryHeader(sdk.directory || "") },
+        })
+        if (!response.ok) continue
+        const data = await response.json() as { content?: string }
+        if (params.id === sid && data.content && typeof data.content === "string") {
+          tabStore.updateTabContent(tab.id, data.content)
+        }
+      } catch {
+        // 读盘失败:保留 tab,内容为空(Electron 下 html 仍可经 local:// 预览)
+      }
+    }
+    for (const tab of tabStore.tabs()) {
+      if (tab.type !== "html" || !tab.filePath || tab.subtype === "fastui") continue
+      if (/^https?:\/\//i.test(tab.filePath)) continue
+      await historyController.onTabOpen(tab, undefined)
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
     const plan = planCard()
@@ -3031,6 +3100,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
+      // 显式保存空态:onPersist 对空列表跳过,不存的话切回会复活已关闭的 tabs
+      if (params.id) saveSessionTabs(params.id, [], null)
     }
   }
 
