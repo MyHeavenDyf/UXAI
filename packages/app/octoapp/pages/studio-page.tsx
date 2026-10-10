@@ -124,6 +124,7 @@ import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./stud
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
 import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 type PendingScrollRequest = {
@@ -295,6 +296,7 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -4741,11 +4743,33 @@ export default function StudioPage() {
               <div class="flex-1" />
               <button
                 type="button"
-                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
-                style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+                title="设置"
+                class="relative flex items-center justify-center rounded-[4px] transition-colors shrink-0"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+                  color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                  "font-weight": settingsActive() ? "500" : "400",
+                }}
+                onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+                onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+                onClick={(e) => { e.stopPropagation(); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
               >
-                <Icon name="settings-gear" size="small" />
+                <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+                  <IconSettings1 size={20} />
+                </Show>
+                <Show when={settingsActive()}>
+                  <span
+                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    style={{
+                      height: "20px",
+                      width: "3px",
+                      background: "var(--text-interactive-base)",
+                      transform: "translateY(-50%)",
+                    }}
+                  />
+                </Show>
               </button>
             </div>
           }
