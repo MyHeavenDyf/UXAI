@@ -458,16 +458,16 @@ export const ProseMirrorEditor = (props: Props) => {
   // Close popover via overlay click
   const closeMention = () => {
     const v = view()
-    const trigger = triggerState()
-    if (v && trigger) {
-      const from = Math.min(trigger.from, v.state.doc.content.size)
-      const to = Math.min(trigger.to, v.state.doc.content.size)
-      if (from < to) {
-        const tr = v.state.tr.delete(from, to)
-        v.dispatch(tr)
-      }
-    }
     if (v) {
+      const trigger = mentionTriggerKey.getState(v.state)
+      if (trigger?.active) {
+        const from = Math.min(trigger.from, v.state.doc.content.size)
+        const to = Math.min(trigger.to, v.state.doc.content.size)
+        if (from < to) {
+          const tr = v.state.tr.delete(from, to)
+          v.dispatch(tr)
+        }
+      }
       const tr = v.state.tr.setMeta(mentionTriggerKey, null)
       v.dispatch(tr)
     }
@@ -543,10 +543,11 @@ export const ProseMirrorEditor = (props: Props) => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
-  const handleMentionSelect = (selection: MentionSelection) => {
+  const handleMentionSelect = (selection: MentionSelection, opts?: { closeAfter?: boolean }) => {
     const v = view()
-    const trigger = triggerState()
-    if (!v || !trigger) return
+    if (!v) return
+    const trigger = mentionTriggerKey.getState(v.state)
+    if (!trigger?.active) return
 
     let attrs: any
     if (selection.type === "skill") {
@@ -557,14 +558,22 @@ export const ProseMirrorEditor = (props: Props) => {
     }
 
     const node = editorSchema.nodes.mention.create(attrs)
-    
-    // 确保 position 在文档范围内
-    const insertPos = Math.min(trigger.to, v.state.doc.content.size)
-    
-    const tr = v.state.tr.insert(insertPos, node)
-    tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
-    v.dispatch(tr)
-    
+
+    if (opts?.closeAfter) {
+      // 技能选中：用 chip 替换整个 @query 文本（一个事务内完成），光标移到 chip 之后
+      const from = Math.min(trigger.from, v.state.doc.content.size)
+      const to = Math.min(trigger.to, v.state.doc.content.size)
+      const tr = v.state.tr.replaceWith(from, to, node)
+      tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+      v.dispatch(tr)
+    } else {
+      // 文件/资产：在 @query 后插入 chip，光标移到 query 末尾（chip 之前），面板保持打开。
+      const insertPos = Math.min(trigger.to, v.state.doc.content.size)
+      const tr = v.state.tr.insert(insertPos, node)
+      tr.setSelection(TextSelection.create(tr.doc, insertPos))
+      v.dispatch(tr)
+    }
+
     v.focus()
   }
 
@@ -572,18 +581,27 @@ export const ProseMirrorEditor = (props: Props) => {
     const v = view()
     if (!v) return
 
-    const name = selection.type === "skill" ? selection.name : selection.filename
-    
+    const isSkill = selection.type === "skill"
+
     // Delete the last matching MentionNode
+    // 技能按 type+name 匹配；文件按 type+name+path 匹配（同名不同路径可区分）
     let lastPos = -1
     let lastSize = 0
     v.state.doc.descendants((node, pos) => {
-      if (node.type.name === "mention" && node.attrs.name === name) {
-        lastPos = pos
-        lastSize = node.nodeSize
+      if (node.type.name !== "mention") return
+      if (isSkill) {
+        if (node.attrs.type === "skill" && node.attrs.name === selection.name) {
+          lastPos = pos
+          lastSize = node.nodeSize
+        }
+      } else {
+        if (node.attrs.type === "file" && node.attrs.name === selection.filename && node.attrs.path === selection.path) {
+          lastPos = pos
+          lastSize = node.nodeSize
+        }
       }
     })
-    
+
     if (lastPos >= 0 && lastPos + lastSize <= v.state.doc.content.size) {
       const tr = v.state.tr.delete(lastPos, lastPos + lastSize)
       v.dispatch(tr)
@@ -634,7 +652,6 @@ export const ProseMirrorEditor = (props: Props) => {
       
       <Show when={triggerState()?.active && popoverPosition()}>
         <Portal>
-          <div class="mention-popover-overlay" onClick={closeMention} />
           <div
             ref={popoverWrapperRef}
             class={popoverFlipBelow() ? "mention-popover-below" : undefined}

@@ -215,6 +215,14 @@
   padding: 4px 0;
 }
 
+.addon-menu-design-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 0 4px 4px;
+}
+
 .addon-menu-section-title {
   font-size: 14px;
   line-height: 22px;
@@ -658,6 +666,8 @@
   z-index: 1010;
   display: flex;
   flex-direction: column;
+  /* 纯展示:不拦截鼠标,避免与文件项的 mouseenter/leave 死循环(html 每次挂载 iframe 开销巨大) */
+  pointer-events: none;
 }
 
 .addon-menu-asset-preview-name {

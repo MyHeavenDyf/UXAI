@@ -239,4 +239,3 @@ type ArtifactFiles = { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | n
 - 组件内部使用 `useUploadRiskGate` 做"添加附件/设计文件"的风险拦截,接入方无需配置
 - 面板定位:弹出框左边缘对齐触发按钮左边缘、下边缘对齐触发按钮上边缘
 - 滚动条/复选框/菜单项样式由组件 styles.css 提供,插槽内容复用 `addon-menu-item` 系列类即可保持外观一致
-- 产品资产库的登录态/数据接口/下载细节见 `od-docs/make-addonmenu.md`

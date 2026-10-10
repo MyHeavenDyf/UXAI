@@ -24,7 +24,8 @@ export function createMentionTriggerPlugin(
         if (meta !== undefined) {
           return meta
         }
-        return prev
+        if (!prev || !tr.docChanged) return prev
+        return { ...prev, from: tr.mapping.map(prev.from, -1), to: tr.mapping.map(prev.to, -1) }
       },
     },
     view(editorView) {
