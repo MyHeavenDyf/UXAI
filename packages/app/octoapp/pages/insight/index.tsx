@@ -360,8 +360,12 @@ function InsightContent() {
   // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
   createEffect(() => {
     const id = params.id
-    if (id) layout.lastSessionPerTab.setCowork(id)
-    else layout.lastSessionPerTab.clearCowork()
+    if (id) {
+      layout.lastSessionPerTab.setCowork(id)
+      layout.lastSessionPerTab.setNewConversation("cowork", false)
+    } else {
+      layout.lastSessionPerTab.clearCowork()
+    }
   })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）

@@ -898,6 +898,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
     createTimer = setTimeout(() => setCreating(false), 500)
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "new-session" })
+    if (props.sidebarSourceKey) {
+      layout.lastSessionPerTab.setNewConversation(
+        props.sidebarSourceKey === "insight" ? "cowork" : props.sidebarSourceKey,
+        true,
+      )
+    }
     props.onNewSession?.()
     navigate(props.buildNewRoute())
   }
