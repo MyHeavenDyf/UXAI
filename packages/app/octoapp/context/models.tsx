@@ -32,6 +32,7 @@ type Store = {
 const RECENT_LIMIT = 5
 const STARTUP_TOKEN_WAIT_MS = 30_000
 const STARTUP_TOKEN_CHECK_MS = 250
+const STARTUP_TOKEN_RETRY_MS = 2_000
 
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
@@ -94,11 +95,13 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const refreshStartupModels = async (signal: AbortSignal) => {
       const deadline = Date.now() + STARTUP_TOKEN_WAIT_MS
       let attemptedToken = ""
+      let nextAttemptAt = 0
 
       while (!signal.aborted && Date.now() < deadline) {
         const token = modelsApiToken()
-        if (token && token !== attemptedToken) {
+        if (token && (token !== attemptedToken || Date.now() >= nextAttemptAt)) {
           attemptedToken = token
+          nextAttemptAt = Date.now() + STARTUP_TOKEN_RETRY_MS
           const success = await refreshApiModels()
           if (success && modelsApiToken() === token) return
         }
