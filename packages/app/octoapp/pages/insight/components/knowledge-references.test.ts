@@ -45,6 +45,43 @@ describe("readKnowledgeSources", () => {
     expect(readKnowledgeSources(parts)).toEqual([{ n: 1, id: "d1", title: "好的" }])
   })
 
+  // SPEC-INS-034:引用列表对两个检索工具一视同仁,结构同构。
+  it("同样取得出 insight_report_search 的 sources", () => {
+    const parts = [
+      { type: "text", text: "答案正文[[1]](https://x)" },
+      {
+        type: "tool",
+        tool: "insight_report_search",
+        state: { status: "completed", metadata: { sources: [{ n: 1, id: "r1", title: "搜索可用性测试报告" }] } },
+      },
+    ]
+    expect(readKnowledgeSources(parts)).toEqual([{ n: 1, id: "r1", title: "搜索可用性测试报告" }])
+  })
+
+  // 多出来的 downloadUrl 字段不能被类型守卫过滤掉(守卫是白名单校验字段、不是排他式过滤对象)。
+  // 本期它只被透传存下来,渲染层不读(SPEC-INS-034 §4 / §7)。
+  it("多出的 downloadUrl 字段不被过滤,原样透传", () => {
+    const parts = [
+      {
+        type: "tool",
+        tool: "insight_report_search",
+        state: {
+          status: "completed",
+          metadata: {
+            sources: [
+              { n: 1, id: "r1", title: "有下载地址", url: "https://x/1", downloadUrl: "https://x/1.docx" },
+              { n: 2, id: "r2", title: "无下载地址", url: "https://x/2", downloadUrl: undefined },
+            ],
+          },
+        },
+      },
+    ]
+    expect(readKnowledgeSources(parts)).toEqual([
+      { n: 1, id: "r1", title: "有下载地址", url: "https://x/1", downloadUrl: "https://x/1.docx" },
+      { n: 2, id: "r2", title: "无下载地址", url: "https://x/2", downloadUrl: undefined },
+    ])
+  })
+
   it("多条 assistant part 时取第一组非空 sources", () => {
     const parts = [sourcePart([]), sourcePart([{ n: 1, id: "d1", title: "第二次检索" }])]
     expect(readKnowledgeSources(parts)).toEqual([{ n: 1, id: "d1", title: "第二次检索" }])
