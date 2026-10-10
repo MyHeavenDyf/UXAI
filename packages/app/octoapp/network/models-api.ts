@@ -66,7 +66,7 @@ function localStorageValue(key: string) {
   return localStorage.getItem(key)?.trim() ?? ""
 }
 
-function uiplusToken() {
+export function modelsApiToken() {
   return localStorageValue("uiplusToken")
 }
 
@@ -82,7 +82,7 @@ function w3Account() {
 }
 
 export function hasModelsApiToken() {
-  return !!uiplusToken()
+  return !!modelsApiToken()
 }
 
 function modelsApiChannel() {
@@ -109,7 +109,7 @@ export function modelsApiUrl() {
 }
 
 export function modelsApiHeaders() {
-  const token = uiplusToken()
+  const token = modelsApiToken()
   const account = w3Account()
   const url = modelsApiUrl()
   return {
@@ -205,7 +205,7 @@ export function hasApiModels(api: ApiModels | undefined): api is ApiModels {
 }
 
 export async function fetchModelsApi() {
-  const token = uiplusToken()
+  const token = modelsApiToken()
   const headers: Record<string, string> = token ? { uiplustoken: token } : {}
   const bridge = modelsApiBridge()
   const url = modelsApiUrl()

@@ -9,9 +9,9 @@ import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   hasApiModels,
-  hasModelsApiToken,
   modelsApiListForProviders,
   modelsApiProviders,
+  modelsApiToken,
   modelsApiUrl,
   modelsLocalListForProviders,
   refreshRemoteModels,
@@ -30,9 +30,28 @@ type Store = {
 }
 
 const RECENT_LIMIT = 5
+const STARTUP_TOKEN_WAIT_MS = 30_000
+const STARTUP_TOKEN_CHECK_MS = 250
+const STARTUP_TOKEN_RETRY_MS = 2_000
 
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
+}
+
+function waitForStartupCheck(signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve()
+    const done = () => {
+      signal.removeEventListener("abort", abort)
+      resolve()
+    }
+    const timer = window.setTimeout(done, STARTUP_TOKEN_CHECK_MS)
+    const abort = () => {
+      window.clearTimeout(timer)
+      done()
+    }
+    signal.addEventListener("abort", abort, { once: true })
+  })
 }
 
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
@@ -58,22 +77,42 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
     const refreshApiModels = async () => {
-      if (!modelsApiUrl()) return
-      if (refreshing()) return
+      if (!modelsApiUrl()) return false
+      if (refreshing()) return false
       setRefreshing(true)
       setRefreshError(undefined)
       try {
         await refreshRemoteModels()
+        return true
       } catch (error) {
         setRefreshError(error)
+        return false
       } finally {
         setRefreshing(false)
       }
     }
 
+    const refreshStartupModels = async (signal: AbortSignal) => {
+      const deadline = Date.now() + STARTUP_TOKEN_WAIT_MS
+      let attemptedToken = ""
+      let nextAttemptAt = 0
+
+      while (!signal.aborted && Date.now() < deadline) {
+        const token = modelsApiToken()
+        if (token && (token !== attemptedToken || Date.now() >= nextAttemptAt)) {
+          attemptedToken = token
+          nextAttemptAt = Date.now() + STARTUP_TOKEN_RETRY_MS
+          const success = await refreshApiModels()
+          if (success && modelsApiToken() === token) return
+        }
+        await waitForStartupCheck(signal)
+      }
+    }
+
     onMount(() => {
-      if (!hasModelsApiToken()) return
-      void refreshApiModels()
+      const controller = new AbortController()
+      void refreshStartupModels(controller.signal)
+      onCleanup(() => controller.abort())
     })
 
     onCleanup(
