@@ -1,5 +1,4 @@
 import { createSignal, For, Show } from "solid-js"
-import { getDesktopApi } from "../lib/electron-api"
 import "./knowledge-references.css"
 
 // 内网知识库引用列表(SPEC-INS-030 §2 引用 UI 重建)。
@@ -52,11 +51,16 @@ export function readKnowledgeSources(parts: Array<Record<string, unknown>>): Kno
   return []
 }
 
-function openExternal(url: string) {
-  const api = getDesktopApi()
-  if (typeof api?.openLink === "function") api.openLink(url)
-  else window.open(url, "_blank", "noopener")
-}
+// 条目渲染成 `<a class="external-link" target="_blank" rel="noopener noreferrer">`,
+// **不挂自己的 onClick** —— 这是为了走与对话正文里行内链接**完全相同**的那条通路:
+// 上游 marked 渲染器([packages/ui/src/context/marked.tsx])给 markdown 链接加的就是这个 class,
+// 桌面壳在 document 上挂了全局监听(packages/desktop/src/renderer/index.tsx 的 handleClick +
+// addEventListener("click")),命中 `a.external-link` 就 preventDefault 后走 platform.openLink。
+//
+// 2026-10-10 内网实测:对话正文里的行内引用点得开浏览器,本列表点不动。两者数据同源、组件同一份,
+// 差别只在本列表当初自建了一条 `<button onClick={window.api.openLink}>` 的平行通路。与其继续查
+// 那条自建通路为什么不工作,不如直接复用已经被证明可用的那条(CLAUDE.md:能复用就不新写)。
+// 附带收益:`<a href>` 支持右键复制链接 / 中键新标签页打开,button 做不到。
 
 /** 回答下方的折叠「引用 N 篇资料」列表;编号与正文里的 [n] 对应。 */
 export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
@@ -76,14 +80,15 @@ export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
               <li class="octo-kb-refs__item">
                 <span class="octo-kb-refs__index">{s.n}.</span>
                 <Show when={s.url} fallback={<span class="octo-kb-refs__title" title={s.title}>{s.title}</span>}>
-                  <button
-                    type="button"
-                    class="octo-kb-refs__link"
+                  <a
+                    class="octo-kb-refs__link external-link"
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     title={s.title}
-                    onClick={() => openExternal(s.url!)}
                   >
                     {s.title}
-                  </button>
+                  </a>
                 </Show>
                 <Show when={s.classification}>
                   <span class="octo-kb-refs__meta">· {s.classification}</span>

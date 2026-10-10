@@ -98,6 +98,49 @@ export function parseDocs(payload: unknown): ReportDoc[] {
   return [...byId.values()]
 }
 
+// 组装给模型看的检索结果文本。
+//
+// **刻意不把来源 URL / downloadUrl 放进 output**(2026-10-10 内网实测后改):GLM 把提示词里的
+// 占位符 `https://...` 当成内容原样抄进了回答,用户点开得到 `https://.../`。根因不是"例子没写好",
+// 而是**我们在要求模型手抄一个长 URL** —— 改措辞只能降低概率。按确定性优先:让模型**根本拿不到
+// URL**,它就不可能写错;编号 → 链接的映射走 metadata.sources,由界面渲染成可点来源。
+// downloadUrl 更不能给:它是 200+ 字符的签名串,让模型转述必然出错(同 SPEC-INS-017 的教训)。
+// 代价:行内 [n] 退化成纯文本角标,可点入口只剩回答下方的来源列表。见 SPEC-INS-034。
+// 组装给模型看的检索结果文本。
+//
+// **这里给模型 URL,是刻意的**:行内 `[[n]](链接)` 角标要可点,只能由模型写进正文——上游
+// SessionTurn 只收 sessionID/messageID,正文从 store 自取,前端没有「渲染前把 [n] 换成链接」
+// 的接缝(改上游 packages/ui 不允许)。
+//
+// **但示例里绝不能出现形如 `https://...` 的假地址**(2026-10-10 内网实测的 bug):GLM 把那个
+// 占位符当成内容原样抄进了回答,用户点开得到 `https://.../`。根因是我们自己在提示词里埋了一个
+// 语法上成立的假 URL,不是模型不可靠——真实地址它是会照抄的。所以示例只写形状、用文字指向
+// 「— 链接:」字段,**不给任何可抄的 URL 样子**。改这段时务必守住这一条。
+//
+// 兜底:编号 → 链接的权威映射在 metadata.sources 里,由回答下方的来源列表渲染成可点条目
+// (pages/insight/components/knowledge-references.tsx)。行内角标是便利,来源列表才是准的。
+// downloadUrl 仍然不给模型:它是 200+ 字符的签名串,且本期没有任何功能用它,
+// 给了只会让模型去承诺一个不存在的下载能力(SPEC-INS-034 §4)。
+export function buildOutput(docs: ReportDoc[], maxChunkChars = MAX_CHUNK_CHARS): string {
+  const body = docs
+    .map((d, i) => {
+      const link = d.url ? ` — 链接:${d.url}` : ""
+      const content = d.content.length > maxChunkChars ? d.content.slice(0, maxChunkChars) + "…" : d.content
+      return `[${i + 1}] ${d.title}${link}\n${content}`
+    })
+    .join("\n\n")
+  return (
+    "以下是内网研究报告库检索到的相关报告片段(每篇前为「编号 标题 — 链接」)。请【只依据它们】用自然语言回答用户:\n" +
+    "- 引用某篇来源时,在所引用那句话的句末就近写 `[[n]](链接)`(如 `…搜索功能可用性测试报告[[1]](此处填第 1 篇的链接)`),让编号可点击;\n" +
+    "- 里面的链接**必须逐字复制该篇开头「— 链接:」后面的那个地址**。不要凭记忆写、不要缩写、不要用省略号代替地址里的任何一段——写错用户就会打开一个不存在的页面;\n" +
+    "- 保持正文原有分段/分点/换行,只把编号贴到对应句末,不要为放编号改变排版;\n" +
+    "- **不要承诺可以为用户下载报告原文**——你没有这个能力;\n" +
+    "- 片段正文里本来就带的 `[文件名](链接)` 可原样保留;\n" +
+    "- 不要大段照抄无关原文,也不要编造片段之外的内容。\n\n" +
+    body
+  )
+}
+
 // 三个问答入口的边界要在 description 里写死(spec §8):正面说覆盖什么、**反面说不覆盖什么**——
 // 只写"覆盖什么"时,弱模型会把三个入口都当成"可能有答案的地方"挨个试。
 // 提示词侧(agent/prompt/octo_insight.md)有对齐的一段,两处措辞保持一致。
@@ -192,23 +235,7 @@ export const InsightReportSearchTool = Tool.define(
             }
           }
 
-          const body = docs
-            .map((d, i) => {
-              const link = d.url ? ` — 链接:${d.url}` : ""
-              const head = `[${i + 1}] ${d.title}${link}`
-              const content = d.content.length > MAX_CHUNK_CHARS ? d.content.slice(0, MAX_CHUNK_CHARS) + "…" : d.content
-              return `${head}\n${content}`
-            })
-            .join("\n\n")
-
-          // 注意:**不把 downloadUrl 写进 output**——本期不做下载交互,给模型看只会让它去承诺
-          // 一个还不存在的能力(spec §4)。它只随 metadata.sources 存下来。
-          const output =
-            "以下是内网研究报告库检索到的相关报告片段(每篇前为「编号 标题 — 链接」)。请【只依据它们】用自然语言回答用户:\n" +
-            "- 引用某篇来源时,在所引用那句话的句末就近写 `[[n]](该来源链接)`(例如 `…搜索功能可用性测试报告[[1]](https://...)`),让编号可点击;保持正文原有分段/分点/换行,只把编号贴到对应句末,不要为放编号改变排版;\n" +
-            "- 正文里若出现 `[文件名](链接)` 形式的来源文档链接,可原样保留以便用户打开原文;\n" +
-            "- 不要大段照抄无关原文,也不要编造片段之外的内容。\n\n" +
-            body
+          const output = buildOutput(docs)
 
           return {
             title: `研究报告检索: ${params.query}`,

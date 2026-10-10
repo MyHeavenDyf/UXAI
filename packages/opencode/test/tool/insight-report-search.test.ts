@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { parseDocs } from "../../src/tool/insight_report_search"
+import { buildOutput, parseDocs } from "../../src/tool/insight_report_search"
 
 // 研究报告库接口 queryReportKnowledge 的响应整形(SPEC-INS-034 §3.3 / §4)。
 // 与 knowledge_search 的 parseDocs 同构(扁平数组、按 documentId 兜底去重、保序、不截断),
@@ -94,5 +94,61 @@ describe("parseDocs(研究报告库扁平数组)", () => {
     expect(parseDocs(null)).toEqual([])
     expect(parseDocs({ data: [] })).toEqual([])
     expect(parseDocs("nope")).toEqual([])
+  })
+})
+
+// buildOutput 的回归门禁(2026-10-10 内网实测的 bug):模型把提示词里的占位符 `https://...`
+// 原样抄进了回答,用户点开得到 `https://.../`。修法不是改措辞,而是**让模型根本拿不到 URL**。
+// 这几条用例钉的就是这一点——任何把 URL 重新放回 output 的改动都会在这里红。
+
+// buildOutput 的回归门禁(2026-10-10 内网实测的 bug)。
+//
+// 当时提示词示例里写着 `[[1]](https://...)`,GLM 把那个**占位符**当内容原样抄进回答,
+// 用户点开得到 `https://.../`。根因是我们自己埋了一个语法上成立的假 URL —— 真实地址模型是会
+// 照抄的。所以修法是**删掉可抄的假 URL**,而不是不给模型链接(不给就没有行内可点角标了)。
+// 下面第一条用例钉的就是这一点:谁再往提示词里塞一个 `https://` 开头的示例地址,这里就红。
+describe("buildOutput(给模型看的检索结果)", () => {
+  const docs = parseDocs([
+    {
+      documentId: "a",
+      chunkTitle: "搜索功能可用性测试报告",
+      chunkContent: "正文 A",
+      documentUrl: "https://octo-g.hdesign.huawei.com/x?id=695",
+      downloadUrl: "https://s3-hc-dgg.hics.huawei.com/x/v1m.md?Expires=1&Signature=abc",
+    },
+  ])
+
+  it("指令部分不含任何可被照抄的假 URL", () => {
+    const instructions = buildOutput(docs).split("[1] ")[0]
+    expect(instructions).not.toContain("https://")
+    expect(instructions).not.toContain("http://")
+  })
+
+  it("片段头给出真实链接,供模型写 [[n]](链接)", () => {
+    const out = buildOutput(docs)
+    expect(out).toContain("[1] 搜索功能可用性测试报告 — 链接:https://octo-g.hdesign.huawei.com/x?id=695")
+  })
+
+  it("无 url 的条目不编出一个链接字段", () => {
+    const noUrl = parseDocs([{ documentId: "a", chunkTitle: "无链接", chunkContent: "正文" }])
+    // 只看片段段(指令段里本来就提到「— 链接:」这个字段名)
+    const fragments = buildOutput(noUrl).split("[1] ")[1]
+    expect(fragments).toBe("无链接\n正文")
+  })
+
+  // downloadUrl 仍然不给模型:200+ 字符签名串,且本期没有功能用它(SPEC-INS-034 §4)。
+  it("不把 downloadUrl 交给模型", () => {
+    const out = buildOutput(docs)
+    expect(out).not.toContain("s3-hc-dgg")
+    expect(out).not.toContain("Signature")
+  })
+
+  it("提醒模型不要承诺下载能力", () => {
+    expect(buildOutput(docs)).toContain("不要承诺可以为用户下载报告原文")
+  })
+
+  it("超长正文按上限截断", () => {
+    const long = parseDocs([{ documentId: "a", chunkTitle: "长文", chunkContent: "x".repeat(50) }])
+    expect(buildOutput(long, 10)).toContain("xxxxxxxxxx…")
   })
 })
