@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { configureModelsApiHeaders, modelRequestBody, parseModelsApi } from "@/plugin/model-headers"
+import { configureModelsApiHeaders, ModelHeadersPlugin, modelRequestBody, parseModelsApi } from "@/plugin/model-headers"
 
 test("normalizes array models from the remote catalog", () => {
   const catalog = parseModelsApi({
@@ -63,4 +63,29 @@ describe("model request body", () => {
   test("defaults missing model network type to false", () => {
     expect(modelRequestBody({ model: "mimo-v2.5" })).toMatchObject({ isExternal: false })
   })
+})
+
+test("adds thirdToken to model conversation headers", async () => {
+  configureModelsApiHeaders({
+    "x-opencode-models-api-source": "local",
+    "x-auth-token": "third-token",
+  })
+  const headers = {}
+  const model = {
+    providerID: "w3",
+    id: "model",
+    api: { id: "model" },
+    headers: { "x-auth-token": "catalog-token" },
+  }
+  const hook = (await ModelHeadersPlugin(undefined as never))["chat.headers"]
+
+  await hook?.(
+    {
+      model,
+    } as never,
+    { headers } as never,
+  )
+
+  expect(headers).toEqual({ "X-Auth-Token": "third-token" })
+  expect(Object.keys(model.headers)).toEqual([])
 })

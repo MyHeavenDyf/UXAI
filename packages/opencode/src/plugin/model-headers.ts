@@ -2,30 +2,31 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
 const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
-let modelsApi: { source: "http" | "local"; url?: string; token?: string; account?: string } | undefined
+let modelsApi: { source: "http" | "local"; url?: string; token?: string; thirdToken?: string; account?: string } | undefined
 let cache: { api: Record<string, unknown>; expires: number } | undefined
 let loading: Promise<Record<string, unknown> | undefined> | undefined
 
-export function configureModelsApi(input: { source?: string; url?: string; token?: string; account?: string }) {
+export function configureModelsApi(input: { source?: string; url?: string; token?: string; thirdToken?: string; account?: string }) {
   const source = input.source === "local" ? "local" : "http"
   if (source === "local") {
     cache = undefined
-    modelsApi = { source, token: input.token, account: input.account }
+    modelsApi = { source, token: input.token, thirdToken: input.thirdToken, account: input.account }
     return
   }
   if (!input.url) {
     cache = undefined
-    modelsApi = { source, token: input.token, account: input.account }
+    modelsApi = { source, token: input.token, thirdToken: input.thirdToken, account: input.account }
     return
   }
   try {
     const url = new URL(input.url)
     if (url.protocol !== "http:" && url.protocol !== "https:") return
-    const next = { source, url: url.toString(), token: input.token, account: input.account } as const
+    const next = { source, url: url.toString(), token: input.token, thirdToken: input.thirdToken, account: input.account } as const
     if (
       modelsApi?.source !== next.source ||
       modelsApi.url !== next.url ||
       modelsApi.token !== next.token ||
+      modelsApi.thirdToken !== next.thirdToken ||
       modelsApi.account !== next.account
     ) {
       cache = undefined
@@ -40,6 +41,7 @@ export function configureModelsApiHeaders(headers: Record<string, string | undef
     source: headers["x-opencode-models-api-source"],
     url: headers["x-opencode-models-api-url"],
     token: headers.uiplustoken,
+    thirdToken: headers["x-auth-token"],
     account: headers["x-opencode-w3-account"],
   })
 }
@@ -55,6 +57,13 @@ function readHeaders(value: unknown) {
   return Object.fromEntries(
     Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   )
+}
+
+function withThirdToken(headers: Record<string, string> | undefined, thirdToken: string | undefined) {
+  return {
+    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([key]) => key.toLowerCase() !== "x-auth-token")),
+    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
+  }
 }
 
 function parseJson(value: unknown): unknown {
@@ -187,9 +196,17 @@ export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
   return {
     "chat.headers": async (input, output) => {
       const api = await loadApi()
+      if (modelsApi?.thirdToken && input.model.headers) {
+        Object.keys(input.model.headers)
+          .filter((key) => key.toLowerCase() === "x-auth-token")
+          .forEach((key) => delete input.model.headers[key])
+      }
       Object.assign(
         output.headers,
-        api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
+        withThirdToken(
+          api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
+          modelsApi?.thirdToken,
+        ),
         modelsApi?.token ? { uiplustoken: modelsApi.token } : {},
       )
     },

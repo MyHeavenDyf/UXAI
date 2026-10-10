@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { hasModelsApiToken, modelsApiHeaders, modelsApiProviders, modelsApiToken } from "./models-api"
+import { hasModelsApiToken, modelsApiHeaders, modelsApiProviders, modelsApiThirdToken, modelsApiToken } from "./models-api"
 
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
@@ -94,6 +94,13 @@ describe("modelsApiHeaders", () => {
   test("includes the account from userInfo for the local server", () => {
     localStorage.setItem("userInfo", JSON.stringify({ account: " j60099994 " }))
     expect(modelsApiHeaders()["x-opencode-w3-account"]).toBe("j60099994")
+  })
+
+  test("forwards thirdToken from userInfo as the model authentication token", () => {
+    localStorage.setItem("userInfo", JSON.stringify({ thirdToken: " third-token " }))
+
+    expect(modelsApiThirdToken()).toBe("third-token")
+    expect(modelsApiHeaders()["X-Auth-Token"]).toBe("third-token")
   })
 
   test("omits the account when userInfo is invalid", () => {
