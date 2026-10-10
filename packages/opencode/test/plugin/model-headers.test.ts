@@ -71,18 +71,21 @@ test("adds thirdToken to model conversation headers", async () => {
     "x-auth-token": "third-token",
   })
   const headers = {}
+  const model = {
+    providerID: "w3",
+    id: "model",
+    api: { id: "model" },
+    headers: { "x-auth-token": "catalog-token" },
+  }
   const hook = (await ModelHeadersPlugin(undefined as never))["chat.headers"]
 
   await hook?.(
     {
-      model: {
-        providerID: "w3",
-        id: "model",
-        api: { id: "model" },
-      },
+      model,
     } as never,
     { headers } as never,
   )
 
   expect(headers).toEqual({ "X-Auth-Token": "third-token" })
+  expect(Object.keys(model.headers)).toEqual([])
 })

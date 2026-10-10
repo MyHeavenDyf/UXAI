@@ -183,6 +183,13 @@ function apiModels(value: unknown): ApiModels {
   )
 }
 
+function withThirdToken(headers: Record<string, string>, thirdToken: string) {
+  return {
+    ...Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== "x-auth-token")),
+    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
+  }
+}
+
 function withModelAuthHeaders(api: ApiModels, token: string, thirdToken: string): ApiModels {
   return Object.fromEntries(
     Object.entries(api).map(([providerID, provider]) => {
@@ -195,14 +202,14 @@ function withModelAuthHeaders(api: ApiModels, token: string, thirdToken: string)
           models: Object.fromEntries(
             Object.entries(provider.models).map(([modelID, model]) => {
               if (!isRecord(model)) return [modelID, model]
+              const item = model as ApiModel
               return [
                 modelID,
                 {
-                  ...model,
+                  ...item,
                   headers: {
-                    ...(isRecord(model.headers) ? model.headers : {}),
+                    ...withThirdToken(item.headers ?? {}, thirdToken),
                     ...(token ? { uiplustoken: token } : {}),
-                    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
                   },
                 },
               ]

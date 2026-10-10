@@ -59,6 +59,13 @@ function readHeaders(value: unknown) {
   )
 }
 
+function withThirdToken(headers: Record<string, string> | undefined, thirdToken: string | undefined) {
+  return {
+    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([key]) => key.toLowerCase() !== "x-auth-token")),
+    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
+  }
+}
+
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string") return value
   try {
@@ -189,11 +196,18 @@ export async function ModelHeadersPlugin(_input: PluginInput): Promise<Hooks> {
   return {
     "chat.headers": async (input, output) => {
       const api = await loadApi()
+      if (modelsApi?.thirdToken && input.model.headers) {
+        Object.keys(input.model.headers)
+          .filter((key) => key.toLowerCase() === "x-auth-token")
+          .forEach((key) => delete input.model.headers[key])
+      }
       Object.assign(
         output.headers,
-        api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
+        withThirdToken(
+          api ? readHeaders(findApiModel(api, input.model.providerID, input.model.id, input.model.api.id)) : undefined,
+          modelsApi?.thirdToken,
+        ),
         modelsApi?.token ? { uiplustoken: modelsApi.token } : {},
-        modelsApi?.thirdToken ? { "X-Auth-Token": modelsApi.thirdToken } : {},
       )
     },
   }
