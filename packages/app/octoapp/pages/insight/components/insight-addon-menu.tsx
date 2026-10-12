@@ -107,7 +107,7 @@ export function InsightAddonMenu(props: {
   return <>
     <AddonMenu
       items={["skills", "productAssets", "designFiles", "addAttachment", "insightMcp"]}
-      controlledFiles cancelOnDispose skillsLoading={props.skillsLoading} filesLoading={props.filesLoading}
+      controlledFiles transactionalFiles cancelOnDispose skillsLoading={props.skillsLoading} filesLoading={props.filesLoading}
       skillConfig={{ panel: { octo_make: props.skills.platform, common: props.skills.custom } }}
       onSkillsOpen={props.loadSkills} artifactFiles={files()} selections={selections()}
       onSelect={selection => { if (selection.type !== "product-asset") props.editor()?.insertMentions([selection]) }}

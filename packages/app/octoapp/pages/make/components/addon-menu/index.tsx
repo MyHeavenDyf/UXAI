@@ -99,6 +99,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const [triggerTip, setTriggerTip] = createSignal<{ left: number; top: number } | null>(null)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
+  const fileSelectionChanges = new Map<string, { initial?: Extract<MentionSelection, { type: "file" }>; selection: Extract<MentionSelection, { type: "file" }> }>()
   // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
   const [assetDialogOpen, setAssetDialogOpen] = createSignal(false)
   // 打开弹窗时的 chip id 快照;取消/关闭时移除快照之外(本次新增)的 chip
@@ -200,6 +201,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const finishOpen = () => {
     setLocalFileSelections([])
+    fileSelectionChanges.clear()
     setOpen(true)
     setActiveSecondary(null)
     setSkillsCategory('platform')
@@ -230,23 +232,30 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         setMenuPosition({ left: expectedLeft, bottom: expectedBottom })
         return
       }
-      cancelDesignFileSelections()
-      setOpen(false)
-      setActiveSecondary(null)
-      setSkillsCategory('platform')
+      closeMenu()
     }
   }
 
   // 取消本次所有设计文件选中(移除已插入的 chips)
   const cancelDesignFileSelections = () => {
+    if (props.transactionalFiles && props.controlledFiles) {
+      for (const [path, change] of fileSelectionChanges) {
+        const current = props.selections.some(selection => selection.type === "file" && selection.path === path)
+        if (change.initial && !current) props.onSelect(change.initial)
+        if (!change.initial && current) props.onDeselect(change.selection)
+      }
+      fileSelectionChanges.clear()
+      return
+    }
     for (const sel of localFileSelections()) {
       props.onDeselect(sel)
     }
     setLocalFileSelections([])
   }
 
-  const closeMenu = () => {
-    cancelDesignFileSelections()
+  const closeMenu = (commit = false) => {
+    if (commit && props.transactionalFiles && props.controlledFiles) fileSelectionChanges.clear()
+    else cancelDesignFileSelections()
     setOpen(false)
     setActiveSecondary(null)
     setSkillsCategory('platform')
@@ -261,6 +270,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const closeMenuSilent = () => {
     setLocalFileSelections([])
+    fileSelectionChanges.clear()
     setOpen(false)
     setActiveSecondary(null)
     setSkillsCategory('platform')
@@ -274,12 +284,18 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     } else {
       props.onSelect(selection)
       tracker.interaction({ module: trackerModule(), name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
-      closeMenu()
+      closeMenu(true)
     }
   }
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
+    if (props.transactionalFiles && props.controlledFiles && !fileSelectionChanges.has(file.path)) {
+      fileSelectionChanges.set(file.path, {
+        initial: props.selections.find((item): item is Extract<MentionSelection, { type: "file" }> => item.type === "file" && item.path === file.path),
+        selection,
+      })
+    }
     if (isFileSelectedLocal(selection)) {
       setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.path === file.path)))
       props.onDeselect(selection)
@@ -369,7 +385,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const handleAddAttachment = () => {
     request(() => {
-      closeMenu()
+      closeMenu(true)
       props.onAddAttachment?.()
     })
   }
@@ -559,7 +575,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 assetChipSnapshot = new Set(
                   props.selections.map(s => (s as any).id as string).filter(Boolean),
                 )
-                closeMenu()
+                closeMenu(true)
                 setAssetDialogOpen(true)
               }, true)
             }}
@@ -594,7 +610,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             class="addon-menu-item"
             onClick={() => {
               setUrlDialogOpen(true)
-              closeMenu()
+              closeMenu(true)
             }}
           >
             <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
@@ -663,7 +679,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               {(key) => {
                 const slot = props.slots?.find(s => s.key === key)
                 if (slot) return slot.render({
-                  closeMenu,
+                  closeMenu: () => closeMenu(true),
                   active: () => activeSecondary() === `slot:${slot.key}`,
                   togglePanel: () => setActiveSecondary(current => current === `slot:${slot.key}` ? null : `slot:${slot.key}`),
                 })

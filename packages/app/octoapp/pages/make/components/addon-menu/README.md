@@ -11,6 +11,7 @@ Insight 使用本组件的 `items={["skills", "productAssets", "designFiles", "a
 可选接入参数（缺省保持原行为）：
 
 - `controlledFiles`：文件勾选从 `selections` 派生，而不是本轮临时勾选。
+- `transactionalFiles`：配合 `controlledFiles` 使用；取消时仅撤销本次改动并恢复已取消勾选的引用，确认或选择其他菜单功能时保留改动。Insight 启用，Design 缺省保持原行为。
 - `skillsLoading` / `filesLoading`：空列表加载文案。
 - `cancelOnDispose`：输入实例卸载时中止菜单导入任务；Insight 启用，Design 缺省不改变生命周期行为。
 - `productAssetsDisabledReason`：资产入口不可用原因。

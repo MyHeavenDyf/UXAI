@@ -50,6 +50,8 @@ export interface AddonMenuProps {
   disabled?: boolean
   /** 可选的受控文件选择；缺省保持 Design 的本轮选择行为。 */
   controlledFiles?: boolean
+  /** 受控文件选择的取消/确认事务；缺省保持 Design 的现有行为。 */
+  transactionalFiles?: boolean
   skillsLoading?: boolean
   filesLoading?: boolean
   cancelOnDispose?: boolean
