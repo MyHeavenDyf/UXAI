@@ -38,7 +38,9 @@ function rgbToHex(rgb: string): string {
   const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1
   if (alpha <= 0) return ''
   const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3])
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  if (alpha < 1) return hex + Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return hex
 }
 
 function isColorProp(prop: string): boolean {

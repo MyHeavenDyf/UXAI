@@ -13,6 +13,7 @@ import {
   type StudioTemplateStyleDescription,
 } from "./studio-style-template-utils"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showFloatingNotice } from "@/components/floating-notice"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -48,6 +49,7 @@ export function StudioComposer(props: {
   capability: StudioCapability
   canGenerateVideo: boolean
   canUseSeedream: boolean
+  canCreateStyleTemplate: boolean
   permissionStatus: "loading" | "ready" | "error"
   onRetryPermission: () => void
   styleModel: string
@@ -965,7 +967,10 @@ export function StudioComposer(props: {
   }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (event.target instanceof Element && event.target.closest(".studio-menu")) return
+    if (
+      event.target instanceof Element
+      && event.target.closest(".studio-menu, .studio-style-template-delete-overlay")
+    ) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
     if (atMenuOpen()) setAtMenuOpen(false)
@@ -1251,17 +1256,19 @@ export function StudioComposer(props: {
               </Show>
               <Show when={showMentionEntry() && !toolbarOverflow().includes("at")}>
                 <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
-                  <IconTool
-                    label="引用参考"
-                    title="引用参考"
-                    class="studio-composer-icon-at"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
-                    onClick={() => {
-                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                      openMentionMenu()
-                    }}
-                  />
+                  <StudioToolbarTooltip label="引用参考">
+                    <IconTool
+                      label="引用参考"
+                      title=""
+                      class="studio-composer-icon-at"
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
+                      onClick={() => {
+                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                        openMentionMenu()
+                      }}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("style-template")}>
@@ -1296,23 +1303,29 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
-                  <IconTool
-                    label="图文反推"
-                    class="studio-composer-icon-reverse"
-                    disabled={isBusy()}
-                    onClick={() => props.onReversePrompt?.()}
-                  />
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                  <StudioToolbarTooltip label="图文反推">
+                    <IconTool
+                      label="图文反推"
+                      title=""
+                      class="studio-composer-icon-reverse"
+                      disabled={isBusy()}
+                      onClick={() => props.onReversePrompt?.()}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("material")}>
                 <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material" ref={(el) => buttonRefs.set("material", el)} data-toolbar-item="material">
-                  <IconTool
-                    label="词书"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-                  />
+                  <StudioToolbarTooltip label="词书">
+                    <IconTool
+                      label="词书"
+                      title=""
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={toolbarOverflow().length > 0}>
@@ -1483,6 +1496,7 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
+                canCreateTemplate={props.canCreateStyleTemplate}
                 onCreateTemplate={() => {
                   props.onOpenMenu(null)
                   props.onCreateTemplate?.()
@@ -1641,32 +1655,49 @@ function SelectedTemplateButton(props: {
       <span class="studio-composer-template-applied-label">{displayTitle()}</span>
       <div class="studio-composer-template-applied-actions">
         <Show when={props.editable}>
+          <StudioTemplateActionTooltip label="编辑模板">
+            <button
+              type="button"
+              class="studio-composer-template-applied-icon"
+              classList={{ active: props.editorOpen }}
+              disabled={props.disabled}
+              aria-label="编辑模板"
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onEdit?.()
+              }}
+            />
+          </StudioTemplateActionTooltip>
+        </Show>
+        <StudioTemplateActionTooltip label="移除模板">
           <button
             type="button"
-            class="studio-composer-template-applied-icon"
-            classList={{ active: props.editorOpen }}
+            class="studio-composer-template-applied-clear"
             disabled={props.disabled}
-            aria-label="调整模板预设"
-            title="调整模板预设"
+            aria-label="移除模板"
             onClick={(event) => {
               event.stopPropagation()
-              props.onEdit?.()
+              props.onClear?.()
             }}
           />
-        </Show>
-        <button
-          type="button"
-          class="studio-composer-template-applied-clear"
-          disabled={props.disabled}
-          aria-label="取消应用模板"
-          title="取消应用模板"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onClear?.()
-          }}
-        />
+        </StudioTemplateActionTooltip>
       </div>
     </div>
+  )
+}
+
+function StudioTemplateActionTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      arrow
+      value={props.label}
+      class="studio-composer-template-applied-tooltip-trigger"
+      contentClass="studio-composer-template-applied-tooltip"
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 
@@ -1804,6 +1835,31 @@ function IconTool(props: { label: string; title?: string; children?: JSX.Element
         <span class="studio-composer-icon-tool-label">{props.children}</span>
       </Show>
     </button>
+  )
+}
+
+function StudioToolbarTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      value={props.label}
+      contentStyle={{
+        height: "30px",
+        padding: "4px 8px",
+        "box-sizing": "border-box",
+        "max-width": "none",
+        "white-space": "nowrap",
+        background: "#191919",
+        color: "#fff",
+        border: "none",
+        "font-size": "14px",
+        "font-weight": "400",
+        "line-height": "22px",
+      }}
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 

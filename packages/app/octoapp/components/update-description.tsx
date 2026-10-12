@@ -1,12 +1,10 @@
-export function UpdateDescription(props: { version: string; releaseNotes?: string }) {
+export function UpdateDescription(props: { releaseNotes?: string }) {
   const releaseNotes = () => props.releaseNotes?.trim()
 
   return (
     <>
       {releaseNotes() ? (
-        <p class="octo-update-dialog-description">
-          V {props.version.replace(/^v/i, "")} {releaseNotes()}
-        </p>
+        <p class="octo-update-dialog-description">{releaseNotes()}</p>
       ) : (
         <div class="octo-update-dialog-description-spacer" aria-hidden="true" />
       )}

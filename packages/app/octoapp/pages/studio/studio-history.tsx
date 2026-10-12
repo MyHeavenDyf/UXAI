@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { ThumbnailMap } from "./session-thumbnail"
+import { sessionThumbnailUsesVideoElement, type ThumbnailMap } from "./session-thumbnail"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
@@ -14,11 +14,12 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
-import { IconSettings } from "@/pages/_shell/icons"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { decode64 } from "@/utils/base64"
+import { resolveStudioThumbnailUrl } from "./studio-media"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -34,11 +35,6 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-function isVideoThumbnailUrl(url: string): boolean {
-  if (/^data:video\//i.test(url)) return true
-  return /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url)
-}
-
 export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
@@ -46,6 +42,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const navigate = useNavigate()
   const layout = useLayout()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   // Trigger thumbnail loading when sessions are first loaded
   createEffect(on(() => props.sessions, (data) => {
@@ -222,7 +219,12 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                       const thumbnailUrl = createMemo(() => {
                         // Depend on version to re-evaluate when a thumbnail is set elsewhere
                         void props.thumbnailVersion
-                        return props.thumbnails?.[session.id]?.url
+                        const entry = props.thumbnails?.[session.id]
+                        return resolveStudioThumbnailUrl({
+                          value: entry?.url,
+                          sdkUrl: globalSDK.url,
+                          directory: props.directory,
+                        })
                       })
                       const [isTruncated, setIsTruncated] = createSignal(false)
                       let titleSpanRef!: HTMLSpanElement
@@ -315,28 +317,28 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                         </Show>
                                       }
                                     >
-                                      <Show when={isVideoThumbnailUrl(thumbnailUrl()!)} fallback={
-                                        <img
-                                          src={thumbnailUrl()!}
-                                          alt=""
-                                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                          loading="lazy"
-                                          onError={(e) => {
-                                            const el = e.currentTarget as HTMLImageElement
-                                            el.style.display = "none"
-                                          }}
-                                        />
-                                      }>
+                                      <Show
+                                        when={sessionThumbnailUsesVideoElement(props.thumbnails?.[session.id])}
+                                        fallback={
+                                          <img
+                                            src={thumbnailUrl()!}
+                                            alt=""
+                                            style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                            loading="lazy"
+                                            decoding="async"
+                                            onError={(e) => {
+                                              const el = e.currentTarget as HTMLImageElement
+                                              el.style.display = "none"
+                                            }}
+                                          />
+                                        }
+                                      >
                                         <video
                                           src={thumbnailUrl()!}
                                           muted
                                           playsinline
                                           preload="metadata"
                                           style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                          onError={(e) => {
-                                            const el = e.currentTarget as HTMLVideoElement
-                                            el.style.display = "none"
-                                          }}
                                         />
                                       </Show>
                                     </Show>
@@ -480,12 +482,36 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
       <button
         type="button"
-        class="flex items-center gap-[12px] w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-        style={{ height: "36px", padding: "0 12px", color: "rgba(0,0,0,0.9)", "font-size": "12px", "line-height": "20px" }}
-        onClick={() => dialog.show(() => <DialogSettings />)}
+        title="设置"
+        class="relative flex items-center gap-[12px] w-full rounded-[4px] text-left transition-colors"
+        style={{
+          height: "36px",
+          padding: "0 12px",
+          "font-size": "12px",
+          "line-height": "20px",
+          background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+          color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+          "font-weight": settingsActive() ? "500" : "400",
+        }}
+        onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+        onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+        onClick={() => { setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
       >
-        <IconSettings size={20} />
-        <span class="text-[12px] leading-[20px]">{language.t("sidebar.settings")}</span>
+        <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+          <IconSettings1 size={20} />
+        </Show>
+        <span class="truncate">{language.t("sidebar.settings")}</span>
+        <Show when={settingsActive()}>
+          <span
+            class="absolute right-0 top-1/2 rounded-l-[3px]"
+            style={{
+              height: "20px",
+              width: "3px",
+              background: "var(--text-interactive-base)",
+              transform: "translateY(-50%)",
+            }}
+          />
+        </Show>
       </button>
     </div>
   )

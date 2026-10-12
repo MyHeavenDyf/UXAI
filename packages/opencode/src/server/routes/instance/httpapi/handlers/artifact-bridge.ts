@@ -236,8 +236,8 @@ html[data-od-edit-mode] [data-od-id]:hover,
 html[data-od-edit-mode] [data-od-runtime-id]:hover,
 html[data-od-edit-mode] [data-od-source-path]:hover { outline: 2px solid #2563eb; }
 html[data-od-edit-mode] [data-od-edit-selected] {
-  outline: 2px solid #2563eb !important;
-  outline-offset: 4px;
+  outline: var(--od-sel-width, 2px) var(--od-sel-line-style, solid) var(--od-sel-color, #2563eb) !important;
+  outline-offset: var(--od-sel-offset, 4px);
 }
 html[data-od-edit-mode] [data-od-editing="true"] {
   outline: 2px solid #2563eb !important;
