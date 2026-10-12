@@ -2,9 +2,9 @@ import { onMount, type JSX } from "solid-js"
 import { usePlatform } from "@/context/platform"
 import "./make-model-risk-dialog.css"
 
-const AI_MANAGEMENT_GUIDE_URL = "https://w3.huawei.com/info/cn/doc/viewDoc.do?did=18822293&cata348041"
+export const AI_MANAGEMENT_GUIDE_URL = "https://w3.huawei.com/info/cn/doc/viewDoc.do?did=18822293&cata348041"
 
-function MakeModelRiskLink(props: { href: string; children: JSX.Element }): JSX.Element {
+export function MakeModelRiskLink(props: { href: string; children: JSX.Element }): JSX.Element {
   const platform = usePlatform()
   return (
     <a

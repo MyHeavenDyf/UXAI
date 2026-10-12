@@ -19,6 +19,7 @@
 /* Main popover container — rendered via Portal (outside .octo-make scope),
    so re-declare the tokens it needs locally, matching .octo-dropdown-menu. */
 .mention-popover-container {
+  app-region: no-drag;
   --octo-surface-page: #FFFFFF;
   --octo-border-default: #E5E7EB;
   position: absolute;
@@ -126,6 +127,7 @@
 
 /* Secondary panel */
 .mention-secondary-panel {
+  app-region: no-drag;
   position: absolute;
   left: 100%;
   margin-left: 4px;

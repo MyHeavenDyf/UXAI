@@ -1,4 +1,5 @@
 import "./studio/studio.css"
+import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
@@ -124,6 +125,7 @@ import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./stud
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
 import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 type PendingScrollRequest = {
@@ -295,6 +297,7 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -315,7 +318,7 @@ export default function StudioPage() {
     if (!current || !directory) return
     onCleanup(() => stopStudioThumbnailQueue({ sdkUrl: current.http.url, directory }))
   })
-  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
@@ -439,7 +442,11 @@ export default function StudioPage() {
   createEffect(on(imageSettingStoreReady, (ready) => {
     if (!ready) return
     batch(() => {
-      if (styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)) setStyleModel("qwen")
+      // Re-entering Studio with cached permission should preserve the selected model.
+      if (
+        !(studioPermissionState.status === "ready" && studioPermissionState.seedream) &&
+        styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)
+      ) setStyleModel("qwen")
       setImageSettingStoreSanitized(true)
     })
   }))
@@ -516,13 +523,11 @@ export default function StudioPage() {
   const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
-  const [canCreateStyleTemplate, setCanCreateStyleTemplate] = createSignal(false)
+  const canGenerateVideo = () => studioPermissionState.video
+  const canUseSeedream = () => studioPermissionState.seedream
+  const canCreateStyleTemplate = () => studioPermissionState.createStyleTemplate
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
-  const [permissionRetryVersion, setPermissionRetryVersion] = createSignal(0)
-  let permissionRequestVersion = 0
   onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
@@ -556,67 +561,21 @@ export default function StudioPage() {
       throw new Error("Unexpected get_prompt_tags response shape")
     },
   )
+  const loadPermission = () => {
+    const current = server.current
+    if (!current) return
+    void ensureStudioPermission(current.http, uiplusUserAccount())
+  }
+  onCleanup(onStudioLoginSuccess(loadPermission))
   createEffect(() => {
     const current = server.current
-    const uid = uiplusUserAccount()
-    permissionRetryVersion()
     if (!current) return
-    const requestVersion = ++permissionRequestVersion
-    const controller = new AbortController()
-    batch(() => {
-      setCanGenerateVideo(false)
-      setCanUseSeedream(false)
-      setCanCreateStyleTemplate(false)
-      setStudioPermissionStatus("loading")
-      if (styleModelRequiresSeedreamPermission(untrack(() => imageSettingStore.styleModel))) setStyleModel("qwen")
-    })
-    const headers: Record<string, string> = {
-      accept: "application/json",
-      "content-type": "application/json",
-    }
-    if (current.http.password) {
-      headers.Authorization = `Basic ${authTokenFromCredentials({
-        username: current.http.username,
-        password: current.http.password,
-      })}`
-    }
-    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ uid }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const bodyText = await response.text()
-        if (requestVersion !== permissionRequestVersion) return
-        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
-        const permissionData = Array.isArray(result.data) ? result.data : []
-        const permissionOk = result.code === 200 || result.resp_code === 200
-        const canUseSeedream = permissionOk && permissionData[1] === true
-        const canCreateStyleTemplate = permissionOk && permissionData[2] === true
-        batch(() => {
-          setCanGenerateVideo(permissionOk && permissionData[0] === true)
-          setCanUseSeedream(canUseSeedream)
-          setCanCreateStyleTemplate(canCreateStyleTemplate)
-          setStudioPermissionStatus("ready")
-          if (!canUseSeedream && styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return
-        if (requestVersion !== permissionRequestVersion) return
-        batch(() => {
-          setCanGenerateVideo(false)
-          setCanUseSeedream(false)
-          setCanCreateStyleTemplate(false)
-          setStudioPermissionStatus("error")
-          if (styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-        console.error("[StudioPage] permission check failed", error)
-      })
-    onCleanup(() => controller.abort())
+    untrack(loadPermission)
   })
+  const retryPermission = () => {
+    clearStudioPermissionCache()
+    loadPermission()
+  }
   createEffect(() => {
     if (studioPermissionStatus() === "loading") return
     if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
@@ -4741,11 +4700,33 @@ export default function StudioPage() {
               <div class="flex-1" />
               <button
                 type="button"
-                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
-                style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+                title="设置"
+                class="relative flex items-center justify-center rounded-[4px] transition-colors shrink-0"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+                  color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                  "font-weight": settingsActive() ? "500" : "400",
+                }}
+                onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+                onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+                onClick={(e) => { e.stopPropagation(); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
               >
-                <Icon name="settings-gear" size="small" />
+                <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+                  <IconSettings1 size={20} />
+                </Show>
+                <Show when={settingsActive()}>
+                  <span
+                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    style={{
+                      height: "20px",
+                      width: "3px",
+                      background: "var(--text-interactive-base)",
+                      transform: "translateY(-50%)",
+                    }}
+                  />
+                </Show>
               </button>
             </div>
           }
@@ -4788,7 +4769,7 @@ export default function StudioPage() {
                   canUseSeedream={canUseSeedream()}
                   canCreateStyleTemplate={canCreateStyleTemplate()}
                   permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-                  onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+                  onRetryPermission={retryPermission}
                   styleModel={styleModel()}
                   maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
@@ -5020,7 +5001,7 @@ if (!headerTitle.pendingRename) return
             canUseSeedream={canUseSeedream()}
             canCreateStyleTemplate={canCreateStyleTemplate()}
             permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-            onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+            onRetryPermission={retryPermission}
             styleModel={styleModel()}
             maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
