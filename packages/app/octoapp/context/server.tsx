@@ -265,12 +265,9 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           const key = origin()
           if (!key) return
           const current = store.projects[key] ?? []
-          const index = current.findIndex((x) => x.worktree === directory)
-          if (index === -1) {
-            setStore("projects", key, [{ worktree: directory, expanded: true, kind }, ...current])
-            return
-          }
-          if (kind) setStore("projects", key, index, "kind", kind)
+          // 已存在的工作区分类定死,重复选择不改 kind
+          if (current.find((x) => x.worktree === directory)) return
+          setStore("projects", key, [{ worktree: directory, expanded: true, kind }, ...current])
         },
         close(directory: string) {
           const key = origin()
@@ -315,14 +312,6 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         touch(directory: string) {
           if (!isValidUserPath(directory)) return  // 不存储无效路径
           setStore("lastProject", origin(), directory)
-        },
-        setKind(directory: string, kind: WorkspaceKind) {
-          const key = origin()
-          if (!key) return
-          const current = store.projects[key] ?? []
-          const index = current.findIndex((x) => x.worktree === directory)
-          if (index === -1) return
-          setStore("projects", key, index, "kind", kind)
         },
       },
     }
