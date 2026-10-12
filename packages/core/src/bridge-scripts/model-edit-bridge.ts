@@ -235,6 +235,20 @@ function me_runBridge() {
     }
   }
 
+  function me_applySelectionStyle(s) {
+    var root = document.documentElement;
+    var props = [
+      ['--od-sel-color', s && s.color],
+      ['--od-sel-width', s && s.width != null ? s.width + 'px' : null],
+      ['--od-sel-line-style', s && s.lineStyle],
+      ['--od-sel-offset', s && s.offset != null ? s.offset + 'px' : null]
+    ];
+    for (var i = 0; i < props.length; i++) {
+      if (props[i][1]) root.style.setProperty(props[i][0], props[i][1]);
+      else root.style.removeProperty(props[i][0]);
+    }
+  }
+
   function me_applyMode(enabled) {
     me_enabled = enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', me_enabled);
@@ -289,6 +303,11 @@ function me_runBridge() {
       return;
     }
     if (d.type === 'od:stop-track-rect') { me_stopTrack(); me_forwardToNestedIframes(d); return; }
+    if (d.type === 'od:selection-style') {
+      me_applySelectionStyle(d.style);
+      me_forwardToNestedIframes(d);
+      return;
+    }
   });
 
   var me_observer = null;

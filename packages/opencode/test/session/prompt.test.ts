@@ -47,6 +47,7 @@ import { Format } from "../../src/format"
 import { provideTmpdirInstance, provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
+import { ArtifactEventTable } from "../../src/tracking/delivery.sql"
 
 void Log.init({ print: false })
 
@@ -622,6 +623,39 @@ it.live("glob tool keeps instance context during prompt runs", () =>
       }),
     { git: true, config: providerCfg },
   ),
+)
+
+it.live("Insight prompt records a real builtin call with execution and model attribution", () =>
+  provideTmpdirServer(({ dir, llm }) => Effect.gen(function* () {
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({ title: "Tracked tool", permission: [{ permission: "*", pattern: "*", action: "allow" }] })
+    yield* Effect.promise(() => Bun.write(path.join(dir, "tracked.txt"), "tracking fixture"))
+    const initial = yield* prompt.prompt({
+      sessionID: session.id, agent: "octo_insight", model: ref, noReply: true,
+      extra: { account: "tool-account", artifactTracking: { module: "insight" } },
+      parts: [{ type: "text", text: "find text files" }],
+    })
+    yield* llm.tool("glob", { pattern: "**/*.txt" })
+    yield* llm.text("done")
+    yield* prompt.loop({ sessionID: session.id })
+    const events = Database.use((db) => db.select().from(ArtifactEventTable)
+      .where(Database.eq(ArtifactEventTable.message_id, initial.info.id)).all())
+    expect(events).toHaveLength(2)
+    const ended = events.find((event) => event.name === "agent-tool-call-end")!
+    const payload = ended.payload.datas as { extend: string }[]
+    const end = JSON.parse(payload[0].extend)
+    expect(end).toMatchObject({ toolName: "glob", toolKind: "builtin", agent: "octo_insight",
+      status: "success", executionStarted: true, modelProvider: "test", modelId: "test-model" })
+    expect(end.partId).toBeString()
+    expect(end.argumentsChanged).toBe(true)
+    expect(end.effectiveArguments.path).toContain(session.id)
+    const started = events.find((event) => event.name === "agent-tool-call-start")!
+    expect(JSON.parse((started.payload.datas as { extend: string }[])[0].extend).arguments).toEqual({ pattern: "**/*.txt" })
+    expect(end.executionDurationMs).toBeGreaterThanOrEqual(0)
+    expect(end.durationMs).toBeGreaterThanOrEqual(end.executionDurationMs)
+  }), { git: true, config: providerCfg }),
+  60_000,
 )
 
 it.live("loop continues when finish is stop but assistant has tool parts", () =>

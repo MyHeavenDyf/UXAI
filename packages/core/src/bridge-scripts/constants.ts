@@ -815,6 +815,20 @@ function eb_forwardToNestedIframes(d) {
   }
 }
 
+function eb_applySelectionStyle(s) {
+  var root = document.documentElement;
+  var props = [
+    ['--od-sel-color', s && s.color],
+    ['--od-sel-width', s && s.width != null ? s.width + 'px' : null],
+    ['--od-sel-line-style', s && s.lineStyle],
+    ['--od-sel-offset', s && s.offset != null ? s.offset + 'px' : null]
+  ];
+  for (var i = 0; i < props.length; i++) {
+    if (props[i][1]) root.style.setProperty(props[i][0], props[i][1]);
+    else root.style.removeProperty(props[i][0]);
+  }
+}
+
 // Relay messages from nested iframes to parent
 window.addEventListener('message', function(ev) {
   var d = ev && ev.data;
@@ -914,6 +928,10 @@ window.addEventListener('message',function(ev){
     eb_forwardToNestedIframes(d);
     return;
   }
+  if(d.type==='od:selection-style'){
+    eb_applySelectionStyle(d.style);
+    return;
+  }
 });
 
 function handleEditMouseDown(ev){
@@ -966,10 +984,10 @@ export const EDIT_BRIDGE_STYLE = `<style data-od-edit-bridge-style>
 html[data-od-edit-mode] body * { cursor: pointer !important; }
 html[data-od-edit-mode] [data-od-id]:hover,
 html[data-od-edit-mode] [data-od-runtime-id]:hover,
-html[data-od-edit-mode] [data-od-source-path]:hover { outline: 2px solid #2563eb; }
+html[data-od-edit-mode] [data-od-source-path]:hover { outline: 2px solid var(--od-sel-color, #2563eb); }
 html[data-od-edit-mode] [data-od-edit-selected] {
-  outline: 2px solid #2563eb !important;
-  outline-offset: 4px;
+  outline: var(--od-sel-width, 2px) var(--od-sel-line-style, solid) var(--od-sel-color, #2563eb) !important;
+  outline-offset: var(--od-sel-offset, 4px);
 }
 html[data-od-edit-mode] [data-od-editing="true"] {
   outline: 2px solid #2563eb !important;

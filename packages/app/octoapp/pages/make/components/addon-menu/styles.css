@@ -89,6 +89,23 @@
   color: rgba(0, 0, 0, 0.4);
 }
 
+/* 触发按钮 tooltip(非 portal,fixed 定位不受祖先 overflow 裁剪,随组件 DOM 一起销毁不残留) */
+.addon-menu-trigger-tip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 10000;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #191919;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+}
+
 /* Secondary panel (categories for skills, or files list for design files) */
 .addon-menu-secondary {
   position: absolute;
@@ -196,6 +213,14 @@
   line-height: 22px;
   color: #777;
   padding: 4px 0;
+}
+
+.addon-menu-design-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 0 4px 4px;
 }
 
 .addon-menu-section-title {
@@ -641,6 +666,8 @@
   z-index: 1010;
   display: flex;
   flex-direction: column;
+  /* 纯展示:不拦截鼠标,避免与文件项的 mouseenter/leave 死循环(html 每次挂载 iframe 开销巨大) */
+  pointer-events: none;
 }
 
 .addon-menu-asset-preview-name {
