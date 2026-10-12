@@ -646,13 +646,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         list,
         open(directory: string, kind?: WorkspaceKind) {
           const root = rootFor(directory)
-          const exists = !!server.projects.list().find((x) => x.worktree === root)
-          // kind 只在所选目录即 root 时传递;归并到别的 root 时不覆盖已有分类
+          if (server.projects.list().find((x) => x.worktree === root)) return
+          void globalSync.project.loadSessions(root)
+          // kind 只在所选目录即 root 时传递;归并到别的 root 时不生效
           server.projects.open(root, directory === root ? kind : undefined)
-          if (!exists) void globalSync.project.loadSessions(root)
-        },
-        setKind(directory: string, kind: WorkspaceKind) {
-          server.projects.setKind(directory, kind)
         },
         close(directory: string) {
           server.projects.close(directory)

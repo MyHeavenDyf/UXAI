@@ -20,9 +20,9 @@ export function kindOf(project: { kind?: WorkspaceKind } | undefined): Workspace
   return project?.kind ?? "normal"
 }
 
-// workspace 分类选择弹窗:创建流程(选完文件夹)与事后修改共用。
-// 点卡片即生效并关弹窗;点遮罩/Escape 取消(放弃创建/修改)。
-function KindPickerDialog(props: { dir: string; mode: "create" | "edit"; onPick: (kind: WorkspaceKind) => void }) {
+// workspace 分类选择弹窗:仅新文件夹创建流程使用,分类一旦选定不可更改。
+// 点卡片即生效并关弹窗;点遮罩/Escape 取消(放弃创建)。
+function KindPickerDialog(props: { dir: string; onPick: (kind: WorkspaceKind) => void }) {
   const dialog = useDialog()
   const language = useLanguage()
 
@@ -31,18 +31,13 @@ function KindPickerDialog(props: { dir: string; mode: "create" | "edit"; onPick:
     dialog.close()
   }
 
-  const title = () =>
-    props.mode === "create"
-      ? language.t("titlebar.workspace.kind.title")
-      : language.t("titlebar.workspace.kind.editTitle")
-
   const cards: { kind: WorkspaceKind; label: string; desc: string }[] = [
     { kind: "normal", label: "titlebar.workspace.kind.normal", desc: "titlebar.workspace.kind.normalDesc" },
     { kind: "code", label: "titlebar.workspace.kind.code", desc: "titlebar.workspace.kind.codeDesc" },
   ]
 
   return (
-    <Dialog title={title()}>
+    <Dialog title={language.t("titlebar.workspace.kind.title")}>
       <div class="flex flex-col gap-2 p-4" style={{ width: "360px" }}>
         <div class="text-14-regular text-text-weak truncate">{props.dir}</div>
         <For each={cards}>
@@ -133,32 +128,14 @@ export function WorkspaceSwitcher() {
     return projects().find((x) => x.worktree === dir)
   }
 
-  // 选完文件夹后弹分类选择,点卡片才真正创建/切换;取消则放弃
+  // 已在列表的工作区分类定死:直接切换不弹窗;只有新文件夹才弹分类选择
   function pickKindThenSwitch(dir: string) {
+    if (projectByDir(dir)) {
+      switchWorkspace(dir)
+      return
+    }
     dialog.show(
-      () => <KindPickerDialog dir={dir} mode="create" onPick={(kind) => switchWorkspace(dir, kind)} />,
-      () => {},
-    )
-  }
-
-  function editKind(dir: string) {
-    setOpen(false)
-    dialog.show(
-      () => (
-        <KindPickerDialog
-          dir={dir}
-          mode="edit"
-          onPick={(kind) => {
-            tracker.interaction({
-              module: "workspace-switcher",
-              name: "kind-set",
-              subType: "click",
-              extend: JSON.stringify({ dir, kind }),
-            })
-            layout.projects.setKind(dir, kind)
-          }}
-        />
-      ),
+      () => <KindPickerDialog dir={dir} onPick={(kind) => switchWorkspace(dir, kind)} />,
       () => {},
     )
   }
@@ -278,15 +255,6 @@ export function WorkspaceSwitcher() {
           background: var(--octo-brand-a8, rgba(10,89,247,0.08));
           color: var(--octo-brand, #0a59f7);
         }
-        .octo-ws-kind-edit {
-          display: inline-flex; align-items: center; justify-content: center;
-          width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0;
-          color: rgba(0,0,0,0.45); cursor: pointer;
-          opacity: 0; pointer-events: none;
-          transition: opacity 100ms cubic-bezier(0.4,0,0.2,1);
-        }
-        .octo-ws-item:hover .octo-ws-kind-edit { opacity: 1; pointer-events: auto; }
-        .octo-ws-kind-edit:hover { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.8); }
         .octo-ws-kind-card {
           display: flex; align-items: center; gap: 12px; text-align: left;
           padding: 12px; border: 1px solid #E5E7EB; border-radius: 8px;
@@ -336,24 +304,6 @@ export function WorkspaceSwitcher() {
                       </span>
                     </span>
                     <span class="octo-ws-item-path">{displayPath(project.worktree)}</span>
-                  </span>
-                  <span
-                    role="button"
-                    tabindex="-1"
-                    class="octo-ws-kind-edit"
-                    title={language.t("titlebar.workspace.kind.edit")}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      editKind(project.worktree)
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M1.75 8C1.75 4.54822 4.54822 1.75 8 1.75C11.4518 1.75 14.25 4.54822 14.25 8C14.25 11.4518 11.4518 14.25 8 14.25C4.54822 14.25 1.75 11.4518 1.75 8ZM8 4.75C7.44772 4.75 7 5.19772 7 5.75V7H5.75C5.19772 7 4.75 7.44772 4.75 8V9.5C4.75 10.0523 5.19772 10.5 5.75 10.5H7V11.75C7 12.3023 7.44772 12.75 8 12.75H9.5C10.0523 12.75 10.5 12.3023 10.5 11.75V10.5H11.75C12.3023 10.5 12.75 10.0523 12.75 9.5V8C12.75 7.44772 12.3023 7 11.75 7H10.5V5.75C10.5 5.19772 10.0523 4.75 9.5 4.75H8Z"
-                        stroke="currentColor"
-                        stroke-width="1.3"
-                      />
-                    </svg>
                   </span>
                   <Show when={project.worktree === currentDir()}>
                     <svg class="octo-ws-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
