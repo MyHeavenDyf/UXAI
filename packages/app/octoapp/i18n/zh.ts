@@ -1069,4 +1069,14 @@ export const dict = {
 
   "titlebar.workspace.select": "选择工作区",
   "titlebar.workspace.chooseFolder": "选择文件夹...",
+
+  "titlebar.workspace.kind.title": "选择工作区类型",
+  "titlebar.workspace.kind.editTitle": "修改工作区类型",
+  "titlebar.workspace.kind.normal": "普通工作区",
+  "titlebar.workspace.kind.code": "代码工作区",
+  "titlebar.workspace.kind.normalDesc": "一般用途的文件夹",
+  "titlebar.workspace.kind.codeDesc": "用于代码开发",
+  "titlebar.workspace.kind.badge.normal": "普通",
+  "titlebar.workspace.kind.badge.code": "代码",
+  "titlebar.workspace.kind.edit": "修改分类",
 } satisfies Partial<Record<Keys, string>>

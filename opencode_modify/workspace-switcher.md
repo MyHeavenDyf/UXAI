@@ -48,7 +48,32 @@ import WorkspaceSwitcher,插在右侧区 `<TaskList />` 之前(用户头像区�
 - 列表为空(首次使用)时菜单只有"选择文件夹…"
 - web 环境"选择文件夹"走 DialogSelectDirectory(服务端 file.list 搜索),desktop 走系统原生选择器
 
+## Workspace 分类(普通/代码) — 2026-10-12 追加
+
+workspace 增加分类标记:**普通工作区(normal)/ 代码工作区(code)**,纯 UI 展示(不影响 agent 行为、session 存储)。存量 workspace 无 kind 字段一律视为 normal,零迁移。
+
+### 数据层
+
+- `octoapp/context/server.tsx`:导出 `type WorkspaceKind = "normal" | "code"`;`StoredProject` 加 optional `kind`(持久化在 `Persist.global("server", ["server.v3"])`,persist.ts 的 merge 保留存量字段,旧数据天然兼容)
+- `server.projects.open(directory, kind?)`:已存在且传 kind → 更新(重选文件夹+选分类=改分类);新建 → 写入;不传 → 保留
+- `server.projects.setKind(directory, kind)`:事后修改分类
+- `octoapp/context/layout.tsx`:`LocalProject` 加 `kind` 字段;`layout.projects.open` 透传 kind(仅当所选目录即 root 时,归并到别的 root 不覆盖已有分类)、新增 `layout.projects.setKind` 透传;enrich 的 `{...metadata, ...project}` 展开顺序保证 kind 透传
+- 已知边缘:layout.tsx rootFor 归并 effect 重建 StoredProject 时,子目录上的 kind 不迁移到 root(可接受)
+
+### 切换器 UI(`workspace-switcher.tsx`)
+
+- **KindPickerDialog**(同文件内联组件,`dialog.show()` 渲染):两张卡片(普通/代码,图标+名称+说明),点卡片即生效并关弹窗,点遮罩/Escape 取消放弃;create/edit 两种标题
+- **创建流程**:chooseFolder 选完文件夹 → 弹 KindPickerDialog(create)→ 选完才 `switchWorkspace(dir, kind)`(取消则不加入)
+- **事后修改**:列表项悬停右侧出现标签图标按钮 → 弹 KindPickerDialog(edit)→ `layout.projects.setKind`
+- **徽章**:列表项名称旁,normal=灰底"普通"、code=蓝底"代码"(`kindOf(project)` 兜底 undefined→normal);trigger 不显示徽章
+- 埋点:`kind-set`(dir+kind)、switch 的 extend 增加 kind 字段
+
+### i18n
+
+`titlebar.workspace.kind.*` 共 10 键(title/editTitle/normal/code/normalDesc/codeDesc/badge.normal/badge.code/edit),en+zh。
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过
 - 手测路径:见 workspace-switcher 功能验收——/insight/:id 切目录回 /insight 新列表;/make/:id 同理;/:dir/studio/:id 切目录跳新 dir 的 studio 并恢复 last session;刷新后 lastProject 持久保持
+- 分类手测:选新文件夹→弹分类→选"代码"→蓝徽章+切换;弹窗取消→不加入;悬停列表项→修改分类→徽章变化;重选已有文件夹+换分类→分类更新;存量 workspace 显示灰"普通";重启后分类保持
