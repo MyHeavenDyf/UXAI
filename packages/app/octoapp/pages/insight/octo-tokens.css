@@ -282,7 +282,8 @@
   background: var(--octo-border-divider);
   margin: 0 4px;
 }
-.octo-action-btn {
+/* 路由 CSS 加载后会保留，避免覆盖 Design 的按钮选中态。 */
+:where([data-page="insight"]) .octo-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -296,23 +297,23 @@
   transition: background 0.15s, color 0.15s;
   max-width: 100%;
 }
-.octo-action-btn:hover {
+:where([data-page="insight"]) .octo-action-btn:hover {
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
 }
-.octo-action-btn > svg {
+:where([data-page="insight"]) .octo-action-btn > svg {
   flex-shrink: 0;
 }
-.octo-action-btn-refresh {
+:where([data-page="insight"]) .octo-action-btn-refresh {
   padding: 0;
 }
-.octo-action-btn-refresh:hover {
+:where([data-page="insight"]) .octo-action-btn-refresh:hover {
   background: transparent;
 }
-.octo-action-btn-refresh:active {
+:where([data-page="insight"]) .octo-action-btn-refresh:active {
   color: #0a59f7;
 }
-.octo-action-btn > span {
+:where([data-page="insight"]) .octo-action-btn > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

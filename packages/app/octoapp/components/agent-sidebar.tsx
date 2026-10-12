@@ -687,8 +687,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function handleCreateGroupForSession(session: Session) {
-    const mod = props.trackerModule ?? "session"
-    tracker.interaction({ module: mod, name: "create-group-for-session" })
     if (session.pinned) void togglePin(session.id)
     props.onCreateGroupForSession?.(session)
     closeContextMenu()

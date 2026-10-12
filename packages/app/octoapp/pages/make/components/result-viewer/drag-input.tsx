@@ -26,6 +26,7 @@ export function DragInput(props: {
   flex1?: boolean
   suffix?: string
   display?: string
+  height?: string
 }) {
   const icon = props.icon ?? DragIcon()
   const isV = props.direction === 'vertical'
@@ -33,6 +34,7 @@ export function DragInput(props: {
   const border = props.hasBorder ? 'border border-slate-200' : ''
   const bg = props.bg ?? 'bg-[#F9F9F9]'
   const flex = props.flex1 !== false ? 'flex-1' : ''
+  const height = props.height ?? 'h-6'
   // 分离显示文本与提交值：让用户能输入 "-" / "-5" 等中间态而不被受控 input 用旧
   // signal 立即覆盖（旧实现 parseInt("-")=NaN→0 会把 "-" 钳成 0 并触发 autoSave）。
   // 外部 value 变化（拖拽 / 父组件 setValue）时同步 text，但 input 正在 focus 时跳过，
@@ -57,7 +59,7 @@ export function DragInput(props: {
     setText(computeDisplay())
   }
   return (
-    <div class={`flex items-center rounded-sm ${border} focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none ${bg} ${flex} min-w-0 ${props.class ?? ''}`}>
+    <div class={`flex items-center rounded-sm ${border} focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] ${height} shadow-none ${bg} ${flex} min-w-0 ${props.class ?? ''}`}>
       <span onMouseDown={(e) => {
         e.preventDefault()
         e.stopPropagation()

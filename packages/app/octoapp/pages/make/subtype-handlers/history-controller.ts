@@ -7,8 +7,6 @@ import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 import { tracker } from "@/utils/tracker"
 
-const HISTORY_SKIP_TYPES = ["image", "video", "audio", "pdf", "svg", "text", "local-file"]
-
 /** FNV-1a hash：同步、纯 JS，对短文本足够精确 */
 function fnv1aHash(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
@@ -84,9 +82,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   }
 
   function isEligible(tab: ResultTab): boolean {
-    if (!tab.filePath || HISTORY_SKIP_TYPES.includes(tab.type)) return false
+    if (tab.type !== "html") return false
+    if (!tab.filePath) return false
     // fastui:// 是预览卡片的产物身份,不是磁盘文件(SPEC-DES-004)
-    if (tab.type === "link" || tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
+    if (tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
     return true
   }
 

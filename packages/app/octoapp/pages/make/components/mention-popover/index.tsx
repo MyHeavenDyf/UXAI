@@ -56,6 +56,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
+  const [secondaryLeftOffset, setSecondaryLeftOffset] = createSignal<number | null>(null)
 
   // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
   // 确认后才展示资产/文件列表。tab 点击不拦截。
@@ -160,14 +161,37 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const rect = containerRef.getBoundingClientRect()
     const spaceRight = window.innerWidth - rect.right
     const panelWidth = activeTab() === 'skills' ? 257 : activeTab() === 'product-assets' ? 248 : 400
-    setPositionLeft(spaceRight < panelWidth + 16)
+    const shouldFlip = spaceRight < panelWidth + 16
+    setPositionLeft(shouldFlip)
+    // Left-edge clamp when flipped: keep the panel inside the viewport's left margin.
+    // Panel's desired left edge (viewport) = rect.left - 4 - panelWidth. If < 16, clamp.
+    if (shouldFlip && rect.left - 4 - panelWidth < 16) {
+      setSecondaryLeftOffset(16 - rect.left)
+    } else {
+      setSecondaryLeftOffset(null)
+    }
   }
 
+  // Re-run checkPosition + updateSecondaryPosition on:
+  // 1) tab/category change (reactive deps)
+  // 2) container size change (ResizeObserver — primary panel grows with content/folder names)
+  // 3) window resize (available space changes)
   createEffect(() => {
     activeTab()
     selectedCategory()
-    checkPosition()
-    updateSecondaryPosition()
+    if (!containerRef) return
+    const measure = () => {
+      checkPosition()
+      updateSecondaryPosition()
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(containerRef)
+    window.addEventListener("resize", measure)
+    onCleanup(() => {
+      ro.disconnect()
+      window.removeEventListener("resize", measure)
+    })
   })
 
   const platformSkills = createMemo(() => {
@@ -566,8 +590,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const left = positionLeft()
     const bottom = '0'
     const sideStyle = left
-      ? { right: '100%', marginRight: '4px' }
-      : { left: '100%', marginLeft: '4px' }
+      ? (secondaryLeftOffset() !== null
+          ? { left: `${secondaryLeftOffset()}px`, right: 'auto', marginLeft: '0', marginRight: '0' }
+          : { right: '100%', left: 'auto', marginLeft: '0', marginRight: '4px' })
+      : { left: '100%', right: 'auto', marginLeft: '4px' }
     if (activeTab() === 'skills') {
       return { width: '257px', bottom, ...sideStyle }
     }
