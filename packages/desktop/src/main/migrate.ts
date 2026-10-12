@@ -1,6 +1,6 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, chmodSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -286,6 +286,23 @@ export function bundledRipgrepPath(): string | null {
 
   const sourcePath = join(sourceDir, binaryName)
   return existsSync(sourcePath) ? sourcePath : null
+}
+
+/**
+ * 安装包内捆绑的 @opencode-ai/plugin SDK seed 目录（不存在返回 null）。
+ * sidecar env 注入共用；运行时由 opencode 侧 plugin-sdk-seed.ts 消费，替代配置目录的 npm install 联网
+ * （内网环境 registry.npmjs.org 不可达会卡启动 ~5 分钟）。
+ */
+export function bundledPluginSdkPath(): string | null {
+  const sourceDir = app.isPackaged
+    ? join(process.resourcesPath, "plugin-sdk")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "plugin-sdk")
+
+  try {
+    return statSync(sourceDir).isDirectory() ? sourceDir : null
+  } catch {
+    return null
+  }
 }
 
 export function deployRipgrep() {
