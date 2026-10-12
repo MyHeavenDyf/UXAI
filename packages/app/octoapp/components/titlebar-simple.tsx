@@ -12,6 +12,7 @@ import { decode64 } from "@/utils/base64"
 import { useCommand } from "@/context/command"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { TaskList } from "@/components/task-list"
+import { WorkspaceSwitcher } from "@/components/workspace-switcher"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -441,6 +442,7 @@ export function TitlebarSimple() {
             </button>
           </Show>
         </div>
+        <WorkspaceSwitcher />
         <TaskList />
         {/* jk// jk-j60099994-replace-with-titlebar-simple-2-start */}
         <img src="/AvatarUser.svg" alt="" class="header-user-icon" />
