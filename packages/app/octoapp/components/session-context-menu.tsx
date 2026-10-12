@@ -312,7 +312,13 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
                 onClick={() => void exportSession()}
               >
                 <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
-                <span data-slot="dropdown-menu-item-label">{language.t("session.portable.export")}</span>
+                <span
+                  data-slot="dropdown-menu-item-label"
+                  class="flex-1 whitespace-nowrap"
+                  style={{ display: "inline-block", visibility: "visible" }}
+                >
+                  {language.t("session.portable.export") || "导出 Session"}
+                </span>
               </button>
               <button
                 data-slot="dropdown-menu-item"
@@ -321,7 +327,13 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
                 onClick={() => void importSession()}
               >
                 <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
-                <span data-slot="dropdown-menu-item-label">{language.t("session.portable.import")}</span>
+                <span
+                  data-slot="dropdown-menu-item-label"
+                  class="flex-1 whitespace-nowrap"
+                  style={{ display: "inline-block", visibility: "visible" }}
+                >
+                  {language.t("session.portable.import") || "导入 Session"}
+                </span>
               </button>
               <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0" }} />
             </Show>
