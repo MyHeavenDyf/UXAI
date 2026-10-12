@@ -173,7 +173,7 @@
   width: 100%;
   padding: 2px 8px;
   height: 24px;
-  font-size: 10px;
+  font-size: 12px;
   border: none;
   background: #f9f9f9;
   border-radius: 4px;
@@ -451,7 +451,7 @@ input[type="number"].cc-value:focus {
   width: 100%;
   min-height: 60px;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: 12px;
   border: 1px solid transparent;
   border-radius: 4px;
   font-family: inherit;
@@ -943,6 +943,7 @@ input[type="number"].cc-value:focus {
 .cc-layout-gap-col {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 6px;
   flex: 1;
   min-width: 0;
@@ -952,7 +953,7 @@ input[type="number"].cc-value:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1035,7 +1036,7 @@ input[type="number"].cc-value:focus {
   text-align: left;
   padding: 0 8px;
   line-height: 32px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 400;
   color: rgba(25, 25, 25, 1);
   background: transparent;
@@ -1088,8 +1089,53 @@ input[type="number"].cc-value:focus {
 /* 宽高 2x2 网格：宽/高输入框 + 宽/高模式下拉 */
 .cc-size-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* 宽高第二行：宽/高尺寸模式下拉 */
+.cc-size-modes-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-radius-adaptive-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #777777;
+}
+
+.cc-radius-adaptive-btn-active {
+  color: #0A59F7;
+}
+
+/* 圆角行：左侧输入区（shorthand 占一格或 2x2 四角）+ 右侧切换图标 */
+.cc-radius-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 圆角 2x2 四角网格 */
+.cc-radius-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 
 .cc-size-row > * {
@@ -1108,7 +1154,7 @@ input[type="number"].cc-value:focus {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1130,7 +1176,7 @@ input[type="number"].cc-value:focus {
 }
 
 .cc-typ-label {
-  font-size: 10px;
+  font-size: 12px;
   width: 32px;
   flex-shrink: 0;
 }
@@ -1222,7 +1268,7 @@ input[type="number"].cc-value:focus {
 
 /* 字号/字间距/行高 的文字拖拽图标 */
 .cc-typ-drag-text {
-  font-size: 14px;
+  font-size: 12px;
   color: #191919;
   white-space: nowrap;
 }
@@ -1281,7 +1327,7 @@ input[type="number"].cc-value:focus {
   width: 100%;
   padding: 0 8px;
   line-height: 32px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 400;
   color: rgba(25, 25, 25, 1);
   background: transparent;
@@ -1370,7 +1416,7 @@ input[type="number"].cc-value:focus {
   margin-bottom: 12px;
   cursor: move;
   user-select: none;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 24px;
   color: rgba(0, 0, 0, 0.9);
