@@ -1111,4 +1111,17 @@ export const dict = {
   "mcp.toast.reconnecting.title": "MCP disconnected, reconnecting...",
   "mcp.toast.reconnected.title": "MCP reconnected successfully",
   "mcp.toast.reconnectFailed.title": "MCP reconnection failed",
+
+  "titlebar.workspace.select": "Select workspace",
+  "titlebar.workspace.chooseFolder": "Choose folder...",
+
+  "titlebar.workspace.kind.title": "Choose workspace type",
+  "titlebar.workspace.kind.editTitle": "Change workspace type",
+  "titlebar.workspace.kind.normal": "Normal workspace",
+  "titlebar.workspace.kind.code": "Code workspace",
+  "titlebar.workspace.kind.normalDesc": "General-purpose folder",
+  "titlebar.workspace.kind.codeDesc": "For code development",
+  "titlebar.workspace.kind.badge.normal": "Normal",
+  "titlebar.workspace.kind.badge.code": "Code",
+  "titlebar.workspace.kind.edit": "Change type",
 }

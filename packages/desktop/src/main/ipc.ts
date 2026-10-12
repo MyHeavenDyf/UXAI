@@ -1522,6 +1522,10 @@ export function registerIpcHandlers(deps: Deps) {
     let hint = ""
     if (!strict.ok && insecure.ok) {
       hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    } else if (!explicit.ok && /Could not resolve|ENOTFOUND/.test(explicit.output)) {
+      // 代理域名(*.huawei.com)仅华为内网 DNS 可解析，公网 DNS(阿里/腾讯/谷歌)一律 NXDOMAIN(已实测)，
+      // DNS 失败与账号密码/节点选择无关，只说明机器不在内网环境
+      hint = "；提示: 代理域名 DNS 解析失败 — 代理域名仅华为内网 DNS 可解析，请连接公司 VPN 或确认在办公网内(与账号密码无关)"
     } else if (!explicit.ok) {
       hint = "；提示: 直接指定代理仍失败 — 代理节点不可达或认证失败，请检查账号密码及是否在华为内网(VPN)"
     } else if (explicit.ok && !strict.ok && !insecure.ok) {

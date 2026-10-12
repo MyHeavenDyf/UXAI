@@ -5,7 +5,7 @@ import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
-import { bundledRipgrepPath } from "./migrate"
+import { bundledRipgrepPath, bundledPluginSdkPath } from "./migrate"
 import { getStore } from "./store"
 import type { DesktopStorage } from "./storage"
 import type { SqliteMigrationProgress } from "../preload/types"
@@ -297,6 +297,11 @@ function createSidecarEnv(): Record<string, string> {
   // skill/glob/grep 全部不可用。显式告知路径让服务端跳过 which/缓存/下载三级解析。
   const bundledRg = bundledRipgrepPath()
   if (bundledRg) env.OPENCODE_RIPGREP_PATH = bundledRg
+
+  // 捆绑 @opencode-ai/plugin SDK seed 目录。服务端据此跳过配置目录的 npm install 联网
+  // (内网 registry 不可达时 npm 重试退避会卡 instance bootstrap ~5 分钟),直接本地拷贝。
+  const bundledSdk = bundledPluginSdkPath()
+  if (bundledSdk) env.OPENCODE_PLUGIN_SDK_DIR = bundledSdk
   return env
 }
 
