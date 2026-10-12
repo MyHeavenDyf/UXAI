@@ -156,6 +156,34 @@
   min-height: 0;
 }
 
+/* Design files footer (取消/确认 buttons) */
+.mention-files-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 4px 4px;
+}
+
+.mention-files-footer-btn {
+  width: 88px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 0;
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+.mention-files-footer-btn--primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}
+
 /* Secondary item */
 .mention-secondary-item {
   display: flex;

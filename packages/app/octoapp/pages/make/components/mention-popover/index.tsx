@@ -36,7 +36,7 @@ interface MentionPopoverProps {
   query: string
   sessionId: string
   onClose: () => void
-  onSelect: (selection: MentionSelection) => void
+  onSelect: (selection: MentionSelection, opts?: { closeAfter?: boolean }) => void
   onDeselect: (selection: MentionSelection) => void
   selections: MentionSelection[]
   skillConfig: {
@@ -57,6 +57,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
   const [secondaryLeftOffset, setSecondaryLeftOffset] = createSignal<number | null>(null)
+  const [sessionFileSelections, setSessionFileSelections] = createSignal<MentionSelection[]>([])
 
   // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
   // 确认后才展示资产/文件列表。tab 点击不拦截。
@@ -474,12 +475,20 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭面板（先触发下载，再关闭）
-  const closePopover = () => {
-    const selectedFiles = collectSelectedAssetFiles()
-    if (selectedFiles.length > 0) {
-      void downloadSelectedAssetFiles(selectedFiles)
+  const cancelDesignFileSelections = () => {
+    for (const sel of sessionFileSelections()) {
+      props.onDeselect(sel)
     }
+    setSessionFileSelections([])
+  }
+
+  const closePopover = () => {
+    cancelDesignFileSelections()
+    props.onClose()
+  }
+
+  const confirmAndClose = () => {
+    setSessionFileSelections([])
     props.onClose()
   }
 
@@ -561,10 +570,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   })
 
   const isSelected = (selection: MentionSelection) => {
-    return props.selections.some(s => 
-      s.type === selection.type && 
-      (s.type === 'skill' ? s.name === (selection as any).name : s.filename === (selection as any).filename)
-    )
+    return props.selections.some(s => {
+      if (s.type !== selection.type) return false
+      if (s.type === 'skill') return s.name === (selection as any).name
+      return s.filename === (selection as any).filename && s.path === (selection as any).path
+    })
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
@@ -573,7 +583,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
-      props.onSelect(selection)
+      props.onSelect(selection, { closeAfter: true })
+      closePopover()
     }
   }
 
@@ -581,8 +592,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
     if (isSelected(selection)) {
       props.onDeselect(selection)
+      setSessionFileSelections(prev => prev.filter(s => !((s as any).filename === file.name && (s as any).path === file.path)))
     } else {
       props.onSelect(selection)
+      setSessionFileSelections(prev => [...prev, selection])
     }
   }
 
@@ -605,7 +618,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   return (
     <>
-    <div class="mention-popover-container" ref={containerRef}>
+    <Portal>
+      <div class="mention-popover-overlay" onMouseDown={(e) => e.preventDefault()} onClick={closePopover} />
+    </Portal>
+    <div class="mention-popover-container" ref={containerRef} onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault() }}>
       {/* Tab Switch */}
       <div class="mention-tab-container">
         <button
@@ -830,6 +846,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   }}
                 </For>
               </Show>
+            </div>
+            <div class="mention-files-footer">
+              <button type="button" class="mention-files-footer-btn" onClick={closePopover}>取消</button>
+              <button type="button" class="mention-files-footer-btn mention-files-footer-btn--primary" onClick={confirmAndClose}>确认</button>
             </div>
           </div>
         )}

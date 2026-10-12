@@ -152,7 +152,17 @@ const directModelEditConfig: ModelEditConfig = {
       }
       case 'od_size': {
         const d = parseJson(value)
-        send({ width: d.width || '', height: d.height || '', overflow: d.overflow || '' })
+        const styles: Record<string, string> = {
+          width: d.width || '',
+          height: d.height || '',
+          overflow: d.overflow || '',
+        }
+        if (d.borderRadius !== undefined) styles.borderRadius = d.borderRadius
+        if (d.borderTopLeftRadius !== undefined) styles.borderTopLeftRadius = d.borderTopLeftRadius
+        if (d.borderTopRightRadius !== undefined) styles.borderTopRightRadius = d.borderTopRightRadius
+        if (d.borderBottomRightRadius !== undefined) styles.borderBottomRightRadius = d.borderBottomRightRadius
+        if (d.borderBottomLeftRadius !== undefined) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
+        send(styles)
         break
       }
       case 'od_padding': {
@@ -170,14 +180,6 @@ const directModelEditConfig: ModelEditConfig = {
         const styles: Record<string, string> = {}
         if (d.backgroundColor !== undefined) styles.backgroundColor = d.backgroundColor
         if (d.opacity) styles.opacity = d.opacity
-        if (d.borderRadius) {
-          styles.borderRadius = d.borderRadius
-        } else {
-          if (d.borderTopLeftRadius) styles.borderTopLeftRadius = d.borderTopLeftRadius
-          if (d.borderTopRightRadius) styles.borderTopRightRadius = d.borderTopRightRadius
-          if (d.borderBottomRightRadius) styles.borderBottomRightRadius = d.borderBottomRightRadius
-          if (d.borderBottomLeftRadius) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
-        }
         send(styles)
         break
       }

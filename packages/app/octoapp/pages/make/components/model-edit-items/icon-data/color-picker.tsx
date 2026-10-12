@@ -411,13 +411,13 @@ export function ColorPicker(props: {
         <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">{props.label}</label>
       </Show>
       <Show when={props.label == "文字色"}>
-        <label class="text-[10px] text-slate-400 w-8 shrink-0">{props.label}</label>
+        <label class="text-[12px] text-slate-400 w-10 shrink-0">{props.label}</label>
       </Show>
       <button
         ref={(el) => { buttonRef = el }}
         type="button"
         onClick={(e) => { e.stopPropagation(); toggle() }}
-        class="flex items-center gap-4 h-6 rounded-sm bg-[#F9F9F9] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
+        class="flex items-center gap-4 h-6 rounded-sm bg-[#F9F9F9] text-[12px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
       >
         <span class="w-4 h-4 rounded-[2px] shrink-0" style={{ background: props.value || '#ffffff' }} />
         <span class="flex-1 truncate text-left">{displayLabel()}</span>

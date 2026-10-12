@@ -1,6 +1,7 @@
 import { createSignal, createEffect, For, Show, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { IconGroupNode } from "./icon-plus-fetch"
+import { IconDropdownArrow } from "../../../icons"
 
 /** 图标库分类树（来自资源接口 resource_type=3 / source_id=6；接口未返回前作兜底） */
 export type IconCategoryNode = IconGroupNode
@@ -77,7 +78,7 @@ function CategoryRow(props: {
   const isOpen = () => props.expanded().has(props.node.id)
   return (
     <div>
-      <div class="flex h-[28px] cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] hover:bg-[#f3f4f6]"
+      <div class="flex h-[28px] cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 text-[12px] hover:bg-[#f3f4f6]"
         classList={{ 'bg-[#E6F2FD] font-medium text-primary': containsSelected(props.node, props.selectedId) }}
         style={{ 'padding-left': `${8 + props.depth * 16}px` }}
         onClick={() => props.onSelect(props.node)}>
@@ -164,13 +165,13 @@ export function IconCategorySelect(props: {
       <button ref={btnRef} type="button" onClick={() => setOpen(!open())}
         class="flex h-9 w-full items-center rounded-[36px] border border-transparent hover:border-[#c9c9c9] bg-[#F2F3F5] px-3 text-left text-[12px] text-[#333333] outline-none">
         <span class="flex-1 truncate">{props.label}</span>
-        <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <IconDropdownArrow class="ml-1 text-[#777777]" />
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
           <div ref={listRef} data-custom-select-list class="icon-picker-scroll fixed z-[2147483646] max-h-[320px] overflow-y-auto rounded-lg border border-[#e5e7eb] py-1"
             style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': '260px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}>
-            <div class="flex h-[28px] cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] hover:bg-[#f3f4f6]"
+            <div class="flex h-[28px] cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 text-[12px] hover:bg-[#f3f4f6]"
               classList={{ 'bg-[#E6F2FD] font-medium text-primary': props.value === 'all' }}
               onClick={() => select('all', '全部分类')}>
               <span class="h-[14px] w-[14px] shrink-0" />
