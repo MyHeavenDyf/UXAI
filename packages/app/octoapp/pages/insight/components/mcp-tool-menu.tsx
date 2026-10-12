@@ -31,7 +31,11 @@ export function McpToolMenu(props: {
   return <>
     <button ref={trigger} type="button" class="addon-menu-item" classList={{ "addon-menu-item--active": props.active }}
       aria-expanded={props.active} aria-haspopup="menu" onClick={props.onToggle}>
-      <span class="addon-menu-item-icon"><Icon name="plus" size="small" /></span>
+      <span class="addon-menu-item-icon">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M10 2.5v15M2.5 10h15" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" />
+        </svg>
+      </span>
       <span class="addon-menu-item-text">研究工具</span>
       <Show when={props.selection}><span aria-label="已启用">●</span></Show>
       <Icon name="chevron-right" size="small" />
