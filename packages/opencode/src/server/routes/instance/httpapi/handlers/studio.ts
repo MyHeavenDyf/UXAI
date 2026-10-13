@@ -10,6 +10,7 @@ import {
   listTemplates,
   publishTemplate,
   rebootGeneration,
+  refreshGeneration,
   searchTemplateUsers,
   updateTemplate,
   type StudioStyleDescriptionGenStreamEvent,
@@ -186,6 +187,22 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => rebootGeneration(ctx.params.generationID)),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
+    const refresh = Effect.fn("StudioHttpApi.refreshGeneration")(function* (ctx: {
+      params: { generationID: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => refreshGeneration(ctx.params.generationID)),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -480,6 +497,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)
+      .handle("refreshGeneration", refresh)
       .handle("listPromptTags", () =>
         Effect.tryPromise({
           try: () => fetchPromptTags(),
