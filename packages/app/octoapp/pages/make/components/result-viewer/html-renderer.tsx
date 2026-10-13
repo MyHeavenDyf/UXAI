@@ -1384,6 +1384,9 @@ createEffect(() => {
       const config = props.modelEditConfig
       if (!config) return
 
+      const styleConfig = config.selectionStyle?.(target)
+      iframe.contentWindow?.postMessage({ type: 'od:selection-style', style: styleConfig ?? null }, '*')
+
       window.dispatchEvent(new CustomEvent("design:element-selected"))
 
       let panelConfig: ConfigGroup[] = []

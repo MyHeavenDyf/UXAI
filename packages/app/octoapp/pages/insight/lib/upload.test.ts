@@ -5,6 +5,8 @@ import {
   imageMimeFor,
   isExtractableDocFile,
   isTextInlineFile,
+  validateFile,
+  validateFileForExternal,
 } from "./upload"
 
 /**
@@ -82,6 +84,21 @@ describe("文件分类谓词", () => {
       expect(isTextInlineFile(name)).toBe(true)
       expect(isExtractableDocFile(name)).toBe(false)
     }
+  })
+
+  // 需求 #120：输入框上传格式加 json / html。纯文本格式，与 txt/md 同走路由 ① 内联。
+  test("json / html 过 validateFile 且按可内联文本处理", () => {
+    for (const name of ["data.json", "index.html"]) {
+      expect(validateFile(new File(["{}"], name))).toBeNull()
+      expect(isTextInlineFile(name)).toBe(true)
+      expect(isExtractableDocFile(name)).toBe(false)
+    }
+  })
+
+  // 锁住「json 刻意不进外网白名单」(数据安全)这一决策：html 两边都放开(设计稿常见)。
+  test("外网白名单：json 被拒、html 放行", () => {
+    expect(validateFileForExternal(new File(["{}"], "data.json"))?.code).toBe("EXT_NOT_ALLOWED")
+    expect(validateFileForExternal(new File(["<p/>"], "index.html"))).toBeNull()
   })
 })
 

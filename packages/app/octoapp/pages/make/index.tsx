@@ -44,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { closePrototypePanels, onPrototypeQuickFix, onPrototypeCtxMenu } from "./utils/prototype-utils"
+import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -56,7 +56,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
-import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN } from "@/context/make-layout"
+import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN, MAKE_CRATIO_DEFAULT } from "@/context/make-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
@@ -65,7 +65,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -79,6 +79,7 @@ import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
+import { TurnAnchorNav } from "./components/turn-anchor-nav"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -109,6 +110,7 @@ import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
 import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
@@ -130,9 +132,13 @@ import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlo
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
+import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+
+// 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
+const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -143,7 +149,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -202,6 +208,31 @@ function MakeContent() {
   })
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
+
+  onMount(() => {
+    // Guard against the async restore navigating after the user has left /make.
+    let disposed = false
+    onCleanup(() => { disposed = true })
+    if (params.id) return
+    if (layout.lastSessionPerTab.newConversation("make")) return
+    const savedId = layout.lastSessionPerTab.make(sdk.directory)
+    if (!savedId) return
+    // Fast path: session already present in the sync store.
+    if (sync.data.session.some((s) => s.id === savedId && s.agent === "octo_make")) {
+      navigate(`/make/${savedId}`, { replace: true })
+      return
+    }
+    // Otherwise confirm it still exists before restoring, so a stale id
+    // (e.g. deleted elsewhere) doesn't navigate to a missing session.
+    void globalSDK.createClient({ directory: sdk.directory }).session.get({ sessionID: savedId })
+      .then((result) => {
+        if (disposed || params.id) return
+        const info = result.data
+        if (info?.id === savedId && info.agent === "octo_make") navigate(`/make/${savedId}`, { replace: true })
+        else layout.lastSessionPerTab.setMake(sdk.directory, "")
+      })
+      .catch(() => layout.lastSessionPerTab.setMake(sdk.directory, ""))
+  })
 
   const projectDir = useProjectDir()
   const projectSelection = useProjectSelection()
@@ -494,16 +525,22 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
+    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         pinned: newPinned,
-        sort_order: newPinned ? -1 : (prev.time.updated ?? 0),
+        sort_order: newPinned ? -1 : restore,
       }
     })
     try {
-      await togglePinSession(session.id, newPinned, sdk.directory)
+      await togglePinSession(
+        session.id,
+        newPinned,
+        sdk.directory,
+        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+      )
     } catch (err) {
       setSessionInfoMirror((prev) => {
         if (!prev) return prev
@@ -615,11 +652,14 @@ const sessionMessagesLoaded = createMemo(() => {
       ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
+          layout.lastSessionPerTab.setNewConversation("make", false)
           // 之前用 `id !== prev?.[0]` 限制只在 session 切换时 sync,但 app 长时间放置后
           // 重新激活时,store 可能被 evict 导致 sync.data.message[id] 变 undefined,
           // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
           // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
           if (missing) void sync.session.sync(id).catch(() => {})
+        } else {
+          layout.lastSessionPerTab.setMake(sdk.directory, "")
         }
 
         setSending(false)
@@ -1846,12 +1886,16 @@ const sessionMessagesLoaded = createMemo(() => {
     overlay.addEventListener("mouseup", onUp)
   }
 
-  const tabStore = createTabStore()
+  // tab 结构变更时按当前 session 持久化,切换切回/刷新/跨页面(Make→Insight→Make)返回后恢复。
+  // 空列表跳过:reset()/restoreTabs() 不触发 onPersist,但防御 activate 等空态调用误覆盖存档;
+  // "用户关闭全部 tab"的空态由 handleCloseTab 显式保存。
+  const tabStore = createTabStore({
+    onPersist: () => persistTabsFor(params.id),
+  })
   const snapshotStore = createSnapshotStore(() => params.id)
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
-  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
   const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
@@ -1870,6 +1914,20 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
   const bgCompareGuard = createBgCompareGuard()
+
+  /** 把当前 tabs 持久化到指定 session。
+   *  allowEmpty=false(onPersist 路径):空态跳过,防止误覆盖存档;
+   *  allowEmpty=true(切换/卸载兜底路径):空态也保存,保证存档与实际一致。 */
+  function persistTabsFor(sid: string | null | undefined, allowEmpty = false) {
+    if (!sid) return
+    const current = tabStore.tabs()
+    if (current.length === 0 && !allowEmpty) return
+    saveSessionTabs(sid, current, tabStore.activeId())
+  }
+
+  // 卸载兜底(Make→Insight/Pattern 等跨页面导航时 MakeContent 会被卸载):
+  // onCleanup 不保证在浏览器刷新时执行,刷新场景由每次 mutation 即存覆盖。
+  onCleanup(() => persistTabsFor(params.id, true))
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -1925,24 +1983,6 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
-  })
-
-  // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
-  // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
-  // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
-  // design（纯 HTML）页面同理：sandbox allow-same-origin 后点击 iframe 不触发 parent
-  // 的 window.blur，由 html-renderer 在选中元素时派发 design:element-selected，此处监听关闭。
-  createEffect(() => {
-    const close = () => setShowHistoryPanel(false)
-    const unsubQuickFix = onPrototypeQuickFix(close)
-    const unsubCtxMenu = onPrototypeCtxMenu(close)
-    const onElementSelected = () => close()
-    window.addEventListener("design:element-selected", onElementSelected)
-    onCleanup(() => {
-      unsubQuickFix()
-      unsubCtxMenu()
-      window.removeEventListener("design:element-selected", onElementSelected)
-    })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
@@ -2028,6 +2068,10 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => planCard()?.artifactIdentifier, (id, prev) => {
     if (id && id !== prev) {
       setOptimisticConfirmed(false)
+      if (!planTrackReported.has(id)) {
+        planTrackReported.add(id)
+        tracker.interaction({ module: "design", name: "design-plan-generated" })
+      }
     }
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
@@ -2550,6 +2594,10 @@ const sessionMessagesLoaded = createMemo(() => {
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
   const autoScroll = createAutoScroll({ working: () => true })
 
+  // 对话区视口/内容元素（供 TurnAnchorNav 响应式读取；autoScroll.scrollRef 本身是 ref setter）
+  const [chatViewportEl, setChatViewportEl] = createSignal<HTMLElement | undefined>(undefined)
+  const [chatContentEl, setChatContentEl] = createSignal<HTMLElement | undefined>(undefined)
+
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
   createEffect(on(
@@ -2559,6 +2607,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
+          // tabs 保留在内存中(此分支不 reset),但仍保存一份最新状态:
+          // 后续从 /make 直接进入其他 session 时 prevSid 为 null,无处再存
+          persistTabsFor(prevSid, true)
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
@@ -2592,6 +2643,8 @@ const sessionMessagesLoaded = createMemo(() => {
         // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
         // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
         persistActivePlanDraft()
+        // 切走前保存 tab 状态(含空态),供切回时恢复
+        persistTabsFor(prevSid, true)
         tabStore.reset()
       }
       // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
@@ -2650,7 +2703,19 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternEnded(false)
         setShowPatternPageConfirm(false)
         setPatternPageCapsule(false)
-        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+      }
+      // 恢复该 session 上次打开的 tabs(切换切回/刷新/跨页面返回均走此路径——effect 无 defer,
+      // mount 时 prevSid 为 null 同样命中)。位于通用重置块(设 files)之后、plan 恢复之前:
+      // 活跃 plan session 仍由下方 plan 恢复逻辑优先进 plan 视图(保持既有行为)。
+      if (newSid && newSid !== prevSid) {
+        const savedTabs = loadSessionTabs(newSid)
+        if (savedTabs && savedTabs.tabs.length > 0) {
+          tabStore.restoreTabs(savedTabs.tabs, savedTabs.activeId)
+          setResultViewMode("tabs")
+          tracker.interaction({ module: "design", name: "restore-tabs", extend: JSON.stringify({ count: savedTabs.tabs.length }) })
+          void hydrateRestoredTabs(savedTabs.tabs)
+        }
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -2973,6 +3038,38 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
   }
+
+  /** 恢复后的内容水合:有 filePath 的 tab 从服务端读文件内容(复用 handleOpenResult Step 1 模式),
+   *  并为 html tab 重建版本历史基线(镜像 handleOpenResult 的 onTabOpen 调用)。*/
+  async function hydrateRestoredTabs(restored: ResultTab[]) {
+    const sid = params.id
+    if (!sid) return
+    const skipContentLoad = ["image", "video", "audio", "pdf", "svg"]
+    for (const tab of restored) {
+      // 水合期间用户又切走:放弃剩余工作,避免跨 session 写入
+      if (params.id !== sid) return
+      // fastui:// 协议与 http 外链由渲染器直接导航 URL,无需内容
+      if (!tab.filePath || /^https?:\/\//i.test(tab.filePath) || tab.subtype === "fastui") continue
+      if (skipContentLoad.includes(tab.type) || tab.content) continue
+      try {
+        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(tab.filePath)}`, {
+          headers: { ...directoryHeader(sdk.directory || "") },
+        })
+        if (!response.ok) continue
+        const data = await response.json() as { content?: string }
+        if (params.id === sid && data.content && typeof data.content === "string") {
+          tabStore.updateTabContent(tab.id, data.content)
+        }
+      } catch {
+        // 读盘失败:保留 tab,内容为空(Electron 下 html 仍可经 local:// 预览)
+      }
+    }
+    for (const tab of tabStore.tabs()) {
+      if (tab.type !== "html" || !tab.filePath || tab.subtype === "fastui") continue
+      if (/^https?:\/\//i.test(tab.filePath)) continue
+      await historyController.onTabOpen(tab, undefined)
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
     const plan = planCard()
@@ -3039,10 +3136,11 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
-    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
+      // 显式保存空态:onPersist 对空列表跳过,不存的话切回会复活已关闭的 tabs
+      if (params.id) saveSessionTabs(params.id, [], null)
     }
   }
 
@@ -3587,6 +3685,9 @@ const sessionMessagesLoaded = createMemo(() => {
           showOctoToast({ title: "发送失败", description: "创建会话失败，请稍后重试", variant: "error" })
           return
         }
+
+        // 新建对话并发送首条消息：重置中/右分栏比例为默认 0.5
+        ml.setCRatio(MAKE_CRATIO_DEFAULT)
 
         const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
         if (pendingGroupId) {
@@ -4586,7 +4687,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setIsDragOver(false)
   }
 
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
 
   function handleDrop(e: DragEvent) {
     e.preventDefault()
@@ -4594,6 +4695,16 @@ const sessionMessagesLoaded = createMemo(() => {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) return
     request(() => handleAddFiles(files, "drop"))
+  }
+
+  /** 对话区卡片点击：上报打点后转交 handleOpenResult */
+  function handleConversationCardOpen(card: OutputCard) {
+    tracker.interaction({
+      module: "design",
+      name: "result-card-open",
+      extend: JSON.stringify({ type: card.type, subtype: card.subtype }),
+    })
+    void handleOpenResult(card)
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
@@ -5584,11 +5695,20 @@ onPreview={(url) => {
               <ScrollView
                 class="h-full"
                 style={{ background: "#fff", padding: "0 12px 16px 12px", }}
-                viewportRef={autoScroll.scrollRef}
+                viewportRef={(el) => {
+                  setChatViewportEl(el)
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
+                <div
+                  ref={(el) => {
+                    setChatContentEl(el)
+                    autoScroll.contentRef(el)
+                  }}
+                  class="make-chat-content pt-4 flex flex-col gap-4"
+                >
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
                         class="flex items-center justify-between mx-3"
@@ -5648,7 +5768,7 @@ onPreview={(url) => {
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
-                        onOpenResult={handleOpenResult}
+                        onOpenResult={handleConversationCardOpen}
                         onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
@@ -5680,7 +5800,7 @@ onPreview={(url) => {
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
-                            onOpenResult={handleOpenResult}
+                            onOpenResult={handleConversationCardOpen}
                             onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
@@ -5710,6 +5830,12 @@ onPreview={(url) => {
                   height: "24px",
                   background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
                 }}
+              />
+              <TurnAnchorNav
+                messages={userMessages()}
+                sessionID={params.id}
+                viewport={chatViewportEl}
+                content={chatContentEl}
               />
               </div>
 
@@ -6062,22 +6188,14 @@ onPreview={(url) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
-                historyActive={showHistoryPanel()}
                 historyEntries={versionList()}
                 currentVersionId={currentVersionId()}
                 onHistorySwitch={handleHistorySwitch}
-                onModeChange={(mode) => {
-                  if (mode === "edit") setShowHistoryPanel(false)
-                }}
-                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
                   if (effectiveBusy()) return
-                  if (!showHistoryPanel()) {
-                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
-                    if (tab) await historyController.refreshVersions(tab)
-                  }
-                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
-                  setShowHistoryPanel(!showHistoryPanel())
+                  const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                  if (tab) await historyController.refreshVersions(tab)
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: "open" }) })
                 }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()

@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js"
-import { Show, For, createSignal, createEffect, onCleanup, createMemo } from "solid-js"
+import { Show, For, createSignal, createEffect, onCleanup, createMemo, on } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
@@ -504,8 +504,8 @@ export function ActionBar(props: {
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
     observedResourceUrls?: () => string[]
+    /** 面板打开时触发（父侧刷新版本列表）；开关状态由 ActionBar 内部持有 */
     onHistoryToggle?: () => void
-    historyActive?: boolean
     historyEntries?: VersionEntry[]
     currentVersionId?: string | null
     onHistorySwitch?: (entry: VersionEntry) => void
@@ -592,6 +592,17 @@ export function ActionBar(props: {
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
 
   let historyBtnRef: HTMLButtonElement | undefined
+  /** 历史面板开关：局部状态（同分辨率 Dropdown 模式）——随 ActionBar 卸载自动销毁，
+   *  切 tab/会话不会残留节点，也无需页面级重置 */
+  const [historyOpen, setHistoryOpen] = createSignal(false)
+  const [historyAnchor, setHistoryAnchor] = createSignal<{ top: number; bottom: number; left: number; right: number } | null>(null)
+  // 切到源码模式或进入局部修改时收起面板
+  createEffect(on(() => props.mode, (m) => {
+    if (m === "edit") setHistoryOpen(false)
+  }, { defer: true }))
+  createEffect(() => {
+    if (props.editing) setHistoryOpen(false)
+  })
 
   /** 统一判断：feature 是否在当前模式下可见（editOnly 的 feature 只在预览模式显示） */
   const featureVisible = (flag: FeatureFlag): boolean => {
@@ -920,9 +931,17 @@ export function ActionBar(props: {
                 ref={historyBtnRef}
                 type="button"
                 class="octo-action-btn"
-                classList={{ "octo-viewport-btn-active": !!props.historyActive, "octo-action-btn-disabled": !!props.disabled }}
+                classList={{ "octo-viewport-btn-active": historyOpen(), "octo-action-btn-disabled": !!props.disabled }}
                 disabled={!!props.disabled}
-                onClick={props.onHistoryToggle}
+                onClick={() => {
+                  const opening = !historyOpen()
+                  if (historyBtnRef && opening) {
+                    const r = historyBtnRef.getBoundingClientRect()
+                    setHistoryAnchor({ top: r.top, bottom: r.bottom, left: r.left, right: r.right })
+                    props.onHistoryToggle?.()
+                  }
+                  setHistoryOpen(opening)
+                }}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
                   <circle cx="8" cy="8" r="6" />
@@ -965,16 +984,13 @@ export function ActionBar(props: {
         </div>
       </div>
     </div>
-    <Show when={props.historyActive && historyBtnRef && showHistory()}>
+    <Show when={historyOpen() && historyAnchor() && historyBtnRef && showHistory()}>
       <HistoryPanel
-        anchorRect={(() => {
-          const r = historyBtnRef!.getBoundingClientRect()
-          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
-        })()}
+        anchorRect={historyAnchor()!}
         entries={props.historyEntries ?? []}
         currentId={props.currentVersionId ?? null}
         onSwitch={props.onHistorySwitch!}
-        onClose={() => props.onHistoryToggle?.()}
+        onClose={() => setHistoryOpen(false)}
         ignoreRef={() => historyBtnRef}
       />
     </Show>

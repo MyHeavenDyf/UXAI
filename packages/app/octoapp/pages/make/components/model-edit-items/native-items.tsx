@@ -7,13 +7,13 @@ import {
   ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect,
   HAlignIcon, VAlignIcon,
   FreeformIcon,
-  OpacityIcon, CornerCurveIcon, BorderRadiusIcon,
+  OpacityIcon, CornerCurveIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
   LineHeightIcon, LetterSpacingIcon,
   Section, QuadModeSection, EffectsSection,
   LAYOUT_GRID,
 } from '../result-viewer/row-primitives'
-import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark, IconBorderMenu, IconBorderAll, IconBorderLeft, IconBorderTop, IconBorderRight, IconBorderBottom } from '../../icons'
+import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark, IconBorderMenu, IconBorderAll, IconBorderLeft, IconBorderTop, IconBorderRight, IconBorderBottom, IconRadiusAdaptive, IconDropdownArrow } from '../../icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
 import { parseEffects } from '../../edit-mode/source-patches'
 
@@ -38,7 +38,9 @@ function rgbToHex(rgb: string): string {
   const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1
   if (alpha <= 0) return ''
   const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3])
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  if (alpha < 1) return hex + Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return hex
 }
 
 function isColorProp(prop: string): boolean {
@@ -159,7 +161,7 @@ function SizeModeSelect(props: {
           {ModeIcon(props.value)}
         </span>
         <span class="flex-1 truncate" style={{ color: '#191919' }}>{shortLabel()}</span>
-        <svg class="w-3 h-3 ml-0.5 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <IconDropdownArrow class="ml-0.5 text-[#777777]" />
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
@@ -178,17 +180,15 @@ function SizeModeSelect(props: {
                   type="button"
                   onClick={() => { props.onModeChange(m.value); setOpen(false) }}
                   class="flex items-center gap-2 rounded-[4px] px-2 text-left cursor-pointer border-none bg-transparent outline-none hover:bg-[rgba(0,0,0,0.05)]"
-                  style={{ 'line-height': '32px', 'font-size': '14px', 'font-weight': '400', color: 'rgba(25,25,25,1)' }}
+                  style={{ 'line-height': '32px', 'font-size': '12px', 'font-weight': '400', color: 'rgba(25,25,25,1)' }}
                 >
+                  <span class="cc-quad-mode-check" style={{ visibility: props.value === m.value ? 'visible' : 'hidden' }}>
+                    <IconSizeCheckmark />
+                  </span>
                   <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.9)', ...(isW() ? {} : { transform: 'rotate(90deg)' }) }}>
                     {ModeIcon(m.value)}
                   </span>
                   <span class="flex-1 truncate">{m.longLabel}</span>
-                  <Show when={props.value === m.value}>
-                    <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.9)' }}>
-                      <IconSizeCheckmark />
-                    </span>
-                  </Show>
                 </button>
               )}
             </For>
@@ -340,15 +340,13 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_textAlign',
     readValue: (el) => el.styles.textAlign || '',
     render: (props) => (
-      <div class="cc-typ-align-row">
-        <div class="cc-typ-align-cell">
-          <span class="cc-typ-sublabel">水平对齐</span>
-          <div class="cc-typ-align-group">
-            <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
-          </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[12px] text-slate-400 w-12 shrink-0">水平对齐</span>
+        <div class="cc-typ-align-group flex-1">
+          <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
         </div>
       </div>
     ),
@@ -358,9 +356,9 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_verticalAlign',
     readValue: (el) => el.styles.verticalAlign || '',
     render: (props) => (
-      <div class="cc-typ-align-cell">
-        <span class="cc-typ-sublabel">垂直对齐</span>
-        <div class="cc-typ-align-group">
+      <div class="flex items-center gap-2">
+        <span class="text-[12px] text-slate-400 w-12 shrink-0">垂直对齐</span>
+        <div class="cc-typ-align-group flex-1">
           <button type="button" onClick={() => props.onChange(props.value() === 'top' ? '' : 'top')} class={props.value() === 'top' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
           <button type="button" onClick={() => props.onChange(props.value() === 'middle' ? '' : 'middle')} class={props.value() === 'middle' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
           <button type="button" onClick={() => props.onChange(props.value() === 'bottom' ? '' : 'bottom')} class={props.value() === 'bottom' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
@@ -386,7 +384,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         <Section title="布局">
           <div class="cc-layout-direction">
             <button type="button" onClick={() => update({ flexDirection: 'column' })} class={fd() === 'column' || fd() === 'column-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="列布局" aria-label="列布局"><LayoutColIcon /></button>
-            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="行布局" aria-label="行布局"><span class="inline-flex" style={{ transform: 'rotate(90deg)' }}><LayoutColIcon /></span></button>
+            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="行布局" aria-label="行布局"><span class="inline-flex" style={{ transform: 'rotate(270deg)' }}><LayoutColIcon /></span></button>
             <button type="button" onClick={() => update({ flexDirection: '' })} class={!fd() ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="自由布局" aria-label="自由布局"><FreeformIcon /></button>
           </div>
           <Show when={!!fd()}>
@@ -404,7 +402,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
                 </For>
               </div>
               <div class="cc-layout-gap-col">
-                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" icon={<LayoutGapIcon />} />
+                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" icon={<LayoutGapIcon />} flex1={false} height="h-8" />
                 <label class="cc-layout-radio">
                   <input type="radio" name="layout-justify-mode" checked={data().justifyContent === 'space-between'} onChange={() => update({ justifyContent: 'space-between' })} />
                   <span>两端对齐</span>
@@ -427,12 +425,18 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       width: el.styles.width || '',
       height: el.styles.height || '',
       overflow: el.styles.overflow || '',
+      borderRadius: el.styles.borderRadius || '',
+      borderTopLeftRadius: el.styles.borderTopLeftRadius || '',
+      borderTopRightRadius: el.styles.borderTopRightRadius || '',
+      borderBottomRightRadius: el.styles.borderBottomRightRadius || '',
+      borderBottomLeftRadius: el.styles.borderBottomLeftRadius || '',
     }),
     render: (props) => {
       const data = () => parseJson(props.value())
       const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
       const w = () => data().width || ''
       const h = () => data().height || ''
+      const br = () => data().borderRadius || ''
 
       // 尺寸模式：fill=100% / fit=fit-content / fixed=具体 px
       const wMode = (): SizeMode => w() === '100%' ? 'fill' : (w() === 'fit-content' || w() === 'max-content' || w() === 'auto') ? 'fit' : 'fixed'
@@ -456,13 +460,69 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         else update({ height: fixedCache().height || '' })
       }
 
+      // 圆角：icon 切换 shorthand / 四角
+      const [radiusOpen, setRadiusOpen] = createSignal(false)
+      const setCorner = (key: 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius', v: number) => {
+        const d = data()
+        const currentBR = d.borderRadius
+        if (currentBR) {
+          update({ borderRadius: '', borderTopLeftRadius: key === 'borderTopLeftRadius' ? `${v}px` : (d.borderTopLeftRadius || currentBR), borderTopRightRadius: key === 'borderTopRightRadius' ? `${v}px` : (d.borderTopRightRadius || currentBR), borderBottomRightRadius: key === 'borderBottomRightRadius' ? `${v}px` : (d.borderBottomRightRadius || currentBR), borderBottomLeftRadius: key === 'borderBottomLeftRadius' ? `${v}px` : (d.borderBottomLeftRadius || currentBR) })
+        } else {
+          update({ [key]: `${v}px` })
+        }
+      }
+      const corners = () => [data().borderTopLeftRadius || '', data().borderTopRightRadius || '', data().borderBottomRightRadius || '', data().borderBottomLeftRadius || '']
+      // 收起态 shorthand 显示值：borderRadius 优先，四角全等非空时取该值
+      const shorthandVal = () => {
+        if (br()) return br()
+        const c = corners()
+        return c.every(x => x) && c.every(x => x === c[0]) ? c[0] : ''
+      }
+      // 四角有值但不全等 → mixed
+      const cornersMixed = () => {
+        if (br()) return false
+        const c = corners()
+        return c.some(x => x) && !c.every(x => x === c[0])
+      }
+      // 展开时 shorthand 有值且四角全空 → 分解到四角
+      createEffect(() => {
+        if (!radiusOpen()) return
+        const d = data()
+        if (d.borderRadius && !d.borderTopLeftRadius && !d.borderTopRightRadius && !d.borderBottomRightRadius && !d.borderBottomLeftRadius) {
+          update({ borderTopLeftRadius: d.borderRadius, borderTopRightRadius: d.borderRadius, borderBottomRightRadius: d.borderRadius, borderBottomLeftRadius: d.borderRadius })
+        }
+      })
+
       return (
         <Section title="宽高">
           <div class="cc-size-grid">
-            <DragInput value={() => numFromString(w())} setValue={(v) => update({ width: `${v}px` })} setFound={() => {}} found={() => true} placeholder="宽" icon="W" />
-            <DragInput value={() => numFromString(h())} setValue={(v) => update({ height: `${v}px` })} setFound={() => {}} found={() => true} placeholder="高" icon="H" />
+            <DragInput value={() => numFromString(w())} setValue={(v) => update({ width: `${v}px` })} setFound={() => {}} found={() => true} placeholder="宽" icon="W" height="h-8" iconPl="pl-2.5" />
+            <DragInput value={() => numFromString(h())} setValue={(v) => update({ height: `${v}px` })} setFound={() => {}} found={() => true} placeholder="高" icon="H" height="h-8" iconPl="pl-2.5" />
+          </div>
+          <div class="cc-size-modes-row">
             <SizeModeSelect value={wMode()} fixedValue={w()} axis="width" onModeChange={onWModeChange} />
             <SizeModeSelect value={hMode()} fixedValue={h()} axis="height" onModeChange={onHModeChange} />
+          </div>
+          <div class="cc-radius-row">
+            <div class="cc-radius-grid">
+              <Show when={radiusOpen()} fallback={
+                <DragInput value={() => numFromString(shorthandVal())} setValue={(v) => update({ borderRadius: `${v}px`, borderTopLeftRadius: '', borderTopRightRadius: '', borderBottomRightRadius: '', borderBottomLeftRadius: '' })} setFound={() => {}} found={() => !!shorthandVal()} display={cornersMixed() ? 'mixed' : undefined} placeholder="圆角" icon={<CornerCurveIcon />} height="h-8" iconPl="pl-2.5" />
+              }>
+                <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => setCorner('borderTopLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => setCorner('borderTopRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => setCorner('borderBottomLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => setCorner('borderBottomRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+              </Show>
+            </div>
+            <button
+              type="button"
+              class="cc-radius-adaptive-btn"
+              classList={{ 'cc-radius-adaptive-btn-active': radiusOpen() }}
+              onClick={() => setRadiusOpen(!radiusOpen())}
+              title="独立圆角" aria-label="独立圆角"
+            >
+              <IconRadiusAdaptive />
+            </button>
           </div>
           <div class="cc-size-checkboxes">
             <label class="cc-size-checkbox cc-size-clip">
@@ -528,29 +588,12 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     readValue: (el) => JSON.stringify({
       backgroundColor: normalizeStyle('backgroundColor', el.styles.backgroundColor || ''),
       opacity: el.styles.opacity || '',
-      borderRadius: el.styles.borderRadius || '',
-      borderTopLeftRadius: el.styles.borderTopLeftRadius || '',
-      borderTopRightRadius: el.styles.borderTopRightRadius || '',
-      borderBottomRightRadius: el.styles.borderBottomRightRadius || '',
-      borderBottomLeftRadius: el.styles.borderBottomLeftRadius || '',
     }),
     render: (props) => {
       const data = () => parseJson(props.value())
       const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
-      const [cornerOpen, setCornerOpen] = createSignal(false)
       const bg = () => data().backgroundColor || ''
       const op = () => data().opacity || ''
-      const br = () => data().borderRadius || ''
-
-      const setCorner = (key: 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius', v: number) => {
-        const d = data()
-        const currentBR = d.borderRadius
-        if (currentBR) {
-          update({ borderRadius: '', borderTopLeftRadius: key === 'borderTopLeftRadius' ? `${v}px` : (d.borderTopLeftRadius || currentBR), borderTopRightRadius: key === 'borderTopRightRadius' ? `${v}px` : (d.borderTopRightRadius || currentBR), borderBottomRightRadius: key === 'borderBottomRightRadius' ? `${v}px` : (d.borderBottomRightRadius || currentBR), borderBottomLeftRadius: key === 'borderBottomLeftRadius' ? `${v}px` : (d.borderBottomLeftRadius || currentBR) })
-        } else {
-          update({ [key]: `${v}px` })
-        }
-      }
 
       return (
         <Section title="外观">
@@ -562,25 +605,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
               setFound={() => {}} found={() => true}
               placeholder="透明度" max={100} icon={<OpacityIcon />} suffixIcon="%"
             />
-            <DragInput
-              value={() => numFromString(br())}
-              setValue={(v) => update({ borderRadius: `${v}px`, borderTopLeftRadius: '', borderTopRightRadius: '', borderBottomRightRadius: '', borderBottomLeftRadius: '' })}
-              setFound={() => {}} found={() => true}
-              placeholder="圆角" icon={<CornerCurveIcon />} suffixIcon={<BorderRadiusIcon />}
-              display={cornerOpen() && (data().borderTopLeftRadius || data().borderTopRightRadius || data().borderBottomRightRadius || data().borderBottomLeftRadius) ? 'mixed' : undefined}
-            />
-            <button type="button" class={cornerOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'} onClick={() => setCornerOpen(!cornerOpen())} title="四角独立" aria-label="四角独立">
-              <span style={{ "font-size": "10px" }}>◱</span>
-            </button>
           </div>
-          <Show when={cornerOpen()}>
-            <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => setCorner('borderTopLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => setCorner('borderTopRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => setCorner('borderBottomLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => setCorner('borderBottomRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} />
-            </div>
-          </Show>
         </Section>
       )
     },

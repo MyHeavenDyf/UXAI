@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
-import { IconSizeCheckmark } from "../../../icons"
+import { IconSizeCheckmark, IconDropdownArrow } from "../../../icons"
 
 export function CustomSelect(props: {
   value: string
@@ -46,10 +46,10 @@ export function CustomSelect(props: {
         ref={btnRef}
         type="button"
         onClick={() => setOpen(!open())}
-        class="flex items-center rounded-sm bg-[#F9F9F9] h-6 text-[11px] px-2 outline-none w-full border border-transparent hover:border-[#c9c9c9] text-left"
+        class="flex items-center rounded-sm bg-[#F9F9F9] h-6 text-[12px] px-2 outline-none w-full border border-transparent hover:border-[#c9c9c9] text-left"
       >
         <span class="flex-1 truncate">{props.options.find(o => o.value === props.value)?.label || props.value}</span>
-        <svg class="w-3 h-3 ml-1 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <IconDropdownArrow class="ml-1 text-[#777777]" />
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>

@@ -4,6 +4,7 @@ import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { Slice, Fragment, type Node as PMNode } from "prosemirror-model"
 import { buildParagraphs, validTrigger, nextInsertPos } from "../../utils/mention"
+import { insertAddonMentions, removeAddonMention } from "../../utils/addon-mentions"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
@@ -20,6 +21,8 @@ import "./styles.css"
 // 3b 注入不变：编辑器只负责「文本 + 提及」的采集,发送时的 SKILL.md / [引用文件] synthetic 注入在 index.tsx。
 
 export interface InsightEditorRef {
+  insertMentions: (selections: MentionSelection[]) => void
+  removeMention: (selection: MentionSelection) => void
   getText: () => string
   getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
   focus: () => void
@@ -107,7 +110,7 @@ export function ProseMirrorEditor(props: Props) {
     const selections: MentionSelection[] = mentions.map((m) =>
       m.type === "skill"
         ? { type: "skill", name: m.name, label: m.label }
-        : { type: "file", filename: m.name, path: m.path || "" },
+        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined },
     )
     props.setMentionSelections(selections)
     setIsEmpty(empty)
@@ -185,6 +188,19 @@ export function ProseMirrorEditor(props: Props) {
     setView(editorView)
 
     props.ref?.({
+      insertMentions: (selections) => {
+        const v = view()
+        if (!connected(v)) return
+        const tr = insertAddonMentions(v.state, selections)
+        if (tr.docChanged) v.dispatch(tr)
+        v.focus()
+      },
+      removeMention: (selection) => {
+        const v = view()
+        if (!connected(v)) return
+        const tr = removeAddonMention(v.state, selection)
+        if (tr.docChanged) v.dispatch(tr)
+      },
       getText: () => (connected(view()) ? getDocTextWithMentions(view()!.state.doc) : ""),
       getMentions: () => (connected(view()) ? extractMentionsFromDoc(view()!.state.doc) : []),
       focus: () => {
@@ -219,7 +235,7 @@ export function ProseMirrorEditor(props: Props) {
     props.setMentionSelections(initialMentions.map((mention) =>
       mention.type === "skill"
         ? { type: "skill", name: mention.name, label: mention.label }
-        : { type: "file", filename: mention.name, path: mention.path || "" },
+        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined },
     ))
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)

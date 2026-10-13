@@ -24,6 +24,7 @@ import { provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
 import { tool, jsonSchema } from "ai"
+import z from "zod"
 import { begin as beginArtifactTurn } from "../../src/tracking/store"
 import { ArtifactEventTable } from "../../src/tracking/delivery.sql"
 import { Database, eq } from "../../src/storage/db"
@@ -210,7 +211,9 @@ it.live("artifact completion callback captures successful write and edit without
     }
     const events = Database.use((db) => db.select().from(ArtifactEventTable)
       .where(eq(ArtifactEventTable.message_id, parent.id)).all())
-    expect(events.map((event) => event.name).sort()).toEqual(["artifact-file-edit", "artifact-file-write"])
+    expect(events.filter((event) => event.name.startsWith("artifact-")).map((event) => event.name).sort()).toEqual(["artifact-file-edit", "artifact-file-write"])
+    expect(events.filter((event) => event.name === "agent-tool-call-start")).toHaveLength(2)
+    expect(events.filter((event) => event.name === "agent-tool-call-end")).toHaveLength(2)
     expect(events.every((event) => event.payload.account === "callback-account")).toBe(true)
     expect(yield* Effect.promise(() => Bun.file(path.join(dir, "report.md")).text())).toBe("edited")
   }), { git: true, config: (url) => providerCfg(url) }),
@@ -220,6 +223,40 @@ it.live("artifact completion callback captures successful write and edit without
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+it.live("SDK validation failure reports the original tool once before invalid-tool repair", () =>
+  provideTmpdirServer(({ dir, llm }) => Effect.gen(function* () {
+    const services = yield* boot()
+    const chat = yield* services.session.create({})
+    const parent = yield* user(chat.id, "read a file")
+    beginArtifactTurn({ messageID: parent.id, sessionID: chat.id, directory: dir,
+      extra: { account: "validation-account", artifactTracking: { module: "insight" } } })
+    yield* llm.tool("read", { filePath: 123 })
+    const msg = yield* assistant(chat.id, parent.id, dir)
+    const model = yield* services.provider.getModel(ref.providerID, ref.modelID)
+    const handle = yield* services.processors.create({ assistantMessage: msg, sessionID: chat.id, model })
+    yield* handle.process({
+      user: parent, sessionID: chat.id, model, agent: agent(), system: [],
+      messages: [{ role: "user", content: "read" }],
+      tools: {
+        read: tool({
+          inputSchema: z.object({ filePath: z.string() }),
+          execute: async (_args: { filePath: string }) => ({ title: "unexpected", metadata: {}, output: "invalid input must never execute" }),
+        }),
+        invalid: tool({
+          inputSchema: jsonSchema({ type: "object" }),
+          execute: async () => ({ title: "invalid", metadata: {}, output: "invalid arguments" }),
+        }),
+      },
+    })
+    const events = Database.use((db) => db.select().from(ArtifactEventTable).where(eq(ArtifactEventTable.message_id, parent.id)).all())
+    expect(events).toHaveLength(2)
+    const ended = events.find((event) => event.name === "agent-tool-call-end")!
+    const payload = ended.payload.datas as { extend: string }[]
+    expect(JSON.parse(payload[0].extend)).toMatchObject({ registeredToolName: "read", executionStage: "validation", executionStarted: false, status: "failure" })
+  }), { git: true, config: (url) => providerCfg(url) }),
+  30_000,
+)
 
 it.live("session.processor effect tests capture llm input cleanly", () =>
   provideTmpdirServer(
