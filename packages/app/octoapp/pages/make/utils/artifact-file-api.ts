@@ -39,7 +39,7 @@ export interface ArtifactContentResponse {
   encoding?: "base64"
 }
 
-// scope="project" (代码类型工作区): 列表/上传/预览按项目级解析 —— generated=项目根, uploaded=.octo/uploads。
+// scope="project" (代码类型工作区,统一文件树): generated=项目根目录 (唯一列表来源,uploaded 恒为空);
 export type ArtifactScope = "project"
 
 export async function fetchArtifactList(
@@ -159,6 +159,13 @@ export async function deleteArtifactBatch(
   return { deleted: data.deleted }
 }
 
+// 目标目录按 scope 映射:session scope → path (uploads 目录内子路径);
+// project scope (代码工作区统一文件树) → dir (项目相对目标目录,空 = 项目根)。
+function uploadTargetFields(targetPath: string | undefined, scope?: ArtifactScope) {
+  if (scope === "project") return { dir: targetPath ?? "" }
+  return { path: targetPath }
+}
+
 export async function uploadArtifactFile(
   sdkUrl: string,
   sdkDirectory: string,
@@ -171,7 +178,7 @@ export async function uploadArtifactFile(
   const response = await fetch(`${sdkUrl}/artifact/upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
-    body: JSON.stringify({ sessionId, filename, content, path: targetPath, scope }),
+    body: JSON.stringify({ sessionId, filename, content, ...uploadTargetFields(targetPath, scope), scope }),
   })
   if (!response.ok) {
     throw new Error(`Failed to upload artifact: ${response.statusText}`)
@@ -222,7 +229,7 @@ export async function uploadArtifactFolder(
     const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
-      body: JSON.stringify({ sessionId, folderName, files: batch, path: currentPath, scope }),
+      body: JSON.stringify({ sessionId, folderName, files: batch, ...uploadTargetFields(currentPath, scope), scope }),
     })
     if (!response.ok) {
       throw new Error(`Failed to upload folder: ${response.statusText}`)

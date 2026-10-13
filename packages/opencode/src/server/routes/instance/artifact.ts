@@ -14,6 +14,15 @@ const SESSION_BASE_DIR = ".octo"
 const OUTPUTS_DIR = "outputs"
 const UPLOADS_DIR = "uploads"
 
+// 与 httpapi/handlers/artifact.ts 同语义:剥首尾斜杠,拒绝 .. / ~ / 空
+function sanitizePath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
+}
+
 const KIND_BY_EXT: Record<string, string> = {
   html: "html",
   htm: "html",
@@ -123,19 +132,16 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
            const projectScope = scope === "project"
            const stampedSessionId = projectScope ? "" : sessionId ?? ""
 
-           // scope=project(代码工作�?:generated=项目根目�?uploaded=共享 .octo/uploads,
-           // relativePath 统一相对项目�?session scope 维持 .octo/<sessionId>/ 布局�?
+           // scope=project(代码工作区,统一文件树):仅支持 generated=项目根目录 (点开头条目被过滤),
+           // uploaded 无独立上传区恒为空;session scope 维持 .octo/<sessionId>/ 布局 (原行为)。
+           if (projectScope && category === "uploaded") {
+             return { files: [] }
+           }
            let categoryRoot: string
            let relativePrefix: string
            if (projectScope) {
-             if (category === "uploaded") {
-               categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
-               relativePrefix = `${SESSION_BASE_DIR}/${UPLOADS_DIR}`
-               yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
-             } else {
-               categoryRoot = Instance.directory
-               relativePrefix = ""
-             }
+             categoryRoot = Instance.directory
+             relativePrefix = ""
            } else if (category === "uploaded") {
              categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, UPLOADS_DIR)
              relativePrefix = UPLOADS_DIR
@@ -227,9 +233,9 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const filePath = c.req.valid("query").path
           const svc = yield* File.Service
           const result = yield* svc.read(filePath)
-          // File.read 对二进制文件(office/pdf �?只返回空 content(服务于文本预�?�?File.read);
-          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端�?encoding:"base64" 解码落盘�?
-          // �?type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退�?
+          // File.read 对二进制文件(office/pdf �?只返回空 content(服务于文本预�?�?File.read);
+          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端�?encoding:"base64" 解码落盘�?
+          // �?type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退�?
           if (result.type === "binary") {
             const fs = yield* AppFileSystem.Service
             const bytes = yield* fs.readFile(filePath)
@@ -426,6 +432,8 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
             filename: z.string(),
             content: z.string(),
             scope: z.enum(["project"]).optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根
+            dir: z.string().optional(),
           })
           .refine((v) => v.scope === "project" || !!v.sessionId, {
             message: "sessionId is required unless scope=project",
@@ -436,12 +444,19 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
           const projectScope = body.scope === "project"
-          // project scope(代码工作�?:统一落共�?.octo/uploads (sessionId �?refine 保证存在)
-          const uploadsDir = projectScope
-            ? path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+
+          // project scope(代码工作区,统一文件树):dir = 项目相对目标目录,缺省/空 = 项目根,含 .. / ~ 拒绝;
+          // session scope:落 .octo/<sessionId>/uploads (原行为)
+          let relDir = ""
+          if (projectScope && body.dir && body.dir.trim() !== "") {
+            relDir = sanitizePath(body.dir)
+            if (relDir === "") return c.json({ error: "invalid dir" }, 400)
+          }
+          const targetDir = projectScope
+            ? path.join(Instance.directory, relDir)
             : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
 
-          yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
+          yield* fs.ensureDir(targetDir).pipe(Effect.catch(() => Effect.void))
 
           let finalFilename = body.filename
           let counter = 1
@@ -449,14 +464,14 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const baseName = path.basename(body.filename, ext)
 
           while (true) {
-            const fullPath = path.join(uploadsDir, finalFilename)
+            const fullPath = path.join(targetDir, finalFilename)
             const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
             if (!fileExists) break
             finalFilename = `${baseName}-${counter}${ext}`
             counter++
           }
 
-          const fullPath = path.join(uploadsDir, finalFilename)
+          const fullPath = path.join(targetDir, finalFilename)
           const contentBuffer = Buffer.from(body.content, "base64")
           yield* fs.writeFile(fullPath, contentBuffer)
 
@@ -467,9 +482,8 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           return {
             name: finalFilename,
             path: fullPath,
-            relativePath: projectScope
-              ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}/${finalFilename}`
-              : finalFilename,
+            // project scope 相对项目根;session scope 相对 uploads 根
+            relativePath: relDir ? `${relDir}/${finalFilename}` : finalFilename,
             sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: getKind(finalFilename),
             isFolder: false,
@@ -520,6 +534,8 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
               }),
             ),
             scope: z.enum(["project"]).optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根
+            dir: z.string().optional(),
           })
           .refine((v) => v.scope === "project" || !!v.sessionId, {
             message: "sessionId is required unless scope=project",
@@ -530,11 +546,18 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
           const projectScope = body.scope === "project"
-          const uploadsDir = projectScope
-            ? path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+
+          // 与 upload 同语义:project scope 用 dir (项目相对目标目录,缺省/空 = 项目根,含 .. / ~ 拒绝)
+          let relDir = ""
+          if (projectScope && body.dir && body.dir.trim() !== "") {
+            relDir = sanitizePath(body.dir)
+            if (relDir === "") return c.json({ error: "invalid dir" }, 400)
+          }
+          const targetDir = projectScope
+            ? path.join(Instance.directory, relDir)
             : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
 
-          const folderDir = path.join(uploadsDir, body.folderName)
+          const folderDir = path.join(targetDir, body.folderName)
 
           yield* fs.ensureDir(folderDir).pipe(Effect.catch(() => Effect.void))
 
@@ -553,9 +576,8 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           return {
             name: body.folderName,
             path: folderDir,
-            relativePath: projectScope
-              ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}/${body.folderName}`
-              : body.folderName,
+            // project scope 相对项目根;session scope 相对 uploads 根
+            relativePath: relDir ? `${relDir}/${body.folderName}` : body.folderName,
             sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: "folder",
             isFolder: true,

@@ -796,7 +796,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 </div>
               </Show>
               <Show when={files().generated.length > 0}>
-                <div class="mention-section-title">生成文件</div>
+                <Show when={workspaceKind() !== "code"}>
+                  <div class="mention-section-title">生成文件</div>
+                </Show>
                 <For each={files().generated}>
                   {(file) => {
                     const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }

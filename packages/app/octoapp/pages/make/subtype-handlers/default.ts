@@ -696,9 +696,8 @@ const defaultHandler: SubtypeHandler = {
             return
           }
 
-          // 代码工作区:C2D 下载落共享 .octo/uploads;普通工作区:session uploads (原行为)
           const uploadsDir = ctx.workspaceKind === "code"
-            ? `${baseDir}/.octo/uploads`
+            ? `${baseDir}`
             : `${baseDir}/.octo/${sid}/uploads`
           const lastDotIndex = data.filename.lastIndexOf('.')
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename

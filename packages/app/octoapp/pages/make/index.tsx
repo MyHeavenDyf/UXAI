@@ -241,7 +241,7 @@ function MakeContent() {
   const projectDir = useProjectDir()
   const workspaceKind = useWorkspaceKind()
   const projectSelection = useProjectSelection()
-  // 代码类型工作区:session 只隔离对话不隔离产物 (产物落项目根,上传/标注走 .octo/uploads|.octo/comments)
+  // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
 
   const local = useLocal()
@@ -1625,8 +1625,9 @@ const sessionMessagesLoaded = createMemo(() => {
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
-  // 代码工作区:scope=project,列表与 session 无关 (key 不含 sessionId,切换会话不重拉,无 session 也可用);
-  // 普通工作区:按 session 拉取 (原行为)。
+  // 代码工作区:scope=project 的单一项目文件树 (只拉 generated,uploaded 恒为空——附件/资产也落项目根,
+  // 自然包含在树里),列表与 session 无关 (key 不含 sessionId,切换会话不重拉,无 session 也可用);
+  // 普通工作区:按 session 拉取 generated+uploaded (原行为)。
   const [artifactFiles] = createResource(
     () => ({
       sessionId: isProjectScope() ? undefined : params.id,
@@ -1638,9 +1639,13 @@ const sessionMessagesLoaded = createMemo(() => {
     async ({ sessionId, scope, url, directory }) => {
       if (!sessionId && !scope) return null
       try {
+        if (scope) {
+          const gen = await fetchArtifactList(url, directory ?? "", "", "generated", undefined, true, scope)
+          return { generated: gen.files.filter(f => !f.isFolder), uploaded: [] }
+        }
         const [gen, upl] = await Promise.all([
-          fetchArtifactList(url, directory ?? "", sessionId ?? "", "generated", undefined, true, scope),
-          fetchArtifactList(url, directory ?? "", sessionId ?? "", "uploaded", undefined, true, scope),
+          fetchArtifactList(url, directory ?? "", sessionId ?? "", "generated", undefined, true),
+          fetchArtifactList(url, directory ?? "", sessionId ?? "", "uploaded", undefined, true),
         ])
         return { generated: gen.files.filter(f => !f.isFolder), uploaded: upl.files.filter(f => !f.isFolder) }
       } catch {
@@ -4229,7 +4234,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
     try {
-      // 代码工作区:图片直落共享 .octo/uploads(最终位置,source 直接 'local'),不走 tmps 暂存/pending 迁移。
+      // 代码工作区:图片直落项目根 (relDir="",统一文件树的一部分,source 直接 'local'),不走 tmps 暂存/pending 迁移。
       // 新 IPC 缺失(新旧版本错配的升级窗口)时落回下方普通链路——附件仍可发送,仅落点退化为 session uploads。
       if (isProjectScope()) {
         const base = projectDir()
@@ -4240,10 +4245,10 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch {
           srcPath = ""
         }
-        const dest = base && srcPath && typeof api?.copyFileToProjectUploads === "function"
-          ? await api.copyFileToProjectUploads(srcPath, base, "", filename)
-          : base && typeof api?.writeFileToProjectUploads === "function"
-            ? await api.writeFileToProjectUploads(await rawFile.arrayBuffer(), base, filename)
+        const dest = base && srcPath && typeof api?.copyFileToProjectDir === "function"
+          ? await api.copyFileToProjectDir(srcPath, base, "", filename)
+          : base && typeof api?.writeFileToProjectDir === "function"
+            ? await api.writeFileToProjectDir(await rawFile.arrayBuffer(), base, "", filename)
             : null
         if (dest) {
           const landedName = dest.split(/[\\/]/).pop()
@@ -4284,7 +4289,7 @@ const sessionMessagesLoaded = createMemo(() => {
   async function addLocalFileAttachment(file: File) {
     const id = crypto.randomUUID()
     const sid = params.id
-    // 代码工作区:无 session 也直传共享 .octo/uploads (scope=project,后端 sessionId 可缺省),不走 tmps 暂存
+    // 代码工作区:无 session 也直传项目根 (scope=project,dir 缺省=项目根,后端 sessionId 可缺省),不走 tmps 暂存
     const projectScope = isProjectScope()
 
     if (!sid && !projectScope) {
@@ -4513,10 +4518,10 @@ const sessionMessagesLoaded = createMemo(() => {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    // 代码工作区:直落共享 .octo/uploads(无 session 依赖,不走 tmps);
+    // 代码工作区:直落项目根 (统一文件树的一部分,无 session 依赖,不走 tmps);
     // 普通工作区:有 session 落 .octo/<sid>/uploads,无 session 暂存 tmps(原行为)。
     const dir = isProjectScope()
-      ? [projectDirValue, ".octo", "uploads"].join(sep)
+      ? projectDirValue
       : sid
         ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
         : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
@@ -4668,7 +4673,7 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
-  // 把预会话(pending)附件搬进 session uploads。代码工作区下所有写入链路都直落 .octo/uploads、
+  // 把预会话(pending)附件搬进 session uploads。代码工作区下所有写入链路都直落项目根 (统一文件树)、
   // 不产生 pending 附件,此函数自然 no-op(仅在新旧版本错配的 IPC 缺失回退场景会产生少量 pending,
   // 此时退化为 session uploads 落点,文件仍可被 agent 读取)。
   async function movePendingUploadsToSession(sessionId: string) {

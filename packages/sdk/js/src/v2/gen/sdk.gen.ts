@@ -1003,7 +1003,7 @@ export class Artifact extends HeyApiClient {
   /**
    * Upload artifact
    *
-   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads to the shared .octo/uploads directory and does not require sessionId.
+   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads into the project tree: 'dir' is a project-root-relative target directory (defaults to project root) and sessionId is not required.
    */
   public upload<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -1014,6 +1014,7 @@ export class Artifact extends HeyApiClient {
       content?: string
       path?: string
       scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1029,6 +1030,7 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "content" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],
@@ -1062,6 +1064,7 @@ export class Artifact extends HeyApiClient {
       }>
       path?: string
       scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1077,6 +1080,7 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "files" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],

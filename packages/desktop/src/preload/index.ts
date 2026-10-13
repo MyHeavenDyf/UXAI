@@ -69,12 +69,12 @@ const api: ElectronAPI = {
   copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
   copyFileToSessionUploads: (srcPath, baseDir, sessionId, subPath, filename) =>
     ipcRenderer.invoke("copy-file-to-session-uploads", srcPath, baseDir, sessionId, subPath, filename),
-  // 代码类型工作区(project mode):上传不随 session 隔离,直接拷进 <baseDir>/.octo/uploads/[subPath/];返回落地路径。
-  copyFileToProjectUploads: (srcPath, baseDir, subPath, filename) =>
-    ipcRenderer.invoke("copy-file-to-project-uploads", srcPath, baseDir, subPath, filename),
-  // copyFileToProjectUploads 的字节版:内存 blob 直接写进 <baseDir>/.octo/uploads/;返回落地绝对路径。
-  writeFileToProjectUploads: (buffer, baseDir, filename) =>
-    ipcRenderer.invoke("write-file-to-project-uploads", buffer, baseDir, filename),
+  // 代码类型工作区(统一文件树):把本地文件拷进 <baseDir>/<relDir>/(项目相对目录,空串=项目根);返回落地路径。
+  copyFileToProjectDir: (srcPath, baseDir, relDir, filename) =>
+    ipcRenderer.invoke("copy-file-to-project-dir", srcPath, baseDir, relDir, filename),
+  // copyFileToProjectDir 的字节版:内存 blob 直接写进 <baseDir>/<relDir>/;返回落地绝对路径。
+  writeFileToProjectDir: (buffer, baseDir, relDir, filename) =>
+    ipcRenderer.invoke("write-file-to-project-dir", buffer, baseDir, relDir, filename),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。

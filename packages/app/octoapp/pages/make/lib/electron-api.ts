@@ -76,10 +76,10 @@ export type DesktopApi = {
   movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** design-files 面板「上传」：把本地文件拷进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]；返回落地绝对路径 */
   copyFileToSessionUploads?: (srcPath: string, baseDir: string, sessionId: string, subPath: string, filename: string) => Promise<string>
-  /** 代码类型工作区：把本地文件拷进 <baseDir>/.octo/uploads/[<subPath>/]（不随 session 隔离）；返回落地绝对路径 */
-  copyFileToProjectUploads?: (srcPath: string, baseDir: string, subPath: string, filename: string) => Promise<string>
-  /** 代码类型工作区：内存 blob 直接写进 <baseDir>/.octo/uploads/；返回落地绝对路径 */
-  writeFileToProjectUploads?: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
+  /** 代码类型工作区(统一文件树)：把本地文件拷进 <baseDir>/<relDir>/（项目相对目录，空串=项目根）；返回落地绝对路径 */
+  copyFileToProjectDir?: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
+  /** 代码类型工作区：内存 blob 直接写进 <baseDir>/<relDir>/（同 copyFileToProjectDir 落点）；返回落地绝对路径 */
+  writeFileToProjectDir?: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end

@@ -755,7 +755,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </div>
                     </Show>
                     <Show when={props.artifactFiles && props.artifactFiles.generated.length > 0}>
-                      <div class="addon-menu-section-title">生成文件</div>
+                      <Show when={workspaceKind() !== "code"}>
+                        <div class="addon-menu-section-title">生成文件</div>
+                      </Show>
                       <For each={props.artifactFiles?.generated ?? []}>
                         {(file) => {
                           const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }

@@ -3919,6 +3919,7 @@ export type ArtifactUploadData = {
     content: string
     path?: string
     scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {
@@ -3966,6 +3967,7 @@ export type ArtifactUploadFolderData = {
     }>
     path?: string
     scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {

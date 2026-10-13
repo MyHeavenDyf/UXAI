@@ -202,19 +202,25 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const refresh = async () => {
     const category = fileStore.store.currentCategory
     const path = fileStore.store.currentPath
-    // 代码工作区:scope=project (generated=项目根目录, uploaded=.octo/uploads)
     const scope = projectScope() ? ("project" as const) : undefined
 
     fileStore.setLoading(true)
     try {
       if (!category) {
-        const [genResult, uplResult] = await Promise.all([
-          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated", undefined, false, scope),
-          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded", undefined, false, scope),
-        ])
-        if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
-        fileStore.setGeneratedFiles(genResult.files)
-        fileStore.setUploadedFiles(uplResult.files)
+        if (scope) {
+          const genResult = await fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated", undefined, false, scope)
+          if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
+          fileStore.setGeneratedFiles(genResult.files)
+          fileStore.setUploadedFiles([])
+        } else {
+          const [genResult, uplResult] = await Promise.all([
+            fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated"),
+            fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded"),
+          ])
+          if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
+          fileStore.setGeneratedFiles(genResult.files)
+          fileStore.setUploadedFiles(uplResult.files)
+        }
       } else {
         const result = await fetchArtifactList(
           globalSDK.url,
@@ -436,11 +442,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
-    // 代码工作区:直落共享 .octo/uploads (copy-file-to-project-uploads);普通工作区:session uploads (原行为)
     if (
       baseDir &&
       projectScope() &&
-      typeof desktopApi?.copyFileToProjectUploads === "function" &&
+      typeof desktopApi?.copyFileToProjectDir === "function" &&
       typeof desktopApi?.getPathForFile === "function"
     ) {
       let okCount = 0
@@ -458,7 +463,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           continue
         }
         try {
-          await desktopApi.copyFileToProjectUploads(srcPath, baseDir, currentPath, file.name)
+          await desktopApi.copyFileToProjectDir(srcPath, baseDir, currentPath, file.name)
           okCount++
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
         } catch (err) {
@@ -653,11 +658,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
-    // 代码工作区:直落共享 .octo/uploads;普通工作区:session uploads (原行为)
     if (
       baseDir &&
       projectScope() &&
-      typeof desktopApi?.copyFileToProjectUploads === "function" &&
+      typeof desktopApi?.copyFileToProjectDir === "function" &&
       typeof desktopApi?.getPathForFile === "function"
     ) {
       let srcPath = ""
@@ -668,7 +672,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       }
       if (srcPath) {
         try {
-          await desktopApi.copyFileToProjectUploads(srcPath, baseDir, currentPath, file.name)
+          await desktopApi.copyFileToProjectDir(srcPath, baseDir, currentPath, file.name)
           showOctoToast({ title: "Uploaded", description: file.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
@@ -826,6 +830,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           onUploadFolder={requestUploadFolder}
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
+          showDelete={!projectScope()}
         />
       </Show>
 
@@ -1135,9 +1140,29 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                <Show when={fileStore.isTopLevel()}>
+                <Show when={fileStore.isTopLevel() && projectScope()}>
+                  <KindGroupRows
+                    kindGroupEntries={() => fileStore.generated.kindGroupEntries()}
+                    modifiedGroups={() => fileStore.generated.modifiedGroups()}
+                    visibleModifiedSections={() => fileStore.generated.visibleModifiedSections()}
+                    groupMode={fileStore.store.groupMode}
+                    sectionKey="generated"
+                    selected={fileStore.store.selected}
+                    onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
+                    onPreview={handlePreview}
+                    onOpen={handleOpenFile}
+                    onDownload={handleDownload}
+                    onFolderDownload={handleFolderDownload}
+                    onOpenInExplorer={handleOpenInExplorer}
+                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
+                    onAddToSession={props.onAddToSession}
+                    language={language}
+                  />
+                </Show>
+
+                <Show when={fileStore.isTopLevel() && !projectScope()}>
                   <SectionRow
-                    title={projectScope() ? "项目文件" : "生成文件"}
+                    title="生成文件"
                     count={fileStore.store.generatedFiles.length}
                     collapsed={fileStore.store.collapsedGenerated}
                     onToggle={() => fileStore.toggleGeneratedSection()}
@@ -1179,7 +1204,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
-onDelete={handleDelete}
+                      onDelete={handleDelete}
                       onDownload={handleDownload}
                       onFolderDownload={handleFolderDownload}
                       onOpenInExplorer={handleOpenInExplorer}
@@ -1201,7 +1226,7 @@ onDelete={handleDelete}
                     onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                     onPreview={handlePreview}
                     onOpen={handleOpenFile}
-                    onDelete={fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
+                    onDelete={!projectScope() && fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
                     onDownload={handleDownload}
                     onFolderDownload={handleFolderDownload}
                     onOpenInExplorer={handleOpenInExplorer}

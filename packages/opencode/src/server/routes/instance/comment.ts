@@ -42,8 +42,8 @@ const FileCommentSchema = z.object({
   commenterAvatar: z.string().optional(),
 })
 
-// scope=project(代码工作�?�?sessionId 可缺�?标注按项目级存储);否则必填�?
-// 直接内联各字段的 z.object(...).refine(...) 写法(泛型封装会让 refine 回调的类型推导失�?�?
+// scope=project(代码工作区)时 sessionId 可缺省(标注按项目级存储);否则必填。
+// 直接内联各字段的 z.object(...).refine(...) 写法(泛型封装会让 refine 回调的类型推导失效)。
 const scopeRefine = (v: { sessionId?: string; scope?: "project" }) => v.scope === "project" || !!v.sessionId
 const SCOPE_REFINE_MESSAGE = "sessionId is required unless scope=project"
 

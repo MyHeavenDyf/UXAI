@@ -54,6 +54,9 @@ const ArtifactUploadPayload = Schema.Struct({
   content: Schema.String,
   path: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.Literal("project")),
+  // scope=project 专用:项目相对目标目录 (文件管理统一文件树的上传落点),缺省/空 = 项目根。
+  // scope=session 时忽略,使用 path (uploads 目录内子路径)。
+  dir: Schema.optional(Schema.String),
 })
 
 const FolderUploadFileSchema = Schema.Struct({
@@ -67,6 +70,8 @@ const ArtifactUploadFolderPayload = Schema.Struct({
   files: Schema.Array(FolderUploadFileSchema),
   path: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.Literal("project")),
+  // scope=project 专用:项目相对目标目录,缺省/空 = 项目根
+  dir: Schema.optional(Schema.String),
 })
 
 const ArtifactUploadFolderResponseSchema = Schema.Struct({
@@ -179,7 +184,7 @@ export const ArtifactApi = HttpApi.make("artifact")
           OpenApi.annotations({
             identifier: "artifact.upload",
             summary: "Upload artifact",
-            description: "Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads to the shared .octo/uploads directory and does not require sessionId.",
+            description: "Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads into the project tree: 'dir' is a project-root-relative target directory (defaults to project root) and sessionId is not required.",
           }),
         ),
         HttpApiEndpoint.post("uploadFolder", ArtifactPaths.uploadFolder, {
