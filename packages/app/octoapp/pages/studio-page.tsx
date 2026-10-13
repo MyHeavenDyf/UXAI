@@ -62,6 +62,7 @@ import {
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
+import { StudioHistoryGallery } from "./studio/studio-history-gallery"
 import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
@@ -102,11 +103,11 @@ import {
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
-  studioMediaDownloadFilename,
+  prepareStudioMediaDownload,
   stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
-  triggerBrowserDownload,
+  saveStudioMediaDownload,
   uiplusUserAccount,
   workspaceModeForCapability,
   type StudioHDMode,
@@ -375,6 +376,7 @@ export default function StudioPage() {
     if (!params.id) return
     return syncStore.session.find((session) => session.id === params.id && session.agent === "octo_studio")
   })
+  const historyOpen = createMemo(() => !params.id && new URLSearchParams(location.search).has("history"))
 
   const slug = createMemo(() => base64Encode(projectDir()))
   const routeSlug = createMemo(() => params.dir && decode64(params.dir) ? params.dir : slug())
@@ -395,6 +397,7 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
+    if (new URLSearchParams(location.search).has("history")) return
     // 重置为默认生图模式，避免持久化的编辑 capability 导致
     // hasStudioConversation 误判为 true，从而不显示 studio-empty-workspace
     if (workspaceModeForCapability(capability())) setCapability("image.generate")
@@ -667,12 +670,10 @@ export default function StudioPage() {
   // Reactive effect: auto-update thumbnail whenever pendingResult transitions to succeeded.
   createEffect(() => {
     const result = pendingResult()
-    console.log("[Thumbnail] Effect tick, pendingResult:", result?.status, "sessionID:", result?.sessionID, "images:", result?.images?.length)
     if (!result || result.status !== "succeeded") return
     const sid = result.sessionID ?? params.id
     const images = result.images
     if (sid && images && images.length > 0) {
-      console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
       setSessionThumbnail(sid, images, result.createdAt)
     }
   })
@@ -690,13 +691,11 @@ export default function StudioPage() {
     if (!sessionID) return
     const media = parseToolMedia(state.output)
     if (media.length > 0) {
-      console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
       setSessionThumbnail(sessionID, media, state.time.start)
       return
     }
     const legacy = extractStudioThumbnailMedia(part)
     if (!legacy) return
-    console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
     studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, state.time.start)
   })
   onCleanup(thumbnailUnsub)
@@ -1973,51 +1972,15 @@ export default function StudioPage() {
     if (!image) return
     const source = image.remoteUrl ?? image.url
     const fallbackMime = isVideoMedia(image) ? "video/mp4" : "image/png"
-    const downloaded = await fetch(source)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-        const blob = await response.blob()
-        return {
-          blob,
-          label: studioMediaDownloadFilename({
-            url: response.url || source,
-            contentDisposition: response.headers.get("content-disposition"),
-            mime: blob.type || response.headers.get("content-type") || fallbackMime,
-          }),
-        }
-      })
-      .catch((error) => {
-        console.warn("[studio] image download fallback", error)
-        return undefined
-      })
-    const label = downloaded?.label ?? studioMediaDownloadFilename({ url: source, mime: fallbackMime })
+    const prepared = await prepareStudioMediaDownload({ source, fallbackMime })
     tracker.interaction({
       module: "studio",
       name: "download",
-      extend: JSON.stringify({ name: label, url: source }),
+      extend: JSON.stringify({ name: prepared.label, url: source }),
     })
-    if (!downloaded) {
-      triggerBrowserDownload(source, label)
-      showDownloadNotice("下载成功")
-      return
-    }
-    try {
-      if ((window as any).api?.saveFilePicker) {
-        const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
-        if (!filePath) return
-        await (window as any).api.writeFileBuffer(filePath, await downloaded.blob.arrayBuffer())
-        showDownloadNotice("下载成功")
-        return
-      }
-      const objectUrl = URL.createObjectURL(downloaded.blob)
-      triggerBrowserDownload(objectUrl, label)
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-      showDownloadNotice("下载成功")
-    } catch (error) {
-      console.warn("[studio] image download fallback", error)
-      triggerBrowserDownload(source, label)
-      showDownloadNotice("下载成功")
-    }
+    const result = await saveStudioMediaDownload({ source, ...prepared })
+    if (result.saved) showDownloadNotice(language.t("studio.download.success"))
+    else if (result.fallback) showDownloadNotice(language.t("studio.download.fallback"))
   }
 
   createEffect(
@@ -4735,6 +4698,8 @@ export default function StudioPage() {
             directory={projectDir()}
             routeSlug={routeSlug()}
             activeSessionID={params.id}
+            historyActive={historyOpen()}
+            onOpenHistory={() => navigate(`/${routeSlug()}/studio?history=1`)}
             sessions={studioSessions()}
             loading={studioSessionsLoading()}
             onSessionUpdated={updateStudioHistorySession}
@@ -4743,7 +4708,6 @@ export default function StudioPage() {
             toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
             thumbnails={studioThumbnails.thumbnails}
             thumbnailsLoading={studioThumbnails.loading()}
-            thumbnailVersion={studioThumbnails.version()}
             onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
           />
         </Show>
@@ -4755,7 +4719,8 @@ export default function StudioPage() {
         onPointerDown={handleStudioLeftResize}
       />
 
-      <Show when={hasStudioConversation()} fallback={
+      <Show when={!historyOpen() && hasStudioConversation()} fallback={
+        <Show when={historyOpen()} fallback={
         <main class="studio-empty-workspace">
           <div class="studio-empty-stack">
             <div class="studio-empty-group">
@@ -4839,6 +4804,22 @@ export default function StudioPage() {
           </div>
         </div>
         </main>
+        }>
+          <main class="studio-history-workspace">
+            <StudioHistoryGallery
+              directory={projectDir()}
+              globalSDK={globalSDK}
+              onOpenSession={(sessionID) => {
+                // 历史会保留已删除会话的媒体，此时没有可打开的对话：停留并提示，避免进入空白页。
+                if (syncStore.status === "complete" && !isValidStudioSession(sessionID)) {
+                  showToast({ title: language.t("studio.history.sessionDeleted") })
+                  return
+                }
+                navigate(`/${routeSlug()}/studio/${sessionID}`)
+              }}
+            />
+          </main>
+        </Show>
       }>
           <section class="studio-center" style={studioCenterStyle()}>
           <div class="studio-center-header">
@@ -5363,6 +5344,11 @@ if (!headerTitle.pendingRename) return
             directory={projectDir()}
             routeSlug={routeSlug()}
             activeSessionID={params.id}
+            historyActive={historyOpen()}
+            onOpenHistory={() => {
+              setStudioLeftOverlayOpen(false)
+              navigate(`/${routeSlug()}/studio?history=1`)
+            }}
             sessions={studioSessions()}
             loading={studioSessionsLoading()}
             onSessionUpdated={updateStudioHistorySession}
@@ -5373,7 +5359,6 @@ if (!headerTitle.pendingRename) return
             }}
             thumbnails={studioThumbnails.thumbnails}
             thumbnailsLoading={studioThumbnails.loading()}
-            thumbnailVersion={studioThumbnails.version()}
             onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
           />
         </aside>

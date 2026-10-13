@@ -78,6 +78,19 @@ const QueryParameterSchemas = {
   "GET /session/{sessionID}/diff messageID": { type: "string", pattern: "^msg.*" },
   "GET /session/{sessionID}/message limit": { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
   "GET /experimental/session cursor": { type: "string" },
+  "GET /studio/template-list only_public": {
+    type: "integer",
+    minimum: -Number.MAX_SAFE_INTEGER,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  "GET /studio/template-list page": { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+  "GET /studio/template-list page_size": {
+    type: "integer",
+    minimum: -Number.MAX_SAFE_INTEGER,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  "GET /studio/history cursor": { type: "string" },
+  "GET /studio/history limit": { type: "integer", minimum: 1, maximum: 200 },
 } satisfies Record<string, OpenApiSchema>
 
 const PathParameterSchemas = {

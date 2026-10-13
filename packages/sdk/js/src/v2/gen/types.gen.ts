@@ -1816,6 +1816,7 @@ export type StudioGenerationError = {
   name: "StudioGenerationError"
   data: {
     message: string
+    retryable?: boolean
   }
 }
 
@@ -8264,9 +8265,9 @@ export type StudioTemplateListListData = {
     directory?: string
     workspace?: string
     user_id: string
-    only_public: string
-    page: string
-    page_size: string
+    only_public: number
+    page: number
+    page_size: number
   }
   url: "/studio/template-list"
 }
@@ -8431,6 +8432,7 @@ export type StudioGenerationsCreateResponses = {
       kind?: "image" | "video"
       url: string
       thumbnailUrl?: string
+      thumbnailStatus?: "pending" | "ready" | "failed"
       remoteUrl?: string
       width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8544,6 +8546,7 @@ export type StudioGenerationsCancelResponses = {
       kind?: "image" | "video"
       url: string
       thumbnailUrl?: string
+      thumbnailStatus?: "pending" | "ready" | "failed"
       remoteUrl?: string
       width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8620,6 +8623,7 @@ export type StudioGenerationsRebootResponses = {
       kind?: "image" | "video"
       url: string
       thumbnailUrl?: string
+      thumbnailStatus?: "pending" | "ready" | "failed"
       remoteUrl?: string
       width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8696,6 +8700,7 @@ export type StudioGenerationsGetResponses = {
       kind?: "image" | "video"
       url: string
       thumbnailUrl?: string
+      thumbnailStatus?: "pending" | "ready" | "failed"
       remoteUrl?: string
       width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8715,6 +8720,329 @@ export type StudioGenerationsGetResponses = {
 }
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
+
+export type StudioGenerationsVideoPosterSaveData = {
+  body?: {
+    mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    content: string
+  }
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/video-poster"
+}
+
+export type StudioGenerationsVideoPosterSaveErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsVideoPosterSaveError =
+  StudioGenerationsVideoPosterSaveErrors[keyof StudioGenerationsVideoPosterSaveErrors]
+
+export type StudioGenerationsVideoPosterSaveResponses = {
+  /**
+   * Saved Studio video poster
+   */
+  200: {
+    thumbnailUrl: string
+  }
+}
+
+export type StudioGenerationsVideoPosterSaveResponse =
+  StudioGenerationsVideoPosterSaveResponses[keyof StudioGenerationsVideoPosterSaveResponses]
+
+export type StudioGenerationsThumbnailSourceGetData = {
+  body?: never
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source"
+}
+
+export type StudioGenerationsThumbnailSourceGetErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailSourceGetError =
+  StudioGenerationsThumbnailSourceGetErrors[keyof StudioGenerationsThumbnailSourceGetErrors]
+
+export type StudioGenerationsThumbnailSourceGetResponses = {
+  /**
+   * Studio thumbnail source
+   */
+  200: string
+}
+
+export type StudioGenerationsThumbnailSourceGetResponse =
+  StudioGenerationsThumbnailSourceGetResponses[keyof StudioGenerationsThumbnailSourceGetResponses]
+
+export type StudioGenerationsThumbnailSaveData = {
+  body?: {
+    content: string
+  }
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail"
+}
+
+export type StudioGenerationsThumbnailSaveErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailSaveError =
+  StudioGenerationsThumbnailSaveErrors[keyof StudioGenerationsThumbnailSaveErrors]
+
+export type StudioGenerationsThumbnailSaveResponses = {
+  /**
+   * Saved Studio media thumbnail
+   */
+  200: {
+    thumbnailUrl: string
+  }
+}
+
+export type StudioGenerationsThumbnailSaveResponse =
+  StudioGenerationsThumbnailSaveResponses[keyof StudioGenerationsThumbnailSaveResponses]
+
+export type StudioGenerationsThumbnailInvalidateData = {
+  body?: never
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate"
+}
+
+export type StudioGenerationsThumbnailInvalidateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailInvalidateError =
+  StudioGenerationsThumbnailInvalidateErrors[keyof StudioGenerationsThumbnailInvalidateErrors]
+
+export type StudioGenerationsThumbnailInvalidateResponses = {
+  /**
+   * Invalidated Studio media thumbnail
+   */
+  200: {
+    invalidated: boolean
+  }
+}
+
+export type StudioGenerationsThumbnailInvalidateResponse =
+  StudioGenerationsThumbnailInvalidateResponses[keyof StudioGenerationsThumbnailInvalidateResponses]
+
+export type StudioSessionsThumbnailsEnsureData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/thumbnails/ensure"
+}
+
+export type StudioSessionsThumbnailsEnsureErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioSessionsThumbnailsEnsureError =
+  StudioSessionsThumbnailsEnsureErrors[keyof StudioSessionsThumbnailsEnsureErrors]
+
+export type StudioSessionsThumbnailsEnsureResponses = {
+  /**
+   * Queued Studio thumbnail jobs
+   */
+  200: {
+    queued: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioSessionsThumbnailsEnsureResponse =
+  StudioSessionsThumbnailsEnsureResponses[keyof StudioSessionsThumbnailsEnsureResponses]
+
+export type StudioHistoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "image" | "video"
+    resolution?: string
+    ratio?: string
+    sort?: "desc" | "asc"
+    cursor?: string
+    limit?: number
+  }
+  url: "/studio/history"
+}
+
+export type StudioHistoryListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryListError = StudioHistoryListErrors[keyof StudioHistoryListErrors]
+
+export type StudioHistoryListResponses = {
+  /**
+   * Studio history media list
+   */
+  200: {
+    items: Array<{
+      id: string
+      sessionID: string
+      generationID: string
+      mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      kind: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      thumbnailStatus?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      aspectRatio?: string
+      capability?: string
+      duration?: string
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    nextCursor?: string
+  }
+}
+
+export type StudioHistoryListResponse = StudioHistoryListResponses[keyof StudioHistoryListResponses]
+
+export type StudioHistorySnapshotData = {
+  body?: {
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/snapshot"
+}
+
+export type StudioHistorySnapshotErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistorySnapshotError = StudioHistorySnapshotErrors[keyof StudioHistorySnapshotErrors]
+
+export type StudioHistorySnapshotResponses = {
+  /**
+   * Snapshot result
+   */
+  200: {
+    snapshotted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistorySnapshotResponse = StudioHistorySnapshotResponses[keyof StudioHistorySnapshotResponses]
+
+export type StudioHistoryDeleteData = {
+  body?: {
+    mediaIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/delete"
+}
+
+export type StudioHistoryDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryDeleteError = StudioHistoryDeleteErrors[keyof StudioHistoryDeleteErrors]
+
+export type StudioHistoryDeleteResponses = {
+  /**
+   * Deleted media count
+   */
+  200: {
+    deleted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryDeleteResponse = StudioHistoryDeleteResponses[keyof StudioHistoryDeleteResponses]
+
+export type StudioHistoryExcludedListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/excluded"
+}
+
+export type StudioHistoryExcludedListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryExcludedListError = StudioHistoryExcludedListErrors[keyof StudioHistoryExcludedListErrors]
+
+export type StudioHistoryExcludedListResponses = {
+  /**
+   * Excluded media IDs
+   */
+  200: {
+    ids: Array<string>
+  }
+}
+
+export type StudioHistoryExcludedListResponse =
+  StudioHistoryExcludedListResponses[keyof StudioHistoryExcludedListResponses]
 
 export type InsightSessionsListData = {
   body?: never

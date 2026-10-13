@@ -226,13 +226,31 @@ describe("HttpApi server", () => {
     const effectRoutes = openApiRouteKeys(effectOpenApi())
 
     expect(honoRoutes.filter((route) => !effectRoutes.includes(route))).toEqual([])
+    // Fork (Octo) adds HttpApi-only routes that intentionally have no legacy Hono
+    // counterpart: the /api/session surface plus studio generation/thumbnail,
+    // insight, and artifact serve routes. Keep this list in sync when adding them.
     expect(effectRoutes.filter((route) => !honoRoutes.includes(route))).toEqual([
       "GET /api/session",
       "GET /api/session/{sessionID}/context",
       "GET /api/session/{sessionID}/message",
+      "GET /artifact/serve",
+      "GET /insight/files",
+      "GET /insight/sessions",
+      "GET /studio/generations/{generationID}",
+      "GET /studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source",
       "POST /api/session/{sessionID}/compact",
       "POST /api/session/{sessionID}/prompt",
       "POST /api/session/{sessionID}/wait",
+      "POST /insight/chat-migration/preview",
+      "POST /insight/chat-migration/run",
+      "POST /insight/upload",
+      "POST /insight/upload-folder",
+      "POST /studio/generations/{generationID}/cancel",
+      "POST /studio/generations/{generationID}/media/{mediaIndex}/thumbnail",
+      "POST /studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate",
+      "POST /studio/generations/{generationID}/reboot",
+      "POST /studio/generations/{generationID}/video-poster",
+      "POST /studio/sessions/{sessionID}/thumbnails/ensure",
     ])
   })
 

@@ -1,6 +1,5 @@
 import { Slug } from "@opencode-ai/core/util/slug"
 import path from "path"
-import { rm } from "node:fs/promises"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
@@ -27,11 +26,12 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import type { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Global } from "@opencode-ai/core/global"
-import { Effect, Layer, Option, Context, Schema, Types } from "effect"
+import { Effect, Layer, Option, Context, Schema, Schedule, Types } from "effect"
 import { zod } from "@/util/effect-zod"
 import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as CategoryQuery from "./session-category-query"
 import { CATEGORY_VALUES } from "./session-category"
+import { gcStudioHistoryThumbnails, snapshotSessionMedia } from "@/studio/studio-history-service"
 
 const log = Log.create({ service: "session" })
 
@@ -599,6 +599,30 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           yield* remove(child.id)
         }
 
+        // 会话删除会级联清理 studio_generation，删除前先把媒体快照到历史表，
+        // 这样无论从哪个入口删除会话，历史记录都能保留其媒体。
+        // 快照失败会导致级联删除后媒体无法找回（backfill 只读 studio_generation），
+        // 因此带间隔重试三次以扛过 SQLITE_BUSY 等瞬时错误；仍失败则记录带标记
+        // 的错误日志便于观测，但不阻断删除。
+        if (session.agent === "octo_studio") {
+          yield* Effect.try({
+            try: () => snapshotSessionMedia(session.directory, sessionID),
+            catch: (e) => e,
+          }).pipe(
+            Effect.retry({ times: 3, schedule: Schedule.spaced("100 millis") }),
+            Effect.catch((e) =>
+              Effect.sync(() =>
+                log.error("studio history snapshot failed before session delete", {
+                  event: "studio.history.snapshot_failed",
+                  sessionID,
+                  directory: session.directory,
+                  error: e instanceof Error ? e.message : String(e),
+                }),
+              ),
+            ),
+          )
+        }
+
         // `remove` needs to work in all cases, such as a broken
         // sessions that run cleanup. In certain cases these will
         // run without any instance state, so we need to turn off
@@ -610,10 +634,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
         yield* sync.run(Event.Deleted, { sessionID, info: session }, { publish: hasInstance })
         yield* sync.remove(sessionID)
+        // 不要无条件删除 `.octo/<sessionID>/thumbnails`：Studio 历史记录会继续引用
+        // 这些缩略图。这里只回收「会话已删且历史中已无该会话任何媒体」的孤儿目录，
+        // 避免留到下次进程启动的 backfill 全量扫描才清理（快照失败的兜底仍保留）。
         if (session.agent === "octo_studio") {
-          yield* Effect.promise(() =>
-            rm(path.join(session.directory, ".octo", sessionID, "thumbnails"), { recursive: true, force: true }),
-          )
+          yield* Effect.try({
+            try: () => gcStudioHistoryThumbnails(session.directory, [sessionID]),
+            catch: (e) => e,
+          }).pipe(Effect.catch((e) => Effect.sync(() => log.error("studio thumbnail gc failed after session delete", { sessionID, error: e }))))
         }
       } catch (e) {
         log.error(e)

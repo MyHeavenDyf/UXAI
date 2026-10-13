@@ -20,9 +20,11 @@ import {
   type StudioTemplateVisibleUser,
 } from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
+import { useLanguage } from "@/context/language"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
+import { StudioDownloadIcon } from "./studio-download-icon"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -321,6 +323,7 @@ export function StudioResultCanvas(props: {
   onTemplateCreatorClose: (key: string) => void
   children?: JSX.Element
 }): JSX.Element {
+  const language = useLanguage()
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
   // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
@@ -648,36 +651,32 @@ export function StudioResultCanvas(props: {
                     }>
                       <div class="studio-canvas-action-group">
                         <button type="button" onClick={props.onUpscale} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.upscale")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
-                          <span>变清晰</span>
+                          <span>{language.t("studio.action.upscale")}</span>
                         </button>
                         <button type="button" onClick={props.onCutout} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.cutout")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
-                          <span>抠图</span>
+                          <span>{language.t("studio.action.cutout")}</span>
                         </button>
                         <button type="button" onClick={props.onInpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.inpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
-                          <span>智能重绘</span>
+                          <span>{language.t("studio.action.inpaint")}</span>
                         </button>
                         <button type="button" onClick={props.onOutpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.outpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
-                          <span>扩图</span>
+                          <span>{language.t("studio.action.outpaint")}</span>
                         </button>
                       </div>
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span>下载</span>
+                    <StudioDownloadIcon />
+                    <span>{language.t("studio.action.download")}</span>
                   </button>
                 </div>
               </div>

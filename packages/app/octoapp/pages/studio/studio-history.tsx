@@ -35,7 +35,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; historyActive?: boolean; onOpenHistory?: () => void; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
@@ -52,6 +52,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   }, { defer: true }))
 
   const [collapsed, setCollapsed] = createSignal(false)
+  const historyActive = () => props.historyActive ?? !props.activeSessionID
 
   const [title, setTitle] = createStore({
     draft: "",
@@ -126,7 +127,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const deleteSession = async (session: Session) => {
     const nextSession = pickNextSession(props.sessions.filter((item) => !item.time?.archived), session.id)
 
-    const ok = await removeSession(globalSDK.createClient({ directory: props.directory }), session.id)
+    const client = globalSDK.createClient({ directory: props.directory })
+    const ok = await removeSession(client, session.id)
     if (!ok) return false
 
     const scrollTop = listScrollRef?.scrollTop ?? 0
@@ -173,6 +175,41 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
               </button>
             </Show>
           </div>
+          <button
+            type="button"
+            class="relative flex items-center gap-3 w-full rounded-lg text-left transition-colors"
+            classList={{
+              "bg-[rgba(10,89,247,0.08)]": historyActive(),
+              "hover:bg-surface-base-hover": !historyActive(),
+            }}
+            style={{
+              height: "36px",
+              padding: "0 12px",
+              color: historyActive() ? "#0A59F7" : "#191919",
+              "font-size": "12px",
+              "line-height": "20px",
+            }}
+            onClick={() => {
+              if (props.onOpenHistory) props.onOpenHistory()
+              else navigate(`/${props.routeSlug}/studio?history=1`)
+            }}
+          >
+            <Icon name="history" size="normal" class="shrink-0" style={{ color: historyActive() ? "#0A59F7" : "#191919" }} />
+            <span>{language.t("sidebar.history.title")}</span>
+            <Show when={historyActive()}>
+              <span
+                class="absolute rounded-full pointer-events-none"
+                style={{
+                  right: "4px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: "4px",
+                  height: "28px",
+                  background: "#0A59F7",
+                }}
+              />
+            </Show>
+          </button>
           <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
         </div>
 
@@ -217,8 +254,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       const thumbnailUrl = createMemo(() => {
-                        // Depend on version to re-evaluate when a thumbnail is set elsewhere
-                        void props.thumbnailVersion
                         const entry = props.thumbnails?.[session.id]
                         return resolveStudioThumbnailUrl({
                           value: entry?.url,

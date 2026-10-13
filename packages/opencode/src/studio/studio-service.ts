@@ -53,6 +53,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
+import { materializeStudioGeneration } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 type StudioPersistedTurn = {
@@ -2070,6 +2071,13 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
   )
   if (!claimed) return
   completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  // 历史物化是非关键副作用：失败只记日志（backfill 会在下次列表时自愈），
+  // 不能让它跳过后续的服务端缩略图生成。
+  try {
+    materializeStudioGeneration(record.directory, record.id)
+  } catch (error) {
+    console.error("[studio.service] history materialization failed", { id: record.id, error })
+  }
   enqueueStudioMediaThumbnails(record.id)
 }
 

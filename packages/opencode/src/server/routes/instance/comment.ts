@@ -65,14 +65,14 @@ export const CommentRoutes = lazy(() =>
       }),
       validator("query", z.object({
         sessionId: z.string(),
-        filePath: z.string(),
+        commentFilePath: z.string(),
       })),
       async (c) => {
-        const { sessionId, filePath } = c.req.valid("query")
+        const { sessionId, commentFilePath } = c.req.valid("query")
         
         return runRequest("comment.load", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          const comments = yield* comment.load(sessionId, filePath)
+          const comments = yield* comment.load(sessionId, commentFilePath)
           
           return c.json({ comments })
         }))
@@ -99,22 +99,22 @@ export const CommentRoutes = lazy(() =>
       }),
       validator("json", z.object({
         sessionId: z.string(),
-        filePath: z.string(),
+        commentFilePath: z.string(),
         comment: FileCommentSchema,
       })),
       async (c) => {
-        const { sessionId, filePath, comment } = c.req.valid("json")
+        const { sessionId, commentFilePath, comment } = c.req.valid("json")
         
         return runRequest("comment.save", c, Effect.gen(function* () {
           const commentService = yield* Comment.Service
-          yield* commentService.save(sessionId, filePath, comment)
+          yield* commentService.save(sessionId, commentFilePath, comment)
           
           return c.json({ ok: true })
         }))
       }
     )
     .delete(
-      "/file/:commentId",
+      "/file",
       describeRoute({
         summary: "Delete comment",
         description: "Delete a comment and its attachments",
@@ -132,20 +132,17 @@ export const CommentRoutes = lazy(() =>
           },
         },
       }),
-      validator("param", z.object({
-        commentId: z.string(),
-      })),
       validator("query", z.object({
         sessionId: z.string(),
-        filePath: z.string(),
+        commentFilePath: z.string(),
+        commentId: z.string(),
       })),
       async (c) => {
-        const { commentId } = c.req.valid("param")
-        const { sessionId, filePath } = c.req.valid("query")
+        const { sessionId, commentFilePath, commentId } = c.req.valid("query")
         
         return runRequest("comment.delete", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          yield* comment.delete(sessionId, filePath, commentId)
+          yield* comment.delete(sessionId, commentFilePath, commentId)
           
           return c.json({ ok: true })
         }))
@@ -173,7 +170,7 @@ export const CommentRoutes = lazy(() =>
       }),
       validator("json", z.object({
         sessionId: z.string(),
-        filePath: z.string(),
+        commentFilePath: z.string(),
         commentId: z.string(),
         sourceFilePath: z.string(),
         filename: z.string(),
@@ -181,12 +178,12 @@ export const CommentRoutes = lazy(() =>
         size: z.number(),
       })),
       async (c) => {
-        const { sessionId, filePath, commentId, sourceFilePath, filename, mime, size } = c.req.valid("json")
+        const { sessionId, commentFilePath, commentId, sourceFilePath, filename, mime, size } = c.req.valid("json")
         
         return runRequest("comment.uploadAttachment", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
           
-          const attachment = yield* comment.uploadAttachment(sessionId, filePath, commentId, {
+          const attachment = yield* comment.uploadAttachment(sessionId, commentFilePath, commentId, {
             sourceFilePath,
             filename,
             mime,
@@ -221,16 +218,16 @@ export const CommentRoutes = lazy(() =>
       })),
       validator("query", z.object({
         sessionId: z.string(),
-        filePath: z.string(),
+        commentFilePath: z.string(),
         commentId: z.string(),
       })),
       async (c) => {
         const { attachmentId } = c.req.valid("param")
-        const { sessionId, filePath, commentId } = c.req.valid("query")
+        const { sessionId, commentFilePath, commentId } = c.req.valid("query")
         
         return runRequest("comment.deleteAttachment", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          yield* comment.deleteAttachment(sessionId, filePath, commentId, attachmentId)
+          yield* comment.deleteAttachment(sessionId, commentFilePath, commentId, attachmentId)
           
           return c.json({ ok: true })
         }))

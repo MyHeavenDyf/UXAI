@@ -13,7 +13,7 @@ import { Effect } from "effect"
  */
 export const OctoFileWriteRoute = lazy(() =>
   new Hono().put(
-    "/content",
+    "/file/content",
     describeRoute({
       summary: "Write file content",
       description: "Write content to a specified file path.",
