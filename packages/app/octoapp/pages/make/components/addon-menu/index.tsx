@@ -1,5 +1,6 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
@@ -23,6 +24,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const trackerModule = () => props.trackerModule ?? "design"
   const { request, gate } = useUploadRiskGate({ module: trackerModule() })
   const skillCfg = () => props.skillConfig ?? {}
+  // 代码工作区:设计文件列表为项目级,标题显示「项目文件」
+  const workspaceKind = useWorkspaceKind()
 
   const [open, setOpen] = createSignal(false)
   const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
@@ -129,7 +132,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const isFileSelectedLocal = (selection: MentionSelection) => {
     return localFileSelections().some(s =>
-      s.type === 'file' && s.filename === (selection as any).filename
+      s.type === 'file' && s.path === (selection as any).path
     )
   }
 
@@ -221,7 +224,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     if (!open()) {
       openMenuAt(getRect)
     } else {
-      // 已打开:若记录的位置与按钮实际位置漂移(登录/布局变化所致),重新定位并保持打开,不误关闭
+      // 已打开:本次点击 = 与取消一致(取消所有设计文件选中并关闭);位置漂移时重新定位并保持打开
       const pos = menuPosition()
       const expectedLeft = rect.left
       const expectedBottom = window.innerHeight - rect.top
@@ -229,15 +232,40 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         setMenuPosition({ left: expectedLeft, bottom: expectedBottom })
         return
       }
+      cancelDesignFileSelections()
       setOpen(false)
+      setActiveSecondary(null)
+      setSkillsCategory('platform')
     }
   }
 
+  // 取消本次所有设计文件选中(移除已插入的 chips)
+  const cancelDesignFileSelections = () => {
+    for (const sel of localFileSelections()) {
+      props.onDeselect(sel)
+    }
+    setLocalFileSelections([])
+  }
+
   const closeMenu = () => {
+    cancelDesignFileSelections()
     setOpen(false)
     setActiveSecondary(null)
     setSkillsCategory('platform')
+  }
+
+  const confirmDesignFileSelections = () => {
     setLocalFileSelections([])
+    setOpen(false)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+  }
+
+  const closeMenuSilent = () => {
+    setLocalFileSelections([])
+    setOpen(false)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
@@ -248,13 +276,14 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     } else {
       props.onSelect(selection)
       tracker.interaction({ module: trackerModule(), name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
+      closeMenu()
     }
   }
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
     if (isFileSelectedLocal(selection)) {
-      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.filename === file.name)))
+      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.path === file.path)))
       props.onDeselect(selection)
     } else {
       setLocalFileSelections(prev => [...prev, selection])
@@ -717,7 +746,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
                 {/* Tertiary panel: files list */}
                 <div class="addon-menu-tertiary" style={{ width: '400px', padding: '12px 8px' }}>
-                  <div class="addon-menu-files-header">当前会话</div>
+                  <div class="addon-menu-files-header">{workspaceKind() === "code" ? "项目文件" : "当前会话"}</div>
                   <div class="addon-menu-tertiary-content" style={{ 'max-height': '364px' }}>
                     <Show when={!props.artifactFiles || (props.artifactFiles.generated.length === 0 && props.artifactFiles.uploaded.length === 0)}>
                       <div class="addon-menu-empty-state">
@@ -726,7 +755,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </div>
                     </Show>
                     <Show when={props.artifactFiles && props.artifactFiles.generated.length > 0}>
-                      <div class="addon-menu-section-title">生成文件</div>
+                      <Show when={workspaceKind() !== "code"}>
+                        <div class="addon-menu-section-title">生成文件</div>
+                      </Show>
                       <For each={props.artifactFiles?.generated ?? []}>
                         {(file) => {
                           const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }
@@ -779,6 +810,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                         }}
                       </For>
                     </Show>
+                  </div>
+                  {/* 取消/确认按钮 */}
+                  <div class="addon-menu-design-footer">
+                    <button type="button" class="asset-dialog-btn" onClick={() => { cancelDesignFileSelections(); closeMenuSilent() }}>取消</button>
+                    <button type="button" class="asset-dialog-btn asset-dialog-btn-primary" onClick={closeMenuSilent}>确认</button>
                   </div>
                 </div>
                 {/* 设计文件 hover 预览弹窗 — 图片用 img,html 用 iframe(居中) */}

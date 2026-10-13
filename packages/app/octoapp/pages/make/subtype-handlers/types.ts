@@ -38,6 +38,8 @@ export interface SubtypeHandlerContext {
   /** 当前会话 ID（用于定位 uploads 目录） */
   sessionId?: string
   sdkDirectory?: string
+  /** 工作区分类:"code"(代码工作区)时 uploads 落共享 .octo/uploads;缺省 "normal" 按 session 隔离 */
+  workspaceKind?: import("@/context/server").WorkspaceKind
   /** 文件管理刷新回调 */
   onFilesRefresh?: () => void
 }

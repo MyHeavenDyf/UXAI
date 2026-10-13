@@ -61,6 +61,7 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
@@ -79,6 +80,7 @@ import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
+import { TurnAnchorNav } from "./components/turn-anchor-nav"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -138,6 +140,9 @@ const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
+
+// 代码工作区注入 [Project artifacts] 列表的上限:项目根文件可能很多,prompt 膨胀会挤占上下文
+const PROJECT_ARTIFACT_LIST_MAX = 50
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -234,7 +239,10 @@ function MakeContent() {
   })
 
   const projectDir = useProjectDir()
+  const workspaceKind = useWorkspaceKind()
   const projectSelection = useProjectSelection()
+  // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
+  const isProjectScope = () => workspaceKind() === "code"
 
   const local = useLocal()
   useTabModel("make")
@@ -1617,14 +1625,27 @@ const sessionMessagesLoaded = createMemo(() => {
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
+  // 代码工作区:scope=project 的单一项目文件树 (只拉 generated,uploaded 恒为空——附件/资产也落项目根,
+  // 自然包含在树里),列表与 session 无关 (key 不含 sessionId,切换会话不重拉,无 session 也可用);
+  // 普通工作区:按 session 拉取 generated+uploaded (原行为)。
   const [artifactFiles] = createResource(
-    () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory, refreshKey: filesRefreshKey() }),
-    async ({ sessionId, url, directory }) => {
-      if (!sessionId) return null
+    () => ({
+      sessionId: isProjectScope() ? undefined : params.id,
+      scope: isProjectScope() ? ("project" as const) : undefined,
+      url: globalSDK.url,
+      directory: sdk.directory,
+      refreshKey: filesRefreshKey(),
+    }),
+    async ({ sessionId, scope, url, directory }) => {
+      if (!sessionId && !scope) return null
       try {
+        if (scope) {
+          const gen = await fetchArtifactList(url, directory ?? "", "", "generated", undefined, true, scope)
+          return { generated: gen.files.filter(f => !f.isFolder), uploaded: [] }
+        }
         const [gen, upl] = await Promise.all([
-          fetchArtifactList(url, directory ?? "", sessionId, "generated", undefined, true),
-          fetchArtifactList(url, directory ?? "", sessionId, "uploaded", undefined, true),
+          fetchArtifactList(url, directory ?? "", sessionId ?? "", "generated", undefined, true),
+          fetchArtifactList(url, directory ?? "", sessionId ?? "", "uploaded", undefined, true),
         ])
         return { generated: gen.files.filter(f => !f.isFolder), uploaded: upl.files.filter(f => !f.isFolder) }
       } catch {
@@ -1797,6 +1818,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
   createEffect(on(() => params.id, (id) => {
     if (!id) return
+    // 代码工作区:session 不隔离产物,不预建 .octo/<id>/ 空目录,避免遗留垃圾 session 目录
+    if (isProjectScope()) return
     const dir = projectDir()
     const api = getDesktopApi()
     if (!dir || !api?.writeFileBuffer) return
@@ -2593,6 +2616,10 @@ const sessionMessagesLoaded = createMemo(() => {
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
   const autoScroll = createAutoScroll({ working: () => true })
 
+  // 对话区视口/内容元素（供 TurnAnchorNav 响应式读取；autoScroll.scrollRef 本身是 ref setter）
+  const [chatViewportEl, setChatViewportEl] = createSignal<HTMLElement | undefined>(undefined)
+  const [chatContentEl, setChatContentEl] = createSignal<HTMLElement | undefined>(undefined)
+
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
   createEffect(on(
@@ -3101,6 +3128,7 @@ const sessionMessagesLoaded = createMemo(() => {
           snapshotStore: snapshotStore,
           refreshSnapshots: refreshSnapshots,
           skipSnapshot: !isDesignPlan,
+          workspaceKind: workspaceKind(),
         })
         if (!isDesignPlan) {
           await historyController.onUserEdit(tab)
@@ -3165,27 +3193,33 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /**
-   * 构建 [Artifact Folder] 上下文前缀：目标会话产物目录绝对路径 + 当前会话已有产物文件列表（供 edit 工具使用）。
+   * 构建 [Artifact Folder] 上下文前缀：产物目录绝对路径 + 已有产物文件列表（供 edit 工具使用）。
    * 文件列表每次调用都重新扫盘，保证新鲜。
+   * 代码工作区:产物目录 = 项目根,列表为项目根文件([Project artifacts],截断到上限防 prompt 膨胀);
+   * 普通工作区:会话产物目录 + 会话内列表 (原行为)。
    * sendMessage 每轮注入；handleConfirmPlan 直发 prompt/command 绕过 sendMessage，同样用此函数补注入。
    */
   async function buildArtifactFolderPrefix(sessionId: string): Promise<string> {
     const folderProjDir = projectDir()
     if (!folderProjDir || !sessionId) return ""
     const sep = folderProjDir.includes("\\") ? "\\" : "/"
-    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    const projectScope = isProjectScope()
+    const artifactFolder = projectScope ? folderProjDir : [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
     let existingList = ""
     try {
-      const relPath = `.octo/${sessionId}/outputs`
+      const relPath = projectScope ? "." : `.octo/${sessionId}/outputs`
       const result = await sdk.client.file.list({ path: relPath })
-      const files = (result.data ?? []).filter((n) => n.type === "file")
+      const all = (result.data ?? []).filter((n) => n.type === "file" && !n.name.startsWith("."))
+      const truncated = projectScope && all.length > PROJECT_ARTIFACT_LIST_MAX
+      const files = truncated ? all.slice(0, PROJECT_ARTIFACT_LIST_MAX) : all
       if (files.length > 0) {
         const lines = files.map((n) => `- ${n.absolute}`)
+        if (truncated) lines.push(`- ...（项目共 ${all.length} 个文件，仅列出前 ${PROJECT_ARTIFACT_LIST_MAX} 个）`)
         existingList = [
           ``,
-          `[Existing artifacts in this session]`,
+          projectScope ? `[Project artifacts]` : `[Existing artifacts in this session]`,
           ...lines,
-          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
+          `用户在${projectScope ? "本项目" : "本会话"}中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -4200,6 +4234,31 @@ const sessionMessagesLoaded = createMemo(() => {
 
   async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
     try {
+      // 代码工作区:图片直落项目根 (relDir="",统一文件树的一部分,source 直接 'local'),不走 tmps 暂存/pending 迁移。
+      // 新 IPC 缺失(新旧版本错配的升级窗口)时落回下方普通链路——附件仍可发送,仅落点退化为 session uploads。
+      if (isProjectScope()) {
+        const base = projectDir()
+        const api = getDesktopApi()
+        let srcPath = ""
+        try {
+          srcPath = api?.getPathForFile?.(rawFile) ?? ""
+        } catch {
+          srcPath = ""
+        }
+        const dest = base && srcPath && typeof api?.copyFileToProjectDir === "function"
+          ? await api.copyFileToProjectDir(srcPath, base, "", filename)
+          : base && typeof api?.writeFileToProjectDir === "function"
+            ? await api.writeFileToProjectDir(await rawFile.arrayBuffer(), base, "", filename)
+            : null
+        if (dest) {
+          const landedName = dest.split(/[\\/]/).pop()
+          setAttachments(prev => prev.map(a =>
+            a.id === id ? { ...a, status: 'done', source: 'local', path: dest, filename: landedName || a.filename, error: undefined } : a
+          ))
+          tracker.interaction({ module: "design", name: "attachment-import-result", extend: JSON.stringify({ success: true, kind: "image" }) })
+          return true
+        }
+      }
       const dest = await importFileToWorktree(
         { filename, file: rawFile },
         { baseDir: projectDir(), api: getDesktopApi() },
@@ -4230,8 +4289,10 @@ const sessionMessagesLoaded = createMemo(() => {
   async function addLocalFileAttachment(file: File) {
     const id = crypto.randomUUID()
     const sid = params.id
-    
-    if (!sid) {
+    // 代码工作区:无 session 也直传项目根 (scope=project,dir 缺省=项目根,后端 sessionId 可缺省),不走 tmps 暂存
+    const projectScope = isProjectScope()
+
+    if (!sid && !projectScope) {
       setAttachments(prev => [...prev, {
         id,
         filename: file.name,
@@ -4302,9 +4363,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const result = await uploadArtifactFile(
         globalSDK.url,
         sdk.directory || "",
-        sid,
+        sid ?? "",
         file.name,
         base64,
+        undefined,
+        projectScope ? "project" : undefined,
       )
       
       setAttachments(prev => prev.map(a => 
@@ -4455,9 +4518,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const dir = sid
-      ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
-      : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
+    // 代码工作区:直落项目根 (统一文件树的一部分,无 session 依赖,不走 tmps);
+    // 普通工作区:有 session 落 .octo/<sid>/uploads,无 session 暂存 tmps(原行为)。
+    const dir = isProjectScope()
+      ? projectDirValue
+      : sid
+        ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
+        : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
 
     const isZip = downloadName.toLowerCase().endsWith(".zip")
 
@@ -4606,6 +4673,9 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
+  // 把预会话(pending)附件搬进 session uploads。代码工作区下所有写入链路都直落项目根 (统一文件树)、
+  // 不产生 pending 附件,此函数自然 no-op(仅在新旧版本错配的 IPC 缺失回退场景会产生少量 pending,
+  // 此时退化为 session uploads 落点,文件仍可被 agent 读取)。
   async function movePendingUploadsToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
@@ -4904,17 +4974,19 @@ const sessionMessagesLoaded = createMemo(() => {
     let contentLoadedFromFile = false
     
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    // 代码工作区:推断/落盘到项目根 (kind="code");普通工作区:.octo/<sid>/outputs (原行为)
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
-        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
+        const kind = workspaceKind()
+        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
         if (inferred.filePath) {
           card.filePath = inferred.filePath
           console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
-          
+
           // 如果文件不存在，先 autoSave 创建文件
           if (!inferred.exists) {
-            await autoSaveArtifact(params.id!, card, projectDir()!)
+            await autoSaveArtifact(params.id!, card, projectDir()!, kind)
             console.log("[MakePage] Created new file for artifact:", inferred.filePath)
           }
         }
@@ -5056,6 +5128,7 @@ const sessionMessagesLoaded = createMemo(() => {
           snapshotStore: snapshotStore,
           refreshSnapshots: refreshSnapshots,
           skipSnapshot: !isDesignPlan,
+          workspaceKind: workspaceKind(),
         })
       }
       if (!isDesignPlan) {
@@ -5690,11 +5763,20 @@ onPreview={(url) => {
               <ScrollView
                 class="h-full"
                 style={{ background: "#fff", padding: "0 12px 16px 12px", }}
-                viewportRef={autoScroll.scrollRef}
+                viewportRef={(el) => {
+                  setChatViewportEl(el)
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
+                <div
+                  ref={(el) => {
+                    setChatContentEl(el)
+                    autoScroll.contentRef(el)
+                  }}
+                  class="make-chat-content pt-4 flex flex-col gap-4"
+                >
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
                         class="flex items-center justify-between mx-3"
@@ -5816,6 +5898,12 @@ onPreview={(url) => {
                   height: "24px",
                   background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
                 }}
+              />
+              <TurnAnchorNav
+                messages={userMessages()}
+                sessionID={params.id}
+                viewport={chatViewportEl}
+                content={chatContentEl}
               />
               </div>
 

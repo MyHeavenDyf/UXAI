@@ -26,6 +26,7 @@ import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
@@ -136,6 +137,9 @@ export function ResultViewer(props: {
   onUpdateMentionPath?: (id: string, path: string) => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
+  // 代码工作区:文件面板不依赖 session 挂载、标注/serve 走项目级 (传给 HtmlRenderer 与 subtype ctx)
+  const workspaceKind = useWorkspaceKind()
+  const projectScope = () => workspaceKind() === "code"
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -230,6 +234,7 @@ export function ResultViewer(props: {
       postMessageToIframe: iframePostMessages[tid] ? (data: unknown) => { iframePostMessages[tid]?.(data) } : undefined,
       iframeElementGetter: iframeElementGetters[tid] ? () => iframeElementGetters[tid]?.() : undefined,
       sdkDirectory: props.sdkDirectory,
+      workspaceKind: workspaceKind(),
     }
   }
 
@@ -479,23 +484,22 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
         onCollapseDrawer={props.onCollapseDrawer}
       />
 
-      <Show when={props.sessionId}>
-        {(sid) => (
-          <div
-            class="flex flex-col flex-1 min-h-0"
-            style={{ display: props.viewMode === "files" ? "flex" : "none" }}
-          >
-            <DesignFilesPanel
-              sessionId={sid()}
-              refreshKey={props.filesRefreshKey ?? 0}
-              onOpenFile={handleOpenArtifactFile}
-              onAddToSession={props.onAddArtifactToSession}
-              onCloseTabsByPath={handleCloseTabsByPath}
-              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onFilesRefresh={props.onFilesRefresh}
-            />
-          </div>
-        )}
+      {/* 代码工作区:文件面板与 session 无关,无 session (新对话) 也挂载 */}
+      <Show when={props.sessionId || projectScope()}>
+        <div
+          class="flex flex-col flex-1 min-h-0"
+          style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+        >
+          <DesignFilesPanel
+            sessionId={props.sessionId ?? ""}
+            refreshKey={props.filesRefreshKey ?? 0}
+            onOpenFile={handleOpenArtifactFile}
+            onAddToSession={props.onAddArtifactToSession}
+            onCloseTabsByPath={handleCloseTabsByPath}
+            onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+            onFilesRefresh={props.onFilesRefresh}
+          />
+        </div>
       </Show>
 
       {/* plan 模式 — 已退出/已结束，只读显示 plan 内容 */}
@@ -766,6 +770,7 @@ archiving={featureMutex.state.archiving}
                             filePath={tab.filePath}
                             commentFilePath={tab.commentFilePath}
                             sessionId={tab.sessionId ?? props.sessionId}
+                            workspaceKind={workspaceKind()}
                             sdkUrl={globalSDK.url}
                             sdkDirectory={props.sdkDirectory}
                             onSaveFile={async (content) => {

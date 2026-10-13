@@ -27,6 +27,7 @@ export function DragInput(props: {
   suffix?: string
   display?: string
   height?: string
+  iconPl?: string
 }) {
   const icon = props.icon ?? DragIcon()
   const isV = props.direction === 'vertical'
@@ -83,7 +84,7 @@ export function DragInput(props: {
         }
         window.addEventListener('mousemove', onMove)
         window.addEventListener('mouseup', onUp)
-      }} class={`select-none ${isV ? 'cursor-ns-resize' : 'cursor-ew-resize'} text-slate-400 text-[10px] font-medium pl-1.5 pr-4 h-full flex items-center`}>{icon}</span>
+      }} class={`select-none ${isV ? 'cursor-ns-resize' : 'cursor-ew-resize'} text-slate-400 text-[12px] font-medium ${props.iconPl ?? 'pl-1.5'} pr-4 h-full flex items-center`}>{icon}</span>
       <input ref={(el) => { inputEl = el }} type="text" inputmode="numeric" placeholder={props.placeholder}
         value={text()}
         onInput={(e) => {
@@ -93,8 +94,8 @@ export function DragInput(props: {
         }}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-        class="placeholder:text-muted-foreground flex-1 min-w-0 bg-transparent outline-none text-[11px] pr-1 h-full border-0 shadow-none" />
-      {props.suffixIcon && <span class="text-slate-400 text-[10px] font-medium px-1.5 h-full flex items-center shrink-0 select-none">{props.suffixIcon}</span>}
+        class="placeholder:text-muted-foreground flex-1 min-w-0 bg-transparent outline-none text-[12px] pr-1 h-full border-0 shadow-none" />
+      {props.suffixIcon && <span class="text-slate-400 text-[12px] font-medium px-1.5 h-full flex items-center shrink-0 select-none">{props.suffixIcon}</span>}
     </div>
   )
 }
