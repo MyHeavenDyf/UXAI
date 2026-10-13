@@ -125,6 +125,10 @@ export type ElectronAPI = {
     subPath: string,
     filename: string,
   ) => Promise<string>
+  /** 代码类型工作区:把本地文件直接 fs.copyFile 进 <baseDir>/.octo/uploads/[subPath/](不随 session 隔离),返回落地绝对路径 */
+  copyFileToProjectUploads: (srcPath: string, baseDir: string, subPath: string, filename: string) => Promise<string>
+  /** 代码类型工作区:内存 blob 直接写进 <baseDir>/.octo/uploads/(同 copyFileToProjectUploads 落点),返回落地绝对路径 */
+  writeFileToProjectUploads: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
   downloadResourceToTemp: (
     url: string,
     namespace: string,

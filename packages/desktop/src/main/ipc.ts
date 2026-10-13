@@ -567,6 +567,78 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 代码类型工作区(project mode)的兄弟落点:session 不隔离上传,统一进 <baseDir>/.octo/uploads/[<subPath>/]。
+  // 与 copy-file-to-session-uploads 同一套 landingName/collisionFreePath 规则,只是没有 sessionId 段。
+  // 调用方:design-files 面板上传(代码工作区)、Make 页图片附件(doImageImport 代码工作区分支)。
+  ipcMain.handle(
+    "copy-file-to-project-uploads",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      subPath: string,
+      filename: string,
+    ) => {
+      const uploadsRoot = join(baseDir, ".octo", "uploads")
+      const cleanSub = sanitizeUploadsSubPath(subPath)
+      const targetDir = cleanSub ? join(uploadsRoot, cleanSub) : uploadsRoot
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-project ok", { srcPath, dest, subPath: cleanSub })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-project failed", {
+          srcPath,
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // copy-file-to-project-uploads 的字节版:渲染进程内存 blob(粘贴/选择的 File 对象)直接写进
+  // <baseDir>/.octo/uploads/,规则与 write-file-to-worktree 同一套,仅落点不同(代码工作区)。
+  ipcMain.handle(
+    "write-file-to-project-uploads",
+    async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, baseDir: string, filename: string) => {
+      const targetDir = join(baseDir, ".octo", "uploads")
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await writeFile(dest, Buffer.from(buffer))
+        console.log("[octo:worktree] upload-write-to-project ok", { dest, bytes: buffer.byteLength })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-write-to-project failed", {
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
   ipcMain.handle(
     "download-resource-to-temp",
     async (

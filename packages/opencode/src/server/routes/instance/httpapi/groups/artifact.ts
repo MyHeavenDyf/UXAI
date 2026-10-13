@@ -17,11 +17,14 @@ const ArtifactFileSchema = Schema.Struct({
   mime: Schema.String,
 })
 
+// scope=project (代码类型工作区): 路径按项目级解析 —— generated 列项目根目录, uploads 落 .octo/uploads。
+// 缺省 scope=session: 路径按 .octo/<sessionId>/ 解析 (原行为), sessionId 必填。
 const ArtifactListQuery = Schema.Struct({
-  sessionId: Schema.String,
+  sessionId: Schema.optional(Schema.String),
   category: Schema.optional(Schema.Union([Schema.Literal("generated"), Schema.Literal("uploaded")])),
   path: Schema.optional(Schema.String),
   recursive: Schema.optional(Schema.Boolean),
+  scope: Schema.optional(Schema.Literal("project")),
 })
 
 const ArtifactContentQuery = Schema.Struct({
@@ -46,10 +49,11 @@ const ArtifactDeleteBatchPayload = Schema.Struct({
 })
 
 const ArtifactUploadPayload = Schema.Struct({
-  sessionId: Schema.String,
+  sessionId: Schema.optional(Schema.String),
   filename: Schema.String,
   content: Schema.String,
   path: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.Literal("project")),
 })
 
 const FolderUploadFileSchema = Schema.Struct({
@@ -58,10 +62,11 @@ const FolderUploadFileSchema = Schema.Struct({
 })
 
 const ArtifactUploadFolderPayload = Schema.Struct({
-  sessionId: Schema.String,
+  sessionId: Schema.optional(Schema.String),
   folderName: Schema.String,
   files: Schema.Array(FolderUploadFileSchema),
   path: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.Literal("project")),
 })
 
 const ArtifactUploadFolderResponseSchema = Schema.Struct({
@@ -76,8 +81,9 @@ const ArtifactUploadFolderResponseSchema = Schema.Struct({
 })
 
 const ArtifactServeQuery = Schema.Struct({
-  sessionId: Schema.String,
+  sessionId: Schema.optional(Schema.String),
   path: Schema.String,
+  scope: Schema.optional(Schema.Literal("project")),
 })
 
 const ArtifactPaths = {
@@ -99,11 +105,12 @@ export const ArtifactApi = HttpApi.make("artifact")
         HttpApiEndpoint.get("list", ArtifactPaths.list, {
           query: ArtifactListQuery,
           success: described(Schema.Struct({ files: Schema.Array(ArtifactFileSchema) }), "Artifact files and folders"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "artifact.list",
             summary: "List artifacts",
-            description: "List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.",
+            description: "List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root. 'scope=project' (code workspace) resolves paths project-wide: generated lists the project root, uploaded lists .octo/uploads, and sessionId is not required.",
           }),
         ),
         HttpApiEndpoint.get("content", ArtifactPaths.content, {
@@ -172,7 +179,7 @@ export const ArtifactApi = HttpApi.make("artifact")
           OpenApi.annotations({
             identifier: "artifact.upload",
             summary: "Upload artifact",
-            description: "Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder.",
+            description: "Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads to the shared .octo/uploads directory and does not require sessionId.",
           }),
         ),
         HttpApiEndpoint.post("uploadFolder", ArtifactPaths.uploadFolder, {
@@ -189,7 +196,7 @@ export const ArtifactApi = HttpApi.make("artifact")
         HttpApiEndpoint.get("serve", ArtifactPaths.serve, {
           query: ArtifactServeQuery,
           success: described(Schema.String.pipe(HttpApiSchema.asText({ contentType: "*" })), "Artifact file content"),
-          error: [HttpApiError.NotFound],
+          error: [HttpApiError.NotFound, HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "artifact.serve",

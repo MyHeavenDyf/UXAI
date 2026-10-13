@@ -183,7 +183,12 @@ export default {
         }),
         downloadHtml: async (data) => {
           const api = ctx.getDesktopApi()
-          const dir = ctx.sdkDirectory && ctx.sessionId ? `${ctx.sdkDirectory}/.octo/${ctx.sessionId}/uploads` : null
+          // 代码工作区:落共享 .octo/uploads;普通工作区:session uploads (原行为)
+          const dir = ctx.sdkDirectory && ctx.sessionId
+            ? (ctx.workspaceKind === "code"
+                ? `${ctx.sdkDirectory}/.octo/uploads`
+                : `${ctx.sdkDirectory}/.octo/${ctx.sessionId}/uploads`)
+            : null
           if (!dir || !api?.writeFileBuffer) {
             showOctoToast({ title: '无法保存', variant: 'error' })
             return

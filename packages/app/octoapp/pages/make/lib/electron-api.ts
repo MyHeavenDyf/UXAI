@@ -74,6 +74,12 @@ export type DesktopApi = {
   writeFileToWorktree?: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
   /** 发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
+  /** design-files 面板「上传」：把本地文件拷进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]；返回落地绝对路径 */
+  copyFileToSessionUploads?: (srcPath: string, baseDir: string, sessionId: string, subPath: string, filename: string) => Promise<string>
+  /** 代码类型工作区：把本地文件拷进 <baseDir>/.octo/uploads/[<subPath>/]（不随 session 隔离）；返回落地绝对路径 */
+  copyFileToProjectUploads?: (srcPath: string, baseDir: string, subPath: string, filename: string) => Promise<string>
+  /** 代码类型工作区：内存 blob 直接写进 <baseDir>/.octo/uploads/；返回落地绝对路径 */
+  writeFileToProjectUploads?: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end

@@ -105,17 +105,47 @@ export const ArtifactRoutes = lazy(() =>
       }),
       validator(
         "query",
-        z.object({
-          sessionId: z.string(),
-          path: z.string().optional(),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            path: z.string().optional(),
+            category: z.enum(["generated", "uploaded"]).optional(),
+            scope: z.enum(["project"]).optional(),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-const { sessionId, path: subPath } = c.req.valid("query")
+const { sessionId, path: subPath, category, scope } = c.req.valid("query")
            const fs = yield* AppFileSystem.Service
-           const outputsDir = path.join(Instance.directory, SESSION_BASE_DIR, sessionId, OUTPUTS_DIR)
-           const targetDir = subPath ? path.join(outputsDir, subPath) : outputsDir
+           const projectScope = scope === "project"
+           const stampedSessionId = projectScope ? "" : sessionId ?? ""
+
+           // scope=project(代码工作�?:generated=项目根目�?uploaded=共享 .octo/uploads,
+           // relativePath 统一相对项目�?session scope 维持 .octo/<sessionId>/ 布局�?
+           let categoryRoot: string
+           let relativePrefix: string
+           if (projectScope) {
+             if (category === "uploaded") {
+               categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+               relativePrefix = `${SESSION_BASE_DIR}/${UPLOADS_DIR}`
+               yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+             } else {
+               categoryRoot = Instance.directory
+               relativePrefix = ""
+             }
+           } else if (category === "uploaded") {
+             categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, UPLOADS_DIR)
+             relativePrefix = UPLOADS_DIR
+             yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+           } else {
+             categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, OUTPUTS_DIR)
+             relativePrefix = ""
+             yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+           }
+           const targetDir = subPath ? path.join(categoryRoot, subPath) : categoryRoot
 
           const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
@@ -139,7 +169,7 @@ const { sessionId, path: subPath } = c.req.valid("query")
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = subPath ? `${subPath}/${name}` : name
+            const relativePath = [relativePrefix, subPath, name].filter(Boolean).join("/")
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue
@@ -152,7 +182,7 @@ const { sessionId, path: subPath } = c.req.valid("query")
               name,
               path: fullPath,
               relativePath,
-              sessionId,
+              sessionId: stampedSessionId,
               kind: isFolder ? "folder" : getKind(name),
               isFolder,
               size: sizeNum,
@@ -197,9 +227,9 @@ const { sessionId, path: subPath } = c.req.valid("query")
           const filePath = c.req.valid("query").path
           const svc = yield* File.Service
           const result = yield* svc.read(filePath)
-          // File.read 对二进制文件(office/pdf 等)只返回空 content(服务于文本预览,见 File.read);
-          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
-          // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+          // File.read 对二进制文件(office/pdf �?只返回空 content(服务于文本预�?�?File.read);
+          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端�?encoding:"base64" 解码落盘�?
+          // �?type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退�?
           if (result.type === "binary") {
             const fs = yield* AppFileSystem.Service
             const bytes = yield* fs.readFile(filePath)
@@ -390,17 +420,26 @@ const { sessionId, path: subPath } = c.req.valid("query")
       }),
       validator(
         "json",
-        z.object({
-          sessionId: z.string(),
-          filename: z.string(),
-          content: z.string(),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            filename: z.string(),
+            content: z.string(),
+            scope: z.enum(["project"]).optional(),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.upload", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
+          const projectScope = body.scope === "project"
+          // project scope(代码工作�?:统一落共�?.octo/uploads (sessionId �?refine 保证存在)
+          const uploadsDir = projectScope
+            ? path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+            : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
 
           yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
 
@@ -428,8 +467,10 @@ const { sessionId, path: subPath } = c.req.valid("query")
           return {
             name: finalFilename,
             path: fullPath,
-            relativePath: finalFilename,
-            sessionId: body.sessionId,
+            relativePath: projectScope
+              ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}/${finalFilename}`
+              : finalFilename,
+            sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: getKind(finalFilename),
             isFolder: false,
             size: sizeNum,
@@ -468,22 +509,31 @@ const { sessionId, path: subPath } = c.req.valid("query")
       }),
       validator(
         "json",
-        z.object({
-          sessionId: z.string(),
-          folderName: z.string(),
-          files: z.array(
-            z.object({
-              relativePath: z.string(),
-              content: z.string(),
-            }),
-          ),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            folderName: z.string(),
+            files: z.array(
+              z.object({
+                relativePath: z.string(),
+                content: z.string(),
+              }),
+            ),
+            scope: z.enum(["project"]).optional(),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.uploadFolder", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
+          const projectScope = body.scope === "project"
+          const uploadsDir = projectScope
+            ? path.join(Instance.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+            : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
+
           const folderDir = path.join(uploadsDir, body.folderName)
 
           yield* fs.ensureDir(folderDir).pipe(Effect.catch(() => Effect.void))
@@ -503,8 +553,10 @@ const { sessionId, path: subPath } = c.req.valid("query")
           return {
             name: body.folderName,
             path: folderDir,
-            relativePath: body.folderName,
-            sessionId: body.sessionId,
+            relativePath: projectScope
+              ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}/${body.folderName}`
+              : body.folderName,
+            sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: "folder",
             isFolder: true,
             fileCount: body.files.length,

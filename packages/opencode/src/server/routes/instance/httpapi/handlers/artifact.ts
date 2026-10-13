@@ -283,10 +283,22 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       mime: string
     }
 
-    const collectFilesRecursive = (dir: string, baseRelativePath: string, sessionId: string, files: ArtifactFileInfo[]): Effect.Effect<void> =>
+    // 项目级递归列表(代码工作区 @ 面板)的安全上限:大仓库(如 node_modules)递归可能产出
+    // 数万条目,拖垮渲染端 popover。截断到上限即停止,不静默忽略任何目录。
+    const MAX_PROJECT_RECURSIVE_FILES = 500
+
+    const collectFilesRecursive = (
+      dir: string,
+      baseRelativePath: string,
+      sessionId: string,
+      files: ArtifactFileInfo[],
+      limit?: number,
+    ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if (limit !== undefined && files.length >= limit) return
         const entries = yield* fs.readDirectory(dir).pipe(Effect.catch(() => Effect.succeed([])))
         for (const name of entries) {
+          if (limit !== undefined && files.length >= limit) return
           if (name.startsWith(".")) continue
           const fullPath = path.join(dir, name)
           const relativePath = baseRelativePath ? `${baseRelativePath}/${name}` : name
@@ -294,7 +306,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
           if (!stat) continue
           const isFolder = stat.type === "Directory"
           if (isFolder) {
-            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files)
+            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files, limit)
           } else {
             const sizeNum = typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0)
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
@@ -313,12 +325,115 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         }
       })
 
-    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId: string; category?: "generated" | "uploaded"; path?: string; recursive?: boolean } }) {
-      const sessionId = ctx.query.sessionId
+    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId?: string; category?: "generated" | "uploaded"; path?: string; recursive?: boolean; scope?: "project" } }) {
+      const sessionId = ctx.query.sessionId ?? ""
+      const projectScope = ctx.query.scope === "project"
+      if (!projectScope && sessionId === "") {
+        yield* new HttpApiError.BadRequest({})
+      }
       const category = ctx.query.category ?? "generated"
       const subPath = ctx.query.path ?? ""
       const recursive = ctx.query.recursive ?? false
       const instanceCtx = yield* InstanceState.context
+
+      if (projectScope) {
+        // ── 代码类型工作区(项目级):session 只隔离对话,不隔离产物。 ──
+        // generated = 项目根目录(点开头条目被过滤,.octo/.git 天然隐藏);
+        // uploaded = 共享 .octo/uploads。relativePath 统一相对项目根,与 serve 的项目级根一致。
+        const stampedSessionId = ""
+
+        if (category === "generated") {
+          const targetDir = subPath ? path.join(instanceCtx.directory, sanitizePath(subPath)) : instanceCtx.directory
+
+          const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
+          if (!exists) return { files: [] }
+
+          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
+          const files: ArtifactFileInfo[] = []
+
+          for (const name of entries) {
+            if (name.startsWith(".")) continue
+
+            const fullPath = path.join(targetDir, name)
+            const relativePath = subPath ? `${sanitizePath(subPath)}/${name}` : name
+            const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+
+            if (!stat) continue
+
+            const isFolder = stat.type === "Directory"
+            if (recursive && isFolder) {
+              yield* collectFilesRecursive(fullPath, relativePath, stampedSessionId, files, MAX_PROJECT_RECURSIVE_FILES)
+            } else {
+              const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
+              const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+              files.push({
+                name,
+                path: fullPath,
+                relativePath,
+                sessionId: stampedSessionId,
+                kind: isFolder ? "folder" : getKind(name),
+                isFolder,
+                size: sizeNum,
+                mtime: mtimeNum,
+                mime: isFolder ? "" : getMime(name),
+              })
+            }
+          }
+
+          return { files }
+        }
+
+        if (category === "uploaded") {
+          const uploadsRoot = path.join(instanceCtx.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+          yield* fs.ensureDir(uploadsRoot).pipe(Effect.catch(() => Effect.void))
+
+          const targetDir = subPath ? path.join(uploadsRoot, sanitizePath(subPath)) : uploadsRoot
+
+          const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
+          if (!exists) return { files: [] }
+
+          const files: ArtifactFileInfo[] = []
+          const relBase = `${SESSION_BASE_DIR}/${UPLOADS_DIR}`
+
+          if (recursive) {
+            const baseRelativePath = subPath ? `${relBase}/${sanitizePath(subPath)}` : relBase
+            yield* collectFilesRecursive(targetDir, baseRelativePath, stampedSessionId, files, MAX_PROJECT_RECURSIVE_FILES)
+          } else {
+            const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
+            for (const name of entries) {
+              if (name.startsWith(".")) continue
+
+              const fullPath = path.join(targetDir, name)
+              const relativePath = subPath ? `${relBase}/${sanitizePath(subPath)}/${name}` : `${relBase}/${name}`
+              const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+
+              if (!stat) continue
+
+              const isFolder = stat.type === "Directory"
+              const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
+              const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+              files.push({
+                name,
+                path: fullPath,
+                relativePath,
+                sessionId: stampedSessionId,
+                kind: isFolder ? "folder" : getKind(name),
+                isFolder,
+                size: sizeNum,
+                mtime: mtimeNum,
+                mime: isFolder ? "" : getMime(name),
+              })
+            }
+          }
+
+          return { files }
+        }
+
+        return { files: [] }
+      }
+
+      // ── session scope(原行为) ──
       const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
       const outputsDir = path.join(sessionDir, OUTPUTS_DIR)
       const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
@@ -484,11 +599,18 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       return { ok: true, deleted }
     })
 
-    const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string; path?: string } }) {
+    const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId?: string; filename: string; content: string; path?: string; scope?: "project" } }) {
       const body = ctx.payload
+      const projectScope = body.scope === "project"
+      const sessionId = body.sessionId ?? ""
+      if (!projectScope && sessionId === "") {
+        yield* new HttpApiError.BadRequest({})
+      }
       const instanceCtx = yield* InstanceState.context
-      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
-      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
+      // project scope(代码工作区):统一落共享 .octo/uploads;session scope:落 .octo/<sessionId>/uploads
+      const uploadsDir = projectScope
+        ? path.join(instanceCtx.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+        : path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId, UPLOADS_DIR)
 
       yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
@@ -524,13 +646,16 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const sizeNum = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : contentBuffer.length
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
-      const relativePath = targetSubPath ? `${targetSubPath}/${finalFilename}` : finalFilename
+      // project scope 的 relativePath 相对项目根(与 list 的 uploaded 约定一致,带 .octo/uploads/ 前缀)
+      const relativePath = projectScope
+        ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}${targetSubPath ? `/${targetSubPath}` : ""}/${finalFilename}`
+        : targetSubPath ? `${targetSubPath}/${finalFilename}` : finalFilename
 
       return {
         name: finalFilename,
         path: fullPath,
         relativePath,
-        sessionId: body.sessionId,
+        sessionId: projectScope ? "" : sessionId,
         kind: getKind(finalFilename),
         isFolder: false,
         size: sizeNum,
@@ -539,11 +664,17 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       }
     })
 
-    const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[]; path?: string } }) {
+    const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId?: string; folderName: string; files: readonly { relativePath: string; content: string }[]; path?: string; scope?: "project" } }) {
       const body = ctx.payload
+      const projectScope = body.scope === "project"
+      const sessionId = body.sessionId ?? ""
+      if (!projectScope && sessionId === "") {
+        yield* new HttpApiError.BadRequest({})
+      }
       const instanceCtx = yield* InstanceState.context
-      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
-      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
+      const uploadsDir = projectScope
+        ? path.join(instanceCtx.directory, SESSION_BASE_DIR, UPLOADS_DIR)
+        : path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId, UPLOADS_DIR)
 
       yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
@@ -574,13 +705,15 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const stat = yield* fs.stat(folderDir).pipe(Effect.catch(() => Effect.succeed(null)))
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
-      const relativePath = targetSubPath ? `${targetSubPath}/${body.folderName}` : body.folderName
+      const relativePath = projectScope
+        ? `${SESSION_BASE_DIR}/${UPLOADS_DIR}${targetSubPath ? `/${targetSubPath}` : ""}/${body.folderName}`
+        : targetSubPath ? `${targetSubPath}/${body.folderName}` : body.folderName
 
       return {
         name: body.folderName,
         path: folderDir,
         relativePath,
-        sessionId: body.sessionId,
+        sessionId: projectScope ? "" : sessionId,
         kind: "folder",
         isFolder: true,
         fileCount: body.files.length,
@@ -588,16 +721,23 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       }
     })
 
-    const serve = Effect.fn("ArtifactHttpApi.serve")(function* (ctx: { query: { sessionId: string; path: string } }) {
-      const sessionId = ctx.query.sessionId
+    const serve = Effect.fn("ArtifactHttpApi.serve")(function* (ctx: { query: { sessionId?: string; path: string; scope?: "project" } }) {
+      const sessionId = ctx.query.sessionId ?? ""
+      const projectScope = ctx.query.scope === "project"
+      if (!projectScope && sessionId === "") {
+        yield* new HttpApiError.BadRequest({})
+      }
       const relativePath = ctx.query.path
       const instanceCtx = yield* InstanceState.context
-      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
-      const filePath = path.join(sessionDir, relativePath)
+      // project scope(代码工作区):根 = 项目目录,relativePath 相对项目根(含 .octo/uploads/... 形态)
+      const rootDir = projectScope
+        ? instanceCtx.directory
+        : path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
+      const filePath = path.join(rootDir, relativePath)
 
       const resolvedPath = path.resolve(filePath)
-      const resolvedSessionDir = path.resolve(sessionDir)
-      if (!resolvedPath.startsWith(resolvedSessionDir)) {
+      const resolvedRootDir = path.resolve(rootDir)
+      if (!resolvedPath.startsWith(resolvedRootDir)) {
         yield* Effect.fail(new HttpApiError.NotFound({}))
       }
 

@@ -1,5 +1,6 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
@@ -23,6 +24,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const trackerModule = () => props.trackerModule ?? "design"
   const { request, gate } = useUploadRiskGate({ module: trackerModule() })
   const skillCfg = () => props.skillConfig ?? {}
+  // 代码工作区:设计文件列表为项目级,标题显示「项目文件」
+  const workspaceKind = useWorkspaceKind()
 
   const [open, setOpen] = createSignal(false)
   const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
@@ -743,7 +746,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
                 {/* Tertiary panel: files list */}
                 <div class="addon-menu-tertiary" style={{ width: '400px', padding: '12px 8px' }}>
-                  <div class="addon-menu-files-header">当前会话</div>
+                  <div class="addon-menu-files-header">{workspaceKind() === "code" ? "项目文件" : "当前会话"}</div>
                   <div class="addon-menu-tertiary-content" style={{ 'max-height': '364px' }}>
                     <Show when={!props.artifactFiles || (props.artifactFiles.generated.length === 0 && props.artifactFiles.uploaded.length === 0)}>
                       <div class="addon-menu-empty-state">

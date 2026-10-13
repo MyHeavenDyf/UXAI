@@ -44,6 +44,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
@@ -103,6 +104,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const local = useLocal()
   const dialog = useDialog()
   const language = useLanguage()
+  // 代码工作区:列表/上传按项目级解析 (scope=project),面板不随 session 切换而重置
+  const workspaceKind = useWorkspaceKind()
+  const projectScope = () => workspaceKind() === "code"
   const fileStore = createArtifactFileStore(props.sessionId)
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
@@ -171,10 +175,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     overlay.addEventListener("mouseup", onUp)
   }
 
+  // session 切换重置 + 导航/分类变化重拉。代码工作区列表与 session 无关,跳过重置 (统一界面,不随会话切换)
   createEffect(on(
     [() => props.sessionId, () => fileStore.store.currentPath, () => fileStore.store.currentCategory],
     ([sessionId], prev) => {
-      if (prev && prev[0] !== sessionId) {
+      if (prev && prev[0] !== sessionId && !projectScope()) {
         batch(() => {
           fileStore.navigateToTopLevel()
           fileStore.clearKindFilter()
@@ -197,13 +202,15 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const refresh = async () => {
     const category = fileStore.store.currentCategory
     const path = fileStore.store.currentPath
+    // 代码工作区:scope=project (generated=项目根目录, uploaded=.octo/uploads)
+    const scope = projectScope() ? ("project" as const) : undefined
 
     fileStore.setLoading(true)
     try {
       if (!category) {
         const [genResult, uplResult] = await Promise.all([
-          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated"),
-          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded"),
+          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated", undefined, false, scope),
+          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded", undefined, false, scope),
         ])
         if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
         fileStore.setGeneratedFiles(genResult.files)
@@ -215,6 +222,8 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           props.sessionId,
           category,
           path,
+          undefined,
+          scope,
         )
         if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
         if (category === "generated") {
@@ -427,6 +436,45 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
+    // 代码工作区:直落共享 .octo/uploads (copy-file-to-project-uploads);普通工作区:session uploads (原行为)
+    if (
+      baseDir &&
+      projectScope() &&
+      typeof desktopApi?.copyFileToProjectUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let okCount = 0
+      let failedCount = 0
+      for (const file of filtered) {
+        let srcPath = ""
+        try {
+          srcPath = desktopApi.getPathForFile(file)
+        } catch {
+          srcPath = ""
+        }
+        if (!srcPath) {
+          failedCount++
+          showOctoToast({ title: "Upload failed", description: `无法获取文件路径:${file.name}` })
+          continue
+        }
+        try {
+          await desktopApi.copyFileToProjectUploads(srcPath, baseDir, currentPath, file.name)
+          okCount++
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+        } catch (err) {
+          failedCount++
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      if (okCount > 0) {
+        showOctoToast({ title: "Uploaded", description: `${okCount} 个文件` })
+      }
+      if (okCount > 0) {
+        await refresh()
+        props.onFilesRefresh?.()
+      }
+      return
+    }
     if (
       baseDir &&
       typeof desktopApi?.copyFileToSessionUploads === "function" &&
@@ -478,6 +526,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
             file.name,
             content,
             currentPath,
+            projectScope() ? "project" : undefined,
           )
           showOctoToast({ title: "Uploaded", description: result.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
@@ -583,6 +632,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         folderName,
         fileEntries,
         currentPath,
+        projectScope() ? "project" : undefined,
       )
       showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
@@ -603,6 +653,33 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const desktopApi = (window as any).api
     const baseDir = sdk.directory
+    // 代码工作区:直落共享 .octo/uploads;普通工作区:session uploads (原行为)
+    if (
+      baseDir &&
+      projectScope() &&
+      typeof desktopApi?.copyFileToProjectUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let srcPath = ""
+      try {
+        srcPath = desktopApi.getPathForFile(file)
+      } catch {
+        srcPath = ""
+      }
+      if (srcPath) {
+        try {
+          await desktopApi.copyFileToProjectUploads(srcPath, baseDir, currentPath, file.name)
+          showOctoToast({ title: "Uploaded", description: file.name })
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+          await refresh()
+          props.onFilesRefresh?.()
+          return
+        } catch (err) {
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          return
+        }
+      }
+    }
     if (
       baseDir &&
       typeof desktopApi?.copyFileToSessionUploads === "function" &&
@@ -638,6 +715,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         file.name,
         base64,
         currentPath,
+        projectScope() ? "project" : undefined,
       )
       showOctoToast({ title: "Uploaded", description: result.name })
       await refresh()
@@ -713,6 +791,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         folderName,
         fileEntries,
         currentPath,
+        projectScope() ? "project" : undefined,
       )
       showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
@@ -1058,7 +1137,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               <tbody>
                 <Show when={fileStore.isTopLevel()}>
                   <SectionRow
-                    title="生成文件"
+                    title={projectScope() ? "项目文件" : "生成文件"}
                     count={fileStore.store.generatedFiles.length}
                     collapsed={fileStore.store.collapsedGenerated}
                     onToggle={() => fileStore.toggleGeneratedSection()}
@@ -1151,6 +1230,7 @@ onDelete={handleDelete}
                 width={previewWidth()}
                 sdkUrl={globalSDK.url}
                 sdkDirectory={sdk.directory || ""}
+                scope={projectScope() ? "project" : undefined}
                 onClose={() => fileStore.setPreviewFile(null)}
                 onOpen={() => handleOpenFile(file())}
                 onDownload={() => handleDownload(file())}

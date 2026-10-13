@@ -690,13 +690,16 @@ const defaultHandler: SubtypeHandler = {
           const api = getDesktopApi()
           const baseDir = sdkDirectory
           const sid = sessionId
-          
+
           if (!baseDir || !sid || !api?.writeFileBuffer) {
             showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
-          
-          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+
+          // 代码工作区:C2D 下载落共享 .octo/uploads;普通工作区:session uploads (原行为)
+          const uploadsDir = ctx.workspaceKind === "code"
+            ? `${baseDir}/.octo/uploads`
+            : `${baseDir}/.octo/${sid}/uploads`
           const lastDotIndex = data.filename.lastIndexOf('.')
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
           const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''

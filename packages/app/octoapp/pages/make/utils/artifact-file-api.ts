@@ -39,6 +39,9 @@ export interface ArtifactContentResponse {
   encoding?: "base64"
 }
 
+// scope="project" (代码类型工作区): 列表/上传/预览按项目级解析 —— generated=项目根, uploaded=.octo/uploads。
+export type ArtifactScope = "project"
+
 export async function fetchArtifactList(
   sdkUrl: string,
   sdkDirectory: string,
@@ -46,6 +49,7 @@ export async function fetchArtifactList(
   category: "generated" | "uploaded",
   subPath?: string,
   recursive?: boolean,
+  scope?: ArtifactScope,
 ): Promise<ArtifactListResponse> {
   const params = new URLSearchParams({
     sessionId,
@@ -56,6 +60,9 @@ export async function fetchArtifactList(
   }
   if (recursive) {
     params.set("recursive", "true")
+  }
+  if (scope) {
+    params.set("scope", scope)
   }
   const url = `${sdkUrl}/artifact/list?${params.toString()}`
   const response = await fetch(url, {
@@ -159,11 +166,12 @@ export async function uploadArtifactFile(
   filename: string,
   content: string,
   targetPath?: string,
+  scope?: ArtifactScope,
 ): Promise<ArtifactFile> {
   const response = await fetch(`${sdkUrl}/artifact/upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
-    body: JSON.stringify({ sessionId, filename, content, path: targetPath }),
+    body: JSON.stringify({ sessionId, filename, content, path: targetPath, scope }),
   })
   if (!response.ok) {
     throw new Error(`Failed to upload artifact: ${response.statusText}`)
@@ -199,6 +207,7 @@ export async function uploadArtifactFolder(
   folderName: string,
   files: FolderUploadFile[],
   currentPath?: string,
+  scope?: ArtifactScope,
 ): Promise<FolderUploadResponse> {
   if (files.length === 0) {
     throw new Error("Cannot upload empty folder")
@@ -213,7 +222,7 @@ export async function uploadArtifactFolder(
     const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
-      body: JSON.stringify({ sessionId, folderName, files: batch, path: currentPath }),
+      body: JSON.stringify({ sessionId, folderName, files: batch, path: currentPath, scope }),
     })
     if (!response.ok) {
       throw new Error(`Failed to upload folder: ${response.statusText}`)
@@ -348,12 +357,11 @@ export function getArtifactServeUrl(
   directory: string,
   sessionId: string,
   relativePath: string,
+  scope?: ArtifactScope,
 ): string {
-  const params = new URLSearchParams({
-    directory,
-    sessionId,
-    path: relativePath,
-  })
+  const params = new URLSearchParams({ directory, path: relativePath })
+  if (sessionId) params.set("sessionId", sessionId)
+  if (scope) params.set("scope", scope)
   return `${sdkUrl}/artifact/serve?${params.toString()}`
 }
 
@@ -362,15 +370,24 @@ export function getArtifactRelativePath(filePath: string): { sessionId: string; 
   const sessionBase = ".octo/"
   const idx = normalized.indexOf(sessionBase)
   if (idx === -1) return null
-  
+
   const afterBase = normalized.slice(idx + sessionBase.length)
   const slashIdx = afterBase.indexOf("/")
   if (slashIdx === -1) return null
-  
+
   const sessionId = afterBase.slice(0, slashIdx)
   const relativePath = afterBase.slice(slashIdx + 1)
-  
+
   return { sessionId, relativePath }
+}
+
+// 代码类型工作区:项目根内文件的相对路径(相对项目根,与 scope=project 的 relativePath/serve 约定一致)。
+// 不在项目根内返回 null。
+export function getProjectRelativePath(filePath: string, projectDir: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/")
+  const base = projectDir.replace(/\\/g, "/").replace(/\/+$/, "")
+  if (!base || !normalized.startsWith(base + "/")) return null
+  return normalized.slice(base.length + 1)
 }
 
 export function pathToLocalUrl(filePath: string): string {
@@ -378,14 +395,21 @@ export function pathToLocalUrl(filePath: string): string {
   return `local:///${normalized}`
 }
 
-export function extractCommentFilePath(absolutePath: string, sessionId: string): string {
-  const sessionDir = `.octo/${sessionId}/`
+
+export function extractCommentFilePath(absolutePath: string, sessionId: string, projectDir?: string): string {
   const normalized = absolutePath.replace(/\\/g, "/")
-  const idx = normalized.indexOf(sessionDir)
-  if (idx === -1) {
-    return normalized.split("/").pop() || ""
+  if (sessionId) {
+    const sessionDir = `.octo/${sessionId}/`
+    const idx = normalized.indexOf(sessionDir)
+    if (idx !== -1) {
+      return normalized.slice(idx + sessionDir.length)
+    }
   }
-  return normalized.slice(idx + sessionDir.length)
+  if (projectDir) {
+    const relative = getProjectRelativePath(normalized, projectDir)
+    if (relative !== null) return relative
+  }
+  return normalized.split("/").pop() || ""
 }
 
 export function isElectronDesktop(): boolean {
