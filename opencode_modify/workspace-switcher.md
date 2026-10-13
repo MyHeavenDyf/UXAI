@@ -72,6 +72,20 @@ workspace 增加分类标记:**普通工作区(normal)/ 代码工作区(code)**,
 
 `titlebar.workspace.kind.*` 共 8 键(title/normal/code/normalDesc/codeDesc/badge.normal/badge.code),en+zh。
 
+## workspace 分类驱动的 sendMessage 注入差异 — 2026-10-13 追加
+
+分类的**首个行为差异**在 make 页:按 workspace 分类注入**不同**的上下文前缀——
+
+- **普通工作区(normal)**:注入原有 `[Artifact Folder]` 前缀(产物锁定 .octo/<sid>/outputs,优先 <artifact>),与历史行为逐字节一致
+- **代码工作区(code)**:注入 `[Workspace]` 提示词——声明工作区路径,直接在本工作区内用 read/write/edit/bash 读写、创建与修改项目文件;**产物目录(artifact folder)用声明式映射为工作区目录本身**(非条件式"如果需要就用"),需要落盘的文件在项目内选合适位置,不写 .octo 会话目录,不用 <artifact> 直接输出产物内容(write/edit 成功后用 `<artifact type="text/link">` 返回文件路径除外,保留前端渲染修改文件的契约)
+
+实现要点:
+
+- `packages/app/octoapp/pages/make/index.tsx` 的 `buildArtifactFolderPrefix()`:函数开头按 `kindOf(layout.projects.list().find(x => x.worktree === projectDir()))` 分流,code 早返回 `[Workspace]` 段(跳过 outputs 扫盘),normal 走原有逻辑不动
+- 覆盖三个注入点:sendMessage 命令路径(cmdParts.unshift synthetic)、sendMessage prompt 路径(promptText 前缀)、handleConfirmPlan 直发路径——三者共用此函数,自动生效
+- 无需服务端配合:octo-session-workdir 插件只对 octo_insight 会话生效(make 会话走原生行为,相对路径天然解析到工作区根)
+- kind 查不到(如 URL 直进未在列表的目录)→ kindOf 兜底 normal → 行为与普通工作区一致
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过

@@ -70,6 +70,7 @@ import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
+import { kindOf } from "@/components/workspace-switcher"
 import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
@@ -3195,13 +3196,25 @@ const sessionMessagesLoaded = createMemo(() => {
   /**
    * 构建 [Artifact Folder] 上下文前缀：产物目录绝对路径 + 已有产物文件列表（供 edit 工具使用）。
    * 文件列表每次调用都重新扫盘，保证新鲜。
-   * 代码工作区:产物目录 = 项目根,列表为项目根文件([Project artifacts],截断到上限防 prompt 膨胀);
+   * 代码工作区（workspace 分类 kind=code）不注入产物目录，改注入 [Workspace] 提示词：直接在本工作区内工作，
+   * 产物目录声明为工作区目录本身，不注入产物文件列表，edit 的可操作范围不受列表限制；
    * 普通工作区:会话产物目录 + 会话内列表 (原行为)。
    * sendMessage 每轮注入；handleConfirmPlan 直发 prompt/command 绕过 sendMessage，同样用此函数补注入。
    */
   async function buildArtifactFolderPrefix(sessionId: string): Promise<string> {
     const folderProjDir = projectDir()
     if (!folderProjDir || !sessionId) return ""
+    // 代码工作区：注入 [Workspace] 提示词（直接在本工作区内读写项目文件），不走产物目录规则。
+    // 产物目录用声明式映射（= 工作区目录本身）而非条件式——agent 提示词(octo_make.txt)把
+    // .octo/<sessionId>/outputs/ 写成 write 的兜底路径,声明式才能确定性压过该锚点。
+    if (kindOf(layout.projects.list().find((x) => x.worktree === folderProjDir)) === "code") {
+      return [
+        `[Workspace]: ${folderProjDir}`,
+        `这是一个代码工作区，用户的代码项目就在此目录中。请直接在本工作区内工作：用 read / write / edit / bash 等工具读写、创建与修改项目文件，相对路径相对工作区根目录解析。本工作区的产物目录（artifact folder）即本工作区目录本身——需要落盘的文件在项目内选择合适位置写入，不要写入 .octo 会话目录，也不要用 <artifact> 标签直接输出产物内容（write / edit 成功后用 <artifact type="text/link"> 返回文件路径除外）。`,
+        `---`,
+        ``,
+      ].join("\n")
+    }
     const sep = folderProjDir.includes("\\") ? "\\" : "/"
     const projectScope = isProjectScope()
     const artifactFolder = projectScope ? folderProjDir : [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
