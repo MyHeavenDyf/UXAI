@@ -1,4 +1,4 @@
-import { execFile, execSync } from "node:child_process"
+import { execFile, execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
@@ -1496,31 +1496,51 @@ export function registerIpcHandlers(deps: Deps) {
     "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
   ])
 
-  // 配置失败时的 curl 对照诊断：区分「代理本身不通」和「Node 证书校验失败(代理 MITM)」。
-  // 调用时 env 仍指向待验证的新代理，curl 能真实走新代理。
-  const collectProxyDiagnostics = (target: string): string => {
-    const probe = (insecure: boolean) => {
+  // 配置失败时的 curl 对照诊断：区分「代理本身不通」「Node 证书校验失败(代理 MITM)」「NO_PROXY 把目标绕过代理直连」。
+  // env 探针走注入的环境变量(与 fetch 同源)；显式 --proxy 探针绕过 env/no_proxy，
+  // 用于把「代理不可达/认证失败」与「no_proxy 误伤导致直连失败」区分开。
+  // curl 的真实失败原因(错误码+描述，如 "curl: (7) Failed to connect ...")在 stderr 里，
+  // 不能只取 error.message 第一行(那只是 "Command failed: curl ..." 命令回显)。
+  const collectProxyDiagnostics = (target: string, proxyUrl: string): string => {
+    const redact = (s: string) => s.replace(/\/\/[^@/\s]+@/, "//***@")
+    const runCurl = (args: string[]): { ok: boolean; output: string } => {
       try {
-        return execSync(`curl ${insecure ? "-k " : ""}-sS --connect-timeout 10 "${target}"`, {
-          timeout: 15000,
-          stdio: "pipe",
-          encoding: "utf-8",
-        })
-          .toString()
-          .trim()
-          .slice(0, 120)
+        const out = execFileSync("curl", args, { timeout: 15000, stdio: "pipe", encoding: "utf-8" })
+        return { ok: true, output: out.trim().slice(0, 120) }
       } catch (e) {
-        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e)
-        return `<失败: ${msg}>`
+        const err = e as Error & { stderr?: string }
+        const firstLine = (err.stderr ?? err.message).toString().trim().split("\n").find((l) => l.trim()) ?? "unknown error"
+        return { ok: false, output: redact(firstLine.trim()).slice(0, 160) }
       }
     }
-    const strict = probe(false)
-    const insecure = probe(true)
+    const common = ["-sS", "--connect-timeout", "10", target]
+    const strict = runCurl(common)
+    const insecure = runCurl(["-k", ...common])
+    const explicit = runCurl(["-k", "--noproxy", "", "--proxy", proxyUrl, ...common])
+    const fmt = (r: { ok: boolean; output: string }) => (r.ok ? r.output || "<空响应>" : `<失败: ${r.output}>`)
+
     let hint = ""
-    if (strict.startsWith("<失败") && !insecure.startsWith("<失败")) {
+    if (!strict.ok && insecure.ok) {
       hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    } else if (!explicit.ok) {
+      hint = "；提示: 直接指定代理仍失败 — 代理节点不可达或认证失败，请检查账号密码及是否在华为内网(VPN)"
+    } else if (explicit.ok && !strict.ok && !insecure.ok) {
+      hint = "；提示: 显式走代理可通但常规探针不通 — 「跳过代理(NO_PROXY)」把目标域名绕过了代理，请检查 NO_PROXY 配置"
     }
-    return `curl 对照诊断 — 严格证书: ${strict || "<空响应>"} | 跳过证书(-k): ${insecure || "<空响应>"}${hint}`
+    return `curl 对照诊断 — 严格证书: ${fmt(strict)} | 跳过证书(-k): ${fmt(insecure)} | 显式代理: ${fmt(explicit)}${hint}`
+  }
+
+  // fetch 的深层失败原因(ECONNREFUSED/CONNECT_TIMEOUT/证书错误等)在 cause 链里，
+  // 顶层只有无信息的 "fetch failed"。展开链路供 toast/日志直接定位。
+  const describeFetchError = (err: unknown): string => {
+    const parts: string[] = []
+    let current: unknown = err
+    for (let depth = 0; current instanceof Error && depth < 5; depth++) {
+      const code = (current as NodeJS.ErrnoException).code
+      parts.push(code ? `${current.name} [${code}] ${current.message}` : parts.length ? `${current.name}: ${current.message}` : current.message)
+      current = (current as { cause?: unknown }).cause
+    }
+    return parts.join(" <- ")
   }
 
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
@@ -1593,10 +1613,11 @@ export function registerIpcHandlers(deps: Deps) {
 
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
+      // fetch failed 本身无信息，展开 cause 链给出真实原因(连接被拒/超时/证书/隧道错误)
+      const errorMessage = describeFetchError(err) || (err instanceof Error ? err.message : String(err))
 
       // curl 对照诊断要趁 env 还指向新代理时执行
-      const diagnostics = collectProxyDiagnostics(curlTarget)
+      const diagnostics = collectProxyDiagnostics(curlTarget, proxyUrl)
 
       // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {

@@ -26,10 +26,17 @@ export type ResultTab = {
 //   内容更新而重建 iframe(切 tab 时 iframe 仍挂载,只在 display 切换)。
 //   注意:不能用 reconcile({key:"id"}) — reconcile 会创建新 proxy,引用不稳。
 //   tabs 仍以函数形式暴露(保持调用方 tabs() 写法不变)。
-export function createTabStore() {
+export interface TabStoreOptions {
+  // tab 列表结构变更(open/close/activate/rename 等)后的回调,用于按 session 持久化。
+  // updateTabContent 不触发(避免编辑器每次键击写 localStorage);reset/restoreTabs 不触发。
+  onPersist?: () => void
+}
+
+export function createTabStore(options?: TabStoreOptions) {
   const [tabsStore, setTabsStore] = createStore<ResultTab[]>([])
   const tabs = () => tabsStore
   const [activeId, setActiveId] = createSignal<string | null>(null)
+  const notify = () => options?.onPersist?.()
 
   function openTab(card: OutputCard) {
     setTabsStore(produce((s: ResultTab[]) => {
@@ -59,6 +66,7 @@ export function createTabStore() {
       })
     }))
     setActiveId(card.id)
+    notify()
   }
 
   function openLocalFileTab(params: {
@@ -85,6 +93,7 @@ export function createTabStore() {
       })
     }))
     setActiveId(params.id)
+    notify()
   }
 
   function closeTab(id: string) {
@@ -103,6 +112,7 @@ export function createTabStore() {
       const i = s.findIndex(t => t.id === id)
       if (i >= 0) s.splice(i, 1)
     }))
+    notify()
   }
 
   function activate(id: string) {
@@ -111,6 +121,7 @@ export function createTabStore() {
       if (idx >= 0) s[idx].lastActivatedAt = Date.now()
     }))
     setActiveId(id)
+    notify()
   }
 
   function updateTabContent(id: string, content: string) {
@@ -134,11 +145,24 @@ export function createTabStore() {
         }
       }
     }))
+    notify()
   }
 
   function reset() {
     setTabsStore(produce((s: ResultTab[]) => { s.length = 0 }))
     setActiveId(null)
+  }
+
+  // 批量恢复(切换 session/重新挂载后从持久化状态还原)。
+  // 单次 produce 写入,保留 lastActivatedAt 以维持 html iframe 的 LRU 挂载顺序。
+  // 不触发 onPersist:恢复内容与存档一致,无需回写。
+  function restoreTabs(restored: ResultTab[], restoredActiveId: string | null) {
+    setTabsStore(produce((s: ResultTab[]) => {
+      s.length = 0
+      s.push(...restored)
+    }))
+    const fallback = restored.length > 0 ? restored[restored.length - 1].id : null
+    setActiveId(restored.some(t => t.id === restoredActiveId) ? restoredActiveId : fallback)
   }
 
   function addTabSilently(card: OutputCard) {
@@ -164,9 +188,10 @@ export function createTabStore() {
         fromAttachment: card.fromAttachment,
       })
     }))
+    notify()
   }
 
-  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, addTabSilently, renameTabByPath, reset }
+  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, addTabSilently, renameTabByPath, reset, restoreTabs }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

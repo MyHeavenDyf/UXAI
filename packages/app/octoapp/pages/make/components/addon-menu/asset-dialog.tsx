@@ -21,6 +21,7 @@ import { FolderIcon } from "./icons"
 import emptyPng from "../../icons/empty.png"
 
 interface AssetDialogProps {
+  trackerModule?: string
   open: boolean
   productId?: number
   selections: MentionSelection[]
@@ -159,7 +160,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     } else {
       props.onSelect(selection)
       setSelectedAssets(prev => new Map(prev).set(id, file))
-      tracker.interaction({ module: "design", name: "addon-select-product-asset", extend: JSON.stringify({ fileName: file.fileName }) })
+      tracker.interaction({ module: props.trackerModule ?? "design", name: "addon-select-product-asset", extend: JSON.stringify({ fileName: file.fileName }) })
     }
   }
 
@@ -447,7 +448,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                   class="asset-dialog-btn asset-dialog-btn-primary"
                   onClick={() => {
                     const selected = collectSelected()
-                    tracker.interaction({ module: "design", name: "addon-confirm-product-asset", extend: JSON.stringify({ count: selected.length }) })
+                    tracker.interaction({ module: props.trackerModule ?? "design", name: "addon-confirm-product-asset", extend: JSON.stringify({ count: selected.length }) })
                     props.onConfirm(selected)
                   }}
                 >
