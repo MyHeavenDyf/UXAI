@@ -19,9 +19,15 @@ export function insertAddonMentions(state: EditorState, selections: MentionSelec
     return [state.schema.nodes.mention.create(attrs), state.schema.text(" ")]
   })
   if (!nodes.length) return state.tr
-  const tr = state.tr.replaceSelectionWith(nodes[0])
+  const tr = state.tr
+  // 文件是附加引用，不替换草稿选区；取消勾选仅删除引用也能保留原文。
+  if (selections.every(selection => selection.type === "file")) {
+    tr.setSelection(TextSelection.near(tr.doc.resolve(tr.selection.to)))
+  }
+  const from = tr.selection.from
+  tr.replaceSelectionWith(nodes[0])
   if (nodes.length > 1) tr.insert(tr.selection.from, Fragment.from(nodes.slice(1)))
-  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tr.doc.content.size, state.selection.from + nodes.reduce((n, node) => n + node.nodeSize, 0)))))
+  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tr.doc.content.size, from + nodes.reduce((n, node) => n + node.nodeSize, 0)))))
   return tr
 }
 
