@@ -143,8 +143,20 @@ describe("buildOutput(给模型看的检索结果)", () => {
     expect(out).not.toContain("Signature")
   })
 
-  it("提醒模型不要承诺下载能力", () => {
-    expect(buildOutput(docs)).toContain("不要承诺可以为用户下载报告原文")
+  // 2026-10-13 内网实测:模型把前 3 篇来源改成了自己的 "1. 2. 3." 列表 + 整行裸地址,
+  // 只有后 2 篇用了 [n] 角标。这次两套编号恰好对齐,但那是运气——[n] 是映射到
+  // metadata.sources、由底部来源列表渲染的编号,命名空间归我们,不能让模型另起一套。
+  it("声明编号归属,禁止模型另起序号", () => {
+    const out = buildOutput(docs)
+    expect(out).toContain("不要另起一套自己的序号罗列这些来源")
+  })
+
+  // 下载意图不能是真空:留着真空,模型就会去检索另一个库碰运气(那正是 knowledge_search
+  // 被误触的根因之一)。给它一个正确的替代答案——引导用户点来源链接去内网下载。
+  it("给下载意图一个正确去处,而不是只说不行", () => {
+    const out = buildOutput(docs)
+    expect(out).toContain("不要改去检索别的库碰运气")
+    expect(out).toContain("点击引用里的来源链接")
   })
 
   it("超长正文按上限截断", () => {

@@ -90,6 +90,14 @@ describe("buildOutput(给模型看的检索结果)", () => {
     expect(fragments).toBe("无链接\n正文")
   })
 
+  // 2026-10-13 内网实测:模型把前 3 篇来源改成了自己的 "1. 2. 3." 列表 + 整行裸地址,
+  // 只有后 2 篇用了 [n] 角标。这次两套编号恰好对齐,但那是运气——[n] 是映射到
+  // metadata.sources、由底部来源列表渲染的编号,命名空间归我们,不能让模型另起一套。
+  it("声明编号归属,禁止模型另起序号", () => {
+    const out = buildOutput(docs)
+    expect(out).toContain("不要另起一套自己的序号罗列这些来源")
+  })
+
   it("超长正文按上限截断", () => {
     const long = parseDocs([{ documentId: "a", chunkTitle: "长文", chunkContent: "x".repeat(50) }])
     expect(buildOutput(long, 10)).toContain("xxxxxxxxxx…")
