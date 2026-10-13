@@ -35,6 +35,7 @@ type ApiProvider = {
   api?: string
   npm?: string
   env?: string[]
+  title_model?: string[]
   models?: Record<string, ApiModel> | ApiModel[]
 }
 
@@ -65,8 +66,19 @@ function localStorageValue(key: string) {
   return localStorage.getItem(key)?.trim() ?? ""
 }
 
-function uiplusToken() {
+export function modelsApiToken() {
   return localStorageValue("uiplusToken")
+}
+
+export function modelsApiThirdToken() {
+  if (typeof localStorage === "undefined") return ""
+  try {
+    const user = JSON.parse(localStorage.getItem("userInfo") ?? "") as unknown
+    if (!isRecord(user) || typeof user.thirdToken !== "string") return ""
+    return user.thirdToken.trim()
+  } catch {
+    return ""
+  }
 }
 
 function w3Account() {
@@ -81,7 +93,7 @@ function w3Account() {
 }
 
 export function hasModelsApiToken() {
-  return !!uiplusToken()
+  return !!modelsApiToken()
 }
 
 function modelsApiChannel() {
@@ -108,12 +120,14 @@ export function modelsApiUrl() {
 }
 
 export function modelsApiHeaders() {
-  const token = uiplusToken()
+  const token = modelsApiToken()
+  const thirdToken = modelsApiThirdToken()
   const account = w3Account()
   const url = modelsApiUrl()
   return {
     ...(url ? { "x-opencode-models-api-source": "http", "x-opencode-models-api-url": url } : {}),
     ...(token ? { uiplustoken: token } : {}),
+    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
     ...(account ? { "x-opencode-w3-account": account } : {}),
   }
 }
@@ -169,7 +183,14 @@ function apiModels(value: unknown): ApiModels {
   )
 }
 
-function withUiplusToken(api: ApiModels, token: string): ApiModels {
+function withThirdToken(headers: Record<string, string>, thirdToken: string) {
+  return {
+    ...Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== "x-auth-token")),
+    ...(thirdToken ? { "X-Auth-Token": thirdToken } : {}),
+  }
+}
+
+function withModelAuthHeaders(api: ApiModels, token: string, thirdToken: string): ApiModels {
   return Object.fromEntries(
     Object.entries(api).map(([providerID, provider]) => {
       if (!isApiProvider(provider)) return [providerID, provider]
@@ -181,13 +202,14 @@ function withUiplusToken(api: ApiModels, token: string): ApiModels {
           models: Object.fromEntries(
             Object.entries(provider.models).map(([modelID, model]) => {
               if (!isRecord(model)) return [modelID, model]
+              const item = model as ApiModel
               return [
                 modelID,
                 {
-                  ...model,
+                  ...item,
                   headers: {
-                    ...(isRecord(model.headers) ? model.headers : {}),
-                    uiplustoken: token,
+                    ...withThirdToken(item.headers ?? {}, thirdToken),
+                    ...(token ? { uiplustoken: token } : {}),
                   },
                 },
               ]
@@ -204,7 +226,8 @@ export function hasApiModels(api: ApiModels | undefined): api is ApiModels {
 }
 
 export async function fetchModelsApi() {
-  const token = uiplusToken()
+  const token = modelsApiToken()
+  const thirdToken = modelsApiThirdToken()
   const headers: Record<string, string> = token ? { uiplustoken: token } : {}
   const bridge = modelsApiBridge()
   const url = modelsApiUrl()
@@ -215,7 +238,7 @@ export async function fetchModelsApi() {
     const content = apiContent(data)
     const api = apiModels(content)
     console.log("[models-api] api.json received", api)
-    latestModelsApi = withUiplusToken(api, token)
+    latestModelsApi = withModelAuthHeaders(api, token, thirdToken)
     return latestModelsApi
   }
 
@@ -228,7 +251,7 @@ export async function fetchModelsApi() {
   const content = apiContent(data)
   const api = apiModels(content)
   console.log("[models-api] api.json received", api)
-  latestModelsApi = withUiplusToken(api, token)
+  latestModelsApi = withModelAuthHeaders(api, token, thirdToken)
   return latestModelsApi
 }
 
@@ -345,6 +368,14 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
       source: "remote" as const,
       env: Array.isArray(item.env) ? item.env.filter((value): value is string => typeof value === "string") : [],
       options: item.api?.trim() ? { baseURL: item.api.trim() } : {},
+      ...(Array.isArray(item.title_model)
+        ? {
+            title_model: item.title_model
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          }
+        : {}),
       models: {},
     }
     return [

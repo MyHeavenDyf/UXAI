@@ -14,7 +14,7 @@ import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 // disableIframesDuringDrag is currently unused after recent refactors
 // import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
@@ -100,6 +100,10 @@ export type AgentSidebarProps = {
 
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
+  /** Called when the user clicks the top "new session" button, before navigation. */
+  onNewSession?: () => void
+  /** Called after scrolling reveals more recent sessions. */
+  onLoadMore?: (limit: number) => void
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -131,6 +135,23 @@ export type AgentSidebarProps = {
   skillsActive?: boolean
 }
 
+// Module-level cache: AgentSidebar unmounts on every route switch (design↔insight),
+// and createResource is per-instance — without caching, each remount fires
+// fetchSessionPage + fetchPinnedSessions + fetchGroupSessions (3 requests) even
+// when nothing changed. This seeds the fetcher from the last result within
+// SIDEBAR_STALE_MS so rapid tab toggling (no session events between) is free.
+// Bust on SSE session events / explicit refetch so stale data never lingers.
+const SIDEBAR_STALE_MS = 30_000
+const SIDEBAR_CACHE_MAX = 8
+const sidebarCache = new Map<string, { sessions: Session[]; cursor?: string; at: number }>()
+
+function writeSidebarCache(key: string, value: { sessions: Session[]; cursor?: string; at: number }) {
+  sidebarCache.set(key, value)
+  if (sidebarCache.size <= SIDEBAR_CACHE_MAX) return
+  const oldest = [...sidebarCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+  if (oldest) sidebarCache.delete(oldest[0])
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
   const navigate = useNavigate()
@@ -145,12 +166,23 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
-  const [sessions, { refetch }] = createResource(
+  // Declared before createResource: the fetcher runs synchronously up to its
+  // first await, and the cache-hit branch calls setSessionCursor synchronously.
+  const [sessionCursor, setSessionCursor] = createSignal<string | undefined>(undefined)
+
+  const [sessions, { refetch: refetchResource }] = createResource(
     () => isOnboarding() ? "" : (resolvedDir() ?? ""),
     async (d: string) => {
       if (!d) {
         setFetchedDir(d)
         return [] as Session[]
+      }
+      const cacheKey = `${props.agentFilter}\n${d}`
+      const cached = sidebarCache.get(cacheKey)
+      if (cached && Date.now() - cached.at < SIDEBAR_STALE_MS) {
+        setSessionCursor(cached.cursor)
+        setFetchedDir(d)
+        return cached.sessions
       }
       try {
         if (props.fetchSessionPage) {
@@ -167,15 +199,19 @@ export function AgentSidebar(props: AgentSidebarProps) {
           const sorted = result.sessions
             .filter(s => !existingIds.has(s.id))
             .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          const merged = [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
+          writeSidebarCache(cacheKey, { sessions: merged, cursor: result.nextCursor, at: Date.now() })
           setFetchedDir(d)
-          return [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
+          return merged
         }
         const data = props.fetchSessions
           ? await props.fetchSessions(d)
           : ((await globalSDK.createClient({ directory: d }).session.list(props.listParams as any)).data ?? []) as Session[]
         const sorted = data.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+        const merged = sorted.filter(s => s.agent === props.agentFilter)
+        writeSidebarCache(cacheKey, { sessions: merged, cursor: undefined, at: Date.now() })
         setFetchedDir(d)
-        return sorted.filter(s => s.agent === props.agentFilter)
+        return merged
       } catch (err) {
         if (resolvedDir() !== d) return [] as Session[]
         setFetchedDir(d)
@@ -185,8 +221,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
     },
   )
 
+  // Bust the per-directory sidebar cache. Called on SSE session events and every
+  // explicit refetch so the fetcher always hits the network when data may have changed.
+  const bustSidebarCache = () => {
+    const d = resolvedDir()
+    if (d) sidebarCache.delete(`${props.agentFilter}\n${d}`)
+  }
+  // Wrap refetch to bust cache first — without this, refetch() would serve stale
+  // cache instead of re-requesting from the server.
+  const refetch = () => { bustSidebarCache(); return refetchResource() }
+
   const [sessionList, setSessionList] = createStore<Session[]>([])
-  const [sessionCursor, setSessionCursor] = createSignal<string | undefined>(undefined)
   const [loadingMoreSessions, setLoadingMoreSessions] = createSignal(false)
   const useServerPagination = () => !!props.fetchSessionPage
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
@@ -219,10 +264,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
     useServerPagination() ? sessionCursor() !== undefined : visibleCount() < recentSessions().length
   )
 
-  const loadMoreFromServer = async () => {
+  const loadMoreFromServer = async (fromScroll = false) => {
     if (loadingMoreSessions() || sessionCursor() === undefined) return
     const d = resolvedDir()
     if (!d || !props.fetchSessionPage) return
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "load-more-sessions" })
     setLoadingMoreSessions(true)
     try {
       let cursor = sessionCursor()
@@ -238,7 +284,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         const existingIds = new Set(sessionList.map(s => s.id))
         const deduped = filtered.filter(s => !existingIds.has(s.id))
         if (deduped.length > 0) {
+          const previousRecentCount = recentSessions().length
           setSessionList(produce((draft) => { draft.push(...deduped) }))
+          if (fromScroll && recentSessions().length > previousRecentCount) props.onLoadMore?.(recentSessions().length)
           loadedAny = true
           break
         }
@@ -252,7 +300,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
-  createEffect(on(resolvedDir, () => { setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
+  createEffect(on(resolvedDir, () => { userScrolled = false; setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
 
   createEffect(on(displayedRecentSessions, () => {
     requestAnimationFrame(() => {
@@ -273,7 +321,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const d = resolvedDir()
     if (!d) return
     const newVal = !session.pinned
+    tracker.interaction({ module: props.trackerModule ?? "session", name: newVal ? "pin-session" : "unpin-session" })
     const previousSortOrder = session.sort_order
+    const restore = peekRecentSortOrderBeforePin(id) ?? 0
     if (newVal) {
       batch(() => {
         setSessionList(idx, "sort_order", -1)
@@ -282,11 +332,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
     } else {
       batch(() => {
         setSessionList(idx, "pinned", false)
-        setSessionList(idx, "sort_order", session.time.updated)
+        setSessionList(idx, "sort_order", restore)
       })
     }
+    bustSidebarCache()
     try {
-      await togglePinSession(id, newVal, d)
+      await togglePinSession(
+        id,
+        newVal,
+        d,
+        newVal ? { rememberRecentOrder: Number(previousSortOrder) } : { restoreRecentOrder: restore },
+      )
     } catch (err) {
       // Revert optimistic update on failure
       batch(() => {
@@ -308,6 +364,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     })
     const d = resolvedDir()
     if (!d) return
+    bustSidebarCache()
     const client = globalSDK.createClient({ directory: d })
     await client.session.reorder({ ids })
   }
@@ -324,6 +381,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     })
     const d = resolvedDir()
     if (!d) return
+    bustSidebarCache()
     const client = globalSDK.createClient({ directory: d })
     await client.session.reorder({ ids })
   }
@@ -361,47 +419,73 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   async function performSessionMove(target: SessionDropTarget) {
     const sourceId = draggingSessionId()
-    if (!sourceId) { handleSessionDragEnd(); return }
-    const source = sessionList.find(s => s.id === sourceId)
-    if (!source) { handleSessionDragEnd(); return }
-
-    const sourceIsPinned = !!source.pinned
-    const sourceGroup = props.sessionGroupMapping?.[sourceId]?.groupId
-
-    if (target.type === "session") {
-      const { sessionId: targetId, position, section, groupId } = target
-      if (sourceId === targetId) { handleSessionDragEnd(); return }
-      if (section === "pinned") {
-        if (!sourceIsPinned) {
-          if (sourceGroup) props.onRemoveFromGroup?.(source)
-          void togglePin(sourceId)
-        }
-        void reorderPinned(sourceId, targetId, position)
-      } else if (section === "recent") {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup) props.onRemoveFromGroup?.(source)
-        void reorderRecent(sourceId, targetId, position)
-      } else if (section === "group" && groupId) {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup !== groupId) await props.onMoveToGroup?.(source, groupId)
-        props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
-      }
-    } else if (target.type === "section") {
-      if (target.section === "pinned") {
-        if (!sourceIsPinned) {
-          if (sourceGroup) props.onRemoveFromGroup?.(source)
-          void togglePin(sourceId)
-        }
-      } else if (target.section === "recent") {
-        if (sourceIsPinned) void togglePin(sourceId)
-        if (sourceGroup) props.onRemoveFromGroup?.(source)
-      }
-    } else if (target.type === "group" && target.groupId) {
-      if (sourceIsPinned) void togglePin(sourceId)
-      if (sourceGroup !== target.groupId) await props.onMoveToGroup?.(source, target.groupId)
-    }
-
+    // Reset the drag UI up front (clears the highlight, restores iframe
+    // pointer-events) instead of waiting for the awaited pin/unpin below, which
+    // can take a network round-trip and would otherwise leave the sidebar in a
+    // "still dragging" state after the drop.
     handleSessionDragEnd()
+    if (!sourceId) return
+    const source = sessionList.find(s => s.id === sourceId)
+    if (!source) return
+
+    try {
+      const mod = props.trackerModule ?? "session"
+      const sourceIsPinned = !!source.pinned
+      const sourceGroup = props.sessionGroupMapping?.[sourceId]?.groupId
+
+      if (target.type === "session") {
+        const { sessionId: targetId, position, section, groupId } = target
+        if (sourceId === targetId) return
+        if (section === "pinned") {
+          if (!sourceIsPinned) {
+            if (sourceGroup) props.onRemoveFromGroup?.(source)
+            // Await the pin toggle so its server-side reorder lands before the
+            // explicit drag reorder below (otherwise they can interleave and the
+            // dragged position is lost on refetch).
+            await togglePin(sourceId)
+          }
+          tracker.interaction({ module: mod, name: "reorder-pinned-session" })
+          void reorderPinned(sourceId, targetId, position)
+        } else if (section === "recent") {
+          // Await the unpin toggle so its sort_order write lands before the drag
+          // reorder below; concurrent requests can otherwise persist the wrong
+          // order on the server.
+          if (sourceIsPinned) await togglePin(sourceId)
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          tracker.interaction({ module: mod, name: "reorder-recent-session" })
+          void reorderRecent(sourceId, targetId, position)
+        } else if (section === "group" && groupId) {
+          if (sourceIsPinned) void togglePin(sourceId)
+          if (sourceGroup !== groupId) {
+            tracker.interaction({ module: mod, name: "drag-session-to-group" })
+            await props.onMoveToGroup?.(source, groupId)
+          } else {
+            tracker.interaction({ module: mod, name: "reorder-group-session" })
+          }
+          void props.onReorderGroupSessions?.(groupId, sourceId, targetId, position)
+        }
+      } else if (target.type === "section") {
+        if (target.section === "pinned") {
+          if (!sourceIsPinned) {
+            if (sourceGroup) props.onRemoveFromGroup?.(source)
+            void togglePin(sourceId)
+          }
+          tracker.interaction({ module: mod, name: "drag-session-to-pinned" })
+        } else if (target.section === "recent") {
+          if (sourceIsPinned) void togglePin(sourceId)
+          if (sourceGroup) props.onRemoveFromGroup?.(source)
+          tracker.interaction({ module: mod, name: "drag-session-to-recent" })
+        }
+      } else if (target.type === "group" && target.groupId) {
+        if (sourceIsPinned) void togglePin(sourceId)
+        if (sourceGroup !== target.groupId) {
+          tracker.interaction({ module: mod, name: "drag-session-to-group" })
+          await props.onMoveToGroup?.(source, target.groupId)
+        }
+      }
+    } catch (err) {
+      console.error("[agent-sidebar] performSessionMove failed", { error: String(err) })
+    }
   }
 
   createEffect(on(sessions, (data) => {
@@ -413,6 +497,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let pendingScrollId: string | null = null
+  let userScrolled = false
+  let programmaticScroll = false
+  let programmaticScrollTimer: ReturnType<typeof setTimeout> | undefined
 
   type PendingSessionEvent = {
     type: "session.created" | "session.updated" | "session.deleted"
@@ -421,13 +508,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
   const pendingSessionEvents: PendingSessionEvent[] = []
 
+  // Smooth scrolling keeps emitting scroll events; onScroll refreshes the
+  // timer while they arrive, so the flag clears shortly after scrolling stops
+  // instead of after an arbitrary fixed delay.
+  function armProgrammaticScrollReset() {
+    clearTimeout(programmaticScrollTimer)
+    programmaticScrollTimer = setTimeout(() => { programmaticScroll = false }, 250)
+  }
+
   function scrollToSession(id: string) {
+    programmaticScroll = true
+    clearTimeout(programmaticScrollTimer)
     setTimeout(() => {
-      if (!scrollContainer) return
+      if (!scrollContainer) { programmaticScroll = false; return }
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
-      if (!el) return
+      if (!el) { programmaticScroll = false; return }
       const elTop = el.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top + scrollContainer.scrollTop
       scrollContainer.scrollTo({ top: Math.max(0, elTop - 46), behavior: "smooth" })
+      armProgrammaticScrollReset()
     }, 50)
   }
 
@@ -516,9 +614,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
+      bustSidebarCache()
       if (t === "session.updated") {
         const activeId = props.activeSessionId()
-        if (activeId) pendingScrollId = activeId
+        if (activeId && !userScrolled) pendingScrollId = activeId
       }
       clearTimeout(refetchTimer)
       const evtProps = e.details.properties as { sessionID?: string; info?: Session }
@@ -531,7 +630,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (pendingScrollId) {
             const id = pendingScrollId
             pendingScrollId = null
-            scrollToSession(id)
+            if (!userScrolled) scrollToSession(id)
           }
         } else {
           pendingSessionEvents.length = 0
@@ -539,7 +638,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           if (pendingScrollId) {
             const id = pendingScrollId
             pendingScrollId = null
-            scrollToSession(id)
+            if (!userScrolled) scrollToSession(id)
           }
         }
       }, 1000)
@@ -551,9 +650,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const el = scrollContainer
     if (!el) return
     const onScroll = () => {
+      if (programmaticScroll) armProgrammaticScrollReset()
+      else userScrolled = true
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions()) {
-        if (useServerPagination()) void loadMoreFromServer()
-        else setVisibleCount(prev => prev + VISIBLE_BATCH)
+        if (useServerPagination()) void loadMoreFromServer(true)
+        else {
+          setVisibleCount(prev => prev + VISIBLE_BATCH)
+          props.onLoadMore?.(Math.min(visibleCount(), recentSessions().length))
+        }
       }
     }
     el.addEventListener("scroll", onScroll, { passive: true })
@@ -569,6 +673,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => resizeObserver.disconnect())
   })
   onCleanup(() => { clearTimeout(refetchTimer) })
+  onCleanup(() => clearTimeout(programmaticScrollTimer))
 
   // Listen for rename events from chat area to scroll to active session
   const handleSessionRenamed = () => {
@@ -605,6 +710,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // Refetch on active session change (safety net for event races)
   createEffect(on(props.activeSessionId, (newId, oldId) => {
     if (newId && newId !== oldId) {
+      // Navigating to a different session re-enables auto-scroll; a manual
+      // scroll should only suppress it while reading a given session.
+      userScrolled = false
       scheduleSidebarAction(500, () => {
         if (!useServerPagination()) void refetch()
         else void backfillActiveSession()
@@ -665,8 +773,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function handleCreateGroupForSession(session: Session) {
-    const mod = props.trackerModule ?? "session"
-    tracker.interaction({ module: mod, name: "create-group-for-session" })
     if (session.pinned) void togglePin(session.id)
     props.onCreateGroupForSession?.(session)
     closeContextMenu()
@@ -715,6 +821,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
     const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
     if (!ok) return
+    bustSidebarCache()
 
     closeContextMenu()
     setSessionList(
@@ -725,7 +832,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
     )
     if (props.activeSessionId() === session.id) {
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(session))
-      void refetch()
     }
   }
 
@@ -739,6 +845,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       if (ok) deleted.add(s.id)
     }))
     if (deleted.size) {
+      bustSidebarCache()
       setSessionList(
         produce((draft) => {
           for (let i = draft.length - 1; i >= 0; i--) {
@@ -752,7 +859,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
       const remaining = sessionList.filter((s) => !ids.has(s.id) && !s.time?.archived)
       const nextSession = pickNextSession(remaining, activeId)
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(sessions[0]))
-      void refetch()
     }
   }
 
@@ -792,10 +898,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
     createTimer = setTimeout(() => setCreating(false), 500)
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "new-session" })
+    if (props.sidebarSourceKey) {
+      layout.lastSessionPerTab.setNewConversation(
+        props.sidebarSourceKey === "insight" ? "cowork" : props.sidebarSourceKey,
+        true,
+      )
+    }
+    props.onNewSession?.()
     navigate(props.buildNewRoute())
   }
 
   return (
+    <>
     <SidebarShell
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
@@ -812,7 +926,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
               onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
               classList={{ "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0) }}
             >
-              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => setPinnedCollapsed(v => !v)} class="section-header-inline" />
+              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-pinned-section" }); setPinnedCollapsed(v => !v) }} class="section-header-inline" />
             <Show when={!pinnedCollapsed()}>
               <SessionList
                 sessions={pinnedSessions()}
@@ -871,7 +985,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       )}
       inlineBeforeSection={props.inlineBeforeSection}
       collapsed={collapsed()}
-      onToggleCollapse={() => setCollapsed(v => !v)}
+      onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-recent-section" }); setCollapsed(v => !v) }}
       activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
       onNavClick={(key) => {
         if (key === "skill_market" || key === "knowledge_base") {
@@ -914,7 +1028,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
         onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
         plainEmptyDropZone
       />
-      <SessionContextMenu
+    </SidebarShell>
+    <SessionContextMenu
         show={contextMenu.show && !!contextMenu.session}
         x={contextMenu.x}
         y={contextMenu.y}
@@ -942,6 +1057,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           closeContextMenu()
         }}
       />
-    </SidebarShell>
+    </>
   )
 }

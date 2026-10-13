@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
-import { buildStudioConversationContext, buildStudioTurns } from "./turns"
+import { buildStudioConversationContext, buildStudioTurns, parseToolMedia } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
 describe("Studio generation status merging", () => {
@@ -44,6 +44,33 @@ describe("Studio model resolution mapping", () => {
   test("recognizes the persisted Seedream display name", () => {
     expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
     expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
+  })
+})
+
+describe("Studio structured media", () => {
+  test("preserves original and generated thumbnail fields", () => {
+    expect(parseToolMedia(JSON.stringify({
+      media: [{
+        id: "studio_img_1",
+        kind: "image",
+        url: "https://example.com/original.png",
+        remoteUrl: "https://example.com/original.png",
+        thumbnailUrl: ".octo/ses_1/thumbnails/studio_gen_1-0.webp",
+        thumbnailStatus: "ready",
+        width: 2048,
+        height: 1024,
+      }],
+    }))).toEqual([{
+      id: "studio_img_1",
+      kind: "image",
+      url: "https://example.com/original.png",
+      remoteUrl: "https://example.com/original.png",
+      thumbnailUrl: ".octo/ses_1/thumbnails/studio_gen_1-0.webp",
+      thumbnailStatus: "ready",
+      width: 2048,
+      height: 1024,
+      duration: undefined,
+    }])
   })
 })
 
@@ -218,6 +245,7 @@ const completedGenerationToolPart = (
   input: Record<string, unknown>,
   output: Record<string, unknown> = {},
   tool = "internel_image_generate",
+  studio?: Record<string, unknown>,
 ) =>
   ({
     id,
@@ -236,6 +264,7 @@ const completedGenerationToolPart = (
         images: ["https://example.com/regenerate.png"],
         ...output,
       }),
+      metadata: studio ? { studio } : undefined,
     },
   }) as Part
 
@@ -254,6 +283,29 @@ const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): 
   }) as StudioGenerationResult
 
 describe("buildStudioTurns", () => {
+  test("uses the persisted generation id for completed media", () => {
+    const user = userMessage("msg_completed_user")
+    const assistant = assistantMessage("msg_completed_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_completed_user", user.id, "生成图片")],
+        [assistant.id]: [
+          completedGenerationToolPart(
+            "prt_completed",
+            assistant.id,
+            { capability: "image.generate" },
+            { media: [{ id: "media_1", kind: "image", url: "https://example.com/result.png" }] },
+            "internel_image_generate",
+            { generationID: "studio_gen_completed", status: "succeeded", progress: 100 },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.id).toBe("studio_gen_completed")
+  })
+
   test("restores persisted editor entry turns", () => {
     const user = userMessage("msg_editor_user")
     const assistant = assistantMessage("msg_editor_assistant", 2)
@@ -772,6 +824,39 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.model).toBe("magnify")
     expect(turns[0].result?.aspectRatio).toBe("16:9")
     expect(turns[0].result?.images[0]?.width).toBe(1280)
+  })
+
+  test("restores mentions from a style-template generation", () => {
+    const m1 = userMessage("msg_template_user")
+    const a1 = assistantMessage("msg_template_assistant", 2)
+    const mention = "@人物\u200B制作一张海报"
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_template_user", m1.id, mention)],
+        [a1.id]: [toolPart(
+          "p_template_tool",
+          a1.id,
+          JSON.stringify({ images: ["https://example.com/result.png"] }),
+          "internel_image_generate",
+          {
+            capability: "image.generate",
+            prompt: mention,
+            displayPrompt: mention,
+            referenceImages: ["https://example.com/person.png"],
+            extra: {
+              mentionImages: { 人物: "https://example.com/person.png" },
+              referenceImageNames: ["人物.png"],
+              template: { id: 1, prompt: { custom: mention } },
+            },
+          },
+        )],
+      },
+    })
+
+    expect(turns[0].userText).toBe(mention)
+    expect(turns[0].mentionImages).toEqual({ 人物: "https://example.com/person.png" })
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual(["https://example.com/person.png"])
   })
 
   test("ignores request urls when extracting images from tool output", () => {

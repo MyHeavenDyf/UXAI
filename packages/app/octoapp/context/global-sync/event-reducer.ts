@@ -17,6 +17,7 @@ import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { clearSessionSnapshots } from "@/pages/make/utils/snapshot-store"
+import { clearSessionTabs } from "@/pages/make/utils/tab-state-store"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -170,6 +171,7 @@ export function cleanupDroppedSessionCaches(
   for (const sessionID of stale) {
     setSessionTodo?.(sessionID, undefined)
     clearSessionSnapshots(sessionID)
+    clearSessionTabs(sessionID)
   }
   setStore(
     produce((draft) => {
@@ -250,6 +252,8 @@ export function applyDirectoryEvent(input: {
         )
       }
       cleanupSessionCaches(input.setStore, info.id, input.setSessionTodo)
+      // 删除是终态:清理该 session 的 tab 恢复存档,防止 localStorage 泄漏
+      clearSessionTabs(info.id)
       if (info.parentID) break
       input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
       break

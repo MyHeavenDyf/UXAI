@@ -16,7 +16,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
@@ -181,13 +181,19 @@ export function ConversationHeader(
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    await togglePinSession(session.id, newPinned, sdk.directory)
+    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    await togglePinSession(
+      session.id,
+      newPinned,
+      sdk.directory,
+      newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+    )
     sync.set(
       produce((draft) => {
         const index = draft.session.findIndex((s) => s.id === session.id)
         if (index === -1) return
         draft.session[index].pinned = newPinned
-        draft.session[index].sort_order = newPinned ? -1 : (session.time.updated ?? 0)
+        draft.session[index].sort_order = newPinned ? -1 : restore
       }),
     )
   }
@@ -199,6 +205,7 @@ export function ConversationHeader(
 
   function handleMenuTogglePin(session: Session) {
     closeMenu()
+    tracker.interaction({ module: "insight", name: session.pinned ? "unpin-session" : "pin-session" })
     void togglePinCurrent(session)
   }
 
@@ -223,12 +230,12 @@ export function ConversationHeader(
 
   function handleMenuCreateGroupForSession(session: Session) {
     closeMenu()
-    tracker.interaction({ module: "insight", name: "create-group-for-session" })
     if (session.pinned) void togglePinCurrent(session)
     dialog.show(() => (
       <DialogCreateGroup
         existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
       onCreate={async (name) => {
+        tracker.interaction({ module: "insight", name: "create-group-for-session" })
         const id = await groupsCtx?.addGroup(name)
         if (id) {
           await groupsCtx?.moveSessionToGroup(session.id, id)

@@ -3,8 +3,6 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -14,7 +12,7 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards, findWriteOnlyCards, findEditCards, basename } from "../utils/write-output"
+import { findWriteCards, basename } from "../utils/write-output"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
@@ -40,6 +38,15 @@ export type OutputCard = {
   description?: string      // uri 模式来自 resource_link.description,卡片副标题
   size?: number            // 字节数:仅文件管理开页签时带入(InsightFileEntry.size),供归档前置判定超限;其余来源无
   createdAt: Date
+  fromAttachment?: boolean  // 会话区点击附件打开 → ActionBar 走 design 风格(刷新/复制/下载/历史/全屏),不加归档/本地打开等
+}
+
+export type UserAttachment = {
+  filename: string
+  url?: string
+  mime?: string
+  isLocal: boolean
+  path?: string
 }
 
 // eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
@@ -57,13 +64,6 @@ const refreshedWritePaths = new Set<string>()
 // 内的 baseline 快照(首次观测即视为历史,不报)负责——两层配合才不会在每次加载会话时虚增计数。
 const trackedServerUsageKeys = new Set<string>()
 
-// 「统计产物」打点去重(artifact-file-write / artifact-file-edit / artifact-mcp-return):记已上报过的产物 key,
-// 避免同一文件/链接在 memo 重算 / turn 重挂时重复上报。key 格式:
-//   - write:<messageID>:<filePath>
-//   - edit:<messageID>:<filePath>
-//   - mcp:<messageID>:<uri>
-const trackedArtifactKeys = new Set<string>()
-
 /** 识别 skill 工具调用 part。skill 是内置工具(无 MCP 前缀),完成后 state.metadata.name = 解析出的技能名。 */
 function readSkillUsage(part: unknown): { partId: string; skill: string } | undefined {
   if (!part || typeof part !== "object") return undefined
@@ -75,25 +75,6 @@ function readSkillUsage(part: unknown): { partId: string; skill: string } | unde
   const meta = state.metadata as Record<string, unknown> | undefined
   const name = meta?.name
   return typeof name === "string" && name.length > 0 ? { partId: id, skill: name } : undefined
-}
-
-/** 按文件类型聚合计数,用于 artifact-file-write / artifact-file-edit 上报。 */
-function aggregateByFileType(items: Array<{ fileType: string }>): Array<{ type: string; count: number }> {
-  const map: Record<string, number> = {}
-  for (const item of items) map[item.fileType] = (map[item.fileType] ?? 0) + 1
-  return Object.entries(map).map(([type, count]) => ({ type, count }))
-}
-
-/** 按文件类型+工具名聚合计数,用于 artifact-mcp-return 上报(保留每个 type+tool 组合的 tool 字段)。 */
-function aggregateByFileTypeWithTool(items: Array<{ fileType: string; tool: string }>): Array<{ type: string; count: number; tool: string }> {
-  const map: Record<string, { type: string; count: number; tool: string }> = {}
-  for (const item of items) {
-    const key = `${item.fileType}::${item.tool}`
-    const existing = map[key]
-    if (existing) existing.count += 1
-    else map[key] = { type: item.fileType, count: 1, tool: item.tool }
-  }
-  return Object.values(map)
 }
 
 // 路径 B 嗅探规则:html fence 与 mindmap shape JSON 互相独立,允许同时命中。
@@ -193,10 +174,11 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   /** uri 产物落盘完成 → 把 pending 期间开的 tab 绑定到磁盘路径(SPEC-INS-026 §6.2 身份转正) */
   onMaterialized?: (cardId: string, localPath: string) => void
+  /** 点击用户附件(文件卡片/图片缩略图)→ 右侧 ResultViewer tab 预览(对齐 Design 页) */
+  onOpenAttachment?: (att: UserAttachment) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
-  const dialog = useDialog()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -522,100 +504,6 @@ export function InsightTurn(props: {
     if (fresh) props.onFilesRefresh?.()
   })
 
-  // 统计产物打点(artifact-file-write / artifact-file-edit):
-  //   - artifact-file-write:write 工具调用产生的文件(含覆盖写),按文件类型聚合上报
-  //   - artifact-file-edit:edit 工具调用产生的文件,按文件类型聚合上报
-  //
-  // baseline 快照(artifactFileBaselineTaken):首次观测本 turn 实例时,把当前已存在的 write/edit 产物全部记为「历史」
-  // 不上报——避免刷新/切回会话重挂 turn 时把历史产物当成新事件重报。之后新到达的产物才上报。
-  let artifactFileBaselineTaken = false
-  createEffect(() => {
-    const parts = turnAssistantParts()
-    const generating = showGenerating()
-    const writes = findWriteOnlyCards(parts)
-    const edits = findEditCards(parts)
-
-    if (!artifactFileBaselineTaken) {
-      artifactFileBaselineTaken = true
-      for (const w of writes) trackedArtifactKeys.add(`write:${props.messageID}:${w.filePath}`)
-      for (const e of edits) trackedArtifactKeys.add(`edit:${props.messageID}:${e.filePath}`)
-      return
-    }
-    if (generating) return
-
-    const newWrites: Array<{ fileType: string }> = []
-    for (const w of writes) {
-      const key = `write:${props.messageID}:${w.filePath}`
-      if (trackedArtifactKeys.has(key)) continue
-      trackedArtifactKeys.add(key)
-      newWrites.push({ fileType: w.type })
-    }
-    if (newWrites.length > 0) {
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-file-write",
-        extend: JSON.stringify({ files: aggregateByFileType(newWrites) }),
-      })
-    }
-
-    const newEdits: Array<{ fileType: string }> = []
-    for (const e of edits) {
-      const key = `edit:${props.messageID}:${e.filePath}`
-      if (trackedArtifactKeys.has(key)) continue
-      trackedArtifactKeys.add(key)
-      newEdits.push({ fileType: e.type })
-    }
-    if (newEdits.length > 0) {
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-file-edit",
-        extend: JSON.stringify({ files: aggregateByFileType(newEdits) }),
-      })
-    }
-  })
-
-  // 统计产物打点(artifact-mcp-return):检测 MCP resource_link 类型的产物文件并上报。
-  // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件)。
-  // 上报方式:按文件类型聚合(与 artifact-file-write 对称),每次 effect 触发时把本轮新增的
-  // resource_link 按 type 分组计数后一次上报,包含产生该文件的 MCP 工具名(便于分析哪些工具产出率最高)。
-  //
-  // baseline 快照(artifactMcpBaselineTaken):首次观测本 turn 实例时,把当前已存在的 links 全部记为「历史」
-  // 不上报——避免刷新/切回会话重挂 turn 时把历史 MCP 返回文件当成新事件重报。之后新到达的 link 才上报。
-  let artifactMcpBaselineTaken = false
-  createEffect(() => {
-    const parts = turnAssistantParts()
-    const generating = showGenerating()
-    const links = findResourceLinks(parts)
-
-    if (!artifactMcpBaselineTaken) {
-      artifactMcpBaselineTaken = true
-      for (const link of links) {
-        trackedArtifactKeys.add(`mcp:${props.messageID}:${link.uri}`)
-      }
-      return
-    }
-    if (generating) return
-
-    const newLinks: Array<{ fileType: string; tool: string }> = []
-    for (const link of links) {
-      const key = `mcp:${props.messageID}:${link.uri}`
-      if (trackedArtifactKeys.has(key)) continue
-      trackedArtifactKeys.add(key)
-      newLinks.push({
-        fileType: linkToOutputType(link),
-        tool: link.business_type || "unknown",
-      })
-    }
-
-    if (newLinks.length > 0) {
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-mcp-return",
-        extend: JSON.stringify({ files: aggregateByFileTypeWithTool(newLinks) }),
-      })
-    }
-  })
-
   // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):
   //   - server-mcp-used:某业务 MCP 工具真实被模型调用并提交长任务(每 task_id 一次),extend {tool,taskId}
   //   - server-skill-used:某 skill 真实被模型调用(每 skill part 一次),extend {skill}
@@ -701,23 +589,32 @@ export function InsightTurn(props: {
         <div class="octo-input-attachments">
           <For each={inputAttachments()}>
             {(f) => (
-              <div class="octo-input-attachment-card" title={f.filename}>
+              <button
+                type="button"
+                class="octo-input-attachment-card"
+                title="点击预览"
+                onClick={() => props.onOpenAttachment?.({ filename: f.filename, isLocal: true, path: f.path })}
+                style={{ cursor: "pointer", font: "inherit" }}
+              >
                 <img class="octo-input-attachment-card__icon" src={fileTypeIconUrl(f.filename)} width={24} height={24} alt="" aria-hidden="true" />
                 <span class="octo-input-attachment-card__name">{f.filename}</span>
-              </div>
+              </button>
             )}
           </For>
           <For each={inputImages()}>
             {(img) => (
-              <img
-                src={img.url}
+              <button
+                type="button"
                 title={img.filename}
-                alt={img.filename}
-                // 点击放大:复用上游 Message 用的同一个 ImagePreview 弹窗,这样"接管"之后
-                // 交互与上游那层等价,不是只把图挪个位置。
-                onClick={() => dialog.show(() => <ImagePreview src={img.url} alt={img.filename} />)}
-                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0", cursor: "pointer" }}
-              />
+                onClick={() => props.onOpenAttachment?.({ filename: img.filename, url: img.url, isLocal: false })}
+                style={{ width: "48px", height: "48px", padding: 0, border: "none", background: "transparent", cursor: "pointer", "flex-shrink": "0", "border-radius": "8px", overflow: "hidden" }}
+              >
+                <img
+                  src={img.url}
+                  alt={img.filename}
+                  style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                />
+              </button>
             )}
           </For>
         </div>

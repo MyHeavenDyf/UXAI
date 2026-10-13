@@ -24,7 +24,7 @@
 | session-switch | 在会话列表点击切到另一个历史会话（点当前会话不计） | `targetSessionId` | `session-list/index.tsx` 会话条目 onClick |
 | session-rename | 会话重命名提交成功 | `entry`(menu=列表右键 / header=对话头部) | `session-list/index.tsx` `handleRenameConfirm` + `conversation-header.tsx` `saveTitleEditor` |
 | session-delete | 会话删除成功 | `entry`(menu / header) | `session-list/index.tsx` `handleDelete` + `conversation-header.tsx` `deleteSession` |
-| session-load-more | 会话列表点「加载更多」（已显示数 < 该目录 insight 会话 total 时出现，SPEC-INS-013 服务端分页） | `limit`(加载后的新上限)、`source`(panel=insight 侧栏 / shell=外壳侧栏) | `session-list/index.tsx` `loadMore` + `_shell/sidebar.tsx` `loadMore` |
+| session-load-more | Insight 最近列表由滚动事件触发服务端分页、成功追加新会话后一次；首次加载、自动补页、失败和无新增会话不报。旧外壳仍为按钮触发 | `limit`(追加后「最近」列表实际可见会话数；panel 不代表接口请求数量)、`source`(panel=insight 侧栏 / shell=旧外壳侧栏) | `components/agent-sidebar.tsx` 分页成功回调 → `insight/sidebar.tsx` `onLoadMore`；旧 `_shell/sidebar.tsx` `loadMore` |
 
 ## 三、消息发送 / 对话
 
@@ -113,13 +113,15 @@
 > 也可能一次调用产出多个文件（server-mcp-used 1 次 but artifact-mcp-return 多个 type）。
 >
 > **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
-> 两者独立计数，按工具调用类型区分。bash 脚本副作用产生的文件不在此列（无法可靠识别，见方案 A）。
+> Shell（协议工具名 bash，含 PowerShell/Python/Office COM/浏览器导出）通过 `artifactFiles` 声明最终目标后，服务端在成功退出前后核验文件变化：新增映射 write、已有内容变化映射 edit，source=script。仅覆盖原会话 outputs/uploads，不扫描目录，也不保证覆盖未声明文件。详见 [服务端方案](./server-artifact-delivery.md)。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
-| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
-| artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
-| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
+| artifact-file-write | write 工具成功完成（含覆盖写），或 Shell 声明目标经核验新增 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-file-edit | edit 工具成功完成，或 Shell 声明的已有目标经核验字节变化 | `files: [{type, count: 1}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+| artifact-mcp-return | MCP 成功返回有效资源；异步任务等用户查询 completed | `files: [{type, count: 1, tool}]`，另含 eventId、source、原轮次 | 服务端 `tracking/store.ts` |
+
+这三个事件已移除前端发送，不依赖会话页面。异步 MCP 不主动轮询；完整去重、重试、配置及验收说明见 [服务端产物打点方案](./server-artifact-delivery.md)。
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 
@@ -129,6 +131,15 @@
 |------|----------|------------|----------|
 | mention-open | 输入框首次键入 `@` 唤起引用面板（面板由关到开的那一次） | — | `index.tsx` `trackMentionOpen`（由 `prosemirror-editor` 的 `onMentionOpen` 回调触发） |
 | mention-select | 在面板中选中一项（技能或文件） | `type`(skill / file) | `index.tsx` `trackMentionSelect`（由 `prosemirror-editor` 的 `onMentionSelect` 回调触发） |
+
+## 十二、统一工具调用
+
+| name | 触发时机 | extend 字段 | 代码位置 |
+|------|----------|------------|----------|
+| agent-tool-call-start | 服务端收到完整调用；执行前参数快照，每 invocationId 一次 | 工具名/类型、参数、会话/消息/Agent/模型及父调用、开始时间 | `tracking/calls.ts`，`session/prompt.ts` / `processor.ts` / `llm.ts` |
+| agent-tool-call-end | 成功/失败/拒绝/取消/超时/中断；每 invocationId 一次 | status、耗时、结果摘要、错误、变化后的参数及关联字段 | 同上；`tracking/sender.ts` 恢复和持久化发送 |
+
+完整字段、限长过滤、异步 MCP 与业务状态区别、子代理关联和统计口径见 [统一工具调用埋点](./tool-call-tracking.md)。一次调用两条事件，不能相加当调用量；已有业务和产物事件保持独立。
 
 ## 已废弃
 

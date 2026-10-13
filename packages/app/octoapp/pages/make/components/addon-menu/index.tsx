@@ -1,9 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
-import { Portal } from "solid-js/web"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
@@ -11,43 +9,23 @@ import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
-import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
+import { LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
 import { assetFileId, type AssetFile } from "./asset-library"
 import { AssetDialog } from "./asset-dialog"
 import { tracker } from "@/utils/tracker"
-import type { MentionSelection } from "../mention-popover"
+import type { AddonMenuProps, AddonMenuItemKey, MenuSelection, AddonSkillConfig } from "./types"
 import "./styles.css"
 
-interface AddonMenuProps {
-  skillConfig: {
-    skill?: Record<string, SkillConfigEntry>
-    panel?: {
-      common?: PanelSkill[]
-      octo_make?: PanelSkill[]
-    }
-  }
-  artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
-  selections: MentionSelection[]
-  onSelect: (selection: MentionSelection) => void
-  onDeselect: (selection: MentionSelection) => void
-  onAddAttachment: () => void
-  onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<void>
-  onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
-  onUpdateMentionPath?: (filename: string, path: string) => void
-  productId?: number
-  onEnterDesignStrategy?: () => void
-  planActive?: boolean
-  onEnterPatternPage?: () => void
-  patternPageActive?: boolean
-  onOpen?: () => void
-  disabled: boolean
-}
+export type { AddonMenuProps, AddonMenuItemKey, AddonMenuSlot, MenuSelection, AddonSkillConfig } from "./types"
+type MentionSelection = MenuSelection
 
 export function AddonMenu(props: AddonMenuProps): JSX.Element {
-  const { request, gate } = useUploadRiskGate()
+  const trackerModule = () => props.trackerModule ?? "design"
+  const { request, gate } = useUploadRiskGate({ module: trackerModule() })
+  const skillCfg = () => props.skillConfig ?? {}
 
   const [open, setOpen] = createSignal(false)
-  const [activeSecondary, setActiveSecondary] = createSignal<'skills' | 'files' | 'assets' | null>(null)
+  const [activeSecondary, setActiveSecondary] = createSignal<string | null>(null)
   const [skillsCategory, setSkillsCategory] = createSignal<'platform' | 'custom'>('platform')
   const [urlDialogOpen, setUrlDialogOpen] = createSignal(false)
   const [urlValue, setUrlValue] = createSignal("")
@@ -118,8 +96,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }, 100)
   }
   let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
+  const [triggerTip, setTriggerTip] = createSignal<{ left: number; top: number } | null>(null)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
+  const fileSelectionChanges = new Map<string, { initial?: Extract<MentionSelection, { type: "file" }>; selection: Extract<MentionSelection, { type: "file" }> }>()
   // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
   const [assetDialogOpen, setAssetDialogOpen] = createSignal(false)
   // 打开弹窗时的 chip id 快照;取消/关闭时移除快照之外(本次新增)的 chip
@@ -131,14 +111,14 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   let filesSecondaryRef: HTMLDivElement | undefined
 
   const platformSkills = createMemo(() => {
-    const panel = props.skillConfig.panel
+    const panel = skillCfg().panel
     if (!panel) return []
     const commonLabels = new Set((panel.common ?? []).map(s => s.label))
     return (panel.octo_make ?? []).filter(s => !commonLabels.has(s.label))
   })
 
   const customSkills = createMemo(() => {
-    return props.skillConfig.panel?.common ?? []
+    return skillCfg().panel?.common ?? []
   })
 
   const isSelected = (selection: MentionSelection) => {
@@ -149,55 +129,180 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const isFileSelectedLocal = (selection: MentionSelection) => {
+    if (props.controlledFiles) return isSelected(selection)
     return localFileSelections().some(s =>
-      s.type === 'file' && s.filename === (selection as any).filename
+      s.type === 'file' && s.path === (selection as any).path
     )
+  }
+
+  // 打开状态下监听 resize/scroll,实时校正面板位置;按钮滚出视口(登录/布局变化)时自动关闭面板,
+  // 避免面板以失效坐标渲染在视口外、后续点击表现为"开/关一个看不见的面板"
+  createEffect(() => {
+    if (!open()) return
+    const update = () => {
+      const rect = triggerRef?.getBoundingClientRect()
+      if (!rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)) return
+      const inViewport =
+        rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth
+      if (!inViewport) {
+        setOpen(false)
+        setMenuPosition(null)
+        return
+      }
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    }
+    update()
+    window.addEventListener("resize", update)
+    window.addEventListener("scroll", update, true)
+    onCleanup(() => {
+      window.removeEventListener("resize", update)
+      window.removeEventListener("scroll", update, true)
+    })
+  })
+
+  // 兜底打开后的位置追踪:按钮恢复可见(rect 非全零)时把面板校正到按钮旁(最多 10s)
+  const repositionWhenTriggerVisible = (attempt = 0) => {
+    if (!open()) return
+    const rect = triggerRef?.getBoundingClientRect()
+    const zero = !rect || (rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0)
+    if (!zero) {
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+      return
+    }
+    if (attempt < 50) {
+      setTimeout(() => repositionWhenTriggerVisible(attempt + 1), 200)
+    }
+  }
+
+  // 打开面板(按实际点击元素定位);rect 全零(祖先 display:none,登录/重建竞态)时逐帧重试,
+  // 重试耗尽仍全零则以固定位置兜底打开,并启动位置追踪等按钮恢复可见后校正
+  const openMenuAt = (getRect: () => DOMRect): void => {
+    const rect = getRect()
+    const zero = rect.left === 0 && rect.top === 0 && rect.width === 0 && rect.height === 0
+    if (zero) {
+      if (attemptCounter < 10) {
+        attemptCounter++
+        requestAnimationFrame(() => openMenuAt(getRect))
+        return
+      }
+      attemptCounter = 0
+      console.warn("[addon-menu] trigger rect still zero after retries, fallback position")
+      setMenuPosition({ left: 24, bottom: 24 })
+      finishOpen()
+      repositionWhenTriggerVisible()
+      return
+    }
+    attemptCounter = 0
+    setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    finishOpen()
+  }
+
+  let attemptCounter = 0
+
+  const finishOpen = () => {
+    setLocalFileSelections([])
+    fileSelectionChanges.clear()
+    setOpen(true)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+    props.onSkillsOpen?.()
   }
 
   const handleTriggerClick = (e: MouseEvent) => {
     e.stopPropagation()
-    if (!open()) {
-      const rect = triggerRef?.getBoundingClientRect()
-      if (rect) {
-        setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
-      }
-      setLocalFileSelections([])
-      setOpen(true)
-      setActiveSecondary(null)
-      setSkillsCategory('platform')
-      props.onOpen?.()
-    } else {
+    const ae = document.activeElement as HTMLElement | null
+    if (ae && !ae.isConnected) ae.blur?.()
+    const target = e.currentTarget as HTMLElement
+    const getRect = () => target.getBoundingClientRect()
+    const rect = getRect()
+    // 按钮不可见(rect 全零):收起可能残留的僵尸面板,待恢复可见后重新打开
+    if (rect.width === 0 || rect.height === 0) {
       setOpen(false)
+      setMenuPosition(null)
+      return
+    }
+    if (!open()) {
+      openMenuAt(getRect)
+    } else {
+      // 已打开:本次点击 = 与取消一致(取消所有设计文件选中并关闭);位置漂移时重新定位并保持打开
+      const pos = menuPosition()
+      const expectedLeft = rect.left
+      const expectedBottom = window.innerHeight - rect.top
+      if (!pos || pos.left !== expectedLeft || pos.bottom !== expectedBottom) {
+        setMenuPosition({ left: expectedLeft, bottom: expectedBottom })
+        return
+      }
+      closeMenu()
     }
   }
 
-  const closeMenu = () => {
-    setOpen(false)
-    setActiveSecondary(null)
-    setSkillsCategory('platform')
+  // 取消本次所有设计文件选中(移除已插入的 chips)
+  const cancelDesignFileSelections = () => {
+    if (props.transactionalFiles && props.controlledFiles) {
+      for (const [path, change] of fileSelectionChanges) {
+        const current = props.selections.some(selection => selection.type === "file" && selection.path === path)
+        if (change.initial && !current) props.onSelect(change.initial)
+        if (!change.initial && current) props.onDeselect(change.selection)
+      }
+      fileSelectionChanges.clear()
+      return
+    }
+    for (const sel of localFileSelections()) {
+      props.onDeselect(sel)
+    }
     setLocalFileSelections([])
   }
 
+  const closeMenu = (commit = false) => {
+    if (commit && props.transactionalFiles && props.controlledFiles) fileSelectionChanges.clear()
+    else cancelDesignFileSelections()
+    setOpen(false)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+  }
+
+  const confirmDesignFileSelections = () => {
+    setLocalFileSelections([])
+    setOpen(false)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+  }
+
+  const closeMenuSilent = () => {
+    setLocalFileSelections([])
+    fileSelectionChanges.clear()
+    setOpen(false)
+    setActiveSecondary(null)
+    setSkillsCategory('platform')
+  }
+
   const handleSkillClick = (skill: PanelSkill) => {
-    const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+    const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
     const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
-      tracker.interaction({ module: "design", name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
+      tracker.interaction({ module: trackerModule(), name: "addon-select-skill", extend: JSON.stringify({ name: skill.label }) })
+      closeMenu(true)
     }
   }
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
+    if (props.transactionalFiles && props.controlledFiles && !fileSelectionChanges.has(file.path)) {
+      fileSelectionChanges.set(file.path, {
+        initial: props.selections.find((item): item is Extract<MentionSelection, { type: "file" }> => item.type === "file" && item.path === file.path),
+        selection,
+      })
+    }
     if (isFileSelectedLocal(selection)) {
-      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.filename === file.name)))
+      setLocalFileSelections(prev => prev.filter(s => !(s.type === 'file' && s.path === file.path)))
       props.onDeselect(selection)
     } else {
       setLocalFileSelections(prev => [...prev, selection])
       props.onSelect(selection)
-      tracker.interaction({ module: "design", name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
+      tracker.interaction({ module: trackerModule(), name: "addon-select-design-file", extend: JSON.stringify({ filename: file.name }) })
     }
   }
 
@@ -210,7 +315,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     try {
       for (const file of selected) {
         if (assetDownloadCancelled()) break
-        const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
+        const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal).catch(error => {
+          if (!props.onAssetDownloadError || assetDownloadCancelled()) throw error
+          props.onAssetDownloadError(error)
+          return undefined
+        })
         if (assetDownloadCancelled()) break
         // Fill chip path with the local saved path
         if (localPath) {
@@ -224,6 +333,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         return
       }
       console.warn("[addon-menu] asset download failed", err)
+      props.onAssetDownloadError?.(err)
       setAssetDownloadOpen(false)
     } finally {
       assetDownloadAbortController = undefined
@@ -265,10 +375,18 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     // TODO: delete already-downloaded local files (need to track downloaded paths)
   }
 
+  onCleanup(() => {
+    if (!props.cancelOnDispose) return
+    setAssetDownloadCancelled(true)
+    assetDownloadAbortController?.abort()
+    urlAbortController?.abort()
+    clearTimeout(designPreviewTimer)
+  })
+
   const handleAddAttachment = () => {
     request(() => {
-      closeMenu()
-      props.onAddAttachment()
+      closeMenu(true)
+      props.onAddAttachment?.()
     })
   }
 
@@ -284,12 +402,21 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       closeMenu()
     }
     document.addEventListener("mousedown", handler)
-    onCleanup(() => document.removeEventListener("mousedown", handler))
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      closeMenu()
+      triggerRef?.focus()
+    }
+    document.addEventListener("keydown", onKeyDown)
+    onCleanup(() => {
+      document.removeEventListener("mousedown", handler)
+      document.removeEventListener("keydown", onKeyDown)
+    })
   })
 
   // Update secondary panel positioning (bottom-aligned with clicked item)
   createEffect(() => {
-    if (!open() || !activeSecondary() || !menuRef) return
+    if (!open() || (activeSecondary() !== "skills" && activeSecondary() !== "files") || !menuRef) return
     const cls = activeSecondary() === 'skills' ? '.addon-menu-item--skills'
       : '.addon-menu-item--files'
     const itemEl = menuRef.querySelector(cls) as HTMLElement | null
@@ -303,7 +430,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   // Update tertiary panel positioning (bottom-aligned with category item)
   createEffect(() => {
-    if (!open() || !activeSecondary()) return
+    if (!open() || (activeSecondary() !== "skills" && activeSecondary() !== "files")) return
     const secondaryRef = activeSecondary() === 'skills' ? skillsSecondaryRef : filesSecondaryRef
     if (!secondaryRef) return
     // skills: find the active category item; files: find the 设计资产 item (always active)
@@ -319,7 +446,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   // Check viewport collision for secondary panel (flip to left if overflow)
   createEffect(() => {
-    if (!open() || !activeSecondary() || !menuRef) return
+    if (!open() || (activeSecondary() !== "skills" && activeSecondary() !== "files") || !menuRef) return
     const rect = menuRef.getBoundingClientRect()
     // secondary panel width: skills=200, files=200 (files tertiary is 400 but positioned relative to secondary)
     const panelWidth = 200
@@ -413,129 +540,152 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setUrlDialogBOpen(false)
   }
 
+  // 内置菜单项渲染(items 配置编排用)
+  const renderBuiltinItem = (key: AddonMenuItemKey): JSX.Element => {
+    switch (key) {
+      case "skills":
+        return (
+          <button
+            type="button"
+            class={`addon-menu-item addon-menu-item--skills ${activeSecondary() === 'skills' ? 'addon-menu-item--active' : ''}`}
+            onClick={() => {
+              if (activeSecondary() === 'skills') {
+                setActiveSecondary(null)
+              } else {
+                setActiveSecondary('skills')
+                setSkillsCategory('platform')
+              }
+            }}
+          >
+            <span class="addon-menu-item-icon"><SkillsIcon /></span>
+            <span class="addon-menu-item-text">技能库</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "productAssets":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            disabled={!!props.productAssetsDisabledReason}
+            title={props.productAssetsDisabledReason}
+            onClick={() => {
+              request(() => {
+                // 快照当前 chip id,取消/关闭时移除本次新增的
+                assetChipSnapshot = new Set(
+                  props.selections.map(s => (s as any).id as string).filter(Boolean),
+                )
+                closeMenu(true)
+                setAssetDialogOpen(true)
+              }, true)
+            }}
+          >
+            <span class="addon-menu-item-icon"><AssetsIcon /></span>
+            <span class="addon-menu-item-text">产品资产库</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "designFiles":
+        return (
+          <button
+            type="button"
+            class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
+            onClick={() => {
+              if (activeSecondary() === 'files') {
+                setActiveSecondary(null)
+                return
+              }
+              request(() => setActiveSecondary('files'), true)
+            }}
+          >
+            <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
+            <span class="addon-menu-item-text">设计文件</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
+      case "urlImport":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            onClick={() => {
+              setUrlDialogOpen(true)
+              closeMenu(true)
+            }}
+          >
+            <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
+            <span class="addon-menu-item-text">接收设计资产链接URL</span>
+          </button>
+        )
+      case "addAttachment":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            disabled={props.maxAttachments}
+            onClick={handleAddAttachment}
+          >
+            <span class="addon-menu-item-icon"><AttachmentIcon /></span>
+            <span class="addon-menu-item-text">添加附件</span>
+          </button>
+        )
+    }
+  }
+
   return (
     <>
-      <Tooltip placement="top" value="添加附件">
+      {/* Tooltip 非 portal 实现:fixed 定位不受祖先 overflow 裁剪,位置按按钮实时 rect 计算;
+          detached 时随组件 DOM 一起移除,不会残留累积 */}
+      <span
+        class="relative inline-flex"
+        onMouseEnter={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          setTriggerTip({ left: rect.left + rect.width / 2, top: rect.top - 6 })
+        }}
+        onMouseLeave={() => setTriggerTip(null)}
+      >
         <Button
           ref={triggerRef}
           type="button"
           variant="ghost"
           class="size-8 p-0 addon-menu-trigger"
           onClick={handleTriggerClick}
+          disabled={props.disabled}
         >
           <Icon name="plus" class="size-5" />
         </Button>
-      </Tooltip>
+        <Show when={triggerTip()}>
+          <span
+            class="addon-menu-trigger-tip"
+            style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
+          >
+            添加附件
+          </span>
+        </Show>
+      </span>
 
       <Show when={open() && menuPosition()}>
-        <Portal>
           <div class="addon-menu-container" ref={menuRef} style={menuStyle()}>
-            {/* 技能库 */}
-            <button
-              type="button"
-              class={`addon-menu-item addon-menu-item--skills ${activeSecondary() === 'skills' ? 'addon-menu-item--active' : ''}`}
-              onClick={() => {
-                if (activeSecondary() === 'skills') {
-                  setActiveSecondary(null)
-                } else {
-                  setActiveSecondary('skills')
-                  setSkillsCategory('platform')
-                }
-              }}
-            >
-              <span class="addon-menu-item-icon"><SkillsIcon /></span>
-              <span class="addon-menu-item-text">技能库</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 产品资源库 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              onClick={() => {
-                request(() => {
-                  // 快照当前 chip id,取消/关闭时移除本次新增的
-                  assetChipSnapshot = new Set(
-                    props.selections.map(s => (s as any).id as string).filter(Boolean),
-                  )
-                  closeMenu()
-                  setAssetDialogOpen(true)
+            {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
+                缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
+            <For each={(() => {
+              const builtin: AddonMenuItemKey[] = ["skills", "productAssets", "designFiles", "urlImport", "addAttachment"]
+              const slots = props.slots ?? []
+              if (!props.items) return [...builtin, ...slots.map(s => s.key)]
+              return props.items.filter(key =>
+                builtin.includes(key as AddonMenuItemKey) || slots.some(s => s.key === key),
+              )
+            })()}>
+              {(key) => {
+                const slot = props.slots?.find(s => s.key === key)
+                if (slot) return slot.render({
+                  closeMenu: () => closeMenu(true),
+                  active: () => activeSecondary() === `slot:${slot.key}`,
+                  togglePanel: () => setActiveSecondary(current => current === `slot:${slot.key}` ? null : `slot:${slot.key}`),
                 })
+                return renderBuiltinItem(key as AddonMenuItemKey)
               }}
-            >
-              <span class="addon-menu-item-icon"><AssetsIcon /></span>
-              <span class="addon-menu-item-text">产品资产库</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 设计文件 */}
-            <button
-              type="button"
-              class={`addon-menu-item addon-menu-item--files ${activeSecondary() === 'files' ? 'addon-menu-item--active' : ''}`}
-              onClick={() => {
-                if (activeSecondary() === 'files') {
-                  setActiveSecondary(null)
-                  return
-                }
-                request(() => setActiveSecondary('files'))
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
-              <span class="addon-menu-item-text">设计文件</span>
-              <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
-            </button>
-
-            {/* 进入设计策略模式 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.planActive || props.patternPageActive}
-              onClick={() => {
-                closeMenu()
-                props.onEnterDesignStrategy?.()
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
-              <span class="addon-menu-item-text">进入设计策略模式</span>
-            </button>
-
-             {/* 进入patternPage模式 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.planActive || props.patternPageActive}
-              onClick={() => {
-                closeMenu()
-                props.onEnterPatternPage?.()
-              }}
-            >
-              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
-              <span class="addon-menu-item-text">进入Pattern模式</span>
-            </button>
-
-            {/* 接收设计资产链接URL — 暂时隐藏 */}
-            {/* <button
-              type="button"
-              class="addon-menu-item"
-              onClick={() => {
-                setUrlDialogOpen(true)
-                closeMenu()
-              }}
-            >
-              <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
-              <span class="addon-menu-item-text">接收设计资产链接URL</span>
-            </button> */}
-
-            {/* 添加附件 */}
-            <button
-              type="button"
-              class="addon-menu-item"
-              disabled={props.disabled}
-              onClick={handleAddAttachment}
-            >
-              <span class="addon-menu-item-icon"><AttachmentIcon /></span>
-              <span class="addon-menu-item-text">添加附件</span>
-            </button>
+            </For>
 
             {/* Secondary panel for 技能库 (categories + tertiary skills list) */}
             <Show when={activeSecondary() === 'skills'}>
@@ -566,12 +716,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       <Show when={platformSkills().length === 0}>
                         <div class="addon-menu-empty-state">
                           <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-                          <span class="addon-menu-empty-state-text">暂无内容</span>
+                          <span class="addon-menu-empty-state-text">{props.skillsLoading ? "正在加载技能…" : "暂无内容"}</span>
                         </div>
                       </Show>
                       <For each={platformSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
                           const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                           return (
                             <button
@@ -598,12 +748,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       <Show when={customSkills().length === 0}>
                         <div class="addon-menu-empty-state">
                           <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-                          <span class="addon-menu-empty-state-text">暂无内容</span>
+                          <span class="addon-menu-empty-state-text">{props.skillsLoading ? "正在加载技能…" : "暂无内容"}</span>
                         </div>
                       </Show>
                       <For each={customSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
                           const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                           return (
                             <button
@@ -644,7 +794,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                     <Show when={!props.artifactFiles || (props.artifactFiles.generated.length === 0 && props.artifactFiles.uploaded.length === 0)}>
                       <div class="addon-menu-empty-state">
                         <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-                        <span class="addon-menu-empty-state-text">暂无内容</span>
+                        <span class="addon-menu-empty-state-text">{props.filesLoading ? "正在加载文件…" : "暂无内容"}</span>
                       </div>
                     </Show>
                     <Show when={props.artifactFiles && props.artifactFiles.generated.length > 0}>
@@ -702,6 +852,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </For>
                     </Show>
                   </div>
+                  {/* 取消/确认按钮 */}
+                  <div class="addon-menu-design-footer">
+                    <button type="button" class="asset-dialog-btn" onClick={() => { cancelDesignFileSelections(); closeMenuSilent() }}>取消</button>
+                    <button type="button" class="asset-dialog-btn asset-dialog-btn-primary" onClick={closeMenuSilent}>确认</button>
+                  </div>
                 </div>
                 {/* 设计文件 hover 预览弹窗 — 图片用 img,html 用 iframe(居中) */}
                 <Show when={designFilePreview()}>
@@ -752,12 +907,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </Show>
           </div>
-        </Portal>
       </Show>
 
       {/* URL Dialog */}
       <Show when={urlDialogOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay" onClick={closeUrlDialog}>
             <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -788,12 +941,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* URL Dialog B — loading + progress + step text */}
       <Show when={urlDialogBOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -820,12 +971,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
-        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -847,16 +996,16 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
-        </Portal>
       </Show>
 
       {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}
       <AssetDialog
+        trackerModule={trackerModule()}
         open={assetDialogOpen()}
         productId={props.productId}
-        selections={props.selections}
-        onSelect={props.onSelect}
-        onDeselect={props.onDeselect}
+        selections={props.selections as MentionSelection[]}
+        onSelect={(sel) => (props.onAssetSelect ?? props.onSelect)(sel as MentionSelection)}
+        onDeselect={(sel) => (props.onAssetDeselect ?? props.onDeselect)(sel as MentionSelection)}
         onConfirm={handleAssetDialogConfirm}
         onCancel={handleAssetDialogCancel}
       />

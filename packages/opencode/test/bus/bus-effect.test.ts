@@ -24,7 +24,7 @@ describe("Bus (Effect-native)", () => {
       const received: number[] = []
       const done = yield* Deferred.make<void>()
 
-      yield* Stream.runForEach(bus.subscribe(TestEvent.Ping), (evt) =>
+      yield* Stream.runForEach(yield* bus.subscribe(TestEvent.Ping), (evt) =>
         Effect.sync(() => {
           received.push(evt.properties.value)
           if (received.length === 2) Deferred.doneUnsafe(done, Effect.void)
@@ -46,7 +46,7 @@ describe("Bus (Effect-native)", () => {
       const pings: number[] = []
       const done = yield* Deferred.make<void>()
 
-      yield* Stream.runForEach(bus.subscribe(TestEvent.Ping), (evt) =>
+      yield* Stream.runForEach(yield* bus.subscribe(TestEvent.Ping), (evt) =>
         Effect.sync(() => {
           pings.push(evt.properties.value)
           Deferred.doneUnsafe(done, Effect.void)
@@ -68,7 +68,7 @@ describe("Bus (Effect-native)", () => {
       const types: string[] = []
       const done = yield* Deferred.make<void>()
 
-      yield* Stream.runForEach(bus.subscribeAll(), (evt) =>
+      yield* Stream.runForEach(yield* bus.subscribeAll(), (evt) =>
         Effect.sync(() => {
           types.push(evt.type)
           if (types.length === 2) Deferred.doneUnsafe(done, Effect.void)
@@ -93,14 +93,14 @@ describe("Bus (Effect-native)", () => {
       const doneA = yield* Deferred.make<void>()
       const doneB = yield* Deferred.make<void>()
 
-      yield* Stream.runForEach(bus.subscribe(TestEvent.Ping), (evt) =>
+      yield* Stream.runForEach(yield* bus.subscribe(TestEvent.Ping), (evt) =>
         Effect.sync(() => {
           a.push(evt.properties.value)
           Deferred.doneUnsafe(doneA, Effect.void)
         }),
       ).pipe(Effect.forkScoped)
 
-      yield* Stream.runForEach(bus.subscribe(TestEvent.Ping), (evt) =>
+      yield* Stream.runForEach(yield* bus.subscribe(TestEvent.Ping), (evt) =>
         Effect.sync(() => {
           b.push(evt.properties.value)
           Deferred.doneUnsafe(doneB, Effect.void)
@@ -128,7 +128,7 @@ describe("Bus (Effect-native)", () => {
       yield* Effect.gen(function* () {
         const bus = yield* Bus.Service
 
-        yield* Stream.runForEach(bus.subscribeAll(), (evt) =>
+        yield* Stream.runForEach(yield* bus.subscribeAll(), (evt) =>
           Effect.sync(() => {
             types.push(evt.type)
             if (evt.type === TestEvent.Ping.type) Deferred.doneUnsafe(seen, Effect.void)

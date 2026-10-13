@@ -1,4 +1,9 @@
 import path from "path"
+import { ArtifactStore } from "@/tracking/store"
+import { ToolCalls } from "@/tracking/calls"
+import { resultFacts } from "@/tracking/call-data"
+import { mcpFacts, record, string } from "@/tracking/facts"
+import { withFiles } from "@/tracking/scripts"
 import os from "os"
 import * as EffectZod from "@/util/effect-zod"
 import { SessionID, MessageID, PartID } from "./schema"
@@ -86,6 +91,12 @@ const STUDIO_IMAGE_TOOLS = new Set(["jimeng_image_generate", "internel_image_gen
 // title.txt 要求标题 ≤10 字；清洗后首行超过 TITLE_MAX 不再弃用，先截断展示再后台压缩
 const TITLE_MAX = 30
 
+function isOrphanedInterruptedTool(part: MessageV2.ToolPart) {
+  // cleanup() marks abandoned tool_use blocks this way after retries/aborts.
+  // They are not pending work and must not trigger an assistant-prefill request.
+  return part.state.status === "error" && part.state.metadata?.interrupted === true
+}
+
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
@@ -152,6 +163,7 @@ export const layer = Layer.effect(
         files,
         Effect.fnUntraced(function* (match) {
           const name = match[1]
+          if (!name) return
           if (seen.has(name)) return
           seen.add(name)
           const filepath = name.startsWith("~/")
@@ -250,10 +262,17 @@ export const layer = Layer.effect(
 
       const ag = yield* agents.get("title")
       if (!ag) return
-      const mdl = ag.model
-        ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
-        : ((yield* provider.getSmallModel(input.providerID)) ??
-          (yield* provider.getModel(input.providerID, input.modelID)))
+      const mdl = yield* provider.getTitleModel(input.providerID, input.modelID)
+      const titleModelLog = {
+        sessionID: input.session.id,
+        selectedProviderID: input.providerID,
+        selectedModelID: input.modelID,
+        titleProviderID: mdl.providerID,
+        titleModelID: mdl.id,
+        switched: mdl.providerID !== input.providerID || mdl.id !== input.modelID,
+      }
+      yield* elog.info("title model selected", titleModelLog)
+      console.info("[TitleModel] selected", titleModelLog)
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)
@@ -453,6 +472,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     }) {
       using _ = log.time("resolveTools")
       const tools: Record<string, AITool> = {}
+      const descriptors: Parameters<typeof ToolCalls.configure>[1] = {}
       const run = yield* runner()
       const promptOps = yield* ops()
 
@@ -463,6 +483,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         callID: options.toolCallId,
         extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, ...sessionExtras.get(input.session.id) },
         agent: input.agent.name,
+        onExecute: artifactTracking
+          ? (decoded) => ToolCalls.safely(() => {
+              ToolCalls.parameters(input.processor.message.id, options.toolCallId, decoded)
+              ToolCalls.executing(input.processor.message.id, options.toolCallId)
+            }).pipe(Effect.asVoid)
+          : undefined,
         messages: input.messages,
         metadata: (val) =>
           input.processor.updateToolCall(options.toolCallId, (match) => {
@@ -478,7 +504,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               },
             }
           }),
-        ask: (req) =>
+        ask: (req) => ToolCalls.permission(input.processor.message.id, options.toolCallId,
           permission
             .ask({
               ...req,
@@ -486,28 +512,50 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tool: { messageID: input.processor.message.id, callID: options.toolCallId },
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
             })
-            .pipe(Effect.orDie),
+            .pipe(Effect.orDie)),
       })
 
+      const artifactTracking = yield* Effect.try({
+        try: () => ArtifactStore.enabled(input.processor.message.id),
+        catch: (error) => error,
+      }).pipe(Effect.catch(() => Effect.succeed(false)))
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
       })) {
+        descriptors[item.id] = { kind: item.origin }
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
+        if (artifactTracking && item.id === ShellID.ToolID) {
+          schema.required = [...new Set([...(schema.required ?? []), "artifactFiles"])]
+        }
         tools[item.id] = tool({
           description: item.description,
           inputSchema: jsonSchema(schema),
-          execute(args, options) {
+          execute(requestedArgs, options) {
+            // Session parts may freeze SDK input while before-hooks await I/O.
+            // Keep the tracked request snapshot separate from mutable execution arguments.
+            const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
             return run.promise(
-              Effect.gen(function* () {
+              ToolCalls.observe({ messageID: input.processor.message.id, sessionID: input.session.id,
+                callID: options.toolCallId, tool: item.id, args: requestedArgs }, Effect.gen(function* () {
                 const ctx = context(args, options)
                 yield* plugin.trigger(
                   "tool.execute.before",
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
                 )
-                const result = yield* item.execute(args, ctx)
+                yield* ToolCalls.safely(() => ToolCalls.parameters(ctx.messageID, options.toolCallId, args))
+                const file = (item.id === "write" || item.id === "edit") && string(record(args).filePath)
+                const tracked =
+                  file &&
+                  (yield* Effect.try({ try: () => ArtifactStore.enabled(ctx.messageID), catch: (error) => error }).pipe(
+                    Effect.catch(() => Effect.succeed(false)),
+                  ))
+                const execution = item.execute(args, ctx)
+                const result = yield* file && tracked
+                  ? withFiles([path.resolve(input.session.directory, file)], execution)
+                  : execution
                 const output = {
                   ...result,
                   attachments: result.attachments?.map((attachment) => ({
@@ -526,7 +574,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   yield* input.processor.completeToolCall(options.toolCallId, output)
                 }
                 return output
-              }),
+              }), options.abortSignal),
             )
           },
         })
@@ -545,23 +593,34 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       for (const [key, item] of Object.entries(mcpTools)) {
+        const provider = Object.keys(cfg.mcp ?? {}).sort((a, b) => b.length - a.length)
+          .find((name) => key.startsWith(name.replace(/[^a-zA-Z0-9_-]/g, "_") + "_"))
+        descriptors[key] = {
+          kind: "mcp", provider,
+          // Remote servers negotiate HTTP/SSE at connection time; do not guess a transport from "remote".
+          transport: provider && record(cfg.mcp?.[provider]).type === "local" ? "stdio" : undefined,
+        }
         const execute = item.execute
         if (!execute) continue
 
         const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
         const transformed = ProviderTransform.schema(input.model, schema)
         item.inputSchema = jsonSchema(transformed)
-        item.execute = (args, opts) =>
-          run.promise(
-            Effect.gen(function* () {
+        item.execute = (requestedArgs, opts) => {
+          const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
+          return run.promise(
+            ToolCalls.observe({ messageID: input.processor.message.id, sessionID: input.session.id,
+              callID: opts.toolCallId, tool: key, args: requestedArgs }, Effect.gen(function* () {
               const ctx = context(args, opts)
               yield* plugin.trigger(
                 "tool.execute.before",
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
                 { args },
               )
+              yield* ToolCalls.safely(() => ToolCalls.parameters(ctx.messageID, opts.toolCallId, args))
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                 yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                yield* ToolCalls.safely(() => ToolCalls.executing(ctx.messageID, opts.toolCallId))
                 return yield* Effect.promise(() => execute(args, opts))
               }).pipe(
                 Effect.withSpan("Tool.execute", {
@@ -578,6 +637,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
                 result,
               )
+              yield* ToolCalls.safely(() => ToolCalls.update(ctx.messageID, opts.toolCallId, {
+                executionStage: "result", mcpResult: resultFacts(key, provider, result),
+              }))
 
               const textParts: string[] = []
               const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
@@ -603,9 +665,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 }
               }
 
+              const artifactDelivery = yield* Effect.sync(() => {
+                if (!ArtifactStore.enabled(input.processor.message.id)) return
+                return mcpFacts(
+                  Object.keys(cfg.mcp ?? {})
+                    .sort((a, b) => b.length - a.length)
+                    .find((name) => key.startsWith(name.replace(/[^a-zA-Z0-9_-]/g, "_") + "_")) ?? "unknown",
+                  key, result,
+                )
+              }).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] MCP fact capture failed")))
               const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
               const metadata = {
                 ...result.metadata,
+                ...(artifactDelivery ? { artifactDelivery } : {}),
                 truncated: truncated.truncated,
                 ...(truncated.truncated && { outputPath: truncated.outputPath }),
               }
@@ -626,11 +698,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* input.processor.completeToolCall(opts.toolCallId, output)
               }
               return output
-            }),
+            }), opts.abortSignal),
           )
+        }
         tools[key] = item
       }
 
+      yield* ToolCalls.safely(() => ToolCalls.configure(input.processor.message.id, descriptors))
       return tools
     })
 
@@ -1592,6 +1666,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
+        yield* Effect.sync(() => ArtifactStore.begin({
+          messageID: message.info.id, sessionID: input.sessionID, directory: session.directory, extra: input.extra,
+        })).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] turn registration failed")))
         yield* sessions.touch(input.sessionID)
 
         // SPEC-INS-029:前端注入式技能激活的事件上报。insight 的 @技能走 synthetic 注入 SKILL.md
@@ -1669,15 +1746,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // Keep the loop running so tool results can be sent back to the model.
           // Skip provider-executed tool parts — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
+          // Ignore cleanup-marked interrupted orphans so they don't re-trigger a request.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
+            ) ?? false
 
           if (
             lastAssistant?.finish &&
-            !["tool-calls"].includes(lastAssistant.finish) &&
+            !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
             lastUser.time.created <= lastAssistant.time.created
           ) {
+            const orphan = lastAssistantMsg?.parts.find(
+              (part): part is MessageV2.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
+            )
+            if (orphan) {
+              yield* slog.warn("loop exit with orphaned interrupted tool", {
+                messageID: lastAssistant.id,
+                tool: orphan.tool,
+                callID: orphan.callID,
+              })
+            }
             yield* slog.info("exiting loop")
             break
           }
@@ -1885,6 +1975,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
             if (finished && !handle.message.error) {
+              // Surface any content-filter finish (e.g. Anthropic stop_reason:
+              // refusal) as an error. These turns may have produced no visible
+              // output at all — previously the session went idle silently — or
+              // partial text that was cut off by the provider's filter.
+              if (handle.message.finish === "content-filter") {
+                handle.message.error = new MessageV2.ContentFilterError({
+                  message: "The response was blocked by the provider's content filter",
+                }).toObject()
+                yield* sessions.updateMessage(handle.message)
+                yield* bus.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                return "break" as const
+              }
               if (request.format.type === "json_schema") {
                 handle.message.error = new MessageV2.StructuredOutputError({
                   message: "Model did not produce structured output",

@@ -1,4 +1,5 @@
 import "./studio/studio.css"
+import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
@@ -57,12 +58,11 @@ import {
   buildStudioInputImages,
   buildStudioTurns,
   closestStudioAspectRatio,
-  parseToolAttachments,
-  parseToolImages,
+  parseToolMedia,
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
-import { StudioComposer, StudioIntro, type StudioComposerMenu } from "./studio/studio-composer"
+import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
@@ -102,6 +102,7 @@ import {
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
+  studioMediaDownloadFilename,
   stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
@@ -120,8 +121,11 @@ import {
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
-import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
+import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
+import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
+import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 type PendingScrollRequest = {
@@ -268,6 +272,7 @@ type StudioGenerationOverrides = {
   effectivePrompt?: string
   sourceImage?: string
   referenceImages?: string[]
+  mentionImages?: Record<string, string>
   extra?: Record<string, unknown>
   videoFrames?: { first?: string; last?: string }
   styleModel?: string
@@ -292,6 +297,7 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -305,7 +311,14 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
-  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  createEffect(() => {
+    void params.id
+    const current = server.current
+    const directory = projectDir()
+    if (!current || !directory) return
+    onCleanup(() => stopStudioThumbnailQueue({ sdkUrl: current.http.url, directory }))
+  })
+  const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
@@ -429,7 +442,11 @@ export default function StudioPage() {
   createEffect(on(imageSettingStoreReady, (ready) => {
     if (!ready) return
     batch(() => {
-      if (styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)) setStyleModel("qwen")
+      // Re-entering Studio with cached permission should preserve the selected model.
+      if (
+        !(studioPermissionState.status === "ready" && studioPermissionState.seedream) &&
+        styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)
+      ) setStyleModel("qwen")
       setImageSettingStoreSanitized(true)
     })
   }))
@@ -506,12 +523,11 @@ export default function StudioPage() {
   const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const canGenerateVideo = () => studioPermissionState.video
+  const canUseSeedream = () => studioPermissionState.seedream
+  const canCreateStyleTemplate = () => studioPermissionState.createStyleTemplate
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
-  const [permissionRetryVersion, setPermissionRetryVersion] = createSignal(0)
-  let permissionRequestVersion = 0
   onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
@@ -545,63 +561,21 @@ export default function StudioPage() {
       throw new Error("Unexpected get_prompt_tags response shape")
     },
   )
+  const loadPermission = () => {
+    const current = server.current
+    if (!current) return
+    void ensureStudioPermission(current.http, uiplusUserAccount())
+  }
+  onCleanup(onStudioLoginSuccess(loadPermission))
   createEffect(() => {
     const current = server.current
-    const uid = uiplusUserAccount()
-    permissionRetryVersion()
     if (!current) return
-    const requestVersion = ++permissionRequestVersion
-    const controller = new AbortController()
-    batch(() => {
-      setCanGenerateVideo(false)
-      setCanUseSeedream(false)
-      setStudioPermissionStatus("loading")
-      if (styleModelRequiresSeedreamPermission(untrack(() => imageSettingStore.styleModel))) setStyleModel("qwen")
-    })
-    const headers: Record<string, string> = {
-      accept: "application/json",
-      "content-type": "application/json",
-    }
-    if (current.http.password) {
-      headers.Authorization = `Basic ${authTokenFromCredentials({
-        username: current.http.username,
-        password: current.http.password,
-      })}`
-    }
-    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ uid }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const bodyText = await response.text()
-        if (requestVersion !== permissionRequestVersion) return
-        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
-        const permissionData = Array.isArray(result.data) ? result.data : []
-        const permissionOk = result.code === 200 || result.resp_code === 200
-        const canUseSeedream = permissionOk && permissionData[1] === true
-        batch(() => {
-          setCanGenerateVideo(permissionOk && permissionData[0] === true)
-          setCanUseSeedream(canUseSeedream)
-          setStudioPermissionStatus("ready")
-          if (!canUseSeedream && styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return
-        if (requestVersion !== permissionRequestVersion) return
-        batch(() => {
-          setCanGenerateVideo(false)
-          setCanUseSeedream(false)
-          setStudioPermissionStatus("error")
-          if (styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-        console.error("[StudioPage] permission check failed", error)
-      })
-    onCleanup(() => controller.abort())
+    untrack(loadPermission)
   })
+  const retryPermission = () => {
+    clearStudioPermissionCache()
+    loadPermission()
+  }
   createEffect(() => {
     if (studioPermissionStatus() === "loading") return
     if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
@@ -617,7 +591,7 @@ export default function StudioPage() {
   let savedImageCount: 1 | 2 | 3 | 4 | undefined
   let savedVideoAspectRatio: StudioAspectRatio | undefined
   let savedVideoCount: 1 | 2 | 3 | 4 | undefined
-  const seedreamInputApi: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void } = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {} }
+  const seedreamInputApi: StudioComposerInputApi = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {}, stripMentions: () => {} }
   const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
     Persist.global("studio.left.collapsed"),
     createStore({ collapsed: false }),
@@ -646,6 +620,49 @@ export default function StudioPage() {
     dir: () => projectDir(),
     globalSDK,
   })
+  const ensuredThumbnailSessions = new Set<string>()
+  createEffect(() => {
+    const sessionID = params.id
+    const current = server.current
+    const directory = projectDir()
+    if (!sessionID || !current || !directory || ensuredThumbnailSessions.has(sessionID)) return
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      ...directoryHeader(directory),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const controller = new AbortController()
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let attempts = 0
+    const ensure = () => {
+      if (controller.signal.aborted || ensuredThumbnailSessions.has(sessionID)) return
+      void fetch(new URL(`/studio/sessions/${encodeURIComponent(sessionID)}/thumbnails/ensure`, current.http.url), {
+        method: "POST",
+        headers,
+        signal: controller.signal,
+      }).then((response) => {
+        if (response.ok) {
+          ensuredThumbnailSessions.add(sessionID)
+          return
+        }
+        throw new Error(`Studio thumbnail ensure failed with status ${response.status}.`)
+      }).catch(() => {
+        if (controller.signal.aborted) return
+        attempts += 1
+        retryTimer = setTimeout(ensure, Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5)))
+      })
+    }
+    ensure()
+    onCleanup(() => {
+      controller.abort()
+      if (retryTimer) clearTimeout(retryTimer)
+    })
+  })
 
   // Reactive effect: auto-update thumbnail whenever pendingResult transitions to succeeded.
   createEffect(() => {
@@ -656,7 +673,7 @@ export default function StudioPage() {
     const images = result.images
     if (sid && images && images.length > 0) {
       console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
-      studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+      setSessionThumbnail(sid, images, result.createdAt)
     }
   })
   // Global listener: update thumbnails when any session's generation completes,
@@ -667,20 +684,20 @@ export default function StudioPage() {
     if (payload.type !== "message.part.updated") return
     const part = payload.properties.part as Part & { sessionID?: string }
     if (part.type !== "tool") return
-    const state = part.state as { status?: string; output?: string; attachments?: Array<{ url: string; kind?: string }> }
-    if (state.status !== "completed") return
+    if (part.state.status !== "completed") return
+    const state = part.state
     const sessionID = part.sessionID
     if (!sessionID) return
-    const attachments = parseToolAttachments(part as Extract<Part, { type: "tool" }>)
-    const images = parseToolImages(state.output ?? "")
-    if (attachments.length === 0 && images.length === 0) return
-    const url = attachments.length > 0
-      ? (attachments.find((a) => a.kind !== "video") ?? attachments[0]).url
-      : images[0]
-    if (url) {
+    const media = parseToolMedia(state.output)
+    if (media.length > 0) {
       console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
-      studioThumbnails.setThumbnail(sessionID, url)
+      setSessionThumbnail(sessionID, media, state.time.start)
+      return
     }
+    const legacy = extractStudioThumbnailMedia(part)
+    if (!legacy) return
+    console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
+    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, state.time.start)
   })
   onCleanup(thumbnailUnsub)
 
@@ -749,20 +766,35 @@ export default function StudioPage() {
     return next
   }
 
-  /** Pick the best thumbnail URL from a list of StudioImages. Prefers non-video images. */
-  function pickThumbnail(images: StudioImage[]): string | undefined {
-    const img = images.find((i) => !isVideoMedia(i)) ?? images[0]
-    return img ? (img.thumbnailUrl ?? img.url) : undefined
+  /** Show the original image until a generated thumbnail is ready to replace it. */
+  function pickThumbnailMedia(images: StudioImage[]) {
+    const ready = images.filter((image) => image.thumbnailStatus === "ready" && image.thumbnailUrl)
+    return ready.find((image) => !isVideoMedia(image)) ?? ready[0] ?? images.find((image) => !isVideoMedia(image)) ?? images[0]
+  }
+
+  function setSessionThumbnail(sessionID: string, images: StudioImage[], generationAt?: number) {
+    const media = pickThumbnailMedia(images)
+    if (!media) return
+    const value = media.thumbnailStatus === "ready" && media.thumbnailUrl
+      ? media.thumbnailUrl
+      : originalMediaSrc(media)
+    studioThumbnails.setThumbnail(sessionID, value, isVideoMedia(media) ? "video" : "image", generationAt)
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
     const remoteUrl = image.remoteUrl ?? image.url
-    const thumbnailSource = image.thumbnailUrl ?? image.url
+    const thumbnailUrl = image.thumbnailStatus === "ready" && isStudioThumbnailUrl(image.thumbnailUrl)
+      ? resolveStudioMediaUrl({
+          value: image.thumbnailUrl,
+          sdkUrl: globalSDK.url,
+          directory: projectDir(),
+        })
+      : undefined
     return {
       ...image,
       kind: image.kind ?? (isVideoMedia(image) ? "video" : "image"),
       url: displayUrl(image.url),
-      thumbnailUrl: displayUrl(thumbnailSource),
+      thumbnailUrl: thumbnailUrl ? displayUrl(thumbnailUrl) : undefined,
       remoteUrl,
     }
   }
@@ -781,6 +813,7 @@ export default function StudioPage() {
           id: crypto.randomUUID(),
           url: displayUrl(dataUrl),
           thumbnailUrl: displayUrl(dataUrl),
+          thumbnailStatus: "ready",
           remoteUrl: dataUrl,
           width: image.naturalWidth,
           height: image.naturalHeight,
@@ -789,6 +822,7 @@ export default function StudioPage() {
           id: crypto.randomUUID(),
           url: displayUrl(dataUrl),
           thumbnailUrl: displayUrl(dataUrl),
+          thumbnailStatus: "ready",
           remoteUrl: dataUrl,
         })
         image.src = dataUrl
@@ -1577,7 +1611,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+        setSessionThumbnail(sid, images, pending.createdAt)
       }
     }
     setPendingResult(undefined)
@@ -1594,7 +1628,7 @@ export default function StudioPage() {
       const sid = pending.sessionID ?? params.id
       if (sid) {
         console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
-        studioThumbnails.setThumbnail(sid, pickThumbnail(turn!.result!.images)!)
+        setSessionThumbnail(sid, turn!.result!.images, turn!.result!.createdAt)
       }
       setPendingResult(undefined)
       setStatus("succeeded")
@@ -1718,9 +1752,6 @@ export default function StudioPage() {
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
-  const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
-  // 首尾帧同时存在时强制 720p，但不写入持久化 store，保留用户手动选择的质量
-  const effectiveVideoQualityMode = createMemo(() => videoQualityLocked() ? "720" as StudioVideoQualityMode : videoQualityMode())
   const effectiveMaxReferenceImages = createMemo(() => {
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
@@ -1941,24 +1972,44 @@ export default function StudioPage() {
     const image = selectedImage()
     if (!image) return
     const source = image.remoteUrl ?? image.url
-    const label = currentImageLabel()
+    const fallbackMime = isVideoMedia(image) ? "video/mp4" : "image/png"
+    const downloaded = await fetch(source)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
+        const blob = await response.blob()
+        return {
+          blob,
+          label: studioMediaDownloadFilename({
+            url: response.url || source,
+            contentDisposition: response.headers.get("content-disposition"),
+            mime: blob.type || response.headers.get("content-type") || fallbackMime,
+          }),
+        }
+      })
+      .catch((error) => {
+        console.warn("[studio] image download fallback", error)
+        return undefined
+      })
+    const label = downloaded?.label ?? studioMediaDownloadFilename({ url: source, mime: fallbackMime })
     tracker.interaction({
       module: "studio",
       name: "download",
       extend: JSON.stringify({ name: label, url: source }),
     })
+    if (!downloaded) {
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
+      return
+    }
     try {
-      const response = await fetch(source)
-      if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const blob = await response.blob()
       if ((window as any).api?.saveFilePicker) {
         const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
         if (!filePath) return
-        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        await (window as any).api.writeFileBuffer(filePath, await downloaded.blob.arrayBuffer())
         showDownloadNotice("下载成功")
         return
       }
-      const objectUrl = URL.createObjectURL(blob)
+      const objectUrl = URL.createObjectURL(downloaded.blob)
       triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
       showDownloadNotice("下载成功")
@@ -2192,6 +2243,7 @@ export default function StudioPage() {
       }
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
+    if (currentTemplate && prevIsSeedream && !nextIsSeedream) seedreamInputApi.stripMentions()
     if (prevIsSeedream && !nextIsSeedream && !currentTemplate) {
       const hasMentions = Object.keys(seedreamInputApi.serializeMentionImages()).length > 0
       if (!hasMentions) seedreamAtSnapshot = undefined
@@ -2560,8 +2612,10 @@ export default function StudioPage() {
     const prevCapability = capability()
     const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
     const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    if (selectedStyleTemplate()) seedreamAtSnapshot = undefined
-    if (prevSeedreamImage && !nextSeedreamImage && !selectedStyleTemplate()) {
+    const currentStyleTemplate = selectedStyleTemplate()
+    if (currentStyleTemplate) seedreamAtSnapshot = undefined
+    if (value !== "image.generate" && currentStyleTemplate) clearStyleTemplate()
+    if (prevSeedreamImage && !nextSeedreamImage && !currentStyleTemplate) {
       seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
     }
     if (value === "video.generate" && prevCapability !== "video.generate") {
@@ -2647,7 +2701,7 @@ export default function StudioPage() {
       extend: JSON.stringify({
         aspectRatio: aspectRatio(),
         duration: videoDuration(),
-        quality: effectiveVideoQualityMode(),
+        quality: videoQualityMode(),
         mode: videoFrames.first ? "first_last_frame" : "text",
       }),
     })
@@ -2898,6 +2952,7 @@ export default function StudioPage() {
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
         extra: { ...(extra ?? {}), skipPromptRefine: true },
         styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
@@ -3083,6 +3138,25 @@ export default function StudioPage() {
         setRecipeExtraPrompt("")
       }
     })
+    if (template.prompt_setting !== "not_supported" && Object.keys(draft.mentionImages).length) {
+      queueMicrotask(() => {
+        if (template.template_type === "preset_recipe") {
+          seedreamInputApi.restore(
+            buildMentionHtml(stringValue(templatePrompt, "mainPrompt") ?? "", draft.mentionImages),
+            "recipeMain",
+          )
+          seedreamInputApi.restore(
+            buildMentionHtml(stringValue(templatePrompt, "extraPrompt") ?? "", draft.mentionImages),
+            "recipeExtra",
+          )
+          return
+        }
+        seedreamInputApi.restore(
+          buildMentionHtml(stringValue(templatePrompt, "custom") ?? "", draft.mentionImages),
+          "prompt",
+        )
+      })
+    }
     tracker.interaction({
       module: "studio",
       name: "edit-generation-template-draft",
@@ -3766,7 +3840,7 @@ export default function StudioPage() {
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
-    const nextVideoQualityMode = overrides?.videoQualityMode ?? effectiveVideoQualityMode()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -3779,7 +3853,7 @@ export default function StudioPage() {
     const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
     const actualUserPrompt = (overrides?.prompt ?? seedreamInputApi.serializeText()).trim()
-    const mentionImages = overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages()
+    const mentionImages = overrides?.mentionImages ?? (overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages())
     setMentionImagesMap(mentionImages)
     const text = actualUserPrompt || (
       nextCapability === "image.upscale"
@@ -3994,7 +4068,7 @@ export default function StudioPage() {
         const images = generation.images
         if (images && images.length > 0) {
           console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
-          studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+          setSessionThumbnail(sessionID, images, generation.createdAt)
         }
       }
     } catch (error) {
@@ -4023,10 +4097,11 @@ export default function StudioPage() {
       return
     }
     const templateInput = {
-      custom: prompt().trim(),
-      extraPrompt: recipeExtraPrompt().trim(),
-      mainPrompt: recipeMainPrompt().trim(),
+      custom: (seedreamInputApi.serializeText("prompt") || prompt()).trim(),
+      extraPrompt: (seedreamInputApi.serializeText("recipeExtra") || recipeExtraPrompt()).trim(),
+      mainPrompt: (seedreamInputApi.serializeText("recipeMain") || recipeMainPrompt()).trim(),
     }
+    const mentionImages = seedreamInputApi.serializeMentionImages()
     const effectiveTemplate = template.template_type === "extract_style"
       ? { ...template, style_description: styleTemplateDescriptionDraft() ?? template.style_description }
       : template
@@ -4048,6 +4123,7 @@ export default function StudioPage() {
       refinedPrompt: finalPrompt,
       effectivePrompt: finalPrompt,
       styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      mentionImages,
       ...(referenceImages ? { referenceImages } : {}),
       extra: {
         skipPromptRefine: true,
@@ -4175,7 +4251,7 @@ export default function StudioPage() {
                 const images = generation.images
                 if (images && images.length > 0) {
                   console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
-                  studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+                  setSessionThumbnail(sessionID, images, generation.createdAt)
                 } else {
                   console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
                 }
@@ -4624,11 +4700,33 @@ export default function StudioPage() {
               <div class="flex-1" />
               <button
                 type="button"
-                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
-                style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+                title="设置"
+                class="relative flex items-center justify-center rounded-[4px] transition-colors shrink-0"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+                  color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                  "font-weight": settingsActive() ? "500" : "400",
+                }}
+                onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+                onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+                onClick={(e) => { e.stopPropagation(); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
               >
-                <Icon name="settings-gear" size="small" />
+                <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+                  <IconSettings1 size={20} />
+                </Show>
+                <Show when={settingsActive()}>
+                  <span
+                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    style={{
+                      height: "20px",
+                      width: "3px",
+                      background: "var(--text-interactive-base)",
+                      transform: "translateY(-50%)",
+                    }}
+                  />
+                </Show>
               </button>
             </div>
           }
@@ -4669,8 +4767,9 @@ export default function StudioPage() {
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
+                  canCreateStyleTemplate={canCreateStyleTemplate()}
                   permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-                  onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+                  onRetryPermission={retryPermission}
                   styleModel={styleModel()}
                   maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
@@ -4681,8 +4780,7 @@ export default function StudioPage() {
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
-                  videoQualityMode={effectiveVideoQualityMode()}
-                  videoQualityLocked={videoQualityLocked()}
+                  videoQualityMode={videoQualityMode()}
                   videoMode={videoMode()}
                   status={effectiveStatus()}
                   busy={isBusy()}
@@ -4901,8 +4999,9 @@ if (!headerTitle.pendingRename) return
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
+            canCreateStyleTemplate={canCreateStyleTemplate()}
             permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-            onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+            onRetryPermission={retryPermission}
             styleModel={styleModel()}
             maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
@@ -4913,8 +5012,7 @@ if (!headerTitle.pendingRename) return
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
-            videoQualityMode={effectiveVideoQualityMode()}
-            videoQualityLocked={videoQualityLocked()}
+            videoQualityMode={videoQualityMode()}
             videoMode={videoMode()}
             status={effectiveStatus()}
             busy={isBusy()}

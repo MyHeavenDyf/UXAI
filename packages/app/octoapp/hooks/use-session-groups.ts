@@ -10,7 +10,7 @@ export type SessionGroupMapping = Record<string, { groupId: string; position: nu
 // shared across sidebar + header.
 type MappingStore = { mapping: SessionGroupMapping; setMapping: SetStoreFunction<SessionGroupMapping> }
 const mappingStores = new Map<string, MappingStore>()
-function getMappingStore(namespace: string): MappingStore {
+export function getMappingStore(namespace: string): MappingStore {
   let s = mappingStores.get(namespace)
   if (!s) {
     const [mapping, setMapping] = createStore<SessionGroupMapping>({})

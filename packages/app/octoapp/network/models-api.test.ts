@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { modelsApiHeaders, modelsApiProviders } from "./models-api"
+import { hasModelsApiToken, modelsApiHeaders, modelsApiProviders, modelsApiThirdToken, modelsApiToken } from "./models-api"
 
 describe("modelsApiProviders", () => {
   test("converts remote provider arrays into app provider models", () => {
@@ -9,6 +9,7 @@ describe("modelsApiProviders", () => {
         name: "Octo AI",
         api: "http://octoai-llm.ucd.huawei.com/v1",
         npm: "@ai-sdk/openai-compatible",
+        title_model: [" missing ", " GLM-V5_1 "],
         models: [
           {
             id: "GLM-V5_1",
@@ -45,6 +46,7 @@ describe("modelsApiProviders", () => {
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe("w3")
     expect(result[0].source).toBe("remote")
+    expect(result[0].title_model).toEqual(["missing", "GLM-V5_1"])
     expect(result[0].models["GLM-V5_1"]).toMatchObject({
       id: "GLM-V5_1",
       providerID: "w3",
@@ -81,9 +83,24 @@ describe("modelsApiProviders", () => {
 describe("modelsApiHeaders", () => {
   beforeEach(() => localStorage.clear())
 
+  test("reads the latest token value from storage", () => {
+    expect(hasModelsApiToken()).toBe(false)
+    localStorage.setItem("uiplusToken", " old-token ")
+    expect(modelsApiToken()).toBe("old-token")
+    localStorage.setItem("uiplusToken", "new-token")
+    expect(modelsApiToken()).toBe("new-token")
+  })
+
   test("includes the account from userInfo for the local server", () => {
     localStorage.setItem("userInfo", JSON.stringify({ account: " j60099994 " }))
     expect(modelsApiHeaders()["x-opencode-w3-account"]).toBe("j60099994")
+  })
+
+  test("forwards thirdToken from userInfo as the model authentication token", () => {
+    localStorage.setItem("userInfo", JSON.stringify({ thirdToken: " third-token " }))
+
+    expect(modelsApiThirdToken()).toBe("third-token")
+    expect(modelsApiHeaders()["X-Auth-Token"]).toBe("third-token")
   })
 
   test("omits the account when userInfo is invalid", () => {

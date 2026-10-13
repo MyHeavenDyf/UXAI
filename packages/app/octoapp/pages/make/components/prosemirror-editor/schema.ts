@@ -34,6 +34,7 @@ export const mentionNodeSpec = {
         "data-type": attrs.type,
         "data-label": attrs.label,
         "data-path": attrs.path || "",
+        title: `@${attrs.label || attrs.name}`,
       },
       `   @${attrs.label || attrs.name}   `,
     ] as const

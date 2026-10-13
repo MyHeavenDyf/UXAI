@@ -20,6 +20,8 @@ export type Context<M extends Metadata = Metadata> = {
   callID?: string
   extra?: { [key: string]: unknown }
   messages: MessageV2.WithParts[]
+  /** Optional observer after argument validation; never changes tool execution. */
+  onExecute?: (args: unknown) => Effect.Effect<void>
   metadata(input: { title?: string; metadata?: M }): Effect.Effect<void>
   ask(input: Omit<Permission.Request, "id" | "sessionID" | "tool">): Effect.Effect<void>
 }
@@ -106,6 +108,7 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
                   ),
             ),
           )
+          if (ctx.onExecute) yield* ctx.onExecute(decoded)
           const result = yield* execute(decoded as Schema.Schema.Type<Parameters>, ctx)
           if (result.metadata.truncated !== undefined) {
             return result

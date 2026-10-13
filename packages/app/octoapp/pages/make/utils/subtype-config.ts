@@ -17,6 +17,10 @@ export type SubtypeCapabilities = {
   }
   history?: {
     files: string[]
+    /** 每文件保留的最大版本数（不含 init），默认 50 */
+    maxVersions?: number
+    /** agent 一轮对话的记录粒度：'each' 每次工具写盘记一条（默认）；'turn' 整轮只记最终态一条 */
+    agentTurnRecord?: 'each' | 'turn'
   }
   rendering?: {
     designSystem?: string
@@ -144,6 +148,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
     history: {
       files: ['.'],
+      agentTurnRecord: 'turn',
     },
   },
 
@@ -164,6 +169,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
     history: {
       files: ['.'],
+      agentTurnRecord: 'turn',
     },
   },
 

@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
+import { createMemo, createResource, createSignal, createEffect, onCleanup, Show, Switch, Match } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -12,6 +12,7 @@ import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
+import { attachmentMediaKind } from "../../utils/output-type"
 import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
 import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
@@ -58,6 +59,8 @@ export function ResultViewer(props: {
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onFilesRefresh?: () => void
   refreshKey?: number
+  /** 刷新预览(重新读盘/重拉 uri) */
+  onRefresh?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
@@ -73,11 +76,24 @@ export function ResultViewer(props: {
   // 磁盘内容版本:编辑器保存后关闭时 +1,驱动 LocalFileTabBody 重新读盘。
   // 磁盘是真相源(§5)——编辑器写的是磁盘,预览就该回去读磁盘,而不是显示一份内存里的回写值。
   const [diskVersion, setDiskVersion] = createSignal(0)
+  // 全屏预览:focusMode=true 时容器 position:fixed 铺满视口,盖在所有面板之上
+  const [focusMode, setFocusMode] = createSignal(false)
+  // Esc 退出全屏
+  createEffect(() => {
+    if (!focusMode()) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFocusMode(false) }
+    window.addEventListener("keydown", onKey)
+    onCleanup(() => window.removeEventListener("keydown", onKey))
+  })
 
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
-      style={{ background: "var(--octo-surface-result)", "border-left": "1px solid var(--octo-border-divider)" }}
+      style={{
+        background: "var(--octo-surface-result)",
+        "border-left": focusMode() ? "none" : "1px solid var(--octo-border-divider)",
+        ...(focusMode() ? { position: "fixed", inset: "0", "z-index": "50" } : {}),
+      }}
     >
       <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
         <TabBar
@@ -108,6 +124,9 @@ export function ResultViewer(props: {
                 onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
                 onEdit={() => setEditingId(tab().id)}
                 getIframe={() => tabContainer?.querySelector("iframe") ?? null}
+                onRefresh={() => { setDiskVersion(v => v + 1); props.onRefresh?.() }}
+                focusMode={focusMode()}
+                onFocusModeToggle={() => setFocusMode(f => !f)}
               />
               {/* select-text:应用外壳(pages/layoutnet.tsx)整体 `select-none`(Electron 原生手感,
                   避免拖窗/拖分隔线误选),白名单只有 input/textarea/contenteditable。产物预览是**内容**,
@@ -181,7 +200,7 @@ function TabBody(props: {
         <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
       </Match>
       <Match when={props.tab.type === "file"}>
-        <TabContent tab={props.tab} />
+        <TabContent tab={props.tab} refreshKey={props.refreshKey} />
       </Match>
       <Match when={localPath()}>
         {(path) => (
@@ -304,9 +323,20 @@ function UriTabBody(props: {
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
 // toggle 类型(html/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
-function TabContent(props: { tab: ResultTab }): JSX.Element {
+function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element {
   const content = () => props.tab.content ?? ""
   const isSource = () => (props.tab.viewMode ?? "preview") === "source"
+  // 会话附件中的媒体(video/audio/pdf)应用内预览,与 Design 页一致;其余 file 走 FileFallback(下载/本地打开)
+  const mediaKind = (): "video" | "audio" | "pdf" | null => {
+    if (!props.tab.fromAttachment) return null
+    return attachmentMediaKind(props.tab)
+  }
+  const mediaSrc = () => {
+    const src = props.tab.filePath ?? props.tab.uri ?? ""
+    if (/^(https?:|data:)/i.test(src)) return src
+    const stripped = src.replace(/^file:\/\//i, "")
+    return `local:///${stripped.replace(/\\/g, "/")}?v=${props.refreshKey ?? 0}`
+  }
   return (
     <Switch
       fallback={
@@ -347,7 +377,21 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         <SourceCodeView content={content()} lang={langFromPath(props.tab.filePath ?? "")} />
       </Match>
       <Match when={props.tab.type === "file"}>
-        <FileFallback tab={props.tab} />
+        <Switch fallback={<FileFallback tab={props.tab} />}>
+          <Match when={mediaKind() === "video"}>
+            <div class="flex items-center justify-center h-full p-4">
+              <video src={mediaSrc()} controls class="max-w-full max-h-full" />
+            </div>
+          </Match>
+          <Match when={mediaKind() === "audio"}>
+            <div class="flex items-center justify-center h-full p-4">
+              <audio src={mediaSrc()} controls class="w-full max-w-md" />
+            </div>
+          </Match>
+          <Match when={mediaKind() === "pdf"}>
+            <iframe src={mediaSrc()} style={{ width: "100%", height: "100%", border: "none" }} />
+          </Match>
+        </Switch>
       </Match>
     </Switch>
   )

@@ -27,6 +27,10 @@ export function parameterSchema(description: string) {
       description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
     }),
     description: Schema.String.annotate({ description }),
+    artifactFiles: Schema.optional(Schema.Array(Schema.String)).annotate({
+      description:
+        "Required for every tracked Insight Shell call: declare the final user deliverable paths this command will create/edit (up to 32). Relative paths resolve against workdir, not a later cd. Include edited uploads as well as outputs; exclude scripts, caches and temporary intermediates. Read-only commands or commands with no final deliverables must explicitly pass []. Wait for the writer/exporter to finish and close files before returning success. Missing this field in Insight prevents command execution. Never repeat a completed write to fix tracking; declaration alone does not report an artifact. Optional outside tracked Insight turns.",
+    }),
   })
 }
 

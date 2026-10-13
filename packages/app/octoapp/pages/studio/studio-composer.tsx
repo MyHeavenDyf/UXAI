@@ -13,6 +13,8 @@ import {
   type StudioTemplateStyleDescription,
 } from "./studio-style-template-utils"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { showFloatingNotice } from "@/components/floating-notice"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
@@ -21,6 +23,14 @@ const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
 type StudioExtractStyleTemplate = Extract<StudioStyleTemplateListItem, { template_type: "extract_style" }>
 
 export type StudioComposerMenu = "capability" | "style" | "settings" | "material" | "style-template" | null
+export type StudioComposerInputField = "prompt" | "recipeMain" | "recipeExtra"
+export type StudioComposerInputApi = {
+  serialize: (field?: StudioComposerInputField) => string
+  serializeText: (field?: StudioComposerInputField) => string
+  serializeMentionImages: () => Record<string, string>
+  restore: (html: string, field?: StudioComposerInputField) => void
+  stripMentions: () => void
+}
 
 export function StudioIntro(): JSX.Element {
   return (
@@ -39,6 +49,7 @@ export function StudioComposer(props: {
   capability: StudioCapability
   canGenerateVideo: boolean
   canUseSeedream: boolean
+  canCreateStyleTemplate: boolean
   permissionStatus: "loading" | "ready" | "error"
   onRetryPermission: () => void
   styleModel: string
@@ -52,7 +63,6 @@ export function StudioComposer(props: {
   videoFrames: { first?: StudioAsset; last?: StudioAsset }
   videoDuration: StudioVideoDuration
   videoQualityMode: StudioVideoQualityMode
-  videoQualityLocked: boolean
   videoMode: StudioVideoMode
   status: StudioGenerationStatus
   busy: boolean
@@ -103,7 +113,7 @@ export function StudioComposer(props: {
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
   onToolClick?: () => void
-  inputApi?: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void }
+  inputApi?: StudioComposerInputApi
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLDivElement
@@ -114,6 +124,7 @@ export function StudioComposer(props: {
   let dragDepth = 0
   let atTriggeredByTyping = false
   let pointerDownAtMenuOpen = false
+  let activeMentionField: StudioComposerInputField = "prompt"
   const [composing, setComposing] = createSignal(false)
   const [dragActive, setDragActive] = createSignal(false)
   const [referenceExpanded, setReferenceExpanded] = createSignal(false)
@@ -127,9 +138,15 @@ export function StudioComposer(props: {
   const canAddReferenceAsset = createMemo(() => !isTemplateReferenceDisabled() && props.maxReferenceImages > 0 && referenceAssets().length < props.maxReferenceImages)
   const isSeedreamModel = createMemo(() => styleModelId(props.styleModel) === "seedream-5-lite")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
-  const isRecipeTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "preset_recipe")
+  const isRecipeTemplate = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.template_type === "preset_recipe")
   const selectedExtractStyleTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "extract_style" ? props.selectedStyleTemplate : undefined)
   const isTemplatePromptDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.prompt_setting === "not_supported")
+  const showMentionEntry = createMemo(() => isImageGeneration() && isSeedreamModel())
+  const mentionUnavailableReason = createMemo(() => {
+    if (props.selectedStyleTemplate?.prompt_setting === "not_supported") return "该风格模板不支持输入提示词，无法添加 @ 引用"
+    if (props.selectedStyleTemplate?.reference_image_setting === "not_supported") return "该风格模板不支持参考图，无法添加 @ 引用"
+  })
+  const canInsertMention = createMemo(() => showMentionEntry() && !mentionUnavailableReason())
   const recipeTemplateParts = createMemo(() => (
     props.selectedStyleTemplate?.template_type === "preset_recipe"
       ? splitStyleTemplatePlayDescription(props.selectedStyleTemplate.play_description ?? "")
@@ -166,6 +183,53 @@ export function StudioComposer(props: {
     inputRef.style.height = "auto"
     inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
   }
+  const inputElement = (field: StudioComposerInputField) => {
+    if (field === "recipeMain") return recipeMainRef
+    if (field === "recipeExtra") return recipeExtraRef
+    return inputRef
+  }
+  const activeInputFields = (): readonly StudioComposerInputField[] =>
+    isTemplatePromptDisabled()
+      ? []
+      : isRecipeTemplate()
+        ? ["recipeMain", "recipeExtra"]
+        : ["prompt"]
+  const serializeMentionText = (element?: HTMLElement) => {
+    if (!element) return ""
+    let result = ""
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        result += node.textContent ?? ""
+        return
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return
+      const item = node as HTMLElement
+      if (item.classList.contains("studio-composer-at-chip")) {
+        result += `@${item.getAttribute("data-mention") ?? ""}`
+        return
+      }
+      if (item.tagName === "BR") result += "\n"
+      Array.from(item.childNodes).forEach(walk)
+    }
+    Array.from(element.childNodes).forEach(walk)
+    return result
+  }
+  const syncInputField = (field: StudioComposerInputField) => {
+    const element = inputElement(field)
+    if (!element) return
+    const text = element.innerText.replace(/\u200B/g, "")
+    if (text.trim() === "") element.innerHTML = ""
+    if (field === "recipeMain") {
+      props.onRecipeMainPrompt(text)
+      return
+    }
+    if (field === "recipeExtra") {
+      props.onRecipeExtraPrompt(text)
+      return
+    }
+    props.onPrompt(text)
+    resizeInput()
+  }
   const attachMentionHover = (chip: HTMLElement, asset: StudioAsset) => {
     const img = chip.querySelector("img")
     if (!img) return
@@ -182,12 +246,17 @@ export function StudioComposer(props: {
     chip.addEventListener("mouseleave", () => setRefPreview(null))
   }
   const insertMention = (asset: StudioAsset) => {
-    if (!inputRef) return
-    inputRef.focus()
+    if (!canInsertMention()) return
+    const field = isRecipeTemplate()
+      ? activeMentionField === "recipeExtra" ? "recipeExtra" : "recipeMain"
+      : "prompt"
+    const element = inputElement(field)
+    if (!element) return
+    element.focus()
     const sel = window.getSelection()
     if (!sel) return
     let range: Range
-    if (sel.rangeCount && inputRef.contains(sel.anchorNode)) {
+    if (sel.rangeCount && element.contains(sel.anchorNode)) {
       range = sel.getRangeAt(0)
       const node = range.startContainer
       if (node.nodeType === Node.TEXT_NODE && range.startOffset > 0 && (node.textContent ?? "")[range.startOffset - 1] === "@") {
@@ -200,7 +269,7 @@ export function StudioComposer(props: {
       range.deleteContents()
     } else {
       range = document.createRange()
-      range.selectNodeContents(inputRef)
+      range.selectNodeContents(element)
       range.collapse(false)
     }
     const name = asset.name.replace(/\.[^.]+$/, "")
@@ -224,12 +293,11 @@ export function StudioComposer(props: {
     range.collapse(true)
     sel.removeAllRanges()
     sel.addRange(range)
-    props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
-    resizeInput()
+    syncInputField(field)
   }
   // 按一次退格直接删除光标前的 @ chip，避免先吃掉零宽空格再删 chip 的两次退格
-  const deleteMentionBeforeCaret = () => {
-    if (!inputRef) return false
+  const deleteMentionBeforeCaret = (element?: HTMLElement) => {
+    if (!element) return false
     const sel = window.getSelection()
     if (!sel || !sel.isCollapsed || !sel.rangeCount) return false
     const range = sel.getRangeAt(0)
@@ -267,6 +335,30 @@ export function StudioComposer(props: {
       }
     }
     return true
+  }
+  const openMentionMenu = (triggeredByTyping = false) => {
+    const reason = mentionUnavailableReason()
+    if (reason) {
+      setAtMenuOpen(false)
+      props.onOpenMenu(null)
+      showFloatingNotice("info", reason)
+      return
+    }
+    atTriggeredByTyping = triggeredByTyping
+    props.onOpenMenu(null)
+    setVideoModeOpen(false)
+    setAtMenuOpen(true)
+  }
+  const handleMentionKeyDown = (event: KeyboardEvent, field: StudioComposerInputField) => {
+    activeMentionField = field
+    if (event.key === "Enter" && isImeComposing(event)) return
+    if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret(inputElement(field))) {
+      event.preventDefault()
+      syncInputField(field)
+      return
+    }
+    if (event.key === "@" && !isImeComposing(event) && canInsertMention()) openMentionMenu(true)
+    props.onKeyDown(event)
   }
   const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
   const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
@@ -462,47 +554,50 @@ export function StudioComposer(props: {
   onMount(() => {
     if (inputRef && props.prompt && !isTemplatePromptDisabled() && !isRecipeTemplate()) inputRef.innerText = props.prompt
     if (props.inputApi) {
-      props.inputApi.serialize = () => inputRef?.innerHTML ?? ""
-      props.inputApi.serializeText = () => {
-        if (!inputRef) return ""
-        let result = ""
-        const walk = (node: Node) => {
-          if (node.nodeType === Node.TEXT_NODE) result += node.textContent ?? ""
-          else if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node as HTMLElement
-            if (el.classList.contains("studio-composer-at-chip")) {
-              result += "@" + (el.getAttribute("data-mention") ?? "")
-              return
-            }
-            if (el.tagName === "BR") result += "\n"
-            Array.from(el.childNodes).forEach(walk)
-          }
-        }
-        Array.from(inputRef.childNodes).forEach(walk)
-        return result
-      }
+      props.inputApi.serialize = (field = "prompt") => activeInputFields().includes(field) ? inputElement(field)?.innerHTML ?? "" : ""
+      props.inputApi.serializeText = (field = "prompt") => activeInputFields().includes(field) ? serializeMentionText(inputElement(field)) : ""
       props.inputApi.serializeMentionImages = () => {
-        if (!inputRef) return {}
         const map: Record<string, string> = {}
-        for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
-          const name = chip.getAttribute("data-mention") ?? ""
-          const img = chip.querySelector("img")
-          if (name && img) map[name] = img.src
+        for (const field of activeInputFields()) {
+          const element = inputElement(field)
+          if (!element) continue
+          for (const chip of element.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+            const name = chip.getAttribute("data-mention") ?? ""
+            const img = chip.querySelector("img")
+            if (name && img) map[name] = img.src
+          }
         }
         return map
       }
-      props.inputApi.restore = (html) => {
-        if (!inputRef) return
-        inputRef.innerHTML = html
+      props.inputApi.restore = (html, field = "prompt") => {
+        if (!activeInputFields().includes(field)) return
+        const element = inputElement(field)
+        if (!element) return
+        element.innerHTML = html
         const byName = new Map(referenceAssets().map((a) => [a.name.replace(/\.[^.]+$/, ""), a]))
-        for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+        for (const chip of element.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
           const asset = byName.get(chip.getAttribute("data-mention") ?? "")
           if (asset) attachMentionHover(chip, asset)
         }
-        const text = inputRef.innerText.replace(/\u200B/g, "")
-        if (text.trim() === "") inputRef.innerHTML = ""
-        props.onPrompt(text)
+        syncInputField(field)
         queueMicrotask(resizeInput)
+      }
+      props.inputApi.stripMentions = () => {
+        for (const field of activeInputFields()) {
+          const element = inputElement(field)
+          if (!element) continue
+          let changed = false
+          for (const chip of element.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+            const next = chip.nextSibling
+            if (next && next.nodeType === Node.TEXT_NODE && (next.textContent ?? "")[0] === "\u200B") {
+              next.textContent = (next.textContent ?? "").slice(1)
+              if (!next.textContent) next.remove()
+            }
+            chip.replaceWith(document.createTextNode(chip.getAttribute("data-mention") ?? ""))
+            changed = true
+          }
+          if (changed) syncInputField(field)
+        }
       }
     }
     requestAnimationFrame(() => {
@@ -539,21 +634,25 @@ export function StudioComposer(props: {
   })
   createEffect(() => {
     const assets = referenceAssets()
-    if (!inputRef) return
     const validNames = new Set(assets.map((a) => a.name.replace(/\.[^.]+$/, "")))
-    let changed = false
-    for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
-      if (validNames.has(chip.getAttribute("data-mention") ?? "")) continue
-      const next = chip.nextSibling
-      if (next && next.nodeType === Node.TEXT_NODE && (next.textContent ?? "")[0] === "\u200B") next.remove()
-      chip.remove()
-      changed = true
+    for (const field of activeInputFields()) {
+      const element = inputElement(field)
+      if (!element) continue
+      let changed = false
+      for (const chip of element.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+        if (validNames.has(chip.getAttribute("data-mention") ?? "")) continue
+        const next = chip.nextSibling
+        if (next && next.nodeType === Node.TEXT_NODE && (next.textContent ?? "")[0] === "\u200B") next.remove()
+        chip.remove()
+        changed = true
+      }
+      if (changed) syncInputField(field)
     }
-    if (!changed) return
-    const text = inputRef.innerText.replace(/\u200B/g, "")
-    if (text.trim() === "") inputRef.innerHTML = ""
-    props.onPrompt(text)
-    resizeInput()
+  })
+
+  createEffect(() => {
+    if (canInsertMention()) return
+    setAtMenuOpen(false)
   })
 
   createEffect(() => {
@@ -868,7 +967,10 @@ export function StudioComposer(props: {
   }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (event.target instanceof Element && event.target.closest(".studio-menu")) return
+    if (
+      event.target instanceof Element
+      && event.target.closest(".studio-menu, .studio-style-template-delete-overlay")
+    ) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
     if (atMenuOpen()) setAtMenuOpen(false)
@@ -1016,30 +1118,14 @@ export function StudioComposer(props: {
                       class="studio-composer-input"
                       contenteditable={!isEditingCapability()}
                       data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                      onFocus={() => { activeMentionField = "prompt" }}
                       onInput={() => {
                         const text = inputRef.innerText.replace(/\u200B/g, "")
                         if (text.trim() === "") inputRef.innerHTML = ""
                         props.onPrompt(text)
                         resizeInput()
                       }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && isImeComposing(event)) return
-                        if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
-                          event.preventDefault()
-                          const text = inputRef.innerText.replace(/\u200B/g, "")
-                          if (text.trim() === "") inputRef.innerHTML = ""
-                          props.onPrompt(text)
-                          resizeInput()
-                          return
-                        }
-                        if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
-                          atTriggeredByTyping = true
-                          props.onOpenMenu(null)
-                          setVideoModeOpen(false)
-                          setAtMenuOpen(true)
-                        }
-                        props.onKeyDown(event)
-                      }}
+                      onKeyDown={(event) => handleMentionKeyDown(event, "prompt")}
                       onCompositionStart={() => setComposing(true)}
                       onCompositionEnd={() => {
                         setComposing(false)
@@ -1072,12 +1158,19 @@ export function StudioComposer(props: {
                     role="textbox"
                     aria-label="模板主体提示词"
                     data-placeholder={recipeTemplateParts()?.placeholder}
+                    onFocus={() => { activeMentionField = "recipeMain" }}
                     onInput={(event) => {
                       const text = event.currentTarget.innerText.replace(/\u200B/g, "")
                       if (text.trim() === "") event.currentTarget.textContent = ""
                       props.onRecipeMainPrompt(text)
                     }}
-                    onKeyDown={props.onKeyDown}
+                    onKeyDown={(event) => handleMentionKeyDown(event, "recipeMain")}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={(event) => {
+                      setComposing(false)
+                      props.onRecipeMainPrompt(event.currentTarget.innerText.replace(/\u200B/g, ""))
+                    }}
+                    onBlur={() => setComposing(false)}
                     onPaste={handleTextOnlyPaste}
                   />
                   <span
@@ -1088,12 +1181,19 @@ export function StudioComposer(props: {
                     role="textbox"
                     aria-label="模板补充提示词"
                     data-placeholder="可选输入补充提示词"
+                    onFocus={() => { activeMentionField = "recipeExtra" }}
                     onInput={(event) => {
                       const text = event.currentTarget.innerText.replace(/\u200B/g, "")
                       if (text.trim() === "") event.currentTarget.textContent = ""
                       props.onRecipeExtraPrompt(text)
                     }}
-                    onKeyDown={props.onKeyDown}
+                    onKeyDown={(event) => handleMentionKeyDown(event, "recipeExtra")}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={(event) => {
+                      setComposing(false)
+                      props.onRecipeExtraPrompt(event.currentTarget.innerText.replace(/\u200B/g, ""))
+                    }}
+                    onBlur={() => setComposing(false)}
                     onPaste={handleTextOnlyPaste}
                   />
                 </div>
@@ -1154,22 +1254,21 @@ export function StudioComposer(props: {
                   />
                 </div>
               </Show>
-              <Show when={isSeedreamModel() && !toolbarOverflow().includes("at")}>
+              <Show when={showMentionEntry() && !toolbarOverflow().includes("at")}>
                 <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
-                  <IconTool
-                    label="引用参考"
-                    title="引用参考"
-                    class="studio-composer-icon-at"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
-                    onClick={() => {
-                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                      atTriggeredByTyping = false
-                      props.onOpenMenu(null)
-                      setVideoModeOpen(false)
-                      setAtMenuOpen(true)
-                    }}
-                  />
+                  <StudioToolbarTooltip label="引用参考">
+                    <IconTool
+                      label="引用参考"
+                      title=""
+                      class="studio-composer-icon-at"
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
+                      onClick={() => {
+                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                        openMentionMenu()
+                      }}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("style-template")}>
@@ -1204,23 +1303,29 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
-                  <IconTool
-                    label="图文反推"
-                    class="studio-composer-icon-reverse"
-                    disabled={isBusy()}
-                    onClick={() => props.onReversePrompt?.()}
-                  />
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                  <StudioToolbarTooltip label="图文反推">
+                    <IconTool
+                      label="图文反推"
+                      title=""
+                      class="studio-composer-icon-reverse"
+                      disabled={isBusy()}
+                      onClick={() => props.onReversePrompt?.()}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("material")}>
                 <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material" ref={(el) => buttonRefs.set("material", el)} data-toolbar-item="material">
-                  <IconTool
-                    label="词书"
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-                  />
+                  <StudioToolbarTooltip label="词书">
+                    <IconTool
+                      label="词书"
+                      title=""
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                    />
+                  </StudioToolbarTooltip>
                 </div>
               </Show>
               <Show when={toolbarOverflow().length > 0}>
@@ -1277,7 +1382,7 @@ export function StudioComposer(props: {
                       <span>图片设置</span>
                     </button>
                   </Show>
-                  <Show when={isSeedreamModel() && toolbarOverflow().includes("at")}>
+                  <Show when={showMentionEntry() && toolbarOverflow().includes("at")}>
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
@@ -1285,10 +1390,7 @@ export function StudioComposer(props: {
                       onPointerDown={() => { pointerDownAtMenuOpen = atMenuOpen() }}
                       onClick={() => {
                         if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
-                        atTriggeredByTyping = false
-                        props.onOpenMenu(null)
-                        setVideoModeOpen(false)
-                        setAtMenuOpen(true)
+                        openMentionMenu()
                       }}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-at-glyph">{"@"}</span>
@@ -1394,6 +1496,7 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
+                canCreateTemplate={props.canCreateStyleTemplate}
                 onCreateTemplate={() => {
                   props.onOpenMenu(null)
                   props.onCreateTemplate?.()
@@ -1422,7 +1525,6 @@ export function StudioComposer(props: {
                 count={props.count}
                 duration={props.videoDuration}
                 qualityMode={props.videoQualityMode}
-                qualityLocked={props.videoQualityLocked}
                 onAspectRatio={props.onAspectRatio}
                 onCount={props.onCount}
                 onDuration={props.onVideoDuration}
@@ -1438,7 +1540,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={isImageGeneration() && atMenuOpen()}>
+          <Show when={showMentionEntry() && canInsertMention() && atMenuOpen()}>
             <div class="studio-composer-dropdown-anchor" ref={atAnchorRef}>
               <div class="studio-menu studio-at-menu" style={{ width: "200px", height: referenceAssets().length > 0 ? "120px" : "150px" }} onClick={() => setAtMenuOpen(false)}>
                 <div class="studio-material-title">可能@的内容</div>
@@ -1553,32 +1655,49 @@ function SelectedTemplateButton(props: {
       <span class="studio-composer-template-applied-label">{displayTitle()}</span>
       <div class="studio-composer-template-applied-actions">
         <Show when={props.editable}>
+          <StudioTemplateActionTooltip label="编辑模板">
+            <button
+              type="button"
+              class="studio-composer-template-applied-icon"
+              classList={{ active: props.editorOpen }}
+              disabled={props.disabled}
+              aria-label="编辑模板"
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onEdit?.()
+              }}
+            />
+          </StudioTemplateActionTooltip>
+        </Show>
+        <StudioTemplateActionTooltip label="移除模板">
           <button
             type="button"
-            class="studio-composer-template-applied-icon"
-            classList={{ active: props.editorOpen }}
+            class="studio-composer-template-applied-clear"
             disabled={props.disabled}
-            aria-label="调整模板预设"
-            title="调整模板预设"
+            aria-label="移除模板"
             onClick={(event) => {
               event.stopPropagation()
-              props.onEdit?.()
+              props.onClear?.()
             }}
           />
-        </Show>
-        <button
-          type="button"
-          class="studio-composer-template-applied-clear"
-          disabled={props.disabled}
-          aria-label="取消应用模板"
-          title="取消应用模板"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onClear?.()
-          }}
-        />
+        </StudioTemplateActionTooltip>
       </div>
     </div>
+  )
+}
+
+function StudioTemplateActionTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      arrow
+      value={props.label}
+      class="studio-composer-template-applied-tooltip-trigger"
+      contentClass="studio-composer-template-applied-tooltip"
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 
@@ -1716,6 +1835,31 @@ function IconTool(props: { label: string; title?: string; children?: JSX.Element
         <span class="studio-composer-icon-tool-label">{props.children}</span>
       </Show>
     </button>
+  )
+}
+
+function StudioToolbarTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <Tooltip
+      placement="top"
+      gutter={6}
+      value={props.label}
+      contentStyle={{
+        height: "30px",
+        padding: "4px 8px",
+        "box-sizing": "border-box",
+        "max-width": "none",
+        "white-space": "nowrap",
+        background: "#191919",
+        color: "#fff",
+        border: "none",
+        "font-size": "14px",
+        "font-weight": "400",
+        "line-height": "22px",
+      }}
+    >
+      {props.children}
+    </Tooltip>
   )
 }
 
@@ -2269,7 +2413,6 @@ function VideoSettings(props: {
   count: 1 | 2 | 3 | 4
   duration: StudioVideoDuration
   qualityMode: StudioVideoQualityMode
-  qualityLocked: boolean
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
   onDuration: (value: StudioVideoDuration) => void
@@ -2405,7 +2548,6 @@ function VideoSettings(props: {
             <button
               type="button"
               onClick={() => props.onQualityMode(item.value)}
-              disabled={props.qualityLocked && item.value !== "720"}
               class="studio-image-settings-count"
               classList={{ active: item.value === props.qualityMode }}
               aria-pressed={item.value === props.qualityMode}

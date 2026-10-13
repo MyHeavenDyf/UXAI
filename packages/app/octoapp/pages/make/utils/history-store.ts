@@ -103,6 +103,7 @@ export function createHistoryStore() {
     tab: ResultTab,
     actor: HistoryActor,
     files: string[],
+    maxVersions?: number,
   ): Promise<VersionEntry | null> {
     if (!api?.copyFileTo || !api?.listDirectory || !api?.deleteFile) return null
     if (!tab.filePath) return null
@@ -124,20 +125,25 @@ export function createHistoryStore() {
     const versionDir = historyDir + sep + versionName
 
     const copyFileTo = api.copyFileTo
+    const readFileBuffer = api.readFileBuffer
+    /** 复制 + 写后校验：源正被写入时（autoSaveArtifact 进行中）复制可能抛 EBUSY，
+     *  或复制出半截内容（字节数不符）。多级退避重试，且以「源/目标字节数一致」为成功标准 */
     const copyWithRetry = async (src: string, dest: string): Promise<boolean> => {
-      try {
-        await copyFileTo(src, dest)
-        return true
-      } catch {
-        // 源文件可能正被写入（如 autoSaveArtifact 进行中，Windows 下复制会 EBUSY），延迟后重试一次
-        await new Promise((r) => setTimeout(r, 300))
+      const delays = [0, 300, 1200]
+      for (const delay of delays) {
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay))
         try {
           await copyFileTo(src, dest)
-          return true
+          const srcBuf = await readFileBuffer?.(src)
+          const destBuf = await readFileBuffer?.(dest)
+          if (srcBuf && destBuf && srcBuf.byteLength === destBuf.byteLength) {
+            return true
+          }
         } catch {
-          return false
+          // 重试
         }
       }
+      return false
     }
 
     let copied = 0
@@ -162,7 +168,7 @@ export function createHistoryStore() {
       actor,
     }
 
-    await prune(historyDir, baseName)
+    await prune(historyDir, baseName, maxVersions)
     return entry
   }
 
@@ -230,7 +236,8 @@ export function createHistoryStore() {
       .sort((a, b) => b.timestamp - a.timestamp)
   }
 
-  async function prune(historyDir: string, baseName: string): Promise<void> {
+  async function prune(historyDir: string, baseName: string, maxVersions?: number): Promise<void> {
+    const cap = maxVersions ?? MAX_VERSIONS
     if (!api?.listDirectory || !api?.deleteFile) return
     const prefix = baseName + "."
     const entries = await api.listDirectory(historyDir)
@@ -251,8 +258,8 @@ export function createHistoryStore() {
       .filter((v) => v.actor !== "init")
       .sort((a, b) => b.ts - a.ts)
 
-    if (versions.length <= MAX_VERSIONS) return
-    for (const item of versions.slice(MAX_VERSIONS)) {
+    if (versions.length <= cap) return
+    for (const item of versions.slice(cap)) {
       const filesInVersion = entries.filter((e) => e.path.split(/[/\\]/)[0] === item.id && e.type === "file")
       for (const f of filesInVersion) {
         await api.deleteFile(f.path)

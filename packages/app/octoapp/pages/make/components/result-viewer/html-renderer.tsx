@@ -23,6 +23,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { createPrototypeArchiveZip } from "../../utils/archive-prototype"
 import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
 import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
@@ -619,7 +620,9 @@ export function HtmlRenderer(props: {
       // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
       const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
 
-      const zipBlob = await createArchiveZip({
+      // 归档按子类型走独立入口：prototype → archive-prototype.ts（components.json +
+      // 旧引用放置逻辑）；其余 → archive-utils.ts（NCA 引用镜像）
+      const archiveOptions = {
         comments,
         screenshotBlob,
         htmlContent,
@@ -631,8 +634,10 @@ export function HtmlRenderer(props: {
         srcFiles,
         previewExtraDirs,
         previewExtraRels,
-        prototypeSnapshotHtml,
-      })
+      }
+      const zipBlob = props.subtype === "prototype"
+        ? await createPrototypeArchiveZip({ ...archiveOptions, prototypeSnapshotHtml })
+        : await createArchiveZip(archiveOptions)
       
       if (isLoggedIn) {
         let uploadResult: { success: boolean }
@@ -1379,6 +1384,9 @@ createEffect(() => {
       const config = props.modelEditConfig
       if (!config) return
 
+      const styleConfig = config.selectionStyle?.(target)
+      iframe.contentWindow?.postMessage({ type: 'od:selection-style', style: styleConfig ?? null }, '*')
+
       window.dispatchEvent(new CustomEvent("design:element-selected"))
 
       let panelConfig: ConfigGroup[] = []
@@ -1928,7 +1936,6 @@ return (
                 - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
                 - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
                 - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
-                - 参考：design-system-picker.tsx:163
               */}
               <iframe
                 ref={iframeRef}

@@ -4,6 +4,7 @@ import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
+import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
@@ -43,7 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
-import { closePrototypePanels, onPrototypeQuickFix, onPrototypeCtxMenu } from "./utils/prototype-utils"
+import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -55,27 +56,30 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
-import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN } from "@/context/make-layout"
+import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN, MAKE_CRATIO_DEFAULT } from "@/context/make-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
-import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
+import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
-import { useMakeGroupsContext } from "@/context/make-groups"
+import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
+import { isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
+import { TurnAnchorNav } from "./components/turn-anchor-nav"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -84,8 +88,7 @@ import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
-import { createTabStore } from "./components/result-viewer/tab-store"
-import { DesignSystemPicker } from "./components/design-system-picker"
+import { createTabStore, type ResultTab } from "./components/result-viewer/tab-store"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -93,9 +96,8 @@ import { ContextUsageCircle } from "@/components/context-usage-circle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
-import { loadDesignSystem } from "./utils/design-system-loader"
-import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
+import { createBgCompareGuard } from "./utils/bg-compare-guard"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
@@ -108,6 +110,7 @@ import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
 import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
@@ -128,9 +131,14 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { isVisibleUserMessage } from "./utils/visible-message"
+import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+
+// 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
+const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -141,7 +149,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -200,6 +208,31 @@ function MakeContent() {
   })
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
+
+  onMount(() => {
+    // Guard against the async restore navigating after the user has left /make.
+    let disposed = false
+    onCleanup(() => { disposed = true })
+    if (params.id) return
+    if (layout.lastSessionPerTab.newConversation("make")) return
+    const savedId = layout.lastSessionPerTab.make(sdk.directory)
+    if (!savedId) return
+    // Fast path: session already present in the sync store.
+    if (sync.data.session.some((s) => s.id === savedId && s.agent === "octo_make")) {
+      navigate(`/make/${savedId}`, { replace: true })
+      return
+    }
+    // Otherwise confirm it still exists before restoring, so a stale id
+    // (e.g. deleted elsewhere) doesn't navigate to a missing session.
+    void globalSDK.createClient({ directory: sdk.directory }).session.get({ sessionID: savedId })
+      .then((result) => {
+        if (disposed || params.id) return
+        const info = result.data
+        if (info?.id === savedId && info.agent === "octo_make") navigate(`/make/${savedId}`, { replace: true })
+        else layout.lastSessionPerTab.setMake(sdk.directory, "")
+      })
+      .catch(() => layout.lastSessionPerTab.setMake(sdk.directory, ""))
+  })
 
   const projectDir = useProjectDir()
   const projectSelection = useProjectSelection()
@@ -492,16 +525,22 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
+    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         pinned: newPinned,
-        sort_order: newPinned ? -1 : (prev.time.updated ?? 0),
+        sort_order: newPinned ? -1 : restore,
       }
     })
     try {
-      await togglePinSession(session.id, newPinned, sdk.directory)
+      await togglePinSession(
+        session.id,
+        newPinned,
+        sdk.directory,
+        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+      )
     } catch (err) {
       setSessionInfoMirror((prev) => {
         if (!prev) return prev
@@ -519,6 +558,7 @@ function MakeContent() {
 
   function handleMenuTogglePin(session: Session) {
     closeMenu()
+    tracker.interaction({ module: "design", name: session.pinned ? "unpin-session" : "pin-session" })
     void togglePinCurrent(session)
   }
 
@@ -543,12 +583,12 @@ function MakeContent() {
 
   function handleMenuCreateGroupForSession(session: Session) {
     closeMenu()
-    tracker.interaction({ module: "design", name: "create-group-for-session" })
     if (session.pinned) void togglePinCurrent(session)
     dialog.show(() => (
       <DialogCreateGroup
         existingNames={groupsCtx?.groups.map(g => g.name) ?? []}
       onCreate={async (name) => {
+        tracker.interaction({ module: "design", name: "create-group-for-session" })
         const id = await groupsCtx?.addGroup(name)
         if (id) {
           await groupsCtx?.moveSessionToGroup(session.id, id)
@@ -612,11 +652,14 @@ const sessionMessagesLoaded = createMemo(() => {
       ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
+          layout.lastSessionPerTab.setNewConversation("make", false)
           // 之前用 `id !== prev?.[0]` 限制只在 session 切换时 sync,但 app 长时间放置后
           // 重新激活时,store 可能被 evict 导致 sync.data.message[id] 变 undefined,
           // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
           // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
           if (missing) void sync.session.sync(id).catch(() => {})
+        } else {
+          layout.lastSessionPerTab.setMake(sdk.directory, "")
         }
 
         setSending(false)
@@ -634,6 +677,25 @@ const sessionMessagesLoaded = createMemo(() => {
     ),
   )
 
+  // Fix 9: 切换 session 完整性校验。message[id] 已加载但无可见 user 消息时,可能是:
+  // ① 修复前残留的污染状态(空数组/仅 assistant);② SSE gap 丢掉 message.part.updated
+  // 而 message.updated 存活(parts 缺失被 visible 过滤)。两者都不会触发 missing 重取,
+  // 切换后对话区永久空白。此处 view-time 强制重拉一次兜底(force sync 会重写消息+parts);
+  // Set 防重复,失败时回退以便下次切换重试。
+  const integrityForced = new Set<string>()
+  createEffect(
+    on(
+      () => [params.id, sessionMessagesLoaded()] as const,
+      ([id, loaded]) => {
+        if (!id || !loaded || integrityForced.has(id)) return
+        const messages = (sync.data.message?.[id] ?? []) as Message[]
+        if (messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) return
+        integrityForced.add(id)
+        sync.session.sync(id, { force: true }).catch(() => integrityForced.delete(id))
+      },
+    ),
+  )
+
   // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
   // 同时关闭 prototype 局部编辑浮层（mask/属性编辑器/右键菜单）：它们是挂在
   // ResultViewer 层级的单例,不随 tab 卸载而消失,需显式关闭。
@@ -642,6 +704,10 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments([])
     setDeltaLog([])
     closePrototypePanels()
+  }, { defer: true }))
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "make")
   }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
@@ -779,22 +845,20 @@ const sessionMessagesLoaded = createMemo(() => {
         return
       }
 
-      try {
-        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
-        tracker.interaction({
-          module: 'design',
-          name: 'send-text-event',
-          extend: JSON.stringify({
-            textLength: detail.text.length,
-            source: detail.source ?? 'unknown',
-          }),
-        })
-        detail.ack?.({ ok: true })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        showOctoToast({ title: '发送失败', description: message, variant: 'error' })
-        detail.ack?.({ ok: false, message })
+      const ok = await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
+      if (!ok) {
+        detail.ack?.({ ok: false, message: '发送失败' })
+        return
       }
+      tracker.interaction({
+        module: 'design',
+        name: 'send-text-event',
+        extend: JSON.stringify({
+          textLength: detail.text.length,
+          source: detail.source ?? 'unknown',
+        }),
+      })
+      detail.ack?.({ ok: true })
     }
 
     window.addEventListener(SEND_TEXT_EVENT, handleSendText)
@@ -929,9 +993,9 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
-      } else if (e.type === "session.next.step.ended") {
+      } else if (e.type === "session.next.step.ended" || e.type === "session.idle") {
         setFilesRefreshKey(k => k + 1)
-        void historyController.onFileRefresh(tabStore.tabs())
+        void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
@@ -1212,16 +1276,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const visible = (message: Message) => {
-      const parts = sync.data.part[message.id] ?? []
-      if (message.role !== "user" || parts.length === 0) return false
-      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
-      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
-      if (parts.some((part) => part.type === "compaction")) {
-        return parts.some((part) => part.type === "text")
-      }
-      return true
-    }
+    const visible = (message: Message) => isVisibleUserMessage(message, sync.data.part[message.id])
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childSessionIDs()) {
@@ -1340,12 +1395,12 @@ const sessionMessagesLoaded = createMemo(() => {
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
     try {
       const result = await sdk.client.session.command(input)
-      if (input.command !== "compact" && input.command !== "summarize") return
+      if (input.command !== "compact" && input.command !== "summarize") return true
 
       const info = result.data?.info
       if (info && info.summary === true && info.finish && !info.error) {
         showOctoToast({ title: "上下文压缩完成" })
-        return
+        return true
       }
       const error = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
       showOctoToast({
@@ -1353,24 +1408,35 @@ const sessionMessagesLoaded = createMemo(() => {
         description: error?.data?.message ?? error?.message ?? "请稍后重试",
         variant: "error",
       })
+      return false
     } catch (error) {
       console.error(`[MakePage] command /${input.command} failed`, error)
-      if (input.command !== "compact" && input.command !== "summarize") return
+      if (input.command !== "compact" && input.command !== "summarize") {
+        showOctoToast({
+          title: `命令 /${input.command} 执行失败`,
+          description: sessionErrorMessage(error, "请稍后重试"),
+          variant: "error",
+        })
+        return false
+      }
       showOctoToast({
         title: "上下文压缩失败",
-        description: error instanceof Error ? error.message : "请稍后重试",
+        description: sessionErrorMessage(error, "请稍后重试"),
         variant: "error",
       })
+      return false
     }
   }
 
   function compactContext(sessionID: string) {
     if (!sessionID || contextCompactionDisabled()) return
+    const model = currentModel()
     return executeSessionCommand({
       sessionID,
       command: "compact",
       arguments: "",
       agent: sync.data.session.find((session) => session.id === sessionID)?.agent ?? "octo_make",
+      model: model ? `${model.provider.id}/${model.id}` : undefined,
     })
   }
 
@@ -1728,22 +1794,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
   })
 
-  const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
-  const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
-  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  createEffect(() => {
-    const key = dsKey()
-    if (!key) return
-    const id = selectedDesignSystem()
-    if (id) localStorage.setItem(key, id)
-    else localStorage.removeItem(key)
-  })
-  createEffect(on(() => params.id, (id) => {
-    if (!id) return
-    const saved = localStorage.getItem(DS_KEY_PREFIX + id)
-    setSelectedDesignSystem(saved ?? null)
-  }))
 
   createEffect(on(() => params.id, (id) => {
     if (!id) return
@@ -1802,6 +1853,15 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     })
   }, { defer: true }))
+  function restoreComposerText(text: string) {
+    const doc = docJSONFromPlainText(text)
+    const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+    if (ref) ref.replaceDoc(doc)
+    else {
+      setPrompt(text)
+      setPromptDoc(doc)
+    }
+  }
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -1826,12 +1886,16 @@ const sessionMessagesLoaded = createMemo(() => {
     overlay.addEventListener("mouseup", onUp)
   }
 
-  const tabStore = createTabStore()
+  // tab 结构变更时按当前 session 持久化,切换切回/刷新/跨页面(Make→Insight→Make)返回后恢复。
+  // 空列表跳过:reset()/restoreTabs() 不触发 onPersist,但防御 activate 等空态调用误覆盖存档;
+  // "用户关闭全部 tab"的空态由 handleCloseTab 显式保存。
+  const tabStore = createTabStore({
+    onPersist: () => persistTabsFor(params.id),
+  })
   const snapshotStore = createSnapshotStore(() => params.id)
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
-  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
   const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
@@ -1848,6 +1912,23 @@ const sessionMessagesLoaded = createMemo(() => {
     isActiveTab: (id) => tabStore.activeId() === id,
   })
 
+  // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
+  const bgCompareGuard = createBgCompareGuard()
+
+  /** 把当前 tabs 持久化到指定 session。
+   *  allowEmpty=false(onPersist 路径):空态跳过,防止误覆盖存档;
+   *  allowEmpty=true(切换/卸载兜底路径):空态也保存,保证存档与实际一致。 */
+  function persistTabsFor(sid: string | null | undefined, allowEmpty = false) {
+    if (!sid) return
+    const current = tabStore.tabs()
+    if (current.length === 0 && !allowEmpty) return
+    saveSessionTabs(sid, current, tabStore.activeId())
+  }
+
+  // 卸载兜底(Make→Insight/Pattern 等跨页面导航时 MakeContent 会被卸载):
+  // onCleanup 不保证在浏览器刷新时执行,刷新场景由每次 mutation 即存覆盖。
+  onCleanup(() => persistTabsFor(params.id, true))
+
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
@@ -1860,13 +1941,6 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === id)
     if (tab) await historyController.loadVersions(tab)
   }))
-
-  // Agent 路径 B：直接调 write/edit 工具改文件时记录版本
-  createEffect(async () => {
-    const key = filesRefreshKey()
-    if (key === 0) return
-    await historyController.onFileRefresh(tabStore.tabs())
-  })
 
   // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
   // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
@@ -1909,24 +1983,6 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
-  })
-
-  // 局部修改态下选中页面元素（quick-fix）或右键（ctx-menu）时关闭历史记录浮层。
-  // window.blur 对纯 HTML 宿主元素有效，但 A2UI（Vue 渲染）组件可能阻止默认聚焦，
-  // 导致 blur 不触发；改为监听 prototype 事件总线，不依赖焦点变化。
-  // design（纯 HTML）页面同理：sandbox allow-same-origin 后点击 iframe 不触发 parent
-  // 的 window.blur，由 html-renderer 在选中元素时派发 design:element-selected，此处监听关闭。
-  createEffect(() => {
-    const close = () => setShowHistoryPanel(false)
-    const unsubQuickFix = onPrototypeQuickFix(close)
-    const unsubCtxMenu = onPrototypeCtxMenu(close)
-    const onElementSelected = () => close()
-    window.addEventListener("design:element-selected", onElementSelected)
-    onCleanup(() => {
-      unsubQuickFix()
-      unsubCtxMenu()
-      window.removeEventListener("design:element-selected", onElementSelected)
-    })
   })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
@@ -2012,6 +2068,10 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => planCard()?.artifactIdentifier, (id, prev) => {
     if (id && id !== prev) {
       setOptimisticConfirmed(false)
+      if (!planTrackReported.has(id)) {
+        planTrackReported.add(id)
+        tracker.interaction({ module: "design", name: "design-plan-generated" })
+      }
     }
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
@@ -2112,20 +2172,20 @@ const sessionMessagesLoaded = createMemo(() => {
   }, { defer: true }))
 
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
-  function handleGenerateStrategy() {
+  async function handleGenerateStrategy() {
     const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
     const data = strategyFormData()
     const prompt = `[strategy-complete]\n\n以下是已填写的设计策略信息：\n\n## 设计需求\n- 需求背景：${data.需求背景 || "（未填写）"}\n- 设计目标：${data.设计目标 || "（未填写）"}\n- 设计方法：${data.设计方法 || "（未填写）"}\n- 其他：${data.其他 || "（未填写）"}\n\n## 洞察&研究\n- 用户画像：${data.用户画像 || "（未填写）"}\n- 用户旅程：${data.用户旅程 || "（未填写）"}\n- 研究报告：${data.研究报告 || "（未填写）"}\n\n请根据以上信息输出完整的设计策略文档。`
-    sendMessage(planSid, prompt, key).catch((err) => {
-      console.error("[MakePage] generate strategy failed", err)
-      setIsGenerating(false)  // 失败时恢复
-      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
-    })
     setUserChangedPhase(false)  // 重置手动切换标记
     setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
+    const ok = await sendMessage(planSid, prompt, key)
+    if (!ok) {
+      setIsGenerating(false)  // 失败时恢复
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
+    }
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
@@ -2209,6 +2269,7 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] confirm plan to main session failed", err)
       setOptimisticConfirmed(false)
       setPlanConfirmPending(false)
+      showOctoToast({ title: "确认方案发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
       return
     }
 
@@ -2321,11 +2382,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // 有输入直接发，无输入等用户提交
       if (userInput) {
         sdk.client.session.prompt({ sessionID: childSession.id, agent: "ict_pattern", model: modelKey, parts: [{ type: "text", text: userInput }] })
-          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false) })
+          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false); showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" }) })
       } else {
         requestAnimationFrame(() => textareaRef?.focus())
       }
-    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false) }
+    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false); showOctoToast({ title: "进入 Pattern 失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" }) }
   }
 
   /** IntentConfirmCard onMatchPattern：用户选定 Pattern → 拉页面规范 MD → 发 [模块匹配] */
@@ -2354,7 +2415,12 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     const ui = patternUserInput() || selectedItem?.name || ""
     const prompt = `[模块匹配]\n\nPattern: ${selectedItem?.name ?? ""} (ID: ${selectedItem?.id ?? ""})\n\n【1.典型页面规范】\n${pageSpecMd || "（未获取到页面规范，请基于 Pattern 名称自行推演）"}\n\n【2.用户业务需求描述】\n${ui}`
-    sendMessage(subSid, prompt, mk).catch((err) => { console.error("[MakePage] select pattern sub failed", err); setPatternBlockMatching(false); setPatternSubPhase("match") })
+    const ok = await sendMessage(subSid, prompt, mk)
+    if (!ok) {
+      console.error("[MakePage] select pattern sub failed")
+      setPatternBlockMatching(false)
+      setPatternSubPhase("match")
+    }
   }
 
   /** IntentConfirmCard onConfirm：用户选定 block → 下载 content → 保存 pattern 数据到 outputs（不生成 HTML） */
@@ -2512,6 +2578,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }).catch((err: any) => {
         console.error("[MakePage] prompt child agent failed", err)
         setOptimisticIntentResolved(false)
+        showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
       })
     } catch (err) {
       console.error("[MakePage] enter plan failed", err)
@@ -2520,11 +2587,16 @@ const sessionMessagesLoaded = createMemo(() => {
       setPlanParentSessionId(null)
       setPlanChildSessionIDs(new Set<string>())
       setHasChildPlanSession(false)
+      showOctoToast({ title: "进入规划模式失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     }
   }
 
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
   const autoScroll = createAutoScroll({ working: () => true })
+
+  // 对话区视口/内容元素（供 TurnAnchorNav 响应式读取；autoScroll.scrollRef 本身是 ref setter）
+  const [chatViewportEl, setChatViewportEl] = createSignal<HTMLElement | undefined>(undefined)
+  const [chatContentEl, setChatContentEl] = createSignal<HTMLElement | undefined>(undefined)
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
@@ -2535,6 +2607,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
+          // tabs 保留在内存中(此分支不 reset),但仍保存一份最新状态:
+          // 后续从 /make 直接进入其他 session 时 prevSid 为 null,无处再存
+          persistTabsFor(prevSid, true)
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
@@ -2562,12 +2637,16 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
-      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
-      persistActivePlanDraft()
-      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
-      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
-      tabStore.reset()
+      // 仅在 session 实际切换时重置 tabs:本 effect 还依赖 sync.data.session,
+      // 同一 session 内后台列表更新(warmSessions/首次加载)替换引用也会重跑,无条件 reset 会清空已打开的 tabs
+      if (newSid !== prevSid) {
+        // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+        // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+        persistActivePlanDraft()
+        // 切走前保存 tab 状态(含空态),供切回时恢复
+        persistTabsFor(prevSid, true)
+        tabStore.reset()
+      }
       // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
       if (newSid !== prevSid && _enteringPlan) {
         setPatternEnded(false)
@@ -2582,6 +2661,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternBlockMatchError(false)
         setPatternSubEnriching(false)
       }
+      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
+      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -2622,7 +2703,19 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternEnded(false)
         setShowPatternPageConfirm(false)
         setPatternPageCapsule(false)
-        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
+      }
+      // 恢复该 session 上次打开的 tabs(切换切回/刷新/跨页面返回均走此路径——effect 无 defer,
+      // mount 时 prevSid 为 null 同样命中)。位于通用重置块(设 files)之后、plan 恢复之前:
+      // 活跃 plan session 仍由下方 plan 恢复逻辑优先进 plan 视图(保持既有行为)。
+      if (newSid && newSid !== prevSid) {
+        const savedTabs = loadSessionTabs(newSid)
+        if (savedTabs && savedTabs.tabs.length > 0) {
+          tabStore.restoreTabs(savedTabs.tabs, savedTabs.activeId)
+          setResultViewMode("tabs")
+          tracker.interaction({ module: "design", name: "restore-tabs", extend: JSON.stringify({ count: savedTabs.tabs.length }) })
+          void hydrateRestoredTabs(savedTabs.tabs)
+        }
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -2945,6 +3038,38 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
   }
+
+  /** 恢复后的内容水合:有 filePath 的 tab 从服务端读文件内容(复用 handleOpenResult Step 1 模式),
+   *  并为 html tab 重建版本历史基线(镜像 handleOpenResult 的 onTabOpen 调用)。*/
+  async function hydrateRestoredTabs(restored: ResultTab[]) {
+    const sid = params.id
+    if (!sid) return
+    const skipContentLoad = ["image", "video", "audio", "pdf", "svg"]
+    for (const tab of restored) {
+      // 水合期间用户又切走:放弃剩余工作,避免跨 session 写入
+      if (params.id !== sid) return
+      // fastui:// 协议与 http 外链由渲染器直接导航 URL,无需内容
+      if (!tab.filePath || /^https?:\/\//i.test(tab.filePath) || tab.subtype === "fastui") continue
+      if (skipContentLoad.includes(tab.type) || tab.content) continue
+      try {
+        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(tab.filePath)}`, {
+          headers: { ...directoryHeader(sdk.directory || "") },
+        })
+        if (!response.ok) continue
+        const data = await response.json() as { content?: string }
+        if (params.id === sid && data.content && typeof data.content === "string") {
+          tabStore.updateTabContent(tab.id, data.content)
+        }
+      } catch {
+        // 读盘失败:保留 tab,内容为空(Electron 下 html 仍可经 local:// 预览)
+      }
+    }
+    for (const tab of tabStore.tabs()) {
+      if (tab.type !== "html" || !tab.filePath || tab.subtype === "fastui") continue
+      if (/^https?:\/\//i.test(tab.filePath)) continue
+      await historyController.onTabOpen(tab, undefined)
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
     const plan = planCard()
@@ -2997,6 +3122,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 切换历史版本：交由 controller 处理 */
   async function handleHistorySwitch(entry: VersionEntry) {
+    if (effectiveBusy()) return
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
@@ -3010,10 +3136,11 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
-    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
+      // 显式保存空态:onPersist 对空列表跳过,不存的话切回会复活已关闭的 tabs
+      if (params.id) saveSessionTabs(params.id, [], null)
     }
   }
 
@@ -3063,7 +3190,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ``,
           `[Existing artifacts in this session]`,
           ...lines,
-          `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -3071,14 +3198,14 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     return [
       `[Artifact Folder]: ${artifactFolder}`,
-      `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+      `优先使用 <artifact> 标签输出，默认不要使用 write 工具。仅当用户明确要求使用 write 工具时，才必须把文件写入此目录内，不得写到其他任何位置。`,
       existingList,
       `---`,
       ``,
     ].filter(Boolean).join("\n")
   }
 
-  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
+  /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
@@ -3090,6 +3217,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const planSkillStash: Array<{ name: string; label: string }> = []
       const baseDir = projectDir()
       const api = getDesktopApi()
+      const moveFailed: string[] = []
       if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
         const sep = baseDir.includes("\\") ? "\\" : "/"
         const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
@@ -3126,8 +3254,12 @@ const sessionMessagesLoaded = createMemo(() => {
             sel.path = newPath
           } catch (err) {
             console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+            moveFailed.push(sel.name)
           }
         }
+      }
+      if (moveFailed.length > 0) {
+        showOctoToast({ title: "附件迁移失败", description: `${moveFailed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
       }
 
       // Process mention selections: replace chip text with model format
@@ -3169,6 +3301,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const api = getDesktopApi()
         const baseDir = projectDir()
         if (baseDir && typeof api?.movePendingUploadToSession === "function" && sessionId) {
+          const pendingFailed: string[] = []
           const pendingFiles = done.filter(a => a.source === 'pending' && a.path)
           await Promise.all(pendingFiles.map(async a => {
             try {
@@ -3176,10 +3309,14 @@ const sessionMessagesLoaded = createMemo(() => {
               movedPaths.set(a.id, newPath)
             } catch (err) {
               console.warn("[octo:make] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+              pendingFailed.push(a.filename)
             }
           }))
           if (movedPaths.size > 0) {
             setAttachments(prev => prev.map(x => movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id)!, source: 'local' as const } : x))
+          }
+          if (pendingFailed.length > 0) {
+            showOctoToast({ title: "附件迁移失败", description: `${pendingFailed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
           }
         }
       }
@@ -3319,6 +3456,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
           : null
 
+        const failedCmds: string[] = []
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
 
@@ -3351,7 +3489,7 @@ const sessionMessagesLoaded = createMemo(() => {
             inputText: (fullDisplayText || text).slice(0, 30)
           })
 
-          await executeSessionCommand({
+          const ok = await executeSessionCommand({
             sessionID: sessionId,
             command: seg.cmd,
             arguments: seg.args,
@@ -3359,9 +3497,13 @@ const sessionMessagesLoaded = createMemo(() => {
             model: modelStr,
             parts: cmdParts.length > 0 ? cmdParts : undefined,
           })
+          if (!ok) failedCmds.push(seg.cmd)
         }
 
         setAttachments([])
+        if (failedCmds.length > 0) {
+          restoreComposerText(failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : ""))
+        }
         return  // Commands are self-contained, skip prompt
       }
       // ── End command detection ──
@@ -3386,63 +3528,6 @@ const sessionMessagesLoaded = createMemo(() => {
         
         promptText = skillPrefix + "\n" + processedText
         setSkillToolCalls([])
-      }
-
-      // Design system prompt injection (prepended as hidden context, user text preserved)
-      const dsId = selectedDesignSystem()
-      if (dsId) {
-        let dsPrefix = ""
-        try {
-          const ds = await loadDesignSystem(dsId)
-          if (!ds.design && !ds.tokens) {
-            console.warn("[MakePage] design system loaded but empty:", dsId)
-          }
-          dsPrefix = [
-            `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows below.`,
-            `You MUST apply this design system to every artifact you create in this session:`,
-            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
-            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
-            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
-            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
-            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
-            ``,
-            `## DESIGN.md (authoritative visual rules for ${dsId})`,
-            ``,
-            ds.design,
-            ``,
-            `## :root tokens (paste verbatim into <style>)`,
-            ``,
-            "```css",
-            ds.tokens,
-            "```",
-            "",
-            "---",
-          ].join("\n")
-        } catch (err) {
-          console.error("[MakePage] design system load failed", err)
-        }
-
-        // Craft document injection (design quality guides)
-        try {
-          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
-          if (crafts) {
-            dsPrefix += [
-              "",
-              "## Design Quality Guides (mandatory)",
-              "",
-              crafts,
-              "",
-              "---",
-            ].join("\n")
-          }
-        } catch (err) {
-          console.error("[MakePage] craft load failed", err)
-        }
-
-        if (dsPrefix) {
-          promptText = dsPrefix + "\n" + text
-        }
       }
 
       // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
@@ -3475,8 +3560,7 @@ const sessionMessagesLoaded = createMemo(() => {
         module: "design",
         name: "send-message",
         extend: JSON.stringify({ 
-          hasAttachment: fileParts.length > 0 || localManifest.length > 0, 
-          designSystem: dsId ?? null 
+          hasAttachment: fileParts.length > 0 || localManifest.length > 0,
         }),
       })
       
@@ -3504,14 +3588,25 @@ const sessionMessagesLoaded = createMemo(() => {
       }).catch(err => {
         console.error("[MakePage] prompt failed", err)
         showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      }).finally(() => {
+        // Fix 8: 自愈校验。首条消息的 SSE 事件可能落在断线重连窗口内永久丢失
+        // (服务端无事件回放),而空的 message store 又被视为已加载/已缓存,
+        // 各处重取逻辑都不会触发 → InsightTurn 永久空白。
+        // stream 结束时若目标 session 里没有可渲染的 user 消息,强制重新拉取兜底。
+        const messages = (sync.data.message?.[sessionId] ?? []) as Message[]
+        if (!messages.some((m) => isVisibleUserMessage(m, sync.data.part[m.id]))) {
+          void sync.session.sync(sessionId, { force: true }).catch(() => {})
+        }
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
       // "streaming 期间用户添加的新附件"。失败时也保留附件便于用户重试。
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      return true
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
       showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      return false
     }
   }
 
@@ -3578,10 +3673,34 @@ const sessionMessagesLoaded = createMemo(() => {
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
-        if (!dir) return
+        if (!dir) {
+          restoreComposerText(text)
+          showOctoToast({ title: "发送失败", description: "项目目录未就绪，请重新选择项目目录", variant: "error" })
+          return
+        }
         const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
         const session = result.data as Session | undefined
-        if (!session) return
+        if (!session) {
+          restoreComposerText(text)
+          showOctoToast({ title: "发送失败", description: "创建会话失败，请稍后重试", variant: "error" })
+          return
+        }
+
+        // 新建对话并发送首条消息：重置中/右分栏比例为默认 0.5
+        ml.setCRatio(MAKE_CRATIO_DEFAULT)
+
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "make", dir, groupsCtx?.groups ?? [])
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "make"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          const gDir = sdk.directory
+          if (gDir) {
+            const groupClient = globalSDK.createClient({ directory: gDir })
+            void groupClient.sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          }
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
 
         if (shouldStartInitialPlan) {
           const dir = sdk.directory
@@ -3649,7 +3768,8 @@ const sessionMessagesLoaded = createMemo(() => {
           const userInput2 = text.replace(/^[\s\S]*?---\n/, "").trim()
           const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
           const patternChildSession = patternChild.data as Session | undefined
-          if (patternChildSession) {
+          if (!patternChildSession) throw new Error("创建 Pattern 子会话失败")
+          {
             lastEnrichedPatternMatchMsgId = null
             lastEnrichedModuleListMsgId = null
             loadedChildSessions.add(patternChildSession.id)
@@ -3665,7 +3785,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
           local.session.promote(sdk.directory, session.id)
           navigate(`/make/${session.id}`)
-          if (patternChildSession && userInput2) {
+          if (userInput2) {
             await sdk.client.session.prompt({
               sessionID: patternChildSession.id, agent: "ict_pattern", model: capturedModelKey,
               parts: [{ type: "text", text: userInput2 }],
@@ -3708,10 +3828,6 @@ const sessionMessagesLoaded = createMemo(() => {
       await moveAssetsConfigToSession(session.id)
 
       local.session.promote(sdk.directory, session.id)
-      const dsId = selectedDesignSystem()
-if (dsId) {
-          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-        }
         navigate(`/make/${session.id}`)
         sid = session.id
       }
@@ -3763,7 +3879,8 @@ if (dsId) {
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
-      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      restoreComposerText(text)
+      showOctoToast({ title: "发送失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     } finally {
       // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
       if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid) || (patternSubSid && activePatternSessionId() === patternSubSid)) {
@@ -4502,6 +4619,7 @@ if (dsId) {
     if (!api?.movePendingUploadToSession && !api?.readFileBuffer) return
 
     const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
+    const failed: string[] = []
 
     for (const att of pendingAttachments) {
       try {
@@ -4522,7 +4640,11 @@ if (dsId) {
         }
       } catch (err) {
         console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
+        failed.push(att.filename)
       }
+    }
+    if (failed.length > 0) {
+      showOctoToast({ title: "附件迁移失败", description: `${failed.join("、")} 将以原路径发送，可能无法被读取`, variant: "error" })
     }
   }
 
@@ -4543,6 +4665,7 @@ if (dsId) {
       await api.writeFileBuffer(finalPath, buffer)
     } catch (err) {
       console.error("[moveAssetsConfigToSession] Failed:", err)
+      showOctoToast({ title: "设计规范配置同步失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
     }
   }
 
@@ -4564,7 +4687,7 @@ if (dsId) {
     setIsDragOver(false)
   }
 
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
 
   function handleDrop(e: DragEvent) {
     e.preventDefault()
@@ -4574,8 +4697,19 @@ if (dsId) {
     request(() => handleAddFiles(files, "drop"))
   }
 
+  /** 对话区卡片点击：上报打点后转交 handleOpenResult */
+  function handleConversationCardOpen(card: OutputCard) {
+    tracker.interaction({
+      module: "design",
+      name: "result-card-open",
+      extend: JSON.stringify({ type: card.type, subtype: card.subtype }),
+    })
+    void handleOpenResult(card)
+  }
+
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    const fromAttachment = card.fromAttachment ?? false
     // 不支持预览的 file 类型:弹窗提示 + 提供下载入口,不打开 result-viewer tab。
     // 必须在 setResultViewMode/ml.showRight 之前拦截,否则会切到 tabs 模式显示空 ResultViewer。
     // link 类型的磁盘路径会经 inferOutputType 推断,只有真正无法预览的扩展名才会落到 'file'。
@@ -4592,6 +4726,21 @@ if (dsId) {
       return
     }
 
+    // link 类型先校验,打不开直接 toast 返回,不切 tabs 模式(否则右侧停留在无 tab 的 tabs 视图)
+    if (card.type === "link") {
+      const linkContent = (card.content ?? "").trim()
+      if (!linkContent) {
+        showOctoToast({ title: "打开失败", description: "链接内容为空", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "empty-content" }) })
+        return
+      }
+      if (!/^([A-Za-z]:[/\\]|\/)/.test(linkContent) && !projectDir()) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "no-project-dir" }) })
+        return
+      }
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
@@ -4600,7 +4749,6 @@ if (dsId) {
     // 磁盘路径:   转绝对路径,按扩展名推断 type(复用本地文件渲染逻辑)
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
-      if (!linkContent) return
 
       // fastui 预览(SPEC-DES-004):卡片只记产物,地址由预览面板打开时向主进程当场取。
       // 本方案之前生成的卡片是 http://127.0.0.1:<port> —— 端口早已过期,
@@ -4627,6 +4775,7 @@ if (dsId) {
           filePath: previewUrl,
           artifactIdentifier: card.artifactIdentifier,
           createdAt: card.createdAt,
+          fromAttachment,
         })
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "fastui", legacy: legacyFastui }) })
         return
@@ -4650,6 +4799,7 @@ if (dsId) {
           filePath: linkContent,
           artifactIdentifier: card.artifactIdentifier,
           createdAt: card.createdAt,
+          fromAttachment,
         })
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url" }) })
         return
@@ -4682,17 +4832,41 @@ if (dsId) {
         return t.filePath.replace(/\\/g, "/") === absolutePath
       })
       if (existingLocal) {
-        const api = getDesktopApi()
-        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
-        if (buf) {
-          const fileContent = new TextDecoder().decode(buf)
-          if (fileContent && fileContent !== existingLocal.content) {
-            tabStore.updateTabContent(existingLocal.id, fileContent)
-            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
-          }
-        }
+        // ★ 先 activate,后台再比对磁盘内容(镜像 non-link 分支的优化)
         tabStore.activate(existingLocal.id)
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU
+        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
+          // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
+          const existingBefore = { ...existingLocal } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(existingLocal.id)
+          void (async () => {
+            try {
+              const api = getDesktopApi()
+              const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+              if (!buf) return
+              const currentTab = tabStore.tabs().find(t => t.id === existingLocal.id)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(existingLocal.id, token, currentTab.content, existingBefore.content)) return
+              const fileContent = new TextDecoder().decode(buf)
+              if (fileContent && fileContent !== existingBefore.content) {
+                tabStore.updateTabContent(existingLocal.id, fileContent)
+                const updated = tabStore.tabs().find(t => t.id === existingLocal.id)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
+                }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
+              }
+            } catch (err) {
+              console.error("[handleOpenLocalFile] background content compare failed", err)
+            }
+          })()
+        }
         return
       }
 
@@ -4707,7 +4881,23 @@ if (dsId) {
         filePath: absolutePath,
         artifactIdentifier: card.artifactIdentifier,
         createdAt: card.createdAt,
+        fromAttachment,
       })
+
+      if (inferredType !== "design-plan") {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(absolutePath)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent) {
+            tabStore.updateTabContent(tabId, fileContent)
+          }
+        }
+        const tab = tabStore.tabs().find((t) => t.id === tabId)
+        if (tab) {
+          await historyController.onTabOpen(tab, undefined)
+        }
+      }
       tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", ext: absolutePath.split(".").pop() }) })
       return
     }
@@ -4736,18 +4926,23 @@ if (dsId) {
       }
     }
 
-    // ★ Step -0.5: 等待文件落盘。
+    // ★ Step -0.5: 等待文件落盘。正常情况第一次 fileExists 就返回 true;
+    // 非媒体类型有 card.content 兜底,短轮询 5 次(750ms)即可,超时放行不阻断用户。
+    // 媒体类型(图片/视频/音频/PDF)先开 tab 不阻塞,后台轮询落盘后 bump filesRefreshKey 触发重载。
     if (!isUrl && card.filePath) {
       const api = getDesktopApi()
       if (api?.fileExists) {
-        for (let i = 0; i < 20; i++) {
-          if (await api.fileExists(card.filePath)) break
-          await new Promise((r) => setTimeout(r, 150))
+        const isMedia = ["image", "video", "audio", "pdf"].includes(card.type)
+        if (!isMedia) {
+          for (let i = 0; i < 5; i++) {
+            if (await api.fileExists(card.filePath)) break
+            await new Promise((r) => setTimeout(r, 150))
+          }
         }
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
+    // ★ Step 0: 如果已有匹配的 tab，直接激活；文件内容比对走后台异步,不阻塞 UI。
     if (card.filePath) {
       // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
       // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
@@ -4762,18 +4957,44 @@ if (dsId) {
         return false
       })
       if (existingTab) {
-        if (!isUrl && existingTab.type !== "design-plan") {
-          const api = getDesktopApi()
-          const buf = await api?.readFileBuffer?.(existingTab.filePath!)
-          if (buf) {
-            const fileContent = new TextDecoder().decode(buf)
-            if (fileContent && fileContent !== existingTab.content) {
-              tabStore.updateTabContent(existingTab.id, fileContent)
-              await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
-            }
-          }
-        }
+        // ★ 先 activate:在新架构下 iframe 已挂载,切换瞬时完成。
         tabStore.activate(existingTab.id)
+        // ★ 后台比对磁盘内容:若外部编辑导致内容变化,异步更新 tab(iframe srcdoc 会重算)。
+        // 媒体类型(图片/视频/音频/PDF)渲染靠 local:// 直读文件,不用 tab.content → 跳过,避免二进制当文本解码。
+        if (!isUrl && existingTab.type !== "design-plan" && !["image", "video", "audio", "pdf"].includes(existingTab.type)) {
+          const tabId = existingTab.id
+          const tabFilePath = existingTab.filePath!
+          // ★ createStore 下 tab 是 proxy,openTab/updateTabContent 之后读 .content 会变。
+          //   historyController.onTabOpen 用 (current, before) 做前后对比,所以这里快照一份。
+          const existingBefore = { ...existingTab } as ResultTab
+          // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
+          //   agent 更新 / 更早完成的读盘)改动,较旧的读盘结果放弃更新,避免覆盖较新内容。
+          const token = bgCompareGuard.issue(tabId)
+          void (async () => {
+            try {
+              const api = getDesktopApi()
+              const buf = await api?.readFileBuffer?.(tabFilePath)
+              if (!buf) return
+              const currentTab = tabStore.tabs().find(t => t.id === tabId)
+              if (!currentTab) return
+              if (!bgCompareGuard.canApply(tabId, token, currentTab.content, existingBefore.content)) return
+              const fileContent = new TextDecoder().decode(buf)
+              if (fileContent && fileContent !== existingBefore.content) {
+                tabStore.updateTabContent(tabId, fileContent)
+                const updated = tabStore.tabs().find(t => t.id === tabId)
+                if (updated) {
+                  await historyController.onTabOpen({ ...updated, content: fileContent }, existingBefore)
+                }
+              } else {
+                // 内容未变:仍调用 onTabOpen 初始化 lastFileHash 基线,否则下次 onFileRefresh
+                // 因 prevHash===undefined 把首次外部修改当基线跳过、不生成历史版本。
+                await historyController.onTabOpen({ ...currentTab }, existingBefore)
+              }
+            } catch (err) {
+              console.error("[handleOpenResult] background content compare failed", err)
+            }
+          })()
+        }
         return
       }
     }
@@ -4800,10 +5021,30 @@ if (dsId) {
       }
     }
     
-    const existingBefore = tabStore.tabs().find((t) => t.id === card.id)
-    tabStore.openTab(card)
+    const existingBeforeProxy = tabStore.tabs().find((t) => t.id === card.id)
+    // ★ createStore 下 tab 是 proxy,openTab 之后读 existingBeforeProxy.content 会拿到最新值,
+    //   破坏 historyController.onTabOpen 的"前后对比"逻辑。这里浅拷贝做快照。
+    const existingBefore = existingBeforeProxy ? { ...existingBeforeProxy } as ResultTab : undefined
+    tabStore.openTab({ ...card, fromAttachment })
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
+    }
+    // ★ 媒体类型后台轮询文件落盘,就绪后 bump filesRefreshKey 触发渲染器重载(<img>/<video> 等重载 src)
+    if (!isUrl && card.filePath && ["image", "video", "audio", "pdf"].includes(card.type)) {
+      const mediaApi = getDesktopApi()
+      const fileExists = mediaApi?.fileExists
+      if (fileExists) {
+        void (async () => {
+          if (await fileExists(card.filePath!)) return
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 150))
+            if (await fileExists(card.filePath!)) {
+              if (tabStore.tabs().some(t => t.id === card.id)) setFilesRefreshKey(k => k + 1)
+              return
+            }
+          }
+        })()
+      }
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
 
@@ -4842,7 +5083,7 @@ if (dsId) {
     return 'text'
   }
 
-  function handleOpenLocalFile(filePath: string) {
+  function handleOpenLocalFile(filePath: string, sessionArea = false) {
     const dir = projectDir()
 
     // URL 处理
@@ -4865,6 +5106,7 @@ if (dsId) {
         content: '',
         filePath,
         createdAt: new Date(),
+        fromAttachment: sessionArea,
       })
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
@@ -4878,7 +5120,10 @@ if (dsId) {
     if (isAbsolute) {
       absolutePath = normalizedPath
     } else {
-      if (!dir) return
+      if (!dir) {
+        showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
+        return
+      }
       const normalizedDir = dir.replace(/\\/g, '/')
       absolutePath = normalizedDir
       if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
@@ -4891,7 +5136,22 @@ if (dsId) {
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     const type = inferOutputType(filePath)
     const title = filePath.split(/[/\\]/).pop() ?? filePath
-    
+    const fileExt = filePath.split('.').pop()?.toLowerCase() ?? ''
+
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(title)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={title}
+          filePath={absolutePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "unavailable", ext: fileExt }) })
+      return
+    }
+
     handleOpenResult({
       id: tabId,
       title,
@@ -4900,8 +5160,57 @@ if (dsId) {
       content: '',
       filePath: absolutePath,
       createdAt: new Date(),
+      fromAttachment: sessionArea,
     })
-    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: fileExt }) })
+  }
+
+  /** 打开用户消息附件预览(图片/视频/音频/PDF → 右侧预览;其余格式 → 遮罩层下载弹窗) */
+  function handleOpenAttachment(att: UserAttachment) {
+    const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
+
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(att.filename, att.mime)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          url={att.url}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
+      return
+    }
+
+    // 本地附件:复用本地文件预览流程(会话区入口 → 仅 图片/视频/音频/PDF 走预览)
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path, true)
+      return
+    }
+    if (!att.url) return
+
+    const type: OutputCardType = att.mime?.startsWith("image/")
+      ? "image"
+      : att.mime?.startsWith("video/")
+        ? "video"
+        : att.mime?.startsWith("audio/")
+          ? "audio"
+          : att.mime === "application/pdf"
+            ? "pdf"
+            : inferOutputType(att.filename)
+
+    void handleOpenResult({
+      id: `att-url-${att.url ?? att.filename}`,
+      title: att.filename,
+      type,
+      content: "",
+      filePath: att.url,
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+    tracker.interaction({ module: "design", name: "preview-attachment", extend: JSON.stringify({ type, ext }) })
   }
 
   /** Continue generation (append truncated content as prompt) */
@@ -5275,12 +5584,6 @@ onPreview={(url) => {
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
-                        <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
                           />
@@ -5294,22 +5597,55 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          skillConfig={skillConfig() ?? {}}
-                          artifactFiles={artifactFilesMirror()}
+                          items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          slots={[
+                            {
+                              key: "designStrategy",
+                              render: ({ closeMenu }) => (
+                                <button
+                                  type="button"
+                                  class="addon-menu-item"
+                                  disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                  onClick={() => {
+                                    closeMenu()
+                                    handleOpenPlanConfirm()
+                                  }}
+                                >
+                                  <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                  <span class="addon-menu-item-text">进入设计策略模式</span>
+                                </button>
+                              ),
+                            },
+                            {
+                              key: "patternPage",
+                              render: ({ closeMenu }) => (
+                                <button
+                                  type="button"
+                                  class="addon-menu-item"
+                                  disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                  onClick={() => {
+                                    closeMenu()
+                                    handleOpenPatternPageConfirm()
+                                  }}
+                                >
+                                  <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                  <span class="addon-menu-item-text">进入Pattern模式</span>
+                                </button>
+                              ),
+                            },
+                          ]}
                           selections={mentionSelections()}
                           onSelect={handleAddonSelect}
                           onDeselect={handleAddonDeselect}
-                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          onAddAttachmentFromUrl={downloadUrlToSession}
+                          skillConfig={skillConfig() ?? {}}
+                          onSkillsOpen={loadSkillConfig}
+                          artifactFiles={artifactFilesMirror()}
+                          productId={projectSelection()?.product?.id}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
-                          productId={projectSelection()?.product?.id}
-                          onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
-                          onEnterPatternPage={handleOpenPatternPageConfirm}
-                          patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
-                          onOpen={loadSkillConfig}
-                          disabled={maxAttachments()}
+                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          maxAttachments={maxAttachments()}
+                          trackerModule="design"
                         />
 <ModelSelectorPopover
                            model={local.model}
@@ -5359,11 +5695,20 @@ onPreview={(url) => {
               <ScrollView
                 class="h-full"
                 style={{ background: "#fff", padding: "0 12px 16px 12px", }}
-                viewportRef={autoScroll.scrollRef}
+                viewportRef={(el) => {
+                  setChatViewportEl(el)
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
+                <div
+                  ref={(el) => {
+                    setChatContentEl(el)
+                    autoScroll.contentRef(el)
+                  }}
+                  class="make-chat-content pt-4 flex flex-col gap-4"
+                >
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
                         class="flex items-center justify-between mx-3"
@@ -5423,8 +5768,9 @@ onPreview={(url) => {
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
-                        onOpenResult={handleOpenResult}
-                        onOpenLocalFile={handleOpenLocalFile}
+                        onOpenResult={handleConversationCardOpen}
+                        onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                        onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
@@ -5454,8 +5800,9 @@ onPreview={(url) => {
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
-                            onOpenResult={handleOpenResult}
-                            onOpenLocalFile={handleOpenLocalFile}
+                            onOpenResult={handleConversationCardOpen}
+                            onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                            onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
                             onChildSession={ensureChildSession}
@@ -5483,6 +5830,12 @@ onPreview={(url) => {
                   height: "24px",
                   background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
                 }}
+              />
+              <TurnAnchorNav
+                messages={userMessages()}
+                sessionID={params.id}
+                viewport={chatViewportEl}
+                content={chatContentEl}
               />
               </div>
 
@@ -5650,12 +6003,6 @@ onPreview={(url) => {
                     />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                         <span class="hidden">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </span>
                         <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
@@ -5670,22 +6017,55 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        skillConfig={skillConfig() ?? {}}
-                        artifactFiles={artifactFilesMirror()}
+                        items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        slots={[
+                          {
+                            key: "designStrategy",
+                            render: ({ closeMenu }) => (
+                              <button
+                                type="button"
+                                class="addon-menu-item"
+                                disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                onClick={() => {
+                                  closeMenu()
+                                  handleOpenPlanConfirm()
+                                }}
+                              >
+                                <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                <span class="addon-menu-item-text">进入设计策略模式</span>
+                              </button>
+                            ),
+                          },
+                          {
+                            key: "patternPage",
+                            render: ({ closeMenu }) => (
+                              <button
+                                type="button"
+                                class="addon-menu-item"
+                                disabled={params.id ? activePlanForCurrentSession() !== null || activePatternSessionId() !== null : planComposerActive() || patternPageCapsuleActive()}
+                                onClick={() => {
+                                  closeMenu()
+                                  handleOpenPatternPageConfirm()
+                                }}
+                              >
+                                <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+                                <span class="addon-menu-item-text">进入Pattern模式</span>
+                              </button>
+                            ),
+                          },
+                        ]}
                         selections={mentionSelections()}
                         onSelect={handleAddonSelect}
                         onDeselect={handleAddonDeselect}
-                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        onAddAttachmentFromUrl={downloadUrlToSession}
+                        skillConfig={skillConfig() ?? {}}
+                        onSkillsOpen={loadSkillConfig}
+                        artifactFiles={artifactFilesMirror()}
+                        productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
-                        productId={projectSelection()?.product?.id}
-                        onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
-                        onEnterPatternPage={handleOpenPatternPageConfirm}
-                        patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
-                        onOpen={loadSkillConfig}
-                        disabled={maxAttachments()}
+                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        maxAttachments={maxAttachments()}
+                        trackerModule="design"
                       />
 <ModelSelectorPopover
                          model={local.model}
@@ -5798,7 +6178,7 @@ onPreview={(url) => {
                 onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 sessionId={params.id}
-                onOpenArtifact={handleOpenResult}
+                onOpenArtifact={(card) => handleOpenResult({ ...card, fromAttachment: false })}
                 viewMode={resultViewMode()}
                 onViewModeChange={setResultViewMode}
                 onAddArtifactToSession={addArtifactToSession}
@@ -5808,21 +6188,14 @@ onPreview={(url) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
-                historyActive={showHistoryPanel()}
                 historyEntries={versionList()}
                 currentVersionId={currentVersionId()}
                 onHistorySwitch={handleHistorySwitch}
-                onModeChange={(mode) => {
-                  if (mode === "edit") setShowHistoryPanel(false)
-                }}
-                onLocalEditStart={() => setShowHistoryPanel(false)}
                 onHistoryToggle={async () => {
-                  if (!showHistoryPanel()) {
-                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
-                    if (tab) await historyController.refreshVersions(tab)
-                  }
-                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: showHistoryPanel() ? "close" : "open" }) })
-                  setShowHistoryPanel(!showHistoryPanel())
+                  if (effectiveBusy()) return
+                  const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                  if (tab) await historyController.refreshVersions(tab)
+                  tracker.interaction({ module: "design", name: "toggle-history-panel", extend: JSON.stringify({ action: "open" }) })
                 }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
