@@ -79,6 +79,7 @@ import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
+import { TurnAnchorNav } from "./components/turn-anchor-nav"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -2592,6 +2593,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
   const autoScroll = createAutoScroll({ working: () => true })
+
+  // 对话区视口/内容元素（供 TurnAnchorNav 响应式读取；autoScroll.scrollRef 本身是 ref setter）
+  const [chatViewportEl, setChatViewportEl] = createSignal<HTMLElement | undefined>(undefined)
+  const [chatContentEl, setChatContentEl] = createSignal<HTMLElement | undefined>(undefined)
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
@@ -5690,11 +5695,20 @@ onPreview={(url) => {
               <ScrollView
                 class="h-full"
                 style={{ background: "#fff", padding: "0 12px 16px 12px", }}
-                viewportRef={autoScroll.scrollRef}
+                viewportRef={(el) => {
+                  setChatViewportEl(el)
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
+                <div
+                  ref={(el) => {
+                    setChatContentEl(el)
+                    autoScroll.contentRef(el)
+                  }}
+                  class="make-chat-content pt-4 flex flex-col gap-4"
+                >
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
                         class="flex items-center justify-between mx-3"
@@ -5816,6 +5830,12 @@ onPreview={(url) => {
                   height: "24px",
                   background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
                 }}
+              />
+              <TurnAnchorNav
+                messages={userMessages()}
+                sessionID={params.id}
+                viewport={chatViewportEl}
+                content={chatContentEl}
               />
               </div>
 

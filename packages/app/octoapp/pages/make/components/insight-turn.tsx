@@ -1348,7 +1348,7 @@ const stateStatus = state.status as string | undefined
   })
 
   return (
-    <div class="octo-make-turn flex flex-col gap-4" style={{ "user-select": "text" }}>
+    <div class="octo-make-turn flex flex-col gap-4" data-turn-id={props.messageID} style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
