@@ -14,7 +14,7 @@ import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
 import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
-import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext, ModelEditModeContext } from "../model-edit-items/types"
 import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
 import { HUI_COLOR_TOKENS } from "../model-edit-items/icon-data/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
@@ -317,6 +317,14 @@ export function HtmlRenderer(props: {
     void loadPanelState()
   }
 
+  const modelEditModeContext = (): ModelEditModeContext => ({
+    postMessageToIframe: (data: unknown) => iframeRef?.contentWindow?.postMessage(data, '*'),
+    getIframeSnapshot: () => getIframeSnapshot(),
+    onContentChange: (content: string) => props.onContentChange?.(content) ?? Promise.resolve(),
+    onRefreshNeeded: () => props.onRefreshNeeded?.(),
+    custom: props.modelEditConfig?.customContext?.() ?? {},
+  })
+
   const modelEditContext = createMemo((): ModelEditContext | undefined => {
     const target = modelEditTarget()
     if (!target) return undefined
@@ -331,6 +339,7 @@ export function HtmlRenderer(props: {
       cleanBridgeContent: (html: string) => cleanBridgeContent(html),
       applyPatch: (html: string, patch: ManualEditPatch) => applyManualEditPatch(html, patch),
       wrapHtmlContent: (html: string) => wrapHtmlContent(html, props.content),
+      custom: props.modelEditConfig?.customContext?.() ?? {},
     }
   })
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
@@ -1425,6 +1434,13 @@ createEffect(() => {
       setModelEditTarget(target)
       setModelEditPanelConfig(panelConfig)
       setModelEditPanelData(panelData)
+      return
+    }
+
+    // Forward unhandled bridge messages to onBridgeMessage
+    // (covers drag reorder, state sync, and any custom protocol)
+    if (typeof d.type === "string" && d.type !== "od:rect-update") {
+      props.modelEditConfig?.onBridgeMessage?.(d, modelEditModeContext())
     }
   }
 
@@ -1615,6 +1631,19 @@ createEffect(() => {
       }
     }
   })
+
+  // Model edit mode lifecycle hooks: onEnter/onExit fire on modelEditing transitions
+  createEffect(on(() => !!props.modelEditing, (editing, prev) => {
+    if (prev === editing) return
+    const config = props.modelEditConfig
+    if (!config?.onEnter && !config?.onExit) return
+    const ctx = modelEditModeContext()
+    if (editing) {
+      void config?.onEnter?.(ctx)
+    } else {
+      void config?.onExit?.(ctx)
+    }
+  }, { defer: true }))
 
   // Watch for model reply completion after save/delete/confirm
   createEffect(on(() => props.disabled, (disabled, prev) => {
