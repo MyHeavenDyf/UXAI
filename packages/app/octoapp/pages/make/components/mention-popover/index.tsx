@@ -36,7 +36,7 @@ interface MentionPopoverProps {
   query: string
   sessionId: string
   onClose: () => void
-  onSelect: (selection: MentionSelection) => void
+  onSelect: (selection: MentionSelection, opts?: { closeAfter?: boolean }) => void
   onDeselect: (selection: MentionSelection) => void
   selections: MentionSelection[]
   skillConfig: {
@@ -56,10 +56,12 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
+  const [secondaryLeftOffset, setSecondaryLeftOffset] = createSignal<number | null>(null)
+  const [sessionFileSelections, setSessionFileSelections] = createSignal<MentionSelection[]>([])
 
   // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
   // 确认后才展示资产/文件列表。tab 点击不拦截。
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "design" })
   
   // 产品资产库状态
   const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
@@ -160,14 +162,37 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const rect = containerRef.getBoundingClientRect()
     const spaceRight = window.innerWidth - rect.right
     const panelWidth = activeTab() === 'skills' ? 257 : activeTab() === 'product-assets' ? 248 : 400
-    setPositionLeft(spaceRight < panelWidth + 16)
+    const shouldFlip = spaceRight < panelWidth + 16
+    setPositionLeft(shouldFlip)
+    // Left-edge clamp when flipped: keep the panel inside the viewport's left margin.
+    // Panel's desired left edge (viewport) = rect.left - 4 - panelWidth. If < 16, clamp.
+    if (shouldFlip && rect.left - 4 - panelWidth < 16) {
+      setSecondaryLeftOffset(16 - rect.left)
+    } else {
+      setSecondaryLeftOffset(null)
+    }
   }
 
+  // Re-run checkPosition + updateSecondaryPosition on:
+  // 1) tab/category change (reactive deps)
+  // 2) container size change (ResizeObserver — primary panel grows with content/folder names)
+  // 3) window resize (available space changes)
   createEffect(() => {
     activeTab()
     selectedCategory()
-    checkPosition()
-    updateSecondaryPosition()
+    if (!containerRef) return
+    const measure = () => {
+      checkPosition()
+      updateSecondaryPosition()
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(containerRef)
+    window.addEventListener("resize", measure)
+    onCleanup(() => {
+      ro.disconnect()
+      window.removeEventListener("resize", measure)
+    })
   })
 
   const platformSkills = createMemo(() => {
@@ -450,12 +475,20 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭面板（先触发下载，再关闭）
-  const closePopover = () => {
-    const selectedFiles = collectSelectedAssetFiles()
-    if (selectedFiles.length > 0) {
-      void downloadSelectedAssetFiles(selectedFiles)
+  const cancelDesignFileSelections = () => {
+    for (const sel of sessionFileSelections()) {
+      props.onDeselect(sel)
     }
+    setSessionFileSelections([])
+  }
+
+  const closePopover = () => {
+    cancelDesignFileSelections()
+    props.onClose()
+  }
+
+  const confirmAndClose = () => {
+    setSessionFileSelections([])
     props.onClose()
   }
 
@@ -537,10 +570,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   })
 
   const isSelected = (selection: MentionSelection) => {
-    return props.selections.some(s => 
-      s.type === selection.type && 
-      (s.type === 'skill' ? s.name === (selection as any).name : s.filename === (selection as any).filename)
-    )
+    return props.selections.some(s => {
+      if (s.type !== selection.type) return false
+      if (s.type === 'skill') return s.name === (selection as any).name
+      return s.filename === (selection as any).filename && s.path === (selection as any).path
+    })
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
@@ -549,7 +583,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
-      props.onSelect(selection)
+      props.onSelect(selection, { closeAfter: true })
+      closePopover()
     }
   }
 
@@ -557,8 +592,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
     if (isSelected(selection)) {
       props.onDeselect(selection)
+      setSessionFileSelections(prev => prev.filter(s => !((s as any).filename === file.name && (s as any).path === file.path)))
     } else {
       props.onSelect(selection)
+      setSessionFileSelections(prev => [...prev, selection])
     }
   }
 
@@ -566,8 +603,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const left = positionLeft()
     const bottom = '0'
     const sideStyle = left
-      ? { right: '100%', marginRight: '4px' }
-      : { left: '100%', marginLeft: '4px' }
+      ? (secondaryLeftOffset() !== null
+          ? { left: `${secondaryLeftOffset()}px`, right: 'auto', marginLeft: '0', marginRight: '0' }
+          : { right: '100%', left: 'auto', marginLeft: '0', marginRight: '4px' })
+      : { left: '100%', right: 'auto', marginLeft: '4px' }
     if (activeTab() === 'skills') {
       return { width: '257px', bottom, ...sideStyle }
     }
@@ -579,7 +618,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   return (
     <>
-    <div class="mention-popover-container" ref={containerRef}>
+    <Portal>
+      <div class="mention-popover-overlay" onMouseDown={(e) => e.preventDefault()} onClick={closePopover} />
+    </Portal>
+    <div class="mention-popover-container" ref={containerRef} onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault() }}>
       {/* Tab Switch */}
       <div class="mention-tab-container">
         <button
@@ -632,7 +674,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => request(() => setSelectedCategory('design'))}
+            onClick={() => request(() => setSelectedCategory('design'), true)}
           >
             <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
@@ -663,7 +705,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <button
                   type="button"
                   class={`mention-primary-item ${selectedTopFolderId() === folder.id.toString() ? 'mention-primary-item--selected' : ''}`}
-                  onClick={() => request(() => handleTopFolderClick(folder))}
+                  onClick={() => request(() => handleTopFolderClick(folder), true)}
                 >
                   <Icon name="folder" size="small" />
                   <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
@@ -804,6 +846,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   }}
                 </For>
               </Show>
+            </div>
+            <div class="mention-files-footer">
+              <button type="button" class="mention-files-footer-btn" onClick={closePopover}>取消</button>
+              <button type="button" class="mention-files-footer-btn mention-files-footer-btn--primary" onClick={confirmAndClose}>确认</button>
             </div>
           </div>
         )}

@@ -1,0 +1,22 @@
+<svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="14.000000" height="14.000000" fill="none">
+	<defs>
+		<filter id="pixso_custom_mask_type_luminance">
+			<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 " />
+		</filter>
+	</defs>
+	<mask id="mask_4" width="10.500000" height="7.291667" x="1.750000" y="2.041504" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_luminance)">
+			<g id="ipTVerticallyCentered0">
+				<g id="组合 71689">
+					<path id="矢量 4841" d="M1.75 2.0415L12.25 2.0415" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-width="1.000000" />
+					<path id="矢量 4842" d="M4.6665 4.6665L9.33317 4.6665L9.33317 9.33317L4.6665 9.33317L4.6665 4.6665Z" fill="rgb(85,85,85)" fill-opacity="0" fill-rule="evenodd" />
+					<path id="矢量 4842" d="M9.33317 4.6665L9.33317 9.33317L4.6665 9.33317L4.6665 4.6665L9.33317 4.6665Z" fill-rule="evenodd" stroke="rgb(255,255,255)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+				</g>
+			</g>
+		</g>
+	</mask>
+	<rect id="vertically-centered" width="14.000000" height="14.000000" x="0.000000" y="0.000000" />
+	<g id="mask" mask="url(#mask_4)">
+		<path id="矢量 4840" d="M0 0L14 0L14 14L0 14L0 0Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
+	</g>
+</svg>

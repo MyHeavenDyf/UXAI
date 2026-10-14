@@ -69,14 +69,31 @@ export const ProseMirrorEditor = (props: Props) => {
   const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
   const [focused, setFocused] = createSignal(false)
   const [isEmpty, setIsEmpty] = createSignal(true)
-  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; bottom: number } | null>(null)
+  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; top: number; bottom: number } | null>(null)
+  const [popoverFlipBelow, setPopoverFlipBelow] = createSignal(false)
+  const [popoverLeftShift, setPopoverLeftShift] = createSignal(0)
+  let popoverWrapperRef: HTMLDivElement | undefined
+
+  // Track active transition to reset flip/shift only on open (not every keystroke)
+  let wasMentionActive = false
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     setTriggerState(state)
     if (state?.active && containerRef) {
+      if (!wasMentionActive) {
+        setPopoverFlipBelow(false)
+        setPopoverLeftShift(0)
+      }
+      wasMentionActive = true
       const rect = containerRef.getBoundingClientRect()
-      setPopoverPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+      // Reuse prev ref when values unchanged to avoid effect churn on every keystroke
+      setPopoverPosition((prev) =>
+        prev && prev.left === rect.left && prev.top === rect.top && prev.bottom === rect.bottom
+          ? prev
+          : { left: rect.left, top: rect.top, bottom: rect.bottom },
+      )
     } else {
+      wasMentionActive = false
       setPopoverPosition(null)
     }
     props.onTriggerStateChange?.(!!state?.active)
@@ -441,21 +458,62 @@ export const ProseMirrorEditor = (props: Props) => {
   // Close popover via overlay click
   const closeMention = () => {
     const v = view()
-    const trigger = triggerState()
-    if (v && trigger) {
-      const from = Math.min(trigger.from, v.state.doc.content.size)
-      const to = Math.min(trigger.to, v.state.doc.content.size)
-      if (from < to) {
-        const tr = v.state.tr.delete(from, to)
-        v.dispatch(tr)
-      }
-    }
     if (v) {
+      const trigger = mentionTriggerKey.getState(v.state)
+      if (trigger?.active) {
+        const from = Math.min(trigger.from, v.state.doc.content.size)
+        const to = Math.min(trigger.to, v.state.doc.content.size)
+        if (from < to) {
+          const tr = v.state.tr.delete(from, to)
+          v.dispatch(tr)
+        }
+      }
       const tr = v.state.tr.setMeta(mentionTriggerKey, null)
       v.dispatch(tr)
     }
     setTriggerState(null)
   }
+
+  // Boundary detection: vertical flip + horizontal clamp for the popover container.
+  // Runs after the popover renders (popoverPosition is set), re-measures on container
+  // size changes (ResizeObserver) and window resize, so it adapts to tab switches /
+  // content loads that change the panel width/height.
+  createEffect(() => {
+    const pos = popoverPosition()
+    if (!pos || !popoverWrapperRef) return
+    const container = popoverWrapperRef.querySelector(".mention-popover-container") as HTMLElement | null
+    if (!container) return
+
+    const measure = () => {
+      const rect = container.getBoundingClientRect()
+
+      // Vertical: flip below when above doesn't fit and below has more room.
+      // Once flipped, stays flipped for the duration of this open session
+      // (reset on reopen in the trigger callback) to avoid oscillation.
+      if (!popoverFlipBelow()) {
+        const spaceAbove = pos.top - 16
+        const spaceBelow = window.innerHeight - pos.bottom - 16
+        if (rect.height > spaceAbove && spaceBelow > spaceAbove) {
+          setPopoverFlipBelow(true)
+        }
+      }
+
+      // Horizontal: clamp so the container's right edge stays within the viewport.
+      // shift <= 0 (moves left). Never pushes the left edge past the 16px margin.
+      const maxLeft = window.innerWidth - 16 - rect.width
+      const shift = pos.left <= maxLeft ? 0 : Math.max(maxLeft - pos.left, 16 - pos.left)
+      setPopoverLeftShift(shift)
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    window.addEventListener("resize", measure)
+    onCleanup(() => {
+      ro.disconnect()
+      window.removeEventListener("resize", measure)
+    })
+  })
 
   // Close slash popover when clicking outside
   createEffect(() => {
@@ -485,10 +543,11 @@ export const ProseMirrorEditor = (props: Props) => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
-  const handleMentionSelect = (selection: MentionSelection) => {
+  const handleMentionSelect = (selection: MentionSelection, opts?: { closeAfter?: boolean }) => {
     const v = view()
-    const trigger = triggerState()
-    if (!v || !trigger) return
+    if (!v) return
+    const trigger = mentionTriggerKey.getState(v.state)
+    if (!trigger?.active) return
 
     let attrs: any
     if (selection.type === "skill") {
@@ -499,14 +558,22 @@ export const ProseMirrorEditor = (props: Props) => {
     }
 
     const node = editorSchema.nodes.mention.create(attrs)
-    
-    // 确保 position 在文档范围内
-    const insertPos = Math.min(trigger.to, v.state.doc.content.size)
-    
-    const tr = v.state.tr.insert(insertPos, node)
-    tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
-    v.dispatch(tr)
-    
+
+    if (opts?.closeAfter) {
+      // 技能选中：用 chip 替换整个 @query 文本（一个事务内完成），光标移到 chip 之后
+      const from = Math.min(trigger.from, v.state.doc.content.size)
+      const to = Math.min(trigger.to, v.state.doc.content.size)
+      const tr = v.state.tr.replaceWith(from, to, node)
+      tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+      v.dispatch(tr)
+    } else {
+      // 文件/资产：在 @query 后插入 chip，光标移到 query 末尾（chip 之前），面板保持打开。
+      const insertPos = Math.min(trigger.to, v.state.doc.content.size)
+      const tr = v.state.tr.insert(insertPos, node)
+      tr.setSelection(TextSelection.create(tr.doc, insertPos))
+      v.dispatch(tr)
+    }
+
     v.focus()
   }
 
@@ -514,18 +581,27 @@ export const ProseMirrorEditor = (props: Props) => {
     const v = view()
     if (!v) return
 
-    const name = selection.type === "skill" ? selection.name : selection.filename
-    
+    const isSkill = selection.type === "skill"
+
     // Delete the last matching MentionNode
+    // 技能按 type+name 匹配；文件按 type+name+path 匹配（同名不同路径可区分）
     let lastPos = -1
     let lastSize = 0
     v.state.doc.descendants((node, pos) => {
-      if (node.type.name === "mention" && node.attrs.name === name) {
-        lastPos = pos
-        lastSize = node.nodeSize
+      if (node.type.name !== "mention") return
+      if (isSkill) {
+        if (node.attrs.type === "skill" && node.attrs.name === selection.name) {
+          lastPos = pos
+          lastSize = node.nodeSize
+        }
+      } else {
+        if (node.attrs.type === "file" && node.attrs.name === selection.filename && node.attrs.path === selection.path) {
+          lastPos = pos
+          lastSize = node.nodeSize
+        }
       }
     })
-    
+
     if (lastPos >= 0 && lastPos + lastSize <= v.state.doc.content.size) {
       const tr = v.state.tr.delete(lastPos, lastPos + lastSize)
       v.dispatch(tr)
@@ -576,12 +652,15 @@ export const ProseMirrorEditor = (props: Props) => {
       
       <Show when={triggerState()?.active && popoverPosition()}>
         <Portal>
-          <div class="mention-popover-overlay" onClick={closeMention} />
           <div
+            ref={popoverWrapperRef}
+            class={popoverFlipBelow() ? "mention-popover-below" : undefined}
             style={{
               position: "fixed",
-              left: `${popoverPosition()!.left}px`,
-              bottom: `${popoverPosition()!.bottom + 1}px`,
+              left: `${popoverPosition()!.left + popoverLeftShift()}px`,
+              ...(popoverFlipBelow()
+                ? { top: `${popoverPosition()!.bottom + 1}px` }
+                : { bottom: `${window.innerHeight - popoverPosition()!.top + 1}px` }),
               "z-index": 1000,
             }}
             onClick={(e) => e.stopPropagation()}

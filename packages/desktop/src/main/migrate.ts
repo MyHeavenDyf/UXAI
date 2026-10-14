@@ -268,7 +268,8 @@ export async function deployResourceLibraryScripts() {
 }
 // jk-j60099994-replace-with-60062650-desktop-main-migrate-1-end
 
-export function deployRipgrep() {
+/** 安装包内捆绑的 rg 二进制路径（不存在返回 null），deployRipgrep 与 sidecar env 注入共用 */
+export function bundledRipgrepPath(): string | null {
   const { platform, arch } = process
 
   const platformKey = platform === "darwin"
@@ -278,16 +279,23 @@ export function deployRipgrep() {
       : `windows-${arch === "arm64" ? "arm64" : "x64"}`
 
   const binaryName = platform === "win32" ? `rg-${platformKey}.exe` : `rg-${platformKey}`
-  const targetName = platform === "win32" ? "rg.exe" : "rg"
 
   const sourceDir = app.isPackaged
     ? join(process.resourcesPath, "bin")
     : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "bin")
 
   const sourcePath = join(sourceDir, binaryName)
+  return existsSync(sourcePath) ? sourcePath : null
+}
 
-  if (!existsSync(sourcePath)) {
-    log.warn("ripgrep deployment: source binary not found", sourcePath)
+export function deployRipgrep() {
+  const { platform } = process
+  const targetName = platform === "win32" ? "rg.exe" : "rg"
+
+  const sourcePath = bundledRipgrepPath()
+
+  if (!sourcePath) {
+    log.warn("ripgrep deployment: source binary not found")
     return
   }
 

@@ -14,7 +14,7 @@ import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
 import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
-import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext } from "../model-edit-items/types"
+import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext, ModelEditModeContext } from "../model-edit-items/types"
 import { getDefaultNativeConfig, readNativeDefaults } from "../model-edit-items/registry"
 import { HUI_COLOR_TOKENS } from "../model-edit-items/icon-data/hui-color-tokens"
 import { DrawOverlay } from "./draw-overlay"
@@ -23,6 +23,7 @@ import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
+import { createPrototypeArchiveZip } from "../../utils/archive-prototype"
 import { dirname, basename, joinPath } from "../../utils/references"
 import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
 import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
@@ -316,6 +317,14 @@ export function HtmlRenderer(props: {
     void loadPanelState()
   }
 
+  const modelEditModeContext = (): ModelEditModeContext => ({
+    postMessageToIframe: (data: unknown) => iframeRef?.contentWindow?.postMessage(data, '*'),
+    getIframeSnapshot: () => getIframeSnapshot(),
+    onContentChange: (content: string) => props.onContentChange?.(content) ?? Promise.resolve(),
+    onRefreshNeeded: () => props.onRefreshNeeded?.(),
+    custom: props.modelEditConfig?.customContext?.() ?? {},
+  })
+
   const modelEditContext = createMemo((): ModelEditContext | undefined => {
     const target = modelEditTarget()
     if (!target) return undefined
@@ -330,6 +339,7 @@ export function HtmlRenderer(props: {
       cleanBridgeContent: (html: string) => cleanBridgeContent(html),
       applyPatch: (html: string, patch: ManualEditPatch) => applyManualEditPatch(html, patch),
       wrapHtmlContent: (html: string) => wrapHtmlContent(html, props.content),
+      custom: props.modelEditConfig?.customContext?.() ?? {},
     }
   })
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
@@ -619,7 +629,9 @@ export function HtmlRenderer(props: {
       // [dom-picker-component] 元素的精准选择器（该属性由 Vue 运行时注入，磁盘 HTML 没有）
       const prototypeSnapshotHtml = props.subtype === "prototype" ? await getIframeSnapshot() : undefined
 
-      const zipBlob = await createArchiveZip({
+      // 归档按子类型走独立入口：prototype → archive-prototype.ts（components.json +
+      // 旧引用放置逻辑）；其余 → archive-utils.ts（NCA 引用镜像）
+      const archiveOptions = {
         comments,
         screenshotBlob,
         htmlContent,
@@ -631,8 +643,10 @@ export function HtmlRenderer(props: {
         srcFiles,
         previewExtraDirs,
         previewExtraRels,
-        prototypeSnapshotHtml,
-      })
+      }
+      const zipBlob = props.subtype === "prototype"
+        ? await createPrototypeArchiveZip({ ...archiveOptions, prototypeSnapshotHtml })
+        : await createArchiveZip(archiveOptions)
       
       if (isLoggedIn) {
         let uploadResult: { success: boolean }
@@ -1379,6 +1393,9 @@ createEffect(() => {
       const config = props.modelEditConfig
       if (!config) return
 
+      const styleConfig = config.selectionStyle?.(target)
+      iframe.contentWindow?.postMessage({ type: 'od:selection-style', style: styleConfig ?? null }, '*')
+
       window.dispatchEvent(new CustomEvent("design:element-selected"))
 
       let panelConfig: ConfigGroup[] = []
@@ -1417,6 +1434,13 @@ createEffect(() => {
       setModelEditTarget(target)
       setModelEditPanelConfig(panelConfig)
       setModelEditPanelData(panelData)
+      return
+    }
+
+    // Forward unhandled bridge messages to onBridgeMessage
+    // (covers drag reorder, state sync, and any custom protocol)
+    if (typeof d.type === "string" && d.type !== "od:rect-update") {
+      props.modelEditConfig?.onBridgeMessage?.(d, modelEditModeContext())
     }
   }
 
@@ -1607,6 +1631,19 @@ createEffect(() => {
       }
     }
   })
+
+  // Model edit mode lifecycle hooks: onEnter/onExit fire on modelEditing transitions
+  createEffect(on(() => !!props.modelEditing, (editing, prev) => {
+    if (prev === editing) return
+    const config = props.modelEditConfig
+    if (!config?.onEnter && !config?.onExit) return
+    const ctx = modelEditModeContext()
+    if (editing) {
+      void config?.onEnter?.(ctx)
+    } else {
+      void config?.onExit?.(ctx)
+    }
+  }, { defer: true }))
 
   // Watch for model reply completion after save/delete/confirm
   createEffect(on(() => props.disabled, (disabled, prev) => {
@@ -1928,7 +1965,6 @@ return (
                 - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
                 - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
                 - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
-                - 参考：design-system-picker.tsx:163
               */}
               <iframe
                 ref={iframeRef}

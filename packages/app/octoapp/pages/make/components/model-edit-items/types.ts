@@ -75,6 +75,21 @@ export type ModelEditContext = {
   cleanBridgeContent: (html: string) => string
   applyPatch: (html: string, patch: ManualEditPatch) => { ok: boolean; source: string; error?: string }
   wrapHtmlContent: (html: string) => string
+  /** 由 customContext 工厂注入的 subtype 特有上下文 */
+  custom: Record<string, unknown>
+}
+
+/**
+ * 编辑模式级 Context：在 model edit 模式开/关及 bridge 消息回调中可用。
+ * 与 ModelEditContext（绑定具体选中元素）不同，它在进入编辑模式时即存在。
+ */
+export type ModelEditModeContext = {
+  postMessageToIframe: (data: unknown) => void
+  getIframeSnapshot: () => Promise<string>
+  onContentChange: (content: string) => Promise<void>
+  onRefreshNeeded: () => void
+  /** 由 customContext 工厂注入的 subtype 特有上下文 */
+  custom: Record<string, unknown>
 }
 
 export type OnChangeArgs = ModelEditContext & {
@@ -130,6 +145,13 @@ export type IconConfig = {
   onConfirm: (args: IconConfirmArgs) => string | Promise<string>
 }
 
+export type SelectionStyle = {
+  color?: string
+  width?: number
+  lineStyle?: 'solid' | 'dashed' | 'dotted' | 'double'
+  offset?: number
+}
+
 export type ModelEditConfig = {
   componentFlag?: string
   componentConfig?: Record<string, ComponentTypeConfig>
@@ -142,6 +164,18 @@ export type ModelEditConfig = {
   onChange?: (args: OnChangeArgs) => void
   iconConfig?: IconConfig
   assetConfig?: AssetConfig
+  selectionStyle?: (dom: ModelEditElement) => SelectionStyle | null | undefined
+  /** 进入 model edit 模式时调用（按钮开启）。用于初始化自定义编辑态 */
+  onEnter?: (ctx: ModelEditModeContext) => void | Promise<void>
+  /** 退出 model edit 模式时调用（按钮关闭）。用于清理（如 dispose session、保存未提交状态） */
+  onExit?: (ctx: ModelEditModeContext) => void | Promise<void>
+  /** 工厂函数：注入 subtype 特有上下文，合并进 ModelEditContext.custom 与 ModelEditModeContext.custom */
+  customContext?: () => Record<string, unknown>
+  /**
+   * 编辑模式激活期间，接收 iframe 发来的未被内置处理的消息（含 data.type）。
+   * 覆盖拖拽排序（od:drag-reorder）、状态同步（A2UI_STATE_CHANGE）等自定义协议。
+   */
+  onBridgeMessage?: (data: unknown, ctx: ModelEditModeContext) => void
 }
 
 export type AssetState = {

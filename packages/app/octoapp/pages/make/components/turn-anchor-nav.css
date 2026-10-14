@@ -1,0 +1,91 @@
+.octo-turn-anchor-nav {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.octo-turn-anchor-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-height: 165px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  pointer-events: auto;
+  padding: 2px 0;
+}
+
+.octo-turn-anchor-list::-webkit-scrollbar {
+  width: 4px;
+}
+.octo-turn-anchor-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-turn-anchor-list::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+}
+/* hover 锚点区时显示滚动条(原生滚动条伪元素不支持过渡,显隐为瞬时切换) */
+.octo-turn-anchor-nav:hover .octo-turn-anchor-list::-webkit-scrollbar-thumb {
+  background-color: #dfdfdf;
+}
+.octo-turn-anchor-nav:hover .octo-turn-anchor-list::-webkit-scrollbar-thumb:hover {
+  background-color: #aeaeae;
+}
+
+/* 按钮上下 6px padding 提供热区,行间视觉间距 = 6 + 6 = 12px */
+.octo-turn-anchor-row {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.octo-turn-anchor {
+  display: block;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.octo-turn-anchor-bar {
+  display: block;
+  width: 12px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+  transition: width 150ms ease, background-color 150ms ease;
+}
+
+/* 非激活锚点 hover:16px + 深一档灰;置于激活规则之前,激活锚点 hover 仍保持 #0a59f7 */
+.octo-turn-anchor:hover .octo-turn-anchor-bar {
+  width: 16px;
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.octo-turn-anchor[data-active="true"] .octo-turn-anchor-bar {
+  width: 16px;
+  background-color: #0a59f7;
+}
+
+/* 气泡挂在 nav 上而非滚动列表内,避免被 overflow-y 裁剪;位置由 hover 事件计算 */
+.octo-turn-anchor-tip {
+  position: absolute;
+  top: 0;
+  transform: translateY(-50%);
+  background: #191919;
+  color: #ffffff;
+  padding: 8px;
+  border-radius: 8px;
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  line-height: 22px;
+  pointer-events: none;
+  z-index: 6;
+}

@@ -34,6 +34,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { zod as effectZod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import * as Reconnect from "./reconnect"
+import { errors as toolErrors } from "./tool-error"
 
 const log = Log.create({ service: "mcp" })
 const elog = EffectLogger.create({ service: "mcp" })
@@ -219,10 +220,12 @@ function convertMcpTool(
             error: String(cbErr),
           })
         }
-        return {
+        const result = {
           content: [{ type: "text" as const, text: `Tool "${mcpTool.name}" on server "${clientName}" failed: ${msg}. The server may be reconnecting.` }],
           isError: true,
         }
+        toolErrors.set(result, err)
+        return result
       }
     },
   })

@@ -14,9 +14,10 @@ import {
   onMount,
   Show,
 } from "solid-js"
-import { produce } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { getMappingStore } from "@/hooks/use-session-groups"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -47,18 +48,21 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightNoticeHost, showInsightNotice } from "./components/insight-notice"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
-import { MakeGroupsProvider } from "@/context/make-groups"
+import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
+import { DialogPreviewUnavailable } from "../make/components/dialog-preview-unavailable"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
-import { McpChip } from "./components/mcp-chip"
+import { InsightAddonMenu } from "./components/insight-addon-menu"
+import { McpModeBadge } from "./components/mcp-tool-menu"
+import { useProjectSelection } from "@/hooks/use-project-selection"
+import { migrateAssetMentions } from "./utils/product-asset-import"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { materializeUriCardToOutputs } from "./utils/local-resource"
 import { notifyMaterializeFailure } from "./utils/materialize-notify"
-import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
   buildChipTemplate,
@@ -73,7 +77,6 @@ import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
@@ -81,12 +84,13 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
-import { currentAccount } from "./utils/account"
+import { currentAccount, currentUserId } from "./utils/account"
+import { artifactTrackingExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
-import { resolveOutputType } from "./utils/output-type"
+import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
 import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-file-api"
@@ -190,7 +194,6 @@ const INSIGHT_IMAGE_MAX = 5 * 1024 * 1024
 const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
-const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB（图片 ≤ ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB），最多 ${MAX_ATTACHMENTS} 个`
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -256,6 +259,11 @@ function InsightContent() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
+  const groupsCtx = useMakeGroupsContext()
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) clearPendingGroup(groupsCtx?.namespace ?? "insight")
+  }, { defer: true }))
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -300,6 +308,10 @@ function InsightContent() {
   // 绝不能用 globalSDK.client(不带 directory),否则 promptAsync 会跑在 cwd(=home)实例,
   // 事件 event.directory=home 落到 home 的 store 而非所选目录的 store → 聊天区收不到回复 → 白屏。
   // 这正是 insight 之前在非 home 目录白屏、而 make(用 scoped sdk)无此问题的根因。
+  const projectSelection = useProjectSelection()
+  const [addonState, setAddonState] = createStore({ pending: false })
+  const assetsPending = () => addonState.pending
+  const movedAssetRoots = new Map<string, string>()
   const projectDir = () => sdk.directory
 
   // ── 切目录守卫:回新建空态(确定性,取代旧的 last() 过渡监听)────
@@ -352,8 +364,12 @@ function InsightContent() {
   // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
   createEffect(() => {
     const id = params.id
-    if (id) layout.lastSessionPerTab.setCowork(id)
-    else layout.lastSessionPerTab.clearCowork()
+    if (id) {
+      layout.lastSessionPerTab.setCowork(id)
+      layout.lastSessionPerTab.setNewConversation("cowork", false)
+    } else {
+      layout.lastSessionPerTab.clearCowork()
+    }
   })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
@@ -1070,6 +1086,64 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件 → 右侧 ResultViewer 预览(对齐 Design 页 handleOpenLocalFile)。
+   *  URL → html tab;本地文件 → resolveOutputType 推断类型,走 path source 读盘。 */
+  function handleOpenLocalFile(filePath: string) {
+    if (/^https?:\/\//i.test(filePath)) {
+      handleOpenResult({
+        id: `local-file-${filePath.replace(/[/\\:?#&=]/g, "-")}`,
+        title: filePath,
+        type: "html",
+        source: "uri",
+        uri: filePath,
+        content: "",
+        createdAt: new Date(),
+        fromAttachment: true,
+      })
+      return
+    }
+
+    const normalizedPath = filePath.replace(/\\/g, "/")
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    const dir = projectDir()
+    if (!isAbsolute && !dir) return
+    let absolutePath = normalizedPath
+    if (!isAbsolute && dir) {
+      const normalizedDir = dir.replace(/\\/g, "/")
+      absolutePath = (normalizedDir.endsWith("/") || normalizedPath.startsWith("/"))
+        ? normalizedDir + normalizedPath
+        : normalizedDir + "/" + normalizedPath
+      absolutePath = absolutePath.replace(/\/+/g, "/")
+    }
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    // 可渲染类型(html/markdown/json/code/image)+ 媒体(video/audio/pdf)→ 右侧预览;
+    // office/二进制等不可预览 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(fileName)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={fileName}
+          filePath={absolutePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-local-file", extend: JSON.stringify({ type: "unavailable", ext: filePath.split('.').pop() }) })
+      return
+    }
+    handleOpenResult({
+      id: `local-file-${absolutePath.replace(/[/\\:]/g, "-")}`,
+      title: fileName,
+      type: resolveOutputType(fileName),
+      source: "path",
+      filePath: absolutePath,
+      fileName,
+      mimeType: mimeForName(fileName),
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
   /** 添加至会话区:作为已就绪附件加入输入区。图片与非图片同链路(2026-09 去 S3):已落盘、有 path
    *  → done;发送时图片产 FilePart{url:file://…}(服务端读盘转 base64)、非图片进 [附件] 清单。 */
@@ -1239,6 +1313,17 @@ function InsightContent() {
           }),
         )
         local.session.promote(dir, session.id)
+
+        // Auto-assign to pending group (from "新建对话" in group context menu)
+        const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "insight", dir, groupsCtx?.groups ?? [])
+        if (pendingGroupId) {
+          const ns = groupsCtx?.namespace ?? "insight"
+          const { setMapping } = getMappingStore(ns)
+          setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
+          void globalSDK.createClient({ directory: dir }).sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
+          groupsCtx?.expandGroup(pendingGroupId)
+        }
+
         navigate(`/insight/${session.id}`)
         tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
@@ -1314,6 +1399,20 @@ function InsightContent() {
       mentions?: { skills: string[]; files: Array<{ filename: string; path: string }> }
     },
   ) {
+    if (opts.mentions?.files.length && getDesktopApi()?.movePendingUploadToSession) {
+      const files = await migrateAssetMentions(
+        opts.mentions.files, projectDir(), sessionId, getDesktopApi()!.movePendingUploadToSession!, movedAssetRoots,
+      ).catch(error => {
+        showToast({ title: "资产迁移失败", description: error instanceof Error ? error.message : String(error) })
+        if (params.id === sessionId && !prompt().trim()) {
+          setComposerContent(text, queuedMentions({ text, skills: opts.mentions?.skills, files: opts.mentions?.files }))
+        }
+        return undefined
+      })
+      if (!files) return
+      opts = { ...opts, mentions: { ...opts.mentions, files } }
+      setFilesRefreshKey(k => k + 1)
+    }
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
     const done = opts.consumeAttachments ? attachments().filter((a) => a.status === "done") : []
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
@@ -1606,10 +1705,12 @@ function InsightContent() {
     // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
     // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
     const account = currentAccount()
-    const promptExtra =
-      injectedSkills.length || account
-        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-        : undefined
+    const userId = currentUserId()
+    const promptExtra = {
+      ...(injectedSkills.length ? { skills: injectedSkills } : {}),
+      ...(account ? { account } : {}),
+      ...(userId ? { userId } : {}),
+    }
 
     sync.session.optimistic.add({
       sessionID: sessionId,
@@ -1636,8 +1737,12 @@ function InsightContent() {
         //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
         //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
         //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        //   - userId(SPEC-INS-033):当前登录用户 ID,供 get_session_identity 原样交给模型(skill 调内部接口用)。
+        //     同样拿不到就不传,由工具侧显式失败。
+        // **每轮都传,字段都没有时传空对象**(SPEC-INS-033 §1):服务端只在收到 extra 时才覆盖 sessionExtras,
+        // 某轮不传就会沿用上一轮的值——登录态丢失后工具仍拿到旧身份,而不是显式失败。空对象只进 insight
+        // 会话的 sessionExtras,不影响 make / studio。
+        extra: { ...promptExtra, ...artifactTrackingExtra() },
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
@@ -1747,7 +1852,7 @@ function InsightContent() {
       mentionSkills.length || mentionFileRefs.length ? { skills: mentionSkills, files: mentionFileRefs } : undefined
     // 空输入一律不可发送(与业界一致,chip 选中也不豁免):气泡与 user_prompt 恒为用户原话。
     // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
-    if (!text || hasUploadingAttachments()) return
+    if (!text || hasUploadingAttachments() || assetsPending()) return
 
     if (sessionSettling()) {
       showToast({ title: "上下文压缩正在处理中", description: "请等待压缩或终止完成后再发送。" })
@@ -1935,7 +2040,7 @@ function InsightContent() {
       settling: sessionSettling(),
       contextBlocked: contextSendBlocked(),
       text: prompt(),
-      uploading: hasUploadingAttachments(),
+      uploading: hasUploadingAttachments() || assetsPending(),
     }),
   )
 
@@ -2209,6 +2314,44 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  /** 点击会话区附件(文件卡片 / 图片缩略图)→ 右侧 ResultViewer tab 预览(对齐 Design 页)。
+   *  本地附件 → handleOpenLocalFile;URL 附件(FilePart)→ 按 resolveOutputType 路由。 */
+  function handleOpenAttachment(att: UserAttachment) {
+    const ext = att.filename.split('.').pop()?.toLowerCase() ?? ''
+
+    // office/二进制/压缩包/字体/可执行等不可预览 → 遮罩层下载弹窗
+    if (!isPreviewableMedia(att.filename, att.mime)) {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={att.filename}
+          filePath={att.path}
+          url={att.url}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "insight", name: "preview-attachment", extend: JSON.stringify({ type: "unavailable", ext }) })
+      return
+    }
+    if (att.isLocal && att.path) {
+      handleOpenLocalFile(att.path)
+      return
+    }
+    if (!att.url) return
+    handleOpenResult({
+      id: `att-url-${att.url}`,
+      title: att.filename,
+      type: resolveOutputType(att.filename, att.mime),
+      source: "uri",
+      uri: att.url,
+      fileName: att.filename,
+      mimeType: att.mime,
+      content: "",
+      createdAt: new Date(),
+      fromAttachment: true,
+    })
+  }
+
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
 
   function handleTaskRefresh(taskId: string) {
@@ -2424,11 +2567,21 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
-  const { request, gate } = useUploadRiskGate()
-  function requestAttachmentUpload() {
-    if (maxAttachments()) return
-    request(() => fileInputRef.click())
-  }
+  const { request, gate } = useUploadRiskGate({ module: "insight" })
+  const addonScope = () => JSON.stringify([projectDir(), params.id, projectSelection()?.product?.id])
+  const renderAddonMenu = () => (
+    <Show when={addonScope()} keyed>{_scope =>
+      <InsightAddonMenu
+        directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
+        editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
+        skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
+        files={mentionFiles() ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
+        maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+        onRefresh={() => setFilesRefreshKey(k => k + 1)} onPending={pending => setAddonState("pending", pending)}
+        mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
+      />
+    }</Show>
+  )
 
   // ResultViewer 渲染在两处复用:常态 inline(不传 onCollapse,TabBar 无收起按钮;收起由会话 header「文件管理」按钮触发)与窄屏抽屉(收起按钮=关抽屉)。
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
@@ -2449,6 +2602,7 @@ function InsightContent() {
       onRemoveAttachmentsByPath={removeAttachmentsByPath}
       refreshKey={filesRefreshKey()}
       onFilesRefresh={() => setFilesRefreshKey((k) => k + 1)}
+      onRefresh={() => setFilesRefreshKey((k) => k + 1)}
     />
   )
 
@@ -2551,6 +2705,7 @@ function InsightContent() {
                         onRetry={retryUpload}
                       />
                       {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
+                      <McpModeBadge selection={mcpSelection()} onClear={() => { handleMcpClear(); focusComposer() }} />
                       <ProseMirrorEditor
                         ref={(el) => (pmRefWelcome = el)}
                         autofocus
@@ -2581,22 +2736,7 @@ function InsightContent() {
                           accept={UPLOAD_ACCEPT}
                           onChange={handleFileInputChange}
                         />
-                        <Tooltip
-                          placement="top"
-                          class="flex-shrink-0"
-                          value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
-                          contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
-                        >
-                          <button
-                            type="button"
-                            onClick={requestAttachmentUpload}
-                            disabled={maxAttachments()}
-                            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                            aria-label="添加附件"
-                          >
-                            <Icon name="plus" class="size-5" />
-                          </button>
-                        </Tooltip>
+                        {renderAddonMenu()}
 
                         <ModelSelectorPopover
                           model={local.model} riskDialog={MakeModelRiskDialog}
@@ -2612,20 +2752,11 @@ function InsightContent() {
                           <ModelTriggerLabel model={local.model} />
                         </ModelSelectorPopover>
 
-                        {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
-                        <McpChip
-                          functions={PRESET_PROMPTS}
-                          selection={mcpSelection()}
-                          onSelect={handleMcpSelect}
-                          onClear={handleMcpClear}
-                          onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
-                        />
-
                         <button
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
                           disabled={sendDisabled()}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
+                          title={stopping() ? "停止生成" : ((hasUploadingAttachments() || assetsPending()) ? "请等待附件或资产导入完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex-shrink-0 ml-auto"
                           style={{
                             "width": "32px",
@@ -2711,6 +2842,7 @@ function InsightContent() {
                           status={sessionStatus()}
                           active={isBusy()}
                           onOpenResult={handleOpenResult}
+                          onOpenAttachment={handleOpenAttachment}
                           taskCards={taskCardsByAnchor().get(msgID) ?? []}
                           onTaskRefresh={handleTaskRefresh}
                           onTaskStop={handleTaskStop}
@@ -2830,6 +2962,7 @@ function InsightContent() {
                     onRetry={retryUpload}
                   />
                   {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
+                  <McpModeBadge selection={mcpSelection()} onClear={() => { handleMcpClear(); focusComposer() }} />
                   <ProseMirrorEditor
                     ref={(el) => (pmRefConv = el)}
                     autofocus
@@ -2860,22 +2993,7 @@ function InsightContent() {
                       accept={UPLOAD_ACCEPT}
                       onChange={handleFileInputChange}
                     />
-                    <Tooltip
-                      placement="top"
-                      class="flex-shrink-0"
-                      value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
-                      contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
-                    >
-                      <button
-                        type="button"
-                        onClick={requestAttachmentUpload}
-                        disabled={maxAttachments()}
-                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                        aria-label="添加附件"
-                      >
-                        <Icon name="plus" class="size-5" />
-                      </button>
-                    </Tooltip>
+                    {renderAddonMenu()}
 
                     <ModelSelectorPopover
                       model={local.model} riskDialog={MakeModelRiskDialog}
@@ -2891,20 +3009,11 @@ function InsightContent() {
                       <ModelTriggerLabel model={local.model} />
                     </ModelSelectorPopover>
 
-                    {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
-                    <McpChip
-                      functions={PRESET_PROMPTS}
-                      selection={mcpSelection()}
-                      onSelect={handleMcpSelect}
-                      onClear={handleMcpClear}
-                      onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
-                    />
-
                     <button
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={sendDisabled()}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
+                      title={stopping() ? "停止生成" : ((hasUploadingAttachments() || assetsPending()) ? "请等待附件或资产导入完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex-shrink-0 ml-auto"
                       style={{
                         "width": "32px",

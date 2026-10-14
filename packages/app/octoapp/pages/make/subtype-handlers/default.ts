@@ -8,15 +8,24 @@ import { iconColors } from '../components/model-edit-items/icon-data/icon-colors
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 import JSZip from 'jszip'
 
+function formatHexWithAlpha(v: string): string {
+  const m = v.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/)
+  if (!m) return v
+  const r = parseInt(m[1].slice(0, 2), 16)
+  const g = parseInt(m[1].slice(2, 4), 16)
+  const b = parseInt(m[1].slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${(parseInt(m[2], 16) / 255).toFixed(2)})`
+}
+
 function flattenJsonValue(key: string, value: string): string[] {
   const trimmed = value.trim()
-  if (!trimmed.startsWith('{')) return [`${key}: ${value}`]
+  if (!trimmed.startsWith('{')) return [`${key}: ${formatHexWithAlpha(value)}`]
   try {
     const obj = JSON.parse(trimmed)
     const lines: string[] = []
     for (const [subKey, subVal] of Object.entries(obj)) {
       if (subVal !== '' && subVal !== null && subVal !== undefined) {
-        lines.push(`  ${subKey}: ${String(subVal)}`)
+        lines.push(`  ${subKey}: ${formatHexWithAlpha(String(subVal))}`)
       }
     }
     return lines
@@ -49,7 +58,7 @@ function buildModelEditPrompt(
       const beforeLines = flattenJsonValue(key, before)
       const afterLines = flattenJsonValue(key, after)
       if (beforeLines.length <= 1 && afterLines.length <= 1) {
-        changes.push(`  ${displayName}: ${before || '(empty)'} → ${after || '(empty)'}`)
+        changes.push(`  ${displayName}: ${formatHexWithAlpha(before) || '(empty)'} → ${formatHexWithAlpha(after) || '(empty)'}`)
       } else {
         changes.push(`  ${displayName}:`)
         changes.push(`    修改前:`)
@@ -114,6 +123,16 @@ const directModelEditConfig: ModelEditConfig = {
       case 'od_lineHeight': send({ lineHeight: value }); break
       case 'od_letterSpacing': send({ letterSpacing: value }); break
       case 'od_verticalAlign': send({ verticalAlign: value }); break
+      case 'od_fontProps': {
+        const d = parseJson(value)
+        send({ fontWeight: d.fontWeight || '', fontSize: d.fontSize || '' })
+        break
+      }
+      case 'od_typSpacing': {
+        const d = parseJson(value)
+        send({ letterSpacing: d.letterSpacing || '', lineHeight: d.lineHeight || '' })
+        break
+      }
       case 'od_backgroundColor': send({ backgroundColor: value }); break
       case 'od_opacity': send({ opacity: value }); break
       case 'od_borderRadius': send({ borderRadius: value }); break
@@ -133,7 +152,17 @@ const directModelEditConfig: ModelEditConfig = {
       }
       case 'od_size': {
         const d = parseJson(value)
-        send({ width: d.width || '', height: d.height || '', overflow: d.overflow || '' })
+        const styles: Record<string, string> = {
+          width: d.width || '',
+          height: d.height || '',
+          overflow: d.overflow || '',
+        }
+        if (d.borderRadius !== undefined) styles.borderRadius = d.borderRadius
+        if (d.borderTopLeftRadius !== undefined) styles.borderTopLeftRadius = d.borderTopLeftRadius
+        if (d.borderTopRightRadius !== undefined) styles.borderTopRightRadius = d.borderTopRightRadius
+        if (d.borderBottomRightRadius !== undefined) styles.borderBottomRightRadius = d.borderBottomRightRadius
+        if (d.borderBottomLeftRadius !== undefined) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
+        send(styles)
         break
       }
       case 'od_padding': {
@@ -151,14 +180,6 @@ const directModelEditConfig: ModelEditConfig = {
         const styles: Record<string, string> = {}
         if (d.backgroundColor !== undefined) styles.backgroundColor = d.backgroundColor
         if (d.opacity) styles.opacity = d.opacity
-        if (d.borderRadius) {
-          styles.borderRadius = d.borderRadius
-        } else {
-          if (d.borderTopLeftRadius) styles.borderTopLeftRadius = d.borderTopLeftRadius
-          if (d.borderTopRightRadius) styles.borderTopRightRadius = d.borderTopRightRadius
-          if (d.borderBottomRightRadius) styles.borderBottomRightRadius = d.borderBottomRightRadius
-          if (d.borderBottomLeftRadius) styles.borderBottomLeftRadius = d.borderBottomLeftRadius
-        }
         send(styles)
         break
       }
@@ -343,6 +364,17 @@ function stripExtension(title: string, ext: string): string {
   return title
 }
 
+// 从 tab.title 提取媒体文件扩展名;回退到 data: URL 内嵌 mime;最后用 fallback
+function getMediaExt(tab: ResultTab, fallback: string): string {
+  const fromTitle = tab.title.match(/\.(\w{2,5})$/)?.[1]?.toLowerCase()
+  if (fromTitle && !["html", "htm", "txt"].includes(fromTitle)) return fromTitle
+  if (tab.filePath?.startsWith("data:")) {
+    const m = /data:[^/]+\/([^;,]+)/i.exec(tab.filePath)
+    if (m) return m[1].toLowerCase()
+  }
+  return fallback
+}
+
 async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
@@ -437,6 +469,20 @@ function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
       return { filename: `${stripExtension(tab.title, "pdf")}.pdf`, mime: "application/pdf" }
     case "svg":
       return { filename: `${stripExtension(tab.title, "svg")}.svg`, mime: "image/svg+xml;charset=utf-8" }
+    case "image": {
+      const ext = getMediaExt(tab, "png")
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: `image/${ext === "jpg" ? "jpeg" : ext}` }
+    }
+    case "video": {
+      const ext = getMediaExt(tab, "mp4")
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: `video/${ext}` }
+    }
+    case "audio": {
+      const ext = getMediaExt(tab, "mp3")
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: `audio/${ext === "mp3" ? "mpeg" : ext}` }
+    }
+    case "pdf":
+      return { filename: `${stripExtension(tab.title, "pdf")}.pdf`, mime: "application/pdf" }
     case "json":
       return { filename: `${stripExtension(tab.title, "json")}.json`, mime: "application/json;charset=utf-8" }
     case "table":
@@ -547,12 +593,58 @@ const defaultHandler: SubtypeHandler = {
     // 其他类型：使用桌面 API 或浏览器下载
     const api = getDesktopApi()
     const supportedTypes = ["html", "svg", "image", "video", "audio", "pdf", "text"]
-    
-    if (tab.filePath && supportedTypes.includes(tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
+
+    // ★ 非 local 路径来源(S3 URL / 本地图片落库后的 data: URL / optimistic file:// URL):
+    //   api.readFileBuffer 只能读本地路径,传这些进去 Electron 主进程读不到,会"读取文件失败"。
+    //   按 URL scheme 分流:https?/data: 直接拿字节走 downloadBlob;file:// 剥协议后转入下方 readFileBuffer 分支。
+    if (tab.filePath && supportedTypes.includes(tab.type)) {
+      const fp = tab.filePath
+      if (/^https?:\/\//i.test(fp) || /^data:/i.test(fp)) {
+        const info = getDownloadInfo(tab)
+        try {
+          let bytes: Uint8Array
+          let mime = info.mime
+          if (/^data:/i.test(fp)) {
+            // data:image/png;base64,<...> → 字节;非 base64 的 URL-encoded 形式也兼容
+            const comma = fp.indexOf(",")
+            if (comma < 0) throw new Error("data: URL 缺少逗号分隔符")
+            const meta = fp.slice(5, comma)
+            const isBase64 = /;base64/i.test(meta)
+            const payload = fp.slice(comma + 1)
+            const binStr = isBase64 ? atob(payload) : decodeURIComponent(payload)
+            bytes = new Uint8Array(binStr.length)
+            for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i)
+            const m = /data:([^;,]+)/i.exec(fp)
+            if (m) mime = m[1]
+          } else {
+            const response = await fetch(fp)
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            bytes = new Uint8Array(await response.arrayBuffer())
+            const ct = response.headers.get("content-type")
+            if (ct) mime = ct
+          }
+          if (!(await downloadBlob(bytes, info.filename, mime))) {
+            throw new DownloadCancelledError()
+          }
+          return true
+        } catch (err) {
+          if (err instanceof DownloadCancelledError) throw err
+          showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+          return true
+        }
+      }
+    }
+
+    // file:// URL(optimistic 本地图片附件,服务端未 base64 化前):剥协议后当作本地路径处理
+    const localPath = tab.filePath && /^file:\/\//i.test(tab.filePath)
+      ? decodeURIComponent(tab.filePath.replace(/^file:\/\//i, ""))
+      : tab.filePath
+
+    if (localPath && supportedTypes.includes(tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
       const chosen = await api.saveFilePicker({ defaultPath: tab.title })
       if (!chosen) throw new DownloadCancelledError()
       
-      const buffer = await api.readFileBuffer(tab.filePath)
+      const buffer = await api.readFileBuffer(localPath)
       if (!buffer) {
         showOctoToast({ title: "读取文件失败", variant: "error" })
         return true

@@ -115,7 +115,7 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    setActive({ id, node, dispose, owner, onClose, setClosing })
+    setActive({ id, node, dispose, owner, onClose: onClose ?? current?.onClose, setClosing })
   }
 
   return {

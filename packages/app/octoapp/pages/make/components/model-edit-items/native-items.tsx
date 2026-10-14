@@ -1,17 +1,19 @@
 import type { JSX } from 'solid-js'
-import { Show, For, createSignal } from 'solid-js'
+import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { ModelEditElement, ManualEditKind } from './types'
 import type { ColorToken } from './icon-data/hui-color-tokens'
 import {
   ColorPicker, HUI_COLOR_TOKENS, DragInput, CustomSelect,
   HAlignIcon, VAlignIcon,
-  FreeformIcon, RowIcon, ColIcon,
-  OpacityIcon, CornerCurveIcon, BorderRadiusIcon,
+  FreeformIcon,
+  OpacityIcon, CornerCurveIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
   LineHeightIcon, LetterSpacingIcon,
   Section, QuadModeSection, EffectsSection,
   LAYOUT_GRID,
 } from '../result-viewer/row-primitives'
+import { IconSizeFixedWidth, IconSizeAdjustWidth, IconSizeFillWidth, IconSizeCheckmark, IconBorderMenu, IconBorderAll, IconBorderLeft, IconBorderTop, IconBorderRight, IconBorderBottom, IconRadiusAdaptive, IconDropdownArrow } from '../../icons'
 import type { EffectEntry } from '../../edit-mode/source-patches'
 import { parseEffects } from '../../edit-mode/source-patches'
 
@@ -36,7 +38,9 @@ function rgbToHex(rgb: string): string {
   const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1
   if (alpha <= 0) return ''
   const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3])
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  if (alpha < 1) return hex + Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return hex
 }
 
 function isColorProp(prop: string): boolean {
@@ -62,6 +66,137 @@ function numFromString(s: string): number {
 
 function parseJson(s: string): Record<string, string> {
   try { return JSON.parse(s) } catch { return {} }
+}
+
+function LayoutColIcon() {
+  return (
+    <svg viewBox="0 0 14 14" width="14" height="14" fill="none">
+      <path d="M2.51563 1.53125L11.4844 1.53125C11.5445 1.53125 11.5938 1.58047 11.5938 1.64063L11.5938 2.46093C11.5938 2.52109 11.5445 2.57031 11.4844 2.57031L2.51563 2.57031C2.45547 2.57031 2.40625 2.52109 2.40625 2.46093L2.40625 1.64063C2.40625 1.58047 2.45547 1.53125 2.51563 1.53125ZM2.51563 11.4297L11.4844 11.4297C11.5445 11.4297 11.5938 11.4789 11.5938 11.5391L11.5938 12.3594C11.5938 12.4195 11.5445 12.4688 11.4844 12.4688L2.51563 12.4688C2.45547 12.4688 2.40625 12.4195 2.40625 12.3594L2.40625 11.5391C2.40625 11.4789 2.45547 11.4297 2.51563 11.4297Z" fill="currentColor" fill-rule="evenodd" />
+      <path d="M6.47854 7.86035L6.47854 4.19629L7.46292 4.19629L7.46292 7.86035L8.37483 7.86035C8.45823 7.86035 8.50335 7.95606 8.45276 8.02031L7.07464 9.76348C7.03635 9.81406 6.95979 9.81406 6.92014 9.76348L5.54202 8.02031C5.49143 7.95606 5.53792 7.86035 5.61995 7.86035L6.47854 7.86035Z" fill="currentColor" fill-rule="evenodd" />
+    </svg>
+  )
+}
+
+function LayoutGapIcon() {
+  return (
+    <svg viewBox="0 0 12.25 12.25" width="12" height="12" fill="none">
+      <path d="M8.45833 6.125L4.375 6.125" stroke="currentColor" stroke-linejoin="round" stroke-width="0.875" />
+      <rect width="0.875" height="2.625" x="3.5" y="4.8125" fill="currentColor" />
+      <rect width="0.875" height="2.625" x="7.875" y="4.8125" fill="currentColor" />
+      <path d="M0 1.75L2.1875 1.75L2.1875 10.5L0 10.5" stroke="currentColor" stroke-width="0.875" />
+      <path d="M0 0L2.1875 0L2.1875 8.75L0 8.75" stroke="currentColor" stroke-width="0.875" transform="matrix(-1,0,0,1,12.6875,1.75)" />
+    </svg>
+  )
+}
+
+type SizeMode = 'fixed' | 'fit' | 'fill'
+
+function SizeModeSelect(props: {
+  value: SizeMode
+  fixedValue: string
+  axis: 'width' | 'height'
+  onModeChange: (mode: SizeMode) => void
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
+  let btnRef!: HTMLButtonElement
+  let listRef!: HTMLDivElement
+
+  const isW = () => props.axis === 'width'
+  const shortLabel = () => props.value === 'fixed' ? '固定' : props.value === 'fit' ? '适应' : '填充'
+  const ModeIcon = (mode: SizeMode): JSX.Element => {
+    const Icon = isW()
+      ? (mode === 'fixed' ? IconSizeFixedWidth : mode === 'fit' ? IconSizeAdjustWidth : IconSizeFillWidth)
+      : (mode === 'fixed' ? IconSizeFixedWidth : mode === 'fit' ? IconSizeAdjustWidth : IconSizeFillWidth)
+    return <Icon />
+  }
+
+  const modes: { value: SizeMode; longLabel: string }[] = isW()
+    ? [
+        { value: 'fixed', longLabel: '固定宽度' },
+        { value: 'fit', longLabel: '适应内容' },
+        { value: 'fill', longLabel: '填充容器' },
+      ]
+    : [
+        { value: 'fixed', longLabel: '固定高度' },
+        { value: 'fit', longLabel: '适应内容' },
+        { value: 'fill', longLabel: '填充容器' },
+      ]
+
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      if (listRef && !listRef.contains(e.target as Node) && !btnRef.contains(e.target as Node)) setOpen(false)
+    }
+    const onScroll = () => setOpen(false)
+    if (btnRef) {
+      const r = btnRef.getBoundingClientRect()
+      setPos({ x: r.left, y: r.bottom + 4, w: r.width })
+      requestAnimationFrame(() => {
+        if (!listRef) return
+        const lr = listRef.getBoundingClientRect()
+        if (!lr.height) return
+        const fitsDown = r.bottom + 4 + lr.height <= window.innerHeight
+        const ay = fitsDown ? r.bottom + 4 : Math.max(4, r.top - 4 - lr.height)
+        setPos({ x: r.left, y: ay, w: r.width })
+      })
+    }
+    document.addEventListener('mousedown', handler)
+    window.addEventListener('scroll', onScroll, true)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', handler)
+      window.removeEventListener('scroll', onScroll, true)
+    })
+  })
+
+  return (
+    <div class="relative flex-1 min-w-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen(!open())}
+        class="flex h-8 w-full items-center gap-1.5 rounded-[4px] bg-[#F9F9F9] px-2 text-left text-[12px] outline-none border border-transparent hover:border-[#c9c9c9]"
+      >
+        <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.4)', ...(isW() ? {} : { transform: 'rotate(90deg)' }) }}>
+          {ModeIcon(props.value)}
+        </span>
+        <span class="flex-1 truncate" style={{ color: '#191919' }}>{shortLabel()}</span>
+        <IconDropdownArrow class="ml-0.5 text-[#777777]" />
+      </button>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          <div ref={listRef} class="fixed z-[2147483646] flex flex-col gap-1 rounded-lg p-1"
+            style={{
+              left: pos().x + 'px',
+              top: pos().y + 'px',
+              width: '166px',
+              background: '#fff',
+              'border-radius': '8px',
+              'box-shadow': '0 4px 12px 0 rgba(0,0,0,0.16)',
+            }}>
+            <For each={modes}>
+              {(m) => (
+                <button
+                  type="button"
+                  onClick={() => { props.onModeChange(m.value); setOpen(false) }}
+                  class="flex items-center gap-2 rounded-[4px] px-2 text-left cursor-pointer border-none bg-transparent outline-none hover:bg-[rgba(0,0,0,0.05)]"
+                  style={{ 'line-height': '32px', 'font-size': '12px', 'font-weight': '400', color: 'rgba(25,25,25,1)' }}
+                >
+                  <span class="cc-quad-mode-check" style={{ visibility: props.value === m.value ? 'visible' : 'hidden' }}>
+                    <IconSizeCheckmark />
+                  </span>
+                  <span class="inline-flex items-center justify-center shrink-0" style={{ color: 'rgba(0,0,0,0.9)', ...(isW() ? {} : { transform: 'rotate(90deg)' }) }}>
+                    {ModeIcon(m.value)}
+                  </span>
+                  <span class="flex-1 truncate">{m.longLabel}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </div>
+  )
 }
 
 const FONT_FAMILY_OPTS = [
@@ -128,38 +263,69 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_fontFamily',
     readValue: (el) => normalizeStyle('fontFamily', el.styles.fontFamily || ''),
     render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字体</span>
-        <CustomSelect value={props.value()} options={FONT_FAMILY_OPTS} onChange={props.onChange} />
-      </div>
+      <CustomSelect value={props.value()} options={FONT_FAMILY_OPTS} onChange={props.onChange} checkmark dropdownWidth={166} class="[&>button]:h-8" />
     ),
   },
   {
-    type: 'fontWeight',
-    defaultKey: 'od_fontWeight',
-    readValue: (el) => normalizeStyle('fontWeight', el.styles.fontWeight || ''),
-    render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字重</span>
-        <CustomSelect value={props.value()} options={FONT_WEIGHT_OPTS} onChange={props.onChange} />
-      </div>
-    ),
+    type: 'fontProps',
+    defaultKey: 'od_fontProps',
+    readValue: (el) => JSON.stringify({
+      fontWeight: normalizeStyle('fontWeight', el.styles.fontWeight || ''),
+      fontSize: normalizeStyle('fontSize', el.styles.fontSize || ''),
+    }),
+    render: (props) => {
+      const data = () => parseJson(props.value())
+      const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
+      return (
+        <div class="cc-typ-pair-row">
+          <CustomSelect value={data().fontWeight || ''} options={FONT_WEIGHT_OPTS} onChange={(v) => update({ fontWeight: v })} checkmark dropdownWidth={166} class="[&>button]:h-8" />
+          <DragInput
+            value={() => numFromString(data().fontSize)}
+            setValue={(v) => update({ fontSize: `${v}px` })}
+            setFound={() => {}} found={() => true}
+            placeholder="字号" flex1={false}
+            icon={<span class="cc-typ-drag-text">字号</span>}
+            height="h-8"
+          />
+        </div>
+      )
+    },
   },
   {
-    type: 'fontSize',
-    defaultKey: 'od_fontSize',
-    readValue: (el) => normalizeStyle('fontSize', el.styles.fontSize || ''),
-    render: (props) => (
-      <div class="cc-typ-row">
-        <span class="cc-typ-label">字号</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => props.onChange(`${v}px`)}
-          setFound={() => {}} found={() => true}
-          placeholder="字号" icon="S"
-        />
-      </div>
-    ),
+    type: 'typSpacing',
+    defaultKey: 'od_typSpacing',
+    readValue: (el) => JSON.stringify({
+      letterSpacing: normalizeStyle('letterSpacing', el.styles.letterSpacing || ''),
+      lineHeight: el.styles.lineHeight || '',
+    }),
+    render: (props) => {
+      const data = () => parseJson(props.value())
+      const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
+      return (
+        <div class="cc-typ-pair-row">
+          <DragInput
+            value={() => numFromString(data().letterSpacing)}
+            setValue={(v) => update({ letterSpacing: `${v}px` })}
+            setFound={() => {}} found={() => true}
+            placeholder="0" flex1={false}
+            icon={<span class="cc-typ-drag-text">字间距</span>}
+            height="h-8"
+          />
+          <DragInput
+            value={() => numFromString(data().lineHeight)}
+            setValue={(v) => {
+              const raw = data().lineHeight.trim()
+              const unitless = /^\d+(\.\d+)?$/.test(raw)
+              update({ lineHeight: unitless ? String(v) : `${v}px` })
+            }}
+            setFound={() => {}} found={() => true}
+            placeholder="auto" flex1={false}
+            icon={<span class="cc-typ-drag-text">行高</span>}
+            height="h-8"
+          />
+        </div>
+      )
+    },
   },
   {
     type: 'color',
@@ -174,52 +340,14 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_textAlign',
     readValue: (el) => el.styles.textAlign || '',
     render: (props) => (
-      <div class="cc-typ-align-row">
-        <div class="cc-typ-align-cell">
-          <span class="cc-typ-sublabel">水平对齐</span>
-          <div class="cc-typ-align-group">
-            <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
-            <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
-          </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[12px] text-slate-400 w-12 shrink-0">水平对齐</span>
+        <div class="cc-typ-align-group flex-1">
+          <button type="button" onClick={() => props.onChange(props.value() === 'left' ? '' : 'left')} class={props.value() === 'left' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'center' ? '' : 'center')} class={props.value() === 'center' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'right' ? '' : 'right')} class={props.value() === 'right' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'justify' ? '' : 'justify')} class={props.value() === 'justify' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
         </div>
-      </div>
-    ),
-  },
-  {
-    type: 'lineHeight',
-    defaultKey: 'od_lineHeight',
-    readValue: (el) => el.styles.lineHeight || '',
-    render: (props) => (
-      <div class="cc-typ-pair-cell">
-        <span class="cc-typ-sublabel">行高</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => {
-            const raw = props.value().trim()
-            const unitless = /^\d+(\.\d+)?$/.test(raw)
-            props.onChange(unitless ? String(v) : `${v}px`)
-          }}
-          setFound={() => {}} found={() => true}
-          placeholder="auto" flex1={false}
-        />
-      </div>
-    ),
-  },
-  {
-    type: 'letterSpacing',
-    defaultKey: 'od_letterSpacing',
-    readValue: (el) => el.styles.letterSpacing || '',
-    render: (props) => (
-      <div class="cc-typ-pair-cell">
-        <span class="cc-typ-sublabel">字间距</span>
-        <DragInput
-          value={() => numFromString(props.value())}
-          setValue={(v) => props.onChange(`${v}px`)}
-          setFound={() => {}} found={() => true}
-          placeholder="0" flex1={false}
-        />
       </div>
     ),
   },
@@ -228,12 +356,12 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     defaultKey: 'od_verticalAlign',
     readValue: (el) => el.styles.verticalAlign || '',
     render: (props) => (
-      <div class="cc-typ-align-cell">
-        <span class="cc-typ-sublabel">垂直对齐</span>
-        <div class="cc-typ-align-group">
-          <button type="button" onClick={() => props.onChange(props.value() === 'top' ? '' : 'top')} class={props.value() === 'top' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
-          <button type="button" onClick={() => props.onChange(props.value() === 'middle' ? '' : 'middle')} class={props.value() === 'middle' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
-          <button type="button" onClick={() => props.onChange(props.value() === 'bottom' ? '' : 'bottom')} class={props.value() === 'bottom' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
+      <div class="flex items-center gap-2">
+        <span class="text-[12px] text-slate-400 w-12 shrink-0">垂直对齐</span>
+        <div class="cc-typ-align-group flex-1">
+          <button type="button" onClick={() => props.onChange(props.value() === 'top' ? '' : 'top')} class={props.value() === 'top' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'middle' ? '' : 'middle')} class={props.value() === 'middle' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
+          <button type="button" onClick={() => props.onChange(props.value() === 'bottom' ? '' : 'bottom')} class={props.value() === 'bottom' ? 'cc-typ-align-btn cc-typ-align-btn-active' : 'cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
         </div>
       </div>
     ),
@@ -255,9 +383,9 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       return (
         <Section title="布局">
           <div class="cc-layout-direction">
-            <button type="button" onClick={() => update({ flexDirection: '' })} class={!fd() ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="自由布局" aria-label="自由布局"><FreeformIcon /></button>
-            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="行布局" aria-label="行布局"><RowIcon /></button>
-            <button type="button" onClick={() => update({ flexDirection: 'column' })} class={fd() === 'column' || fd() === 'column-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'} title="列布局" aria-label="列布局"><ColIcon /></button>
+            <button type="button" onClick={() => update({ flexDirection: 'column' })} class={fd() === 'column' || fd() === 'column-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="列布局" aria-label="列布局"><LayoutColIcon /></button>
+            <button type="button" onClick={() => update({ flexDirection: 'row' })} class={fd() === 'row' || fd() === 'row-reverse' ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="行布局" aria-label="行布局"><span class="inline-flex" style={{ transform: 'rotate(270deg)' }}><LayoutColIcon /></span></button>
+            <button type="button" onClick={() => update({ flexDirection: '' })} class={!fd() ? 'cc-layout-dir-btn cc-layout-dir-btn-active' : 'cc-layout-dir-btn'} title="自由布局" aria-label="自由布局"><FreeformIcon /></button>
           </div>
           <Show when={!!fd()}>
             <div class="cc-layout-grid-wrap">
@@ -274,7 +402,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
                 </For>
               </div>
               <div class="cc-layout-gap-col">
-                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" />
+                <DragInput value={() => numFromString(data().gap)} setValue={(v) => update({ gap: `${v}px` })} setFound={() => {}} found={() => true} placeholder="间距" icon={<LayoutGapIcon />} flex1={false} height="h-8" />
                 <label class="cc-layout-radio">
                   <input type="radio" name="layout-justify-mode" checked={data().justifyContent === 'space-between'} onChange={() => update({ justifyContent: 'space-between' })} />
                   <span>两端对齐</span>
@@ -297,36 +425,106 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
       width: el.styles.width || '',
       height: el.styles.height || '',
       overflow: el.styles.overflow || '',
+      borderRadius: el.styles.borderRadius || '',
+      borderTopLeftRadius: el.styles.borderTopLeftRadius || '',
+      borderTopRightRadius: el.styles.borderTopRightRadius || '',
+      borderBottomRightRadius: el.styles.borderBottomRightRadius || '',
+      borderBottomLeftRadius: el.styles.borderBottomLeftRadius || '',
     }),
     render: (props) => {
       const data = () => parseJson(props.value())
       const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
       const w = () => data().width || ''
       const h = () => data().height || ''
+      const br = () => data().borderRadius || ''
+
+      // 尺寸模式：fill=100% / fit=fit-content / fixed=具体 px
+      const wMode = (): SizeMode => w() === '100%' ? 'fill' : (w() === 'fit-content' || w() === 'max-content' || w() === 'auto') ? 'fit' : 'fixed'
+      const hMode = (): SizeMode => h() === '100%' ? 'fill' : (h() === 'fit-content' || h() === 'max-content' || h() === 'auto') ? 'fit' : 'fixed'
+      const [fixedCache, setFixedCache] = createSignal<{ width?: string; height?: string }>({})
+      // 初始 px 值缓存（首次读取 fixed 模式时记录）
+      const cacheFixed = (axis: 'width' | 'height', val: string) => {
+        if (!val || val === '100%' || val === 'fit-content' || val === 'max-content' || val === 'auto') return
+        setFixedCache(prev => prev[axis] === val ? prev : { ...prev, [axis]: val })
+      }
+      createEffect(() => { cacheFixed('width', w()) })
+      createEffect(() => { cacheFixed('height', h()) })
+      const onWModeChange = (mode: SizeMode) => {
+        if (mode === 'fill') update({ width: '100%' })
+        else if (mode === 'fit') update({ width: 'fit-content' })
+        else update({ width: fixedCache().width || '' })
+      }
+      const onHModeChange = (mode: SizeMode) => {
+        if (mode === 'fill') update({ height: '100%' })
+        else if (mode === 'fit') update({ height: 'fit-content' })
+        else update({ height: fixedCache().height || '' })
+      }
+
+      // 圆角：icon 切换 shorthand / 四角
+      const [radiusOpen, setRadiusOpen] = createSignal(false)
+      const setCorner = (key: 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius', v: number) => {
+        const d = data()
+        const currentBR = d.borderRadius
+        if (currentBR) {
+          update({ borderRadius: '', borderTopLeftRadius: key === 'borderTopLeftRadius' ? `${v}px` : (d.borderTopLeftRadius || currentBR), borderTopRightRadius: key === 'borderTopRightRadius' ? `${v}px` : (d.borderTopRightRadius || currentBR), borderBottomRightRadius: key === 'borderBottomRightRadius' ? `${v}px` : (d.borderBottomRightRadius || currentBR), borderBottomLeftRadius: key === 'borderBottomLeftRadius' ? `${v}px` : (d.borderBottomLeftRadius || currentBR) })
+        } else {
+          update({ [key]: `${v}px` })
+        }
+      }
+      const corners = () => [data().borderTopLeftRadius || '', data().borderTopRightRadius || '', data().borderBottomRightRadius || '', data().borderBottomLeftRadius || '']
+      // 收起态 shorthand 显示值：borderRadius 优先，四角全等非空时取该值
+      const shorthandVal = () => {
+        if (br()) return br()
+        const c = corners()
+        return c.every(x => x) && c.every(x => x === c[0]) ? c[0] : ''
+      }
+      // 四角有值但不全等 → mixed
+      const cornersMixed = () => {
+        if (br()) return false
+        const c = corners()
+        return c.some(x => x) && !c.every(x => x === c[0])
+      }
+      // 展开时 shorthand 有值且四角全空 → 分解到四角
+      createEffect(() => {
+        if (!radiusOpen()) return
+        const d = data()
+        if (d.borderRadius && !d.borderTopLeftRadius && !d.borderTopRightRadius && !d.borderBottomRightRadius && !d.borderBottomLeftRadius) {
+          update({ borderTopLeftRadius: d.borderRadius, borderTopRightRadius: d.borderRadius, borderBottomRightRadius: d.borderRadius, borderBottomLeftRadius: d.borderRadius })
+        }
+      })
 
       return (
         <Section title="宽高">
-          <div class="cc-size-row">
-            <DragInput value={() => numFromString(w())} setValue={(v) => update({ width: `${v}px` })} setFound={() => {}} found={() => true} placeholder="宽" icon="W" />
-            <DragInput value={() => numFromString(h())} setValue={(v) => update({ height: `${v}px` })} setFound={() => {}} found={() => true} placeholder="高" icon="H" />
+          <div class="cc-size-grid">
+            <DragInput value={() => numFromString(w())} setValue={(v) => update({ width: `${v}px` })} setFound={() => {}} found={() => true} placeholder="宽" icon="W" height="h-8" iconPl="pl-2.5" />
+            <DragInput value={() => numFromString(h())} setValue={(v) => update({ height: `${v}px` })} setFound={() => {}} found={() => true} placeholder="高" icon="H" height="h-8" iconPl="pl-2.5" />
+          </div>
+          <div class="cc-size-modes-row">
+            <SizeModeSelect value={wMode()} fixedValue={w()} axis="width" onModeChange={onWModeChange} />
+            <SizeModeSelect value={hMode()} fixedValue={h()} axis="height" onModeChange={onHModeChange} />
+          </div>
+          <div class="cc-radius-row">
+            <div class="cc-radius-grid">
+              <Show when={radiusOpen()} fallback={
+                <DragInput value={() => numFromString(shorthandVal())} setValue={(v) => update({ borderRadius: `${v}px`, borderTopLeftRadius: '', borderTopRightRadius: '', borderBottomRightRadius: '', borderBottomLeftRadius: '' })} setFound={() => {}} found={() => !!shorthandVal()} display={cornersMixed() ? 'mixed' : undefined} placeholder="圆角" icon={<CornerCurveIcon />} height="h-8" iconPl="pl-2.5" />
+              }>
+                <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => setCorner('borderTopLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => setCorner('borderTopRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => setCorner('borderBottomLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+                <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => setCorner('borderBottomRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} height="h-8" iconPl="pl-2.5" />
+              </Show>
+            </div>
+            <button
+              type="button"
+              class="cc-radius-adaptive-btn"
+              classList={{ 'cc-radius-adaptive-btn-active': radiusOpen() }}
+              onClick={() => setRadiusOpen(!radiusOpen())}
+              title="独立圆角" aria-label="独立圆角"
+            >
+              <IconRadiusAdaptive />
+            </button>
           </div>
           <div class="cc-size-checkboxes">
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={w() === '100%'} onChange={(e) => update({ width: e.currentTarget.checked ? '100%' : '' })} />
-              <span>填充宽度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={h() === '100%'} onChange={(e) => update({ height: e.currentTarget.checked ? '100%' : '' })} />
-              <span>填充高度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={w() === 'fit-content' || w() === 'max-content' || w() === 'auto'} onChange={(e) => update({ width: e.currentTarget.checked ? 'fit-content' : '' })} />
-              <span>适应宽度</span>
-            </label>
-            <label class="cc-size-checkbox">
-              <input type="checkbox" checked={h() === 'fit-content' || h() === 'max-content' || h() === 'auto'} onChange={(e) => update({ height: e.currentTarget.checked ? 'fit-content' : '' })} />
-              <span>适应高度</span>
-            </label>
             <label class="cc-size-checkbox cc-size-clip">
               <input type="checkbox" checked={data().overflow === 'hidden'} onChange={(e) => update({ overflow: e.currentTarget.checked ? 'hidden' : '' })} />
               <span>裁剪内容</span>
@@ -390,29 +588,12 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
     readValue: (el) => JSON.stringify({
       backgroundColor: normalizeStyle('backgroundColor', el.styles.backgroundColor || ''),
       opacity: el.styles.opacity || '',
-      borderRadius: el.styles.borderRadius || '',
-      borderTopLeftRadius: el.styles.borderTopLeftRadius || '',
-      borderTopRightRadius: el.styles.borderTopRightRadius || '',
-      borderBottomRightRadius: el.styles.borderBottomRightRadius || '',
-      borderBottomLeftRadius: el.styles.borderBottomLeftRadius || '',
     }),
     render: (props) => {
       const data = () => parseJson(props.value())
       const update = (patch: Record<string, string>) => props.onChange(JSON.stringify({ ...data(), ...patch }))
-      const [cornerOpen, setCornerOpen] = createSignal(false)
       const bg = () => data().backgroundColor || ''
       const op = () => data().opacity || ''
-      const br = () => data().borderRadius || ''
-
-      const setCorner = (key: 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius', v: number) => {
-        const d = data()
-        const currentBR = d.borderRadius
-        if (currentBR) {
-          update({ borderRadius: '', borderTopLeftRadius: key === 'borderTopLeftRadius' ? `${v}px` : (d.borderTopLeftRadius || currentBR), borderTopRightRadius: key === 'borderTopRightRadius' ? `${v}px` : (d.borderTopRightRadius || currentBR), borderBottomRightRadius: key === 'borderBottomRightRadius' ? `${v}px` : (d.borderBottomRightRadius || currentBR), borderBottomLeftRadius: key === 'borderBottomLeftRadius' ? `${v}px` : (d.borderBottomLeftRadius || currentBR) })
-        } else {
-          update({ [key]: `${v}px` })
-        }
-      }
 
       return (
         <Section title="外观">
@@ -424,25 +605,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
               setFound={() => {}} found={() => true}
               placeholder="透明度" max={100} icon={<OpacityIcon />} suffixIcon="%"
             />
-            <DragInput
-              value={() => numFromString(br())}
-              setValue={(v) => update({ borderRadius: `${v}px`, borderTopLeftRadius: '', borderTopRightRadius: '', borderBottomRightRadius: '', borderBottomLeftRadius: '' })}
-              setFound={() => {}} found={() => true}
-              placeholder="圆角" icon={<CornerCurveIcon />} suffixIcon={<BorderRadiusIcon />}
-              display={cornerOpen() && (data().borderTopLeftRadius || data().borderTopRightRadius || data().borderBottomRightRadius || data().borderBottomLeftRadius) ? 'mixed' : undefined}
-            />
-            <button type="button" class={cornerOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'} onClick={() => setCornerOpen(!cornerOpen())} title="四角独立" aria-label="四角独立">
-              <span style={{ "font-size": "10px" }}>◱</span>
-            </button>
           </div>
-          <Show when={cornerOpen()}>
-            <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(data().borderTopLeftRadius || '')} setValue={(v) => setCorner('borderTopLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderTopRightRadius || '')} setValue={(v) => setCorner('borderTopRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomLeftRadius || '')} setValue={(v) => setCorner('borderBottomLeftRadius', v)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} />
-              <DragInput value={() => numFromString(data().borderBottomRightRadius || '')} setValue={(v) => setCorner('borderBottomRightRadius', v)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} />
-            </div>
-          </Show>
         </Section>
       )
     },
@@ -474,6 +637,7 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
         <Section title="描边">
           <ColorPicker label="Color" value={bc()} tokens={props.colors} onChange={(v) => update({ borderColor: v })} />
           <div class="cc-stroke-row">
+            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} checkmark dropdownWidth={166} />
             <DragInput
               value={() => numFromString(btw())}
               setValue={(v) => {
@@ -482,18 +646,18 @@ const NATIVE_ITEMS_LIST: NativeItemDef[] = [
               }}
               setFound={() => {}} found={() => true}
               placeholder="宽度"
+              icon={<IconBorderMenu />}
             />
-            <button type="button" class={borderIndividualOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="四角独立" aria-label="四角独立">
-              <span style={{ "font-size": "10px" }}>◱</span>
+            <button type="button" class={borderIndividualOpen() ? 'cc-stroke-expand cc-stroke-expand-active' : 'cc-stroke-expand'} onClick={() => setBorderIndividualOpen(!borderIndividualOpen())} title="独立边距" aria-label="独立边距">
+              <IconBorderAll />
             </button>
-            <CustomSelect value={bs() || 'none'} options={BORDER_STYLE_OPTS} onChange={(v) => update({ borderStyle: v })} />
           </div>
           <Show when={borderIndividualOpen()}>
             <div class="cc-stroke-trbl">
-              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" />
-              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" />
-              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" />
-              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" />
+              <DragInput value={() => numFromString(data().borderLeftWidth || '')} setValue={(v) => update({ borderLeftWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="左" icon={<IconBorderLeft />} />
+              <DragInput value={() => numFromString(btw())} setValue={(v) => update({ borderTopWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="上" icon={<IconBorderTop />} />
+              <DragInput value={() => numFromString(data().borderRightWidth || '')} setValue={(v) => update({ borderRightWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="右" icon={<IconBorderRight />} />
+              <DragInput value={() => numFromString(data().borderBottomWidth || '')} setValue={(v) => update({ borderBottomWidth: `${v}px` })} setFound={() => {}} found={() => true} placeholder="下" icon={<IconBorderBottom />} />
             </div>
           </Show>
         </Section>

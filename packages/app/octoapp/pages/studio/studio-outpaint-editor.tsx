@@ -231,7 +231,7 @@ export function StudioOutpaintEditor(props: {
       <div class="studio-enlarging-body">
         <div class="studio-enlarging-hint">
           <img src="/studio/studio_help_tips.png" alt="" class="studio-enlarging-hint-icon" />
-          <span>通过涂抹生成修改图片局部</span>
+          <span>保留特征生成更大尺寸和内容</span>
         </div>
         <div ref={stageRef!} class="studio-enlarging-canvas-wrap">
           <div class="studio-enlarging-stage" style={{ width: `${stage().width}px`, height: `${stage().height}px` }}>

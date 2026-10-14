@@ -166,7 +166,7 @@ function FileManagerInner(props: {
 
   // 外网模型上传风险确认:点击「上传」或拖入文件时,若当前模型为外网(isExternal),先弹风险提示弹框,
   // 确认后才执行上传。内网模型不拦截。
-  const { request, gate } = useUploadRiskGate()
+  const { request, gate } = useUploadRiskGate({ module: "insight" })
   const requestUploadFile = () => request(() => fileInputRef?.click())
   const requestUploadFolder = () => request(() => folderInputRef?.click())
 
@@ -952,6 +952,7 @@ function FileRow(props: {
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
+  const { request: requestAddToSession, gate: addToSessionGate } = useUploadRiskGate({ module: "insight" })
   // 归档大小校验每行算一次(createMemo),供 MenuItem 的 disabled / disabledHint 共用,避免各调一次。
   const archiveSizeErr = createMemo(() => archiveFileSizeError(props.file.size))
 
@@ -972,6 +973,7 @@ function FileRow(props: {
   }
 
   return (
+    <>
     <tr
       class="transition-colors cursor-pointer"
       style={{ background: props.selected ? "var(--octo-brand-a8)" : "transparent", height: "78px" }}
@@ -1033,7 +1035,7 @@ function FileRow(props: {
                   label="添加至会话区"
                   disabled={!ALLOWED_EXT.includes(getExt(props.file.name) as (typeof ALLOWED_EXT)[number])}
                   disabledHint="当前会话不支持上传该文件格式"
-                  onClick={() => { props.onAddToSession!(props.file); setMenuOpen(false) }}
+                  onClick={() => { setMenuOpen(false); requestAddToSession(() => props.onAddToSession!(props.file)) }}
                 />
                 <MenuDivider />
               </Show>
@@ -1056,6 +1058,8 @@ function FileRow(props: {
         </Kobalte>
       </td>
     </tr>
+    {addToSessionGate}
+    </>
   )
 }
 

@@ -15,6 +15,7 @@ import { SkillTool } from "./skill"
 import { JimengImageGenerateTool } from "./jimeng_image_generate"
 import { InternelImageGenerateTool } from "./internel_image_generate"
 import { KnowledgeSearchTool } from "./knowledge_search"
+import { GetSessionIdentityTool } from "./get_session_identity"
 import { ExtractDocumentTool } from "./extract_document"
 import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
 import * as Tool from "./tool"
@@ -69,7 +70,7 @@ export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
   readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
-  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<Tool.Def[]>
+  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<(Tool.Def & { origin: "builtin" | "plugin" })[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
@@ -122,6 +123,7 @@ export const layer: Layer.Layer<
     const jimengtool = yield* JimengImageGenerateTool
     const interneltool = yield* InternelImageGenerateTool
     const knowledgesearch = yield* KnowledgeSearchTool
+    const sessionidentity = yield* GetSessionIdentityTool
     const extractdocument = yield* ExtractDocumentTool
     const loadComponentsDocs = yield* LoadComponentsDocsTool
     const agent = yield* Agent.Service
@@ -145,6 +147,7 @@ export const layer: Layer.Layer<
             description: def.description,
             execute: (args, toolCtx) =>
               Effect.gen(function* () {
+                if (toolCtx.onExecute) yield* toolCtx.onExecute(args)
                 const pluginCtx: PluginToolContext = {
                   ...toolCtx,
                   ask: (req) => toolCtx.ask(req),
@@ -223,6 +226,7 @@ export const layer: Layer.Layer<
           jimeng: Tool.init(jimengtool),
           internel: Tool.init(interneltool),
           knowledge: Tool.init(knowledgesearch),
+          session_identity: Tool.init(sessionidentity),
           extract_document: Tool.init(extractdocument),
           components_docs: Tool.init(loadComponentsDocs),
           patch: Tool.init(patchtool),
@@ -250,6 +254,7 @@ export const layer: Layer.Layer<
             tool.jimeng,
             tool.internel,
             tool.knowledge,
+            tool.session_identity,
             tool.extract_document,
             tool.components_docs,
             tool.patch,
@@ -306,6 +311,7 @@ export const layer: Layer.Layer<
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+      const registered = yield* InstanceState.get(state)
       const filtered = (yield* all()).filter((tool) => {
         if (tool.id === WebSearchTool.id) {
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
@@ -314,6 +320,12 @@ export const layer: Layer.Layer<
         // 内网知识库工具只给 insight 的 octo_insight(SPEC-INS-030:chat 下线,该能力迁入 insight),
         // 避免泄漏到 make / studio / pattern。
         if (tool.id === KnowledgeSearchTool.id) {
+          return input.agent.name === "octo_insight"
+        }
+
+        // 会话身份工具同样只给 octo_insight(SPEC-INS-033):身份值来自 insight 发送链路的 extra,
+        // 其他 agent 的 extra 里没有 userId,放出去只会得到一次必然的「未获取到身份」。
+        if (tool.id === GetSessionIdentityTool.id) {
           return input.agent.name === "octo_insight"
         }
 
@@ -356,6 +368,7 @@ export const layer: Layer.Layer<
           yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
           return {
             id: tool.id,
+            origin: registered.custom.includes(tool) ? "plugin" as const : "builtin" as const,
             description: [
               output.description,
               tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage } from "./sync"
+import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage, resolveMessagePage } from "./sync"
 
 type Text = Extract<Part, { type: "text" }>
 
@@ -119,5 +119,54 @@ describe("sync optimistic reducers", () => {
       { id: "prt_1", type: "text", text: "server" },
       { id: "prt_2", type: "text", text: "prt_2" },
     ])
+  })
+})
+
+describe("resolveMessagePage", () => {
+  const sessionID = "ses_1"
+
+  test("prepend mode merges existing messages with the fetched page", () => {
+    const message = resolveMessagePage({
+      mode: "prepend",
+      fetched: [userMessage("msg_1", sessionID)],
+      existing: [userMessage("msg_2", sessionID)],
+    })
+
+    expect(message.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
+  })
+
+  test("replace mode without existing messages returns the fetched page", () => {
+    const fetched = [userMessage("msg_1", sessionID)]
+    const message = resolveMessagePage({ fetched, existing: undefined })
+
+    expect(message).toBe(fetched)
+  })
+
+  test("replace mode: empty fetched page keeps messages already in the store (stale snapshot race)", () => {
+    const message = resolveMessagePage({
+      fetched: [],
+      existing: [userMessage("msg_1", sessionID)],
+    })
+
+    expect(message.map((x) => x.id)).toEqual(["msg_1"])
+  })
+
+  test("replace mode: busy session merges so a stale snapshot cannot drop local messages", () => {
+    const message = resolveMessagePage({
+      fetched: [userMessage("msg_2", sessionID)],
+      existing: [userMessage("msg_1", sessionID), userMessage("msg_3", sessionID)],
+      busy: true,
+    })
+
+    expect(message.map((x) => x.id)).toEqual(["msg_1", "msg_2", "msg_3"])
+  })
+
+  test("replace mode: fresh non-empty page replaces the existing store content", () => {
+    const message = resolveMessagePage({
+      fetched: [userMessage("msg_2", sessionID)],
+      existing: [userMessage("msg_1", sessionID)],
+    })
+
+    expect(message.map((x) => x.id)).toEqual(["msg_2"])
   })
 })

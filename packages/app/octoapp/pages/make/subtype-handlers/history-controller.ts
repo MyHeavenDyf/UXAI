@@ -7,8 +7,6 @@ import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 import { tracker } from "@/utils/tracker"
 
-const HISTORY_SKIP_TYPES = ["image", "video", "audio", "pdf", "svg", "text", "local-file"]
-
 /** FNV-1a hash：同步、纯 JS，对短文本足够精确 */
 function fnv1aHash(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
@@ -84,9 +82,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   }
 
   function isEligible(tab: ResultTab): boolean {
-    if (!tab.filePath || HISTORY_SKIP_TYPES.includes(tab.type)) return false
+    if (tab.type !== "html") return false
+    if (!tab.filePath) return false
     // fastui:// 是预览卡片的产物身份,不是磁盘文件(SPEC-DES-004)
-    if (tab.type === "link" || tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
+    if (tab.filePath.startsWith("http") || tab.filePath.startsWith("fastui://")) return false
     return true
   }
 
@@ -97,10 +96,35 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const files = await handler?.onHistoryTrigger?.(event, ctx)
     if (!files || files.length === 0) return
 
-    if (event.type === "open" && event.isNew) {
+    if (event.type === "open") {
+      // init 条件：该文件无任何历史（不要求 tab 首次打开）。
+      // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
+        let newestId = existing[0].id
+        const currentHash = await getTabFileSetHash(tab)
+        if (currentHash) {
+          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
+          const hashes: string[] = []
+          for (const vf of versionFiles) {
+            const h = await getFileHash(vf.filePath)
+            if (h) hashes.push(h)
+          }
+          if (hashes.join("|") !== currentHash) {
+            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+            if (entry) {
+              newestId = entry.id
+              listGeneration++
+              if (callbacks.isActiveTab(tab.id)) {
+                const list = await historyStore.listVersions(tab)
+                callbacks.setVersionList(() => list)
+              } else {
+                callbacks.setVersionList((prev) => [entry, ...prev])
+              }
+            }
+          }
+        }
+        callbacks.setCurrentVersionId(() => newestId)
         return
       }
     }
@@ -202,7 +226,16 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     if (!existingBefore) {
       await trigger(tab, { type: "open", isNew: true }, "init")
     } else if (contentChanged) {
-      await trigger(tab, { type: "agent-update" }, "agent")
+      // 内容变了但该文件无任何历史（首次 init 失败的残留场景）：建 init 作为首次快照，
+      const existing = await historyStore.listVersions(tab)
+      if (existing.length === 0) {
+        await trigger(tab, { type: "open", isNew: false }, "init")
+      } else {
+        await trigger(tab, { type: "agent-update" }, "agent")
+      }
+    } else {
+      // 已有 tab 重开（内容未变）：无历史时补建 init；有历史时 trigger 内部查重跳过
+      await trigger(tab, { type: "open", isNew: false }, "init")
     }
     const hash = await getTabFileSetHash(tab)
     if (hash) {

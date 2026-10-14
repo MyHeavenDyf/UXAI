@@ -22,6 +22,8 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { ArtifactStore } from "@/tracking/store"
+import { observe } from "@/tracking/scripts"
 
 export { Parameters } from "./shell/prompt"
 
@@ -126,6 +128,38 @@ function source(node: Node) {
 
 function commands(node: Node) {
   return node.descendantsOfType("command").filter((child): child is Node => Boolean(child))
+}
+
+// Only literal TXT targets of direct PowerShell content cmdlets. Do not interpret
+// variables, expressions or wildcard expansions as file names. Discovery is
+// best-effort: an unresolved path may belong to a helper or an uncalled function.
+function artifactTargets(node: Node, cwd: string) {
+  const calls = commands(node).map(parts)
+  const moved = calls.some((call) => CWD.has(call[0]?.text.toLowerCase()) || call[0]?.text.toLowerCase() === "sl")
+  const targets = calls
+    .filter((call) => ["set-content", "add-content"].includes(call[0]?.text.toLowerCase()))
+    .map((call) => {
+      if (node.hasError) return
+      const flag = call.findIndex(
+        (item) => item.type === "command_parameter" && ["-path", "-literalpath"].includes(item.text.toLowerCase()),
+      )
+      const raw = flag >= 0 ? call[flag + 1]?.text : call[1]?.type !== "command_parameter" ? call[1]?.text : undefined
+      if (!raw) return
+      const value = /^'(?:[^']|'')*'$/.test(raw)
+        ? raw.slice(1, -1).replaceAll("''", "'")
+        : /^"[^"$`]*"$/.test(raw)
+          ? raw.slice(1, -1)
+          : /^[^\s'"$`@(),;{}\[\]*?]+$/.test(raw)
+            ? raw
+            : undefined
+      if (!value || value.startsWith("~") || /^[a-z]{2,}:/i.test(value)) return
+      if (/^[a-z]:/i.test(value) && !path.win32.isAbsolute(value)) return
+      if (call[flag]?.text.toLowerCase() !== "-literalpath" && /[*?\[\]]/.test(value)) return
+      if (moved && !path.isAbsolute(value)) return
+      // Leave script/HTML intermediates and existing Office delivery declarations alone.
+      return path.extname(value).toLowerCase() === ".txt" ? path.resolve(cwd, value) : null
+    })
+  return targets.filter((file): file is string => typeof file === "string")
 }
 
 function unquote(text: string) {
@@ -571,6 +605,7 @@ export const ShellTool = Tool.define(
         metadata: {
           output: last || preview(output),
           exit: code,
+          ...(ctx.onExecute ? { timedOut: expired, aborted, shell: input.shell } : {}),
           description: input.description,
           truncated: cut,
           ...(cut && file ? { outputPath: file } : {}),
@@ -593,6 +628,18 @@ export const ShellTool = Tool.define(
           parameters: prompt.parameters,
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
+              const tracking = yield* Effect.try({
+                try: () => ArtifactStore.scriptContext(ctx.messageID),
+                catch: (error) => error,
+              }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (tracking && params.artifactFiles === undefined) {
+                throw new Error(
+                  "Insight Shell requires artifactFiles. This command has NOT executed and has NOT changed any files. " +
+                    'Resubmit this unexecuted call with the final files it will create/edit, e.g. artifactFiles: ["123.txt"]. ' +
+                    "For read-only commands or commands with no final deliverables, explicitly use artifactFiles: []. " +
+                    "Never repeat a previously completed write merely to collect tracking data.",
+                )
+              }
               const executeInstance = yield* InstanceState.context
               const cwd = params.workdir
                 ? yield* resolvePath(params.workdir, executeInstance.directory, shell)
@@ -602,18 +649,20 @@ export const ShellTool = Tool.define(
               }
               const timeout = params.timeout ?? DEFAULT_TIMEOUT
               const ps = Shell.ps(shell)
-              yield* Effect.scoped(
+              const inferred = yield* Effect.scoped(
                 Effect.gen(function* () {
                   const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
                     Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, executeInstance)
+                  const targets = tracking && ps ? artifactTargets(tree.rootNode, cwd) : []
                   if (!containsPath(cwd, executeInstance)) scan.dirs.add(cwd)
                   yield* ask(ctx, scan)
+                  return targets
                 }),
               )
 
-              return yield* run(
+              const command = run(
                 {
                   shell,
                   command: params.command,
@@ -624,6 +673,18 @@ export const ShellTool = Tool.define(
                 },
                 ctx,
               )
+              if (!tracking) return yield* command
+              const files = yield* Effect.forEach(params.artifactFiles ?? [], (file) => resolvePath(file, cwd, shell))
+              const result = yield* observe({ ...tracking, files: [...files, ...inferred], abort: ctx.abort }, command)
+              return {
+                ...result,
+                metadata: {
+                  ...result.metadata,
+                  ...(inferred.length
+                    ? { artifactTargetDiscovery: { method: "powershell-content-cmdlet", files: inferred } }
+                    : {}),
+                },
+              }
             }),
         }
       })
