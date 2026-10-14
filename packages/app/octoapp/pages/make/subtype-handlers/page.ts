@@ -1,6 +1,6 @@
 import type { SubtypeHandler } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
-import { defaultModelEditConfig } from './default'
+import defaultHandler, { defaultModelEditConfig } from './default'
 
 function wrapPagePrompt(filePath: string, body: string): string {
   const previewRoot = filePath.replace(/[/\\][^/\\]+$/, '')
@@ -23,6 +23,7 @@ const pageModelEditConfig: ModelEditConfig = {
 }
 
 export default {
+  ...defaultHandler,
   name: 'page',
   modelEditConfig: pageModelEditConfig,
 } satisfies SubtypeHandler
