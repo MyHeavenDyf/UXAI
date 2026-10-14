@@ -84,7 +84,7 @@ OCTO_ARTIFACT_SUCCESS=http-2xx
 
 构建时 Vite 将上述地址写入 Electron 主进程，主进程 fork sidecar 时以 OCTO_REPORT_BASE_URL 注入。已显式设置的运行环境 OCTO_REPORT_BASE_URL 优先；排查时也要检查是否有旧的系统环境变量覆盖。服务端默认 http-2xx；如果真实接口以 `{code:0}` 确认成功，设置 `OCTO_ARTIFACT_SUCCESS=code-0`。
 
-Beta/Prod 构建时会检查地址：缺失、不是 HTTP(S) 绝对地址、或误填 interaction/page 完整接口路径，都会直接报错，避免继续打出错误配置的包。独立服务端运行时缺少地址则保留 pending 事件及诊断。
+Beta/Prod 构建时会检查地址：已配置但不是 HTTP(S) 绝对地址、或误填 interaction/page 完整接口路径，直接报错，避免打出静默发错地址的包；未配置只打印告警、正常出包（外网构建本就没有该地址）。运行时缺少地址则保留 pending 事件及诊断，配上地址的版本启动后补发。
 
 本版不读取 `OCTO_ARTIFACT_TRACKING`、`OCTO_ARTIFACT_DIAGNOSTICS`、`OCTO_ARTIFACT_SCRIPTS`，可以删除这些旧配置。不需要 server 开关，也不会因漏开而继续由前端发送。
 
