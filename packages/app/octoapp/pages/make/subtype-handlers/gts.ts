@@ -2,6 +2,8 @@ import type { SubtypeHandler, SubtypeHandlerContext, LocalEditChange, LocalEditS
 import type { ModelEditConfig, AssetConfig } from '../components/model-edit-items/types'
 import defaultHandler, { defaultModelEditConfig } from './default'
 import { resolveRelativePath } from '../utils/history-store'
+import { collectReferencedFiles } from '../utils/references'
+import { observedUrlsToAbsPaths } from '../utils/resource-tracker'
 import { sendTextToAgent } from '../utils/agent-events'
 import JSZip from 'jszip'
 
@@ -69,27 +71,57 @@ function formatChange(change: LocalEditChange): string {
 }
 
 async function collectGtsProjectFiles(ctx: SubtypeHandlerContext): Promise<{ path: string; content: Uint8Array }[]> {
-  const { tab, getDesktopApi } = ctx
+  const { tab, getDesktopApi, observedUrlsGetter } = ctx
   const api = getDesktopApi()
   if (!api?.readFileBuffer || !tab.filePath) return []
 
-  const dynamic = await discoverDynamicFiles(ctx)
-  const allRels = [...GTS_STATIC_FILES, ...dynamic]
-  const results: { path: string; content: Uint8Array }[] = []
+  const htmlDirNorm = tab.filePath.replace(/[\\/][^\\/]+$/, '').replace(/\\/g, '/')
+  const htmlNorm = tab.filePath.replace(/\\/g, '/')
+  const results = new Map<string, { path: string; content: Uint8Array }>()
 
-  for (const rel of allRels) {
-    const absPath = resolveRelativePath(rel, tab.filePath)
+  const addFile = async (absPath: string, zipPath: string) => {
+    if (results.has(zipPath)) return
     try {
       const buffer = await api.readFileBuffer!(absPath)
-      if (!buffer) continue
-      const zipPath = rel === '.' || rel === './'
-        ? tab.filePath.replace(/[\\/]/g, '/').split('/').pop() ?? 'index.html'
-        : rel.replace(/^\.\//, '')
-      results.push({ path: zipPath, content: new Uint8Array(buffer) })
+      if (buffer) results.set(zipPath, { path: zipPath, content: new Uint8Array(buffer) })
     } catch {}
   }
 
-  return results
+  // 1. 源码文件：固定文件集 + 动态发现
+  const dynamic = await discoverDynamicFiles(ctx)
+  for (const rel of [...GTS_STATIC_FILES, ...dynamic]) {
+    const absPath = resolveRelativePath(rel, tab.filePath)
+    const zipPath = rel === '.' || rel === './'
+      ? htmlNorm.split('/').pop() ?? 'index.html'
+      : rel.replace(/^\.\//, '')
+    await addFile(absPath, zipPath)
+  }
+
+  // 2. HTML 实际引用的资源（递归解析 src/href/url()）
+  const htmlBuf = await api.readFileBuffer(tab.filePath)
+  if (htmlBuf) {
+    const htmlContent = new TextDecoder().decode(htmlBuf)
+    const referenced = await collectReferencedFiles({
+      rootContent: htmlContent,
+      rootType: 'html',
+      rootAbsPath: tab.filePath,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
+
+    // 3. iframe 运行时实际加载的资源
+    const observed = observedUrlsToAbsPaths(observedUrlsGetter?.() || [])
+
+    for (const abs of [...referenced, ...observed]) {
+      const norm = abs.replace(/\\/g, '/')
+      if (norm === htmlNorm) continue
+      const rel = norm.startsWith(htmlDirNorm + '/')
+        ? norm.slice(htmlDirNorm.length + 1)
+        : norm.split('/').pop() ?? ''
+      await addFile(abs, rel)
+    }
+  }
+
+  return Array.from(results.values())
 }
 
 const gtsModelEditConfig: ModelEditConfig = {
