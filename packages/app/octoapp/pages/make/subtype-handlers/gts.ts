@@ -1,8 +1,9 @@
-import type { SubtypeHandler, SubtypeHandlerContext } from './types'
-import type { ModelEditConfig, IconConfig, IconConfirmArgs } from '../components/model-edit-items/types'
+import type { SubtypeHandler, SubtypeHandlerContext, LocalEditChange, LocalEditSavePayload } from './types'
+import type { ModelEditConfig, AssetConfig } from '../components/model-edit-items/types'
 import defaultHandler, { defaultModelEditConfig } from './default'
 import { resolveRelativePath } from '../utils/history-store'
-import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
+import { sendTextToAgent } from '../utils/agent-events'
+import JSZip from 'jszip'
 
 /** 固定文件集（不随产物变化），相对 tab.filePath 所在目录。 */
 const GTS_STATIC_FILES = [
@@ -46,94 +47,107 @@ async function discoverDynamicFiles(ctx: SubtypeHandlerContext): Promise<string[
     .map(p => './' + p)
 }
 
-export const gtsIconConfig: IconConfig = {
-  getCustomIconDir: ({ sessionDir, filePath }) => {
-    if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
-    return `${sessionDir}/.octo/${sessionDir}/assets`
-  },
-  getInitialState: (dom) => ({
-    name: dom.attributes['data-icon-name'] || '',
-    id: dom.attributes['data-icon-id'] || '',
-    isCustom: dom.attributes['data-icon-custom'] === 'true',
-    size: dom.attributes['data-icon-size'] || '24',
-    style: dom.attributes['data-icon-style'] || 'outline',
-    color: dom.attributes['data-icon-color'] || '#191919',
-    src: dom.attributes['data-icon-src'] || undefined,
-  }),
-  data: {
-    styles: [
-      { key: '线性', label: '线性', value: 'outline' },
-      { key: '线性双色', label: '线性双色', value: 'two-tone' },
-      { key: '方底托', label: '方底托', value: 'square' },
-      { key: '圆底托', label: '圆底托', value: 'circle' },
-    ],
-    colors: iconColors,
-    sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
-    acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
-  },
-  onConfirm: async ({ current, dom, filePath, writeFileBuffer, sessionDir }: IconConfirmArgs) => {
-    let iconSrc = current.src ?? ''
-    let iconFullPath = ''
+function quote(value: string): string {
+  return value ? `"${value}"` : '(空)'
+}
 
-    if (current.svgContent && writeFileBuffer && sessionDir) {
-      const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/${sessionDir}/assets`
-      const safeName = (current.name ?? 'icon').replace(/[\\/:*?"<>|]/g, '_')
-      const iconPath = `${iconDir}/icon_${safeName}.svg`
-      try {
-        await writeFileBuffer(iconPath, new TextEncoder().encode(current.svgContent).buffer as ArrayBuffer)
-      } catch (e) {
-        console.error('[icon] write SVG failed', iconPath, e)
-      }
-      iconSrc = `uploads/icons/icon_${safeName}.svg`
-      iconFullPath = iconPath
-    } else if (current.src) {
-      iconSrc = current.src
-      iconFullPath = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/${current.src}` : current.src
-    }
+function formatChange(change: LocalEditChange): string {
+  switch (change.kind) {
+    case 'text':
+      return `修改文本：${quote(change.before)} → ${quote(change.after)}`
+    case 'href':
+      return `修改链接地址：${change.before || '(空)'} → ${change.after || '(空)'}`
+    case 'styles':
+      return change.changes
+        .map((s) => `修改样式 ${s.prop}：${s.before || '(未设置)'} → ${s.after || '(清除)'}`)
+        .join('\n')
+    case 'remove-element':
+      return '删除该元素'
+    case 'image':
+      return `修改图片：src → ${change.src}${change.alt ? `，alt → ${change.alt}` : ''}`
+  }
+}
 
-    const attrs = [
-      `data-icon-name="${current.name ?? ''}"`,
-      `data-icon-id="${current.id ?? ''}"`,
-      `data-icon-custom="${current.isCustom ? 'true' : 'false'}"`,
-      `data-icon-src="${iconSrc}"`,
-      `data-icon-size="${current.size ?? ''}"`,
-      `data-icon-style="${current.style ?? ''}"`,
-      `data-icon-color="${current.color ?? ''}"`,
-    ].join(' ')
+async function collectGtsProjectFiles(ctx: SubtypeHandlerContext): Promise<{ path: string; content: Uint8Array }[]> {
+  const { tab, getDesktopApi } = ctx
+  const api = getDesktopApi()
+  if (!api?.readFileBuffer || !tab.filePath) return []
 
-    const lines: string[] = []
-    lines.push(`[文件路径: ${filePath}]`)
-    lines.push('')
-    lines.push('请修改以下元素的图标:')
-    lines.push(`标签: <${dom.tagName}>`)
-    if (dom.className) lines.push(`类名: ${dom.className}`)
-    lines.push(`选择器: ${dom.selector}（该元素可能是动态生成的）`)
-    lines.push(`当前HTML: ${dom.htmlHint}`)
-    lines.push('')
-    lines.push('图标信息:')
-    lines.push(`  名称: ${current.name}`)
-    if (current.id) lines.push(`  ID: ${current.id}`)
-    lines.push(`  文件路径: ${iconFullPath}`)
-    lines.push(`  尺寸: ${current.size}`)
-    lines.push(`  颜色: ${current.color}`)
-    lines.push(`  形状: ${current.style}`)
-    lines.push('')
-    lines.push('请在对应元素上设置以下属性：')
-    lines.push(`  ${attrs}`)
+  const dynamic = await discoverDynamicFiles(ctx)
+  const allRels = [...GTS_STATIC_FILES, ...dynamic]
+  const results: { path: string; content: Uint8Array }[] = []
 
-    return lines.join('\n')
-  },
+  for (const rel of allRels) {
+    const absPath = resolveRelativePath(rel, tab.filePath)
+    try {
+      const buffer = await api.readFileBuffer!(absPath)
+      if (!buffer) continue
+      const zipPath = rel === '.' || rel === './'
+        ? tab.filePath.replace(/[\\/]/g, '/').split('/').pop() ?? 'index.html'
+        : rel.replace(/^\.\//, '')
+      results.push({ path: zipPath, content: new Uint8Array(buffer) })
+    } catch {}
+  }
+
+  return results
 }
 
 const gtsModelEditConfig: ModelEditConfig = {
   ...defaultModelEditConfig,
-  iconConfig: gtsIconConfig,
+  assetConfig: {
+    showConfig: () => true,
+    getInitialState: () => ({ name: '未选择' }),
+    onConfirm: ({ dom, filePath, folderpath }) => {
+      return [
+        `[文件: ${filePath}]`,
+        `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
+        `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
+      ].join('\n')
+    },
+  } satisfies AssetConfig,
 }
 
 const gtsHandler: SubtypeHandler = {
   ...defaultHandler,
   name: 'gts',
   modelEditConfig: gtsModelEditConfig,
+
+  async handleLocalEditSave(ctx) {
+    const { tab, edit, showOctoToast } = ctx
+    const target = edit.target
+    const filePath = tab.filePath || tab.absoluteFilePath
+
+    const lines: string[] = []
+    lines.push(`请修改文件「${tab.title}」${filePath ? `（${filePath}）` : ''}。`)
+    lines.push('这是一个 GTS 项目，需要修改对应的 Vue 文件（src/views/ 下的 index.vue 等）。')
+    lines.push('')
+    lines.push('页面中渲染出的目标元素 DOM 信息：')
+    lines.push(`- 选择器：${target.selector || '(未知)'}`)
+    lines.push(`- 标签：<${target.tagName}>`)
+    if (target.className) lines.push(`- 类名：${target.className}`)
+    if (target.text) lines.push(`- 当前文本：${target.text}`)
+    lines.push(`- 位置与尺寸（bounding box）：x=${target.rect.x} y=${target.rect.y} w=${target.rect.width} h=${target.rect.height}`)
+    if (target.htmlHint) lines.push(`- 元素片段：${target.htmlHint}`)
+    const attrKeys = Object.keys(target.attributes || {})
+    if (attrKeys.length > 0) {
+      lines.push(`- 属性：${attrKeys.map((k) => `${k}="${target.attributes[k]}"`).join(' ')}`)
+    }
+    lines.push('')
+    lines.push('需要做的变更：')
+    for (const change of edit.changes) {
+      lines.push(formatChange(change))
+    }
+    lines.push('')
+    lines.push('请根据上述 DOM 信息找到对应的 Vue 文件并修改，修改后预览页面会自动刷新。')
+
+    const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
+    if (result.ok) {
+      showOctoToast({ title: '已提交修改请求' })
+    } else {
+      showOctoToast({ title: '提交失败', description: result.message ?? '请重试' })
+    }
+    return result.ok
+  },
 
   /** 历史记录入口 1：决定每次记录哪些文件。
    *  固定文件 + 动态发现的产物特定文件。
@@ -163,6 +177,54 @@ const gtsHandler: SubtypeHandler = {
         await api.copyFileTo(f.filePath, f.originalPath)
       } catch {}
     }
+  },
+
+  async handleDownload(ctx) {
+    const { tab, showOctoToast, getDesktopApi } = ctx
+    const api = getDesktopApi()
+    if (!tab.filePath) {
+      showOctoToast({ title: "无法获取文件路径" })
+      return true
+    }
+
+    const files = await collectGtsProjectFiles(ctx)
+    if (files.length === 0) {
+      showOctoToast({ title: "暂无可下载的文件" })
+      return true
+    }
+
+    const zip = new JSZip()
+    for (const f of files) {
+      zip.file(f.path, f.content)
+    }
+    const zipBlob = await zip.generateAsync({ type: "blob" })
+    const zipName = `${tab.title.replace(/\.html?$/i, '')}.zip`
+
+    if (api?.saveFilePicker && api?.writeFileBuffer) {
+      const chosen = await api.saveFilePicker({ defaultPath: zipName })
+      if (!chosen) return true
+      const buffer = await zipBlob.arrayBuffer()
+      await api.writeFileBuffer(chosen, buffer)
+      showOctoToast({ title: "已下载" })
+      return true
+    }
+
+    const url = URL.createObjectURL(zipBlob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = zipName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    showOctoToast({ title: "已下载" })
+    return true
+  },
+
+  async buildArchiveSrc(ctx) {
+    const files = await collectGtsProjectFiles(ctx)
+    if (files.length === 0) return null
+    return { files }
   },
 }
 
