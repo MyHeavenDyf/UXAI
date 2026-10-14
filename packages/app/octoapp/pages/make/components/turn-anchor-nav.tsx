@@ -26,6 +26,7 @@ export function TurnAnchorNav(props: {
   let rafId: number | undefined
 
   let pendingClick: PendingClick | undefined
+  let stickyClick: string | undefined
 
   const partStore = data.store.part as Record<string, AnchorPart[]>
 
@@ -54,26 +55,37 @@ export function TurnAnchorNav(props: {
       if (!settled && !expired) return
       if (settled) {
         setState("activeId", pendingClick.id)
+        stickyClick = pendingClick.id
         pendingClick = undefined
         scrollRailToActive()
         return
       }
       pendingClick = undefined
     }
+    if (stickyClick) {
+      const el = content.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(stickyClick)}"]`)
+      const vpRect = vp.getBoundingClientRect()
+      if (el) {
+        const r = el.getBoundingClientRect()
+        if (r.top < vpRect.bottom && r.bottom > vpRect.top) {
+          if (state.activeId !== stickyClick) {
+            setState("activeId", stickyClick)
+            scrollRailToActive()
+          }
+          return
+        }
+      }
+      stickyClick = undefined
+    }
     const els = turnEls(content)
     if (els.length === 0) return
     const vpTop = vp.getBoundingClientRect().top
-    const atBottom = vp.scrollTop + vp.clientHeight >= vp.scrollHeight - 2
     let current = ""
-    if (atBottom) {
-      current = els[els.length - 1].dataset.turnId ?? ""
-    } else {
-      for (const el of els) {
-        if (el.getBoundingClientRect().top - vpTop <= SPY_TOP_THRESHOLD) current = el.dataset.turnId ?? ""
-        else break
-      }
-      if (!current) current = els[0].dataset.turnId ?? ""
+    for (const el of els) {
+      if (el.getBoundingClientRect().top - vpTop <= SPY_TOP_THRESHOLD) current = el.dataset.turnId ?? ""
+      else break
     }
+    if (!current) current = els[0].dataset.turnId ?? ""
     if (current && current !== state.activeId) {
       setState("activeId", current)
       scrollRailToActive()
@@ -108,6 +120,7 @@ export function TurnAnchorNav(props: {
         setState("activeId", "")
         setState("tip", null)
         pendingClick = undefined
+        stickyClick = undefined
         updateActive()
       },
     ),
@@ -123,6 +136,7 @@ export function TurnAnchorNav(props: {
     const content = props.content()
     setState("activeId", msg.id)
     setState("tip", null)
+    stickyClick = undefined
     const el = content?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(msg.id)}"]`)
     if (!vp || !content || !el) return
     const target = el.getBoundingClientRect().top - vp.getBoundingClientRect().top + vp.scrollTop
@@ -150,7 +164,7 @@ export function TurnAnchorNav(props: {
   }
 
   return (
-    <Show when={props.messages.length >= 2}>
+    <Show when={props.messages.length >= 3}>
       <div class="octo-turn-anchor-nav" ref={navRef}>
         <div class="octo-turn-anchor-list" ref={railRef}>
           <For each={props.messages}>
