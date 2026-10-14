@@ -4,7 +4,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useGlobalSync } from "./global-sync"
 import { useGlobalSDK } from "./global-sdk"
-import { useServer } from "./server"
+import { useServer, type WorkspaceKind } from "./server"
 import { usePlatform } from "./platform"
 import { Project } from "@opencode-ai/sdk/v2"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
@@ -63,7 +63,7 @@ type LastSessionPerTab = {
 
 type SidebarSource = "cowork" | "make" | "pattern" | "insight"
 
-export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
+export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean; kind?: WorkspaceKind }
 
 export type ReviewDiffStyle = "unified" | "split"
 
@@ -644,11 +644,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       projects: {
         list,
-        open(directory: string) {
+        open(directory: string, kind?: WorkspaceKind) {
           const root = rootFor(directory)
           if (server.projects.list().find((x) => x.worktree === root)) return
           void globalSync.project.loadSessions(root)
-          server.projects.open(root)
+          // kind 只在所选目录即 root 时传递;归并到别的 root 时不生效
+          server.projects.open(root, directory === root ? kind : undefined)
         },
         close(directory: string) {
           server.projects.close(directory)

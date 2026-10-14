@@ -6,7 +6,9 @@ import { useCheckServerHealth } from "@/utils/server-health"
 import { isValidUserPath } from "@/utils/path-valid"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
-type StoredProject = { worktree: string; expanded: boolean }
+// workspace 分类标记(纯 UI 展示,不影响 agent 行为)。旧数据无 kind 视为 normal。
+export type WorkspaceKind = "normal" | "code"
+type StoredProject = { worktree: string; expanded: boolean; kind?: WorkspaceKind }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
 
@@ -259,12 +261,13 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       remove,
       projects: {
         list: projectsList,
-        open(directory: string) {
+        open(directory: string, kind?: WorkspaceKind) {
           const key = origin()
           if (!key) return
           const current = store.projects[key] ?? []
+          // 已存在的工作区分类定死,重复选择不改 kind
           if (current.find((x) => x.worktree === directory)) return
-          setStore("projects", key, [{ worktree: directory, expanded: true }, ...current])
+          setStore("projects", key, [{ worktree: directory, expanded: true, kind }, ...current])
         },
         close(directory: string) {
           const key = origin()

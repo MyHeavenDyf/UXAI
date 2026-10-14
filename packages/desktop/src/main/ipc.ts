@@ -112,6 +112,17 @@ function sanitizeUploadsSubPath(rawPath: string): string {
   return normalized
 }
 
+// 代码工作区统一文件树的目标目录清洗:relDir 是项目相对目录,**空串合法 (= 项目根)**,
+// 含 .. / ~ 返回 null(拒绝)——与"空串=根"区分,调用方必须响亮报错而不是静默落到根。
+// 渲染端不是安全边界,主进程必须独立校验。
+function sanitizeProjectRelDir(rawPath: string): string | null {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~")) {
+    return null
+  }
+  return normalized
+}
+
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
 // sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
 // uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
@@ -560,6 +571,89 @@ export function registerIpcHandlers(deps: Deps) {
           srcPath,
           dest,
           sessionId,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // 代码类型工作区(统一文件树)的上传落点:把源文件直接拷进 <baseDir>/<relDir>/ (项目相对目录,
+  // 空串 = 项目根)。relDir 由 design-files 面板传入当前导航文件夹。与 copy-file-to-session-uploads
+  // 同一套 landingName/collisionFreePath 规则;relDir 含 .. / ~ 时响亮报错(SPEC-INS-026 §4.1)。
+  ipcMain.handle(
+    "copy-file-to-project-dir",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      relDir: string,
+      filename: string,
+    ) => {
+      const cleanDir = sanitizeProjectRelDir(relDir)
+      if (cleanDir === null) {
+        const reason = `LANDING_DIR_REJECTED: ${relDir}`
+        log.error("[octo:worktree] upload-dir-rejected", { srcPath, relDir })
+        throw new Error(reason)
+      }
+      const targetDir = cleanDir ? join(baseDir, cleanDir) : baseDir
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-project ok", { srcPath, dest, relDir: cleanDir })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-project failed", {
+          srcPath,
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // copy-file-to-project-dir 的字节版:渲染进程内存 blob(粘贴/选择的 File 对象,无源路径)直接写进
+  // <baseDir>/<relDir>/,规则与 write-file-to-worktree 同一套,落点为代码工作区统一文件树。
+  // 调用方:Make 页图片附件(doImageImport 代码工作区分支,relDir="" 落项目根)。
+  ipcMain.handle(
+    "write-file-to-project-dir",
+    async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => {
+      const cleanDir = sanitizeProjectRelDir(relDir)
+      if (cleanDir === null) {
+        const reason = `LANDING_DIR_REJECTED: ${relDir}`
+        log.error("[octo:worktree] upload-dir-rejected", { relDir })
+        throw new Error(reason)
+      }
+      const targetDir = cleanDir ? join(baseDir, cleanDir) : baseDir
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await writeFile(dest, Buffer.from(buffer))
+        console.log("[octo:worktree] upload-write-to-project ok", { dest, relDir: cleanDir, bytes: buffer.byteLength })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-write-to-project failed", {
+          dest,
           reason: err instanceof Error ? err.message : String(err),
         })
         throw err
@@ -1522,6 +1616,10 @@ export function registerIpcHandlers(deps: Deps) {
     let hint = ""
     if (!strict.ok && insecure.ok) {
       hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    } else if (!explicit.ok && /Could not resolve|ENOTFOUND/.test(explicit.output)) {
+      // 代理域名(*.huawei.com)仅华为内网 DNS 可解析，公网 DNS(阿里/腾讯/谷歌)一律 NXDOMAIN(已实测)，
+      // DNS 失败与账号密码/节点选择无关，只说明机器不在内网环境
+      hint = "；提示: 代理域名 DNS 解析失败 — 代理域名仅华为内网 DNS 可解析，请连接公司 VPN 或确认在办公网内(与账号密码无关)"
     } else if (!explicit.ok) {
       hint = "；提示: 直接指定代理仍失败 — 代理节点不可达或认证失败，请检查账号密码及是否在华为内网(VPN)"
     } else if (explicit.ok && !strict.ok && !insecure.ok) {

@@ -247,6 +247,7 @@ net-diag 判读（实现见 `packages/opencode/src/util/network.ts` `networkDiag
    - Node fetch 失败只透出顶层 `fetch failed`，cause 链（ECONNREFUSED/CONNECT_TIMEOUT/隧道错误）未展开——webfetch.ts 早有 `describeRequestError`，ipc.ts 未复用。
    
    **修复**（`ipc.ts`）：①curl 探针改 `execFileSync` 参数数组（顺带消除 shell 拼接），失败时从 `err.stderr` 提取首个非空行（含错误码），输出前脱敏 `//user:pass@`；②新增显式代理探针 `curl -k --noproxy "" --proxy <url>`（绕过 env/no_proxy），三分支判读——严格失败+`-k` 成功 = MITM（原逻辑）；显式代理仍失败 = 代理不可达/认证失败；显式成功+env 双探针失败 = NO_PROXY 把目标绕过代理；③catch 中 `describeFetchError(err)` 展开 cause 链（与 webfetch 同格式 ` <- ` 连接）。实测（`_diag_proxy_stderr_test.cjs`，已删）：DNS 失败 → `curl: (5) Could not resolve proxy: ...`；连接被拒 → `curl: (7) Failed to connect ... via <代理IP>`，均一眼可判。附带发现：主进程 `ipc.ts` 顶部有 `NODE_TLS_REJECT_UNAUTHORIZED = "0"`，主进程 fetch 本就不校验证书，MITM 场景下主进程验证反而可能通过（证书问题在 sidecar webfetch 才暴露），诊断时注意。
+   - **后续定案**（同日，用户复现报错）：新诊断显示 `fetch failed <- Error [ENOTFOUND] proxyus.huawei.com` + 三探针全部 `curl: (5) Could not resolve proxy` → DNS 解析失败。批量实测（`_dns_proxy_test.cjs`，已删）：**22 个代理节点域名在系统 DNS 及阿里 223.5.5.5 / 腾讯 119.29.29.29 / 谷歌 8.8.8.8 公共 DNS 上全部 NXDOMAIN**——代理域名仅华为内网 DNS 有记录，公网一律不解析。结论：①不存在"不同节点需要不同 DNS"，全部节点共用华为内网 DNS，机器在内网/VPN 则全可解析、不在则全失败；②终端用户 ENOTFOUND 的含义就是**不在华为内网（或 VPN 的 DNS 未生效）**，与账号密码/证书/节点选择均无关。已据此在 hint 中新增 DNS 专门分支：curl 输出含 `Could not resolve`/`ENOTFOUND` 时提示"仅华为内网 DNS 可解析，请连接公司 VPN"，不再笼统提示检查账号密码。
 
 ## 11. 演进时间线
 
