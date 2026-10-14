@@ -1258,8 +1258,6 @@ export type Config = {
   compaction?: {
     auto?: boolean
     prune?: boolean
-    tail_turns?: number
-    preserve_recent_tokens?: number
     reserved?: number
   }
   experimental?: {
