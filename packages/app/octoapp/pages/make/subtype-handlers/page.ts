@@ -1,6 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
-import { defaultModelEditConfig, DownloadCancelledError } from './default'
+import defaultHandler, { defaultModelEditConfig, DownloadCancelledError } from './default'
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
@@ -67,6 +67,7 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
 let downloading = false
 
 const pageHandler: SubtypeHandler = {
+  ...defaultHandler,
   name: 'page',
   modelEditConfig: pageModelEditConfig,
 
