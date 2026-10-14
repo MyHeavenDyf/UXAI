@@ -8,6 +8,7 @@ import componentsHandler from "../subtype-handlers/components"
 import urlHandler from "../subtype-handlers/url"
 import gtsHandler from "../subtype-handlers/gts"
 import fastuiHandler from "../subtype-handlers/fastui"
+import pageHandler from "../subtype-handlers/page"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -30,3 +31,4 @@ registerSubtypeHandler(componentsHandler)
 registerSubtypeHandler(urlHandler)
 registerSubtypeHandler(gtsHandler)
 registerSubtypeHandler(fastuiHandler)
+registerSubtypeHandler(pageHandler)

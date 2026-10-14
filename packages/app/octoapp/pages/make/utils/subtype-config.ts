@@ -131,6 +131,26 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
   },
 
+  page: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+    },
+  },
+
   _default: {
     features: {
       refresh: true,
