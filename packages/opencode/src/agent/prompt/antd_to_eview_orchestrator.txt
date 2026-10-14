@@ -17,12 +17,7 @@
   check-i18n-keys.cjs 验证。
 
 阶段3 — 图标替换专项：
-  grep `<Icon\b` 定位全部调用点；跑 match-icons.cjs --apply 自动改写
-  confirmed；residual（fuzzy/UNMATCHED/三元/数据数组）按语义+token 重叠
-  搜 icon-plus-names.json catalog 手动选取替换；.js 引入 JSX 时自动转
-  .jsx；仅真运行时数据（函数参数传入的 icon prop、OBJ[runtimeKey] 计算
-  属性访问）保留方案A shim 兜底。脚本与 catalog 路径从 skill 工具加载
-  antd-to-eview-react 获取。
+grep `<Icon\b` 定位全部调用点；当前在内网环境，优先采用图标方案B。
 
 编排要点：
 - 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
@@ -30,6 +25,6 @@
   用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
 - 阶段3 要预告 2 处 shim 保留属预期（PanelCard 的 icon prop 跨不了组件
   边界、FILE_KIND_ICON[runtimeKey] 是运行时访问），不是遗漏
-- @nce 是内网依赖，外网 npm install 必然 SKIP，预期不判 FAIL
+- @nce 是内网依赖，当前处在内网环境，npm install 应当能通过
 
 每阶段完成后向我报告状态、改了哪些文件、遗留问题。
