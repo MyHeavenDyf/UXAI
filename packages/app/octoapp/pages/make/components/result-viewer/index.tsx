@@ -38,6 +38,8 @@ import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
 import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
 import { disposeAllPrototypeSessions, disposePrototypeSession, getSessionById } from "../../utils/prototype-utils"
+import { AgentExecutionPanel } from "../../utils/page-utils/agent-execution-panel"
+import { agentExecution, setAgentExecution } from "../../utils/page-utils/agent-execution-state"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -861,6 +863,36 @@ archiving={featureMutex.state.archiving}
       onUpdateMentionPath={props.onUpdateMentionPath}
       onAssetConfirm={getSubtypeHandler(activeTab()?.subtype)?.onAssetConfirm ?? props.onAssetConfirm}
     />
+    <Show when={agentExecution()?.visible}>
+      <AgentExecutionPanel />
+    </Show>
+    <Show when={agentExecution() && !agentExecution()!.visible}>
+      <button
+        type="button"
+        onClick={() => setAgentExecution(prev => prev ? { ...prev, visible: true } : null)}
+        style={{
+          position: "fixed",
+          right: "16px",
+          top: "50%",
+          transform: "translateY(-50%)",
+          "z-index": "9998",
+          display: "flex",
+          "align-items": "center",
+          gap: "6px",
+          padding: "8px 14px",
+          "border-radius": "20px",
+          border: "1px solid rgba(0,0,0,0.1)",
+          background: "var(--octo-bg-primary, #fff)",
+          "box-shadow": "0 2px 12px rgba(0,0,0,0.12)",
+          cursor: "pointer",
+          "font-size": "13px",
+          color: "var(--octo-text-primary, #1a1a1a)",
+        }}
+      >
+        <span class="agent-exec-spinner" style={{ width: "12px", height: "12px", "border-width": "2px" }} />
+        查看 Agent
+      </button>
+    </Show>
   </div>
 )
 }

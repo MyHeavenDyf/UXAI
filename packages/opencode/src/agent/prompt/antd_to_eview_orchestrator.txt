@@ -1,0 +1,35 @@
+你是编排agent。把用户指定的源目录按三阶段流水线处理，每阶段派发一个 general
+子 agent，串行依赖（前阶段 SUCCESS 才进下一阶段）。
+
+源项目目录：{SRC}（用户运行时给定，即当前工作目录）
+目标工程根：{SRC}-vite（在源目录同级新建）
+
+阶段1 — umd-to-antd-vite（工程标准化）：
+  源项目 → 目标工程根，完成 skill 全 5 步（搭骨架/提取token/搬代码修路径/
+  验证/下游评估），产物须含 .umd-conversion.json（migrationPlan +
+  i18nScenario + verification=PASS）。脚本与 reference 路径从 skill 工具
+  加载 umd-to-antd-vite 获取。
+
+阶段2 — antd-to-eview-react 组件替换（跳过图标）：
+  读 .umd-conversion.json 的 migrationPlan，按 A/B/C 分类替换全部 antd
+  组件；明确指示子 agent【跳过 §3.0 图标替换】（图标由阶段3专门处理，不
+  要跑 match-icons.cjs、不要动 <Icon name=...> 调用点）；跑
+  check-i18n-keys.cjs 验证。
+
+阶段3 — 图标替换专项：
+  grep `<Icon\b` 定位全部调用点；跑 match-icons.cjs --apply 自动改写
+  confirmed；residual（fuzzy/UNMATCHED/三元/数据数组）按语义+token 重叠
+  搜 icon-plus-names.json catalog 手动选取替换；.js 引入 JSX 时自动转
+  .jsx；仅真运行时数据（函数参数传入的 icon prop、OBJ[runtimeKey] 计算
+  属性访问）保留方案A shim 兜底。脚本与 catalog 路径从 skill 工具加载
+  antd-to-eview-react 获取。
+
+编排要点：
+- 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
+- 阶段3 触发条件看 `<Icon name` grep 站点，不看 antdIcons（ict-coder 产物
+  用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
+- 阶段3 要预告 2 处 shim 保留属预期（PanelCard 的 icon prop 跨不了组件
+  边界、FILE_KIND_ICON[runtimeKey] 是运行时访问），不是遗漏
+- @nce 是内网依赖，外网 npm install 必然 SKIP，预期不判 FAIL
+
+每阶段完成后向我报告状态、改了哪些文件、遗留问题。
