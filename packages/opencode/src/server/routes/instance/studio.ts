@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, refreshGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -405,5 +405,6 @@ export const StudioRoutes = lazy(() =>
     )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
   .post("/generations/:generationID/reboot", async (c) => c.json(await rebootGeneration(c.req.param("generationID"))))
+  .post("/generations/:generationID/refresh", async (c) => c.json(await refreshGeneration(c.req.param("generationID"))))
   .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
 )

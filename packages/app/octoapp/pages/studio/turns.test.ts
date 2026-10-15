@@ -12,6 +12,8 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("failed", "queued")).toBe(true)
     expect(isStudioGenerationStatusRegression("succeeded", "running")).toBe(true)
     expect(isStudioGenerationStatusRegression("succeeded", "queued")).toBe(true)
+    expect(isStudioGenerationStatusRegression("abnormal", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("abnormal", "queued")).toBe(true)
   })
 
   test("allows active progress and terminal transitions", () => {
@@ -37,6 +39,14 @@ describe("Studio result-card status", () => {
       busy: false,
       toolRunning: false,
     })).toBe("failed")
+  })
+
+  test("keeps an abnormal generation distinct from a real provider failure", () => {
+    expect(studioResultCardStatus({
+      result: { status: "abnormal", images: [], error: "供应商原始错误不应展示" },
+      busy: false,
+      toolRunning: false,
+    })).toBe("abnormal")
   })
 })
 
@@ -168,7 +178,7 @@ const erroredToolPart = (
   messageID: string,
   capability: "image.generate" | "video.generate",
   error = "用户取消生成",
-  status: "create_failed" | "failed" = "failed",
+  status: "create_failed" | "failed" | "abnormal" = "failed",
   input: Record<string, unknown> = {},
 ) =>
   ({
@@ -530,6 +540,28 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("failed")
     expect(turns[0].result?.capability).toBe("image.generate")
     expect(turns[0].result?.error).toBe("生成失败")
+  })
+
+  test("restores timeout exceptions with the fixed abnormal copy", () => {
+    const user = userMessage("msg_abnormal_user")
+    const assistant = assistantMessage("msg_abnormal_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_abnormal_text", user.id, "生成一张海报")],
+        [assistant.id]: [erroredToolPart(
+          "p_abnormal_tool",
+          assistant.id,
+          "image.generate",
+          "生成耗时较长，状态异常，请刷新状态",
+          "abnormal",
+        )],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("图片状态异常")
+    expect(turns[0].result?.status).toBe("abnormal")
+    expect(turns[0].result?.error).toBe("生成耗时较长，状态异常，请刷新状态")
   })
 
   test("uses display prompt for regenerated turns while keeping the effective generation prompt", () => {

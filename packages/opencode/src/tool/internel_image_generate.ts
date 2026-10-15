@@ -16,6 +16,7 @@ import * as Log from "@opencode-ai/core/util/log"
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_QUERY_TIMEOUT_MS = 30_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
 const DEFAULT_REBOOT_TIMEOUT_MS = 30_000
 
@@ -822,12 +823,18 @@ async function queryTask(
   taskId: string,
 ): Promise<QueryTaskResponse> {
   const queryUrl = `${queryTaskBaseUrl}?task_id=${encodeURIComponent(taskId)}`
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMsFor("IMAGE_QUERY_TIMEOUT_MS", DEFAULT_QUERY_TIMEOUT_MS),
+  )
   const response = await fetch(queryUrl, {
     method: "GET",
     headers: {
       accept: "application/json, text/plain, */*",
       ...internalImageHeaders({ contentType: false }),
     },
+    signal: controller.signal,
   }).catch((error) => {
     throw new Error(
       [
@@ -836,7 +843,7 @@ async function queryTask(
         `error=${describeError(error)}`,
       ].join("\n"),
     )
-  })
+  }).finally(() => clearTimeout(timeout))
   const text = await response.text()
 
   if (!response.ok) {
