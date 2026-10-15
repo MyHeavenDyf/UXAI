@@ -205,7 +205,9 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
   const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
   const output = path.resolve(
-    input.output.toLowerCase().endsWith(".octosession") ? input.output : `${input.output}.octosession`,
+    input.output.toLowerCase().endsWith(".zip")
+      ? input.output
+      : `${input.output.replace(/\.octosession$/i, "")}.zip`,
   )
   yield* Effect.promise(() => Filesystem.write(output, archive))
   return {

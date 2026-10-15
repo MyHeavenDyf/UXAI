@@ -99,7 +99,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     const output = await platform
       .saveFilePickerDialog({
         title: language.t("session.portable.export.picker"),
-        defaultPath: `${name || "session"}.octosession`,
+        defaultPath: `${name || "session"}.zip`,
       })
       .catch((cause) => {
         portableError(cause)
@@ -132,7 +132,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     const selected = await platform
       .openFilePickerDialog({
         title: language.t("session.portable.import.picker"),
-        extensions: ["octosession"],
+        extensions: ["zip", "octosession"],
         accept: ["application/zip", "application/octet-stream"],
       })
       .catch((cause) => {

@@ -77,7 +77,8 @@ describe("portable session", () => {
     async () => {
       await using source = await tmpdir({ git: true })
       await using target = await tmpdir({ git: true })
-      const archive = path.join(source.path, "complete-session.octosession")
+      const exportTarget = path.join(source.path, "complete-session")
+      const archive = `${exportTarget}.zip`
 
       const original = await provideTestInstance({
         directory: source.path,
@@ -136,13 +137,14 @@ describe("portable session", () => {
               summary: { additions: 0, deletions: 0, files: 0 },
             }),
           )
-          const exported = await AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: archive }))
+          const exported = await AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: exportTarget }))
           return { root, child, messageID, exported }
         },
       })
 
       expect(original.exported.sessions).toBe(2)
       expect(original.exported.files).toBe(5)
+      expect(original.exported.output).toBe(archive)
       expect(await isPortableSessionFile(archive)).toBe(true)
 
       const imported = await provideTestInstance({
