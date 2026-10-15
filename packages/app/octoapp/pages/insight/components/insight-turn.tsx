@@ -646,7 +646,7 @@ export function InsightTurn(props: {
 
       {/* 内网知识库引用列表(SPEC-INS-030):行内 [[n]](url) 由上游 Markdown 渲染,这里补底部来源清单 */}
       <Show when={kbSources().length > 0}>
-        <KnowledgeReferences sources={kbSources()} />
+        <KnowledgeReferences sources={kbSources()} sessionId={props.sessionID} />
       </Show>
 
       {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)
@@ -658,7 +658,10 @@ export function InsightTurn(props: {
           <OutputEntryCard
             card={card}
             onClick={() => props.onOpenResult(card)}
-            onRetry={() => retryMaterialize(card)}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: card.type, source: "materialize" }) })
+              retryMaterialize(card)
+            }}
           />
         )}
       </For>
