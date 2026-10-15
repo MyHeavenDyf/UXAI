@@ -22,9 +22,13 @@ export default defineConfig(({ mode, command }) => {
     return "dev"
   })()
   const reportBase = (env.VITE_OCTO_REPORT_BASE_URL ?? "").trim()
+  // 未配置只告警不拦截:外网构建本就没有该地址;服务端缺地址时事件保留 pending,配上地址的版本启动后补发。
+  // 已配置则校验格式——误填完整接口路径是合法 URL,运行时不报错,只会静默发错地址,必须在构建期拦住。
   if (command === "build" && (channel === "beta" || channel === "prod")) {
-    if (!URL.canParse(reportBase) || !["http:", "https:"].includes(new URL(reportBase).protocol)) {
-      throw new Error(`[artifact] .env.${mode} 必须配置有效的 VITE_OCTO_REPORT_BASE_URL 服务根地址`)
+    if (!reportBase) {
+      console.warn(`[artifact] .env.${mode} 未配置 VITE_OCTO_REPORT_BASE_URL，产物打点将暂存本地、不会上报`)
+    } else if (!URL.canParse(reportBase) || !["http:", "https:"].includes(new URL(reportBase).protocol)) {
+      throw new Error(`[artifact] VITE_OCTO_REPORT_BASE_URL 不是有效的 HTTP(S) 服务根地址: ${reportBase}`)
     }
     if (/\/record\/logger\/(interaction|page)\/?$/.test(reportBase)) {
       throw new Error("[artifact] VITE_OCTO_REPORT_BASE_URL 应填服务根地址，不能包含 /record/logger/interaction 或 /page")
