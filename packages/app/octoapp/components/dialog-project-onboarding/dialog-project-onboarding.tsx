@@ -217,23 +217,17 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             <span id="dir-error" role="alert" style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>未选择关联本地文件夹</span>
           </Show>
         </div>
-
-        <div style={{ width: "100%" }} onClick={() => { if (!hasDirectory()) setTriedSubmit(true) }}>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={!hasDirectory()}
-            class="w-full h-[48px] rounded-[12px] text-[14px] font-medium text-white"
-            style={{
-              background: hasDirectory() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
-              cursor: hasDirectory() ? "pointer" : "not-allowed",
-              color: "#fff",
-              "pointer-events": hasDirectory() ? "auto" : "none",
-            }}
-          >
-            确定
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          class="w-full h-[48px] rounded-[12px] text-[14px] font-medium text-white"
+          style={{
+            background: hasDirectory() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
+            color: "#fff",
+          }}
+        >
+          确定
+        </button>
       </div>
     </div>
     </Portal>
