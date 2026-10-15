@@ -171,7 +171,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           />
         </div>
         <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
-          <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-label="必填">*</span>
+          <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
           <span>关联本地文件夹</span>
         </div>
 
@@ -179,6 +179,9 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           type="button"
           onClick={handlePickDirectory}
           disabled={selecting()}
+          aria-required="true"
+          aria-invalid={showDirError()}
+          aria-describedby="dir-error"
           class="w-full flex items-center gap-2 px-3"
           style={{
             height: "40px",
@@ -211,7 +214,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
               <circle cx="10" cy="10" r="8.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" />
               <path d="M7.5 7.5L12.5 12.5M12.5 7.5L7.5 12.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" stroke-linecap="square" />
             </svg>
-            <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>未选择关联本地文件夹</span>
+            <span id="dir-error" role="alert" style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>未选择关联本地文件夹</span>
           </Show>
         </div>
 
