@@ -1,34 +1,12 @@
-import type { SubtypeHandler, SubtypeHandlerContext, LocalEditChange, LocalEditSavePayload } from './types'
+import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { ModelEditConfig, AssetConfig } from '../components/model-edit-items/types'
 import defaultHandler, { defaultModelEditConfig } from './default'
-import { sendTextToAgent } from '../utils/agent-events'
 import JSZip from 'jszip'
 
 /** 产物目录白名单：只收集这些顶层路径下的文件 */
 const GTS_OUTPUT_DIRS = ['src', 'public']
 /** 产物根级文件 */
 const GTS_OUTPUT_FILES = ['index.gts.html', 'preview-data.js']
-
-function quote(value: string): string {
-  return value ? `"${value}"` : '(空)'
-}
-
-function formatChange(change: LocalEditChange): string {
-  switch (change.kind) {
-    case 'text':
-      return `修改文本：${quote(change.before)} → ${quote(change.after)}`
-    case 'href':
-      return `修改链接地址：${change.before || '(空)'} → ${change.after || '(空)'}`
-    case 'styles':
-      return change.changes
-        .map((s) => `修改样式 ${s.prop}：${s.before || '(未设置)'} → ${s.after || '(清除)'}`)
-        .join('\n')
-    case 'remove-element':
-      return '删除该元素'
-    case 'image':
-      return `修改图片：src → ${change.src}${change.alt ? `，alt → ${change.alt}` : ''}`
-  }
-}
 
 async function collectGtsProjectFiles(ctx: SubtypeHandlerContext): Promise<{ path: string; content: Uint8Array }[]> {
   const { tab, getDesktopApi } = ctx
@@ -58,7 +36,7 @@ async function collectGtsProjectFiles(ctx: SubtypeHandlerContext): Promise<{ pat
   return results
 }
 
-const gtsModelEditConfig: ModelEditConfig = {
+export const gtsModelEditConfig: ModelEditConfig = {
   ...defaultModelEditConfig,
   assetConfig: {
     showConfig: () => true,
@@ -77,43 +55,6 @@ const gtsHandler: SubtypeHandler = {
   ...defaultHandler,
   name: 'gts',
   modelEditConfig: gtsModelEditConfig,
-
-  async handleLocalEditSave(ctx) {
-    const { tab, edit, showOctoToast } = ctx
-    const target = edit.target
-    const filePath = tab.filePath || tab.absoluteFilePath
-
-    const lines: string[] = []
-    lines.push(`请修改文件「${tab.title}」${filePath ? `（${filePath}）` : ''}。`)
-    lines.push('这是一个 GTS 项目，需要修改对应的 Vue 文件（src/pages/ 下的 index.vue 等）。')
-    lines.push('')
-    lines.push('页面中渲染出的目标元素 DOM 信息：')
-    lines.push(`- 选择器：${target.selector || '(未知)'}`)
-    lines.push(`- 标签：<${target.tagName}>`)
-    if (target.className) lines.push(`- 类名：${target.className}`)
-    if (target.text) lines.push(`- 当前文本：${target.text}`)
-    lines.push(`- 位置与尺寸（bounding box）：x=${target.rect.x} y=${target.rect.y} w=${target.rect.width} h=${target.rect.height}`)
-    if (target.htmlHint) lines.push(`- 元素片段：${target.htmlHint}`)
-    const attrKeys = Object.keys(target.attributes || {})
-    if (attrKeys.length > 0) {
-      lines.push(`- 属性：${attrKeys.map((k) => `${k}="${target.attributes[k]}"`).join(' ')}`)
-    }
-    lines.push('')
-    lines.push('需要做的变更：')
-    for (const change of edit.changes) {
-      lines.push(formatChange(change))
-    }
-    lines.push('')
-    lines.push('请根据上述 DOM 信息找到对应的 Vue 文件并修改，修改后预览页面会自动刷新。')
-
-    const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
-    if (result.ok) {
-      showOctoToast({ title: '已提交修改请求' })
-    } else {
-      showOctoToast({ title: '提交失败', description: result.message ?? '请重试' })
-    }
-    return result.ok
-  },
 
   /** 历史记录入口 1：决定每次记录哪些文件。
    *  只记录 src/ 下的源码文件 + preview-data.js + index.gts.html，
