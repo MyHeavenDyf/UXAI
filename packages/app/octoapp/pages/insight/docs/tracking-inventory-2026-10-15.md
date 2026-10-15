@@ -1,14 +1,8 @@
 # Insight 打点盘点（2026-10-15）
 
-## 实施增补说明
+依据 `codex/insight-tracking-inventory` 分支提交 `38d94026e` 的实际调用代码更新。范围为 Insight 页面、接入 Insight 上报的共享组件，以及已登记 Insight 轮次的服务端事件。本次将原 80 项与两轮新增的 23 项合并为完整清单，每个 name 单独列一行；不修改业务代码，未验证安装包或接收端落库。
 
-后续按需项再增加 5 个 name，当前合计 103 个；下文 80 个及前两批 98 个均为对应阶段快照。
-
-本文 80 个 name 为补齐前盘点快照。第一、第二批补齐新增 18 个 name，并扩展 4 个既有事件的入口；相同统计范围现为 98 个 name。最新字段与触发口径见 [tracking.md](./tracking.md)，剩余缺口见 [按钮审计](./tracking-button-audit-2026-10-15.md)。代码已实现不等于已发版或接收端已落库。
-
-依据本地 `dev` 分支 `c7b0d68f9` 的实际调用代码整理，未拉取远端、未验证线上落库。范围为 Insight 页面、以 `trackerModule="insight"` 接入的共享组件，以及已登记 Insight 轮次的服务端事件。此文是实现快照，不新增或修改打点。
-
-按唯一 name 计 **80 个**：前端 75 个（页面 1 个、交互/结果 74 个），服务端 5 个。代码中有调用入口不代表每种环境都能触发，更不代表接收端已成功入库。旧清单中的“44 个”已不适用。
+按唯一 name 计 **103 个**：前端 98 个（页面 1 个、交互/结果 97 个），服务端 5 个。代码中有调用入口不代表每种环境都能触发，更不代表接收端已成功入库。80、98 是此前不同阶段的总数，不是当前总数。
 
 此清单按已实现事件统计，不代表所有按钮均覆盖。逐操作入口的反向核对、分支缺口和补齐优先级见 [按钮覆盖核对](./tracking-button-audit-2026-10-15.md)。
 
@@ -24,6 +18,8 @@
 前端公共字段：`module=insight`、`project=octo-agent`、account、uid、browserName/browserVersion、os、platform、userAgent；`datas[]` 中含 type、name、path、extend。interaction 默认 `subType=click`，即使事件语义是成功/失败结果也如此，不能只凭 subType 判断用户点击。extend 是 JSON 字符串；读取到 appInfo.version 时自动合入 version。页面事件另有 from、screenWidth、screenHeight。
 
 前端账号取发送时的 localStorage.userInfo；服务端事件使用已持久化的原轮次账号。前端 fetch 不检查响应是否为 2xx，也没有本地队列：调用了 tracker 不等于落库成功。
+
+新增的八组 `*-start/result`（files-upload、files-delete、md-save、archive、context-compact、permission-decision、question-response、addon-import）共用 `operationId` 和启动时的 `sessionId`（可得时）；result 带 `status`、`durationMs`，同次执行最多一个结果，重试生成新 operationId。操作次数按 start 去重，不能把两条事件相加。此处去重只约束前端执行回调，不提供可靠补报；没有完成证据时不猜测终态。新增事件不上传文件正文、完整路径、签名 URL、问答答案或完整错误信息；旧事件字段仍按各行所列。
 
 ## 1. 页面（1）
 
@@ -74,13 +70,14 @@
 
 多数是动作发起口径，不是后端保存成功口径；一次拖拽可能同时触发取消置顶和分组事件。
 
-## 4. 消息（3）
+## 4. 消息（4）
 
 | name | 触发条件 | 业务 extend |
 | --- | --- | --- |
 | message-send | 发送通过前置校验并进入发送/排队流程，不代表模型调用成功 | trigger=button/enter、source=welcome/conversation、attachmentCount、textLength、mcpFunction |
 | message-send-blocked | 因未选择模型阻止发送；不是所有拦截原因的全集 | reason=no_model |
 | message-abort | 有会话且未处于停止请求中，发起停止 | 无 |
+| message-queue-remove | 有效队列项移除后；不记录消息正文 | sessionId、remainingCount |
 
 ## 5. MCP 功能 chip（4）
 
@@ -108,7 +105,7 @@ chip 选择不等于实际调用；chip result 的 completed 也不等于异步�
 
 attachment-import-result 的 success=true、localized=false 不代表文件已落入会话 uploads。用户上传行为也不会直接产生 artifact-file-write。
 
-## 7. @ 引用与加号菜单（6）
+## 7. @ 引用与加号菜单（10）
 
 | name | 触发条件 | 业务 extend |
 | --- | --- | --- |
@@ -118,6 +115,10 @@ attachment-import-result 的 success=true、localized=false 不代表文件已�
 | addon-select-design-file | 加号菜单选择会话文件，名称沿用共享组件；不代表仅设计模块 | filename |
 | addon-select-product-asset | 选择产品资产项 | fileName |
 | addon-confirm-product-asset | 确认选中的产品资产；不代表下载/导入全部成功 | count |
+| addon-import-start | 产品资产每次实际下载/导入尝试开始 | operationId、sessionId |
+| addon-import-result | 本地导入完成、失败或中止；成功不代表消息已发送 | 公共结果字段；status=success/failure/cancelled、count（成功）、reason=import（捕获错误时） |
+| addon-import-retry | 对可重试且不忙的产品资产执行重试 | sessionId |
+| addon-import-remove | 移除待导入项，包括正在导入或失败项 | sessionId、busy |
 
 共享 AddonMenu 在 Insight 显式接收 trackerModule=insight。选中技能不等于模型执行 skill 工具；合计引用量时也不能默认不同入口事件互斥。
 
@@ -131,25 +132,42 @@ attachment-import-result 的 success=true、localized=false 不代表文件已�
 
 刷新和停止是用户意图，不证明远端任务已查询/停止成功。
 
-## 9. 结果面板（11）
+## 9. 结果面板、保存与归档（16）
 
 | name | 触发条件 | 业务 extend |
 | --- | --- | --- |
 | result-card-open | 点击对话输出卡；在结果打开前记录 | cardType |
 | result-tab-switch | 切换到不同结果 tab | tabType |
 | result-tab-close | 关闭结果 tab | tabType |
-| result-retry | 结果加载失败后点击重试 | tabType |
+| result-retry | 本地 path/URI 加载失败或输出卡落盘失败后点击重试 | tabType、source=path/uri/materialize |
 | result-copy-content | 点击复制结果内容 | tabType、viewMode |
-| result-download | 在下载菜单选择格式，在执行导出前记录 | format、tabType |
+| result-download | 下载菜单选择格式，或附件 tab 点击下载；在执行导出前记录 | format（菜单）、tabType；附件分支 source=attachment |
 | result-archive | 发起结果归档 | tabType |
 | md-edit-open | 点击 Markdown 编辑入口 | source |
-| file-open-in-app | 文件卡走本地应用打开流程 | fileType |
-| file-reveal-folder | 文件卡/Markdown 入口走文件夹定位流程 | fileType |
+| file-open-in-app | 文件兜底卡或 path 结果操作栏发起本地应用打开 | fileType；path 操作栏 source=result-toolbar |
+| file-reveal-folder | 文件卡/Markdown 入口或 path 操作栏发起文件夹定位 | fileType；path 操作栏 source=result-toolbar |
 | file-save-as | 文件卡走另存为流程 | fileType |
+| md-save-start | 自动保存、快捷键或关闭保存进入 doSave；含路径/写入能力缺失的尝试 | operationId、sessionId、source |
+| md-save-result | writeFile resolve 为 success；缺路径、缺写入能力或写入失败为 failure | 公共结果字段、source；reason=path-unavailable/write-unavailable/write |
+| archive-start | 确认归档后开始执行；不是单纯打开归档弹框 | operationId、sessionId、mode=file/html |
+| archive-result | 文件云端上传后创建交付物成功，或 HTML 云端上传成功；失败/明确取消也记录 | 公共结果字段、mode、status=success/failure/cancelled；成功 destination=cloud/local；失败 reason=file-unavailable/file-size/activity/upload/deliverable/archive |
+| result-preview-ready | 预览到达可观察就绪点；不把文件兜底卡的本地打开当作预览成功 | sessionId、tabType、source、fromAttachment、viewMode（文本类）、evidence，见下表 |
 
 md-edit-open 只表示进入编辑，不能当作保存成功或 artifact-file-edit。result-download 也不能直接当作文件成功保存次数。
 
-## 10. 文件管理（7）
+归档的 HTML 未登录本地分支，destination=local、status=success 仅指触发 ZIP 下载，不证明系统保存完成。当前仓库 EDM 上传为外网占位实现，文件归档真实上传回调仍需内网包验收。
+
+| 预览 evidence | 适用分支与可证明的范围 |
+| --- | --- |
+| image-load | 图片触发 load |
+| rendered | Markdown 预览完成（含空内容短路）或导图实例创建完成；不保证外部资源全部加载 |
+| content-ready | 代码、源码模式或非导图 JSON 内容已交给展示组件；不保证异步高亮完成 |
+| media-loaded | 附件音视频触发 loadeddata；不代表完整播放成功 |
+| frame-load | HTML/PDF iframe 触发 load；不证明 PDF 可读、内容正确或 HTML 外部资源成功 |
+
+预览按当前实例的 tab、内容/资源版本、模式及 evidence 去重；同一次重复通知不重复报，重开或刷新可重新计。用于去重的正文、路径、URI 只留内存，不作为 extend 上传。不能把这些不同证据全部当作端到端渲染成功。
+
+## 10. 文件管理（11）
 
 | name | 触发条件 | 业务 extend |
 | --- | --- | --- |
@@ -160,8 +178,12 @@ md-edit-open 只表示进入编辑，不能当作保存成功或 artifact-file-e
 | files-open-in-explorer | 发起在系统文件夹中定位 | 无 |
 | files-navigate-folder | 点击进入子目录 | 无 |
 | files-archive | 发起文件归档 | kind |
+| files-upload-start | 选择/拖入后开始上传，单文件逐个计、目录一次计；仅打开选择器又取消不报 | operationId、sessionId、kind=file/folder、method=picker/drop、count（可得时） |
+| files-upload-result | 实际上传结果；部分上传成功或有文件被过滤不能算全部成功；后续列表刷新失败不覆盖上传结果 | 公共结果字段、kind、method、count/successCount/rejectedCount（可得时）；status=success/partial/failure；reason=validation/folder-name/read-entry/upload |
+| files-delete-start | 确认删除后调用接口；取消确认不报 | operationId、sessionId、mode=single/batch、count |
+| files-delete-result | 单删接口完成或批删返回数量；按数量区分全部/部分/零成功；UI 后续错误不覆盖已记录结果 | 公共结果字段、mode、count、deletedCount（成功返回时）、status=success/partial/failure；reason=delete |
 
-此组统计用户操作，不统计文件生成数量。未找到文件管理单个/批量删除的独立打点。
+此组统计用户操作，不统计模型文件生成数量。files-upload-* 与输入框 attachment-* 分属不同上传入口，不能互相替代；空目录创建成功可以记 success。
 
 ## 11. 能力使用结果：名字是 server，实际前端发送（3）
 
@@ -203,12 +225,36 @@ status：success/failure/denied/cancelled/timeout/interrupted。工具包括 bui
 
 参数及结果会过滤常见凭证并限长，不代表所有业务敏感正文都能自动识别。完整字段见 [统一工具调用埋点](./tool-call-tracking.md)。
 
+## 14. 上下文、权限与问答（6）
+
+| name | 触发条件 | 业务 extend |
+| --- | --- | --- |
+| context-compact-start | 确认压缩、通过会话/模型/禁用校验后执行命令 | operationId、sessionId、command |
+| context-compact-result | 按业务返回识别完成、失败或中止；确认弹框取消不报 | 公共结果字段、command、status=success/failure/cancelled；reason=command-result/command-request |
+| permission-decision-start | 对权限请求选择允许一次、始终允许或拒绝，通过响应中校验后发起请求 | operationId、sessionId、decision=once/always/reject、permission |
+| permission-decision-result | 权限响应请求完成或失败；不是工具执行结果 | 公共结果字段、decision、permission、status=success/failure；reason=request |
+| question-response-start | 提交答案或拒绝问题，通过发送中校验后发起请求 | operationId、sessionId、action=reply/reject、questionCount |
+| question-response-result | 问答请求完成或失败；不上传答案 | 公共结果字段、action、questionCount、status=success/failure；reason=request |
+
+用户选择 reject 后请求成功，result 仍是 success；拒绝选择由 decision/action 表达，不能误解为模型业务成功。
+
+## 15. 模型、知识引用与导航（3）
+
+| name | 触发条件 | 业务 extend |
+| --- | --- | --- |
+| model-select | Insight 欢迎页/会话页选择模型生效后；外网风险确认取消不报 | sessionId（可得时）、modelId、providerId、isExternal |
+| knowledge-reference-open | 回答下方引用列表中有 URL 的条目点击；不含模型正文任意链接 | sessionId、source=reference-list、index；不上传标题/URL |
+| navigation-open | 点击 Insight 的项目、技能库、资产库、设置、更新入口 | target=project/skills/assets/settings/update、source=sidebar、sessionId（可得时） |
+
+主侧栏走 InsightSidebar → GroupedSidebar → AgentSidebar → SidebarShell 可选回调；旧槽位入口兼容保留。共享组件仅由 Insight 接入上报，其他页面不新增同名事件。navigation-open 只表示入口操作，不代表目标页面加载或项目选择成功。
+
 ## 验证与查询
 
 1. 前端：开发者工具 Network 搜索 `/record/logger/`，检查请求 payload 的 module=insight、datas[].name 和 extend；page 使用独立接口。不要只看请求 URL 判定产物是否回退前端。
 2. 服务端：查本地 SQLite 表 `insight_artifact_delivery_event`，包含上述 5 个服务端 name；state、reason、attempts 用于区分未发送、失败和已确认发送。
 3. 没有事件：结合 `insight_artifact_delivery_receipt`、`insight_artifact_delivery_turn`、`insight_artifact_delivery_task`，工具调用另查 `agent_tool_call` / `agent_tool_call_parent`。不能仅凭队列表为空断言工具没运行。
 4. sent 表示发送器按当前契约确认 HTTP 响应成功；接收平台是否最终落库仍以接收端为准。本仓不提供接收平台的数据库表结构。
+5. 新增操作事件在前端 Network 查找对应 start/result，以 operationId 配对；检查 sessionId、status、durationMs。重试应有新 operationId，重复终态回调不应新增同次结果。新增前端事件不会写入上述服务端队列表。
 
 ```sql
 SELECT name, state, COUNT(*) AS count
@@ -225,13 +271,15 @@ LIMIT 100;
 
 ## 旧清单与当前实现差异
 
-- tracking.md 的“44 个 name”不是当前总数；漏记了共享侧栏/分组、产品资产、风险提示、归档及不可预览分支等。
+- 历史“44 个 name”与初版 80 项均不是当前总数；本版完整列出 103 项，含后续补齐的用户操作与结果事件。
 - 旧 session-switch 在当前搜索范围没有发送调用；现侧栏使用 select-session。头部仍用 session-rename/session-delete，侧栏则用 rename-session/delete-session。
 - 旧“折叠不打点”的描述已不成立：置顶、最近、分组均存在 toggle-* 事件。
 - 旧产物维护说明中的“前端 baseline + set、按类型聚合”不适用于现在的服务端产物持久化去重。
-- preset-click、attachment-upload-result 属历史事件，不计入上述 80 个。
+- preset-click、attachment-upload-result 属历史事件，不计入上述 103 个。
 - 此快照不把调试日志 `[octo:event]` / `[octo:resource-link]`、SDK SSE 或控制台输出当作上报事件。
-- 此次没有验证 PR #953 是否已进入本地分支；本地构建配置仍有缺地址时报错的旧检查，不据 PR 讨论推断安装包行为。
+- 本次只更新打点盘点，不核验 PR #953 的合入状态、构建配置或安装包行为。
+
+尚未全部覆盖的按钮包括普通折叠、勾选、编辑器格式键、预览缩放等；详见按钮审计。实现完成不等于全按钮覆盖，也不等于已发版。
 
 ## 主要代码依据
 
@@ -240,4 +288,7 @@ LIMIT 100;
 - [Insight 加号菜单](../components/insight-addon-menu.tsx)、[共享加号菜单](../../make/components/addon-menu/index.tsx)、[资产选择](../../make/components/addon-menu/asset-dialog.tsx)
 - [结果操作](../components/result-viewer/action-bar.tsx)、[结果视图](../components/result-viewer/index.tsx)、[文件管理](../components/file-manager/index.tsx)
 - [能力使用](../components/insight-turn.tsx)、[前端发送器](../../../utils/tracker.ts)
+- [操作关联与预览去重](../utils/interaction-tracking.ts)、[保存](../components/markdown-editor/index.tsx)、[归档](../components/archive-flow.tsx)
+- [权限](../components/permission-dock.tsx)、[问答](../components/question-dock.tsx)、[知识引用](../components/knowledge-references.tsx)
+- [侧栏导航回调](../../../components/sidebar-shell.tsx)、[模型选择](../../../components/dialog-select-model.tsx)
 - 服务端：packages/opencode/src/tracking/{store,calls,sender,facts,scripts,output-type}.ts；Shell：packages/opencode/src/tool/shell.ts。
