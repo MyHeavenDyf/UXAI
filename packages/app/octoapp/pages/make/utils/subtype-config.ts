@@ -148,6 +148,9 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
     history: {
       files: ['.'],
+      /** page 是多文件产物（样式/脚本与 html 分离）：模型一次修改写多个文件再编译，
+       *  按 turn 记录最终态，避免把"css 已改、html 未编译"的中间态存成可切换版本 */
+      agentTurnRecord: 'turn',
     },
   },
 
