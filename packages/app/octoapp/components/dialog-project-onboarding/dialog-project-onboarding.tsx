@@ -224,6 +224,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           style={{
             background: hasDirectory() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
             color: "#fff",
+            cursor: hasDirectory() ? "pointer" : "default",
           }}
         >
           确定
