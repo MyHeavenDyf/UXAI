@@ -170,3 +170,71 @@
   background: rgba(239, 68, 68, 0.06);
   border-radius: 4px;
 }
+
+.agent-exec-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.agent-exec-task {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.agent-exec-task-error {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.agent-exec-task-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgba(10, 89, 247, 0.04);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--octo-text-primary, #333);
+}
+
+.agent-exec-task-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-exec-subagent {
+  padding: 6px 8px 6px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.agent-exec-sub-msg {
+  font-size: 12px;
+  color: var(--octo-text-primary, #444);
+  line-height: 1.4;
+}
+
+.agent-exec-sub-text {
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-exec-sub-tool {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--octo-text-secondary, #666);
+}
+
+.agent-exec-sub-loading {
+  font-size: 11px;
+  color: var(--octo-text-secondary, #999);
+  padding: 4px 0;
+}

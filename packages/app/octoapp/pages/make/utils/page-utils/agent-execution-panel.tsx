@@ -6,6 +6,8 @@ import { agentExecution, setAgentExecution } from "./agent-execution-state"
 import type { Message, Part, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
 import "./agent-execution-panel.css"
 
+type SyncApi = ReturnType<typeof useSync>
+
 function toolStatusIcon(state: ToolState): string {
   if (state.status === "pending") return "⏳"
   if (state.status === "running") return "⚡"
@@ -27,9 +29,75 @@ function truncate(text: string, max: number): string {
   return t.length > max ? t.slice(0, max) + "…" : t
 }
 
-function AgentMessageRow(props: { message: Message; parts: Accessor<Part[]> }): JSX.Element {
+function extractTaskTools(parts: Part[]): Array<{ part: ToolPart; subSessionId?: string; description: string; status: string }> {
+  const tasks: Array<{ part: ToolPart; subSessionId?: string; description: string; status: string }> = []
+  for (const p of parts) {
+    if (p.type !== "tool") continue
+    const raw = p as Record<string, unknown>
+    const state = raw.state as Record<string, unknown> | undefined
+    if (!state) continue
+    const toolName = raw.tool ?? raw.name
+    if (typeof toolName !== "string" || !/task/i.test(toolName)) continue
+    const input = state.input as Record<string, unknown> | undefined
+    const metadata = state.metadata as Record<string, unknown> | undefined
+    const subSessionId = metadata?.sessionId as string | undefined
+    const description = (input?.description as string) ?? (input?.prompt as string)?.slice(0, 80) ?? "子任务"
+    tasks.push({
+      part: p as ToolPart,
+      subSessionId,
+      description,
+      status: state.status as string,
+    })
+  }
+  return tasks
+}
+
+function SubAgentMessages(props: { subSessionId: string; sync: SyncApi }): JSX.Element {
+  const messages = createMemo(() => (props.sync.data.message?.[props.subSessionId] ?? []) as Message[])
+
+  createEffect(() => {
+    if (props.sync.data.message?.[props.subSessionId] === undefined) {
+      void props.sync.session.sync(props.subSessionId)
+    }
+  })
+
+  return (
+    <div class="agent-exec-subagent">
+      <For each={messages()}>
+        {(msg) => {
+          const parts = createMemo(() => (props.sync.data.part?.[msg.id] ?? []) as Part[])
+          return (
+            <Show when={msg.role === "assistant"} fallback={<div class="agent-exec-sub-user">{msg.id}</div>}>
+              <div class="agent-exec-sub-msg">
+                <For each={parts()}>
+                  {(p) => (
+                    <Show when={p.type === "text"} fallback={<Show when={p.type === "tool"}>
+                      <div class="agent-exec-sub-tool">
+                        <span class="agent-exec-tool-icon">{toolStatusIcon((p as ToolPart).state)}</span>
+                        <span class="agent-exec-tool-name">{truncate(toolTitle(p as ToolPart), 60)}</span>
+                      </div>
+                    </Show>}>
+                      <div class="agent-exec-sub-text">{truncate((p as { text: string }).text, 500)}</div>
+                    </Show>
+                  )}
+                </For>
+              </div>
+            </Show>
+          )
+        }}
+      </For>
+      <Show when={messages().length === 0}>
+        <div class="agent-exec-sub-loading">子 Agent 启动中…</div>
+      </Show>
+    </div>
+  )
+}
+
+function AgentMessageRow(props: { message: Message; parts: Accessor<Part[]>; sync: SyncApi }): JSX.Element {
   const textParts = createMemo(() => props.parts().filter((p) => p.type === "text") as Array<{ type: "text"; text: string }>)
-  const toolParts = createMemo(() => props.parts().filter((p) => p.type === "tool") as ToolPart[])
+  const allToolParts = createMemo(() => props.parts().filter((p) => p.type === "tool") as ToolPart[])
+  const taskTools = createMemo(() => extractTaskTools(props.parts()))
+  const nonTaskTools = createMemo(() => allToolParts().filter((t) => !/task/i.test(t.tool)))
   const reasoningParts = createMemo(
     () => props.parts().filter((p) => p.type === "reasoning") as Array<{ type: "reasoning"; text: string }>,
   )
@@ -43,9 +111,26 @@ function AgentMessageRow(props: { message: Message; parts: Accessor<Part[]> }): 
         </div>
       </Show>
       <For each={textParts()}>{(p) => <div class="agent-exec-text">{p.text}</div>}</For>
-      <Show when={toolParts().length > 0}>
+      <Show when={taskTools().length > 0}>
+        <div class="agent-exec-tasks">
+          <For each={taskTools()}>
+            {(t) => (
+              <div class="agent-exec-task" classList={{ "agent-exec-task-error": t.status === "error" }}>
+                <div class="agent-exec-task-header">
+                  <span class="agent-exec-tool-icon">{t.status === "running" ? "⚡" : t.status === "completed" ? "✅" : t.status === "error" ? "❌" : "⏳"}</span>
+                  <span class="agent-exec-task-desc">{t.description}</span>
+                </div>
+                <Show when={t.subSessionId}>
+                  <SubAgentMessages subSessionId={t.subSessionId!} sync={props.sync} />
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={nonTaskTools().length > 0}>
         <div class="agent-exec-tools">
-          <For each={toolParts()}>
+          <For each={nonTaskTools()}>
             {(t) => (
               <div class="agent-exec-tool" classList={{ "agent-exec-tool-error": t.state.status === "error" }}>
                 <span class="agent-exec-tool-icon">{toolStatusIcon(t.state)}</span>
@@ -126,7 +211,7 @@ export function AgentExecutionPanel(): JSX.Element {
                     when={msg.role === "assistant"}
                     fallback={<UserMessageRow message={msg} parts={parts} />}
                   >
-                    <AgentMessageRow message={msg} parts={parts} />
+                    <AgentMessageRow message={msg} parts={parts} sync={sync} />
                   </Show>
                 )
               }}

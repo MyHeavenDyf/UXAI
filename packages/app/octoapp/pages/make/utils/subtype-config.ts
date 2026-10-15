@@ -149,6 +149,9 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     history: {
       files: ['.'],
     },
+    rendering: {
+      customBridges: ['components-theme'],
+    },
   },
 
   _default: {
