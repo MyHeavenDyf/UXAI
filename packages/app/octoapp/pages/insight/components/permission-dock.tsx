@@ -5,6 +5,7 @@ import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
+import { beginInsightOperation } from "../utils/interaction-tracking"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { openFileOrReveal } from "../utils/local-file-ops"
@@ -99,11 +100,14 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
 
   const decide = (perm: PermissionRequest, response: "once" | "always" | "reject") => {
     if (responding() === perm.id) return
+    const finish = beginInsightOperation("permission-decision", { sessionId: perm.sessionID, decision: response, permission: perm.permission })
     setResponding(perm.id)
     console.log("[octo:permission] respond", { permissionID: perm.id, permission: perm.permission, response })
     sdk.client.permission
       .respond({ sessionID: perm.sessionID, permissionID: perm.id, response })
+      .then((result) => finish(result.error ? "failure" : "success", result.error ? { reason: "request" } : {}))
       .catch((err: unknown) => {
+        finish("failure", { reason: "request" })
         const description = err instanceof Error ? err.message : String(err)
         showToast({ title: language.t("common.requestFailed"), description })
       })
