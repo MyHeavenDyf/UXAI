@@ -53,6 +53,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const [directory, setDirectory] = createSignal<string>("")
   const [selecting, setSelecting] = createSignal(false)
+  const [triedSubmit, setTriedSubmit] = createSignal(false)
 
   createEffect(() => {
     const init = initialDirectory()
@@ -87,6 +88,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       })
       if (typeof result === "string" && result) {
         setDirectory(result)
+        setTriedSubmit(false)
       }
     } finally {
       setSelecting(false)
@@ -95,7 +97,10 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   function handleConfirm() {
     const dir = directory()
-    if (!dir) return
+    if (!dir) {
+      setTriedSubmit(true)
+      return
+    }
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
@@ -127,6 +132,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   }
 
   const hasDirectory = createMemo(() => directory().length > 0)
+  const showDirError = createMemo(() => triedSubmit() && !hasDirectory())
 
   return (
     <Portal>
@@ -164,17 +170,23 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             }}
           />
         </div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>关联本地文件夹</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
+          <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
+          <span>关联本地文件夹</span>
+        </div>
 
         <button
           type="button"
           onClick={handlePickDirectory}
           disabled={selecting()}
-          class="w-full mb-5 flex items-center gap-2 px-3"
+          aria-required="true"
+          aria-invalid={showDirError()}
+          aria-describedby="dir-error"
+          class="w-full flex items-center gap-2 px-3"
           style={{
             height: "40px",
             "margin-top": "4px",
-            border: "1px solid var(--octo-border-input, #D1D5DB)",
+            border: `1px solid ${showDirError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
             "border-radius": "6px",
             background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "transparent",
             cursor: selecting() ? "not-allowed" : "pointer",
@@ -196,14 +208,21 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           </svg>
         </button>
 
+        <div style={{ width: "100%", height: "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px", "margin-bottom": "8px" }}>
+          <Show when={showDirError()}>
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" style={{ "flex-shrink": "0" }}>
+              <circle cx="10" cy="10" r="8.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" />
+              <path d="M7.5 7.5L12.5 12.5M12.5 7.5L7.5 12.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" stroke-linecap="square" />
+            </svg>
+            <span id="dir-error" role="alert" style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>未选择关联本地文件夹</span>
+          </Show>
+        </div>
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!hasDirectory()}
-          class="w-full h-[40px] rounded-md text-[14px] font-medium text-white"
+          class="w-full h-[48px] rounded-[12px] text-[14px] font-medium text-white"
           style={{
-            background: hasDirectory() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
-            cursor: hasDirectory() ? "pointer" : "not-allowed",
+            background: hasDirectory() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
             color: "#fff",
           }}
         >
