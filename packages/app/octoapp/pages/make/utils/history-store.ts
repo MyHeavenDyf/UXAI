@@ -236,6 +236,30 @@ export function createHistoryStore() {
       .sort((a, b) => b.timestamp - a.timestamp)
   }
 
+  async function removeVersionsAfter(tab: Pick<ResultTab, "filePath">, cutoffMs: number): Promise<number> {
+    if (!api?.listDirectory || !api?.deleteFile || !tab.filePath) return 0
+    const historyDir = getHistoryDir(tab.filePath)
+    const prefix = getBaseName(tab.filePath) + "."
+
+    const entries = await api.listDirectory(historyDir)
+    const doomed = new Set<string>()
+    for (const e of entries) {
+      if (e.type !== "file") continue
+      const firstSeg = e.path.split(/[/\\]/)[0]
+      if (!firstSeg.startsWith(prefix)) continue
+      const parsed = parseVersionFolder(firstSeg)
+      if (!parsed) continue
+      if (parsed.timestamp >= cutoffMs) doomed.add(firstSeg)
+    }
+
+    for (const e of entries) {
+      if (e.type !== "file") continue
+      if (!doomed.has(e.path.split(/[/\\]/)[0])) continue
+      await api.deleteFile(e.path)
+    }
+    return doomed.size
+  }
+
   async function prune(historyDir: string, baseName: string, maxVersions?: number): Promise<void> {
     const cap = maxVersions ?? MAX_VERSIONS
     if (!api?.listDirectory || !api?.deleteFile) return
@@ -267,5 +291,5 @@ export function createHistoryStore() {
     }
   }
 
-  return { recordVersion, getVersionFiles, listVersions }
+  return { recordVersion, getVersionFiles, listVersions, removeVersionsAfter }
 }

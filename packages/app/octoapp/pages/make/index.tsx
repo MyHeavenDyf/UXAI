@@ -2,12 +2,12 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
-import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
+import { type PanelSkill, type SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
@@ -107,6 +107,7 @@ import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { processMentions } from "./utils/mention-processor"
+import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -973,16 +974,26 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
         const toolName = props?.tool as string | undefined
+        const input = (props?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
         if (callID && toolName) {
-          toolCallMap.set(callID, toolName)
+          toolCallMap.set(callID, { tool: toolName, path: toolPath })
+        }
+        // 写前基线：write/edit 即将改写 outputs 下从未版本化的文件 → 先记 init（原始版本 = 修改前内容）
+        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID ?? sid)) {
+          recordArtifactInit(toolPath)
         }
       } else if (e.type === "session.next.tool.success") {
         const callID = props?.callID as string | undefined
         if (callID) {
-          const toolName = toolCallMap.get(callID)
-          if (toolName) {
+          const entry = toolCallMap.get(callID)
+          if (entry) {
             setFilesRefreshKey(k => k + 1)
             void historyController.onFileRefresh(tabStore.tabs())
+            // 伪 tab 版本记录（tab 未打开的 outputs 文件）：write 新建补 init / write-edit 落盘记 模型编辑
+            if (entry.path && isOutputsWriteTool(entry.tool, entry.path, eventSessionID ?? sid)) {
+              void recordToolVersionsAfter(entry.path)
+            }
             toolCallMap.delete(callID)
           }
         }
@@ -994,6 +1005,14 @@ const sessionMessagesLoaded = createMemo(() => {
         void historyController.onFileRefresh(tabStore.tabs())
       } else if (e.type === "session.compaction.estimated") {
         setCompactedContextEstimate(e.properties)
+      } else if (e.type === "session.error") {
+        // 异步生成阶段错误（如 Model not found）：prompt HTTP 已 resolve、sendMessage 的 catch 不触发，
+        // 不 toast 的话页内零反馈（仅有全局通知中心的系统级通知）
+        const error = props?.error as { data?: { message?: string } } | string | undefined
+        const description = typeof error === "string"
+          ? error
+          : (error?.data?.message ?? "生成失败，请查看控制台")
+        showOctoToast({ title: "生成失败", description, variant: "error" })
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -1006,7 +1025,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planChildSessionIDs, setPlanChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
-  const toolCallMap = new Map<string, string>()
+  const toolCallMap = new Map<string, { tool: string; path?: string }>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -1276,10 +1295,20 @@ const sessionMessagesLoaded = createMemo(() => {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
-    return sortMessages(allMsgs)
+    const sorted = sortMessages(allMsgs)
+    // 回退指针：id >= revert.messageID 的消息（含被回退轮次）不再渲染；发新消息时 server cleanup 会物理删除
+    const revertID = sync.session.get(sid)?.revert?.messageID
+    return revertID ? sorted.filter((m) => m.id < revertID) : sorted
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
+
+  // 最后一条可回退的用户消息（主会话、未被回退过滤）——回退按钮只显示在这一条上
+  const lastMainMessageID = createMemo(() => {
+    const sid = params.id
+    if (!sid) return undefined
+    return userMessages().filter((m) => (m.sessionID ?? sid) === sid).at(-1)?.id
+  })
 
   createEffect(
     on(
@@ -1855,6 +1884,205 @@ const sessionMessagesLoaded = createMemo(() => {
       setPromptDoc(doc)
     }
   }
+
+  // ── 对话回退（回退到本轮对话前）──
+  const [revertPanelID, setRevertPanelID] = createSignal<string | null>(null)
+  const [pendingNewChatAttachments, setPendingNewChatAttachments] = createSignal<Attachment[] | null>(null)
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) return
+    const pending = pendingNewChatAttachments()
+    if (!pending) return
+    setPendingNewChatAttachments(null)
+    setAttachments(pending)
+  }, { defer: true }))
+
+  // chip 重建用的技能表：name = skillName（斜杠命令名），label = displayName（气泡里显示的 @label）
+  const revertSkills = createMemo(() => revertSkillsFromConfig(skillConfig()))
+
+  /** 回退公共执行段：server revert（消息移除 + .gitignore 外项目文件恢复）→ store 合并 →
+   *  前端文件恢复/.history 清理 → 打开 tab 刷新。返回重建草稿；busy/回退失败返回 null。回退与重新生成共用。 */
+  async function executeRevert(msg: Message): Promise<RevertDraft | null> {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return null
+    const draft = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+
+    const cutoff = (msg as UserMessage).time?.created ?? Date.now()
+    const mainMsgs = (sync.data.message?.[sid] ?? []) as Message[]
+    const currentRevertID = sync.session.get(sid)?.revert?.messageID
+    const liveMsgs = currentRevertID ? mainMsgs.filter((m) => m.id < currentRevertID) : mainMsgs
+    const startIdx = liveMsgs.findIndex((m) => m.id === msg.id)
+    const normalizePath = (p: string) => p.replace(/\\/g, "/")
+    const involved = new Set<string>()
+    for (let i = startIdx; i < liveMsgs.length; i++) {
+      for (const filePath of collectRevertedFiles(
+        (sync.data.part[liveMsgs[i]?.id] ?? []) as RevertDraftPart[],
+        { sessionId: sid, projectDir: projectDir() },
+      )) {
+        involved.add(normalizePath(filePath))
+      }
+    }
+
+    let revertResult: Awaited<ReturnType<typeof sdk.client.session.revert>>
+    try {
+      revertResult = await sdk.client.session.revert({
+        sessionID: sid,
+        messageID: msg.id,
+        directory: sdk.directory,
+      })
+    } catch (err) {
+      showOctoToast({ title: "回退失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
+      return null
+    }
+    tracker.interaction({ module: "design", name: "revert-message" })
+    if (revertResult.data) {
+      sync.set(
+        produce((draftState) => {
+          const i = draftState.session.findIndex((s) => s.id === sid)
+          if (i !== -1) draftState.session[i] = revertResult.data
+        }),
+      )
+    }
+
+    const api = getDesktopApi()
+    if (api?.readFileBuffer) {
+      try {
+        // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
+        // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
+        for (const filePath of involved) {
+          const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
+          if (realTab) {
+            await historyController.restoreFilesBefore(realTab, cutoff)
+            continue
+          }
+          const buffer = await api.readFileBuffer(filePath)
+          const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+          const pseudoTab: ResultTab = {
+            id: `revert-${filePath}`,
+            title: fileName,
+            type: "html",
+            subtype: extractSubtypeFromFilename(fileName),
+            content: buffer ? new TextDecoder().decode(buffer) : "",
+            filePath,
+            createdAt: new Date(),
+          }
+          await historyController.restoreFilesBefore(pseudoTab, cutoff)
+        }
+        for (const filePath of involved) {
+          await historyController.removeVersionsAfter({ filePath }, cutoff)
+        }
+        for (const tab of [...tabStore.tabs()]) {
+          if (!tab.filePath || !involved.has(normalizePath(tab.filePath))) continue
+          const buffer = await api.readFileBuffer(tab.filePath)
+          if (!buffer) {
+            showOctoToast({ title: "该页面已随回退删除", description: tab.title })
+            handleCloseTab(tab.id)
+            continue
+          }
+          tabStore.updateTabContent(tab.id, new TextDecoder().decode(buffer))
+          await historyController.loadVersions(tab)
+        }
+        setFilesRefreshKey((k) => k + 1)
+      } catch (err) {
+        console.warn("[octo:make] revert file restore failed", err)
+      }
+    }
+
+    return draft
+  }
+
+  async function handleRevertToMessage(msg: Message) {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return
+
+    const isFirst = userMessages()[0]?.id === msg.id
+
+    if (isFirst) {
+      const draft = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+      const ok = await removeSession(sdk.client, sid)
+      if (!ok) return
+      tracker.interaction({ module: "design", name: "revert-session-restart" })
+      sync.set(
+        produce((draftState) => {
+          const i = draftState.session.findIndex((s) => s.id === sid)
+          if (i !== -1) draftState.session.splice(i, 1)
+        }),
+      )
+      if (layout.lastSessionPerTab.make(sdk.directory) === sid) layout.lastSessionPerTab.setMake(sdk.directory, "")
+      localStorage.removeItem(PROMPT_KEY_PREFIX + sid)
+      saveDocJSONToStorage(undefined, draft.docJSON)
+      setPendingNewChatAttachments(draft.attachments.length > 0 ? draft.attachments : null)
+      setRevertPanelID(null)
+      navigate("/make", { replace: true })
+      showOctoToast({ title: "已回退并删除当前会话，消息已恢复到输入框" })
+      return
+    }
+
+    const draft = await executeRevert(msg)
+    if (!draft) return
+
+    const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
+    if (ref) ref.replaceDoc(draft.docJSON)
+    else setPromptDoc(draft.docJSON)
+    setAttachments(draft.attachments)
+    setRevertPanelID(null)
+    showOctoToast({ title: "已回退到此消息之前，消息已恢复到输入框" })
+  }
+
+
+  async function handleRegenerateMessage(msg: Message) {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return
+
+    // 预构建草稿（纯函数）用于校验：附件-only 无文本的消息无法经 sendMessage 重发
+    const draft0 = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+    const text = getDocTextWithMentions(docFromJSON(draft0.docJSON))
+    if (!text.trim()) {
+      showOctoToast({ title: "该消息没有文本内容，无法重新生成", variant: "warn" })
+      return
+    }
+
+    const original = (msg as UserMessage).model
+    const originalAvailable = !!original?.providerID && !!original?.modelID
+      && providers.all().some((p) => p.id === original!.providerID && !!p.models?.[original!.modelID])
+    if (!originalAvailable) {
+      showOctoToast({
+        title: "原消息的模型已不可用",
+        description: `将使用当前选择的模型重新生成`,
+      })
+      // 回退当前选择：图片附件需多模态模型，与手动发送一致自动切换
+      if (draft0.attachments.some((a) => a.mime?.startsWith("image/")) && !ensureMultimodalModel()) {
+        showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型后重试", variant: "error" })
+        return
+      }
+    }
+    const modelKey = originalAvailable && original
+      ? { providerID: original.providerID, modelID: original.modelID }
+      : activeModelKey()
+    if (!modelKey) {
+      showOctoToast({ title: "请先选择模型", variant: "warn" })
+      return
+    }
+
+    const draft = await executeRevert(msg)
+    if (!draft) return
+    tracker.interaction({ module: "design", name: "regenerate-message" })
+
+    const mentions = extractMentionsFromDoc(docFromJSON(draft.docJSON))
+    setAttachments(draft.attachments)
+    const ok = await sendMessage(sid, text, modelKey, mentions)
+    if (!ok) {
+      const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
+      if (ref) ref.replaceDoc(draft.docJSON)
+      else setPromptDoc(draft.docJSON)
+      setAttachments(draft.attachments)
+      return
+    }
+    proseMirrorRef1?.clear?.()
+    proseMirrorRef2?.clear?.()
+    setPrompt("")
+  }
+
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -1904,6 +2132,41 @@ const sessionMessagesLoaded = createMemo(() => {
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
   })
+
+
+  function isOutputsWriteTool(toolName: string, filePath: string, sessionID: string): boolean {
+    const lower = toolName.toLowerCase()
+    if (!lower.includes("write") && !lower.includes("edit")) return false
+    return filePath.replace(/\\/g, "/").includes(`.octo/${sessionID}/outputs/`)
+  }
+
+  function pseudoHistoryTab(filePath: string): ResultTab {
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    return {
+      id: `history-${filePath}`,
+      title: fileName,
+      type: "html",
+      subtype: extractSubtypeFromFilename(fileName),
+      content: "",
+      filePath,
+      createdAt: new Date(),
+    }
+  }
+
+  /** artifact 落盘 / 工具写前基线 → init（原始版本；已有历史则 controller 内部跳过） */
+  function recordArtifactInit(filePath: string) {
+    void historyController.recordInitIfNeeded(pseudoHistoryTab(filePath))
+  }
+
+  /** write-edit 工具落盘后（该文件无真实 tab 持有时）→ write 新建补 init + 记 agent（模型编辑）。
+   *  有真实 tab 时走既有 onFileRefresh 路径，避免同一次编辑记两份。 */
+  async function recordToolVersionsAfter(filePath: string) {
+    const normalized = filePath.replace(/\\/g, "/")
+    if (tabStore.tabs().some((t) => t.filePath && t.filePath.replace(/\\/g, "/") === normalized)) return
+    const tab = pseudoHistoryTab(filePath)
+    await historyController.recordInitIfNeeded(tab)
+    await historyController.recordAgentIfNeeded(tab)
+  }
 
   // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
   const bgCompareGuard = createBgCompareGuard()
@@ -5271,6 +5534,7 @@ const sessionMessagesLoaded = createMemo(() => {
           <div
             classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
+              "z-index": 11,
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
               flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
@@ -5790,6 +6054,14 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
+                        canRevert={!effectiveBusy() && (userMessages()[0].sessionID ?? params.id) === params.id}
+                        showRevert={userMessages()[0].id === lastMainMessageID()}
+                        showRegenerate={userMessages()[0].id === lastMainMessageID()}
+                        revertPanelOpen={revertPanelID() === userMessages()[0].id}
+                        onRevertPanelOpenChange={(open) => setRevertPanelID(open ? userMessages()[0].id : (revertPanelID() === userMessages()[0].id ? null : revertPanelID()))}
+                        onRevertToMessage={() => handleRevertToMessage(userMessages()[0])}
+                        onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
+                        onArtifactSaved={recordArtifactInit}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -5822,6 +6094,14 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
+                            canRevert={!effectiveBusy() && (msg.sessionID ?? params.id) === params.id}
+                            showRevert={msg.id === lastMainMessageID()}
+                            showRegenerate={msg.id === lastMainMessageID()}
+                            revertPanelOpen={revertPanelID() === msg.id}
+                            onRevertPanelOpenChange={(open) => setRevertPanelID(open ? msg.id : (revertPanelID() === msg.id ? null : revertPanelID()))}
+                            onRevertToMessage={() => handleRevertToMessage(msg)}
+                            onRegenerateMessage={() => handleRegenerateMessage(msg)}
+                            onArtifactSaved={recordArtifactInit}
                           />
                         )
                       }}
