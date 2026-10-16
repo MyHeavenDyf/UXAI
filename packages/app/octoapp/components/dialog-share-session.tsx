@@ -1,10 +1,10 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createShareSession, buildShareLink } from "@/network/pipelineRequest"
 import { showShareNotice } from "@/components/share-notice"
+import copyLinkPng from "@/pages/_shell/icons/ic_public_link.png"
 
 export function DialogShareSession(props: {
   sessionID: string
@@ -100,7 +100,7 @@ export function DialogShareSession(props: {
               gap: "6px",
             }}
           >
-            <Icon name="link" style={{ width: "14px", height: "14px", color: "#fff" }} />
+            <img src={copyLinkPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
             {loading() ? "生成中..." : "复制链接"}
           </button>
         </div>
