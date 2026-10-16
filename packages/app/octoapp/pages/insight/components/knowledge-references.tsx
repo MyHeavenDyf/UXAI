@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js"
 import { getDesktopApi } from "../lib/electron-api"
 import "./knowledge-references.css"
+import { trackInsight } from "../utils/interaction-tracking"
 
 // 内网知识库引用列表(SPEC-INS-030 §2 引用 UI 重建)。
 //
@@ -51,7 +52,7 @@ function openExternal(url: string) {
 }
 
 /** 回答下方的折叠「引用 N 篇资料」列表;编号与正文里的 [n] 对应。 */
-export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
+export function KnowledgeReferences(props: { sources: KnowledgeSource[]; sessionId?: string }) {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="octo-kb-refs">
@@ -72,7 +73,10 @@ export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
                     type="button"
                     class="octo-kb-refs__link"
                     title={s.title}
-                    onClick={() => openExternal(s.url!)}
+                    onClick={() => {
+                      trackInsight("knowledge-reference-open", { sessionId: props.sessionId, source: "reference-list", index: s.n })
+                      openExternal(s.url!)
+                    }}
                   >
                     {s.title}
                   </button>

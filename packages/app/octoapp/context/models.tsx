@@ -3,7 +3,6 @@ import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSync } from "@/context/global-sync"
 import {
@@ -62,15 +61,6 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const mergeApiModels = (models: Awaited<ReturnType<typeof fetchModelsApi>>) => {
       const remoteProviders = modelsApiProviders(models)
       globalSync.replaceProviders(remoteProviders)
-      showToast({
-        variant: "success",
-        icon: "circle-check",
-        title: "Model catalog updated",
-        description: `${remoteProviders.length} providers, ${remoteProviders.reduce(
-          (total, provider) => total + Object.keys(provider.models).length,
-          0,
-        )} models`,
-      })
     }
     const [apiModels, setApiModels] = createSignal<Awaited<ReturnType<typeof fetchModelsApi>>>()
     const [refreshing, setRefreshing] = createSignal(false)

@@ -219,9 +219,7 @@ However, you requested 137089 tokens.
   "compaction": {
     "auto": true,
     "prune": true,
-    "reserved": 20000,
-    "tail_turns": 2,
-    "preserve_recent_tokens": 8000
+    "reserved": 20000
   }
 }
 ```
@@ -229,10 +227,8 @@ However, you requested 137089 tokens.
 - `auto`：是否启用基于 token 阈值的自动压缩，默认 `true`。
 - `prune`：是否裁剪过旧的工具输出，默认 `true`。
 - `reserved`：为压缩和模型输出预留的 token。
-- `tail_turns`：压缩后最多原样保留的最近用户回合数，默认 `2`。
-- `preserve_recent_tokens`：最近回合允许原样保留的 token 上限。
 
-如果没有显式配置 `preserve_recent_tokens`，默认取可用上下文的 25%，且限制在 2,000～8,000 token。
+手动压缩会按完整用户回合切分：前 `floor(0.7 × n)` 回合交给模型生成摘要，至少压缩 1 回合；最近约 30% 的回合保持原文。
 
 也可以在会话中使用 `/compact` 手动压缩。
 
@@ -374,4 +370,3 @@ Get-Content $log.FullName -Wait |
 - `packages/opencode/test/session/compaction.test.ts`
 - `packages/opencode/test/session/message-v2.test.ts`
 - `packages/opencode/test/session/processor-effect.test.ts`
-

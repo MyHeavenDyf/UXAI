@@ -3,6 +3,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { GroupedSidebar } from "@/components/grouped-sidebar"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { tracker } from "@/utils/tracker"
+import { trackInsight } from "./utils/interaction-tracking"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
 export const SIDEBAR_WIDTH_KEY = "octo:insight:sidebar-width"
@@ -97,6 +98,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
       style={{ "--sidebar-width": `${width()}px` }}
     >
       <GroupedSidebar
+        onNavigation={(target) => trackInsight("navigation-open", { target, source: "sidebar" })}
         namespace="insight"
         routePrefix="/insight"
         agentFilter="octo_insight"
