@@ -96,6 +96,9 @@ export async function spawnLocalServer(
     env: createSidecarEnv(),
     serviceName: SIDECAR_SERVICE_NAME,
     stdio: "pipe",
+    // utilityProcess 默认 V8 堆预算仅 ~250MB(2026-10-15 用户侧长会话上下文物化尖峰
+    // 150MB+ 直接 OOM,sidecar exited code 5),显式抬高到 2GB 与普通 Node 子进程对齐
+    execArgv: ["--max-old-space-size=2048"],
   })
   let exited = false
   const exit = defer<number>()
