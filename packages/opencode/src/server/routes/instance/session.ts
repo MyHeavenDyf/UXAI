@@ -4,7 +4,7 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession } from "@/session/portable"
+import { buildPortableSession, exportPortableSession, importPortableSession } from "@/session/portable"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -187,6 +187,34 @@ export const SessionRoutes = lazy(() =>
             output: c.req.valid("json").path,
           })
         }),
+    )
+    .get(
+      "/:sessionID/portable",
+      describeRoute({
+        summary: "Download portable session bundle",
+        description: "Download the complete session tree as a portable ZIP bundle.",
+        operationId: "session.portableBundle",
+        responses: {
+          200: {
+            description: "Portable session ZIP",
+            content: {
+              "application/zip": {
+                schema: resolver(z.string()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const bundle = await runRequest("SessionRoutes.portableBundle", c, buildPortableSession(sessionID))
+        return c.body(Buffer.from(bundle.archive), 200, {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="session-${sessionID}.zip"`,
+        })
+      },
     )
     .get(
       "/:sessionID",

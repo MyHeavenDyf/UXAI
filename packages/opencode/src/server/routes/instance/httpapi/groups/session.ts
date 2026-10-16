@@ -92,6 +92,7 @@ export const SessionPaths = {
   status: `${root}/status`,
   portableImport: `${root}/import`,
   portableExport: `${root}/:sessionID/export`,
+  portableBundle: `${root}/:sessionID/portable`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
@@ -165,6 +166,20 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.portableExport",
             summary: "Export portable session",
             description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
+          }),
+        ),
+        HttpApiEndpoint.get("portableBundle", SessionPaths.portableBundle, {
+          params: { sessionID: SessionID },
+          success: described(
+            Schema.String.pipe(HttpApiSchema.asText({ contentType: "application/zip" })),
+            "Portable session ZIP",
+          ),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableBundle",
+            summary: "Download portable session bundle",
+            description: "Download the complete session tree as a portable ZIP bundle.",
           }),
         ),
         HttpApiEndpoint.get("get", SessionPaths.get, {

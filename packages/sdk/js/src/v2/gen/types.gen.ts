@@ -6057,6 +6057,40 @@ export type SessionPortableExportResponses = {
 
 export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
 
+export type SessionPortableBundleData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/portable"
+}
+
+export type SessionPortableBundleErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableBundleError = SessionPortableBundleErrors[keyof SessionPortableBundleErrors]
+
+export type SessionPortableBundleResponses = {
+  /**
+   * Portable session ZIP
+   */
+  200: Blob | File
+}
+
+export type SessionPortableBundleResponse = SessionPortableBundleResponses[keyof SessionPortableBundleResponses]
+
 export type SessionDeleteData = {
   body?: never
   path: {

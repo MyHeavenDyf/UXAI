@@ -8,7 +8,7 @@ import { PermissionID } from "@/permission/schema"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession } from "@/session/portable"
+import { buildPortableSession, exportPortableSession, importPortableSession } from "@/session/portable"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -101,6 +101,19 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapStorageNotFound(
         exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path }),
       )
+    })
+
+    const portableBundle = Effect.fn("SessionHttpApi.portableBundle")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      const bundle = yield* SessionError.mapStorageNotFound(buildPortableSession(ctx.params.sessionID))
+      return HttpServerResponse.raw(bundle.archive, {
+        status: 200,
+        contentType: "application/zip",
+        headers: {
+          "Content-Disposition": `attachment; filename="session-${ctx.params.sessionID}.zip"`,
+        },
+      })
     })
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -405,6 +418,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("status", status)
       .handle("portableImport", portableImport)
       .handle("portableExport", portableExport)
+      .handle("portableBundle", portableBundle)
       .handle("get", get)
       .handle("children", children)
       .handle("todo", todo)

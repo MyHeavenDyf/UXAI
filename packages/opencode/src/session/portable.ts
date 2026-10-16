@@ -185,18 +185,15 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
   })
 }
 
-export const exportPortableSession = Effect.fn("SessionPortable.export")(function* (input: {
-  sessionID: SessionID
-  output: string
-}) {
+export const buildPortableSession = Effect.fn("SessionPortable.build")(function* (sessionID: SessionID) {
   const context = yield* InstanceState.context
-  const entries = yield* collectSessions(input.sessionID)
+  const entries = yield* collectSessions(sessionID)
   const zip = new JSZip()
   const manifest: Manifest = {
     format: "octo-session",
     version: bundleVersion,
     exportedAt: Date.now(),
-    rootSessionID: input.sessionID,
+    rootSessionID: sessionID,
     sourceDirectory: context.directory,
     exclusions: ["credentials", "permissions", "share links", "active processes", "workspace binding"],
     sessions: entries,
@@ -204,16 +201,28 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   }
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
   const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
+  return {
+    archive,
+    sessions: entries.length,
+    files: manifest.files.length,
+  }
+})
+
+export const exportPortableSession = Effect.fn("SessionPortable.export")(function* (input: {
+  sessionID: SessionID
+  output: string
+}) {
+  const bundle = yield* buildPortableSession(input.sessionID)
   const output = path.resolve(
     input.output.toLowerCase().endsWith(".zip")
       ? input.output
       : `${input.output.replace(/\.octosession$/i, "")}.zip`,
   )
-  yield* Effect.promise(() => Filesystem.write(output, archive))
+  yield* Effect.promise(() => Filesystem.write(output, bundle.archive))
   return {
     output,
-    sessions: entries.length,
-    files: manifest.files.length,
+    sessions: bundle.sessions,
+    files: bundle.files,
   }
 })
 
