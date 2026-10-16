@@ -202,8 +202,6 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
-  SessionPortableBundleErrors,
-  SessionPortableBundleResponses,
   SessionPortableExportErrors,
   SessionPortableExportResponses,
   SessionPortableImportErrors,
@@ -3965,42 +3963,6 @@ export class Session2 extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
-    })
-  }
-
-  /**
-   * Download portable session bundle
-   *
-   * Download the complete session tree as a portable ZIP bundle.
-   */
-  public portableBundle<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<
-      SessionPortableBundleResponses,
-      SessionPortableBundleErrors,
-      ThrowOnError
-    >({
-      url: "/session/{sessionID}/portable",
-      ...options,
-      ...params,
     })
   }
 

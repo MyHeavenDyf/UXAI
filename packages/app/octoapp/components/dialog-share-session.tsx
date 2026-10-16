@@ -2,9 +2,8 @@ import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { createShareSession, buildShareLink } from "@/network/pipelineRequest"
-import { downloadPortableSession } from "@/network/portable-session"
+import { exportPortableSessionBlob } from "@/network/portable-session"
 import { showShareNotice } from "@/components/share-notice"
 import copyLinkPng from "@/pages/_shell/icons/ic_public_link.png"
 
@@ -15,7 +14,6 @@ export function DialogShareSession(props: {
   directory: string
 }) {
   const dialog = useDialog()
-  const globalSDK = useGlobalSDK()
   const [loading, setLoading] = createSignal(false)
 
   const handleCopyLink = async () => {
@@ -23,7 +21,7 @@ export function DialogShareSession(props: {
     setLoading(true)
     try {
       const name = props.sessionName.replace(/[<>:"/\\|?*]/g, "-").trim() || "session"
-      const blob = await downloadPortableSession(globalSDK.url, props.directory, props.sessionID)
+      const blob = await exportPortableSessionBlob(props.client, props.directory, props.sessionID)
       const content = await createShareSession(blob, `${name}.zip`, `分享会话: ${props.sessionName}`)
       const url = buildShareLink(content.uniqueId)
       await navigator.clipboard?.writeText(url)
