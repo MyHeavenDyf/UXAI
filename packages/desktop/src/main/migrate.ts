@@ -2,10 +2,10 @@ import { app } from "electron"
 import log from "electron-log/main.js"
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, chmodSync } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { xdgCache } from "xdg-basedir"
 import { CHANNEL } from "./constants"
+import { effectiveXdgCacheHome, octoConfigDir, standardXdgConfigHome } from "./storage"
 import { getStore } from "./store"
 
 const TAURI_MIGRATED_KEY = "tauriMigrated"
@@ -139,13 +139,17 @@ export function migrate() {
   getStore().set(TAURI_MIGRATED_KEY, true)
 }
 
-export function deploySkillsJson() {
-  const configDir = join(homedir(), ".config", "octo")
+export function deploySkillsJson(options?: { configDir?: string; sourcePath?: string }) {
+  // 跟随 sidecar 实际读到的 octoConfig(app-data-fallback 覆盖时随之迁移),
+  // 不再硬编码 ~/.config/octo —— 否则 server 扫描目录与部署目录分裂。
+  const configDir = options?.configDir ?? octoConfigDir()
   const targetPath = join(configDir, "skills.json")
 
-  const sourcePath = app.isPackaged
-    ? join(process.resourcesPath, "skills.json")
-    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skills.json")
+  const sourcePath =
+    options?.sourcePath ??
+    (app.isPackaged
+      ? join(process.resourcesPath, "skills.json")
+      : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skills.json"))
 
   if (!existsSync(sourcePath)) {
     log.warn("skills.json deployment: source file not found", sourcePath)
@@ -181,13 +185,15 @@ export function deploySkillsJson() {
   }
 }
 
-export function deployBuiltinSkills() {
-  const octoSkillDir = join(homedir(), ".config", "octo", "skill")
+export function deployBuiltinSkills(options?: { configDir?: string; skillsSource?: string }) {
+  const octoSkillDir = join(options?.configDir ?? octoConfigDir(), "skill")
 
   // Skills are now flattened in dist/node/skill/ during build
-  const builtinSource = app.isPackaged
-    ? join(process.resourcesPath, "skills")
-    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skill")
+  const builtinSource =
+    options?.skillsSource ??
+    (app.isPackaged
+      ? join(process.resourcesPath, "skills")
+      : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skill"))
 
   if (!existsSync(builtinSource)) {
     log.warn("builtin skills deployment: source directory not found", builtinSource)
@@ -212,6 +218,82 @@ export function deployBuiltinSkills() {
   }
 }
 
+const OCTO_CONFIG_COPY_FILES = [
+  "skills.json",
+  "skill_config.json",
+  "assets_config.json",
+  "octo.json",
+  "octo.jsonc",
+  "opencode.json",
+  "opencode.jsonc",
+] as const
+
+/** 仅复制缺失项,绝不覆盖目标侧已有内容(用户定制/新版本部署优先) */
+function copyMissingConfigItems(from: string, to: string) {
+  const copied: string[] = []
+
+  const fromSkill = join(from, "skill")
+  if (existsSync(fromSkill)) {
+    for (const entry of readdirSync(fromSkill, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const dest = join(to, "skill", entry.name)
+      if (existsSync(dest)) continue
+      mkdirSync(dirname(dest), { recursive: true })
+      cpSync(join(fromSkill, entry.name), dest, { recursive: true })
+      copied.push(`skill/${entry.name}`)
+    }
+  }
+
+  for (const name of OCTO_CONFIG_COPY_FILES) {
+    const src = join(from, name)
+    const dest = join(to, name)
+    if (!existsSync(src) || existsSync(dest)) continue
+    mkdirSync(dirname(dest), { recursive: true })
+    copyFileSync(src, dest)
+    copied.push(name)
+  }
+
+  if (copied.length > 0) log.log("octo config migration: copied", { from, to, copied })
+  return copied
+}
+
+/**
+ * 把 skill/配置内容对齐到 sidecar 实际读取的 octoConfig 目录。
+ *
+ * 正向(覆盖激活,octoConfigDir() 指向 <userData>/xdg-config/octo):把 ~/.config/octo
+ * 里已有的用户 skill 与配置 copy-if-missing 过去,避免"部署落点跟着搬、存量内容留在原地"。
+ *
+ * 反向补救(探测式修复后回到 ~/.config/octo):旧版本覆盖窗口期间 server 曾把保存的
+ * 全局配置(octo.json 等)写进 <userData>/xdg-config/octo —— rescueDir 存在时把这些
+ * 缺失项救回标准目录,防止用户在坏窗口里改的设置凭空消失。
+ *
+ * 不碰 proxy_config.json(proxy-config.ts 刻意钉死 ~/.config/octo)与 prototype/、
+ * design/(server 端硬编码消费,见 deployProtoTools 注释)。
+ */
+export function migrateLegacyOctoConfig(options?: { sourceDir?: string; targetDir?: string; rescueDir?: string }) {
+  const sourceDir = options?.sourceDir ?? join(standardXdgConfigHome(), "octo")
+  const targetDir = options?.targetDir ?? octoConfigDir()
+
+  try {
+    if (resolve(sourceDir) === resolve(targetDir)) {
+      const rescueDir = options?.rescueDir
+      if (rescueDir && resolve(rescueDir) !== resolve(targetDir) && existsSync(rescueDir)) {
+        copyMissingConfigItems(rescueDir, targetDir)
+      }
+      return
+    }
+    if (!existsSync(sourceDir)) return
+    mkdirSync(targetDir, { recursive: true })
+    copyMissingConfigItems(sourceDir, targetDir)
+  } catch (err) {
+    log.warn("octo config migration: failed", err)
+  }
+}
+
+// 刻意保持硬编码 ~/.config/octo/prototype:server 端 proto_tool 硬编码同一路径
+// (opencode/src/tool/proto_tool/load_components_docs.ts designSystemDir/designDir、
+// agent/proto/theme.ts themeOverrideDir),deployProtoTools 单边跟随 octoConfigDir()
+// 会在 app-data-fallback 覆盖模式下把部署落点与 server 读取落点劈开。
 export function deployProtoTools() {
   const configDir = join(homedir(), ".config", "octo")
 
@@ -244,6 +326,7 @@ export function deployProtoTools() {
 }
 
 // jk-j60099994-replace-with-60062650-desktop-main-migrate-1-start
+// 同 deployProtoTools:消费方(server 端脚本/工具)按 ~/.config/octo 硬编码路径解析,不跟随 octoConfigDir()。
 export async function deployResourceLibraryScripts() {
   const configDir = join(homedir(), ".config", "octo")
 
@@ -305,20 +388,23 @@ export function bundledPluginSdkPath(): string | null {
   }
 }
 
-export function deployRipgrep() {
+export function deployRipgrep(options?: { targetDir?: string; sourcePath?: string }) {
   const { platform } = process
   const targetName = platform === "win32" ? "rg.exe" : "rg"
 
-  const sourcePath = bundledRipgrepPath()
+  const sourcePath = options?.sourcePath ?? bundledRipgrepPath()
 
   if (!sourcePath) {
     log.warn("ripgrep deployment: source binary not found")
     return
   }
 
-  // Use xdgCache to match Global.Path.bin in opencode
-  const cacheDir = xdgCache ?? join(homedir(), ".cache")
-  const targetDir = join(cacheDir, "opencode", "bin")
+  // Use the effective cache home so the deployed copy lands where the sidecar's
+  // Global.Path.bin looks (app-data-fallback overrides XDG_CACHE_HOME). In
+  // practice OPENCODE_RIPGREP_PATH (server.ts createSidecarEnv) points at the
+  // bundled binary and takes priority — this copy only matters when the bundle
+  // is missing.
+  const targetDir = options?.targetDir ?? join(effectiveXdgCacheHome(), "opencode", "bin")
   const targetPath = join(targetDir, targetName)
 
   if (existsSync(targetPath)) {
