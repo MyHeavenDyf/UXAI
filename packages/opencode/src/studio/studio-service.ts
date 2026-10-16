@@ -1345,7 +1345,7 @@ function persistStudioSession(input: {
       metadata: {
         studio: {
           generationID: input.generationID,
-          status: "queued",
+          status: "creating",
           progress: 0,
         },
       },
@@ -1883,12 +1883,13 @@ function markGenerationCancelled(input: {
       if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed")
         return "cancelled" as const
       if (
+        current.status !== "creating" &&
         current.status !== "queued" &&
         current.status !== "running" &&
         !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")
       )
         return "terminal" as const
-      const updateTurn = current.status === "queued" || current.status === "running"
+      const updateTurn = current.status === "creating" || current.status === "queued" || current.status === "running"
       db.update(StudioGenerationTable)
         .set({
           status: input.status,
@@ -2645,7 +2646,7 @@ async function runGenerationCreatePipeline(id: string) {
           request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
           time_updated: Date.now(),
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     if (isGenerationCancelled(loadGenerationRecord(id))) return
@@ -2684,7 +2685,7 @@ async function runGenerationCreatePipeline(id: string) {
           next_poll_at: providerStartedAt,
           time_updated: providerStartedAt,
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     startStudioGenerationWorker()
@@ -2825,7 +2826,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
         tool_part_id: turn.toolPart.id,
         provider,
         capability: input.capability,
-        status: "running",
+        status: "creating",
         progress: 0,
         request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
         next_poll_at: Number.MAX_SAFE_INTEGER,

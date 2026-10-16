@@ -224,6 +224,7 @@ const StudioGenerationResult = Schema.Struct({
   id: Schema.String,
   sessionID: Schema.String,
   status: Schema.Union([
+    Schema.Literal("creating"),
     Schema.Literal("queued"),
     Schema.Literal("running"),
     Schema.Literal("succeeded"),
