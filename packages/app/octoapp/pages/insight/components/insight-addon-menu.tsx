@@ -68,7 +68,10 @@ export function InsightAddonMenu(props: {
   const finish = (id: string) => {
     const result = results.get(id)
     if (lifetime.signal.aborted || !state.pending[id] || !result) return
-    props.editor()?.insertMentions(result.files.map(file => ({ type: "file", ...file, id })))
+    const selection = state.pending[id].selection
+    props.editor()?.insertMentions([{
+      type: "file", filename: selection.filename, path: result.root, id, files: result.files,
+    }])
     setState("pending", id, undefined!)
     props.onRefresh()
   }
