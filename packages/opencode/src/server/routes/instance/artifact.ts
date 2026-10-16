@@ -432,8 +432,15 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
             filename: z.string(),
             content: z.string(),
             scope: z.enum(["project"]).optional(),
-            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根
-            dir: z.string().optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根;含 .. / ~ 时校验层直接 400
+            dir: z
+              .string()
+              .optional()
+              .refine((v) => {
+                if (!v) return true
+                const normalized = v.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+                return !normalized.includes("..") && !normalized.includes("~")
+              }, { message: "invalid dir" }),
           })
           .refine((v) => v.scope === "project" || !!v.sessionId, {
             message: "sessionId is required unless scope=project",
@@ -445,13 +452,9 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const fs = yield* AppFileSystem.Service
           const projectScope = body.scope === "project"
 
-          // project scope(代码工作区,统一文件树):dir = 项目相对目标目录,缺省/空 = 项目根,含 .. / ~ 拒绝;
+          // project scope(代码工作区,统一文件树):dir = 项目相对目标目录,缺省/空 = 项目根 (zod 已拒绝 .. / ~);
           // session scope:落 .octo/<sessionId>/uploads (原行为)
-          let relDir = ""
-          if (projectScope && body.dir && body.dir.trim() !== "") {
-            relDir = sanitizePath(body.dir)
-            if (relDir === "") return c.json({ error: "invalid dir" }, 400)
-          }
+          const relDir = projectScope ? sanitizePath(body.dir ?? "") : ""
           const targetDir = projectScope
             ? path.join(Instance.directory, relDir)
             : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
@@ -534,8 +537,15 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
               }),
             ),
             scope: z.enum(["project"]).optional(),
-            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根
-            dir: z.string().optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根;含 .. / ~ 时校验层直接 400
+            dir: z
+              .string()
+              .optional()
+              .refine((v) => {
+                if (!v) return true
+                const normalized = v.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+                return !normalized.includes("..") && !normalized.includes("~")
+              }, { message: "invalid dir" }),
           })
           .refine((v) => v.scope === "project" || !!v.sessionId, {
             message: "sessionId is required unless scope=project",
@@ -547,12 +557,8 @@ const { sessionId, path: subPath, category, scope } = c.req.valid("query")
           const fs = yield* AppFileSystem.Service
           const projectScope = body.scope === "project"
 
-          // 与 upload 同语义:project scope 用 dir (项目相对目标目录,缺省/空 = 项目根,含 .. / ~ 拒绝)
-          let relDir = ""
-          if (projectScope && body.dir && body.dir.trim() !== "") {
-            relDir = sanitizePath(body.dir)
-            if (relDir === "") return c.json({ error: "invalid dir" }, 400)
-          }
+          // 与 upload 同语义:project scope 用 dir (项目相对目标目录,缺省/空 = 项目根,zod 已拒绝 .. / ~)
+          const relDir = projectScope ? sanitizePath(body.dir ?? "") : ""
           const targetDir = projectScope
             ? path.join(Instance.directory, relDir)
             : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
