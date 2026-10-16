@@ -53,6 +53,7 @@ export type BeforeSectionApi = {
 }
 
 export type AgentSidebarProps = {
+  onNavigation?: (target: "project" | "skills" | "assets" | "settings" | "update") => void
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
   directory: string | null | undefined
@@ -911,6 +912,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   return (
     <>
     <SidebarShell
+      onNavigation={props.onNavigation}
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
       newButtonText={props.newButtonText ?? "新建对话"}

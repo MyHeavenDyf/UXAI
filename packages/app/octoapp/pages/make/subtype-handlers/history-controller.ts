@@ -90,7 +90,30 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
+        let newestId = existing[0].id
+        const currentHash = await getTabFileSetHash(tab)
+        if (currentHash) {
+          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
+          const hashes: string[] = []
+          for (const vf of versionFiles) {
+            const h = await getFileHash(vf.filePath)
+            if (h) hashes.push(h)
+          }
+          if (hashes.join("|") !== currentHash) {
+            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+            if (entry) {
+              newestId = entry.id
+              listGeneration++
+              if (callbacks.isActiveTab(tab.id)) {
+                const list = await historyStore.listVersions(tab)
+                callbacks.setVersionList(() => list)
+              } else {
+                callbacks.setVersionList((prev) => [entry, ...prev])
+              }
+            }
+          }
+        }
+        callbacks.setCurrentVersionId(() => newestId)
         return
       }
     }

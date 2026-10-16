@@ -236,6 +236,8 @@ import type {
   StudioGenerationsGetResponses,
   StudioGenerationsRebootErrors,
   StudioGenerationsRebootResponses,
+  StudioGenerationsRefreshErrors,
+  StudioGenerationsRefreshResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
@@ -6654,6 +6656,42 @@ export class Generations extends HeyApiClient {
       ThrowOnError
     >({
       url: "/studio/generations/{generationID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Refresh Studio generation
+   *
+   * Queries and restores an abnormal asynchronous Studio generation.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsRefreshResponses,
+      StudioGenerationsRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/refresh",
       ...options,
       ...params,
     })

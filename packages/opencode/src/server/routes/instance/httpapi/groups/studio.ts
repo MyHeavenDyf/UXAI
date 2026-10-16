@@ -22,6 +22,7 @@ export const StudioPaths = {
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
   generationReboot: `${root}/generations/:generationID/reboot`,
+  generationRefresh: `${root}/generations/:generationID/refresh`,
   generationVideoPoster: `${root}/generations/:generationID/video-poster`,
   generationThumbnailSource: `${root}/generations/:generationID/media/:mediaIndex/thumbnail-source`,
   generationThumbnail: `${root}/generations/:generationID/media/:mediaIndex/thumbnail`,
@@ -228,6 +229,7 @@ const StudioGenerationResult = Schema.Struct({
     Schema.Literal("succeeded"),
     Schema.Literal("create_failed"),
     Schema.Literal("failed"),
+    Schema.Literal("abnormal"),
   ]),
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
@@ -437,6 +439,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.video-poster.save",
             summary: "Save Studio video poster",
             description: "Persists a browser-captured video frame without changing generation status.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.get("getGenerationThumbnailSource", StudioPaths.generationThumbnailSource, {
@@ -448,6 +451,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail-source.get",
             summary: "Read Studio thumbnail source",
             description: "Returns the persisted generation image bytes for same-origin browser thumbnail generation.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("saveGenerationThumbnail", StudioPaths.generationThumbnail, {
@@ -460,6 +464,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail.save",
             summary: "Save Studio media thumbnail",
             description: "Persists a browser-generated WebP thumbnail without changing generation status.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("invalidateGenerationThumbnail", StudioPaths.generationThumbnailInvalidate, {
@@ -471,6 +476,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail.invalidate",
             summary: "Invalidate Studio media thumbnail",
             description: "Removes a thumbnail that the browser could not decode and queues it for regeneration.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {
@@ -482,6 +488,20 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.sessions.thumbnails.ensure",
             summary: "Ensure Studio session thumbnails",
             description: "Queues missing image thumbnails for a Studio session without waiting for processing.",
+            exclude: true,
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("refreshGeneration", StudioPaths.generationRefresh, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Refreshed Studio generation"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.refresh",
+            summary: "Refresh Studio generation",
+            description: "Queries and restores an abnormal asynchronous Studio generation.",
           }),
         ),
       )

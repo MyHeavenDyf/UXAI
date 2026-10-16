@@ -16,7 +16,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
-import { isOverflow as overflow, usable } from "./overflow"
+import { isOverflow as overflow } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
@@ -50,8 +50,7 @@ export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
-const MIN_PRESERVE_RECENT_TOKENS = 2_000
-const MAX_PRESERVE_RECENT_TOKENS = 15_000
+const COMPRESSION_HEAD_RATIO = 0.7
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -91,11 +90,6 @@ Rules:
 type Turn = {
   start: number
   end: number
-  id: MessageID
-}
-
-type Tail = {
-  start: number
   id: MessageID
 }
 
@@ -185,13 +179,6 @@ function buildPrompt(input: { previousSummary?: string; context: string[] }) {
   return [conversation, anchor, SUMMARY_TEMPLATE].join("\n\n")
 }
 
-function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.Model }) {
-  return (
-    input.cfg.compaction?.preserve_recent_tokens ??
-    Math.min(MAX_PRESERVE_RECENT_TOKENS, Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.floor(usable(input) * 0.25)))
-  )
-}
-
 function turns(messages: MessageV2.WithParts[]) {
   const result: Turn[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -208,31 +195,6 @@ function turns(messages: MessageV2.WithParts[]) {
     result[i].end = result[i + 1].start
   }
   return result
-}
-
-function splitTurn(input: {
-  messages: MessageV2.WithParts[]
-  turn: Turn
-  model: Provider.Model
-  budget: number
-  estimate: (input: { messages: MessageV2.WithParts[]; model: Provider.Model }) => Effect.Effect<number>
-}) {
-  return Effect.gen(function* () {
-    if (input.budget <= 0) return undefined
-    if (input.turn.end - input.turn.start <= 1) return undefined
-    for (let start = input.turn.start + 1; start < input.turn.end; start++) {
-      const size = yield* input.estimate({
-        messages: input.messages.slice(start, input.turn.end),
-        model: input.model,
-      })
-      if (size > input.budget) continue
-      return {
-        start,
-        id: input.messages[start]!.info.id,
-      } satisfies Tail
-    }
-    return undefined
-  })
 }
 
 export interface Interface {
@@ -288,54 +250,15 @@ export const layer: Layer.Layer<
       return overflow({ cfg: yield* config.get(), tokens: input.tokens, model: input.model })
     })
 
-    const estimate = Effect.fn("SessionCompaction.estimate")(function* (input: {
-      messages: MessageV2.WithParts[]
-      model: Provider.Model
-    }) {
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
-      return Token.estimate(JSON.stringify(msgs))
-    })
-
-    const select = Effect.fn("SessionCompaction.select")(function* (input: {
-      messages: MessageV2.WithParts[]
-      cfg: Config.Info
-      model: Provider.Model
-    }) {
-      const limit = input.cfg.compaction?.tail_turns
-      if (limit !== undefined && limit <= 0) return { head: input.messages, tail_start_id: undefined }
-      const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
+    const select = Effect.fn("SessionCompaction.select")(function* (input: { messages: MessageV2.WithParts[] }) {
       const all = turns(input.messages)
       if (!all.length) return { head: input.messages, tail_start_id: undefined }
-      const recent = limit === undefined ? all : all.slice(-limit)
-
-      let total = 0
-      let keep: Tail | undefined
-      for (let i = recent.length - 1; i >= 0; i--) {
-        const turn = recent[i]!
-        // estimate lazily so cost stays proportional to the retained tail, not the whole session
-        const size = yield* estimate({
-          messages: input.messages.slice(turn.start, turn.end),
-          model: input.model,
-        })
-        if (total + size <= budget) {
-          total += size
-          keep = { start: turn.start, id: turn.id }
-          continue
-        }
-        const remaining = budget - total
-        const split = yield* splitTurn({
-          messages: input.messages,
-          turn,
-          model: input.model,
-          budget: remaining,
-          estimate,
-        })
-        if (split) keep = split
-        else if (!keep) log.info("tail fallback", { budget, size, total })
-        break
-      }
-
-      if (!keep || keep.start === 0) return { head: input.messages, tail_start_id: undefined }
+      // Keep the first 70% of complete turns in the summary request and leave the
+      // remaining 30% untouched. A single-turn session has no tail to preserve,
+      // so it is still summarized as a useful compaction operation.
+      const compressedCount = Math.max(1, Math.floor(all.length * COMPRESSION_HEAD_RATIO))
+      const keep = all[compressedCount]
+      if (!keep) return { head: input.messages, tail_start_id: undefined }
       return {
         head: input.messages.slice(0, keep.start),
         tail_start_id: keep.id,
@@ -434,15 +357,12 @@ export const layer: Layer.Layer<
       const model = agent.model
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
-      const cfg = yield* config.get()
       const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
       const prior = completedCompactions(history)
       const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
       const previousSummary = prior.at(-1)?.summary
       const selected = yield* select({
         messages: history.filter((_, index) => !hidden.has(index)),
-        cfg,
-        model,
       })
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
