@@ -141,6 +141,7 @@ const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
+  const layout = useLayout()
   const projectDir = useProjectDir({ mode: "project" })
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -149,7 +150,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id && layout.lastSessionPerTab.make(dir) !== params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -203,7 +204,7 @@ function MakeContent() {
   const prevMakeDir = lastMakeDir
   lastMakeDir = sdk.directory
   onMount(() => {
-    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id || layout.lastSessionPerTab.make(sdk.directory) === params.id) return
     navigate("/make", { replace: true })
   })
 

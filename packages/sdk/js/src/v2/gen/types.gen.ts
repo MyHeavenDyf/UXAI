@@ -1678,6 +1678,14 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3429,14 +3437,6 @@ export type EventTuiToastShow1 = {
     variant: "info" | "success" | "warning" | "error"
     duration?: number
   }
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type AuthRemoveData = {
@@ -6055,6 +6055,43 @@ export type SessionPortableExportResponses = {
 }
 
 export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
+
+export type SessionPortableShareData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/portable-share"
+}
+
+export type SessionPortableShareErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableShareError = SessionPortableShareErrors[keyof SessionPortableShareErrors]
+
+export type SessionPortableShareResponses = {
+  /**
+   * Shared portable session
+   */
+  200: {
+    uniqueId: string
+    url: string
+  }
+}
+
+export type SessionPortableShareResponse = SessionPortableShareResponses[keyof SessionPortableShareResponses]
 
 export type SessionDeleteData = {
   body?: never

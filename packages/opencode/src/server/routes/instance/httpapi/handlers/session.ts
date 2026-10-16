@@ -8,7 +8,7 @@ import { PermissionID } from "@/permission/schema"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession } from "@/session/portable"
+import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -43,6 +43,7 @@ import {
   UpdatePayload,
 } from "../groups/session"
 import * as SessionError from "./session-errors"
+import { ApiBadRequestError } from "../errors"
 
 const log = Log.create({ service: "session-httpapi" })
 
@@ -100,6 +101,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       return yield* SessionError.mapStorageNotFound(
         exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path }),
+      )
+    })
+
+    const portableShare = Effect.fn("SessionHttpApi.portableShare")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
+      return yield* sharePortableSession({ sessionID: ctx.params.sessionID }).pipe(
+        Effect.mapError((error) => new ApiBadRequestError({ message: error.message })),
       )
     })
 
@@ -405,6 +415,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("status", status)
       .handle("portableImport", portableImport)
       .handle("portableExport", portableExport)
+      .handle("portableShare", portableShare)
       .handle("get", get)
       .handle("children", children)
       .handle("todo", todo)

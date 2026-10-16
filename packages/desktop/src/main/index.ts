@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
 import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
@@ -56,6 +56,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-start
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import { parseSharedSessionLink } from "./shared-session"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
 import { initLogging } from "./logging"
@@ -157,12 +158,13 @@ function setupApp() {
   }
 
   preferAppEnv(app.getPath("userData"))
+  pendingDeepLinks.push(...process.argv.filter((arg) => parseSharedSessionLink(arg)))
 
   // macOS shell 探测可能覆盖 proxy 环境变量,补注一次确保 Node.js HTTP agent 读到代理
   useEnvProxy()
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
+    const urls = argv.filter((arg: string) => arg.startsWith("opencode://") || parseSharedSessionLink(arg))
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
@@ -174,6 +176,7 @@ function setupApp() {
     event.preventDefault()
     logger.log("deep link received via open-url", { url })
     emitDeepLinks([url])
+    focusMainWindow()
   })
 
   app.on("before-quit", () => {
@@ -210,6 +213,12 @@ function setupApp() {
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
+    const shareScheme = CHANNEL === "beta" ? "octo-agent-beta" : "octo-agent"
+    if (process.defaultApp && process.argv[1]) {
+      app.setAsDefaultProtocolClient(shareScheme, process.execPath, [resolve(process.argv[1])])
+    } else {
+      app.setAsDefaultProtocolClient(shareScheme)
+    }
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()

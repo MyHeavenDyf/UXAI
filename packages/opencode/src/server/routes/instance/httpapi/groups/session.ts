@@ -15,7 +15,7 @@ import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, Op
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
-import { ApiNotFoundError } from "../errors"
+import { ApiBadRequestError, ApiNotFoundError } from "../errors"
 import { described } from "./metadata"
 
 const root = "/session"
@@ -86,12 +86,17 @@ export const PortableExportResult = Schema.Struct({
   sessions: Schema.Number,
   files: Schema.Number,
 })
+export const PortableShareResult = Schema.Struct({
+  uniqueId: Schema.String,
+  url: Schema.String,
+})
 
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
   portableImport: `${root}/import`,
   portableExport: `${root}/:sessionID/export`,
+  portableShare: `${root}/:sessionID/portable-share`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
@@ -165,6 +170,17 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.portableExport",
             summary: "Export portable session",
             description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
+          }),
+        ),
+        HttpApiEndpoint.post("portableShare", SessionPaths.portableShare, {
+          params: { sessionID: SessionID },
+          success: described(PortableShareResult, "Shared portable session"),
+          error: [ApiBadRequestError, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableShare",
+            summary: "Share portable session",
+            description: "Export a complete session, upload its ZIP archive, and return a shareable web URL.",
           }),
         ),
         HttpApiEndpoint.get("get", SessionPaths.get, {

@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { readFile, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import JSZip from "jszip"
@@ -15,6 +16,13 @@ import { Todo } from "./todo"
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
 const sessionDirectory = ".octo"
+
+const ShareUploadResponse = Schema.Struct({
+  content: Schema.Struct({
+    uniqueId: Schema.String,
+  }),
+  success: Schema.Boolean,
+})
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
@@ -215,6 +223,52 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
     sessions: entries.length,
     files: manifest.files.length,
   }
+})
+
+export const sharePortableSession = Effect.fn("SessionPortable.share")(function* (input: {
+  sessionID: SessionID
+}) {
+  const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
+  const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
+  const missing = [!uploadURL && "OCTO_SHARE_API_URL", !sharePageURL && "OCTO_SHARE_PAGE_URL"].filter(Boolean)
+  if (missing.length) return yield* Effect.fail(new Error(`分享配置缺失：请配置环境变量 ${missing.join("、")}`))
+  if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
+    return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
+  }
+  const sessions = yield* Session.Service
+  const info = yield* sessions.get(input.sessionID)
+  const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
+
+  return yield* Effect.gen(function* () {
+    const exported = yield* exportPortableSession({ sessionID: input.sessionID, output })
+    const result = yield* Effect.tryPromise({
+      try: async () => {
+        const form = new FormData()
+        form.append(
+          "file",
+          new Blob([new Uint8Array(await readFile(exported.output))], { type: "application/zip" }),
+          `${(info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim() || "session"}.zip`,
+        )
+        form.append("description", info.title || "")
+        const response = await fetch(uploadURL!, {
+          method: "POST",
+          body: form,
+        })
+        if (!response.ok) throw new Error(`Share upload failed: ${response.status}`)
+        return Schema.decodeUnknownSync(ShareUploadResponse)(await response.json())
+      },
+      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    })
+    if (!result.success || !result.content.uniqueId) throw new Error("Share upload did not return a uniqueId")
+    return {
+      uniqueId: result.content.uniqueId,
+      url: (() => {
+        const url = new URL(sharePageURL!)
+        url.searchParams.set("uniqueId", result.content.uniqueId)
+        return url.toString()
+      })(),
+    }
+  }).pipe(Effect.ensuring(Effect.promise(() => rm(output, { force: true }))))
 })
 
 function rewritePath(

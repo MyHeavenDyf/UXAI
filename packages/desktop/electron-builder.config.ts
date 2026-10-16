@@ -80,7 +80,7 @@ const getBase = (): Configuration => ({
   },
   protocols: {
     name: "Octo Agent",
-    schemes: ["octo agent"],
+    schemes: ["octo-agent"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -129,7 +129,7 @@ function getConfig() {
         ...base,
         appId: "com.huawei.octoagent.beta",
         productName: "Octo Agent Beta",
-        protocols: { name: "Octo Agent Beta", schemes: ["oc"] },
+        protocols: { name: "Octo Agent Beta", schemes: ["oc", "octo-agent-beta"] },
         publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
         rpm: { packageName: "octo-agent-beta" },
       }

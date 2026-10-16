@@ -1,10 +1,11 @@
 import { Hono } from "hono"
+import { HTTPException } from "hono/http-exception"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession } from "@/session/portable"
+import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -186,6 +187,32 @@ export const SessionRoutes = lazy(() =>
             sessionID: c.req.valid("param").sessionID,
             output: c.req.valid("json").path,
           })
+        }),
+    )
+    .post(
+      "/:sessionID/portable-share",
+      describeRoute({
+        summary: "Share portable session",
+        description: "Export a complete session, upload its ZIP archive, and return a shareable web URL.",
+        operationId: "session.portableShare",
+        responses: {
+          200: {
+            description: "Shared portable session",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ uniqueId: z.string(), url: z.string().url() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableShare", c, function* () {
+          return yield* sharePortableSession({ sessionID: c.req.valid("param").sessionID }).pipe(
+            Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
+          )
         }),
     )
     .get(

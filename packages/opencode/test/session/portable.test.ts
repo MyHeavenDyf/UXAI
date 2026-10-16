@@ -4,7 +4,13 @@ import { pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
 import { MessageV2 } from "@/session/message-v2"
-import { exportPortableSession, importPortableSession, isPortableSessionFile, remapPart } from "@/session/portable"
+import {
+  exportPortableSession,
+  importPortableSession,
+  isPortableSessionFile,
+  remapPart,
+  sharePortableSession,
+} from "@/session/portable"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
@@ -17,6 +23,55 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("uploads a generated ZIP and returns a share page URL", async () => {
+    const uploads: { fileName: string; description: string; size: number }[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const form = await request.formData()
+        const file = form.get("file")
+        if (!(file instanceof File)) return new Response("file is required", { status: 400 })
+        uploads.push({
+          fileName: file.name,
+          description: String(form.get("description") ?? ""),
+          size: file.size,
+        })
+        return Response.json({ content: { uniqueId: "Ab12Cd34Ef" }, success: true })
+      },
+    })
+
+    const previousUpload = process.env.OCTO_SHARE_API_URL
+    const previousPage = process.env.OCTO_SHARE_PAGE_URL
+    process.env.OCTO_SHARE_API_URL = `http://127.0.0.1:${server.port}/upload`
+    process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+    const result = await (async () => {
+      await using source = await tmpdir({ git: true })
+      return provideTestInstance({
+        directory: source.path,
+        fn: async () => {
+          const session = await runSession((service) => service.create({ title: "Shared session" }))
+          return AppRuntime.runPromise(
+            sharePortableSession({
+              sessionID: session.id,
+            }),
+          )
+        },
+      })
+    })().finally(() => {
+      server.stop(true)
+      if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+      else process.env.OCTO_SHARE_API_URL = previousUpload
+      if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+      else process.env.OCTO_SHARE_PAGE_URL = previousPage
+    })
+
+    expect(result).toEqual({ uniqueId: "Ab12Cd34Ef", url: "https://share.example/session?uniqueId=Ab12Cd34Ef" })
+    expect(uploads).toHaveLength(1)
+    expect(uploads[0].fileName).toBe("Shared session.zip")
+    expect(uploads[0].description).toBe("Shared session")
+    expect(uploads[0].size).toBeGreaterThan(0)
+  })
+
   test("rewrites Windows attachment paths when imported on macOS", () => {
     const originalSessionID = SessionID.descending()
     const importedSessionID = SessionID.descending()
