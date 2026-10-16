@@ -99,9 +99,11 @@ export function StudioConversation(props: {
   actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
   rebootingGenerationIDs: ReadonlySet<string>
+  refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
+  onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
   onUseInputImage: (url: string) => void
@@ -193,9 +195,11 @@ export function StudioConversation(props: {
                   actionBusy={props.actionBusy}
                   cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
                   rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
+                  refreshing={Boolean(turn.result && props.refreshingGenerationIDs.has(turn.result.id))}
                   onCancelGeneration={props.onCancelGeneration}
                   onEditGeneration={props.onEditGeneration}
                   onRebootGeneration={props.onRebootGeneration}
+                  onRefreshGeneration={props.onRefreshGeneration}
                   onSelectImage={props.onSelectImage}
                 />
               </Show>

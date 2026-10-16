@@ -15,9 +15,11 @@ type StudioResultCardProps = {
   actionBusy: boolean
   cancelling: boolean
   rebooting: boolean
+  refreshing: boolean
   onCancelGeneration: (generationID: string) => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
+  onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
@@ -41,6 +43,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
     (capability() === "image.generate" || capability() === "video.generate")
   const rebootable = () =>
     status() === "failed" &&
+    props.turn.result?.provider === "internel" &&
+    Boolean(props.turn.result?.taskId) &&
+    Boolean(props.turn.result?.id.startsWith("studio_gen"))
+  const refreshable = () =>
+    status() === "abnormal" &&
     props.turn.result?.provider === "internel" &&
     Boolean(props.turn.result?.taskId) &&
     Boolean(props.turn.result?.id.startsWith("studio_gen"))
@@ -83,6 +90,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
     if (status() === "create_failed") return "创建失败"
+    if (status() === "abnormal") return "状态异常"
     return "生成失败"
   }
 
@@ -93,6 +101,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
         generating: generating(),
         complete: status() === "succeeded",
         failed: status() === "failed" || status() === "create_failed",
+        abnormal: status() === "abnormal",
       }}
     >
       <div class="studio-result-progress-header">
@@ -151,19 +160,31 @@ export function StudioResultCard(props: StudioResultCardProps) {
               {props.rebooting ? "重新生成中..." : "重新生成"}
             </button>
           </Show>
+          <Show when={refreshable()}>
+            <button
+              type="button"
+              class="studio-result-action studio-result-refresh"
+              disabled={props.actionBusy || props.refreshing}
+              onClick={() => props.turn.result && props.onRefreshGeneration(props.turn.result.id)}
+            >
+              {props.refreshing ? "刷新中..." : "刷新状态"}
+            </button>
+          </Show>
         </div>
       </div>
       <Show when={createdAt()}>
         <div class="studio-result-meta">创建时间：{createdAt()}</div>
       </Show>
       <div class="studio-result-progress-preview">
-        <Show when={status() === "failed" || status() === "create_failed"}>
+        <Show when={status() === "failed" || status() === "create_failed" || status() === "abnormal"}>
           <div class="studio-result-error-box">
             <img class="studio-result-error-icon" src="/studio/studio-result-error.svg" />
             <div class="studio-result-error">
-              {props.turn.toolError ??
-                props.turn.result?.error ??
-                (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
+              {status() === "abnormal"
+                ? "生成耗时较长，状态异常，请刷新状态"
+                : props.turn.toolError ??
+                  props.turn.result?.error ??
+                  (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
             </div>
           </div>
         </Show>

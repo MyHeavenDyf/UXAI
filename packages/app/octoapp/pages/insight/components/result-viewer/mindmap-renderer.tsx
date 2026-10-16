@@ -6,7 +6,7 @@ import { uxrJsonToMarkdown } from "../../utils/mindmap-adapter"
 
 const transformer = new Transformer()
 
-export function MindmapRenderer(props: { content: string }): JSX.Element {
+export function MindmapRenderer(props: { content: string; onReady?: () => void }): JSX.Element {
   let wrapperRef: HTMLDivElement | undefined
   let svgRef: SVGSVGElement | undefined
   let instance: Markmap | undefined
@@ -32,6 +32,7 @@ export function MindmapRenderer(props: { content: string }): JSX.Element {
     try {
       const { root } = transformer.transform(md)
       instance = Markmap.create(svgRef, undefined, root)
+      props.onReady?.()
     } catch (err) {
       console.error("[octo:mindmap] render failed", { err, mdPreview: md.slice(0, 200) })
     }

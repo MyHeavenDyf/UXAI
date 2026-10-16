@@ -5083,8 +5083,9 @@ const sessionMessagesLoaded = createMemo(() => {
     if (card.filePath && !isUrl) {
       const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
       if (!skipContentLoad) {
+        const filePath = card.filePath
         try {
-          const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
+          const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(filePath)}`, {
             headers: { ...directoryHeader(sdk.directory || "") },
           })
           if (response.ok) {
@@ -5097,6 +5098,16 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         } catch (err) {
           console.error("[MakePage] Failed to load file content:", err)
+        }
+        // HTTP 失败时(文件在项目目录外,服务端 File.read access-denied → 500)走
+        // Electron IPC 读盘兜底,避免 code-snippet 等类型 tab 静默空白
+        if (!contentLoadedFromFile) {
+          const buf = await getDesktopApi()?.readFileBuffer?.(filePath)
+          if (buf) {
+            card = { ...card, content: new TextDecoder().decode(buf) }
+            contentLoadedFromFile = true
+            console.log("[MakePage] Loaded from file (desktop):", filePath)
+          }
         }
       }
     }

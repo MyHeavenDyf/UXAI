@@ -18,6 +18,7 @@ export type StudioGenerationStatus =
   | "succeeded"
   | "create_failed"
   | "failed"
+  | "abnormal"
 
 export type StudioImage = {
   id: string
