@@ -73,10 +73,25 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+export const PortablePathPayload = Schema.Struct({
+  path: Schema.String,
+})
+export const PortableImportResult = Schema.Struct({
+  sessionID: SessionID,
+  sessions: Schema.Number,
+  files: Schema.Number,
+})
+export const PortableExportResult = Schema.Struct({
+  output: Schema.String,
+  sessions: Schema.Number,
+  files: Schema.Number,
+})
 
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
+  portableImport: `${root}/import`,
+  portableExport: `${root}/:sessionID/export`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
@@ -127,6 +142,29 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.status",
             summary: "Get session status",
             description: "Retrieve the current status of all sessions, including active, idle, and completed states.",
+          }),
+        ),
+        HttpApiEndpoint.post("portableImport", SessionPaths.portableImport, {
+          payload: PortablePathPayload,
+          success: described(PortableImportResult, "Imported portable session"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableImport",
+            summary: "Import portable session",
+            description: "Import a complete session tree, including messages, todos, uploads, and outputs.",
+          }),
+        ),
+        HttpApiEndpoint.post("portableExport", SessionPaths.portableExport, {
+          params: { sessionID: SessionID },
+          payload: PortablePathPayload,
+          success: described(PortableExportResult, "Exported portable session"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableExport",
+            summary: "Export portable session",
+            description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
           }),
         ),
         HttpApiEndpoint.get("get", SessionPaths.get, {

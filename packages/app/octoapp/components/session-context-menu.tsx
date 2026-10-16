@@ -1,9 +1,16 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import { useLocation, useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
+import { showToast } from "@opencode-ai/ui/toast"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
+import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
+import { sessionTitle } from "@/utils/session-title"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
 import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
@@ -46,6 +53,12 @@ export type SessionContextMenuProps = {
  * "移动到分组" submenu are self-contained; all actions delegate to callbacks.
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
+  const language = useLanguage()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const platform = usePlatform()
+  const globalSDK = useGlobalSDK()
+  const server = useServer()
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
     top: "0px",
@@ -54,11 +67,106 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
 
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
+  const [portableAction, setPortableAction] = createSignal<"import" | "export">()
   const [hoveredGroupId, setHoveredGroupId] = createSignal<string | null>(null)
   const [submenuVertical, setSubmenuVertical] = createSignal<"down" | "up">("down")
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
   const showSubmenuNow = () => { clearTimeout(submenuHideTimer); setShowGroupSubmenu(true) }
   const scheduleHideSubmenu = () => { clearTimeout(submenuHideTimer); submenuHideTimer = setTimeout(() => setShowGroupSubmenu(false), 200) }
+
+  const portableSupported = createMemo(
+    () =>
+      platform.platform === "desktop" &&
+      server.isLocal() &&
+      !!platform.openFilePickerDialog &&
+      !!platform.saveFilePickerDialog,
+  )
+
+  const portableError = (cause: unknown) => {
+    showToast({
+      variant: "error",
+      title: language.t("session.portable.failed"),
+      description: cause instanceof Error ? cause.message : String(cause),
+    })
+  }
+
+  const exportSession = async () => {
+    const session = props.session
+    if (!session || portableAction() || !platform.saveFilePickerDialog) return
+    props.onClose()
+    const name = (sessionTitle(session.title) ?? "session")
+      .replace(/[<>:"/\\|?*]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+    const output = await platform
+      .saveFilePickerDialog({
+        title: language.t("session.portable.export.picker"),
+        defaultPath: `${name || "session"}.zip`,
+      })
+      .catch((cause) => {
+        portableError(cause)
+        return null
+      })
+    if (!output) return
+
+    setPortableAction("export")
+    await globalSDK
+      .createClient({ directory: session.directory, throwOnError: true })
+      .session
+      .portableExport({ sessionID: session.id, path: output })
+      .then((result) => {
+        const data = result.data!
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("session.portable.export.success"),
+          description: language.t("session.portable.summary", { sessions: data.sessions, files: data.files }),
+        })
+      })
+      .catch(portableError)
+      .finally(() => setPortableAction())
+  }
+
+  const importSession = async () => {
+    const session = props.session
+    if (!session || portableAction() || !platform.openFilePickerDialog) return
+    props.onClose()
+    const selected = await platform
+      .openFilePickerDialog({
+        title: language.t("session.portable.import.picker"),
+        extensions: ["zip", "octosession"],
+        accept: ["application/zip", "application/octet-stream"],
+      })
+      .catch((cause) => {
+        portableError(cause)
+        return null
+      })
+    const input = Array.isArray(selected) ? selected[0] : selected
+    if (!input) return
+
+    setPortableAction("import")
+    await globalSDK
+      .createClient({ directory: session.directory, throwOnError: true })
+      .session
+      .portableImport({ path: input })
+      .then((result) => {
+        const data = result.data!
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("session.portable.import.success"),
+          description: language.t("session.portable.summary", { sessions: data.sessions, files: data.files }),
+        })
+        const route = location.pathname.startsWith("/make")
+          ? "/make"
+          : location.pathname.startsWith("/insight")
+            ? "/insight"
+            : undefined
+        if (route) navigate(`${route}/${data.sessionID}`)
+      })
+      .catch(portableError)
+      .finally(() => setPortableAction())
+  }
 
   // Reset submenu state when the menu closes so it doesn't reappear on next open.
   createEffect(() => {
@@ -197,20 +305,54 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               <img src={pinPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">{props.session && props.session.pinned ? "取消置顶聊天" : "置顶"}</span>
             </button>
-            <Show when={props.onShare}>
+            <Show when={props.onShare || portableSupported()}>
               <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0" }} />
-              <button
-                data-slot="dropdown-menu-item"
-                class="flex items-center gap-2"
-                onClick={() => {
-                  const s = props.session
-                  if (!s) return
-                  props.onShare?.(s)
-                }}
-              >
-                <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
-                <span data-slot="dropdown-menu-item-label">分享</span>
-              </button>
+              <Show when={props.onShare}>
+                <button
+                  data-slot="dropdown-menu-item"
+                  class="flex items-center gap-2"
+                  onClick={() => {
+                    const s = props.session
+                    if (!s) return
+                    props.onShare?.(s)
+                  }}
+                >
+                  <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
+                  <span data-slot="dropdown-menu-item-label">分享</span>
+                </button>
+              </Show>
+              <Show when={portableSupported()}>
+                <button
+                  data-slot="dropdown-menu-item"
+                  class="flex items-center gap-2"
+                  disabled={!!portableAction()}
+                  onClick={() => void exportSession()}
+                >
+                  <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                  <span
+                    data-slot="dropdown-menu-item-label"
+                    class="flex-1 whitespace-nowrap"
+                    style={{ display: "inline-block", visibility: "visible" }}
+                  >
+                    {language.t("session.portable.export") || "导出 Session"}
+                  </span>
+                </button>
+                <button
+                  data-slot="dropdown-menu-item"
+                  class="flex items-center gap-2"
+                  disabled={!!portableAction()}
+                  onClick={() => void importSession()}
+                >
+                  <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                  <span
+                    data-slot="dropdown-menu-item-label"
+                    class="flex-1 whitespace-nowrap"
+                    style={{ display: "inline-block", visibility: "visible" }}
+                  >
+                    {language.t("session.portable.import") || "导入 Session"}
+                  </span>
+                </button>
+              </Show>
             </Show>
             <button
               data-slot="dropdown-menu-item"
