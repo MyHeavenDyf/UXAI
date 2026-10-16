@@ -70,6 +70,11 @@ export function queuedMentions(item: QueuedSend): MentionAttrs[] {
   ]
 }
 
+/** 新队列直接恢复文档，旧队列仍按文本和引用清单重建。 */
+export function queuedDoc(item: QueuedSend): ReturnType<PMNode["toJSON"]> {
+  return item.doc ?? editorSchema.nodes.doc.create(null, buildParagraphs(item.text, queuedMentions(item))).toJSON()
+}
+
 /**
  * 把「文本 + 引用清单」还原成段落节点(排队回填用)。
  * 按 @名 做最长优先匹配,避免前缀互吞(同时引用 @分析 与 @分析报告 时,短名先命中会把长名切成

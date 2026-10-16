@@ -3,12 +3,45 @@ import { EditorState, TextSelection } from "prosemirror-state"
 import { history, undo, redo } from "prosemirror-history"
 import { editorSchema, extractMentionsFromDoc, getDocTextWithMentions } from "../components/prosemirror-editor/schema"
 import { insertAddonMentions, removeAddonMention } from "./addon-mentions"
-import { buildParagraphs, queuedMentions, splitMentions } from "./mention"
+import { buildParagraphs, queuedDoc, queuedMentions, splitMentions } from "./mention"
+import type { QueuedSend } from "./send-queue"
 
 const file = (path: string) => ({ type: "file" as const, filename: "访谈.txt", path, id: "asset-1" })
 const initial = () => EditorState.create({ schema: editorSchema, plugins: [history()] })
 
 describe("加号引用操作", () => {
+  test("同名资产入队回填后再次发送，保留各自身份及完整文件清单", () => {
+    const selections = ["asset-1", "asset-2"].map(id => ({
+      type: "file" as const, id, filename: "产品原型", path: `/${id}`,
+      files: [
+        { filename: `index (${id}).html`, path: `/${id}/index.html` },
+        { filename: `images/a (${id}).svg`, path: `/${id}/images/a.svg` },
+      ],
+    }))
+    const base = initial()
+    const added = base.apply(insertAddonMentions(base, selections))
+    const typed = added.apply(added.tr.insertText("原样保留 @产品原型 普通文字"))
+    const item: QueuedSend = {
+      text: getDocTextWithMentions(typed.doc).trim(),
+      doc: typed.doc.toJSON(),
+      ...splitMentions(selections),
+    }
+    const restored = editorSchema.nodeFromJSON(queuedDoc(JSON.parse(JSON.stringify(item))))
+    expect(restored.eq(typed.doc)).toBe(true)
+    expect(extractMentionsFromDoc(restored).map(m => m.id)).toEqual(["asset-1", "asset-2"])
+    expect(splitMentions(extractMentionsFromDoc(restored).map(m => ({
+      type: "file" as const, id: m.id ?? undefined, filename: m.name, path: m.path!, files: m.files,
+    })))).toEqual(splitMentions(selections))
+  })
+
+  test("旧队列没有编辑器文档时仍按文本和引用清单回填", () => {
+    const restored = editorSchema.nodeFromJSON(queuedDoc({
+      text: "查看 @访谈.txt", ...splitMentions([file("/a.txt")]),
+    }))
+    expect(getDocTextWithMentions(restored)).toBe("查看 @访谈.txt")
+    expect(extractMentionsFromDoc(restored).map(m => m.path)).toEqual(["/a.txt"])
+  })
+
   test("资产包只显示一个胶囊，草稿恢复和队列回填仍保留包内文件", () => {
     const files = [
       { filename: "index (asset-1).html", path: "/asset-1/index.html" },

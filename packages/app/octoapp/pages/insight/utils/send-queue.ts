@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js"
+import type { Node as PMNode } from "prosemirror-model"
 import type { McpSelection } from "../store/mcp-trigger"
 
 /**
@@ -22,6 +23,8 @@ import type { McpSelection } from "../store/mcp-trigger"
 
 export interface QueuedSend {
   text: string
+  /** 入队时的编辑器文档；回填时保留每个引用的身份与位置，包括同名资产。 */
+  doc?: ReturnType<PMNode["toJSON"]>
   /** @技能 选中的技能名(label);flush 时用于注入 SKILL.md synthetic part */
   skills?: string[]
   /** @文件 引用的会话文件(filename + 绝对 path);flush 时注入 [引用文件] synthetic 清单 */
