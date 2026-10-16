@@ -2,6 +2,7 @@ import { type ParentProps } from "solid-js"
 import { TitlebarSimple } from "@/components/titlebar-simple"
 import { Toast } from "@opencode-ai/ui/toast"
 import { FloatingNoticeHost } from "@/components/floating-notice"
+import { ShareNoticeHost } from "@/components/share-notice"
 import { OctoToast } from "@/pages/make/components/octo-toast"
 // jk-j60099994-replace-with-layoutnet-1-start
 // jk-j60099994-replace-with-layoutnet-1-end
@@ -13,6 +14,7 @@ export default function LayoutNet(props: ParentProps) {
       <Toast.Region />
       <OctoToast />
       <FloatingNoticeHost />
+      <ShareNoticeHost />
       <div class="flex-1 min-h-0 min-w-0 flex">{props.children}</div>
       {/* jk-j60099994-replace-with-layoutnet-2-start */}
       {/* jk-j60099994-replace-with-layoutnet-2-end */}

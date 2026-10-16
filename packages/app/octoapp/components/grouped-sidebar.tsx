@@ -163,6 +163,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
     <>
     <AgentSidebar
       {...props}
+      onShare={props.onShare}
       directory={resolvedDir()}
       activeSessionId={activeSessionId}
       onSessionClick={() => setSelectedGroupId(null)}

@@ -65,8 +65,9 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogShareSession } from "@/components/dialog-share-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
 import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
@@ -525,7 +526,14 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(sync.data.session.filter((s) => s.agent === "octo_make"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
@@ -539,7 +547,9 @@ function MakeContent() {
         session.id,
         newPinned,
         sdk.directory,
-        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       setSessionInfoMirror((prev) => {
@@ -547,6 +557,16 @@ function MakeContent() {
         return { ...prev, pinned: session.pinned, sort_order: session.sort_order }
       })
       throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await sdk.client.session.reorder({ ids, directory: sdk.directory })
+      } catch (err) {
+        console.error("[make] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
     }
     void refetchSession()
   }
@@ -565,6 +585,19 @@ function MakeContent() {
   function handleMenuDelete() {
     closeMenu()
     handleDeleteSession()
+  }
+
+  function handleMenuShare(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "design", name: "share-session" })
+    dialog.show(() => (
+      <DialogShareSession
+        sessionID={session.id}
+        sessionName={sessionTitle(session.title) ?? "新会话"}
+        client={sdk.client}
+        directory={sdk.directory}
+      />
+    ))
   }
 
   function handleMenuMoveToGroup(session: Session, groupId: string) {
@@ -5423,6 +5456,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   onClose={closeMenu}
                   onRename={handleMenuRename}
                   onTogglePin={handleMenuTogglePin}
+                  onShare={handleMenuShare}
                   onDelete={handleMenuDelete}
                   onMoveToGroup={handleMenuMoveToGroup}
                   onRemoveFromGroup={handleMenuRemoveFromGroup}

@@ -41,26 +41,42 @@ const FileCommentSchema = Schema.Struct({
   commenterAvatar: Schema.optional(Schema.String),
 })
 
+// `filePath` is the pre-rename field name; keep accepting it as an optional
+// alias so older clients keep working. Handlers resolve `commentFilePath ?? filePath`.
+const CommentFilePathFields = {
+  commentFilePath: Schema.optional(Schema.String),
+  filePath: Schema.optional(Schema.String),
+}
+
 const CommentLoadQuery = Schema.Struct({
   sessionId: Schema.String,
-  commentFilePath: Schema.String,
+  ...CommentFilePathFields,
 })
 
 const CommentSavePayload = Schema.Struct({
   sessionId: Schema.String,
-  commentFilePath: Schema.String,
+  ...CommentFilePathFields,
   comment: FileCommentSchema,
 })
 
 const CommentDeleteQuery = Schema.Struct({
   sessionId: Schema.String,
-  commentFilePath: Schema.String,
+  ...CommentFilePathFields,
   commentId: Schema.String,
+})
+
+const CommentDeleteLegacyParams = Schema.Struct({
+  commentId: Schema.String,
+})
+
+const CommentDeleteLegacyQuery = Schema.Struct({
+  sessionId: Schema.String,
+  ...CommentFilePathFields,
 })
 
 const CommentAttachmentDeleteQuery = Schema.Struct({
   sessionId: Schema.String,
-  commentFilePath: Schema.String,
+  ...CommentFilePathFields,
   commentId: Schema.String,
 })
 
@@ -70,7 +86,7 @@ const CommentAttachmentDeleteParams = Schema.Struct({
 
 const CommentAttachmentUploadPayload = Schema.Struct({
   sessionId: Schema.String,
-  commentFilePath: Schema.String,
+  ...CommentFilePathFields,
   commentId: Schema.String,
   sourceFilePath: Schema.String,
   filename: Schema.String,
@@ -82,6 +98,7 @@ const CommentPaths = {
   load: "/comment/file",
   save: "/comment/file",
   delete: "/comment/file",
+  deleteLegacy: "/comment/file/:commentId",
   attachmentUpload: "/comment/file/attachment",
   attachmentDelete: "/comment/file/attachment/:attachmentId",
 } as const
@@ -121,6 +138,20 @@ export const CommentApi = HttpApi.make("comment")
             identifier: "comment.delete",
             summary: "Delete comment",
             description: "Delete a comment.",
+          }),
+        ),
+        // Legacy path kept for backward compatibility; hidden from the public
+        // OpenAPI/SDK in `public.ts`.
+        HttpApiEndpoint.delete("deleteLegacy", CommentPaths.deleteLegacy, {
+          params: CommentDeleteLegacyParams,
+          query: CommentDeleteLegacyQuery,
+          success: described(Schema.Struct({ ok: Schema.Boolean }), "Deleted"),
+          error: [HttpApiError.BadRequest],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "comment.deleteLegacy",
+            summary: "Delete comment (legacy path)",
+            description: "Delete a comment using the pre-rename path parameter.",
           }),
         ),
         HttpApiEndpoint.delete("deleteAttachment", CommentPaths.attachmentDelete, {

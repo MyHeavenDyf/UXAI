@@ -10,8 +10,12 @@ const API_PREFIXES = {
   pipeline: "/pipeline/rest.root/workflow",
   main: "/main/rest.root/main",
   designAgent: "/main/rest.root/octoAgentServer/designAgent",
+  agentSession: "/main/rest.root/octoAgentServer/agentSession",
   deliverable: "/main/rest.root/workflow/deliverable",
 }
+
+// 分享 mock 服务地址 — 通过 env VITE_SHARE_MOCK_URL 覆盖, 默认指向本地 mock 服务
+const SHARE_MOCK_HOST = (import.meta.env.VITE_SHARE_MOCK_URL as string) ?? "http://localhost:3456"
 
 // 请求失败统一上报: 右下角 toast 报错(非阻断, 不中断用户) + 详情进 console;
 // 返回 null 让调用方降级为空态, 不抛异常 → 既不整页崩溃也不把面板替换成报错页。
@@ -174,4 +178,34 @@ export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ suc
   return { success: res?.success ?? false }
 }
 
+// ── 分享会话(agentSession 前缀,multipart) — 走 mock 服务,返回 uniqueId 用于生成分享链接 ──
+
+export type CreateShareSessionResult = {
+  agentDeliverableId: number
+  fileName: string
+  createTime: number
+  uniqueId: string
+}
+
+// 创建分享会话: 上传文件(file) + 描述(description), 返回 { agentDeliverableId, fileName, createTime, uniqueId }
+// 直连 SHARE_MOCK_HOST(默认 localhost:3456); CORS 由 mock 服务 + Electron onHeadersReceived 双重保障; 成功返回 content, 失败抛错(由调用方 toast)
+export async function createShareSession(file: Blob, fileName: string, description: string): Promise<CreateShareSessionResult> {
+  const formData = new FormData()
+  formData.append("file", file, fileName)
+  formData.append("description", description)
+
+  const res = await fetch(`${SHARE_MOCK_HOST}${API_PREFIXES.agentSession}/createShareSession`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!res.ok) throw new Error(`createShareSession failed: ${res.status} ${res.statusText}`)
+  const data = await res.json()
+  if (!data?.success || !data?.content) throw new Error(data?.errorMessage ?? "createShareSession 返回异常")
+  return data.content as CreateShareSessionResult
+}
+
+// 根据 uniqueId 拼接分享预览链接(完整 URL, 供用户在浏览器打开)
+export function buildShareLink(uniqueId: string): string {
+  return `${SHARE_MOCK_HOST}/design/aaa?uniqueId=${uniqueId}`
+}
 

@@ -1,6 +1,10 @@
 import { createEffect, createSignal, type JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { GroupedSidebar } from "@/components/grouped-sidebar"
+import { DialogShareSession } from "@/components/dialog-share-session"
+import { sessionTitle } from "@/utils/session-title"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { tracker } from "@/utils/tracker"
 import { trackInsight } from "./utils/interaction-tracking"
@@ -23,8 +27,22 @@ export function initialSidebarWidth(): number {
 export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element; onWidthChange?: (w: number) => void }): JSX.Element {
   const [width, setWidth] = createSignal(initialSidebarWidth())
   const globalSDK = useGlobalSDK()
+  const projectDir = useProjectDir()
+  const dialog = useDialog()
 
   createEffect(() => props.onWidthChange?.(width()))
+
+  const onShare = (session: Session) => {
+    const dir = projectDir()
+    dialog.show(() => (
+      <DialogShareSession
+        sessionID={session.id}
+        sessionName={sessionTitle(session.title) ?? "新会话"}
+        client={globalSDK.createClient({ directory: dir })}
+        directory={dir}
+      />
+    ))
+  }
 
   function handleResize(e: MouseEvent) {
     e.preventDefault()
@@ -118,6 +136,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
           extend: JSON.stringify({ limit, source: "panel" }),
         })}
         sidebarSourceKey="insight"
+        onShare={onShare}
         inlineBeforeSection
       />
       <div

@@ -12,6 +12,9 @@ import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 import checkmarkPng from "@/pages/_shell/icons/checkmark.png"
 
+// 分享功能尚未接入真实服务（当前指向本地 mock），先隐藏入口，待服务就绪后改回 true。
+const SHARE_SESSION_ENABLED = false
+
 export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
 export type SessionContextMenuProps = {
@@ -25,6 +28,7 @@ export type SessionContextMenuProps = {
   onClose: () => void
   onRename: (session: Session) => void
   onTogglePin: (session: Session) => void
+  onShare?: (session: Session) => void
   onDelete: (session: Session) => void
   onMoveToGroup?: (session: Session, groupId: string) => void
   onRemoveFromGroup?: (session: Session) => void
@@ -195,6 +199,21 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               <img src={pinPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">{props.session && props.session.pinned ? "取消置顶聊天" : "置顶"}</span>
             </button>
+            <Show when={SHARE_SESSION_ENABLED ? props.onShare : undefined}>
+              <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0" }} />
+              <button
+                data-slot="dropdown-menu-item"
+                class="flex items-center gap-2"
+                onClick={() => {
+                  const s = props.session
+                  if (!s) return
+                  props.onShare?.(s)
+                }}
+              >
+                <Icon name="share" style={{ width: "14px", height: "14px", "flex-shrink": "0", color: "rgba(0,0,0,0.55)" }} />
+                <span data-slot="dropdown-menu-item-label">分享</span>
+              </button>
+            </Show>
             <button
               data-slot="dropdown-menu-item"
               class="flex items-center gap-2"

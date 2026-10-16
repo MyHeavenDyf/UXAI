@@ -16,11 +16,12 @@ import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogShareSession } from "@/components/dialog-share-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
 import { useMakeGroupsContext } from "@/context/make-groups"
@@ -181,21 +182,42 @@ export function ConversationHeader(
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(sync.data.session.filter((s) => s.agent === INSIGHT_AGENT), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
     await togglePinSession(
       session.id,
       newPinned,
       sdk.directory,
-      newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+      newPinned
+        ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+        : { restoreRecentOrder: restore },
     )
+    const ids = newPinned ? undefined : reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
     sync.set(
       produce((draft) => {
+        if (ids) ids.forEach((id, i) => {
+          const idx = draft.session.findIndex((s) => s.id === id)
+          if (idx >= 0) draft.session[idx].sort_order = i
+        })
         const index = draft.session.findIndex((s) => s.id === session.id)
         if (index === -1) return
         draft.session[index].pinned = newPinned
-        draft.session[index].sort_order = newPinned ? -1 : restore
+        draft.session[index].sort_order = ids ? ids.indexOf(session.id) : newPinned ? -1 : restore
       }),
     )
+    if (ids) {
+      try {
+        await sdk.client.session.reorder({ ids, directory: sdk.directory })
+      } catch (err) {
+        console.error("[insight] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
+    }
   }
 
   function handleMenuRename() {
@@ -212,6 +234,19 @@ export function ConversationHeader(
   function handleMenuDelete(session: Session) {
     closeMenu()
     dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(session.id)} />)
+  }
+
+  function handleMenuShare(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "insight", name: "share-session" })
+    dialog.show(() => (
+      <DialogShareSession
+        sessionID={session.id}
+        sessionName={sessionTitle(session.title) ?? "新会话"}
+        client={sdk.client}
+        directory={sdk.directory}
+      />
+    ))
   }
 
   function handleMenuMoveToGroup(session: Session, groupId: string) {
@@ -366,6 +401,7 @@ export function ConversationHeader(
             onClose={closeMenu}
             onRename={handleMenuRename}
             onTogglePin={handleMenuTogglePin}
+            onShare={handleMenuShare}
             onDelete={handleMenuDelete}
             onMoveToGroup={handleMenuMoveToGroup}
             onRemoveFromGroup={handleMenuRemoveFromGroup}
