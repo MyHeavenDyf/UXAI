@@ -15,7 +15,7 @@ export type MentionTab = "skills" | "files"
 
 export type MentionSelection =
   | { type: "skill"; name: string; label: string }
-  | { type: "file"; filename: string; path: string; id?: string }
+  | { type: "file"; filename: string; path: string; id?: string; files?: { filename: string; path: string }[] }
 
 export interface MentionFiles {
   generated: InsightFileEntry[]

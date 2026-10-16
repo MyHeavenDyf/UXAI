@@ -110,7 +110,7 @@ export function ProseMirrorEditor(props: Props) {
     const selections: MentionSelection[] = mentions.map((m) =>
       m.type === "skill"
         ? { type: "skill", name: m.name, label: m.label }
-        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined },
+        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, files: m.files },
     )
     props.setMentionSelections(selections)
     setIsEmpty(empty)
@@ -235,7 +235,7 @@ export function ProseMirrorEditor(props: Props) {
     props.setMentionSelections(initialMentions.map((mention) =>
       mention.type === "skill"
         ? { type: "skill", name: mention.name, label: mention.label }
-        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined },
+        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined, files: mention.files },
     ))
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)
