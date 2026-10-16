@@ -307,7 +307,8 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
       status === "running" ||
       status === "succeeded" ||
       status === "create_failed" ||
-      status === "failed"
+      status === "failed" ||
+      status === "abnormal"
         ? status
         : "running",
     rawStatus: studio?.rawStatus as number | string | undefined,
@@ -523,7 +524,11 @@ function buildResult(input: {
   const completedGenerationID = studioProgress(completed).generationID
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
-  const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
+  const failureStatus = failure.status === "create_failed"
+    ? "create_failed"
+    : failure.status === "abnormal"
+      ? "abnormal"
+      : "failed"
   const inputImages = buildStudioInputImages({
     capability,
     referenceImages: inputRecord?.referenceImages,
@@ -543,7 +548,9 @@ function buildResult(input: {
         : completed
           ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
           : errored
-            ? failureStatus === "create_failed"
+            ? failureStatus === "abnormal"
+              ? capability === "video.generate" ? "视频状态异常" : "图片状态异常"
+              : failureStatus === "create_failed"
               ? capability === "video.generate" ? "视频创建失败" : "图片创建失败"
               : capability === "video.generate" ? "视频生成失败" : "图片生成失败"
             : undefined,

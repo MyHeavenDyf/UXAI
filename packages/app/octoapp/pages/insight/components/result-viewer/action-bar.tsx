@@ -12,6 +12,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { TruncatedText } from "./truncated-text"
 import { tracker } from "@/utils/tracker"
+import { trackInsight } from "../../utils/interaction-tracking"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
@@ -390,8 +391,14 @@ export function ActionBar(props: {
         <div class="flex items-center gap-0.5">
           <Show when={showActions()}>
             <Show when={props.tab.source === "path" && props.tab.filePath}>
-              <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
-              <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
+              <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => {
+                trackInsight("file-open-in-app", { fileType: props.tab.filePath!.match(/\.([a-z0-9]{1,16})$/i)?.[1]?.toLowerCase() ?? "unknown", source: "result-toolbar" })
+                void openFileLocally(props.tab.filePath!)
+              }} />
+              <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => {
+                trackInsight("file-reveal-folder", { fileType: props.tab.filePath!.match(/\.([a-z0-9]{1,16})$/i)?.[1]?.toLowerCase() ?? "unknown", source: "result-toolbar" })
+                void revealFileInFolder(props.tab.filePath!)
+              }} />
             </Show>
             <Show when={canEdit()}>
               <ActionBtn
@@ -465,7 +472,10 @@ export function ActionBar(props: {
             <button
               type="button"
               class="octo-action-btn octo-action-btn-download"
-              onClick={() => void handleAttachmentDownload()}
+              onClick={() => {
+                trackInsight("result-download", { source: "attachment", tabType: props.tab.type })
+                void handleAttachmentDownload()
+              }}
               title="下载"
             >
               <IconActionDownload size={16} />

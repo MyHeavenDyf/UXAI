@@ -215,6 +215,38 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 
 ## 七、维护闭环
 
+### 2026-10-15 按需项补齐
+
+- files-delete-start/result：确认删除后执行，单个/批量共用；mode、count、deletedCount，按接口结果区分 success/partial/failure；不上传文件路径。
+- result-preview-ready：内容/渲染到达可观察就绪点；evidence 区分 content-ready、rendered、image-load、media-loaded、frame-load，不能把 iframe load 当作 PDF 内容正确。按当前预览实例的 tab、内容版本、显示模式和 evidence 去重，不上报正文/URI；新打开或刷新可重新计数。Office 本地打开兜底不算预览成功。
+- knowledge-reference-open：引用列表有效链接点击，source=reference-list、index，不上传标题/URL；不包含模型正文里的任意链接。
+- navigation-open：Insight 的技能库/资产库/设置/更新/项目选择入口，target 固定枚举；仅入口口径，不冒充页面加载或项目选择成功。共享组件只增加可选回调，其他调用方不报。
+
+
+### 2026-10-15 按钮覆盖补齐：第一、第二批
+
+本批为前端用户操作/结果事件，module=insight，沿用 tracker；不改变 artifact-* 或 agent-tool-call-*，不把用户编辑混入模型产物统计，也不承诺前端持久化补发。
+
+| name | 口径与 extend |
+| --- | --- |
+| files-upload-start / files-upload-result | 文件管理单文件/目录每次执行；kind、method、count；结果 status=success/partial/failure/cancelled、成功/拒绝数量（可得时） |
+| md-save-start / md-save-result | 实际发起落盘时记录，不逐键记录；source；结果表示 writeFile resolve/reject，不上传正文/路径 |
+| archive-start / archive-result | 确认归档后每次执行；mode；仅 deliverable 创建成功记云端 success，未登录 HTML 本地导出标 destination=local；前置失败、上传失败、取消分别记录 |
+| context-compact-start / context-compact-result | 确认后调用命令，结果按业务返回判断；command、status、reason（固定分类） |
+| permission-decision-start / permission-decision-result | 权限决策请求及响应；decision=once/always/reject、permission；不保存路径 |
+| question-response-start / question-response-result | 问答提交/拒绝请求及响应；action=reply/reject、questionCount；不保存答案 |
+| addon-import-start / addon-import-result | 产品资产下载/导入每次尝试；结果 status，取消不算 failure；不上传文件名/URL |
+| addon-import-retry / addon-import-remove | 失败重试、待导入项移除，不把重试当作新的选择 |
+| model-select | 仅 Insight 模型选择生效后的可选回调；modelId、providerId、isExternal；不影响其他调用方 |
+| message-queue-remove | 有效队列项被移除；remainingCount；不保存消息正文 |
+| result-retry | 沿用名称，补 source=path/uri/materialize，不把本地重试或落盘重试遗漏 |
+| result-download | 沿用名称，附件下载补 source=attachment；仍为发起口径，不冒充系统保存成功 |
+| file-open-in-app / file-reveal-folder | 沿用名称，补 path 结果操作栏入口，source=result-toolbar |
+
+所有 start/result 共用 operationId 和启动时的 sessionId（可得时），result 每次执行最多一次，含 durationMs；失败原因只发固定类别，不直接透传错误正文。业务异步动作不因打点错误改变结果。重试创建新的 operationId，不使用发送次数当作执行次数。部分目录上传必须报告 partial，过滤文件不能记作全部成功。取消只在已有明确证据/回调时上报，不猜测没有回调的任务终态。
+
+批次外的纯视觉操作、文件删除等维持原状。共享组件仅增加可选通知回调；Insight 调用方负责上报，其他产品不会新增同名事件。
+
 **先方案后清单（硬性顺序，不可颠倒）：** 要新增 / 修改打点，**先在本文件（`tracking-plan.md`）里定 name / extend / 映射规则 / 命名约定**，方案敲定后**再去 `tracking.md` 记已实现的那一行**。本文件是「怎么定」，`tracking.md` 是「定了什么、落在哪」；顺序反了会出现「清单里有行、但没有对应的命名 / 映射依据」的漂移。
 
 ```

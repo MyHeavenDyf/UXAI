@@ -3,7 +3,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 
-export function ProjectInfo(): JSX.Element {
+export function ProjectInfo(props: { onOpen?: () => void } = {}): JSX.Element {
   const [visible, setVisible] = createSignal(false)
   const selection = useProjectSelection({ keepFrozen: visible })
 
@@ -28,6 +28,7 @@ export function ProjectInfo(): JSX.Element {
           cursor: "pointer",
         }}
         onClick={() => {
+          props.onOpen?.()
           setVisible(true)
         }}
       >
