@@ -54,9 +54,20 @@ function wrapPagePrompt(filePath: string, body: string): string {
   ].join('\n')
 }
 
+const SELECTOR_HINT = '该元素可能是动态生成的，修改时请识别真正源码路径'
+
+function applySelectorHint(body: string): string {
+  return body.split('（该元素可能是动态生成的）').join(SELECTOR_HINT ? `（${SELECTOR_HINT}）` : '')
+}
+
 const pageModelEditConfig: ModelEditConfig = {
-  saveCallback: async (args) => wrapPagePrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
-  deleteCallback: async (args) => wrapPagePrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
+  saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
+  deleteCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.deleteCallback(args))),
+  promptCallback: (filePath, selector) => [
+    `[文件: ${filePath}（本页面是通过ict-react-coder skill动态编译生成的）]`,
+    `[选择器: ${selector}${SELECTOR_HINT ? `（${SELECTOR_HINT}）` : ''}]`,
+    `[用户需求]:`
+  ].join('\n'),
 }
 
 /** 纳入历史的源码文件扩展名（文本类；图片/字体等二进制资源不记录） */
