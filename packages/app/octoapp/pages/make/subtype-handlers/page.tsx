@@ -43,7 +43,7 @@ function wrapPagePrompt(filePath: string, body: string): string {
   const previewRoot = filePath.replace(/[/\\][^/\\]+$/, '')
   return [
     `预览页面源码根目录：${previewRoot}`,
-    '请按下方信息在源代码中定位对应元素并修改。',
+    '（本页面是通过ict-react-coder skill动态编译生成的）',
     '',
     body,
     '',
