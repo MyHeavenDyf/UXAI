@@ -406,13 +406,274 @@ selectionStyle: (dom) => {
 }
 ```
 
-### 4.4 iconConfig / assetConfig — 图标与资源替换
+### 4.4 iconConfig — 图标替换
 
-选中 `svg`/`img` 元素时面板会出现图标替换入口，选中任意元素时可出现资源替换入口。
-完整字段见 `types.ts` 的 `IconConfig` / `AssetConfig`，可直接参考实现：
-`demo.ts`（demoIconConfig，prompt 版）、`default.ts`（direct 版，替换 DOM + 写回）。
+独立的图标选择模块，显示在属性面板最前方。
 
-onConfirm 返回值语义与 saveCallback 相同：**非空 = prompt 发 agent；空串 = 已直接处理**。
+**入口条件**（硬编码）：`iconConfig` 存在 + 选中元素为 `<img>` 或 `<svg>`。
+
+图标模块独立管理状态：属性面板的 `panelData` 和 `saveCallback` 的 `prev`/`current` 都**不包含**图标数据，它有自己的确认流程。
+
+#### 交互流程
+
+面板出现「图标」分组（当前图标预览 + 名称 + 下拉箭头）→ 点击弹出选择器：
+
+```
+┌─────────────────────────────────────┐
+│  搜索框 + 分类树                      │
+│  ┌─ 官方 tab ─────────────────────┐  │
+│  │ 在线 icon-plus 服务（连通时）：   │  │
+│  │   标签页（基础图标/质感/2.5D/...）│  │
+│  │   分类树筛选 + 关键词搜索         │  │
+│  │ 断网回退：                       │  │
+│  │   内置 207 个 lucide 图标        │  │
+│  │   （仅"基础图标"标签可用）        │  │
+│  ├─ 自定义 tab ───────────────────┤  │
+│  │ 上传文件（icon_<name>.<ext>）    │  │
+│  │ 列表展示 + 悬停删除              │  │
+│  └────────────────────────────────┘  │
+│  [形状▾] [尺寸▾] [颜色▾]   取消 确认  │
+└─────────────────────────────────────┘
+```
+
+#### IconConfig 字段
+
+```ts
+type IconConfig = {
+  /** 自定义图标落盘目录（回调）。不设时默认：HTML 同级 uploads/ 目录；
+   *  无 filePath 时回退 <sessionDir>/.octo/<sessionId>/assets */
+  getCustomIconDir?: (ctx: { sessionDir: string; filePath: string }) => string
+
+  /** 面板初始选中状态（回显）。通常从 dom.attributes['data-icon-*'] 读取 */
+  getInitialState?: (dom: ModelEditElement) => IconState
+
+  /** 选择器中非接口内容的可选项 */
+  data?: {
+    /** 形状选项。三元组语义：key 用于后端请求、value 写入 data-icon-style、label 用于显示 */
+    styles?: { key: string; label: string; value: string }[]
+    /** 语义色板（twoColor/threeColor 供双色/三色图标配色） */
+    colors?: Record<string, { label: string; color: string; twoColor: string; threeColor: string }>
+    /** 尺寸快捷选项（px） */
+    sizes?: string[]
+    /** 自定义上传允许的文件类型，默认 ".svg,.png,.jpg,.jpeg" */
+    acceptedFileTypes?: string
+  }
+
+  /** 确认回调（必填）。返回值语义同 saveCallback：非空 = prompt 发 agent；空串 = 已直接处理 */
+  onConfirm: (args: IconConfirmArgs) => string | Promise<string>
+}
+```
+
+#### IconState（选择器产出的状态）
+
+| 字段 | 说明 |
+|------|------|
+| `name` | 图标名 |
+| `id` | 图标唯一 id（在线 icon-plus 的 icon_id；离线 lucide 用 name 充当） |
+| `isCustom` | 是否自定义上传图标 |
+| `size` | 尺寸（如 `"24"`，单位 px） |
+| `style` | 形状枚举值（如 `"outline"`，对应 data.styles 的 value） |
+| `color` | 颜色（hex 或语义 token key） |
+| `url` | 在线图标的 URL |
+| `src` | 自定义图标的相对路径（如 `"uploads/icons/icon_xxx.svg"`） |
+| `svgContent` | SVG 字符串内容（在线/lucide 图标，用于落盘或直接替换） |
+
+#### IconConfirmArgs（onConfirm 收到的参数）
+
+```ts
+type IconConfirmArgs = {
+  prev: IconState        // 确认前状态
+  current: IconState     // 确认后状态
+  dom: ModelEditElement
+  filePath: string
+  postMessageToIframe: (data: unknown) => void
+  writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>  // 落盘用
+  sessionDir?: string
+  getIframeSnapshot?: () => Promise<string>       // 以下四项供 direct 模式写回 HTML
+  cleanBridgeContent?: (html: string) => string
+  wrapHtmlContent?: (html: string) => string
+  onContentChange?: (content: string) => Promise<void>
+  onRefreshNeeded?: () => void
+}
+```
+
+#### 回显约定（data-icon-* 元数据）
+
+demo/default 实现的约定：确认时把图标状态挂到元素的 `data-icon-name` / `data-icon-id` / `data-icon-custom` / `data-icon-src` / `data-icon-size` / `data-icon-style` / `data-icon-color` 属性上，`getInitialState` 从这些属性还原选中状态。bridge 上报的 `dom.attributes` 已包含这些键。
+
+#### Prompt 模式示例（demo.ts 精简）
+
+svgContent 落盘到 uploads/icons/，返回 prompt 让 agent 设置属性：
+
+```ts
+iconConfig: {
+  getCustomIconDir: ({ sessionDir, filePath }) =>
+    filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads` : `${sessionDir}/.octo/${sessionDir}/assets`,
+  getInitialState: (dom) => ({
+    name: dom.attributes['data-icon-name'] || '',
+    id: dom.attributes['data-icon-id'] || '',
+    isCustom: dom.attributes['data-icon-custom'] === 'true',
+    size: dom.attributes['data-icon-size'] || '24',
+    style: dom.attributes['data-icon-style'] || 'outline',
+    color: dom.attributes['data-icon-color'] || '#191919',
+    src: dom.attributes['data-icon-src'] || undefined,
+  }),
+  data: {
+    styles: [
+      { key: '线性', label: '线性', value: 'outline' },
+      { key: '线性双色', label: '线性双色', value: 'two-tone' },
+      { key: '方底托', label: '方底托', value: 'square' },
+      { key: '圆底托', label: '圆底托', value: 'circle' },
+    ],
+    sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
+    acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
+  },
+  onConfirm: async ({ current, dom, filePath, writeFileBuffer, sessionDir }) => {
+    // 1. 在线/lucide 图标有 svgContent → 落盘到 uploads/icons/
+    let iconSrc = current.src ?? ''
+    if (current.svgContent && writeFileBuffer && sessionDir) {
+      const iconDir = filePath ? `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads/icons` : `${sessionDir}/.octo/assets`
+      const safeName = (current.name ?? 'icon').replace(/[\\/:*?"<>|]/g, '_')
+      await writeFileBuffer(`${iconDir}/icon_${safeName}.svg`,
+        new TextEncoder().encode(current.svgContent).buffer as ArrayBuffer)
+      iconSrc = `uploads/icons/icon_${safeName}.svg`
+    }
+    // 2. 返回 prompt：明确要求 agent 在元素上设置 data-icon-* 属性
+    const attrs = [
+      `data-icon-name="${current.name ?? ''}"`,
+      `data-icon-src="${iconSrc}"`,
+      `data-icon-size="${current.size ?? ''}"`,
+      `data-icon-style="${current.style ?? ''}"`,
+      `data-icon-color="${current.color ?? ''}"`,
+    ].join(' ')
+    return [
+      `[文件路径: ${filePath}]`,
+      `请修改以下元素的图标: <${dom.tagName}>（选择器: ${dom.selector}）`,
+      '',
+      '请在对应元素上设置以下属性：',
+      `  ${attrs}`,
+    ].join('\n')
+  },
+}
+```
+
+#### Direct 模式示例（default.ts 精简）
+
+直接替换 DOM + 写回 HTML，不发 prompt：
+
+```ts
+iconConfig: {
+  /* getInitialState / data 同上 */
+  onConfirm: async ({ current, dom, postMessageToIframe, getIframeSnapshot,
+                      cleanBridgeContent, wrapHtmlContent, onContentChange, onRefreshNeeded }) => {
+    const id = dom.dataOdId
+    const iconAttrs = {
+      'data-icon-name': current.name ?? '',
+      'data-icon-src': current.src ?? '',
+      'data-icon-size': current.size ?? '',
+      'data-icon-style': current.style ?? '',
+      'data-icon-color': current.color ?? '',
+      /* ...其余 data-icon-* */
+    }
+    if (dom.tagName === 'img') {
+      // <img>：设 src 属性 + 挂元数据
+      postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: 'src', value: current.src })
+      for (const [k, v] of Object.entries(iconAttrs)) {
+        postMessageToIframe({ type: 'od:edit-attr', elementId: id, attr: k, value: v })
+      }
+    } else if (dom.tagName === 'svg') {
+      // <svg>：整体替换（自定义图标或无 svgContent 时替换为 <img>）
+      const html = current.isCustom || !current.svgContent
+        ? `<img src="${current.src}" width="${current.size ?? 24}" height="${current.size ?? 24}" />`
+        : current.svgContent
+      postMessageToIframe({ type: 'od:replace-element', elementId: id, html, attrs: iconAttrs })
+    }
+    // 快照写回 HTML + 刷新
+    const html = await getIframeSnapshot!()
+    await onContentChange!(wrapHtmlContent!(cleanBridgeContent!(html)))
+    onRefreshNeeded!()
+    return ''  // 空串 = 已直接处理，不发 prompt
+  },
+}
+```
+
+### 4.5 assetConfig — 产品资产库
+
+独立的产品资产选择模块，显示在图标模块之后（不依赖图标模块）。
+用于把团队资产库中的设计产物（页面/组件/文件）应用到当前选中元素。
+
+**入口条件**：`assetConfig` 存在 + `showConfig` 未配置或 `showConfig(dom)` 返回 `true`。
+
+
+#### AssetFile 字段（onConfirm 的 data 参数）
+
+| 字段 | 说明 |
+|------|------|
+| `id` | 资产唯一 id（服务端返回） |
+| `fileName` / `fileSize` | 文件名 / 字节数 |
+| `type` | `30` = 带版本信息的 HTML 容器（走 versionInfo 下载）；`40` = 普通文件（走 docId EDM 下载） |
+| `snapshot` | type 30 的缩略图路径（s3BaseUrl + snapshot） |
+| `s3BaseUrl` | 资源基址 |
+| `convertHtmlUrl` | 转换 HTML 的 URL |
+| `docPath` / `docId` | type 40 的 EDM 文档路径 / 下载文档 id |
+| `versionInfo` | `{ filePath, fileName, fileSize }[] \| null` 版本列表 |
+
+#### 交互与确认流程
+
+面板出现「产品资产库」分组（默认「未选择」）→ 点击弹出资产对话框：
+左侧文件夹树 + 右侧文件网格（缩略图/按后缀图标 + hover 预览 + 拖拽调宽 + 标题栏拖动），**单选**（radio 指示器）。
+
+```
+用户选中文件 → 点击确认
+  → onDownloadProductAsset(file) 自动下载
+    → ZIP 自动解压（返回解压后的文件夹路径）
+    → 解压失败回退为普通文件保存
+  → assetConfig.onConfirm({ dom, filePath, folderpath, data })
+    folderpath = 下载解压后的本地路径（prompt 中引导 agent 读取）
+  → 返回 prompt → sendTextToAgent → 等模型回复 → 关闭面板
+```
+
+#### AssetConfig 字段
+
+```ts
+type AssetState = {
+  name?: string   // 折叠行显示名称
+  icon?: string   // 预览图标（可选）
+  id?: string     // 选中文件项的 id
+}
+
+type AssetConfig = {
+  /** 返回 true 才对该元素显示模块 */
+  showConfig?: (dom: ModelEditElement) => boolean
+  /** 面板初始显示状态（回显） */
+  getInitialState?: (dom: ModelEditElement) => AssetState
+  /** 确认回调（必填）。返回值语义同 saveCallback */
+  onConfirm: (args: AssetConfirmArgs) => string | Promise<string>
+}
+
+type AssetConfirmArgs = {
+  dom: ModelEditElement
+  filePath: string
+  folderpath: string  // 下载解压后的本地路径
+  data: AssetFile     // 选中文件项的数据
+}
+```
+
+#### 示例（default.ts 完整配置）
+
+```ts
+assetConfig: {
+  showConfig: () => true,                     // 所有元素都显示
+  getInitialState: () => ({ name: '未选择' }), // 每次打开显示默认值
+  onConfirm: ({ dom, filePath, folderpath }) => {
+    return [
+      `[文件: ${filePath}]`,
+      `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
+      `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
+    ].join('\n')
+  },
+}
+```
 
 ---
 
@@ -531,8 +792,8 @@ registerCustomBridge('my-bridge', {
 | `onChange` | `(args: OnChangeArgs) => void` | | 实时预览回调 |
 | `promptCallback` | `(filePath, selector) => string` | | 「AI 修改」对话框 prompt 前缀 |
 | `colors` | `ColorToken[]` | | 取色器色板（默认 HUI 色板） |
-| `iconConfig` | `IconConfig` | | 图标替换入口 |
-| `assetConfig` | `AssetConfig` | | 资源替换入口 |
+| `iconConfig` | `IconConfig` | | 图标替换模块（详见 4.4；仅 `<img>`/`<svg>` 元素显示） |
+| `assetConfig` | `AssetConfig` | | 产品资产库模块（详见 4.5） |
 | `selectionStyle` | `(dom) => SelectionStyle \| null` | | 选中框样式 |
 | `onEnter` | `(ctx: ModelEditModeContext) => void \| Promise<void>` | | 进入编辑模式 |
 | `onExit` | `(ctx: ModelEditModeContext) => void \| Promise<void>` | | 退出编辑模式 |
