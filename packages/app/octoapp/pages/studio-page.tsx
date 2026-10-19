@@ -1077,6 +1077,7 @@ export default function StudioPage() {
   const isBusy = createMemo(() =>
     sending() ||
     sessionStatus().type === "busy" ||
+    pendingResult()?.status === "creating" ||
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
@@ -1111,7 +1112,7 @@ export default function StudioPage() {
           toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "abnormal" ? "状态异常" : pending.status === "succeeded" ? "完成" : "生成中"}`,
-          toolRunning: pending.status === "queued" || pending.status === "running",
+          toolRunning: pending.status === "creating" || pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages ?? normalized.inputImages,
           mentionImages: mentionImagesMap(),
           result: normalizeResultValue(pending),
@@ -1180,7 +1181,7 @@ export default function StudioPage() {
           toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "abnormal" ? "状态异常" : "生成中"}`,
-          toolRunning: pending.status === "queued" || pending.status === "running",
+          toolRunning: pending.status === "creating" || pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages,
           mentionImages: mentionImagesMap(),
           result: normalizeResultValue(pending),
@@ -1222,7 +1223,7 @@ export default function StudioPage() {
     if (
       pending &&
       !selectedResultId() &&
-      (sending() || pending.status === "queued" || pending.status === "running")
+      (sending() || pending.status === "creating" || pending.status === "queued" || pending.status === "running")
     ) return pending
 
     const turn = studioTurn()
@@ -1325,6 +1326,7 @@ export default function StudioPage() {
     if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (status() === "abnormal" || result()?.status === "abnormal") return "abnormal"
+    if (result()?.status === "creating") return "creating"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
@@ -1611,7 +1613,7 @@ export default function StudioPage() {
     if (!matchesPendingTurn(turn, pending)) return
     if (isStudioGenerationFailure(pending.status) && turn?.toolRunning) return
     if (pending.status === "succeeded" && pending.images.length > 0 && turn?.toolRunning) return
-    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+    if (turn?.result?.status === "creating" || turn?.result?.status === "queued" || turn?.result?.status === "running") {
       const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
@@ -1651,7 +1653,7 @@ export default function StudioPage() {
       setStatus("succeeded")
       return
     }
-    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+    if (turn?.result?.status === "creating" || turn?.result?.status === "queued" || turn?.result?.status === "running") {
       const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
@@ -4033,7 +4035,7 @@ export default function StudioPage() {
     if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
-      status: "running",
+      status: "creating",
       capability: nextCapability,
       prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
       displayPrompt: overrides?.displayPrompt,
@@ -4259,7 +4261,7 @@ export default function StudioPage() {
 
   const pollingGenerationID = createMemo(() => {
     const active = pendingResult() ?? studioTurn()?.result
-    if (!active || active.status !== "queued" && active.status !== "running") return
+    if (!active || active.status !== "creating" && active.status !== "queued" && active.status !== "running") return
     if (!isStudioGenerationID(active.id)) return
     return active.id
   })
@@ -5054,7 +5056,7 @@ if (!headerTitle.pendingRename) return
                 mentionImages={mentionImagesMap()}
                 sdkUrl={globalSDK.url}
                 directory={projectDir()}
-                busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                busy={effectiveStatus() === "creating" || effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 rebootingGenerationIDs={rebootingGenerationIDs()}

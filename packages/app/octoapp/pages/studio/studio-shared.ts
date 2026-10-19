@@ -20,12 +20,13 @@ export function isStudioGenerationStatusRegression(
   current: StudioGenerationResult["status"],
   next: StudioGenerationResult["status"],
 ) {
+  if (next === "creating" && (current === "queued" || current === "running")) return true
   return (
     current === "create_failed" ||
     current === "failed" ||
     current === "abnormal" ||
     current === "succeeded"
-  ) && (next === "queued" || next === "running")
+  ) && (next === "creating" || next === "queued" || next === "running")
 }
 
 export function isStudioGenerationFailure(status: StudioGenerationResult["status"]) {
@@ -41,7 +42,7 @@ export function studioResultCardStatus(input: {
   const generationStatus = input.result?.status
   if (generationStatus === "create_failed" || generationStatus === "failed") return generationStatus
   if (generationStatus === "abnormal") return generationStatus
-  if (generationStatus === "queued" || generationStatus === "running") return generationStatus
+  if (generationStatus === "creating" || generationStatus === "queued" || generationStatus === "running") return generationStatus
   if (generationStatus === "succeeded" || input.result?.images.length) return "succeeded"
   if (input.toolError || input.result?.error) return "failed"
   if (input.busy || input.toolRunning) return "running"
