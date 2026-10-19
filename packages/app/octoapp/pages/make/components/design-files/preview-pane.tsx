@@ -1,6 +1,6 @@
 import { createResource, Show, Switch, Match, createSignal, createEffect, createMemo, onCleanup } from "solid-js"
 import type { JSX } from "solid-js"
-import type { ArtifactFile } from "../../utils/artifact-file-api"
+import type { ArtifactFile, ArtifactScope } from "../../utils/artifact-file-api"
 import { fetchArtifactContent, getArtifactServeUrl, pathToLocalUrl, isElectronDesktop, formatFileSize, formatTimeAgo } from "../../utils/artifact-file-api"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
@@ -10,6 +10,8 @@ interface Props {
   file: ArtifactFile
   sdkUrl: string
   sdkDirectory: string
+  /** 代码工作区传 "project":浏览器端 HTML 预览走项目级 serve (relativePath 相对项目根) */
+  scope?: ArtifactScope
   width: number
   onClose: () => void
   onOpen: () => void
@@ -149,7 +151,7 @@ export function PreviewPane(props: Props): JSX.Element {
                 when={isElectronDesktop()}
                 fallback={
                   <iframe
-                    src={getArtifactServeUrl(props.sdkUrl, props.sdkDirectory, props.file.sessionId, props.file.relativePath)}
+                    src={getArtifactServeUrl(props.sdkUrl, props.sdkDirectory, props.file.sessionId, props.file.relativePath, props.scope)}
                     sandbox="allow-scripts"
                     style={{
                       position: "absolute",

@@ -246,7 +246,9 @@ describe("清理", () => {
     for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow()
   })
 
-  test("启动清理:只杀登记过且命令行是 turbo-ui-cli-service 的进程", async () => {
+  // cleanupOrphans 对每个 pid 起一次 powershell CIM 查询,冷启动时单次就 2-4s,
+  // 两个 pid 轻松超过默认 5s 超时(E2E 期间实测两连挂)
+  test("启动清理:只杀登记过且命令行是 turbo-ui-cli-service 的进程", { timeout: 20_000 }, async () => {
     const s = session("c2", ["alpha"])
     const orphan = spawn(nodeBin, [join(cliDir, "turbo-ui-cli-service.js")], {
       cwd: portal(s, "alpha"),
