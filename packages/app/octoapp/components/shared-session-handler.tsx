@@ -17,10 +17,11 @@ export function SharedSessionHandler() {
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
 
-  const open = async (uniqueId: string) => {
-    const result = completed.get(uniqueId) ?? await platform.importSharedSession?.(uniqueId)
+  const open = async (uniqueId: string, directory: string) => {
+    const key = JSON.stringify([directory, uniqueId])
+    const result = completed.get(key) ?? await platform.importSharedSession?.(uniqueId, directory)
     if (!result) return
-    completed.set(uniqueId, result)
+    completed.set(key, result)
     const page = result.agent === INSIGHT_AGENT ? "insight" : result.agent === "proto_triage" ? "pattern" : "make"
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
@@ -49,11 +50,13 @@ export function SharedSessionHandler() {
   createEffect(() => {
     // 启动引导会修改当前项目，须在项目确认及欢迎引导结束后再导入和跳转。
     if (!server.ready() || layout.onboarding.show() || !pending.ids.length) return
+    const directory = server.projects.last()
+    if (!directory) return
     const ids = [...pending.ids]
     untrack(() => {
       setPending("ids", [])
       for (const uniqueId of ids) {
-        queue = queue.then(() => open(uniqueId)).catch((error) => {
+        queue = queue.then(() => open(uniqueId, directory)).catch((error) => {
           showToast({ variant: "error", title: "打开分享对话失败", description: error instanceof Error ? error.message : String(error) })
         }).finally(() => inFlight.delete(uniqueId))
       }

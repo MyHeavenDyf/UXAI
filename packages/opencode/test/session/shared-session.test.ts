@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import path from "node:path"
+import { mkdir } from "node:fs/promises"
 import { Effect } from "effect"
 import { importSharedSession, parseSharedSessionLink } from "../../../desktop/src/main/shared-session"
 import { AppRuntime } from "@/effect/app-runtime"
@@ -16,9 +17,11 @@ test("only accepts supported app share links with valid codes", () => {
   }
 })
 
-test("downloads a shared archive, imports real artifacts, and cleans the temporary ZIP", async () => {
+test("imports a shared archive into the selected folder with real artifacts and cleans the temporary ZIP", async () => {
   await using source = await tmpdir({ git: true })
   await using target = await tmpdir({ git: true })
+  const directory = path.join(target.path, "默认选中的文件夹")
+  await mkdir(directory)
   const exported = await provideTestInstance({ directory: source.path, fn: async () => {
     const session = await AppRuntime.runPromise(Session.Service.use((svc) => svc.create({ title: "共享对话", agent: "octo_make" })))
     await Bun.write(path.join(source.path, ".octo", session.id, "outputs", "index.html"), "<h1>共享产物</h1>")
@@ -35,27 +38,28 @@ test("downloads a shared archive, imports real artifacts, and cleans the tempora
       return new Response(Bun.file(exported.output))
     }
     expect(request.headers.get("authorization")).toBe("Basic " + Buffer.from("opencode:test").toString("base64"))
-    expect(request.headers.get("x-opencode-directory")).toBe(encodeURIComponent(target.path))
+    expect(request.headers.get("x-opencode-directory")).toBe(encodeURIComponent(directory))
     if (url.pathname === "/session/import") {
       const body: unknown = await request.json()
       if (!body || typeof body !== "object" || !("path" in body) || typeof body.path !== "string") return new Response(null, { status: 400 })
       const file = body.path
       downloadedPaths.push(file)
-      return Response.json(await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(file)) }))
+      return Response.json(await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(importPortableSession(file)) }))
     }
     const sessionID = SessionID.make(url.pathname.split("/").at(-1)!)
-    return Response.json(await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.get(sessionID))) }))
+    return Response.json(await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.get(sessionID))) }))
   } })
   try {
     const result = await importSharedSession({
-      uniqueId: "Ab12Cd34Ef", directory: target.path,
+      uniqueId: "Ab12Cd34Ef", directory,
       uploadURL: `http://127.0.0.1:${server.port}/agentSession/createShareSession`,
       server: { url: `http://127.0.0.1:${server.port}`, username: "opencode", password: "test" },
       remoteFetch: fetch,
     })
     expect(result.agent).toBe("octo_make")
-    expect(result.directory).toBe(target.path)
-    expect(await Bun.file(path.join(target.path, ".octo", result.sessionID, "outputs", "index.html")).text()).toBe("<h1>共享产物</h1>")
+    expect(result.directory).toBe(directory)
+    expect((await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.get(SessionID.make(result.sessionID)))) })).directory).toBe(directory)
+    expect(await Bun.file(path.join(directory, ".octo", result.sessionID, "outputs", "index.html")).text()).toBe("<h1>共享产物</h1>")
     expect(downloadedPaths).toHaveLength(1)
     expect(await Bun.file(downloadedPaths[0]).exists()).toBe(false)
   } finally {

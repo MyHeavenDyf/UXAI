@@ -57,16 +57,15 @@
       padding-right: 220px;
     }
     .header-btn {
-      height: 32px;
-      padding: 0 16px;
+      padding: 8px 16px;
       border: 0;
-      border-radius: 16px;
+      border-radius: 24px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 400;
       line-height: 22px;
       color: #fff;
-      background: #0969ff;
+      background: #0055ff;
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -74,6 +73,21 @@
     }
     .header-btn:hover { background: #0858d8; }
     .header-btn-icon { width: 14px; height: 14px; display: block; flex-shrink: 0; }
+    .open-app-dialog {
+      width: min(452px, calc(100vw - 48px));
+      margin: auto;
+      border: 0;
+      border-radius: 16px;
+      padding: 24px;
+      color: #191919;
+    }
+    .open-app-dialog::backdrop { background: rgba(25, 25, 25, .3); }
+    .open-app-dialog h2 { font-size: 16px; line-height: 24px; margin: 0 32px 4px 0; }
+    .open-app-dialog p { font-size: 14px; line-height: 22px; color: #666; }
+    .dialog-close { position: absolute; top: 18px; right: 18px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
+    .dialog-action { display: flex; justify-content: center; margin-top: 24px; }
+    .dialog-action a { display: inline-flex; align-items: center; gap: 6px; border-radius: 24px; background: #0055ff; color: #fff; padding: 10px 24px; font-size: 14px; line-height: 22px; text-decoration: none; }
+    .open-app-dialog .dialog-hint { text-align: center; margin-top: 16px; }
     /* ── conversation（对齐 design 页面 ScrollView + make-chat-content 结构）── */
     .content {
       flex: 1;
@@ -177,12 +191,19 @@
   <header class="header">
     <div class="header-inner">
       <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
-      <button class="header-btn" id="continue-btn">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+      <button type="button" class="header-btn" id="continue-btn" aria-haspopup="dialog" aria-controls="open-app-dialog">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
     </div>
     <div class="header-title-bar">
       <h1 class="header-title" id="session-title"></h1>
     </div>
   </header>
+  <dialog class="open-app-dialog" id="open-app-dialog" aria-labelledby="open-app-title" aria-describedby="open-app-description">
+    <button type="button" class="dialog-close" id="close-app-dialog" aria-label="关闭">×</button>
+    <h2 id="open-app-title">在 Octo Agent 内继续</h2>
+    <p id="open-app-description">通过分享的链接开始你的对话</p>
+    <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
+    <p class="dialog-hint" id="open-app-hint">请先安装 Octo Agent，再点击打开</p>
+  </dialog>
   <main class="content">
     <div class="chat-scroll-view">
       <div class="chat-content">
@@ -202,16 +223,20 @@
     }
 
     document.getElementById("continue-btn").addEventListener("click", () => {
-      const uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
-        || new URLSearchParams(location.search).get("uniqueId") || ""
-      const scheme = pickDeepLinkScheme()
-      const url = `${scheme}://share?uniqueId=${encodeURIComponent(uniqueId)}`
-      // 用 hidden iframe 触发协议,避免 location.href 跳转导致页面被替换为"未识别协议"提示。
-      const iframe = document.createElement("iframe")
-      iframe.style.display = "none"
-      iframe.src = url
-      document.body.appendChild(iframe)
-      setTimeout(() => iframe.remove(), 1000)
+      const name = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+      const uniqueId = name && name !== "index" ? name : new URLSearchParams(location.search).get("uniqueId") || ""
+      const link = document.getElementById("open-app-link")
+      if (/^[a-zA-Z0-9_-]{1,128}$/.test(uniqueId)) {
+        link.href = `${pickDeepLinkScheme()}://share?uniqueId=${encodeURIComponent(uniqueId)}`
+        document.getElementById("open-app-hint").textContent = "请先安装 Octo Agent，再点击打开"
+      } else {
+        link.removeAttribute("href")
+        document.getElementById("open-app-hint").textContent = "分享码缺失或无效，请检查分享链接"
+      }
+      document.getElementById("open-app-dialog").showModal()
+    })
+    document.getElementById("close-app-dialog").addEventListener("click", () => {
+      document.getElementById("open-app-dialog").close()
     })
 
     ;(async function () {

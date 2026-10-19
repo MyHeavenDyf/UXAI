@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import * as http from "node:http"
-import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
+import { dirname, extname, join, basename, resolve as resolvePath, sep, isAbsolute } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
@@ -232,11 +232,13 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string) => {
+  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string) => {
+    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
+      throw new Error("请先选择关联本地文件夹，再打开分享对话")
+    }
     const uploadURL = process.env.OCTO_SHARE_API_URL || import.meta.env.OCTO_SHARE_API_URL
     if (!uploadURL) throw new Error("分享配置缺失：请配置环境变量 OCTO_SHARE_API_URL")
     if (!URL.canParse(uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
-    const directory = join(app.getPath("userData"), "shared-sessions")
     await mkdir(directory, { recursive: true })
     const win = BrowserWindow.fromWebContents(event.sender)
     const auth = win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
