@@ -1959,7 +1959,7 @@ const sessionMessagesLoaded = createMemo(() => {
     for (let i = startIdx; i < liveMsgs.length; i++) {
       for (const filePath of collectRevertedFiles(
         (sync.data.part[liveMsgs[i]?.id] ?? []) as RevertDraftPart[],
-        { sessionId: sid, projectDir: projectDir() },
+        { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
       )) {
         involved.add(normalizePath(filePath))
       }
