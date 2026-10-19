@@ -2,12 +2,10 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
-import { showToast } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
-import { usePlatform } from "@/context/platform"
-import { useGlobalSDK } from "@/context/global-sdk"
-import { directoryHeader } from "@/utils/headers"
+import { DialogShareSession } from "@/components/dialog-share-session"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
 import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
@@ -49,8 +47,7 @@ export type SessionContextMenuProps = {
  * "移动到分组" submenu are self-contained; all actions delegate to callbacks.
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
-  const platform = usePlatform()
-  const globalSDK = useGlobalSDK()
+  const dialog = useDialog()
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
     top: "0px",
@@ -59,74 +56,17 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
 
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
-  const [sharing, setSharing] = createSignal(false)
   const [hoveredGroupId, setHoveredGroupId] = createSignal<string | null>(null)
   const [submenuVertical, setSubmenuVertical] = createSignal<"down" | "up">("down")
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
   const showSubmenuNow = () => { clearTimeout(submenuHideTimer); setShowGroupSubmenu(true) }
   const scheduleHideSubmenu = () => { clearTimeout(submenuHideTimer); submenuHideTimer = setTimeout(() => setShowGroupSubmenu(false), 200) }
 
-  const copyText = async (value: string) => {
-    if (navigator.clipboard?.writeText) {
-      const copied = await navigator.clipboard.writeText(value).then(
-        () => true,
-        () => false,
-      )
-      if (copied) return true
-    }
-    const textarea = document.createElement("textarea")
-    textarea.value = value
-    textarea.setAttribute("readonly", "")
-    textarea.style.position = "fixed"
-    textarea.style.opacity = "0"
-    document.body.appendChild(textarea)
-    textarea.select()
-    const copied = document.execCommand("copy")
-    textarea.remove()
-    return copied
-  }
-
-  const shareSession = async () => {
+  const shareSession = () => {
     const session = props.session
-    if (!session || sharing()) return
+    if (!session) return
     props.onClose()
-    setSharing(true)
-    await (platform.fetch ?? fetch)(
-      `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(session.id)}/portable-share`,
-      {
-        method: "POST",
-        headers: directoryHeader(session.directory),
-      },
-    )
-      .then(async (response) => {
-        if (!response.ok) {
-          const error: unknown = await response.json().catch(() => null)
-          throw new Error(
-            error && typeof error === "object" && "message" in error && typeof error.message === "string"
-              ? error.message
-              : `分享失败：${response.status}`,
-          )
-        }
-        const result: unknown = await response.json()
-        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
-          throw new Error("Share request did not return a URL")
-        }
-        if (!(await copyText(result.url))) throw new Error("Unable to copy the share URL")
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: "分享链接已复制",
-          description: result.url,
-        })
-      })
-      .catch((cause) =>
-        showToast({
-          variant: "error",
-          title: "分享失败",
-          description: cause instanceof Error ? cause.message : String(cause),
-        }),
-      )
-      .finally(() => setSharing(false))
+    dialog.show(() => <DialogShareSession session={session} />)
   }
 
   // Reset submenu state when the menu closes so it doesn't reappear on next open.
@@ -270,8 +210,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
             <button
               data-slot="dropdown-menu-item"
               class="flex items-center gap-2"
-              disabled={sharing()}
-              onClick={() => void shareSession()}
+              onClick={shareSession}
             >
               <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">分享</span>
