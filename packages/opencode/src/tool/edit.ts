@@ -16,6 +16,7 @@ import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertNotProtectedPath } from "./protected-path"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
 
@@ -80,6 +81,7 @@ export const EditTool = Tool.define(
           const filePath = path.isAbsolute(params.filePath)
             ? params.filePath
             : path.join(instance.directory, params.filePath)
+          yield* assertNotProtectedPath(filePath)
           yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""
