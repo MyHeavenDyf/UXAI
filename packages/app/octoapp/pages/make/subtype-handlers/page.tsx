@@ -157,18 +157,19 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
   return Promise.resolve()
 }
 
-let downloading = false
+const downloadingTabs = new Set<string>()
 
 const pageHandler = {
   ...defaultHandler,
   name: 'page',
   modelEditConfig: pageModelEditConfig,
 
+  isDownloadBusy(ctx) {
+    return downloadingTabs.has(ctx.tab.id)
+  },
+
   async handleDownload(ctx) {
-    if (downloading) {
-      ctx.showOctoToast({ title: '正在执行中，请等待完成' })
-      return true
-    }
+    if (downloadingTabs.has(ctx.tab.id)) return true
 
     const { tab, sdk, modelKey, sync, sessionId } = ctx
 
@@ -188,7 +189,7 @@ const pageHandler = {
     let childSessionId: string | undefined
 
     const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
-    downloading = true
+    downloadingTabs.add(tab.id)
     try {
       const result = await antdToEviewOrchestrator({
         sdk: sdk!,
@@ -226,7 +227,7 @@ const pageHandler = {
       if (e instanceof DownloadCancelledError) throw e
       throw e
     } finally {
-      downloading = false
+      downloadingTabs.delete(tab.id)
     }
   },
   components: {
