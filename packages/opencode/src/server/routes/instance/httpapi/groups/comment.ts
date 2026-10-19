@@ -48,19 +48,25 @@ const CommentFilePathFields = {
   filePath: Schema.optional(Schema.String),
 }
 
+// scope=project (代码类型工作区): 标注按项目级存储 (.octo/comments/),sessionId 不再必需。
+const CommentScopeFields = {
+  sessionId: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.Literal("project")),
+}
+
 const CommentLoadQuery = Schema.Struct({
-  sessionId: Schema.String,
+  ...CommentScopeFields,
   ...CommentFilePathFields,
 })
 
 const CommentSavePayload = Schema.Struct({
-  sessionId: Schema.String,
+  ...CommentScopeFields,
   ...CommentFilePathFields,
   comment: FileCommentSchema,
 })
 
 const CommentDeleteQuery = Schema.Struct({
-  sessionId: Schema.String,
+  ...CommentScopeFields,
   ...CommentFilePathFields,
   commentId: Schema.String,
 })
@@ -75,7 +81,7 @@ const CommentDeleteLegacyQuery = Schema.Struct({
 })
 
 const CommentAttachmentDeleteQuery = Schema.Struct({
-  sessionId: Schema.String,
+  ...CommentScopeFields,
   ...CommentFilePathFields,
   commentId: Schema.String,
 })
@@ -85,7 +91,7 @@ const CommentAttachmentDeleteParams = Schema.Struct({
 })
 
 const CommentAttachmentUploadPayload = Schema.Struct({
-  sessionId: Schema.String,
+  ...CommentScopeFields,
   ...CommentFilePathFields,
   commentId: Schema.String,
   sourceFilePath: Schema.String,

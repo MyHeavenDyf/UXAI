@@ -14,6 +14,7 @@ import { dirname, join } from "node:path"
 import log from "electron-log/main.js"
 
 import { nodeBinOf, resolveProject } from "./fastui-devserver"
+import { effectiveXdgConfigHome } from "./storage"
 
 const SKILL_NAME = "fastui-vue-creator"
 /** 打包本身只是遍历 + zlib,几秒量级;这个上限是防止脚本卡死时按钮永远转圈 */
@@ -103,7 +104,7 @@ async function skillDirFromServer(sessionDir: string): Promise<string | null> {
   }
 }
 
-/** 候选链要读的两个基准路径。测试注入,生产走 `process.env` / `homedir()` */
+/** 候选链要读的两个基准路径。测试注入,生产走 `effectiveXdgConfigHome()` / `homedir()` */
 export type PathEnv = { xdgConfig?: string; homeDir?: string }
 
 /**
@@ -114,10 +115,10 @@ export type PathEnv = { xdgConfig?: string; homeDir?: string }
  * 全部落空 —— 所以它只是 server 不可用时的兜底,不是正路。顺序上 server 也优先于状态
  * 文件:后者是建会话那一刻的快照,skill 换过位置(重装、改用项目内副本)就成了死链。
  *
- * 后两条候选看着像重复,不是:`migrate.ts` 的 `deployBuiltinSkills` **硬编码**部署到
- * `~/.config/octo/skill`(`migrate.ts:185`),完全不看 `XDG_CONFIG_HOME`;而 server 扫的是
- * `Global.Path.octoConfig`(`core/global.ts:15`,由 `xdg-basedir` 推出)。设过那个变量的
- * 机器上,部署落点与扫描落点本就是两个目录,两条都要试。
+ * 后两条候选看着像重复,不是:候选 #3 走 `effectiveXdgConfigHome()`(storage 感知,
+ * app-data-fallback 覆盖时指向 `<userData>/xdg-config`),与 server 扫描的
+ * `Global.Path.octoConfig` 同源;候选 #4 是旧版本硬编码部署在 `~/.config/octo/skill`
+ * 的存量机器兜底 —— 修复前的机器上两个目录都可能持有内容,两条都要试。
  */
 export async function resolveScript(sessionDir: string, skillDir?: string, env?: PathEnv): Promise<string | null> {
   const homeDir = env?.homeDir ?? homedir()
@@ -125,14 +126,14 @@ export async function resolveScript(sessionDir: string, skillDir?: string, env?:
   // 一致(`xdg-basedir` 就是 `env.XDG_CONFIG_HOME || …`)。用 `??` 的话空串会被当成有效值,
   // 候选 #3 退化成相对路径 `octo/skill/<name>` —— 眼下会被候选 #4 兜住(两者产出逐字相同),
   // 但那是靠另一条候选救,不是这一行自己对;而且那条相对路径会混进 tried 诊断日志误导排查。
-  const xdgConfig = env?.xdgConfig ?? (process.env.XDG_CONFIG_HOME || join(homeDir, ".config"))
+  const xdgConfig = env?.xdgConfig ?? effectiveXdgConfigHome()
   const candidates = [
     await skillDirFromServer(sessionDir),
     // new-session 写进状态文件的路径(SPEC-DES-001 §8.6.2)
     skillDir,
     // server 扫描的 <octoConfig>/skill/
     join(xdgConfig, "octo", "skill", SKILL_NAME),
-    // deployBuiltinSkills 硬编码的部署落点
+    // 旧版本 deployBuiltinSkills 硬编码部署的落点,存量机器兜底
     join(homeDir, ".config", "octo", "skill", SKILL_NAME),
     // SPEC-DES-001 §8.6.2 提到的工程内落点,留作兜底
     join(dirname(sessionDir), "skills", SKILL_NAME),

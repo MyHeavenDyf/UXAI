@@ -11,9 +11,10 @@
  * 目录名影响,这是本次改动的要害,所以单开一条用例钉住。
  *
  * 候选链读的 `homedir()` / `XDG_CONFIG_HOME` 一律走 `PathEnv` 注入:测试结果不能取决于
- * 跑测试的人本地装没装某个 skill。
+ * 跑测试的人本地装没装某个 skill。candidate #3 现在经 `effectiveXdgConfigHome()` 读
+ * activeStorage(app-data-fallback 覆盖时的真实落点),对应用例直接注入 holder。
  */
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -21,7 +22,14 @@ import { join } from "node:path"
 const root = realpathSync(mkdtempSync(join(tmpdir(), "fastui-export-")))
 const SKILL_NAME = "fastui-vue-creator"
 
+// fastui-export.ts 经 ./storage → ./store 传递导入 electron;bun 的 ESM 加载器对 CJS
+// 字符串导出做具名链接会失败,必须 mock。`default` 不能省:electron-store 是 ESM 且
+// default-import electron。注册必须先于下面的动态 import。
+const electronMock = { app: { getPath: () => join(root, "user-data"), isPackaged: false }, dialog: {} }
+mock.module("electron", () => ({ ...electronMock, default: electronMock }))
+
 const Export = await import("./fastui-export")
+const Storage = await import("./storage")
 
 /** 空目录,保证候选链上每一条都落到「确实不存在」而不是碰巧命中真实机器上的东西 */
 const EMPTY_ENV = { xdgConfig: join(root, "empty-xdg"), homeDir: join(root, "empty-home") }
@@ -77,11 +85,13 @@ let stopServer: (() => void) | null = null
 
 beforeEach(() => {
   Export.setServerInfo(null)
+  Storage.setActiveStorage(null)
 })
 
 afterEach(() => {
   stopServer?.()
   stopServer = null
+  Storage.setActiveStorage(null)
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -183,5 +193,41 @@ describe("resolveScript", () => {
     expect(await Export.resolveScript(join(root, "nowhere", ".octo", "ses_x"), join(root, "nowhere"), EMPTY_ENV)).toBe(
       null,
     )
+  })
+
+  test("app-data-fallback 覆盖激活时,候选 #3 跟随 activeStorage 而非主进程 env", async () => {
+    const overrideXdg = join(root, "override-xdg")
+    const good = installSkill(join(overrideXdg, "octo"))
+    const fallback: Storage.DesktopStorage = {
+      mode: "app-data-fallback",
+      dataHome: join(root, "override-user"),
+      dataDirectory: join(root, "override-user", "opencode"),
+      databasePath: join(root, "override-user", "opencode", "opencode-local.db"),
+      env: { XDG_CONFIG_HOME: overrideXdg },
+      explicitDatabase: false,
+    }
+    Storage.setActiveStorage(fallback)
+    // 主进程 env 指向空目录:没跟随 storage 的话这条候选必 miss
+    const prev = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = join(root, "empty-xdg")
+    try {
+      expect(await Export.resolveScript(sessionDir, undefined)).toBe(join(good, "scripts", "export-zip.mjs"))
+    } finally {
+      if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = prev
+    }
+  })
+
+  test("activeStorage 为空时退回主进程 env 的 XDG_CONFIG_HOME", async () => {
+    const procXdg = join(root, "proc-env-xdg")
+    const good = installSkill(join(procXdg, "octo"))
+    const prev = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = procXdg
+    try {
+      expect(await Export.resolveScript(sessionDir, undefined)).toBe(join(good, "scripts", "export-zip.mjs"))
+    } finally {
+      if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = prev
+    }
   })
 })

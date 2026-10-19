@@ -57,29 +57,47 @@ export const ArtifactRoutes = lazy(() =>
       }),
       validator(
         "query",
-        z.object({
-          sessionId: z.string(),
-          category: z.enum(["generated", "uploaded"]).optional(),
-          path: z.string().optional(),
-          recursive: z.enum(["true", "false"]).optional(),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            path: z.string().optional(),
+            category: z.enum(["generated", "uploaded"]).optional(),
+            scope: z.enum(["project"]).optional(),
+            recursive: z.enum(["true", "false"]).optional(),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-          const { sessionId, category, path: subPath, recursive } = c.req.valid("query")
+          const { sessionId, path: subPath, category, scope, recursive } = c.req.valid("query")
           const fs = yield* AppFileSystem.Service
-          const categoryDir =
-            (category ?? "generated") === "uploaded"
-              ? path.join(Instance.directory, SESSION_BASE_DIR, sessionId, UPLOADS_DIR)
-              : path.join(Instance.directory, SESSION_BASE_DIR, sessionId, OUTPUTS_DIR)
+          const projectScope = scope === "project"
+          const stampedSessionId = projectScope ? "" : sessionId ?? ""
+
+          // scope=project(代码工作区,统一文件树):仅支持 generated=项目根目录 (点开头条目被过滤),
+          // uploaded 无独立上传区恒为空;session scope 维持 .octo/<sessionId>/ 布局 (原行为)。
+          if (projectScope && category === "uploaded") {
+            return { files: [] }
+          }
+          let categoryRoot: string
+          let relativePrefix: string
+          if (projectScope) {
+            categoryRoot = Instance.directory
+            relativePrefix = ""
+          } else if (category === "uploaded") {
+            categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, UPLOADS_DIR)
+            relativePrefix = UPLOADS_DIR
+            yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+          } else {
+            categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, OUTPUTS_DIR)
+            relativePrefix = ""
+            yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+          }
+          // sanitizePath 剥首尾斜杠 + 拒绝 .. / ~ / 空,防路径穿越 (与 httpapi/handlers/artifact.ts 同语义)
           const normalized = subPath ? sanitizePath(subPath) : ""
-          const targetDir = normalized ? path.join(categoryDir, normalized) : categoryDir
-          const baseRelativePath =
-            (category ?? "generated") === "uploaded"
-              ? normalized
-                ? `${UPLOADS_DIR}/${normalized}`
-                : UPLOADS_DIR
-              : normalized
+          const targetDir = normalized ? path.join(categoryRoot, normalized) : categoryRoot
 
           const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
@@ -89,7 +107,7 @@ export const ArtifactRoutes = lazy(() =>
           const files: ArtifactFileInfo[] = []
 
           if (recursive === "true") {
-            yield* collectArtifactFiles(fs, targetDir, baseRelativePath, sessionId, files)
+            yield* collectArtifactFiles(fs, targetDir, relativePrefix, stampedSessionId, files)
             return { files }
           }
 
@@ -98,7 +116,7 @@ export const ArtifactRoutes = lazy(() =>
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = baseRelativePath ? `${baseRelativePath}/${name}` : name
+            const relativePath = [relativePrefix, normalized, name].filter(Boolean).join("/")
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue
@@ -111,7 +129,7 @@ export const ArtifactRoutes = lazy(() =>
               name,
               path: fullPath,
               relativePath,
-              sessionId,
+              sessionId: stampedSessionId,
               kind: isFolder ? "folder" : getKind(name),
               isFolder,
               size: sizeNum,
@@ -156,9 +174,9 @@ export const ArtifactRoutes = lazy(() =>
           const filePath = c.req.valid("query").path
           const svc = yield* File.Service
           const result = yield* svc.read(filePath)
-          // File.read 对二进制文件(office/pdf 等)只返回空 content(服务于文本预览,见 File.read);
-          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
-          // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+          // File.read 对二进制文件(office/pdf �?只返回空 content(服务于文本预�?�?File.read);
+          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端�?encoding:"base64" 解码落盘�?
+          // �?type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退�?
           if (result.type === "binary") {
             const fs = yield* AppFileSystem.Service
             const bytes = yield* fs.readFile(filePath)
@@ -349,19 +367,40 @@ export const ArtifactRoutes = lazy(() =>
       }),
       validator(
         "json",
-        z.object({
-          sessionId: z.string(),
-          filename: z.string(),
-          content: z.string(),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            filename: z.string(),
+            content: z.string(),
+            scope: z.enum(["project"]).optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根;含 .. / ~ 时校验层直接 400
+            dir: z
+              .string()
+              .optional()
+              .refine((v) => {
+                if (!v) return true
+                const normalized = v.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+                return !normalized.includes("..") && !normalized.includes("~")
+              }, { message: "invalid dir" }),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.upload", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
+          const projectScope = body.scope === "project"
 
-          yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
+          // project scope(代码工作区,统一文件树):dir = 项目相对目标目录,缺省/空 = 项目根 (zod 已拒绝 .. / ~);
+          // session scope:落 .octo/<sessionId>/uploads (原行为)
+          const relDir = projectScope ? sanitizePath(body.dir ?? "") : ""
+          const targetDir = projectScope
+            ? path.join(Instance.directory, relDir)
+            : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
+
+          yield* fs.ensureDir(targetDir).pipe(Effect.catch(() => Effect.void))
 
           let finalFilename = body.filename
           let counter = 1
@@ -369,14 +408,14 @@ export const ArtifactRoutes = lazy(() =>
           const baseName = path.basename(body.filename, ext)
 
           while (true) {
-            const fullPath = path.join(uploadsDir, finalFilename)
+            const fullPath = path.join(targetDir, finalFilename)
             const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
             if (!fileExists) break
             finalFilename = `${baseName}-${counter}${ext}`
             counter++
           }
 
-          const fullPath = path.join(uploadsDir, finalFilename)
+          const fullPath = path.join(targetDir, finalFilename)
           const contentBuffer = Buffer.from(body.content, "base64")
           yield* fs.writeFile(fullPath, contentBuffer)
 
@@ -387,8 +426,9 @@ export const ArtifactRoutes = lazy(() =>
           return {
             name: finalFilename,
             path: fullPath,
-            relativePath: finalFilename,
-            sessionId: body.sessionId,
+            // project scope 相对项目根;session scope 相对 uploads 根
+            relativePath: relDir ? `${relDir}/${finalFilename}` : finalFilename,
+            sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: getKind(finalFilename),
             isFolder: false,
             size: sizeNum,
@@ -427,23 +467,44 @@ export const ArtifactRoutes = lazy(() =>
       }),
       validator(
         "json",
-        z.object({
-          sessionId: z.string(),
-          folderName: z.string(),
-          files: z.array(
-            z.object({
-              relativePath: z.string(),
-              content: z.string(),
-            }),
-          ),
-        }),
+        z
+          .object({
+            sessionId: z.string().optional(),
+            folderName: z.string(),
+            files: z.array(
+              z.object({
+                relativePath: z.string(),
+                content: z.string(),
+              }),
+            ),
+            scope: z.enum(["project"]).optional(),
+            // scope=project 专用:项目相对目标目录,缺省/空 = 项目根;含 .. / ~ 时校验层直接 400
+            dir: z
+              .string()
+              .optional()
+              .refine((v) => {
+                if (!v) return true
+                const normalized = v.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+                return !normalized.includes("..") && !normalized.includes("~")
+              }, { message: "invalid dir" }),
+          })
+          .refine((v) => v.scope === "project" || !!v.sessionId, {
+            message: "sessionId is required unless scope=project",
+          }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.uploadFolder", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
-          const folderDir = path.join(uploadsDir, body.folderName)
+          const projectScope = body.scope === "project"
+
+          // 与 upload 同语义:project scope 用 dir (项目相对目标目录,缺省/空 = 项目根,zod 已拒绝 .. / ~)
+          const relDir = projectScope ? sanitizePath(body.dir ?? "") : ""
+          const targetDir = projectScope
+            ? path.join(Instance.directory, relDir)
+            : path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId ?? "", UPLOADS_DIR)
+
+          const folderDir = path.join(targetDir, body.folderName)
 
           yield* fs.ensureDir(folderDir).pipe(Effect.catch(() => Effect.void))
 
@@ -462,8 +523,9 @@ export const ArtifactRoutes = lazy(() =>
           return {
             name: body.folderName,
             path: folderDir,
-            relativePath: body.folderName,
-            sessionId: body.sessionId,
+            // project scope 相对项目根;session scope 相对 uploads 根
+            relativePath: relDir ? `${relDir}/${body.folderName}` : body.folderName,
+            sessionId: projectScope ? "" : body.sessionId ?? "",
             kind: "folder",
             isFolder: true,
             fileCount: body.files.length,

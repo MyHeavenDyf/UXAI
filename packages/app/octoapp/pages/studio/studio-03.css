@@ -55,6 +55,11 @@
   white-space: normal;
 }
 
+.studio-result-card.queued .studio-result-progress-status {
+  background: rgba(247, 206, 0, 0.2);
+  color: rgba(153, 126, 57, 1);
+}
+
 .studio-result-card.complete .studio-result-progress-status {
   background: rgba(28, 137, 92, 0.1);
   color: #1c895c;
@@ -63,6 +68,15 @@
 .studio-result-card.failed .studio-result-progress-status {
   background: rgba(0, 0, 0, 0.05);
   color: rgba(0, 0, 0, 0.6);
+}
+
+.studio-result-queue-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 12px;
+  color: rgba(25, 25, 25, 1);
 }
 
 .studio-result-progress-track {
@@ -127,6 +141,11 @@
   margin-top: 8px;
   overflow: hidden;
   background: #fff;
+}
+
+.studio-result-card.generating .studio-result-progress-preview {
+  background: rgba(25, 25, 25, 0.05);
+  border-radius: 8px;
 }
 
 /* .studio-result-progress-preview .studio-result-error {

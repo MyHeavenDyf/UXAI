@@ -43,6 +43,11 @@ const FileCommentSchema = z.object({
   commenterAvatar: z.string().optional(),
 })
 
+// scope=project(代码工作区)时 sessionId 可缺省(标注按项目级存储);否则必填。
+// 直接内联各字段的 z.object(...).refine(...) 写法(泛型封装会让 refine 回调的类型推导失效)。
+const scopeRefine = (v: { sessionId?: string; scope?: "project" }) => v.scope === "project" || !!v.sessionId
+const SCOPE_REFINE_MESSAGE = "sessionId is required unless scope=project"
+
 // Accept the pre-rename `filePath` field name by rewriting it to
 // `commentFilePath` before validation. Keeping the rewrite out of the zod
 // schemas means the alias never leaks into the OpenAPI/SDK surface.
@@ -101,16 +106,17 @@ export const CommentRoutes = lazy(() =>
         },
       }),
       validator("query", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
-      })),
+        scope: z.enum(["project"]).optional(),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
-        const { sessionId, commentFilePath } = c.req.valid("query")
-        
+        const { sessionId, commentFilePath, scope } = c.req.valid("query")
+
         return runRequest("comment.load", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          const comments = yield* comment.load(sessionId, commentFilePath)
-          
+          const comments = yield* comment.load(sessionId ?? "", commentFilePath, scope)
+
           return c.json({ comments })
         }))
       }
@@ -135,17 +141,18 @@ export const CommentRoutes = lazy(() =>
         },
       }),
       validator("json", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
+        scope: z.enum(["project"]).optional(),
         comment: FileCommentSchema,
-      })),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
-        const { sessionId, commentFilePath, comment } = c.req.valid("json")
-        
+        const { sessionId, commentFilePath, comment, scope } = c.req.valid("json")
+
         return runRequest("comment.save", c, Effect.gen(function* () {
           const commentService = yield* Comment.Service
-          yield* commentService.save(sessionId, commentFilePath, comment)
-          
+          yield* commentService.save(sessionId ?? "", commentFilePath, comment, scope)
+
           return c.json({ ok: true })
         }))
       }
@@ -170,17 +177,18 @@ export const CommentRoutes = lazy(() =>
         },
       }),
       validator("query", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
         commentId: z.string(),
-      })),
+        scope: z.enum(["project"]).optional(),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
-        const { sessionId, commentFilePath, commentId } = c.req.valid("query")
-        
+        const { sessionId, commentFilePath, commentId, scope } = c.req.valid("query")
+
         return runRequest("comment.delete", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          yield* comment.delete(sessionId, commentFilePath, commentId)
-          
+          yield* comment.delete(sessionId ?? "", commentFilePath, commentId, scope)
+
           return c.json({ ok: true })
         }))
       }
@@ -211,17 +219,18 @@ export const CommentRoutes = lazy(() =>
         commentId: z.string(),
       })),
       validator("query", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
-      })),
+        scope: z.enum(["project"]).optional(),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
         const { commentId } = c.req.valid("param")
-        const { sessionId, commentFilePath } = c.req.valid("query")
-        
+        const { sessionId, commentFilePath, scope } = c.req.valid("query")
+
         return runRequest("comment.deleteLegacy", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          yield* comment.delete(sessionId, commentFilePath, commentId)
-          
+          yield* comment.delete(sessionId ?? "", commentFilePath, commentId, scope)
+
           return c.json({ ok: true })
         }))
       }
@@ -247,27 +256,28 @@ export const CommentRoutes = lazy(() =>
         },
       }),
       validator("json", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
+        scope: z.enum(["project"]).optional(),
         commentId: z.string(),
         sourceFilePath: z.string(),
         filename: z.string(),
         mime: z.string(),
         size: z.number(),
-      })),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
-        const { sessionId, commentFilePath, commentId, sourceFilePath, filename, mime, size } = c.req.valid("json")
-        
+        const { sessionId, commentFilePath, commentId, sourceFilePath, filename, mime, size, scope } = c.req.valid("json")
+
         return runRequest("comment.uploadAttachment", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          
-          const attachment = yield* comment.uploadAttachment(sessionId, commentFilePath, commentId, {
+
+          const attachment = yield* comment.uploadAttachment(sessionId ?? "", commentFilePath, commentId, {
             sourceFilePath,
             filename,
             mime,
             size,
-          })
-          
+          }, scope)
+
           return c.json({ ok: true, attachment })
         }))
       }
@@ -295,18 +305,19 @@ export const CommentRoutes = lazy(() =>
         attachmentId: z.string(),
       })),
       validator("query", z.object({
-        sessionId: z.string(),
+        sessionId: z.string().optional(),
         commentFilePath: z.string(),
         commentId: z.string(),
-      })),
+        scope: z.enum(["project"]).optional(),
+      }).refine(scopeRefine, { message: SCOPE_REFINE_MESSAGE })),
       async (c) => {
         const { attachmentId } = c.req.valid("param")
-        const { sessionId, commentFilePath, commentId } = c.req.valid("query")
-        
+        const { sessionId, commentFilePath, commentId, scope } = c.req.valid("query")
+
         return runRequest("comment.deleteAttachment", c, Effect.gen(function* () {
           const comment = yield* Comment.Service
-          yield* comment.deleteAttachment(sessionId, commentFilePath, commentId, attachmentId)
-          
+          yield* comment.deleteAttachment(sessionId ?? "", commentFilePath, commentId, attachmentId, scope)
+
           return c.json({ ok: true })
         }))
       }

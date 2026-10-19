@@ -303,6 +303,7 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
   return {
     generationID: stringField(studio, "generationID"),
     status:
+      status === "creating" ||
       status === "queued" ||
       status === "running" ||
       status === "succeeded" ||
@@ -704,7 +705,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
   // Reject fallback that belongs to a different session to avoid task ghosting.
   if (input.currentSessionID && input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
 
-  const fallbackGenerating = input.fallback.status === "queued" || input.fallback.status === "running"
+  const fallbackGenerating = input.fallback.status === "creating" || input.fallback.status === "queued" || input.fallback.status === "running"
   return [
     {
       id: `studio_${input.fallback.id}`,

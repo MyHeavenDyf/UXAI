@@ -1146,4 +1146,7 @@ export const dict = {
   "mcp.toast.reconnecting.title": "MCP disconnected, reconnecting...",
   "mcp.toast.reconnected.title": "MCP reconnected successfully",
   "mcp.toast.reconnectFailed.title": "MCP reconnection failed",
+
+  "titlebar.workspace.select": "Select workspace",
+  "titlebar.workspace.chooseFolder": "Choose folder...",
 }
