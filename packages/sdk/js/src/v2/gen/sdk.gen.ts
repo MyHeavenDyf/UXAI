@@ -12,6 +12,7 @@ import type {
   ArtifactArchiveResponses,
   ArtifactDeleteBatchResponses,
   ArtifactDeleteResponses,
+  ArtifactListErrors,
   ArtifactListResponses,
   ArtifactReadErrors,
   ArtifactReadResponses,
@@ -236,10 +237,22 @@ import type {
   StudioGenerationsGetResponses,
   StudioGenerationsRebootErrors,
   StudioGenerationsRebootResponses,
+  StudioGenerationsRefreshErrors,
+  StudioGenerationsRefreshResponses,
+  StudioGenerationsThumbnailInvalidateErrors,
+  StudioGenerationsThumbnailInvalidateResponses,
+  StudioGenerationsThumbnailSaveErrors,
+  StudioGenerationsThumbnailSaveResponses,
+  StudioGenerationsThumbnailSourceGetErrors,
+  StudioGenerationsThumbnailSourceGetResponses,
+  StudioGenerationsVideoPosterSaveErrors,
+  StudioGenerationsVideoPosterSaveResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
+  StudioSessionsThumbnailsEnsureErrors,
+  StudioSessionsThumbnailsEnsureResponses,
   StudioStyleDescriptionGenCreateErrors,
   StudioStyleDescriptionGenCreateResponses,
   StudioTemplateDeleteDeleteErrors,
@@ -775,16 +788,17 @@ export class Artifact extends HeyApiClient {
   /**
    * List artifacts
    *
-   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.
+   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root. 'scope=project' (code workspace) resolves paths project-wide: generated lists the project root, uploaded lists .octo/uploads, and sessionId is not required.
    */
   public list<ThrowOnError extends boolean = false>(
-    parameters: {
+    parameters?: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       category?: "generated" | "uploaded"
       path?: string
       recursive?: "true" | "false"
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -799,11 +813,12 @@ export class Artifact extends HeyApiClient {
             { in: "query", key: "category" },
             { in: "query", key: "path" },
             { in: "query", key: "recursive" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
     )
-    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<ArtifactListResponses, ArtifactListErrors, ThrowOnError>({
       url: "/artifact/list",
       ...options,
       ...params,
@@ -990,7 +1005,7 @@ export class Artifact extends HeyApiClient {
   /**
    * Upload artifact
    *
-   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder.
+   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads into the project tree: 'dir' is a project-root-relative target directory (defaults to project root) and sessionId is not required.
    */
   public upload<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -1000,6 +1015,8 @@ export class Artifact extends HeyApiClient {
       filename?: string
       content?: string
       path?: string
+      scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1014,6 +1031,8 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "filename" },
             { in: "body", key: "content" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],
@@ -1046,6 +1065,8 @@ export class Artifact extends HeyApiClient {
         content: string
       }>
       path?: string
+      scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1060,6 +1081,8 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "folderName" },
             { in: "body", key: "files" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],
@@ -1089,8 +1112,9 @@ export class Artifact extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       path: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1103,6 +1127,7 @@ export class Artifact extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
             { in: "query", key: "path" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -1125,9 +1150,10 @@ export class Comment extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       commentFilePath: string
       commentId: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1141,6 +1167,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "sessionId" },
             { in: "query", key: "commentFilePath" },
             { in: "query", key: "commentId" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -1161,8 +1188,9 @@ export class Comment extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       commentFilePath: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1175,6 +1203,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
             { in: "query", key: "commentFilePath" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -1228,6 +1257,7 @@ export class Comment extends HeyApiClient {
         commenterName?: string
         commenterAvatar?: string
       }
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1241,6 +1271,7 @@ export class Comment extends HeyApiClient {
             { in: "body", key: "sessionId" },
             { in: "body", key: "commentFilePath" },
             { in: "body", key: "comment" },
+            { in: "body", key: "scope" },
           ],
         },
       ],
@@ -1267,9 +1298,10 @@ export class Comment extends HeyApiClient {
       attachmentId: string
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       commentFilePath: string
       commentId: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1284,6 +1316,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "sessionId" },
             { in: "query", key: "commentFilePath" },
             { in: "query", key: "commentId" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -1315,6 +1348,7 @@ export class Comment extends HeyApiClient {
       filename?: string
       mime?: string
       size?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1332,6 +1366,7 @@ export class Comment extends HeyApiClient {
             { in: "body", key: "filename" },
             { in: "body", key: "mime" },
             { in: "body", key: "size" },
+            { in: "body", key: "scope" },
           ],
         },
       ],
@@ -6463,6 +6498,178 @@ export class TemplateUserSearch extends HeyApiClient {
   }
 }
 
+export class VideoPoster extends HeyApiClient {
+  /**
+   * Save Studio video poster
+   *
+   * Persists a browser-captured video frame without changing generation status.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+      mediaIndex?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "mediaIndex" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsVideoPosterSaveResponses,
+      StudioGenerationsVideoPosterSaveErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/video-poster",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class ThumbnailSource extends HeyApiClient {
+  /**
+   * Read Studio thumbnail source
+   *
+   * Returns the persisted generation image bytes for same-origin browser thumbnail generation.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      mediaIndex: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "path", key: "mediaIndex" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioGenerationsThumbnailSourceGetResponses,
+      StudioGenerationsThumbnailSourceGetErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Thumbnail extends HeyApiClient {
+  /**
+   * Save Studio media thumbnail
+   *
+   * Persists a browser-generated WebP thumbnail without changing generation status.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      mediaIndex: string
+      directory?: string
+      workspace?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "path", key: "mediaIndex" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsThumbnailSaveResponses,
+      StudioGenerationsThumbnailSaveErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Invalidate Studio media thumbnail
+   *
+   * Removes a thumbnail that the browser could not decode and queues it for regeneration.
+   */
+  public invalidate<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      mediaIndex: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "path", key: "mediaIndex" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsThumbnailInvalidateResponses,
+      StudioGenerationsThumbnailInvalidateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -6658,6 +6865,57 @@ export class Generations extends HeyApiClient {
       ...params,
     })
   }
+
+  private _videoPoster?: VideoPoster
+  get videoPoster(): VideoPoster {
+    return (this._videoPoster ??= new VideoPoster({ client: this.client }))
+  }
+
+  private _thumbnailSource?: ThumbnailSource
+  get thumbnailSource(): ThumbnailSource {
+    return (this._thumbnailSource ??= new ThumbnailSource({ client: this.client }))
+  }
+
+  private _thumbnail?: Thumbnail
+  get thumbnail(): Thumbnail {
+    return (this._thumbnail ??= new Thumbnail({ client: this.client }))
+  }
+
+  /**
+   * Refresh Studio generation
+   *
+   * Queries and restores an abnormal asynchronous Studio generation.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsRefreshResponses,
+      StudioGenerationsRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/refresh",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class EditorEntries extends HeyApiClient {
@@ -6704,6 +6962,51 @@ export class EditorEntries extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+}
+
+export class Thumbnails extends HeyApiClient {
+  /**
+   * Ensure Studio session thumbnails
+   *
+   * Queues missing image thumbnails for a Studio session without waiting for processing.
+   */
+  public ensure<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioSessionsThumbnailsEnsureResponses,
+      StudioSessionsThumbnailsEnsureErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/thumbnails/ensure",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Sessions extends HeyApiClient {
+  private _thumbnails?: Thumbnails
+  get thumbnails(): Thumbnails {
+    return (this._thumbnails ??= new Thumbnails({ client: this.client }))
   }
 }
 
@@ -6762,9 +7065,14 @@ export class Studio2 extends HeyApiClient {
   get editorEntries(): EditorEntries {
     return (this._editorEntries ??= new EditorEntries({ client: this.client }))
   }
+
+  private _sessions?: Sessions
+  get sessions(): Sessions {
+    return (this._sessions ??= new Sessions({ client: this.client }))
+  }
 }
 
-export class Sessions extends HeyApiClient {
+export class Sessions2 extends HeyApiClient {
   /**
    * List insight sessions (paged)
    *
@@ -7034,9 +7342,9 @@ export class ChatMigration extends HeyApiClient {
 }
 
 export class Insight extends HeyApiClient {
-  private _sessions?: Sessions
-  get sessions(): Sessions {
-    return (this._sessions ??= new Sessions({ client: this.client }))
+  private _sessions?: Sessions2
+  get sessions(): Sessions2 {
+    return (this._sessions ??= new Sessions2({ client: this.client }))
   }
 
   private _files?: Files

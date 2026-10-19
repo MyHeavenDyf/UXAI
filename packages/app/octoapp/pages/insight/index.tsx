@@ -80,6 +80,7 @@ import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
+import { beginInsightOperation, trackInsight } from "./utils/interaction-tracking"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
@@ -87,7 +88,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount, currentUserId } from "./utils/account"
 import { artifactTrackingExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
-import { splitMentions, queuedMentions } from "./utils/mention"
+import { splitMentions, queuedMentions, queuedDoc } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
@@ -620,6 +621,7 @@ function InsightContent() {
     const model = local.model.current()
     if (!sessionID || !model || contextCompactionDisabled()) return
 
+    const finish = beginInsightOperation("context-compact", { sessionId: sessionID, command })
     setContextCommandPending(true)
     try {
       const result = await sdk.client.session.command({
@@ -631,13 +633,19 @@ function InsightContent() {
       })
       const info = result.data?.info
       if (info && isSuccessfulCompaction(info)) {
+        finish("success")
         showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
         return
       }
       const error = info?.error ?? result.error
-      if (isMessageAbortedError(error)) return
+      if (isMessageAbortedError(error)) {
+        finish("cancelled")
+        return
+      }
+      finish("failure", { reason: "command-result" })
       showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
     } catch (error) {
+      finish(isMessageAbortedError(error) ? "cancelled" : "failure", { reason: "command-request" })
       console.error(`[InsightPage] command /${command} failed`, error)
       if (isMessageAbortedError(error)) return
       showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
@@ -1912,6 +1920,7 @@ function InsightContent() {
       }),
     })
 
+    const doc = promptDoc()
     clearComposers()
     setMentionSelections([]) // @引用已拆桶进 mentionsPayload,清空选择态
     // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
@@ -1937,6 +1946,7 @@ function InsightContent() {
         ...q,
         {
           text,
+          doc,
           skills: mentionSkills,
           files: mentionFileRefs,
           directory: projectDir(),
@@ -1980,9 +1990,14 @@ function InsightContent() {
     const item = queue()[index]
     if (item === undefined) return
     setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
+    trackInsight("message-queue-remove", { sessionId: params.id, remainingCount: queue().length })
     // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
     // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
-    if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
+    if (!prompt().trim()) {
+      const doc = queuedDoc(item)
+      pmRefWelcome?.replaceDoc(doc, "end")
+      pmRefConv?.replaceDoc(doc, "end")
+    }
     // SPEC-INS-027 §3.7:取消排队 = 回到编辑态,把随这条消息快照走的附件也还原到附件栏(栏为空才还原,
     // 不覆盖用户正在选的附件),使编辑后可原样重发;文件本就在会话目录、不会丢,这里补回可见的 chip。
     if (attachments().length === 0 && (item.uploads?.length || item.images?.length)) {
@@ -2623,13 +2638,13 @@ function InsightContent() {
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
         <Show when={!sidebarCollapsed()}>
-          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
+          <InsightSidebar top={<ProjectInfo onOpen={() => trackInsight("navigation-open", { sessionId: params.id, target: "project", source: "sidebar" })} />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
         </Show>
         {/* 窄屏左侧栏抽屉:经汉堡唤出,贴左侧;透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
         <Show when={sidebarCollapsed() && sidebarOverlayOpen()}>
           <div class="absolute inset-0 z-20" onClick={() => setSidebarOverlayOpen(false)} />
           <div class="absolute left-0 top-0 bottom-0 z-30" style={{ "box-shadow": "8px 0 24px rgba(0,0,0,0.12)" }}>
-            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
+            <InsightSidebar top={<ProjectInfo onOpen={() => trackInsight("navigation-open", { sessionId: params.id, target: "project", source: "sidebar" })} />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
           </div>
         </Show>
 
@@ -2739,6 +2754,7 @@ function InsightContent() {
                         {renderAddonMenu()}
 
                         <ModelSelectorPopover
+                          onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                           model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
                           triggerProps={{
@@ -2996,6 +3012,7 @@ function InsightContent() {
                     {renderAddonMenu()}
 
                     <ModelSelectorPopover
+                      onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                       model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"
                       triggerProps={{

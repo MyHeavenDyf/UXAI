@@ -19,6 +19,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { tracker } from "@/utils/tracker"
+import { beginInsightOperation, uploadStatus } from "../../utils/interaction-tracking"
 import { useParams } from "@solidjs/router"
 import {
   fetchInsightFiles,
@@ -336,8 +337,13 @@ function FileManagerInner(props: {
     return { finalFolderName, okCount, errors }
   }
 
-  async function uploadSingleFile(file: File) {
-    if (!checkExternalFile(file)) return
+  async function uploadSingleFile(file: File, method = "picker", finish = beginInsightOperation("files-upload", {
+    sessionId: props.sessionId, kind: "file", method, count: 1,
+  })) {
+    if (!checkExternalFile(file)) {
+      finish("failure", { reason: "validation", rejectedCount: 1, successCount: 0 })
+      return
+    }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     try {
       const streamed = await tryStreamUpload(file, currentPath)
@@ -345,22 +351,25 @@ function FileManagerInner(props: {
         const base64 = await readFileAsBase64(file)
         await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
       }
+      finish("success", { successCount: 1 })
       showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
+      finish("failure", { reason: "upload" })
       showToast({ title: "上传失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
 
-  async function handleUpload(files: FileList | File[]) {
+  async function handleUpload(files: FileList | File[], method = "picker") {
     for (const file of Array.from(files)) {
-      await uploadSingleFile(file)
+      await uploadSingleFile(file, method)
     }
   }
 
   async function handleFolderUpload(files: FileList, inputValue?: string) {
     if (!files) return
+    const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "folder", method: "picker", count: files.length })
     let folderName: string | undefined = files[0]?.webkitRelativePath?.split("/")[0]
     if (!folderName && files.length === 0) {
       // <input webkitdirectory> 选空文件夹时 FileList 为空,拿不到 webkitRelativePath;
@@ -371,6 +380,7 @@ function FileManagerInner(props: {
       if (last && last !== "fakepath") folderName = last
     }
     if (!folderName) {
+      finish("failure", { reason: "folder-name" })
       showToast({ title: "上传失败", description: "无法识别文件夹名", variant: "error" })
       return
     }
@@ -385,6 +395,7 @@ function FileManagerInner(props: {
       // 优先流式(桌面端 + 真实本地路径):绕开 base64/JSON,无 V8 字符串上限 / OOM 风险。
       const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
       if (streamed) {
+        finish(uploadStatus(files.length, streamed.okCount, files.length - entries.length), { successCount: streamed.okCount, rejectedCount: files.length - entries.length })
         showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
         await refresh()
         props.onFilesRefresh?.()
@@ -397,11 +408,13 @@ function FileManagerInner(props: {
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
+      finish(uploadStatus(files.length, result.fileCount, files.length - entries.length), { successCount: result.fileCount, rejectedCount: files.length - entries.length })
       // result.name 是服务端撞名解析后的最终文件夹名(如 "myFolder (1)"),与流式分支的 streamed.finalFolderName 对称。
       showFolderUploadResult(result.name, result.fileCount, entries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
+      finish("failure", { reason: "upload" })
       showToast({ title: "上传失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
@@ -453,7 +466,7 @@ function FileManagerInner(props: {
     }
     request(() => {
       if (entries) void processEntries(entries)
-      else if (files) void handleUpload(files)
+      else if (files) void handleUpload(files, "drop")
     })
   }
   async function processEntries(entries: FileSystemEntry[]) {
@@ -463,6 +476,7 @@ function FileManagerInner(props: {
     }
   }
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
+    const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "folder", method: "drop" })
     const folderName = dirEntry.name
     const entries: { file: File; relativePath: string }[] = []
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
@@ -480,11 +494,11 @@ function FileManagerInner(props: {
         for (const child of childEntries) await collectFiles(child)
       }
     }
-    const reader = dirEntry.createReader()
-    const dirEntries = await readAllDirectoryEntries(reader)
     // collectFiles 不再读 base64,无超上限 reject;但外层是 handleDrop 的 void processEntries(...),
     // 没有 catch —— 仍需在此收住 getFileFromEntry 的潜在失败 + 回退分支的 readFileAsBase64 reject。
     try {
+      const reader = dirEntry.createReader()
+      const dirEntries = await readAllDirectoryEntries(reader)
       for (const entry of dirEntries) await collectFiles(entry)
       // 外网模型:过滤不合规文件(checkExternalFile 已 toast 提示)
       const filteredEntries = entries.filter((e) => checkExternalFile(e.file))
@@ -492,6 +506,7 @@ function FileManagerInner(props: {
       // uploadInsightFolder(folderName, [], ...) → 服务端 ensureDir 建空目录(与 base64 对称)。
       const streamed = await tryStreamFolderUpload(filteredEntries, folderName, currentPath)
       if (streamed) {
+        finish(uploadStatus(entries.length, streamed.okCount, entries.length - filteredEntries.length), { count: entries.length, successCount: streamed.okCount, rejectedCount: entries.length - filteredEntries.length })
         showFolderUploadResult(streamed.finalFolderName, streamed.okCount, filteredEntries.length, streamed.errors)
         await refresh()
         props.onFilesRefresh?.()
@@ -504,16 +519,22 @@ function FileManagerInner(props: {
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
+      finish(uploadStatus(entries.length, result.fileCount, entries.length - filteredEntries.length), { count: entries.length, successCount: result.fileCount, rejectedCount: entries.length - filteredEntries.length })
       showFolderUploadResult(result.name, result.fileCount, filteredEntries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
+      finish("failure", { reason: "upload" })
       showToast({ title: "上传失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
   async function processFileEntry(fileEntry: FileSystemFileEntry) {
-    const file = await getFileFromEntry(fileEntry)
-    await uploadSingleFile(file)
+    const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "file", method: "drop", count: 1 })
+    const file = await getFileFromEntry(fileEntry).catch((error) => {
+      finish("failure", { reason: "read-entry" })
+      throw error
+    })
+    await uploadSingleFile(file, "drop", finish)
   }
   async function readAllDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
@@ -611,14 +632,17 @@ function FileManagerInner(props: {
   }
 
   async function doDelete(file: InsightFile) {
+    const finish = beginInsightOperation("files-delete", { sessionId: props.sessionId, mode: "single", count: 1 })
     try {
       await deleteInsightFile(sdk.url, sdk.directory, file.path)
+      finish("success", { deletedCount: 1 })
       fileStore.deleteFile(file.path)
       props.onCloseTabsByPath?.([file.path])
       props.onRemoveAttachmentsByPath?.([file.path])
       showToast({ title: "已删除", description: file.name, variant: "success", duration: 2000 })
       props.onFilesRefresh?.()
     } catch (err) {
+      finish("failure", { reason: "delete" })
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
@@ -633,8 +657,11 @@ function FileManagerInner(props: {
   }
 
   async function doBatchDelete(paths: string[]) {
+    if (!paths.length) return
+    const finish = beginInsightOperation("files-delete", { sessionId: props.sessionId, mode: "batch", count: paths.length })
     try {
       const result = await deleteInsightBatch(sdk.url, sdk.directory, paths)
+      finish(uploadStatus(paths.length, result.deleted), { deletedCount: result.deleted })
       for (const path of paths) fileStore.deleteFile(path)
       fileStore.clearSelection()
       props.onCloseTabsByPath?.(paths)
@@ -642,6 +669,7 @@ function FileManagerInner(props: {
       showToast({ title: "已删除", description: `${result.deleted} 个文件`, variant: "success", duration: 2000 })
       props.onFilesRefresh?.()
     } catch (err) {
+      finish("failure", { reason: "delete" })
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }

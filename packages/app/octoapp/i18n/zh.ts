@@ -1066,4 +1066,7 @@ export const dict = {
   "mcp.toast.reconnecting.title": "MCP 断开，正在重连...",
   "mcp.toast.reconnected.title": "MCP 已重连成功",
   "mcp.toast.reconnectFailed.title": "MCP 重连失败",
+
+  "titlebar.workspace.select": "选择工作区",
+  "titlebar.workspace.chooseFolder": "选择文件夹...",
 } satisfies Partial<Record<Keys, string>>

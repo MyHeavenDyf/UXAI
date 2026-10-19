@@ -4,7 +4,7 @@ import { SessionTable } from "@/session/session.sql"
 import { Timestamps } from "@/storage/schema.sql"
 import type { StudioCapability } from "./image-provider"
 
-export type StudioGenerationStatus = "queued" | "running" | "succeeded" | "create_failed" | "failed"
+export type StudioGenerationStatus = "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
 
 export const StudioGenerationTable = sqliteTable(
   "studio_generation",
@@ -28,6 +28,7 @@ export const StudioGenerationTable = sqliteTable(
     result: text({ mode: "json" }).$type<Record<string, unknown>>(),
     error: text(),
     last_poll_error: text(),
+    poll_started_at: integer(),
     next_poll_at: integer().notNull(),
     poll_attempts: integer().notNull().default(0),
     completed_at: integer(),
