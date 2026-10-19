@@ -245,7 +245,8 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
-        const headers = token ? { uiplustoken: token } : undefined
+        const cookie = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "x-opencode-share-cookie")?.[1]
+        const headers = { ...(token ? { uiplustoken: token } : {}), ...(cookie ? { Cookie: cookie } : {}) }
         const form = new FormData()
         form.append(
           "file",

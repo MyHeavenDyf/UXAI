@@ -26,9 +26,17 @@ export function DialogShareSession(props: { session: Session }) {
     await (async () => {
       const url = state.url || await (async () => {
         const token = modelsApiToken()
+        const cookie = localStorage.getItem("uiplusCookie")?.trim()
         const response = await (platform.fetch ?? fetch)(
           `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
-          { method: "POST", headers: { ...directoryHeader(props.session.directory), ...(token ? { uiplustoken: token } : {}) } },
+          {
+            method: "POST",
+            headers: {
+              ...directoryHeader(props.session.directory),
+              ...(token ? { uiplustoken: token } : {}),
+              ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
+            },
+          },
         )
         const result: unknown = await response.json().catch(() => null)
         if (!response.ok) {

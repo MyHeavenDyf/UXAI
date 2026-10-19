@@ -68,7 +68,8 @@ describe("portable session", () => {
         expect(request.headers.get("x-auth-token")).toBeNull()
         expect(request.headers.get("authorization")).toBeNull()
         expect(request.headers.get("x-opencode-models-api-url")).toBeNull()
-        expect(request.headers.get("cookie")).toBeNull()
+        expect(request.headers.get("cookie")).toBe("sessionID=current-session; oc-uuid=current-user")
+        expect(request.headers.get("x-opencode-share-cookie")).toBeNull()
         const form = await request.formData()
         const file = form.get("file")
         if (!(file instanceof File)) return new Response("file is required", { status: 400 })
@@ -100,6 +101,7 @@ describe("portable session", () => {
                 Authorization: "Basic local-backend-only",
                 "x-opencode-models-api-url": "https://models.example/catalog",
                 Cookie: "unrelated-cookie",
+                "X-OpenCode-Share-Cookie": "sessionID=current-session; oc-uuid=current-user",
               },
             }),
           )

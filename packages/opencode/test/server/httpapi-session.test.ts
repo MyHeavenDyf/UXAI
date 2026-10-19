@@ -160,7 +160,7 @@ afterEach(async () => {
 
 describe("session HttpApi", () => {
   it.live(
-    "forwards only the current uiplustoken for sharing through both backends",
+    "forwards current share credentials through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
       Effect.gen(function* () {
         const previousUpload = process.env.OCTO_SHARE_API_URL
@@ -171,15 +171,18 @@ describe("session HttpApi", () => {
           if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
           else process.env.OCTO_SHARE_PAGE_URL = previousPage
         }))
-        const received: string[] = []
+        const received: { token: string; cookie: string | undefined }[] = []
         const context = yield* Layer.build(NodeHttpServer.layer(Http.createServer, { host: "127.0.0.1", port: 0 }))
         const upstream = Context.get(context, HttpServer.HttpServer)
         yield* upstream.serve(HttpServerRequest.HttpServerRequest.use((request) => Effect.sync(() => {
           expect(request.headers["x-auth-token"]).toBeUndefined()
           expect(request.headers.authorization).toBeUndefined()
-          expect(request.headers.cookie).toBeUndefined()
-          if (!request.headers.uiplustoken) return HttpServerResponse.jsonUnsafe({ success: false, errorMessage: "unLogin", content: {} })
-          received.push(request.headers.uiplustoken)
+          expect(request.headers["x-opencode-share-cookie"]).toBeUndefined()
+          if (!request.headers.uiplustoken) {
+            expect(request.headers.cookie).toBeUndefined()
+            return HttpServerResponse.jsonUnsafe({ success: false, errorMessage: "unLogin", content: {} })
+          }
+          received.push({ token: request.headers.uiplustoken, cookie: request.headers.cookie })
           return HttpServerResponse.jsonUnsafe({ success: true, content: { uniqueId: "AuthenticatedShare" } })
         })))
         process.env.OCTO_SHARE_API_URL = `${HttpServer.formatAddress(upstream.address)}/upload`
@@ -189,14 +192,23 @@ describe("session HttpApi", () => {
         for (const experimental of [true, false]) {
           const response = yield* requestWithBackend(experimental, path, {
             method: "POST",
-            headers: { "x-opencode-directory": tmp.path, uiplustoken: `token-${experimental}`, "X-Auth-Token": "not-forwarded", Cookie: "not-forwarded" },
+            headers: {
+              "x-opencode-directory": tmp.path,
+              uiplustoken: `token-${experimental}`,
+              "X-OpenCode-Share-Cookie": `sessionID=session-${experimental}`,
+              "X-Auth-Token": "not-forwarded",
+              Cookie: "not-forwarded",
+            },
           })
           expect(yield* json(response)).toEqual({ uniqueId: "AuthenticatedShare", url: "https://share.example/session?uniqueId=AuthenticatedShare" })
           const unLogin = yield* requestWithBackend(experimental, path, { method: "POST", headers: { "x-opencode-directory": tmp.path } })
           expect(unLogin.status).toBe(400)
           expect(yield* responseJson(unLogin)).toEqual({ message: "登录已失效或未登录，请重新登录后分享（unLogin）" })
         }
-        expect(received).toEqual(["token-true", "token-false"])
+        expect(received).toEqual([
+          { token: "token-true", cookie: "sessionID=session-true" },
+          { token: "token-false", cookie: "sessionID=session-false" },
+        ])
       }),
     ),
   )
