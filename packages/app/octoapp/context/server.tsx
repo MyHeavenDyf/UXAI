@@ -261,11 +261,11 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       remove,
       projects: {
         list: projectsList,
-        open(directory: string, kind?: WorkspaceKind) {
+        // 新建工作区默认 code;存量无 kind 字段仍视为 normal(kindOf 兜底),已存在的不改分类
+        open(directory: string, kind: WorkspaceKind = "code") {
           const key = origin()
           if (!key) return
           const current = store.projects[key] ?? []
-          // 已存在的工作区分类定死,重复选择不改 kind
           if (current.find((x) => x.worktree === directory)) return
           setStore("projects", key, [{ worktree: directory, expanded: true, kind }, ...current])
         },

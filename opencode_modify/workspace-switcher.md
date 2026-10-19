@@ -86,6 +86,23 @@ workspace 增加分类标记:**普通工作区(normal)/ 代码工作区(code)**,
 - 无需服务端配合:octo-session-workdir 插件只对 octo_insight 会话生效(make 会话走原生行为,相对路径天然解析到工作区根)
 - kind 查不到(如 URL 直进未在列表的目录)→ kindOf 兜底 normal → 行为与普通工作区一致
 
+## 新建默认代码工作区、分类选择 UI 移除 — 2026-10-19
+
+分类弹窗与徽章整体下线,改为**新建默认 code**:
+
+- **新建默认 code**:默认值放数据层 `server.projects.open(directory, kind: WorkspaceKind = "code")` —— 切换器/onboarding/home/settings 页设置所有新建入口统一生效;rootFor 归并 effect(layout.tsx)重建 root 时也默认 code
+- **不再弹分类选择**:`workspace-switcher.tsx` 删除 KindPickerDialog 与 pickKindThenSwitch,chooseFolder 选完目录直接 switchWorkspace;`switchWorkspace(dir)` 去掉 kind 参数
+- **不展示分类徽章**:列表项徽章渲染与 `.octo-ws-badge` / `.octo-ws-kind-card` 样式删除;trigger 本来就不显示
+- **layout 层简化**:`layout.projects.open(directory)` 去掉 kind 透传参数(无调用方传值,原"归并到别的 root 时不生效"逻辑随之消失 —— 归并新建 root 现在也默认 code,与全局默认一致)
+- i18n 删除 `titlebar.workspace.kind.*` 8 键(en+zh)
+
+### 保持不变(明确验证过)
+
+- **存量兜底**:`kindOf()` 的 `?? "normal"` 不动,老数据无 kind 字段仍视为普通工作区,零迁移
+- **已分类工作区不受影响**:`server.projects.open` 已存在直接 return 的逻辑不动,已有 kind(normal 或 code)不被覆盖
+- **kind 驱动的行为差异全保留**:make 页 `buildArtifactFolderPrefix` 的 [Workspace]/[Artifact Folder] 分流、Design 页(use-workspace-kind / artifact-auto-save / scope=project 产物布局)、服务端 artifact.ts 的 scope=project 接口均未改动
+- 埋点:switch 的 extend.kind 语义微调 —— 已存在工作区记实际 kind,新建记 "code"(原为弹窗所选 kind)
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过
