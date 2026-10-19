@@ -1,9 +1,8 @@
 import { Splash } from "@opencode-ai/ui/logo"
-import { usePlatform } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useServer } from "@/context/server"
-import { useLanguage } from "@/context/language"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
+import { WorkspaceSwitcher } from "@/components/workspace-switcher"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import { Portal } from "solid-js/web"
@@ -18,10 +17,8 @@ interface DialogProjectOnboardingProps {
 }
 
 export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
-  const platform = usePlatform()
   const globalSync = useGlobalSync()
   const server = useServer()
-  const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
@@ -52,7 +49,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   })
 
   const [directory, setDirectory] = createSignal<string>("")
-  const [selecting, setSelecting] = createSignal(false)
   const [triedSubmit, setTriedSubmit] = createSignal(false)
 
   createEffect(() => {
@@ -61,39 +57,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       setDirectory(init)
     }
   })
-
-  const displayPath = createMemo(() => {
-    const dir = directory()
-    if (!dir) return ""
-    const home = globalSync.data.path.home
-    if (home && dir.startsWith(home)) {
-      return "~" + dir.slice(home.length)
-    }
-    return dir
-  })
-
-  async function handlePickDirectory() {
-    if (selecting()) return
-    setSelecting(true)
-    try {
-      const home = globalSync.data.path.home
-      const defaultPath = isValidUserPath(directory()) 
-        ? directory() 
-        : (isValidUserPath(home) ? home : undefined)
-      
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("command.project.open"),
-        multiple: false,
-        defaultPath,
-      })
-      if (typeof result === "string" && result) {
-        setDirectory(result)
-        setTriedSubmit(false)
-      }
-    } finally {
-      setSelecting(false)
-    }
-  }
 
   function handleConfirm() {
     const dir = directory()
@@ -175,38 +138,16 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           <span>关联本地文件夹</span>
         </div>
 
-        <button
-          type="button"
-          onClick={handlePickDirectory}
-          disabled={selecting()}
-          aria-required="true"
-          aria-invalid={showDirError()}
-          aria-describedby="dir-error"
-          class="w-full flex items-center gap-2 px-3"
-          style={{
-            height: "40px",
-            "margin-top": "4px",
-            border: `1px solid ${showDirError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
-            "border-radius": "6px",
-            background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "transparent",
-            cursor: selecting() ? "not-allowed" : "pointer",
-            overflow: "hidden",
-          }}
-        >
-          <Show when={displayPath()} fallback={<span class="text-text-weak text-[14px]">选择文件夹</span>}>
-            <span
-              class="text-[14px] font-mono text-text-base overflow-hidden truncate"
-              style={{
-                color: "#191919"
-              }}
-            >
-              {displayPath()}
-            </span>
-          </Show>
-          <svg width="10" height="10" viewBox="0 0 10.0034 10" fill="none" style={{ "flex-shrink": "0", "margin-left": "auto" }}>
-            <path d="M4.64832 7.6045L0.148315 3.10462C-0.0494385 2.90662 -0.0494385 2.59547 0.148315 2.39747C0.346558 2.19953 0.657593 2.19953 0.855347 2.39753L5.00183 6.54383L9.14783 2.39753C9.34607 2.19953 9.6571 2.19953 9.85486 2.39747C10.0531 2.59547 10.0531 2.90662 9.85486 3.10462L5.35535 7.6045C5.25769 7.7021 5.13953 7.75092 5.00183 7.75092C4.86365 7.75092 4.74597 7.7021 4.64832 7.6045Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
-          </svg>
-        </button>
+        <div style={{ width: "100%", "margin-top": "4px" }}>
+          <WorkspaceSwitcher
+            value={directory()}
+            error={showDirError()}
+            onChange={(dir) => {
+              setDirectory(dir)
+              setTriedSubmit(false)
+            }}
+          />
+        </div>
 
         <div style={{ width: "100%", height: "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px", "margin-bottom": "8px" }}>
           <Show when={showDirError()}>
