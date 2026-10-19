@@ -12106,14 +12106,6 @@
               "prune": {
                 "type": "boolean"
               },
-              "tail_turns": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "preserve_recent_tokens": {
-                "type": "integer",
-                "minimum": 0
-              },
               "reserved": {
                 "type": "integer",
                 "minimum": 0

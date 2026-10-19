@@ -237,14 +237,8 @@ import type {
   StudioGenerationsGetResponses,
   StudioGenerationsRebootErrors,
   StudioGenerationsRebootResponses,
-  StudioGenerationsThumbnailInvalidateErrors,
-  StudioGenerationsThumbnailInvalidateResponses,
-  StudioGenerationsThumbnailSaveErrors,
-  StudioGenerationsThumbnailSaveResponses,
-  StudioGenerationsThumbnailSourceGetErrors,
-  StudioGenerationsThumbnailSourceGetResponses,
-  StudioGenerationsVideoPosterSaveErrors,
-  StudioGenerationsVideoPosterSaveResponses,
+  StudioGenerationsRefreshErrors,
+  StudioGenerationsRefreshResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
@@ -6496,177 +6490,6 @@ export class TemplateUserSearch extends HeyApiClient {
   }
 }
 
-export class VideoPoster extends HeyApiClient {
-  /**
-   * Save Studio video poster
-   *
-   * Persists a browser-captured video frame without changing generation status.
-   */
-  public save<ThrowOnError extends boolean = false>(
-    parameters: {
-      generationID: string
-      directory?: string
-      workspace?: string
-      mediaIndex?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      content?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "generationID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "mediaIndex" },
-            { in: "body", key: "content" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      StudioGenerationsVideoPosterSaveResponses,
-      StudioGenerationsVideoPosterSaveErrors,
-      ThrowOnError
-    >({
-      url: "/studio/generations/{generationID}/video-poster",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
-export class ThumbnailSource extends HeyApiClient {
-  /**
-   * Read Studio thumbnail source
-   *
-   * Returns the persisted generation image bytes for same-origin browser thumbnail generation.
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      generationID: string
-      mediaIndex: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "generationID" },
-            { in: "path", key: "mediaIndex" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<
-      StudioGenerationsThumbnailSourceGetResponses,
-      StudioGenerationsThumbnailSourceGetErrors,
-      ThrowOnError
-    >({
-      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class Thumbnail extends HeyApiClient {
-  /**
-   * Save Studio media thumbnail
-   *
-   * Persists a browser-generated WebP thumbnail without changing generation status.
-   */
-  public save<ThrowOnError extends boolean = false>(
-    parameters: {
-      generationID: string
-      mediaIndex: string
-      directory?: string
-      workspace?: string
-      content?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "generationID" },
-            { in: "path", key: "mediaIndex" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "content" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      StudioGenerationsThumbnailSaveResponses,
-      StudioGenerationsThumbnailSaveErrors,
-      ThrowOnError
-    >({
-      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Invalidate Studio media thumbnail
-   *
-   * Removes a thumbnail that the browser could not decode and queues it for regeneration.
-   */
-  public invalidate<ThrowOnError extends boolean = false>(
-    parameters: {
-      generationID: string
-      mediaIndex: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "generationID" },
-            { in: "path", key: "mediaIndex" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      StudioGenerationsThumbnailInvalidateResponses,
-      StudioGenerationsThumbnailInvalidateErrors,
-      ThrowOnError
-    >({
-      url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate",
-      ...options,
-      ...params,
-    })
-  }
-}
 
 export class Generations extends HeyApiClient {
   /**
@@ -6864,19 +6687,40 @@ export class Generations extends HeyApiClient {
     })
   }
 
-  private _videoPoster?: VideoPoster
-  get videoPoster(): VideoPoster {
-    return (this._videoPoster ??= new VideoPoster({ client: this.client }))
-  }
-
-  private _thumbnailSource?: ThumbnailSource
-  get thumbnailSource(): ThumbnailSource {
-    return (this._thumbnailSource ??= new ThumbnailSource({ client: this.client }))
-  }
-
-  private _thumbnail?: Thumbnail
-  get thumbnail(): Thumbnail {
-    return (this._thumbnail ??= new Thumbnail({ client: this.client }))
+  /**
+   * Refresh Studio generation
+   *
+   * Queries and restores an abnormal asynchronous Studio generation.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsRefreshResponses,
+      StudioGenerationsRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/refresh",
+      ...options,
+      ...params,
+    })
   }
 }
 

@@ -13,6 +13,7 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
 export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
 export const STUDIO_GENERATION_CANCEL_TIMEOUT_MS = 20_000
 export const STUDIO_GENERATION_REBOOT_TIMEOUT_MS = 30_000
+export const STUDIO_GENERATION_REFRESH_TIMEOUT_MS = 35_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 export function isStudioGenerationStatusRegression(
@@ -22,6 +23,7 @@ export function isStudioGenerationStatusRegression(
   return (
     current === "create_failed" ||
     current === "failed" ||
+    current === "abnormal" ||
     current === "succeeded"
   ) && (next === "queued" || next === "running")
 }
@@ -38,6 +40,7 @@ export function studioResultCardStatus(input: {
 }): StudioGenerationStatus {
   const generationStatus = input.result?.status
   if (generationStatus === "create_failed" || generationStatus === "failed") return generationStatus
+  if (generationStatus === "abnormal") return generationStatus
   if (generationStatus === "queued" || generationStatus === "running") return generationStatus
   if (generationStatus === "succeeded" || input.result?.images.length) return "succeeded"
   if (input.toolError || input.result?.error) return "failed"
@@ -135,11 +138,12 @@ export function isStudioEditResult(result: StudioGenerationResult) {
 
 export function studioGenerationTitle(
   capability: StudioCapability | undefined,
-  status: "running" | "succeeded" | "create_failed" | "failed",
+  status: "running" | "succeeded" | "create_failed" | "failed" | "abnormal",
 ) {
   const label = capability === "video.generate" ? "视频生成" : "图片生成"
   if (status === "create_failed") return capability === "video.generate" ? "视频创建失败" : "图片创建失败"
   if (status === "failed") return `${label}失败`
+  if (status === "abnormal") return `${label}状态异常`
   if (status === "succeeded") return `${label}完成`
   return `${label}中`
 }

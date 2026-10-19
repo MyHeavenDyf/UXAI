@@ -9,7 +9,7 @@ import { stripCodeFence } from "../../utils/detect"
 // blob URL 让文档拥有自己的真实地址(blob:...),#锚点 解析成 blob:...#x 属同文档跳转(只滚动、不导航),
 // 锚点/相对路径/history 自然正常;相比 data: URL 无 base64 膨胀与长度上限,更适合大 HTML。
 // sandbox 保持 allow-scripts(不加 allow-same-origin):脚本可跑,源为不透明源,碰不到主站 DOM/存储。
-export function HtmlRenderer(props: { content: string }): JSX.Element {
+export function HtmlRenderer(props: { content: string; onReady?: () => void }): JSX.Element {
   const html = createMemo(() => stripCodeFence(props.content).trim())
   const [blobUrl, setBlobUrl] = createSignal("")
 
@@ -36,6 +36,7 @@ export function HtmlRenderer(props: { content: string }): JSX.Element {
     >
       <iframe
         src={blobUrl()}
+        onLoad={() => { if (blobUrl()) props.onReady?.() }}
         sandbox="allow-scripts"
         title="HTML preview"
         style={{
