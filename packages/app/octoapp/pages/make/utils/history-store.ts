@@ -20,6 +20,8 @@ export interface VersionFile {
 
 const MAX_VERSIONS = 50
 const SKIP_TYPES = ["image", "video", "audio", "pdf", "svg", "text", "local-file"]
+/** 版本目录内的快照文件清单名；getVersionFiles 按 configFiles 映射文件名，不会命中它 */
+export const VERSION_MANIFEST_FILE = "__manifest.json"
 
 function getSep(filePath: string): string {
   return filePath.includes("\\") ? "\\" : "/"
@@ -96,6 +98,18 @@ function parseVersionFolder(name: string): { baseName: string; timestamp: number
   return { baseName, timestamp: ts, actor: actor as HistoryActor }
 }
 
+/** FNV-1a hash：同步、纯 JS，对短文本足够精确。
+ *  controller 的变更检测与 subtype handler（如 page 的入口比对）共用 */
+export function fnv1aHash(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let h = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]
+    h = (h * 0x01000193) >>> 0
+  }
+  return h.toString(16)
+}
+
 export function createHistoryStore() {
   const api = getDesktopApi()
 
@@ -160,6 +174,17 @@ export function createHistoryStore() {
 
     // 全部复制失败（如源文件未落盘、被占用）时不产生版本，避免幽灵条目
     if (copied === 0) return null
+
+    /** 版本文件清单：记录本次快照的完整 rel 列表。恢复端（如 page）按清单还原，
+     *  不受切换时磁盘状态影响（记录后新增/删除的文件也能正确还原/剔除）。
+     *  旧版本无清单时恢复端回退到「当前目录发现 ∩ 版本内容」的旧行为。
+     *  清单是可选元数据：写入失败（EBUSY 等）只降级恢复端能力，不能中断记录流程 */
+    try {
+      await api.writeFileBuffer?.(
+        versionDir + sep + VERSION_MANIFEST_FILE,
+        new TextEncoder().encode(JSON.stringify({ files })).buffer as ArrayBuffer,
+      )
+    } catch {}
 
     const entry: VersionEntry = {
       id: versionName,

@@ -18,6 +18,7 @@ import './quick-brief-form.css'
 import './insight-turn-meta.css'
 import './revert-panel.css'
 import { createReportedSet } from "../utils/track-dedup"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { tracker } from "@/utils/tracker"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
@@ -534,6 +535,8 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  // 代码工作区:产物自动保存落项目根 (kind="code");普通工作区:.octo/<sid>/outputs
+  const workspaceKind = useWorkspaceKind()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
 
@@ -1280,7 +1283,7 @@ const stateStatus = state.status as string | undefined
 
       autoSavedArtifacts.add(key)
 
-      autoSaveArtifact(props.sessionID, card, props.projectDir!).then((filePath) => {
+      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
         // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
         // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
         if (filePath) props.onArtifactSaved?.(filePath)

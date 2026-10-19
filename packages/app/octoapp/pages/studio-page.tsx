@@ -3,6 +3,7 @@ import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSucces
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
+import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -617,6 +618,17 @@ export default function StudioPage() {
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
+  })
+  createEffect(() => {
+    const directory = projectDir()
+    const trackSkillUsage = createSkillUsageTracker({
+      module: "studio",
+      scope: JSON.stringify([globalSDK.url, directory]),
+      sessionIDs: () => params.id ? [params.id] : [],
+      message: (sessionID, messageID) => dataStore.message[sessionID]?.find((message) => message.id === messageID),
+      report: (event) => tracker.interaction(event),
+    })
+    onCleanup(globalSDK.event.on(directory, trackSkillUsage))
   })
   const studioThumbnails = createSessionThumbnailStore({
     dir: () => projectDir(),

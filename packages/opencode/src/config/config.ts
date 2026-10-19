@@ -37,6 +37,7 @@ import { ConfigParse } from "./parse"
 import { ConfigPaths } from "./paths"
 import { ConfigPermission } from "./permission"
 import { ConfigPlugin } from "./plugin"
+import * as PluginSdkSeed from "./plugin-sdk-seed"
 import { ConfigProvider } from "./provider"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
@@ -44,6 +45,15 @@ import { ConfigVariable } from "./variable"
 import { Npm } from "@opencode-ai/core/npm"
 
 const log = Log.create({ service: "config" })
+
+// waitForDependencies 兜底超时:registry 不可达时 npm 重试退避可达 ~5 分钟,期间 instance
+// bootstrap 卡死。超时后放行(detached 安装 fiber 不受影响,继续后台跑,结果落盘由下次
+// 启动收敛)。可用 OPENCODE_DEPENDENCY_WAIT_TIMEOUT 覆盖(格式如 "30 seconds",测试注入短值)。
+const dependencyWaitTimeout = () =>
+  Option.getOrElse(
+    Duration.fromInput((process.env.OPENCODE_DEPENDENCY_WAIT_TIMEOUT ?? "30 seconds") as Duration.Input),
+    () => Duration.seconds(30),
+  )
 
 // Custom merge function that concatenates array fields instead of replacing them
 // Keep remeda's deep conditional merge type out of hot config-loading paths; TS profiling showed it dominates here.
@@ -388,6 +398,7 @@ export const layer = Layer.effect(
     const accountSvc = yield* Account.Service
     const env = yield* Env.Service
     const npmSvc = yield* Npm.Service
+    const flock = yield* EffectFlock.Service
 
     const readConfigFile = (filepath: string) => fs.readFileStringSafe(filepath).pipe(Effect.orDie)
 
@@ -631,16 +642,18 @@ export const layer = Layer.effect(
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 
-          const dep = yield* npmSvc
-            .install(dir, {
+          const dep = yield* PluginSdkSeed.install(
+            { npm: npmSvc, fs, flock },
+            dir,
+            {
               add: [
                 {
                   name: "@opencode-ai/plugin",
                   version: InstallationLocal ? undefined : InstallationVersion,
                 },
               ],
-            })
-            .pipe(
+            },
+          ).pipe(
               Effect.exit,
               Effect.tap((exit) =>
                 Exit.isFailure(exit)
@@ -807,7 +820,13 @@ export const layer = Layer.effect(
 
     const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
       yield* InstanceState.useEffect(state, (s) =>
-        Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.asVoid),
+        Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(
+          Effect.timeout(dependencyWaitTimeout()),
+          Effect.catchTag("TimeoutError", () =>
+            Effect.sync(() => log.warn("dependency install timed out, proceeding")),
+          ),
+          Effect.asVoid,
+        ),
       )
     })
 
