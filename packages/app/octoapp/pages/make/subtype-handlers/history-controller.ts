@@ -101,7 +101,30 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
+        let newestId = existing[0].id
+        const currentHash = await getTabFileSetHash(tab)
+        if (currentHash) {
+          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
+          const hashes: string[] = []
+          for (const vf of versionFiles) {
+            const h = await getFileHash(vf.filePath)
+            if (h) hashes.push(h)
+          }
+          if (hashes.join("|") !== currentHash) {
+            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+            if (entry) {
+              newestId = entry.id
+              listGeneration++
+              if (callbacks.isActiveTab(tab.id)) {
+                const list = await historyStore.listVersions(tab)
+                callbacks.setVersionList(() => list)
+              } else {
+                callbacks.setVersionList((prev) => [entry, ...prev])
+              }
+            }
+          }
+        }
+        callbacks.setCurrentVersionId(() => newestId)
         return
       }
     }
@@ -162,6 +185,81 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     } finally {
       writingTabs.delete(tab.id)
     }
+  }
+
+
+  async function restoreFilesBefore(tab: ResultTab, cutoffMs: number): Promise<"restored" | "deleted" | "none"> {
+    if (!isEligible(tab)) return "none"
+    const list = await historyStore.listVersions(tab)
+    if (list.length === 0) return "none"
+
+    const handler = getSubtypeHandler(tab.subtype)
+    const ctx = buildCtx(tab)
+    const api = getDesktopApi()
+    writingTabs.add(tab.id)
+    try {
+      const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
+
+      // listVersions 按时间倒序，find 命中的第一个即 cutoff 之前最新的版本
+      const target = list.find((v) => v.timestamp < cutoffMs)
+      if (target) {
+        const files = await historyStore.getVersionFiles(target.id, tab, configFiles)
+        if (handler?.applyVersionFiles) {
+          await handler.applyVersionFiles(ctx, files)
+        } else {
+          for (const f of files) await api?.copyFileTo?.(f.filePath, f.originalPath)
+        }
+        const restored = new Set(files.map((f) => f.relativePath))
+        for (const rel of configFiles) {
+          // "." 是产物主文件，绝不在 sibling 清理范围（防版本文件夹形态异常时误删主文件）
+          if (rel === "." || rel === "./" || restored.has(rel)) continue
+          await api?.deleteFile?.(resolveRelativePath(rel, tab.filePath!))
+        }
+        const hash = await getTabFileSetHash(tab)
+        if (hash) lastFileHash.set(tab.filePath!, hash)
+        return "restored"
+      }
+
+      const oldest = list[list.length - 1]!
+      const files = await historyStore.getVersionFiles(oldest.id, tab, configFiles)
+      for (const f of files) await api?.deleteFile?.(f.originalPath)
+      return "deleted"
+    } finally {
+      writingTabs.delete(tab.id)
+    }
+  }
+
+  async function recordInitIfNeeded(tab: ResultTab): Promise<void> {
+    if (!isEligible(tab)) return
+    const existing = await historyStore.listVersions(tab)
+    if (existing.length > 0) return
+    const files = await getTabFiles(tab)
+    await historyStore.recordVersion(tab, "init", files.length > 0 ? files : ["."])
+  }
+
+  async function recordAgentIfNeeded(tab: ResultTab): Promise<void> {
+    if (!isEligible(tab)) return
+    const files = await getTabFiles(tab)
+    if (files.length === 0) return
+    const hashes: string[] = []
+    for (const rel of files) {
+      const h = await getFileHash(resolveRelativePath(rel, tab.filePath!))
+      if (h) hashes.push(h)
+    }
+    if (hashes.length === 0) return
+    const currentHash = hashes.join("|")
+    const existing = await historyStore.listVersions(tab)
+    const newest = existing[0]
+    if (newest) {
+      const versionFiles = await historyStore.getVersionFiles(newest.id, tab, files)
+      const versionHashes: string[] = []
+      for (const vf of versionFiles) {
+        const h = await getFileHash(vf.filePath)
+        if (h) versionHashes.push(h)
+      }
+      if (versionHashes.length > 0 && versionHashes.join("|") === currentHash) return
+    }
+    await historyStore.recordVersion(tab, "agent", files)
   }
 
   async function onUserEdit(tab: ResultTab): Promise<void> {
@@ -350,6 +448,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   return {
     trigger,
     switchVersion,
+    restoreFilesBefore,
+    recordInitIfNeeded,
+    recordAgentIfNeeded,
     onUserEdit,
     syncFileHash,
     onTabOpen,
@@ -357,6 +458,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     loadVersions,
     refreshVersions,
     listVersions: historyStore.listVersions,
+    removeVersionsAfter: historyStore.removeVersionsAfter,
     beginWrite,
     endWrite,
   }

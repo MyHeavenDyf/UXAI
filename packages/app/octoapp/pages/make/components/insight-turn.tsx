@@ -4,15 +4,19 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createResource, createSignal, on, Show, For, type JSX } from "solid-js"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram, IconUndo, IconTrash, IconEdit, IconWarn, IconCopy, IconCheckmark, IconRedo } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
+import { collectRevertedFiles, buildRevertDraft, revertSkillsFromConfig, revertDocToClipboard, writeRichClipboard, type RevertDraftPart } from "../utils/restore-draft"
+import { ARTIFACT_TYPE_MAP, parseAllArtifactsFromText } from "../utils/artifact-cards"
+import { autoSaveArtifact, SAVEABLE_ARTIFACT_TYPES } from "../utils/artifact-auto-save"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import './insight-turn-meta.css'
-import { autoSaveArtifact } from "../utils/artifact-auto-save"
+import './revert-panel.css'
 import { createReportedSet } from "../utils/track-dedup"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { tracker } from "@/utils/tracker"
@@ -22,11 +26,9 @@ import { ExpandableBubble } from "@/components/expandable-bubble"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 import { getFileIcon } from "../icons/file-type-icons"
-import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
-import { kindFromMime } from "./attachment-bar"
+import { kindFromMime, mimeFromFilename } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
-import { parseFastuiPreview } from "../utils/fastui-export"
 
 function renderMentionText(text: string): JSX.Element {
   // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
@@ -130,57 +132,6 @@ export type UserAttachment = {
   path?: string
 }
 
-const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
-  html: "html",
-  "text/html": "html",
-  "text/html+deck": "deck",
-  deck: "deck",
-  svg: "svg",
-  "image/svg+xml": "svg",
-  "markdown-document": "markdown-document",
-  "code-snippet": "code-snippet",
-  "react-component": "react-component",
-  diagram: "diagram",
-  "text/design-plan": "design-plan",
-  "text/link": "link",
-}
-
-// 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题
-// URL:        提取最后的文件名(含扩展名),无路径时回退到 host
-//             "https://a.com/path/file.html" → "file.html"
-//             "https://a.com/"               → "a.com"
-// 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
-//             "D:\\dir\\a.shadcn.html" → "a.shadcn"
-//             "D:\\dir\\report.pdf"    → "report"
-function extractLinkTitle(content: string): string {
-  const trimmed = (content ?? "").trim()
-  if (!trimmed) return ""
-
-  // fastui 预览卡片 fastui://<产物名>(SPEC-DES-004):标题就是产物名
-  const fastuiName = parseFastuiPreview(trimmed)
-  if (fastuiName !== null) return fastuiName || "本地预览"
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const u = new URL(trimmed)
-      const segments = u.pathname.split("/").filter(Boolean)
-      if (segments.length > 0) {
-        const last = segments[segments.length - 1]
-        try { return decodeURIComponent(last) } catch { return last }
-      }
-      return u.host
-    } catch {
-      // fall through to path handling
-    }
-  }
-
-  const parts = trimmed.split(/[/\\]/).filter(Boolean)
-  const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
-  const lastDot = filename.lastIndexOf(".")
-  if (lastDot > 0) return filename.slice(0, lastDot)
-  return filename
-}
-
 function isMarkdownTable(text: string): boolean {
   if (/\|[\s]*[-:]+[-:\s|]*\|/.test(text)) return true
   const tableLines = text
@@ -198,35 +149,6 @@ function decodeDataUrl(url: string): string {
     return url
   }
 }
-
-// 从文件名扩展名推断 mime,仅用于 local 附件清单渲染(后端 manifest 只存了 filename+path)。
-// 覆盖常见图片/svg/webp/gif,其余按二进制处理,渲染端走文件图标 fallback。
-function mimeFromFilename(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-    html: "text/html",
-    htm: "text/html",
-    md: "text/markdown",
-    txt: "text/plain",
-    json: "application/json",
-    js: "application/javascript",
-    ts: "application/typescript",
-    css: "text/css",
-    pdf: "application/pdf",
-    mp4: "video/mp4",
-    webm: "video/webm",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-  }
-  return map[ext] ?? "application/octet-stream"
-}
-
 
 function getToolEndTime(state: Record<string, unknown> | undefined): number {
   const time = state?.time as Record<string, unknown> | undefined
@@ -259,67 +181,6 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
 
 function cardTypeIconSrc(_type: OutputCardType): string {
   return "/AI_doc_plaintext.svg"
-}
-
-function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
-  if (!/<artifact/i.test(text)) return []
-  const results: Omit<OutputCard, "id" | "createdAt">[] = []
-  try {
-    const parser = createArtifactParser()
-    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
-    let fullContent = ""
-    function handleEvent(ev: import("../utils/artifact-parser").ArtifactEvent) {
-      if (ev.type === "artifact:start") {
-        startEvent = ev
-        fullContent = ""
-      } else if (ev.type === "artifact:chunk") {
-        fullContent += ev.delta
-      } else if (ev.type === "artifact:end") {
-        fullContent = ev.fullContent
-        if (!startEvent) return
-        const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
-        // design-plan 或 identifier 以 "plan-" 开头的 artifact 不在消息流中显示卡片。
-        // 它们是方案阶段产物,只通过输入框上方的 plan banner 入口进入 ResultViewer。
-        // 双重兜底:type 正确时 mappedType === "design-plan";agent 把 type 写错时
-        // (例如写成 markdown-document) identifier 前缀仍然能识别出来。
-        const isPlanArtifact =
-          mappedType === "design-plan" ||
-          (startEvent.identifier || "").startsWith("plan-")
-        if (isPlanArtifact) {
-          startEvent = null
-          return
-        }
-        if (!mappedType) return
-        const explicitExports = startEvent.exports
-          ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
-          : undefined
-        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
-        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
-        // 模型声明的 title 可能带后缀或含异常字符,不可靠
-        let resolvedTitle = startEvent.title
-        if (mappedType === "link") {
-          const fromContent = extractLinkTitle(fullContent)
-          if (fromContent) resolvedTitle = fromContent
-        }
-        results.push({
-          title: resolvedTitle || mappedType,
-          type: mappedType,
-          subtype: extractSubtypeFromTitle(resolvedTitle),
-          content: fullContent,
-          artifactKind: startEvent.artifactType,
-          artifactIdentifier: startEvent.identifier || undefined,
-          exports: explicitExports,
-          designSystemId: startEvent.designSystemId || null,
-        })
-        startEvent = null
-      }
-    }
-    for (const ev of parser.feed(text)) handleEvent(ev)
-    // 不调用 flush() — 未闭合的 artifact 不应该被输出，避免中断时生成混乱卡片
-  } catch {
-    // ignore parse errors
-  }
-  return results
 }
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
@@ -663,6 +524,14 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
+  canRevert?: boolean
+  showRevert?: boolean
+  showRegenerate?: boolean
+  revertPanelOpen?: boolean
+  onRevertPanelOpenChange?: (open: boolean) => void
+  onRevertToMessage?: () => Promise<void> | void
+  onRegenerateMessage?: () => Promise<void> | void
+  onArtifactSaved?: (filePath: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1273,6 +1142,98 @@ const stateStatus = state.status as string | undefined
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
+  // 回退面板的产物列表：此消息之后（含后续轮次）write/edit 工具写入的文件 + <artifact> 标签落盘的产物，
+  const revertArtifacts = createMemo((): Array<{ path: string; created: boolean }> => {
+    if (!props.onRevertToMessage) return []
+    const messages = msgStore?.[props.sessionID] ?? []
+    const revertID = (data.store.session as Array<{ id: string; revert?: { messageID: string } }> | undefined)
+      ?.find((s) => s.id === props.sessionID)?.revert?.messageID
+    const live = revertID ? messages.filter((m) => m.id < revertID) : messages
+    const idx = live.findIndex((m) => m.id === props.messageID)
+    if (idx === -1) return []
+    const opts = { sessionId: props.sessionID, projectDir: props.projectDir }
+    const beforeParts: RevertDraftPart[] = []
+    for (let i = 0; i < idx; i++) {
+      beforeParts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
+    }
+    const existedBefore = new Set(collectRevertedFiles(beforeParts, opts).map((p) => p.replace(/\\/g, "/")))
+    const parts: RevertDraftPart[] = []
+    for (let i = idx + 1; i < live.length; i++) {
+      parts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
+    }
+    return collectRevertedFiles(parts, opts).map((path) => ({
+      path,
+      created: !existedBefore.has(path.replace(/\\/g, "/")),
+    }))
+  })
+
+  const [revertPending, setRevertPending] = createSignal(false)
+  const handleRevertConfirm = async () => {
+    if (revertPending()) return
+    setRevertPending(true)
+    try {
+      await props.onRevertToMessage?.()
+    } finally {
+      setRevertPending(false)
+    }
+  }
+
+
+  const [copied, setCopied] = createSignal(false)
+  let copyTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => {
+    if (copyTimer) clearTimeout(copyTimer)
+  })
+  const handleCopyMessage = async () => {
+    const parts = (partStore?.[props.messageID] ?? []) as RevertDraftPart[]
+    const { html, text } = revertDocToClipboard(
+      buildRevertDraft(parts, revertSkillsFromConfig(props.skillConfig)).docJSON,
+    )
+    try {
+      await writeRichClipboard(html, text)
+      setCopied(true)
+      if (copyTimer) clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.warn("[octo:make] copy message failed", err)
+    }
+  }
+
+  // 复制回复结论文本
+  const replyCopyable = createMemo(() => !showGenerating() && proseText().length > 0)
+  const [replyCopied, setReplyCopied] = createSignal(false)
+  let replyCopyTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => {
+    if (replyCopyTimer) clearTimeout(replyCopyTimer)
+  })
+  const handleCopyReply = async () => {
+    const text = proseText()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setReplyCopied(true)
+      if (replyCopyTimer) clearTimeout(replyCopyTimer)
+      replyCopyTimer = setTimeout(() => setReplyCopied(false), 2000)
+    } catch (err) {
+      console.warn("[octo:make] copy reply failed", err)
+    }
+  }
+
+  // 重新生成
+  const regeneratable = createMemo(
+    () => !showGenerating() && !!props.canRevert && !!props.onRegenerateMessage && !!props.showRegenerate,
+  )
+  const [regenPending, setRegenPending] = createSignal(false)
+  const handleRegenerate = async () => {
+    if (regenPending()) return
+    setRegenPending(true)
+    try {
+      await props.onRegenerateMessage?.()
+    } finally {
+      setRegenPending(false)
+    }
+  }
+
   // ── output cards (final, after generation, multiple) ──
   // 只有 <artifact> 标签才会生成卡片
   const outputCards = createMemo((): OutputCard[] => {
@@ -1317,13 +1278,15 @@ const stateStatus = state.status as string | undefined
       if (card.filePath && card.filePath.includes(".octo/artifacts")) continue
       const key = card.id
       if (autoSavedArtifacts.has(key)) continue
-      
-      const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
-      if (!saveable.includes(card.type)) continue
-      
+
+      if (!SAVEABLE_ARTIFACT_TYPES.includes(card.type)) continue
+
       autoSavedArtifacts.add(key)
-      
-      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then(() => {
+
+      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
+        // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
+        // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
+        if (filePath) props.onArtifactSaved?.(filePath)
         props.onFilesRefresh?.()
       }).catch(err => {
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
@@ -1352,9 +1315,10 @@ const stateStatus = state.status as string | undefined
 
   return (
     <div class="octo-make-turn flex flex-col gap-4" data-turn-id={props.messageID} style={{ "user-select": "text" }}>
-      {/* 用户消息气泡（右侧对齐） */}
+      {/* 用户消息气泡（右侧对齐）+ hover 回退图标 / 确认面板 */}
       <Show when={userText() || userAttachments().length > 0}>
-        <div class="flex flex-col items-end gap-4 px-3">
+        <div class="octo-revert-zone px-3">
+        <div class="flex flex-col items-end gap-4">
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col items-end gap-4">
               <For each={userAttachments()}>
@@ -1418,6 +1382,76 @@ const stateStatus = state.status as string | undefined
               {renderMentionText(userText())}
             </ExpandableBubble>
           </Show>
+        </div>
+        <Show when={!props.revertPanelOpen}>
+          <div class="octo-revert-icon-row">
+            <Tooltip value={copied() ? "已复制" : "复制消息"} placement="top" gutter={4}>
+              <button
+                type="button"
+                class="octo-revert-icon-btn"
+                aria-label="复制消息"
+                onClick={() => void handleCopyMessage()}
+              >
+                {copied() ? <IconCheckmark size={16} /> : <IconCopy size={16} />}
+              </button>
+            </Tooltip>
+            <Show when={props.onRevertToMessage && props.showRevert}>
+              <Tooltip value="回退到本轮对话前" placement="top" gutter={4}>
+                <button
+                  type="button"
+                  class="octo-revert-icon-btn"
+                  disabled={!props.canRevert}
+                  aria-label="回退到本轮对话前"
+                  onClick={() => props.onRevertPanelOpenChange?.(true)}
+                >
+                  <IconUndo size={16} />
+                </button>
+              </Tooltip>
+            </Show>
+          </div>
+        </Show>
+        <Show when={props.revertPanelOpen}>
+          <div
+            style={{
+              width: "100%",
+              "border-radius": "12px",
+              background: "rgba(0,0,0,0.03)",
+              padding: "16px",
+              "margin-top": "8px",
+              "box-sizing": "border-box",
+            }}
+          >
+            <div class="flex items-start" style={{ gap: "8px" }}>
+              <IconWarn size={14} style={{ "flex-shrink": "0", "margin-top": "3px" }} />
+              <div>
+                <div style={{ color: "rgba(0,0,0,0.9)", "font-size": "14px", "line-height": "22px" }}>确定要回退到此步骤并重新开始吗?</div>
+                <div style={{ color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>此操作将回退到上一次问答, 同时会删除当期会话所有内容。</div>
+              </div>
+            </div>
+            <Show when={revertArtifacts().length > 0}>
+              <div style={{ width: "100%", height: "1px", background: "rgba(0,0,0,0.1)", margin: "16px 0" }} />
+              <div class="flex flex-col" style={{ gap: "8px" }}>
+                <For each={revertArtifacts()}>
+                  {(artifact) => (
+                    <div class="flex items-center justify-between" style={{ gap: "8px" }}>
+                      <div class="flex items-center" style={{ gap: "6px", "min-width": "0" }}>
+                        {artifact.created ? <IconTrash size={14} /> : <IconEdit size={14} />}
+                        <span class="truncate" title={artifact.path} style={{ "text-decoration": "line-through", color: "rgba(0,0,0,0.6)", "font-size": "14px", "line-height": "22px" }}>
+                          {artifact.path.split(/[/\\]/).pop()}
+                        </span>
+                      </div>
+                      <span style={{ color: "rgba(0,0,0,0.6)", "font-size": "14px", "line-height": "22px", "flex-shrink": "0" }}>{artifact.created ? "将被删除" : "将被修改"}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="flex items-center justify-end" style={{ gap: "8px", "margin-top": "16px" }}>
+              <Button variant="secondary" size="small" disabled={revertPending()} onClick={() => props.onRevertPanelOpenChange?.(false)}>取消</Button>
+              <Button variant="primary" size="small" disabled={revertPending()} onClick={() => void handleRevertConfirm()}>{revertPending() ? "回退中…" : "确定"}</Button>
+            </div>
+          </div>
+        </Show>
         </div>
       </Show>
 
@@ -1749,10 +1783,40 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* hover 显示的 turn 元信息（agent · model · 耗时 · 中断）— 仿 Insight 页 */}
-      <Show when={turnMeta()}>
-        <div class="octo-make-turn-meta-wrapper">
-          <span class="octo-make-turn-meta">{turnMeta()}</span>
+      {/* 回复完成后常驻的复制行（左下角，与最后内容间距 = turn gap-4 16px）。
+          meta 悬浮行（agent · model · 耗时 · 中断）锚定在复制行上方 = 最后内容与复制按钮之间 */}
+      <Show when={turnMeta() || replyCopyable() || regeneratable()}>
+        <div class="octo-reply-copy-row">
+          <Show when={turnMeta()}>
+            <div class="octo-make-turn-meta-wrapper">
+              <span class="octo-make-turn-meta">{turnMeta()}</span>
+            </div>
+          </Show>
+          <Show when={replyCopyable()}>
+            <Tooltip value={replyCopied() ? "已复制" : "复制回复"} placement="top" gutter={4}>
+              <button
+                type="button"
+                class="octo-revert-icon-btn"
+                aria-label="复制回复"
+                onClick={() => void handleCopyReply()}
+              >
+                {replyCopied() ? <IconCheckmark size={16} /> : <IconCopy size={16} />}
+              </button>
+            </Tooltip>
+          </Show>
+          <Show when={regeneratable()}>
+            <Tooltip value="点击将重新生成内容，此会话后的内容都将被覆盖，请谨慎操作。" placement="top" gutter={4}>
+              <button
+                type="button"
+                class="octo-revert-icon-btn"
+                disabled={regenPending()}
+                aria-label="重新生成"
+                onClick={() => void handleRegenerate()}
+              >
+                <IconRedo size={16} />
+              </button>
+            </Tooltip>
+          </Show>
         </div>
       </Show>
 

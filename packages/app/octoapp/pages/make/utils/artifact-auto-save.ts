@@ -4,6 +4,9 @@ import type { WorkspaceKind } from "@/context/server"
 
 export const ARTIFACTS_SUBDIR = ".octo"
 
+/** autoSaveArtifact 会落盘的卡片类型（insight-turn auto-save effect 与回退清理收集共用） */
+export const SAVEABLE_ARTIFACT_TYPES: OutputCard["type"][] = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
+
 export function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
 }
@@ -82,8 +85,7 @@ export async function autoSaveArtifact(
   const api = getDesktopApi()
   if (!api?.writeFileBuffer || !api?.readFileBuffer) return
 
-  const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
-  if (!saveable.includes(card.type)) return
+  if (!SAVEABLE_ARTIFACT_TYPES.includes(card.type)) return
 
   const content = extractFileContent(card)
   if (!content) return
