@@ -1462,7 +1462,7 @@ function FileRow(props: {
           <div class="flex items-center" style={{ gap: "10px" }}>
             {(() => {
               if ((props.file.kind === "image" || props.file.kind === "svg") && !imageError()) {
-                const imgSrc = pathToLocalUrl(props.file.path)
+                const imgSrc = `${pathToLocalUrl(props.file.path)}?v=${props.file.mtime}`
                 return (
                   <img
                     src={imgSrc}
