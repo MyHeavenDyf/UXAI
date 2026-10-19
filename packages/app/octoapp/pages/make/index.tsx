@@ -5372,6 +5372,7 @@ const sessionMessagesLoaded = createMemo(() => {
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
               flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
               "min-width": `${MAKE_CENTER_MIN}px`,
+              "z-index": 11
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
