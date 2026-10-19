@@ -9,64 +9,16 @@ import { Effect, Option } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "@/project/instance"
 import { expandPathsToZipEntries, createZipArchive } from "./httpapi/handlers/artifact"
-
-const SESSION_BASE_DIR = ".octo"
-const OUTPUTS_DIR = "outputs"
-const UPLOADS_DIR = "uploads"
-
-const KIND_BY_EXT: Record<string, string> = {
-  html: "html",
-  htm: "html",
-  svg: "svg",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  gif: "image",
-  webp: "image",
-  mp4: "video",
-  webm: "video",
-  mp3: "audio",
-  wav: "audio",
-  md: "markdown",
-  markdown: "markdown",
-  txt: "text",
-  js: "code",
-  ts: "code",
-  json: "code",
-  css: "code",
-  pdf: "pdf",
-}
-
-const MIME_MAP: Record<string, string> = {
-  html: "text/html",
-  svg: "image/svg+xml",
-  md: "text/markdown",
-  txt: "text/plain",
-  json: "application/json",
-  js: "application/javascript",
-  ts: "application/typescript",
-  css: "text/css",
-  pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-}
-
-function getKind(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return KIND_BY_EXT[ext] ?? "binary"
-}
-
-function getMime(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return MIME_MAP[ext] ?? "application/octet-stream"
-}
+import {
+  collectArtifactFiles,
+  getKind,
+  getMime,
+  sanitizePath,
+  SESSION_BASE_DIR,
+  OUTPUTS_DIR,
+  UPLOADS_DIR,
+  type ArtifactFileInfo,
+} from "./artifact-shared"
 
 export const ArtifactRoutes = lazy(() =>
   new Hono()
@@ -107,39 +59,46 @@ export const ArtifactRoutes = lazy(() =>
         "query",
         z.object({
           sessionId: z.string(),
+          category: z.enum(["generated", "uploaded"]).optional(),
           path: z.string().optional(),
+          recursive: z.enum(["true", "false"]).optional(),
         }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-const { sessionId, path: subPath } = c.req.valid("query")
-           const fs = yield* AppFileSystem.Service
-           const outputsDir = path.join(Instance.directory, SESSION_BASE_DIR, sessionId, OUTPUTS_DIR)
-           const targetDir = subPath ? path.join(outputsDir, subPath) : outputsDir
+          const { sessionId, category, path: subPath, recursive } = c.req.valid("query")
+          const fs = yield* AppFileSystem.Service
+          const categoryDir =
+            (category ?? "generated") === "uploaded"
+              ? path.join(Instance.directory, SESSION_BASE_DIR, sessionId, UPLOADS_DIR)
+              : path.join(Instance.directory, SESSION_BASE_DIR, sessionId, OUTPUTS_DIR)
+          const normalized = subPath ? sanitizePath(subPath) : ""
+          const targetDir = normalized ? path.join(categoryDir, normalized) : categoryDir
+          const baseRelativePath =
+            (category ?? "generated") === "uploaded"
+              ? normalized
+                ? `${UPLOADS_DIR}/${normalized}`
+                : UPLOADS_DIR
+              : normalized
 
           const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
             return { files: [] }
           }
 
-          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
-          const files: Array<{
-            name: string
-            path: string
-            relativePath: string
-            sessionId: string
-            kind: string
-            isFolder: boolean
-            size: number
-            mtime: number
-            mime: string
-          }> = []
+          const files: ArtifactFileInfo[] = []
 
+          if (recursive === "true") {
+            yield* collectArtifactFiles(fs, targetDir, baseRelativePath, sessionId, files)
+            return { files }
+          }
+
+          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
           for (const name of entries) {
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = subPath ? `${subPath}/${name}` : name
+            const relativePath = baseRelativePath ? `${baseRelativePath}/${name}` : name
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue
