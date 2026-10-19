@@ -44,6 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -1272,6 +1273,20 @@ const sessionMessagesLoaded = createMemo(() => {
     if (aTime !== bTime) return aTime - bTime
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
   })
+
+  const trackSkillUsage = createSkillUsageTracker({
+    module: "design",
+    scope: JSON.stringify([sdk.url, sdk.directory]),
+    sessionIDs: () => [
+      params.id,
+      ...childSessionIDs(),
+      planParentSessionId() === params.id ? activePlanSessionId() : undefined,
+      patternSubParentSessionId() === params.id ? activePatternSessionId() : undefined,
+    ].filter((id): id is string => !!id),
+    message: (sessionID, messageID) => sync.data.message[sessionID]?.find((message) => message.id === messageID),
+    report: (event) => tracker.interaction(event),
+  })
+  onCleanup(sdk.event.listen((event) => trackSkillUsage(event.details)))
 
   const userMessages = createMemo((): Message[] => {
     const sid = params.id

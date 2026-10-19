@@ -1,6 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { ManualEditTarget } from "../edit-mode/source-patches"
-import type { ModelEditConfig } from "../components/model-edit-items/types"
+import type { ModelEditConfig, AssetConfirmArgs } from "../components/model-edit-items/types"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -80,6 +80,13 @@ export interface SubtypeHandler {
   handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
 
   /**
+   * 下载节流探测
+   * 在 handleDownload 之前调用；返回 true 表示该 tab 当前已有下载在进行中，
+   * 上层据此跳过 TaskStore.add 与 handleDownload 调用（不弹 toast、不在任务中心新增项）
+   */
+  isDownloadBusy?: (ctx: SubtypeHandlerContext, option?: string) => boolean
+
+  /**
    * 构建归档时要塞进 src/ 的代码包
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
@@ -112,6 +119,11 @@ export interface SubtypeHandler {
    * Model Edit 配置（组件感知属性面板）
    */
   modelEditConfig?: ModelEditConfig
+
+  /**
+   * 自定义资产库确认后发送的提示词（覆盖 default assetConfig.onConfirm）
+   */
+  onAssetConfirm?: (args: AssetConfirmArgs) => string | Promise<string>
 
   /**
    * UI 配置（配置方式）
