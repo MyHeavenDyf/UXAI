@@ -3741,16 +3741,26 @@ export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscrib
 export type ArtifactListData = {
   body?: never
   path?: never
-  query: {
+  query?: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     category?: "generated" | "uploaded"
     path?: string
     recursive?: "true" | "false"
+    scope?: "project"
   }
   url: "/artifact/list"
 }
+
+export type ArtifactListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ArtifactListError = ArtifactListErrors[keyof ArtifactListErrors]
 
 export type ArtifactListResponses = {
   /**
@@ -3902,10 +3912,12 @@ export type ArtifactDeleteBatchResponse = ArtifactDeleteBatchResponses[keyof Art
 
 export type ArtifactUploadData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     filename: string
     content: string
     path?: string
+    scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {
@@ -3945,13 +3957,15 @@ export type ArtifactUploadResponse = ArtifactUploadResponses[keyof ArtifactUploa
 
 export type ArtifactUploadFolderData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     folderName: string
     files: Array<{
       relativePath: string
       content: string
     }>
     path?: string
+    scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {
@@ -3994,13 +4008,18 @@ export type ArtifactServeData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     path: string
+    scope?: "project"
   }
   url: "/artifact/serve"
 }
 
 export type ArtifactServeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
   /**
    * Not found
    */
@@ -4024,9 +4043,10 @@ export type CommentDeleteData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     commentFilePath: string
     commentId: string
+    scope?: "project"
   }
   url: "/comment/file"
 }
@@ -4057,8 +4077,9 @@ export type CommentLoadData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     commentFilePath: string
+    scope?: "project"
   }
   url: "/comment/file"
 }
@@ -4115,7 +4136,7 @@ export type CommentLoadResponse = CommentLoadResponses[keyof CommentLoadResponse
 
 export type CommentSaveData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     commentFilePath: string
     comment: {
       id: string
@@ -4148,6 +4169,7 @@ export type CommentSaveData = {
       commenterName?: string
       commenterAvatar?: string
     }
+    scope?: "project"
   }
   path?: never
   query?: {
@@ -4185,9 +4207,10 @@ export type CommentDeleteAttachmentData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     commentFilePath: string
     commentId: string
+    scope?: "project"
   }
   url: "/comment/file/attachment/{attachmentId}"
 }
@@ -4218,13 +4241,14 @@ export type CommentDeleteAttachmentResponse = CommentDeleteAttachmentResponses[k
 
 export type CommentUploadAttachmentData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     commentFilePath: string
     commentId: string
     sourceFilePath: string
     filename: string
     mime: string
     size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    scope?: "project"
   }
   path?: never
   query?: {
@@ -8512,7 +8536,7 @@ export type StudioGenerationsCreateResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8626,7 +8650,7 @@ export type StudioGenerationsCancelResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8703,7 +8727,7 @@ export type StudioGenerationsRebootResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8780,7 +8804,7 @@ export type StudioGenerationsGetResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8829,6 +8853,182 @@ export type StudioGenerationsGetResponses = {
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
 
+export type StudioGenerationsVideoPosterSaveData = {
+  body?: {
+    mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    content: string
+  }
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/video-poster"
+}
+
+export type StudioGenerationsVideoPosterSaveErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsVideoPosterSaveError =
+  StudioGenerationsVideoPosterSaveErrors[keyof StudioGenerationsVideoPosterSaveErrors]
+
+export type StudioGenerationsVideoPosterSaveResponses = {
+  /**
+   * Saved Studio video poster
+   */
+  200: {
+    thumbnailUrl: string
+  }
+}
+
+export type StudioGenerationsVideoPosterSaveResponse =
+  StudioGenerationsVideoPosterSaveResponses[keyof StudioGenerationsVideoPosterSaveResponses]
+
+export type StudioGenerationsThumbnailSourceGetData = {
+  body?: never
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source"
+}
+
+export type StudioGenerationsThumbnailSourceGetErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailSourceGetError =
+  StudioGenerationsThumbnailSourceGetErrors[keyof StudioGenerationsThumbnailSourceGetErrors]
+
+export type StudioGenerationsThumbnailSourceGetResponses = {
+  /**
+   * Studio thumbnail source
+   */
+  200: string
+}
+
+export type StudioGenerationsThumbnailSourceGetResponse =
+  StudioGenerationsThumbnailSourceGetResponses[keyof StudioGenerationsThumbnailSourceGetResponses]
+
+export type StudioGenerationsThumbnailSaveData = {
+  body?: {
+    content: string
+  }
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail"
+}
+
+export type StudioGenerationsThumbnailSaveErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailSaveError =
+  StudioGenerationsThumbnailSaveErrors[keyof StudioGenerationsThumbnailSaveErrors]
+
+export type StudioGenerationsThumbnailSaveResponses = {
+  /**
+   * Saved Studio media thumbnail
+   */
+  200: {
+    thumbnailUrl: string
+  }
+}
+
+export type StudioGenerationsThumbnailSaveResponse =
+  StudioGenerationsThumbnailSaveResponses[keyof StudioGenerationsThumbnailSaveResponses]
+
+export type StudioGenerationsThumbnailInvalidateData = {
+  body?: never
+  path: {
+    generationID: string
+    mediaIndex: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate"
+}
+
+export type StudioGenerationsThumbnailInvalidateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsThumbnailInvalidateError =
+  StudioGenerationsThumbnailInvalidateErrors[keyof StudioGenerationsThumbnailInvalidateErrors]
+
+export type StudioGenerationsThumbnailInvalidateResponses = {
+  /**
+   * Invalidated Studio media thumbnail
+   */
+  200: {
+    invalidated: boolean
+  }
+}
+
+export type StudioGenerationsThumbnailInvalidateResponse =
+  StudioGenerationsThumbnailInvalidateResponses[keyof StudioGenerationsThumbnailInvalidateResponses]
+
+export type StudioSessionsThumbnailsEnsureData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/thumbnails/ensure"
+}
+
+export type StudioSessionsThumbnailsEnsureErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioSessionsThumbnailsEnsureError =
+  StudioSessionsThumbnailsEnsureErrors[keyof StudioSessionsThumbnailsEnsureErrors]
+
+export type StudioSessionsThumbnailsEnsureResponses = {
+  /**
+   * Queued Studio thumbnail jobs
+   */
+  200: {
+    queued: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioSessionsThumbnailsEnsureResponse =
+  StudioSessionsThumbnailsEnsureResponses[keyof StudioSessionsThumbnailsEnsureResponses]
+
 export type StudioGenerationsRefreshData = {
   body?: never
   path: {
@@ -8857,7 +9057,7 @@ export type StudioGenerationsRefreshResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"

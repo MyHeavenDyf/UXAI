@@ -18,15 +18,24 @@ import type { QueuedSend } from "./send-queue"
  */
 export function splitMentions(selections: MentionSelection[]): {
   skills: string[]
-  files: Array<{ filename: string; path: string }>
+  files: NonNullable<QueuedSend["files"]>
 } {
   const skills: string[] = []
-  const files: Array<{ filename: string; path: string }> = []
+  const files: NonNullable<QueuedSend["files"]> = []
   for (const s of selections) {
     if (s.type === "skill") {
       if (!skills.includes(s.name)) skills.push(s.name)
-    } else if (!files.some((f) => f.path === s.path)) {
-      files.push({ filename: s.filename, path: s.path })
+      continue
+    }
+    // 输入框按资产显示一个胶囊，发送仍保留解压后的完整文件清单。
+    const asset = s.files ? { id: s.id, filename: s.filename, path: s.path } : undefined
+    for (const file of s.files ?? [s]) {
+      const index = files.findIndex(f => f.path === file.path)
+      if (index !== -1) {
+        if (asset && !files[index].asset) files[index] = { ...files[index], asset }
+        continue
+      }
+      files.push({ filename: file.filename, path: file.path, ...(asset ? { asset } : {}) })
     }
   }
   return { skills, files }
@@ -40,14 +49,30 @@ export function splitMentions(selections: MentionSelection[]): {
 export function queuedMentions(item: QueuedSend): MentionAttrs[] {
   return [
     ...(item.skills ?? []).map((name) => ({ id: name, name, type: "skill" as const, label: name, path: "" })),
-    ...(item.files ?? []).map((f) => ({
-      id: f.filename,
-      name: f.filename,
-      type: "file" as const,
-      label: f.filename,
-      path: f.path,
-    })),
+    ...(item.files ?? []).flatMap((f, index, files) => {
+      if (f.asset) {
+        const asset = f.asset
+        if (files.findIndex(file => file.asset?.path === asset.path) !== index) return []
+        return [{
+          id: asset.id ?? asset.path, name: asset.filename, type: "file" as const,
+          label: asset.filename, path: asset.path,
+          files: files.filter(file => file.asset?.path === asset.path).map(file => ({ filename: file.filename, path: file.path })),
+        }]
+      }
+      return [{
+        id: f.filename,
+        name: f.filename,
+        type: "file" as const,
+        label: f.filename,
+        path: f.path,
+      }]
+    }),
   ]
+}
+
+/** 新队列直接恢复文档，旧队列仍按文本和引用清单重建。 */
+export function queuedDoc(item: QueuedSend): ReturnType<PMNode["toJSON"]> {
+  return item.doc ?? editorSchema.nodes.doc.create(null, buildParagraphs(item.text, queuedMentions(item))).toJSON()
 }
 
 /**

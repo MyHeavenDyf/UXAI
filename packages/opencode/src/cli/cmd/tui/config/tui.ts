@@ -4,7 +4,7 @@ import type z from "zod"
 import type { KeyEvent, Renderable } from "@opentui/core"
 import { resolveBindingSections, type BindingSectionsConfig } from "@opentui/keymap/extras"
 import { mergeDeep, unique } from "remeda"
-import { Context, Effect, Fiber, Layer } from "effect"
+import { Context, Duration, Effect, Fiber, Layer, Option } from "effect"
 import { ConfigParse } from "@/config/parse"
 import * as ConfigPaths from "@/config/paths"
 import { migrateTuiConfig } from "./tui-migrate"
@@ -246,7 +246,18 @@ export const layer = Layer.effect(
     const get = Effect.fn("TuiConfig.get")(() => Effect.succeed(data.config))
 
     const waitForDependencies = Effect.fn("TuiConfig.waitForDependencies")(() =>
-      Effect.forEach(deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.ignore(), Effect.asVoid),
+      Effect.forEach(deps, Fiber.join, { concurrency: "unbounded" }).pipe(
+        // 同 Config.waitForDependencies 的超时兜底:registry 不可达时 npm 重试退避可达 ~5 分钟。
+        // env 覆盖名保持一致(OPENCODE_DEPENDENCY_WAIT_TIMEOUT);此处不 import config.ts,TUI 配置栈自成一体
+        Effect.timeout(
+          Option.getOrElse(
+            Duration.fromInput((process.env.OPENCODE_DEPENDENCY_WAIT_TIMEOUT ?? "30 seconds") as Duration.Input),
+            () => Duration.seconds(30),
+          ),
+        ),
+        Effect.ignore(),
+        Effect.asVoid,
+      ),
     )
     return Service.of({ get, waitForDependencies })
   }).pipe(Effect.withSpan("TuiConfig.layer")),

@@ -26,6 +26,7 @@ import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
@@ -38,6 +39,8 @@ import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
 import type { ModelEditElement, ModelEditConfig } from "../model-edit-items/types"
 import { disposeAllPrototypeSessions, disposePrototypeSession, getSessionById } from "../../utils/prototype-utils"
+import { AgentExecutionPanel } from "../../utils/page-utils/agent-execution-panel"
+import { agentExecution, setAgentExecution } from "../../utils/page-utils/agent-execution-state"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -134,8 +137,12 @@ export function ResultViewer(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onAssetConfirm?: (args: import("../model-edit-items/types").AssetConfirmArgs) => string | Promise<string>
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
+  // 代码工作区:文件面板不依赖 session 挂载、标注/serve 走项目级 (传给 HtmlRenderer 与 subtype ctx)
+  const workspaceKind = useWorkspaceKind()
+  const projectScope = () => workspaceKind() === "code"
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -230,6 +237,7 @@ export function ResultViewer(props: {
       postMessageToIframe: iframePostMessages[tid] ? (data: unknown) => { iframePostMessages[tid]?.(data) } : undefined,
       iframeElementGetter: iframeElementGetters[tid] ? () => iframeElementGetters[tid]?.() : undefined,
       sdkDirectory: props.sdkDirectory,
+      workspaceKind: workspaceKind(),
     }
   }
 
@@ -479,23 +487,22 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
         onCollapseDrawer={props.onCollapseDrawer}
       />
 
-      <Show when={props.sessionId}>
-        {(sid) => (
-          <div
-            class="flex flex-col flex-1 min-h-0"
-            style={{ display: props.viewMode === "files" ? "flex" : "none" }}
-          >
-            <DesignFilesPanel
-              sessionId={sid()}
-              refreshKey={props.filesRefreshKey ?? 0}
-              onOpenFile={handleOpenArtifactFile}
-              onAddToSession={props.onAddArtifactToSession}
-              onCloseTabsByPath={handleCloseTabsByPath}
-              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onFilesRefresh={props.onFilesRefresh}
-            />
-          </div>
-        )}
+      {/* 代码工作区:文件面板与 session 无关,无 session (新对话) 也挂载 */}
+      <Show when={props.sessionId || projectScope()}>
+        <div
+          class="flex flex-col flex-1 min-h-0"
+          style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+        >
+          <DesignFilesPanel
+            sessionId={props.sessionId ?? ""}
+            refreshKey={props.filesRefreshKey ?? 0}
+            onOpenFile={handleOpenArtifactFile}
+            onAddToSession={props.onAddArtifactToSession}
+            onCloseTabsByPath={handleCloseTabsByPath}
+            onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+            onFilesRefresh={props.onFilesRefresh}
+          />
+        </div>
       </Show>
 
       {/* plan 模式 — 已退出/已结束，只读显示 plan 内容 */}
@@ -766,6 +773,7 @@ archiving={featureMutex.state.archiving}
                             filePath={tab.filePath}
                             commentFilePath={tab.commentFilePath}
                             sessionId={tab.sessionId ?? props.sessionId}
+                            workspaceKind={workspaceKind()}
                             sdkUrl={globalSDK.url}
                             sdkDirectory={props.sdkDirectory}
                             onSaveFile={async (content) => {
@@ -858,7 +866,38 @@ archiving={featureMutex.state.archiving}
       productId={props.productId}
       onDownloadProductAsset={props.onDownloadProductAsset}
       onUpdateMentionPath={props.onUpdateMentionPath}
+      onAssetConfirm={getSubtypeHandler(activeTab()?.subtype)?.onAssetConfirm ?? props.onAssetConfirm}
     />
+    <Show when={agentExecution()?.visible}>
+      <AgentExecutionPanel />
+    </Show>
+    <Show when={agentExecution() && !agentExecution()!.visible}>
+      <button
+        type="button"
+        onClick={() => setAgentExecution(prev => prev ? { ...prev, visible: true } : null)}
+        style={{
+          position: "fixed",
+          right: "16px",
+          top: "50%",
+          transform: "translateY(-50%)",
+          "z-index": "9998",
+          display: "flex",
+          "align-items": "center",
+          gap: "6px",
+          padding: "8px 14px",
+          "border-radius": "20px",
+          border: "1px solid rgba(0,0,0,0.1)",
+          background: "var(--octo-bg-primary, #fff)",
+          "box-shadow": "0 2px 12px rgba(0,0,0,0.12)",
+          cursor: "pointer",
+          "font-size": "13px",
+          color: "var(--octo-text-primary, #1a1a1a)",
+        }}
+      >
+        <span class="agent-exec-spinner" style={{ width: "12px", height: "12px", "border-width": "2px" }} />
+        查看 Agent
+      </button>
+    </Show>
   </div>
 )
 }

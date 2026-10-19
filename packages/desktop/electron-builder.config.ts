@@ -30,7 +30,9 @@ const getBase = (): Configuration => ({
     buildResources: "resources",
   },
   releaseInfo: { releaseNotes },
-  files: ["out/**/*", "resources/**/*"],
+  // resources/plugin-sdk 排除出 asar：它经 extraResources 单独放入安装目录 resources/plugin-sdk，
+  // 若不排除会双份打包（rg 二进制的老问题）
+  files: ["out/**/*", "resources/**/*", "!resources/plugin-sdk/**"],
   extraResources: [
     {
       from: "native/",
@@ -52,6 +54,11 @@ const getBase = (): Configuration => ({
     {
       from: "resources/bin",
       to: "bin",
+      filter: ["**/*"],
+    },
+    {
+      from: "resources/plugin-sdk",
+      to: "plugin-sdk",
       filter: ["**/*"],
     },
     {

@@ -333,13 +333,13 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
     return props.image
   })
   const shouldShowCanvas = createMemo(() => {
     if (props.canvasView === "template-creator") return true
     // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return false
     return !!showImage() || (props.showFileManager === true && !fileManagerLoading()) || props.templateCreatorTabOpen
   })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
@@ -397,7 +397,7 @@ export function StudioResultCanvas(props: {
     <>
       <Show when={shouldShowCanvas()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
-          <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
+          <Show when={props.status === "creating" || props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
                 <div class="text-[16px] font-semibold text-[#b42318]">
@@ -562,7 +562,7 @@ export function StudioResultCanvas(props: {
                   sessionID={props.sessionID}
                 />
               </div>
-              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                 <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
@@ -581,7 +581,7 @@ export function StudioResultCanvas(props: {
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
                   <Show when={showImage()} fallback={
-                    <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+                    <Show when={props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                       <StudioEmptyState />
                     </Show>
                   }>

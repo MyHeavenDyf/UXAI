@@ -26,6 +26,7 @@ export function createSyncPlugin(
                   type: node.attrs.type,
                   label: node.attrs.label,
                   path: node.attrs.path,
+                  ...(node.attrs.files ? { files: node.attrs.files } : {}),
                 })
               }
             })

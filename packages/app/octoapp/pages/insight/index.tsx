@@ -88,7 +88,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount, currentUserId } from "./utils/account"
 import { artifactTrackingExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
-import { splitMentions, queuedMentions } from "./utils/mention"
+import { splitMentions, queuedMentions, queuedDoc } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
@@ -1920,6 +1920,7 @@ function InsightContent() {
       }),
     })
 
+    const doc = promptDoc()
     clearComposers()
     setMentionSelections([]) // @引用已拆桶进 mentionsPayload,清空选择态
     // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
@@ -1945,6 +1946,7 @@ function InsightContent() {
         ...q,
         {
           text,
+          doc,
           skills: mentionSkills,
           files: mentionFileRefs,
           directory: projectDir(),
@@ -1991,7 +1993,11 @@ function InsightContent() {
     trackInsight("message-queue-remove", { sessionId: params.id, remainingCount: queue().length })
     // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
     // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
-    if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
+    if (!prompt().trim()) {
+      const doc = queuedDoc(item)
+      pmRefWelcome?.replaceDoc(doc, "end")
+      pmRefConv?.replaceDoc(doc, "end")
+    }
     // SPEC-INS-027 §3.7:取消排队 = 回到编辑态,把随这条消息快照走的附件也还原到附件栏(栏为空才还原,
     // 不覆盖用户正在选的附件),使编辑后可原样重发;文件本就在会话目录、不会丢,这里补回可见的 chip。
     if (attachments().length === 0 && (item.uploads?.length || item.images?.length)) {

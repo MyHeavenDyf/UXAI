@@ -128,6 +128,10 @@ export type ElectronAPI = {
     subPath: string,
     filename: string,
   ) => Promise<string>
+  /** 代码类型工作区(统一文件树):把本地文件拷进 <baseDir>/<relDir>/(项目相对目录,空串=项目根),返回落地绝对路径 */
+  copyFileToProjectDir: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
+  /** 代码类型工作区:内存 blob 直接写进 <baseDir>/<relDir>/(同 copyFileToProjectDir 落点),返回落地绝对路径 */
+  writeFileToProjectDir: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
   downloadResourceToTemp: (
     url: string,
     namespace: string,
