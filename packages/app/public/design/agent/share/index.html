@@ -18,14 +18,33 @@
     .header {
       height: 64px;
       flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
       background: #fff;
       border-bottom: 1px solid rgba(0, 0, 0, 0.1);
     }
-    .header-logo { width: 90px; height: 18px; }
+    .header-inner {
+      width: 100%;
+      max-width: 1024px;
+      height: 100%;
+      margin: 0 auto;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-logo { width: 90px; height: 18px; flex-shrink: 0; }
+    .header-title {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 24px;
+      color: #191919;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .header-btn {
       height: 32px;
       padding: 0 16px;
@@ -40,6 +59,7 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      flex-shrink: 0;
     }
     .header-btn:hover { background: #0858d8; }
     .header-btn-icon { width: 14px; height: 14px; display: block; flex-shrink: 0; }
@@ -48,23 +68,40 @@
       flex: 1;
       width: 100%;
       display: flex;
-      overflow: hidden;
+      overflow-y: auto;
       background: #fff;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+    }
+    .content::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .content::-webkit-scrollbar-thumb {
+      background-color: rgba(0, 0, 0, 0.15);
+      border-radius: 9999px;
+    }
+    .content::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(0, 0, 0, 0.3);
     }
     .chat-scroll-view {
-      height: 100%;
       width: 100%;
       max-width: 1024px;
       margin: 0 auto;
       background: #fff;
       padding: 12px;
-      overflow-y: auto;
     }
     .chat-content {
       padding-top: 16px;
       display: flex;
       flex-direction: column;
       gap: 16px;
+    }
+    #conversation-list {
+      padding-bottom: 24px;
     }
     .turn {
       display: flex;
@@ -127,8 +164,11 @@
 </head>
 <body>
   <header class="header">
-    <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
-    <button class="header-btn" onclick="window.open('/', '_blank')">在Octo Agent内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    <div class="header-inner">
+      <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
+      <h1 class="header-title" id="session-title"></h1>
+      <button class="header-btn" id="continue-btn">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    </div>
   </header>
   <main class="content">
     <div class="chat-scroll-view">
@@ -138,6 +178,30 @@
     </div>
   </main>
   <script>
+    // 按 hostname 选 deep link scheme,与桌面端 packages/desktop/src/main/shared-session.ts 的 parseSharedSessionLink 对齐:
+    //   beta(hostname 含 "beta") → octo-agent-beta (beta 桌面端注册)
+    //   localhost/127.0.0.1       → opencode        (dev 桌面端注册)
+    //   其余                      → octo-agent      (prod 桌面端注册)
+    function pickDeepLinkScheme() {
+      const host = location.hostname
+      if (host === "localhost" || host === "127.0.0.1") return "opencode"
+      if (host.indexOf("beta") !== -1) return "octo-agent-beta"
+      return "octo-agent"
+    }
+
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      const uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+        || new URLSearchParams(location.search).get("uniqueId") || ""
+      const scheme = pickDeepLinkScheme()
+      const url = `${scheme}://share?uniqueId=${encodeURIComponent(uniqueId)}`
+      // 用 hidden iframe 触发协议,避免 location.href 跳转导致页面被替换为"未识别协议"提示。
+      const iframe = document.createElement("iframe")
+      iframe.style.display = "none"
+      iframe.src = url
+      document.body.appendChild(iframe)
+      setTimeout(() => iframe.remove(), 1000)
+    })
+
     (async function () {
       // uniqueId 优先从路径提取（/design/agent/share/xxx.html → xxx）;
       // 路径为 index.html 时回退到 query 参数 uniqueId（兼容 /design/agent/share/index.html?uniqueId=xxx）
@@ -211,6 +275,9 @@
         console.error("[share] session not found")
         return
       }
+      // 填充头部标题(优先 manifest.title,回退 session.info.title,与内容区左对齐)
+      const titleEl = document.getElementById("session-title")
+      if (titleEl) titleEl.textContent = manifest.title || session.info?.title || ""
       const messages = session.messages || []
 
       // 按 user 分组: 每个 user 消息 + 后续 assistant 消息组成一个 turn（对齐 design 页面 InsightTurn 结构）

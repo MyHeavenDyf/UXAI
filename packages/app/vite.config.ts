@@ -23,6 +23,23 @@ const sentry =
 
 const octoBaseUrl = process.env.VITE_OCTO_BASE_URL
 
+// share 页面同源调用的接口,生产由 nginx 同源转发,dev 下需代理到真实后端。
+// 独立于 MOCK_API:share 是真实功能,不应被 mock 开关阻断;只要 VITE_OCTO_BASE_URL 有值就启用。
+const shareProxy = octoBaseUrl
+  ? {
+      "/main/rest.root/octoAgentServer/agentSession/getShareSessionInfo": {
+        target: octoBaseUrl,
+        changeOrigin: true,
+        secure: true,
+      },
+      "/tool": {
+        target: octoBaseUrl,
+        changeOrigin: true,
+        secure: true,
+      },
+    }
+  : undefined
+
 const mockProxy = process.env.MOCK_API === "false"
   ? {
       "/pipeline/rest.root/workflow": {
@@ -30,8 +47,9 @@ const mockProxy = process.env.MOCK_API === "false"
         changeOrigin: true,
         secure: true,
       },
+      ...shareProxy,
     }
-  : undefined
+  : shareProxy
 
 export default defineConfig({
   plugins: [desktopPlugin, octoMockPlugin(), sharePagePlugin(), sentry] as any,
