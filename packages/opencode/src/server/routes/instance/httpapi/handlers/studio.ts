@@ -15,6 +15,14 @@ import {
   updateTemplate,
   type StudioStyleDescriptionGenStreamEvent,
 } from "@/studio/studio-service"
+import {
+  deleteStudioHistoryMedia,
+  listStudioHistoryExcludedIds,
+  listStudioHistoryMedia,
+  snapshotSessionMedia,
+  splitHistoryFilter,
+  studioHistoryRevision,
+} from "@/studio/studio-history-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance, type InstanceContext } from "@/project/instance"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
@@ -24,11 +32,12 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioHistoryDeletePayload, StudioHistoryListQuery, StudioHistorySnapshotPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import {
   ensureStudioSessionThumbnails,
   invalidateStudioMediaThumbnail,
+  isStudioThumbnailTerminalError,
   loadStudioThumbnailSource,
   saveStudioMediaThumbnail,
   saveStudioVideoPoster,
@@ -276,7 +285,11 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
-            data: { message: error instanceof Error ? error.message : String(error) },
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+              // 远端拉取的瞬时失败（超时/网络）应告知客户端可重试，避免其按终态放弃。
+              retryable: !isStudioThumbnailTerminalError(error),
+            },
           }),
       })
       return HttpServerResponse.raw(source.bytes, {
@@ -302,7 +315,10 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
-            data: { message: error instanceof Error ? error.message : String(error) },
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+              retryable: !isStudioThumbnailTerminalError(error),
+            },
           }),
       })
     })
@@ -478,6 +494,89 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const listHistory = Effect.fn("StudioHttpApi.listHistory")(function* (ctx: {
+      query: typeof StudioHistoryListQuery.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => Promise.resolve(
+          listStudioHistoryMedia(instance.directory, {
+            kind: ctx.query.kind,
+            resolutions: splitHistoryFilter(ctx.query.resolution),
+            ratios: splitHistoryFilter(ctx.query.ratio),
+            sort: ctx.query.sort,
+            cursor: ctx.query.cursor,
+            limit: ctx.query.limit,
+          }),
+        )),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
+    const snapshotSession = Effect.fn("StudioHttpApi.snapshotSession")(function* (ctx: {
+      payload: typeof StudioHistorySnapshotPayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => Promise.resolve({
+          snapshotted: snapshotSessionMedia(instance.directory, ctx.payload.sessionID),
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
+    const deleteHistoryMedia = Effect.fn("StudioHttpApi.deleteHistoryMedia")(function* (ctx: {
+      payload: typeof StudioHistoryDeletePayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () =>
+          deleteStudioHistoryMedia(instance.directory, [...ctx.payload.mediaIds]).then((deleted) => ({ deleted })),
+        ),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
+    const listExcludedIds = Effect.fn("StudioHttpApi.listExcludedHistoryIds")(function* () {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => Promise.resolve({
+          ids: listStudioHistoryExcludedIds(instance.directory),
+        })),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
+    const getHistoryRevision = Effect.fn("StudioHttpApi.getHistoryRevision")(function* () {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => Promise.resolve(
+          studioHistoryRevision(instance.directory),
+        )),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: { message: error instanceof Error ? error.message : String(error) },
+          }),
+      })
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
@@ -498,6 +597,11 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)
       .handle("refreshGeneration", refresh)
+      .handle("listHistory", listHistory)
+      .handle("snapshotSession", snapshotSession)
+      .handle("deleteHistoryMedia", deleteHistoryMedia)
+      .handle("listExcludedHistoryIds", listExcludedIds)
+      .handle("getHistoryRevision", getHistoryRevision)
       .handle("listPromptTags", () =>
         Effect.tryPromise({
           try: () => fetchPromptTags(),

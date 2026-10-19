@@ -275,6 +275,207 @@ export function studioMediaDownloadFilename(input: {
   return `${filename}.${extension}`
 }
 
+type StudioDesktopDownloadApi = {
+  saveFilePicker?: (opts?: { defaultPath?: string }) => Promise<string | null>
+  writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+  fileExists?: (path: string) => Promise<boolean>
+}
+
+function studioDesktopDownloadApi(): StudioDesktopDownloadApi | undefined {
+  return (window as unknown as { api?: StudioDesktopDownloadApi }).api
+}
+
+// 拉取待下载的媒体字节并解析出文件名；失败时仅返回兜底文件名，交由保存阶段回退为直链下载。
+export async function prepareStudioMediaDownload(input: {
+  source: string
+  fallbackMime: string
+  signal?: AbortSignal
+}): Promise<{ label: string; blob?: Blob }> {
+  const downloaded = await fetch(input.source, { signal: input.signal })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
+      const blob = await response.blob()
+      return {
+        blob,
+        label: studioMediaDownloadFilename({
+          url: response.url || input.source,
+          contentDisposition: response.headers.get("content-disposition"),
+          mime: blob.type || response.headers.get("content-type") || input.fallbackMime,
+        }),
+      }
+    })
+    .catch((error) => {
+      console.warn("[studio] media download fallback", error)
+      return undefined
+    })
+  return {
+    label: downloaded?.label ?? studioMediaDownloadFilename({ url: input.source, mime: input.fallbackMime }),
+    blob: downloaded?.blob,
+  }
+}
+
+export type StudioMediaSaveResult = { saved: boolean; fallback?: boolean; cancelled?: boolean }
+
+// 与详情面板下载同一套落盘策略：桌面端走原生保存对话框，其余走浏览器下载。
+// saved=true 表示字节已确认落盘（写盘或浏览器 blob 下载）；
+// fallback=true 表示字节缺失只能回退直链下载，结果无法确认，调用方不得据此提示成功。
+export async function saveStudioMediaDownload(input: {
+  source: string
+  label: string
+  blob?: Blob
+}): Promise<StudioMediaSaveResult> {
+  if (!input.blob) {
+    triggerBrowserDownload(input.source, input.label)
+    return { saved: false, fallback: true }
+  }
+  try {
+    const api = studioDesktopDownloadApi()
+    if (api?.saveFilePicker && api.writeFileBuffer) {
+      const filePath = await api.saveFilePicker({ defaultPath: input.label })
+      if (!filePath) return { saved: false, cancelled: true }
+      if (api.fileExists && await api.fileExists(filePath)) {
+        const unique = await collisionFreeFilename(api, filePath)
+        await api.writeFileBuffer(unique, await input.blob.arrayBuffer())
+        return { saved: true }
+      }
+      await api.writeFileBuffer(filePath, await input.blob.arrayBuffer())
+      return { saved: true }
+    }
+    browserDownloadBlob(input.blob, input.label)
+    return { saved: true }
+  } catch (error) {
+    console.warn("[studio] media download fallback", error)
+    triggerBrowserDownload(input.source, input.label)
+    return { saved: false, fallback: true }
+  }
+}
+
+function basenameSuffixes(label: string) {
+  const dot = label.lastIndexOf(".")
+  const base = dot > 0 ? label.slice(0, dot) : label
+  const ext = dot > 0 ? label.slice(dot) : ""
+  return { base, ext }
+}
+
+// 宿主提供 fileExists 时，对目标目录中已存在的同名文件加 (1)/(2) 后缀避让，
+// 避免静默覆盖；不可用时返回原名（与旧行为一致）。迭代设上限，
+// 宿主 fileExists 行为异常（恒为 true）时放弃避让返回原名，不做无限探测。
+async function collisionFreeFilename(
+  api: { fileExists?: (path: string) => Promise<boolean> },
+  target: string,
+): Promise<string> {
+  if (!api.fileExists || !(await api.fileExists(target))) return target
+  const separator = target.includes("\\") ? "\\" : "/"
+  const end = target.lastIndexOf(separator)
+  const directory = end >= 0 ? target.slice(0, end) : target
+  const label = end >= 0 ? target.slice(end + 1) : target
+  const { base, ext } = basenameSuffixes(label)
+  for (let index = 1; index <= 1000; index++) {
+    const candidate = `${directory}${separator}${base}(${index})${ext}`
+    if (!(await api.fileExists(candidate))) return candidate
+  }
+  console.warn("[studio] gave up finding a collision-free filename", { target })
+  return target
+}
+
+function browserDownloadBlob(blob: Blob, label: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  triggerBrowserDownload(objectUrl, label)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+}
+
+function uniqueBatchFilename(label: string, used: Set<string>) {
+  if (!used.has(label)) {
+    used.add(label)
+    return label
+  }
+  const { base, ext } = basenameSuffixes(label)
+  let index = 1
+  let candidate = `${base}(${index})${ext}`
+  while (used.has(candidate)) {
+    index += 1
+    candidate = `${base}(${index})${ext}`
+  }
+  used.add(candidate)
+  return candidate
+}
+
+// 批量落盘：与单个下载共用同一套桌面端「保存文件」对话框（saveFilePicker），
+// 只弹一次，文件名输入框展示全部待下载文件（逗号分隔，重名加 (1)/(2) 后缀）；
+// 以所选路径所在目录写入全部媒体。非桌面端或对话框宿主异常时退回逐条浏览器下载。
+// saved 只统计已确认落盘的数量；fallback 统计只能回退直链下载、结果无法确认
+// 的数量，调用方不得把 fallback 计入成功。
+export async function batchSaveStudioMedia(input: {
+  entries: { source: string; label: string; blob?: Blob }[]
+}): Promise<{ saved: number; fallback: number; total: number; cancelled: boolean }> {
+  const { entries } = input
+  const total = entries.length
+  const api = studioDesktopDownloadApi()
+  if (api?.saveFilePicker && api.writeFileBuffer) {
+    const used = new Set<string>()
+    const labels = entries.map((entry) => uniqueBatchFilename(entry.label, used))
+    // defaultPath 只是预填提示：多选时列出全部待下载文件，但 OS 对文件名长度
+    // 有限制（约 255 字节），超长时截断避免对话框异常。
+    const joined = labels.join(",")
+    let pickerFailed = false
+    const target = await api
+      .saveFilePicker({ defaultPath: joined.length > 200 ? `${joined.slice(0, 197)}...` : joined })
+      .catch((error: unknown) => {
+        // 与单文件版同一韧性策略：宿主对话框异常时降级浏览器下载，不让整批 reject。
+        console.warn("[studio] batch save dialog failed", error)
+        pickerFailed = true
+        return null
+      })
+    if (pickerFailed) {
+      let saved = 0
+      let fallback = 0
+      for (const entry of entries) {
+        if (entry.blob) {
+          browserDownloadBlob(entry.blob, entry.label)
+          saved += 1
+        } else {
+          triggerBrowserDownload(entry.source, entry.label)
+          fallback += 1
+        }
+      }
+      return { saved, fallback, total, cancelled: false }
+    }
+    if (!target) return { saved: 0, fallback: 0, total, cancelled: true }
+    const separator = target.includes("\\") ? "\\" : "/"
+    const end = target.lastIndexOf(separator)
+    const directory = end >= 0 ? target.slice(0, end) : target
+    let saved = 0
+    let fallback = 0
+    for (const [index, entry] of entries.entries()) {
+      if (!entry.blob) {
+        triggerBrowserDownload(entry.source, labels[index])
+        fallback += 1
+        continue
+      }
+      try {
+        const outputPath = await collisionFreeFilename(api, `${directory}${separator}${labels[index]}`)
+        await api.writeFileBuffer(outputPath, await entry.blob.arrayBuffer())
+        saved += 1
+      } catch (error) {
+        console.warn("[studio] batch download write failed", error)
+      }
+    }
+    return { saved, fallback, total, cancelled: false }
+  }
+  let saved = 0
+  let fallback = 0
+  for (const entry of entries) {
+    if (entry.blob) {
+      browserDownloadBlob(entry.blob, entry.label)
+      saved += 1
+    } else {
+      triggerBrowserDownload(entry.source, entry.label)
+      fallback += 1
+    }
+  }
+  return { saved, fallback, total, cancelled: false }
+}
+
 export function getModelResolutionKey(styleModel: string): string {
   const id = styleModelId(styleModel) ?? styleModel
   if (id === "hdesign") return "hdesign"
