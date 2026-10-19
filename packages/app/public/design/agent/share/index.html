@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>分享对话</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #ffffff;
+      color: #191919;
+      display: flex;
+      flex-direction: column;
+    }
+    /* ── header ── */
+    .header {
+      height: 64px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: #fff;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    .header-logo { width: 90px; height: 18px; }
+    .header-btn {
+      height: 32px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 16px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 22px;
+      color: #fff;
+      background: #0969ff;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .header-btn:hover { background: #0858d8; }
+    .header-btn-icon { width: 14px; height: 14px; display: block; flex-shrink: 0; }
+    /* ── conversation（对齐 design 页面 ScrollView + make-chat-content 结构）── */
+    .content {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      overflow: hidden;
+      background: #fff;
+    }
+    .chat-scroll-view {
+      height: 100%;
+      width: 100%;
+      max-width: 1024px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 12px;
+      overflow-y: auto;
+    }
+    .chat-content {
+      padding-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .turn {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .turn-user-row {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 16px;
+      padding: 0 12px;
+    }
+    .bubble-user {
+      background: rgba(10, 89, 247, 0.08);
+      padding: 12px 16px;
+      border-radius: 16px 16px 2px 16px;
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-width: 85%;
+      display: inline-block;
+    }
+    .turn-assistant-row { padding: 0 16px; }
+    .text-assistant {
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    /* ── 文件卡片(对齐 design 页面 InsightTurn 附件卡片样式) ── */
+    .file-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .file-card {
+      background: rgba(0, 0, 0, 0.05);
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: rgba(0, 0, 0, 0.9);
+      font-size: 14px;
+      line-height: 22px;
+      gap: 6px;
+      display: inline-flex;
+      align-items: center;
+      max-width: 200px;
+      cursor: default;
+    }
+    .file-card img { width: 24px; height: 24px; flex-shrink: 0; }
+    .file-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
+    <button class="header-btn" onclick="window.open('/', '_blank')">在Octo Agent内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+  </header>
+  <main class="content">
+    <div class="chat-scroll-view">
+      <div class="chat-content">
+        <div id="conversation-list"></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    (async function () {
+      // uniqueId 优先从路径提取（/design/agent/share/xxx.html → xxx）;
+      // 路径为 index.html 时回退到 query 参数 uniqueId（兼容 /design/agent/share/index.html?uniqueId=xxx）
+      let uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+      if (!uniqueId || uniqueId === "index") {
+        uniqueId = new URLSearchParams(location.search).get("uniqueId") || ""
+      }
+      if (!uniqueId) {
+        console.error("[share] missing uniqueId")
+        return
+      }
+
+      // uiplustoken: 从 localStorage 读取（用户登录后由 desktop 主进程或登录流程写入）
+      const token = localStorage.getItem("uiplusToken") || ""
+
+      // 同源调用 getShareSessionInfo（生产环境天然同源,无 CORS）
+      const infoUrl = "/main/rest.root/octoAgentServer/agentSession/getShareSessionInfo?uniqueId=" + encodeURIComponent(uniqueId)
+      try {
+        const res = await fetch(infoUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) {
+          console.error("[share] getShareSessionInfo HTTP " + res.status)
+          return
+        }
+        const data = await res.json()
+        console.log("[share] getShareSessionInfo response:", data)
+        if (!data.success || !data.content) {
+          console.error("[share] getShareSessionInfo success=false", data)
+          return
+        }
+        const filePath = data.content.versionInfo && data.content.versionInfo[0] && data.content.versionInfo[0].filePath
+        if (filePath) loadConversation(filePath, token)
+      } catch (err) {
+        console.error("[share] getShareSessionInfo failed:", err)
+      }
+    })()
+
+    async function loadConversation(filePath, token) {
+      const manifestUrl = "/tool" + filePath + "/manifest.json"
+      try {
+        const res = await fetch(manifestUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) {
+          console.error("[share] manifest HTTP " + res.status)
+          return
+        }
+        const manifest = await res.json()
+        console.log("[share] manifest response:", manifest)
+        renderConversation(manifest)
+      } catch (err) {
+        console.error("[share] manifest failed:", err)
+      }
+    }
+
+    function renderConversation(manifest) {
+      const list = document.getElementById("conversation-list")
+      if (!list) return
+      list.innerHTML = ""
+      if (!manifest || manifest.format !== "octo-session") {
+        console.error("[share] manifest format not supported")
+        return
+      }
+      const session = (manifest.sessions || []).find(s => s.info && s.info.id === manifest.rootSessionID) || manifest.sessions?.[0]
+      if (!session) {
+        console.error("[share] session not found")
+        return
+      }
+      const messages = session.messages || []
+
+      // 按 user 分组: 每个 user 消息 + 后续 assistant 消息组成一个 turn（对齐 design 页面 InsightTurn 结构）
+      const turns = []
+      let current = null
+      for (const msg of messages) {
+        const role = msg.info && msg.info.role
+        if (role === "user") {
+          if (current) turns.push(current)
+          current = { user: msg, assistants: [] }
+        } else if (role === "assistant") {
+          if (!current) current = { user: null, assistants: [] }
+          current.assistants.push(msg)
+        }
+      }
+      if (current) turns.push(current)
+
+      for (const turn of turns) {
+        const turnEl = document.createElement("div")
+        turnEl.className = "turn"
+
+        if (turn.user) {
+          const userRow = document.createElement("div")
+          userRow.className = "turn-user-row"
+          const bubble = document.createElement("div")
+          bubble.className = "bubble-user"
+          const textParts = (turn.user.parts || []).filter(p => p.type === "text" && p.text)
+          bubble.textContent = textParts.map(p => p.text).join("\n\n")
+          userRow.appendChild(bubble)
+          turnEl.appendChild(userRow)
+        }
+
+        for (const assistant of turn.assistants) {
+          const assistantRow = document.createElement("div")
+          assistantRow.className = "turn-assistant-row"
+          const text = document.createElement("div")
+          text.className = "text-assistant"
+          const textParts = (assistant.parts || []).filter(p => p.type === "text" && p.text)
+          text.textContent = textParts.map(p => p.text).join("\n\n")
+          assistantRow.appendChild(text)
+          turnEl.appendChild(assistantRow)
+        }
+
+        list.appendChild(turnEl)
+      }
+
+      // 渲染 manifest.files(会话产物/附件),文件图标对齐 design 页面 file-type-icons
+      if (manifest.files && manifest.files.length > 0) {
+        const filesTurn = document.createElement("div")
+        filesTurn.className = "turn"
+        const filesRow = document.createElement("div")
+        filesRow.className = "turn-assistant-row"
+        const filesList = document.createElement("div")
+        filesList.className = "file-list"
+        for (const file of manifest.files) {
+          const card = document.createElement("div")
+          card.className = "file-card"
+          const icon = document.createElement("img")
+          icon.src = fileIconUrl(file.path)
+          const name = document.createElement("span")
+          name.className = "file-name"
+          name.textContent = (file.path || "").split("/").pop() || file.path || ""
+          card.appendChild(icon)
+          card.appendChild(name)
+          filesList.appendChild(card)
+        }
+        filesRow.appendChild(filesList)
+        filesTurn.appendChild(filesRow)
+        list.appendChild(filesTurn)
+      }
+    }
+
+    // 文件扩展名 → SVG 图标(对齐 design 页面 file-type-icons.tsx 的 kindIconMap)
+    function fileIconUrl(filename) {
+      const ext = (filename.split(".").pop() || "").toLowerCase()
+      const map = {
+        html: "/design/agent/share/icons/html.svg", htm: "/design/agent/share/icons/html.svg",
+        md: "/design/agent/share/icons/MD.svg",
+        pdf: "/design/agent/share/icons/PDF.svg",
+        js: "/design/agent/share/icons/code.svg", ts: "/design/agent/share/icons/code.svg", json: "/design/agent/share/icons/code.svg", css: "/design/agent/share/icons/code.svg", xml: "/design/agent/share/icons/code.svg",
+        png: "/design/agent/share/icons/img.svg", jpg: "/design/agent/share/icons/img.svg", jpeg: "/design/agent/share/icons/img.svg", gif: "/design/agent/share/icons/img.svg", webp: "/design/agent/share/icons/img.svg",
+        mp4: "/design/agent/share/icons/video.svg", webm: "/design/agent/share/icons/video.svg", mov: "/design/agent/share/icons/video.svg",
+        xlsx: "/design/agent/share/icons/Excel.svg", xls: "/design/agent/share/icons/Excel.svg",
+        pptx: "/design/agent/share/icons/ppt.svg", ppt: "/design/agent/share/icons/ppt.svg",
+        docx: "/design/agent/share/icons/word.svg", doc: "/design/agent/share/icons/word.svg",
+        txt: "/design/agent/share/icons/txt.svg",
+        zip: "/design/agent/share/icons/zip.svg",
+      }
+      return map[ext] || "/design/agent/share/icons/other.svg"
+    }
+  </script>
+</body>
+</html>
