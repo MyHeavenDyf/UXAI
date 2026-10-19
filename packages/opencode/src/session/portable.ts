@@ -259,6 +259,7 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
           method: "POST",
           fields: ["file", "description"],
           authHeaders: Object.keys(headers ?? {}),
+          tokenSuffix: token ? token.slice(-6) : null,
         }))
         const response = await fetch(uploadURL!, {
           method: "POST",
