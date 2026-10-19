@@ -1,6 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
-import defaultHandler, { defaultModelEditConfig, DownloadCancelledError } from './default'
+import defaultHandler, { defaultModelEditConfig, directModelEditConfig, DownloadCancelledError } from './default'
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
@@ -60,6 +60,8 @@ function applySelectorHint(body: string): string {
   return body.split('（该元素可能是动态生成的）').join(SELECTOR_HINT ? `（${SELECTOR_HINT}）` : '')
 }
 
+const pageAssetConfig = directModelEditConfig.assetConfig!
+
 const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
   deleteCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.deleteCallback(args))),
@@ -68,6 +70,12 @@ const pageModelEditConfig: ModelEditConfig = {
     `[选择器: ${selector}${SELECTOR_HINT ? `（${SELECTOR_HINT}）` : ''}]`,
     `[用户需求]:`
   ].join('\n'),
+  /** 产品资产库：复用 default 的选择器/状态/下载逻辑，仅把确认 prompt 包上 page 专属指引
+   *  （定位源码 + 编译），与 saveCallback/deleteCallback 的包装模式一致 */
+  assetConfig: {
+    ...pageAssetConfig,
+    onConfirm: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await pageAssetConfig.onConfirm(args))),
+  },
 }
 
 /** 纳入历史的源码文件扩展名（文本类；图片/字体等二进制资源不记录） */
