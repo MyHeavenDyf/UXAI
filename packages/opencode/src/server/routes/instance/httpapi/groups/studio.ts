@@ -12,6 +12,9 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
     name: Schema.Literal("StudioGenerationError"),
     data: Schema.Struct({
       message: Schema.String,
+      // false 表示确定性失败（重试不会成功），true/缺省表示可重试。
+      // thumbnail-source 等代理远端拉取的路径用它区分瞬时错误，避免客户端误判终态。
+      retryable: Schema.optional(Schema.Boolean),
     }),
   },
   { httpApiStatus: 400 },
@@ -38,6 +41,11 @@ export const StudioPaths = {
   templateList: `${root}/template-list`,
   templateDetail: `${root}/template-detail/:templateID`,
   templateUserSearch: `${root}/template-user-search`,
+  history: `${root}/history`,
+  historySnapshot: `${root}/history/snapshot`,
+  historyDelete: `${root}/history/delete`,
+  historyExcluded: `${root}/history/excluded`,
+  historyRevision: `${root}/history/revision`,
 } as const
 
 export const StudioPromptGenPayload = Schema.Struct({
@@ -265,6 +273,62 @@ const StudioGenerationResult = Schema.Struct({
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
   completedAt: Schema.optional(Schema.Number),
+})
+
+export const StudioHistoryMediaItemSchema = Schema.Struct({
+  id: Schema.String,
+  sessionID: Schema.String,
+  generationID: Schema.String,
+  mediaIndex: Schema.Number,
+  kind: Schema.Union([Schema.Literal("image"), Schema.Literal("video")]),
+  url: Schema.String,
+  thumbnailUrl: Schema.optional(Schema.String),
+  thumbnailStatus: Schema.optional(Schema.String),
+  width: Schema.optional(Schema.Number),
+  height: Schema.optional(Schema.Number),
+  aspectRatio: Schema.optional(Schema.String),
+  capability: Schema.optional(Schema.String),
+  duration: Schema.optional(Schema.String),
+  createdAt: Schema.Number,
+})
+
+export const StudioHistoryListResult = Schema.Struct({
+  items: Schema.Array(StudioHistoryMediaItemSchema),
+  nextCursor: Schema.optional(Schema.String),
+})
+
+export const StudioHistoryRevisionResult = Schema.Struct({
+  revision: Schema.String,
+  count: Schema.Number,
+  headId: Schema.optional(Schema.String),
+  headCreatedAt: Schema.optional(Schema.Number),
+})
+
+export const StudioHistoryListQuery = Schema.Struct({
+  kind: Schema.optional(Schema.Union([Schema.Literal("image"), Schema.Literal("video")])),
+  resolution: Schema.optional(Schema.String),
+  ratio: Schema.optional(Schema.String),
+  sort: Schema.optional(Schema.Union([Schema.Literal("desc"), Schema.Literal("asc")])),
+  cursor: Schema.optional(Schema.String),
+  limit: Schema.optional(
+    Schema.NumberFromString.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+      Schema.isLessThanOrEqualTo(200),
+    ),
+  ),
+})
+
+export const StudioHistorySnapshotPayload = Schema.Struct({
+  sessionID: Schema.String,
+})
+
+export const StudioHistoryDeletePayload = Schema.Struct({
+  mediaIds: Schema.Array(Schema.String),
+})
+
+export const StudioHistoryExcludedIdsResult = Schema.Struct({
+  ids: Schema.Array(Schema.String),
 })
 
 export const StudioApi = HttpApi.make("studio")
@@ -503,6 +567,61 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.refresh",
             summary: "Refresh Studio generation",
             description: "Queries and restores an abnormal asynchronous Studio generation.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.get("listHistory", StudioPaths.history, {
+          query: StudioHistoryListQuery,
+          success: described(StudioHistoryListResult, "Studio history media list"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.list",
+            summary: "List Studio history media",
+            description: "Returns all Studio media across sessions, including media from deleted sessions.",
+          }),
+        ),
+        HttpApiEndpoint.post("snapshotSession", StudioPaths.historySnapshot, {
+          payload: StudioHistorySnapshotPayload,
+          success: described(Schema.Struct({ snapshotted: Schema.Number }), "Snapshot result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.snapshot",
+            summary: "Snapshot session media to history",
+            description: "Copies a session's media to the history table before session deletion.",
+          }),
+        ),
+        HttpApiEndpoint.post("deleteHistoryMedia", StudioPaths.historyDelete, {
+          payload: StudioHistoryDeletePayload,
+          success: described(Schema.Struct({ deleted: Schema.Number }), "Deleted media count"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.delete",
+            summary: "Delete Studio history media",
+            description: "Permanently removes history media entries. The underlying session generation data and files are not deleted.",
+          }),
+        ),
+        HttpApiEndpoint.get("listExcludedHistoryIds", StudioPaths.historyExcluded, {
+          success: described(StudioHistoryExcludedIdsResult, "Excluded media IDs"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.excluded.list",
+            summary: "List excluded Studio history media IDs",
+            description: "Returns media IDs that were deleted from Studio history and must stay excluded.",
+          }),
+        ),
+        HttpApiEndpoint.get("getHistoryRevision", StudioPaths.historyRevision, {
+          success: described(StudioHistoryRevisionResult, "Studio history revision"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.revision",
+            summary: "Get Studio history revision",
+            description: "Returns a lightweight fingerprint of a directory's Studio history so clients can skip refetching unchanged data.",
           }),
         ),
       )
