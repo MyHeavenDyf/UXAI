@@ -61,6 +61,7 @@ function applySelectorHint(body: string): string {
 }
 
 const pageAssetConfig = directModelEditConfig.assetConfig!
+const pageIconConfig = directModelEditConfig.iconConfig!
 
 const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
@@ -70,6 +71,12 @@ const pageModelEditConfig: ModelEditConfig = {
     `[选择器: ${selector}${SELECTOR_HINT ? `（${SELECTOR_HINT}）` : ''}]`,
     `[用户需求]:`
   ].join('\n'),
+  /** 选中 svg/img 时开放图标替换弹窗（与 demo/components 一致）；
+   *  确认产生的 prompt 包上 page 专属指引（定位源码 + 编译），与 saveCallback/deleteCallback/assetConfig 的包装模式一致 */
+  iconConfig: {
+    ...pageIconConfig,
+    onConfirm: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await pageIconConfig.onConfirm(args))),
+  },
   /** 产品资产库：复用 default 的选择器/状态/下载逻辑，仅把确认 prompt 包上 page 专属指引
    *  （定位源码 + 编译），与 saveCallback/deleteCallback 的包装模式一致 */
   assetConfig: {
