@@ -40,7 +40,7 @@ describe("portable session", () => {
       await using source = await tmpdir({ git: true })
       await provideTestInstance({ directory: source.path, fn: async () => {
         const session = await runSession((svc) => svc.create({ title: "Upload diagnostics" }))
-        await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))).rejects.toThrow("uniqueId")
+        await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))).rejects.toThrow("请先登录")
       } })
       const output = logging.mock.calls.map((call) => call.join(" ")).join("\n")
       expect(output).toContain("[octo:share] upload response")
@@ -64,6 +64,11 @@ describe("portable session", () => {
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
+        expect(request.headers.get("uiplustoken")).toBe("current-ui-token")
+        expect(request.headers.get("x-auth-token")).toBeNull()
+        expect(request.headers.get("authorization")).toBeNull()
+        expect(request.headers.get("x-opencode-models-api-url")).toBeNull()
+        expect(request.headers.get("cookie")).toBeNull()
         const form = await request.formData()
         const file = form.get("file")
         if (!(file instanceof File)) return new Response("file is required", { status: 400 })
@@ -89,6 +94,13 @@ describe("portable session", () => {
           return AppRuntime.runPromise(
             sharePortableSession({
               sessionID: session.id,
+              headers: {
+                UiPlusToken: "current-ui-token",
+                "x-auth-token": "current-third-token",
+                Authorization: "Basic local-backend-only",
+                "x-opencode-models-api-url": "https://models.example/catalog",
+                Cookie: "unrelated-cookie",
+              },
             }),
           )
         },

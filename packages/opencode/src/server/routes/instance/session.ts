@@ -210,7 +210,10 @@ export const SessionRoutes = lazy(() =>
       validator("param", z.object({ sessionID: SessionID.zod })),
       async (c) =>
         jsonRequest("SessionRoutes.portableShare", c, function* () {
-          return yield* sharePortableSession({ sessionID: c.req.valid("param").sessionID }).pipe(
+          return yield* sharePortableSession({
+            sessionID: c.req.valid("param").sessionID,
+            headers: Object.fromEntries(c.req.raw.headers.entries()),
+          }).pipe(
             Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
           )
         }),

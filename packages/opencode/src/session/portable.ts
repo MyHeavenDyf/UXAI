@@ -227,6 +227,7 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
 
 export const sharePortableSession = Effect.fn("SessionPortable.share")(function* (input: {
   sessionID: SessionID
+  headers?: Record<string, string | undefined>
 }) {
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
@@ -243,6 +244,8 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
     const exported = yield* exportPortableSession({ sessionID: input.sessionID, output })
     const result = yield* Effect.tryPromise({
       try: async () => {
+        const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
+        const headers = token ? { uiplustoken: token } : undefined
         const form = new FormData()
         form.append(
           "file",
@@ -255,9 +258,11 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
           uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
           method: "POST",
           fields: ["file", "description"],
+          authHeaders: Object.keys(headers ?? {}),
         }))
         const response = await fetch(uploadURL!, {
           method: "POST",
+          headers,
           body: form,
         })
         const body = await response.text()
@@ -274,6 +279,10 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
         }))
         if (!response.ok) throw new Error(`Share upload failed: ${response.status}`)
         if (payload === undefined) throw new Error("分享上传接口未返回有效 JSON，请检查接口地址及登录状态")
+        if (payload && typeof payload === "object" && "success" in payload && payload.success === false) {
+          const message = "errorMessage" in payload && typeof payload.errorMessage === "string" ? payload.errorMessage : "未知错误"
+          throw new Error(message.toLowerCase() === "unlogin" ? "登录已失效或未登录，请重新登录后分享（unLogin）" : `分享上传失败：${message}`)
+        }
         return Schema.decodeUnknownSync(ShareUploadResponse)(payload)
       },
       catch: (cause) => {

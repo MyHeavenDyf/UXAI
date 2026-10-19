@@ -108,7 +108,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
     }) {
       yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
-      return yield* sharePortableSession({ sessionID: ctx.params.sessionID }).pipe(
+      return yield* sharePortableSession({
+        sessionID: ctx.params.sessionID,
+        headers: (yield* HttpServerRequest.HttpServerRequest).headers,
+      }).pipe(
         Effect.mapError((error) => new ApiBadRequestError({ message: error.message })),
       )
     })

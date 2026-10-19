@@ -1,7 +1,10 @@
 import { afterEach, describe, expect } from "bun:test"
+import { NodeHttpServer } from "@effect/platform-node"
+import Http from "node:http"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect"
+import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
@@ -156,6 +159,48 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live(
+    "forwards only the current uiplustoken for sharing through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
+      Effect.gen(function* () {
+        const previousUpload = process.env.OCTO_SHARE_API_URL
+        const previousPage = process.env.OCTO_SHARE_PAGE_URL
+        yield* Effect.addFinalizer(() => Effect.sync(() => {
+          if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+          else process.env.OCTO_SHARE_API_URL = previousUpload
+          if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+          else process.env.OCTO_SHARE_PAGE_URL = previousPage
+        }))
+        const received: string[] = []
+        const context = yield* Layer.build(NodeHttpServer.layer(Http.createServer, { host: "127.0.0.1", port: 0 }))
+        const upstream = Context.get(context, HttpServer.HttpServer)
+        yield* upstream.serve(HttpServerRequest.HttpServerRequest.use((request) => Effect.sync(() => {
+          expect(request.headers["x-auth-token"]).toBeUndefined()
+          expect(request.headers.authorization).toBeUndefined()
+          expect(request.headers.cookie).toBeUndefined()
+          if (!request.headers.uiplustoken) return HttpServerResponse.jsonUnsafe({ success: false, errorMessage: "unLogin", content: {} })
+          received.push(request.headers.uiplustoken)
+          return HttpServerResponse.jsonUnsafe({ success: true, content: { uniqueId: "AuthenticatedShare" } })
+        })))
+        process.env.OCTO_SHARE_API_URL = `${HttpServer.formatAddress(upstream.address)}/upload`
+        process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+        const session = yield* createSession(tmp.path, { title: "Authenticated share" })
+        const path = pathFor(SessionPaths.portableShare, { sessionID: session.id })
+        for (const experimental of [true, false]) {
+          const response = yield* requestWithBackend(experimental, path, {
+            method: "POST",
+            headers: { "x-opencode-directory": tmp.path, uiplustoken: `token-${experimental}`, "X-Auth-Token": "not-forwarded", Cookie: "not-forwarded" },
+          })
+          expect(yield* json(response)).toEqual({ uniqueId: "AuthenticatedShare", url: "https://share.example/session?uniqueId=AuthenticatedShare" })
+          const unLogin = yield* requestWithBackend(experimental, path, { method: "POST", headers: { "x-opencode-directory": tmp.path } })
+          expect(unLogin.status).toBe(400)
+          expect(yield* responseJson(unLogin)).toEqual({ message: "登录已失效或未登录，请重新登录后分享（unLogin）" })
+        }
+        expect(received).toEqual(["token-true", "token-false"])
+      }),
+    ),
+  )
+
   it.live(
     "returns declared not found errors for read routes",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>

@@ -8,6 +8,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePlatform } from "@/context/platform"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { directoryHeader } from "@/utils/headers"
+import { modelsApiToken } from "@/network/models-api"
 import preview from "./assets/session-share-preview.png"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
@@ -24,9 +25,10 @@ export function DialogShareSession(props: { session: Session }) {
     setState({ sharing: true, error: "" })
     await (async () => {
       const url = state.url || await (async () => {
+        const token = modelsApiToken()
         const response = await (platform.fetch ?? fetch)(
           `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
-          { method: "POST", headers: directoryHeader(props.session.directory) },
+          { method: "POST", headers: { ...directoryHeader(props.session.directory), ...(token ? { uiplustoken: token } : {}) } },
         )
         const result: unknown = await response.json().catch(() => null)
         if (!response.ok) {
