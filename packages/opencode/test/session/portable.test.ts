@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { Effect } from "effect"
@@ -23,6 +23,42 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("logs the upload response before validation and redacts credentials", async () => {
+    const logging = spyOn(console, "info")
+    const server = Bun.serve({ port: 0, fetch: () => Response.json({
+      success: false,
+      content: { agentDeliverableId: 313 },
+      errorMessage: "请先登录",
+      token: "secret-token-value",
+      nested: { Cookie: "secret-cookie-value" },
+    }) })
+    const previousUpload = process.env.OCTO_SHARE_API_URL
+    const previousPage = process.env.OCTO_SHARE_PAGE_URL
+    process.env.OCTO_SHARE_API_URL = `http://127.0.0.1:${server.port}/upload`
+    process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+    try {
+      await using source = await tmpdir({ git: true })
+      await provideTestInstance({ directory: source.path, fn: async () => {
+        const session = await runSession((svc) => svc.create({ title: "Upload diagnostics" }))
+        await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))).rejects.toThrow("uniqueId")
+      } })
+      const output = logging.mock.calls.map((call) => call.join(" ")).join("\n")
+      expect(output).toContain("[octo:share] upload response")
+      expect(output).toContain("agentDeliverableId")
+      expect(output).toContain("请先登录")
+      expect(output).toContain("[REDACTED]")
+      expect(output).not.toContain("secret-token-value")
+      expect(output).not.toContain("secret-cookie-value")
+    } finally {
+      logging.mockRestore()
+      server.stop(true)
+      if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+      else process.env.OCTO_SHARE_API_URL = previousUpload
+      if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+      else process.env.OCTO_SHARE_PAGE_URL = previousPage
+    }
+  })
+
   test("uploads a generated ZIP and returns a share page URL", async () => {
     const uploads: { fileName: string; description: string; size: number }[] = []
     const server = Bun.serve({

@@ -250,14 +250,37 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
           `${(info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim() || "session"}.zip`,
         )
         form.append("description", info.title || "")
+        console.info("[octo:share] upload request", JSON.stringify({
+          sessionID: input.sessionID,
+          uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
+          method: "POST",
+          fields: ["file", "description"],
+        }))
         const response = await fetch(uploadURL!, {
           method: "POST",
           body: form,
         })
+        const body = await response.text()
+        const payload: unknown = await Promise.resolve().then(() => JSON.parse(body)).catch(() => undefined)
+        console.info("[octo:share] upload response", JSON.stringify({
+          sessionID: input.sessionID,
+          status: response.status,
+          redirected: response.redirected,
+          contentType: response.headers.get("content-type"),
+          bodyLength: body.length,
+          body: payload === undefined ? "[非 JSON 响应]" : JSON.stringify(payload, (key, value) =>
+            /token|cookie|authorization|password|secret|accesskey/i.test(key) ? "[REDACTED]" : value,
+          ).slice(0, 8192),
+        }))
         if (!response.ok) throw new Error(`Share upload failed: ${response.status}`)
-        return Schema.decodeUnknownSync(ShareUploadResponse)(await response.json())
+        if (payload === undefined) throw new Error("分享上传接口未返回有效 JSON，请检查接口地址及登录状态")
+        return Schema.decodeUnknownSync(ShareUploadResponse)(payload)
       },
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      catch: (cause) => {
+        const error = cause instanceof Error ? cause : new Error(String(cause))
+        console.error("[octo:share] upload failed", JSON.stringify({ sessionID: input.sessionID, message: error.message }))
+        return error
+      },
     })
     if (!result.success || !result.content.uniqueId) throw new Error("Share upload did not return a uniqueId")
     return {
