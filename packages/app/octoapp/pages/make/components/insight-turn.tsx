@@ -1151,7 +1151,7 @@ const stateStatus = state.status as string | undefined
     const live = revertID ? messages.filter((m) => m.id < revertID) : messages
     const idx = live.findIndex((m) => m.id === props.messageID)
     if (idx === -1) return []
-    const opts = { sessionId: props.sessionID, projectDir: props.projectDir }
+    const opts = { sessionId: props.sessionID, projectDir: props.projectDir, kind: workspaceKind() }
     const beforeParts: RevertDraftPart[] = []
     for (let i = 0; i < idx; i++) {
       beforeParts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
