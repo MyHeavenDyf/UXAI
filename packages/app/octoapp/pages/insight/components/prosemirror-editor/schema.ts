@@ -6,6 +6,7 @@ export interface MentionAttrs {
   type: "skill" | "file"
   label: string
   path?: string
+  files?: { filename: string; path: string }[]
 }
 
 export const mentionNodeSpec = {
@@ -19,6 +20,7 @@ export const mentionNodeSpec = {
     type: { default: "skill" },
     label: { default: "" },
     path: { default: "" },
+    files: { default: null },
   },
   toDOM: (node: PMNode): readonly [string, ...any[]] => {
     const attrs = node.attrs as MentionAttrs
@@ -92,6 +94,7 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
         type: node.attrs.type,
         label: node.attrs.label,
         path: node.attrs.path,
+        ...(node.attrs.files ? { files: node.attrs.files } : {}),
       })
     }
   })

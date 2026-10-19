@@ -27,13 +27,14 @@ import { useParams } from "@solidjs/router"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 import { InsightFileManager } from "../file-manager"
 import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
+import { createPreviewTracker } from "../../utils/interaction-tracking"
 
 // ── Markdown 渲染器 ──────────────────────────────────────────
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
 // 效果一致(加粗/表格/代码块等);取代旧的上游 <Markdown>(渲染效果与编辑器有出入)。
 // 见 spec insight-markdown-editor.md §6.3。
-function MarkdownRenderer(props: { content: string }): JSX.Element {
-  return <MarkdownPreview content={props.content} />
+function MarkdownRenderer(props: { content: string; onReady?: () => void }): JSX.Element {
+  return <MarkdownPreview content={props.content} onReady={props.onReady} />
 }
 
 // ── 主容器 ────────────────────────────────────────────────────
@@ -194,10 +195,15 @@ function TabBody(props: {
   diskVersion?: number
 }): JSX.Element {
   const localPath = () => tabLocalPath(props.tab)
+  const params = useParams()
+  const ready = createPreviewTracker(() => ({
+    key: [props.tab.id, props.tab.filePath, props.tab.uri, props.refreshKey],
+    fields: { sessionId: params.id, tabType: props.tab.type, source: props.tab.source, fromAttachment: !!props.tab.fromAttachment },
+  }))
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
       <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
-        <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
+        <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} onReady={() => ready("image-load")} />
       </Match>
       <Match when={props.tab.type === "file"}>
         <TabContent tab={props.tab} refreshKey={props.refreshKey} />
@@ -262,7 +268,10 @@ function LocalFileTabBody(props: {
         // refetch 期间 error 不清空(Solid resource 语义),不包 loading 态错误页会纹丝不动,
         // 用户分不清「没点上」还是「又失败了」。两个 TabBody 的错误兜底同此。
         <Show when={!resource.loading} fallback={<ResourceLoading />}>
-          <PathErrorFallback tab={props.tab} path={props.path} error={resource.error} onRetry={() => void refetch()} />
+          <PathErrorFallback tab={props.tab} path={props.path} error={resource.error} onRetry={() => {
+            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type, source: "path" }) })
+            void refetch()
+          }} />
         </Show>
       }
     >
@@ -302,7 +311,7 @@ function UriTabBody(props: {
             tab={props.tab}
             error={resource.error}
             onRetry={() => {
-              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type, source: "uri" }) })
               void refetch()
             }}
           />
@@ -324,6 +333,14 @@ function UriTabBody(props: {
 // toggle 类型(html/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
 function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element {
+  const params = useParams()
+  const ready = createPreviewTracker(() => ({
+    key: [props.tab.id, props.tab.content, props.tab.filePath, props.tab.uri, props.tab.viewMode, props.refreshKey],
+    fields: { sessionId: params.id, tabType: props.tab.type, source: props.tab.source, fromAttachment: !!props.tab.fromAttachment, viewMode: props.tab.viewMode ?? "preview" },
+  }))
+  createEffect(() => {
+    if (props.tab.type === "code" || props.tab.viewMode === "source" || (props.tab.type === "json" && !isMindmapJSON(props.tab.content ?? ""))) ready("content-ready")
+  })
   const content = () => props.tab.content ?? ""
   const isSource = () => (props.tab.viewMode ?? "preview") === "source"
   // 会话附件中的媒体(video/audio/pdf)应用内预览,与 Design 页一致;其余 file 走 FileFallback(下载/本地打开)
@@ -347,7 +364,7 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
     >
       <Match when={props.tab.type === "markdown"}>
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
-          <MarkdownRenderer content={content()} />
+          <MarkdownRenderer content={content()} onReady={() => ready("rendered")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "json"}>
@@ -363,12 +380,12 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
           when={!isSource() && isMindmapJSON(content())}
           fallback={<SourceCodeView content={content()} lang="json" />}
         >
-          <MindmapRenderer content={content()} />
+          <MindmapRenderer content={content()} onReady={() => ready("rendered")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "html"}>
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
-          <HtmlRenderer content={content()} />
+          <HtmlRenderer content={content()} onReady={() => ready("frame-load")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "code"}>
@@ -380,16 +397,16 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
         <Switch fallback={<FileFallback tab={props.tab} />}>
           <Match when={mediaKind() === "video"}>
             <div class="flex items-center justify-center h-full p-4">
-              <video src={mediaSrc()} controls class="max-w-full max-h-full" />
+              <video src={mediaSrc()} onLoadedData={() => ready("media-loaded")} controls class="max-w-full max-h-full" />
             </div>
           </Match>
           <Match when={mediaKind() === "audio"}>
             <div class="flex items-center justify-center h-full p-4">
-              <audio src={mediaSrc()} controls class="w-full max-w-md" />
+              <audio src={mediaSrc()} onLoadedData={() => ready("media-loaded")} controls class="w-full max-w-md" />
             </div>
           </Match>
           <Match when={mediaKind() === "pdf"}>
-            <iframe src={mediaSrc()} style={{ width: "100%", height: "100%", border: "none" }} />
+            <iframe src={mediaSrc()} onLoad={() => ready("frame-load")} style={{ width: "100%", height: "100%", border: "none" }} />
           </Match>
         </Switch>
       </Match>

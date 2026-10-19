@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useLayout } from "@/context/layout"
 import { useMakeGroups, type MakeGroup } from "@/hooks/use-make-groups"
 import { useSessionGroups } from "@/hooks/use-session-groups"
 import { useMakeGroupsContext, setPendingGroup, clearPendingGroup } from "@/context/make-groups"
@@ -39,6 +40,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   const globalSync = useGlobalSync()
   const projectDir = useProjectDir()
   const dialog = useDialog()
+  const layout = useLayout()
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [recentCollapsed, setRecentCollapsed] = createSignal(false)
@@ -108,6 +110,12 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
     tracker.interaction({ module: props.trackerModule ?? "session", name: "new-session-in-group" })
     const dir = resolvedDir()
     if (dir) setPendingGroup(props.namespace, group.id, dir)
+    if (props.sidebarSourceKey) {
+      layout.lastSessionPerTab.setNewConversation(
+        props.sidebarSourceKey === "insight" ? "cowork" : props.sidebarSourceKey,
+        true,
+      )
+    }
     setExpandedGroups(prev => { const next = new Set(prev); next.add(group.id); return next })
     shared?.expandGroup(group.id)
     navigate(props.buildNewRoute())

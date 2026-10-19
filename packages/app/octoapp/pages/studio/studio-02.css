@@ -1471,10 +1471,12 @@
   background: #fff;
 }
 
-.studio-result-card.failed {
+.studio-result-card.failed,
+.studio-result-card.abnormal {
   min-height: 0;
 }
-.studio-result-card.failed .studio-result-progress-preview {
+.studio-result-card.failed .studio-result-progress-preview,
+.studio-result-card.abnormal .studio-result-progress-preview {
   min-height: 0;
 }
 

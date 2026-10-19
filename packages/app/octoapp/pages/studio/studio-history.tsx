@@ -14,7 +14,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
-import { IconSettings } from "@/pages/_shell/icons"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
@@ -42,6 +42,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const navigate = useNavigate()
   const layout = useLayout()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   // Trigger thumbnail loading when sessions are first loaded
   createEffect(on(() => props.sessions, (data) => {
@@ -481,12 +482,36 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
       <button
         type="button"
-        class="flex items-center gap-[12px] w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-        style={{ height: "36px", padding: "0 12px", color: "rgba(0,0,0,0.9)", "font-size": "12px", "line-height": "20px" }}
-        onClick={() => dialog.show(() => <DialogSettings />)}
+        title="设置"
+        class="relative flex items-center gap-[12px] w-full rounded-[4px] text-left transition-colors"
+        style={{
+          height: "36px",
+          padding: "0 12px",
+          "font-size": "12px",
+          "line-height": "20px",
+          background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+          color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+          "font-weight": settingsActive() ? "500" : "400",
+        }}
+        onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+        onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+        onClick={() => { setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
       >
-        <IconSettings size={20} />
-        <span class="text-[12px] leading-[20px]">{language.t("sidebar.settings")}</span>
+        <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+          <IconSettings1 size={20} />
+        </Show>
+        <span class="truncate">{language.t("sidebar.settings")}</span>
+        <Show when={settingsActive()}>
+          <span
+            class="absolute right-0 top-1/2 rounded-l-[3px]"
+            style={{
+              height: "20px",
+              width: "3px",
+              background: "var(--text-interactive-base)",
+              transform: "translateY(-50%)",
+            }}
+          />
+        </Show>
       </button>
     </div>
   )

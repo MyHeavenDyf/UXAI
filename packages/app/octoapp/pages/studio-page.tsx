@@ -1,4 +1,5 @@
 import "./studio/studio.css"
+import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
@@ -100,6 +101,7 @@ import {
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
+  STUDIO_GENERATION_REFRESH_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   studioMediaDownloadFilename,
   stringValue,
@@ -124,6 +126,7 @@ import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./stud
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
 import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
+import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 type PendingScrollRequest = {
@@ -295,6 +298,7 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
+  const [settingsActive, setSettingsActive] = createSignal(false)
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -315,7 +319,7 @@ export default function StudioPage() {
     if (!current || !directory) return
     onCleanup(() => stopStudioThumbnailQueue({ sdkUrl: current.http.url, directory }))
   })
-  const [studioPermissionStatus, setStudioPermissionStatus] = createSignal<"loading" | "ready" | "error">("loading")
+  const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
   if (syncStore.limit < 100) setSyncStore("limit", 100)
@@ -439,7 +443,11 @@ export default function StudioPage() {
   createEffect(on(imageSettingStoreReady, (ready) => {
     if (!ready) return
     batch(() => {
-      if (styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)) setStyleModel("qwen")
+      // Re-entering Studio with cached permission should preserve the selected model.
+      if (
+        !(studioPermissionState.status === "ready" && studioPermissionState.seedream) &&
+        styleModelRequiresSeedreamPermission(imageSettingStore.styleModel)
+      ) setStyleModel("qwen")
       setImageSettingStoreSanitized(true)
     })
   }))
@@ -474,6 +482,7 @@ export default function StudioPage() {
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
   const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [rebootingGenerationIDs, setRebootingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
+  const [refreshingGenerationIDs, setRefreshingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
@@ -516,13 +525,11 @@ export default function StudioPage() {
   const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
   const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
-  const [canCreateStyleTemplate, setCanCreateStyleTemplate] = createSignal(false)
+  const canGenerateVideo = () => studioPermissionState.video
+  const canUseSeedream = () => studioPermissionState.seedream
+  const canCreateStyleTemplate = () => studioPermissionState.createStyleTemplate
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
-  const [permissionRetryVersion, setPermissionRetryVersion] = createSignal(0)
-  let permissionRequestVersion = 0
   onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
@@ -556,67 +563,21 @@ export default function StudioPage() {
       throw new Error("Unexpected get_prompt_tags response shape")
     },
   )
+  const loadPermission = () => {
+    const current = server.current
+    if (!current) return
+    void ensureStudioPermission(current.http, uiplusUserAccount())
+  }
+  onCleanup(onStudioLoginSuccess(loadPermission))
   createEffect(() => {
     const current = server.current
-    const uid = uiplusUserAccount()
-    permissionRetryVersion()
     if (!current) return
-    const requestVersion = ++permissionRequestVersion
-    const controller = new AbortController()
-    batch(() => {
-      setCanGenerateVideo(false)
-      setCanUseSeedream(false)
-      setCanCreateStyleTemplate(false)
-      setStudioPermissionStatus("loading")
-      if (styleModelRequiresSeedreamPermission(untrack(() => imageSettingStore.styleModel))) setStyleModel("qwen")
-    })
-    const headers: Record<string, string> = {
-      accept: "application/json",
-      "content-type": "application/json",
-    }
-    if (current.http.password) {
-      headers.Authorization = `Basic ${authTokenFromCredentials({
-        username: current.http.username,
-        password: current.http.password,
-      })}`
-    }
-    void fetch(new URL("/global/studio/permissions/check", current.http.url), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ uid }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const bodyText = await response.text()
-        if (requestVersion !== permissionRequestVersion) return
-        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
-        const permissionData = Array.isArray(result.data) ? result.data : []
-        const permissionOk = result.code === 200 || result.resp_code === 200
-        const canUseSeedream = permissionOk && permissionData[1] === true
-        const canCreateStyleTemplate = permissionOk && permissionData[2] === true
-        batch(() => {
-          setCanGenerateVideo(permissionOk && permissionData[0] === true)
-          setCanUseSeedream(canUseSeedream)
-          setCanCreateStyleTemplate(canCreateStyleTemplate)
-          setStudioPermissionStatus("ready")
-          if (!canUseSeedream && styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return
-        if (requestVersion !== permissionRequestVersion) return
-        batch(() => {
-          setCanGenerateVideo(false)
-          setCanUseSeedream(false)
-          setCanCreateStyleTemplate(false)
-          setStudioPermissionStatus("error")
-          if (styleModelRequiresSeedreamPermission(styleModel())) setStyleModel("qwen")
-        })
-        console.error("[StudioPage] permission check failed", error)
-      })
-    onCleanup(() => controller.abort())
+    untrack(loadPermission)
   })
+  const retryPermission = () => {
+    clearStudioPermissionCache()
+    loadPermission()
+  }
   createEffect(() => {
     if (studioPermissionStatus() === "loading") return
     if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
@@ -1107,7 +1068,9 @@ export default function StudioPage() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
-  const isActionBusy = createMemo(() => isBusy() || rebootingGenerationIDs().size > 0)
+  const isActionBusy = createMemo(() =>
+    isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
+  )
   const turns = createMemo(() =>
     buildStudioTurns({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
@@ -1134,8 +1097,8 @@ export default function StudioPage() {
           userText: pending.displayPrompt || normalized.userText,
           assistantText: pending.displayPrompt ? assistantText : normalized.assistantText || assistantText,
           toolError: undefined,
-          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
-          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "abnormal" ? "状态异常" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages ?? normalized.inputImages,
           mentionImages: mentionImagesMap(),
@@ -1162,7 +1125,7 @@ export default function StudioPage() {
       const latest = next.at(-1)
       const pendingVisible = next.some((turn) => matchesPendingTurn(turn, pending))
       if (latest?.userText === pendingUserText && !latest.result?.images.length && latest.toolRunning) {
-        if (isStudioGenerationFailure(pending.status)) {
+        if (isStudioGenerationFailure(pending.status) || pending.status === "abnormal") {
           return mergeEditorEntries([
             ...next.slice(0, -1),
             {
@@ -1171,7 +1134,7 @@ export default function StudioPage() {
               assistantText: pendingAssistantText,
               toolError: undefined,
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
-              toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
+              toolName: pending.status === "create_failed" ? "内部 · 创建失败" : pending.status === "abnormal" ? "内部 · 状态异常" : "内部 · 失败",
               toolRunning: false,
               inputImages: pending.inputImages ?? latest.inputImages,
               result: normalizeResultValue(pending),
@@ -1195,7 +1158,7 @@ export default function StudioPage() {
         ])
       }
       if (pendingVisible) return mergeEditorEntries(next)
-      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0 && !pending.displayPrompt) return mergeEditorEntries(next)
+      if (!sending() && !isStudioGenerationFailure(pending.status) && pending.status !== "abnormal" && next.length > 0 && !pending.displayPrompt) return mergeEditorEntries(next)
       return mergeEditorEntries([
         ...next,
         {
@@ -1203,8 +1166,8 @@ export default function StudioPage() {
           userText: pendingUserText,
           assistantText: pendingAssistantText,
           toolError: undefined,
-          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
-          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "abnormal" ? "状态异常" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
           inputImages: pending.inputImages,
           mentionImages: mentionImagesMap(),
@@ -1253,7 +1216,7 @@ export default function StudioPage() {
     const turn = studioTurn()
     // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
     if (turn?.result && turn.result.images.length === 0 &&
-        (turn.result.status === "failed" || turn.result.status === "create_failed")) {
+        (turn.result.status === "failed" || turn.result.status === "create_failed" || turn.result.status === "abnormal")) {
       return latestCompletedTurn()?.result ?? pending
     }
     return turn?.result ?? latestCompletedTurn()?.result ?? pending
@@ -1349,6 +1312,7 @@ export default function StudioPage() {
     if (canvasResult()?.images.length) return "succeeded"
     if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
+    if (status() === "abnormal" || result()?.status === "abnormal") return "abnormal"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
@@ -3868,6 +3832,74 @@ export default function StudioPage() {
     }
   }
 
+  function applyRefreshedStudioGeneration(generation: StudioGenerationResult) {
+    setPendingResult((existing) => ({
+      ...generation,
+      sessionID: existing?.sessionID ?? generation.sessionID ?? params.id,
+      displayPrompt: existing?.id === generation.id
+        ? existing.displayPrompt ?? generation.displayPrompt
+        : generation.displayPrompt,
+      sourceImage: existing?.id === generation.id ? existing.sourceImage : undefined,
+      inputImages: existing?.id === generation.id ? existing.inputImages : undefined,
+      ...(existing?.isCustom ? { isCustom: existing.isCustom } : {}),
+      ...(existing?.width ? { width: existing.width } : {}),
+      ...(existing?.height ? { height: existing.height } : {}),
+    }))
+    setStatus(generation.status)
+    const sessionID = generation.sessionID ?? params.id
+    if (!sessionID) return
+    void loadSessionMessages(sessionID).catch((error) => {
+      console.error("[StudioPage] refreshed session load failed", error)
+    })
+    if (generation.status === "succeeded" && generation.images.length > 0) {
+      setSessionThumbnail(sessionID, generation.images, generation.createdAt)
+    }
+  }
+
+  async function refreshStudioGeneration(id: string) {
+    if (refreshingGenerationIDs().has(id) || isActionBusy()) return
+    const current = server.current
+    if (!current) {
+      showFloatingNotice("error", "任务状态查询失败，请稍后重试")
+      return
+    }
+    setRefreshingGenerationIDs((ids) => new Set([...ids, id]))
+    setStudioWorkspaceOverlayOpen(false)
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        ...directoryHeader(projectDir()),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_REFRESH_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/refresh`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      applyRefreshedStudioGeneration(JSON.parse(bodyText) as StudioGenerationResult)
+    } catch (error) {
+      console.error("[StudioPage] refresh generation failed", error)
+      try {
+        const generation = await getStudioGeneration(id)
+        applyRefreshedStudioGeneration(generation)
+        if (generation.status !== "abnormal") return
+      } catch (reconcileError) {
+        console.error("[StudioPage] refresh generation reconciliation failed", reconcileError)
+      }
+      showFloatingNotice("error", "任务状态查询失败，请稍后重试")
+    } finally {
+      setRefreshingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
   function isStudioGenerationID(id: string) {
     return id.startsWith("studio_gen")
   }
@@ -4226,7 +4258,6 @@ export default function StudioPage() {
       (id) => {
         if (!id) return
 
-        const fallback = pendingResult() ?? studioTurn()?.result
         let stopped = false
         let timer: ReturnType<typeof setTimeout> | undefined
         const controller = new AbortController()
@@ -4281,7 +4312,8 @@ export default function StudioPage() {
             if (
               generation.status === "succeeded" ||
               generation.status === "create_failed" ||
-              generation.status === "failed"
+              generation.status === "failed" ||
+              generation.status === "abnormal"
             ) {
               const sessionID = generation.sessionID ?? pendingResult()?.sessionID ?? params.id
               if (generation.status === "succeeded" && sessionID) {
@@ -4306,17 +4338,7 @@ export default function StudioPage() {
             if (error instanceof DOMException && error.name === "AbortError") return
 
             console.error("[StudioPage] generation status load failed", error)
-            const message = error instanceof Error ? error.message : String(error)
-            const current = pendingResult()
-            if (current && current.id !== id) return
-            setStatus("failed")
-            const base = current ?? fallback
-            if (!base) return
-            setPendingResult({
-              ...base,
-              status: "failed",
-              error: message,
-            })
+            schedule()
           }
         }
 
@@ -4741,11 +4763,33 @@ export default function StudioPage() {
               <div class="flex-1" />
               <button
                 type="button"
-                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
-                style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+                title="设置"
+                class="relative flex items-center justify-center rounded-[4px] transition-colors shrink-0"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+                  color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                  "font-weight": settingsActive() ? "500" : "400",
+                }}
+                onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+                onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+                onClick={(e) => { e.stopPropagation(); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
               >
-                <Icon name="settings-gear" size="small" />
+                <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+                  <IconSettings1 size={20} />
+                </Show>
+                <Show when={settingsActive()}>
+                  <span
+                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    style={{
+                      height: "20px",
+                      width: "3px",
+                      background: "var(--text-interactive-base)",
+                      transform: "translateY(-50%)",
+                    }}
+                  />
+                </Show>
               </button>
             </div>
           }
@@ -4788,7 +4832,7 @@ export default function StudioPage() {
                   canUseSeedream={canUseSeedream()}
                   canCreateStyleTemplate={canCreateStyleTemplate()}
                   permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-                  onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+                  onRetryPermission={retryPermission}
                   styleModel={styleModel()}
                   maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
@@ -5002,9 +5046,11 @@ if (!headerTitle.pendingRename) return
                 actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 rebootingGenerationIDs={rebootingGenerationIDs()}
+                refreshingGenerationIDs={refreshingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onEditGeneration={(generation) => void editGenerationDraft(generation)}
                 onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
+                onRefreshGeneration={(generationID) => void refreshStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
                 onUseInputImage={useConversationInputImage}
@@ -5020,7 +5066,7 @@ if (!headerTitle.pendingRename) return
             canUseSeedream={canUseSeedream()}
             canCreateStyleTemplate={canCreateStyleTemplate()}
             permissionStatus={imageSettingStoreSanitized() ? studioPermissionStatus() : "loading"}
-            onRetryPermission={() => setPermissionRetryVersion((value) => value + 1)}
+            onRetryPermission={retryPermission}
             styleModel={styleModel()}
             maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
