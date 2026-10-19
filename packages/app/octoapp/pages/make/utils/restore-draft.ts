@@ -5,6 +5,7 @@ import { isElectronDesktop, pathToLocalUrl } from "./artifact-file-api"
 import { parseAllArtifactsFromText } from "./artifact-cards"
 import { computeArtifactFilePath, SAVEABLE_ARTIFACT_TYPES } from "./artifact-auto-save"
 import { lookupDisplayName, type SkillConfig } from "../components/skill-config-types"
+import type { WorkspaceKind } from "@/context/server"
 
 export type RevertDraftPart = {
   type: string
@@ -66,12 +67,12 @@ export function collectWriteEditFiles(parts: RevertDraftPart[]): string[] {
   return result
 }
 
-/** 收集回退需要清理的文件：write/edit 工具路径 + <artifact> 标签落盘产物（autoSaveArtifact 写到
- *  {projectDir}/.octo/{sessionId}/outputs，路径逻辑与 computeArtifactFilePath 一致）。
+/** 收集回退需要清理的文件：write/edit 工具路径 + <artifact> 标签落盘产物（路径推导与 autoSaveArtifact 一致——
+ *  normal: {projectDir}/.octo/{sessionId}/outputs/，code（项目模式）: {projectDir}/ 项目根，所有 session 共享）。
  *  Make 主流产出走 artifact 标签而非 write 工具，只认工具会漏掉大部分页面。 */
 export function collectRevertedFiles(
   parts: RevertDraftPart[],
-  opts: { sessionId: string; projectDir?: string },
+  opts: { sessionId: string; projectDir?: string; kind?: WorkspaceKind },
 ): string[] {
   const result = collectWriteEditFiles(parts)
   if (!opts.projectDir) return result
@@ -80,7 +81,7 @@ export function collectRevertedFiles(
     if (part.type !== "text" || !part.text || !part.text.includes("<artifact")) continue
     for (const card of parseAllArtifactsFromText(part.text)) {
       if (!SAVEABLE_ARTIFACT_TYPES.includes(card.type)) continue
-      const filePath = computeArtifactFilePath(card.title, card.type, opts.sessionId, opts.projectDir)
+      const filePath = computeArtifactFilePath(card.title, card.type, opts.sessionId, opts.projectDir, opts.kind)
       if (!result.includes(filePath)) result.push(filePath)
     }
   }
