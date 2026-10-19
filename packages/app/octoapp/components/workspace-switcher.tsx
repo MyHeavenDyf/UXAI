@@ -1,45 +1,38 @@
 import { createEffect, createMemo, createSignal, onCleanup, For, Show } from "solid-js"
 import { Portal } from "solid-js/web"
-import { useLocation, useNavigate } from "@solidjs/router"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { base64Encode } from "@opencode-ai/core/util/encode"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePlatform } from "@/context/platform"
-import { useServer, type WorkspaceKind } from "@/context/server"
+import { type WorkspaceKind } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useProjectDir } from "@/hooks/use-project-dir"
-import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { tracker } from "@/utils/tracker"
 
 export function kindOf(project: { kind?: WorkspaceKind } | undefined): WorkspaceKind {
   return project?.kind ?? "normal"
 }
 
-// 顶栏全局 workspace 切换器:insight/make/studio 三页共用。
-// 切换动作只做 touch(全局 lastProject)+预热,页面侧由 <Show when={projectDir()} keyed> 重挂响应;
-// studio 路由带 :dir 段,需显式跳转到新目录的 studio URL。
-export function WorkspaceSwitcher() {
+interface WorkspaceSwitcherProps {
+  value?: string
+  onChange: (directory: string) => void
+  error?: boolean
+}
+
+// 项目目录下拉选择器(内嵌于 DialogProjectOnboarding):
+// 展示最近项目 + 原生文件夹选择;点击仅暂存目录(onChange),由外层"确定"按钮统一生效。
+export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const platform = usePlatform()
-  const server = useServer()
   const language = useLanguage()
   const layout = useLayout()
-  const dialog = useDialog()
-  const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const projectDir = useProjectDir({ mode: "project" })
 
   const [open, setOpen] = createSignal(false)
+  const [selecting, setSelecting] = createSignal(false)
   const [pos, setPos] = createSignal({ top: 0, left: 0 })
   let triggerRef: HTMLButtonElement | undefined
 
   const projects = createMemo(() => layout.projects.list())
-  const currentDir = createMemo(() => projectDir())
 
   const displayPath = (dir: string) => {
     const home = globalSync.data.path.home
@@ -47,54 +40,33 @@ export function WorkspaceSwitcher() {
     return dir
   }
 
-  function switchWorkspace(dir: string) {
+  function pick(dir: string) {
     setOpen(false)
-    if (!dir) return
-    const existing = projectByDir(dir)
+    if (!dir || dir === props.value) return
     tracker.interaction({
       module: "workspace-switcher",
-      name: "switch",
+      name: "select",
       subType: "click",
-      extend: JSON.stringify({ dir, from: currentDir(), kind: existing ? kindOf(existing) : "code" }),
+      extend: JSON.stringify({ dir, from: props.value }),
     })
-    if (dir === currentDir() && existing) return
-    layout.projects.open(dir)
-    server.projects.touch(dir)
-    // Ensure project is registered on the server (InstanceMiddleware -> InstanceStore.load)
-    void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
-    if (/^\/[^/]+\/studio/.test(location.pathname)) {
-      navigate(`/${base64Encode(dir)}/studio`)
-    }
-  }
-
-  function projectByDir(dir: string) {
-    return projects().find((x) => x.worktree === dir)
+    props.onChange(dir)
   }
 
   async function chooseFolder() {
     setOpen(false)
+    if (selecting()) return
+    setSelecting(true)
     tracker.interaction({ module: "workspace-switcher", name: "choose-folder", subType: "click" })
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      const result = await platform.openDirectoryPickerDialog({
-        title: language.t("titlebar.workspace.chooseFolder"),
+    try {
+      const result = await platform.openDirectoryPickerDialog?.({
+        title: language.t("command.project.open"),
         multiple: false,
-        defaultPath: currentDir() || undefined,
+        defaultPath: props.value || undefined,
       })
-      if (typeof result === "string" && result) switchWorkspace(result)
-      else if (Array.isArray(result) && result[0]) switchWorkspace(result[0])
-      return
+      if (typeof result === "string" && result) props.onChange(result)
+    } finally {
+      setSelecting(false)
     }
-    dialog.show(
-      () => (
-        <DialogSelectDirectory
-          multiple={false}
-          onSelect={(result) => {
-            if (typeof result === "string" && result) switchWorkspace(result)
-          }}
-        />
-      ),
-      () => {},
-    )
   }
 
   createEffect(() => {
@@ -102,7 +74,7 @@ export function WorkspaceSwitcher() {
     const update = () => {
       if (!triggerRef) return
       const rect = triggerRef.getBoundingClientRect()
-      setPos({ top: rect.bottom + 4, left: rect.right })
+      setPos({ top: rect.bottom + 4, left: rect.left })
     }
     update()
     window.addEventListener("resize", update)
@@ -123,21 +95,8 @@ export function WorkspaceSwitcher() {
   })
 
   return (
-    <div class="relative shrink-0">
+    <div class="relative w-full">
       <style>{`
-        .octo-ws-trigger {
-          display: inline-flex; align-items: center; gap: 6px;
-          height: 28px; max-width: 200px; padding: 0 6px;
-          background: transparent; border: none; border-radius: 6px;
-          color: #191919; font-size: 14px; line-height: 22px;
-          cursor: pointer;
-          transition: background 100ms cubic-bezier(0.4,0,0.2,1);
-        }
-        .octo-ws-trigger:hover { background: rgba(0,0,0,0.05); }
-        .octo-ws-trigger .octo-ws-label {
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        }
-        .octo-ws-trigger > svg { flex-shrink: 0; }
         .octo-ws-menu {
           position: fixed; z-index: 99999;
           display: flex; flex-direction: column; gap: 2px;
@@ -179,28 +138,52 @@ export function WorkspaceSwitcher() {
       <button
         ref={triggerRef}
         type="button"
-        class={`octo-ws-trigger ${open() ? "octo-ws-trigger-open" : ""}`}
         onClick={() => setOpen(!open())}
+        disabled={selecting()}
+        aria-required="true"
+        aria-invalid={props.error}
+        aria-describedby="dir-error"
+        class="w-full flex items-center gap-2 px-3"
+        style={{
+          height: "40px",
+          border: `1px solid ${props.error ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
+          "border-radius": "6px",
+          background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "transparent",
+          cursor: selecting() ? "not-allowed" : "pointer",
+          overflow: "hidden",
+        }}
       >
-        <FileIcon node={{ path: currentDir() || "/", type: "directory" }} class="shrink-0 size-4" />
-        <span class="octo-ws-label">
-          {currentDir() ? getFilename(currentDir()) : language.t("titlebar.workspace.select")}
-        </span>
-        <svg width="12" height="12" viewBox="0 0 10 10" style={{ transform: open() ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}>
-          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        <Show when={props.value} fallback={<span class="text-text-weak text-[14px]">选择文件夹</span>}>
+          <span
+            class="text-[14px] font-mono text-text-base overflow-hidden truncate"
+            style={{
+              color: "#191919",
+            }}
+          >
+            {displayPath(props.value ?? "")}
+          </span>
+        </Show>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10.0034 10"
+          fill="none"
+          style={{ "flex-shrink": "0", "margin-left": "auto", transform: open() ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}
+        >
+          <path d="M4.64832 7.6045L0.148315 3.10462C-0.0494385 2.90662 -0.0494385 2.59547 0.148315 2.39747C0.346558 2.19953 0.657593 2.19953 0.855347 2.39753L5.00183 6.54383L9.14783 2.39753C9.34607 2.19953 9.6571 2.19953 9.85486 2.39747C10.0531 2.59547 10.0531 2.90662 9.85486 3.10462L5.35535 7.6045C5.25769 7.7021 5.13953 7.75092 5.00183 7.75092C4.86365 7.75092 4.74597 7.7021 4.64832 7.6045Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
         </svg>
       </button>
       <Show when={open()}>
         <Portal>
-          <div class="fixed inset-0 z-[40]" onClick={() => setOpen(false)} />
-          <div class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px`, transform: "translateX(-100%)" }}>
+          <div class="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
             <For each={projects()}>
               {(project) => (
                 <button
                   type="button"
                   class="octo-ws-item"
-                  classList={{ "octo-ws-item-active": project.worktree === currentDir() }}
-                  onClick={() => switchWorkspace(project.worktree)}
+                  classList={{ "octo-ws-item-active": project.worktree === props.value }}
+                  onClick={() => pick(project.worktree)}
                 >
                   <FileIcon node={{ path: project.worktree, type: "directory" }} class="shrink-0 size-4" />
                   <span class="octo-ws-item-text">
@@ -209,7 +192,7 @@ export function WorkspaceSwitcher() {
                     </span>
                     <span class="octo-ws-item-path">{displayPath(project.worktree)}</span>
                   </span>
-                  <Show when={project.worktree === currentDir()}>
+                  <Show when={project.worktree === props.value}>
                     <svg class="octo-ws-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
                       <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
@@ -222,7 +205,7 @@ export function WorkspaceSwitcher() {
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="shrink-0">
                 <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
               </svg>
-              <span class="octo-ws-item-name">{language.t("titlebar.workspace.chooseFolder")}</span>
+              <span class="octo-ws-item-name">选择文件夹</span>
             </button>
           </div>
         </Portal>
