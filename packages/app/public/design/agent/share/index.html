@@ -20,23 +20,32 @@
       flex-shrink: 0;
       background: #fff;
       border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      position: relative;
     }
     .header-inner {
       width: 100%;
-      max-width: 1024px;
       height: 100%;
-      margin: 0 auto;
-      padding: 0 12px;
+      padding: 0 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
     }
     .header-logo { width: 90px; height: 18px; flex-shrink: 0; }
+    /* title 覆盖层:容器与 .chat-scroll-view 完全一致(1024px 居中 + 12px padding),
+       使 title 左边界对齐 conversation-list 左边界;pointer-events: none 让点击穿透到下方 logo/button */
+    .header-title-bar {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
     .header-title {
-      flex: 1;
-      min-width: 0;
-      margin: 0;
+      width: 100%;
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 0 12px;
       font-size: 16px;
       font-weight: 500;
       line-height: 24px;
@@ -44,6 +53,8 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      /* 窄屏下避开右侧 button(~164px 宽 + 24px 屏幕 padding + 16px gap) */
+      padding-right: 220px;
     }
     .header-btn {
       height: 32px;
@@ -101,7 +112,7 @@
       gap: 16px;
     }
     #conversation-list {
-      padding-bottom: 24px;
+      padding-bottom: 60px;
     }
     .turn {
       display: flex;
@@ -166,8 +177,10 @@
   <header class="header">
     <div class="header-inner">
       <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
-      <h1 class="header-title" id="session-title"></h1>
       <button class="header-btn" id="continue-btn">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    </div>
+    <div class="header-title-bar">
+      <h1 class="header-title" id="session-title"></h1>
     </div>
   </header>
   <main class="content">
@@ -180,11 +193,10 @@
   <script>
     // 按 hostname 选 deep link scheme,与桌面端 packages/desktop/src/main/shared-session.ts 的 parseSharedSessionLink 对齐:
     //   beta(hostname 含 "beta") → octo-agent-beta (beta 桌面端注册)
-    //   localhost/127.0.0.1       → opencode        (dev 桌面端注册)
-    //   其余                      → octo-agent      (prod 桌面端注册)
+    //   其余(含 localhost/127.0.0.1) → octo-agent  (Octo Agent 桌面端注册)
+    // 注意:localhost 也用 octo-agent,避免唤起旧 opencode/electron 客户端。
     function pickDeepLinkScheme() {
       const host = location.hostname
-      if (host === "localhost" || host === "127.0.0.1") return "opencode"
       if (host.indexOf("beta") !== -1) return "octo-agent-beta"
       return "octo-agent"
     }
@@ -202,7 +214,7 @@
       setTimeout(() => iframe.remove(), 1000)
     })
 
-    (async function () {
+    ;(async function () {
       // uniqueId 优先从路径提取（/design/agent/share/xxx.html → xxx）;
       // 路径为 index.html 时回退到 query 参数 uniqueId（兼容 /design/agent/share/index.html?uniqueId=xxx）
       let uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
