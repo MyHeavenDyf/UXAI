@@ -1822,6 +1822,7 @@ export type StudioGenerationError = {
   name: "StudioGenerationError"
   data: {
     message: string
+    retryable?: boolean
   }
 }
 
@@ -8397,9 +8398,9 @@ export type StudioTemplateListListData = {
     directory?: string
     workspace?: string
     user_id: string
-    only_public: string
-    page: string
-    page_size: string
+    only_public: number
+    page: number
+    page_size: number
   }
   url: "/studio/template-list"
 }
@@ -9106,6 +9107,186 @@ export type StudioGenerationsRefreshResponses = {
 
 export type StudioGenerationsRefreshResponse =
   StudioGenerationsRefreshResponses[keyof StudioGenerationsRefreshResponses]
+
+export type StudioHistoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "image" | "video"
+    resolution?: string
+    ratio?: string
+    sort?: "desc" | "asc"
+    cursor?: string
+    limit?: number
+  }
+  url: "/studio/history"
+}
+
+export type StudioHistoryListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryListError = StudioHistoryListErrors[keyof StudioHistoryListErrors]
+
+export type StudioHistoryListResponses = {
+  /**
+   * Studio history media list
+   */
+  200: {
+    items: Array<{
+      id: string
+      sessionID: string
+      generationID: string
+      mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      kind: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      thumbnailStatus?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      aspectRatio?: string
+      capability?: string
+      duration?: string
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    nextCursor?: string
+  }
+}
+
+export type StudioHistoryListResponse = StudioHistoryListResponses[keyof StudioHistoryListResponses]
+
+export type StudioHistorySnapshotData = {
+  body?: {
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/snapshot"
+}
+
+export type StudioHistorySnapshotErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistorySnapshotError = StudioHistorySnapshotErrors[keyof StudioHistorySnapshotErrors]
+
+export type StudioHistorySnapshotResponses = {
+  /**
+   * Snapshot result
+   */
+  200: {
+    snapshotted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistorySnapshotResponse = StudioHistorySnapshotResponses[keyof StudioHistorySnapshotResponses]
+
+export type StudioHistoryDeleteData = {
+  body?: {
+    mediaIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/delete"
+}
+
+export type StudioHistoryDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryDeleteError = StudioHistoryDeleteErrors[keyof StudioHistoryDeleteErrors]
+
+export type StudioHistoryDeleteResponses = {
+  /**
+   * Deleted media count
+   */
+  200: {
+    deleted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryDeleteResponse = StudioHistoryDeleteResponses[keyof StudioHistoryDeleteResponses]
+
+export type StudioHistoryExcludedListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/excluded"
+}
+
+export type StudioHistoryExcludedListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryExcludedListError = StudioHistoryExcludedListErrors[keyof StudioHistoryExcludedListErrors]
+
+export type StudioHistoryExcludedListResponses = {
+  /**
+   * Excluded media IDs
+   */
+  200: {
+    ids: Array<string>
+  }
+}
+
+export type StudioHistoryExcludedListResponse =
+  StudioHistoryExcludedListResponses[keyof StudioHistoryExcludedListResponses]
+
+export type StudioHistoryRevisionData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/revision"
+}
+
+export type StudioHistoryRevisionErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryRevisionError = StudioHistoryRevisionErrors[keyof StudioHistoryRevisionErrors]
+
+export type StudioHistoryRevisionResponses = {
+  /**
+   * Studio history revision
+   */
+  200: {
+    revision: string
+    count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    headId?: string
+    headCreatedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryRevisionResponse = StudioHistoryRevisionResponses[keyof StudioHistoryRevisionResponses]
 
 export type InsightSessionsListData = {
   body?: never

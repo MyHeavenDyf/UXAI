@@ -78,6 +78,19 @@ const QueryParameterSchemas = {
   "GET /session/{sessionID}/diff messageID": { type: "string", pattern: "^msg.*" },
   "GET /session/{sessionID}/message limit": { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
   "GET /experimental/session cursor": { type: "string" },
+  "GET /studio/template-list only_public": {
+    type: "integer",
+    minimum: -Number.MAX_SAFE_INTEGER,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  "GET /studio/template-list page": { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+  "GET /studio/template-list page_size": {
+    type: "integer",
+    minimum: -Number.MAX_SAFE_INTEGER,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  "GET /studio/history cursor": { type: "string" },
+  "GET /studio/history limit": { type: "integer", minimum: 1, maximum: 200 },
 } satisfies Record<string, OpenApiSchema>
 
 const PathParameterSchemas = {
@@ -96,6 +109,11 @@ const LegacyComponentDescriptions = {
 
 function matchLegacyOpenApi(input: Record<string, unknown>) {
   const spec = input as OpenApiSpec
+
+  // Legacy compatibility paths (pre-rename) are still served at runtime but must
+  // stay out of the public OpenAPI/SDK surface.
+  delete spec.paths?.["/comment/file/{commentId}"]
+  delete spec.paths?.["/content"]
 
   // Effect's multi-document JSON Schema deduplicator can produce self-referencing
   // component schemas (e.g. `{"$ref":"#/components/schemas/X"}` as the definition
@@ -194,7 +212,44 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
       for (const param of operation.parameters) normalizeParameter(param, `${method.toUpperCase()} ${path}`)
     }
   }
+  hideCommentFilePathAlias(spec)
   return input
+}
+
+// The pre-rename `filePath` field is still accepted at runtime as an alias for
+// `commentFilePath`, but it must not surface in the public SDK. Drop the alias
+// and restore `commentFilePath` as required, matching the legacy Hono schema.
+function hideCommentFilePathAlias(spec: OpenApiSpec) {
+  const methods = ["get", "post", "put", "delete", "patch"] as const
+  for (const [path, item] of Object.entries(spec.paths ?? {})) {
+    if (!path.startsWith("/comment/file")) continue
+    for (const method of methods) {
+      const operation = item[method]
+      if (!operation) continue
+      if (operation.parameters) {
+        operation.parameters = operation.parameters.filter(
+          (param) => !(param.in === "query" && param.name === "filePath"),
+        )
+        for (const param of operation.parameters) {
+          if (param.in === "query" && param.name === "commentFilePath") param.required = true
+        }
+      }
+      dropCommentFilePathAlias(operation.requestBody?.content?.["application/json"]?.schema, spec)
+    }
+  }
+  for (const schema of Object.values(spec.components?.schemas ?? {})) dropCommentFilePathAlias(schema, spec)
+}
+
+function dropCommentFilePathAlias(schema: OpenApiSchema | undefined, spec: OpenApiSpec) {
+  if (!schema) return
+  const resolved = schema.$ref
+    ? spec.components?.schemas?.[schema.$ref.replace("#/components/schemas/", "")]
+    : schema
+  if (!resolved?.properties?.filePath || !resolved.properties.commentFilePath) return
+  delete resolved.properties.filePath
+  const required = new Set(resolved.required ?? [])
+  required.add("commentFilePath")
+  resolved.required = [...required]
 }
 
 function addLegacyErrorSchemas(spec: OpenApiSpec) {

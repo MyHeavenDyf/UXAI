@@ -226,13 +226,27 @@ describe("HttpApi server", () => {
     const effectRoutes = openApiRouteKeys(effectOpenApi())
 
     expect(honoRoutes.filter((route) => !effectRoutes.includes(route))).toEqual([])
+    // Fork (Octo) adds HttpApi-only routes that intentionally have no legacy Hono
+    // counterpart: the /api/session surface plus studio generation/refresh,
+    // insight, and artifact serve routes. Keep this list in sync when adding them.
     expect(effectRoutes.filter((route) => !honoRoutes.includes(route))).toEqual([
       "GET /api/session",
       "GET /api/session/{sessionID}/context",
       "GET /api/session/{sessionID}/message",
+      "GET /artifact/serve",
+      "GET /insight/files",
+      "GET /insight/sessions",
+      "GET /studio/generations/{generationID}",
       "POST /api/session/{sessionID}/compact",
       "POST /api/session/{sessionID}/prompt",
       "POST /api/session/{sessionID}/wait",
+      "POST /insight/chat-migration/preview",
+      "POST /insight/chat-migration/run",
+      "POST /insight/upload",
+      "POST /insight/upload-folder",
+      "POST /studio/generations/{generationID}/cancel",
+      "POST /studio/generations/{generationID}/reboot",
+      "POST /studio/generations/{generationID}/refresh",
     ])
   })
 
@@ -439,5 +453,37 @@ describe("HttpApi server", () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ success: false })
+  })
+
+  test("keeps legacy compat paths working while hiding them from OpenAPI", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    // Pre-rename file-write path still writes.
+    const write = await app().request("/content", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-opencode-directory": tmp.path },
+      body: JSON.stringify({ path: `${tmp.path}/legacy.txt`, content: "legacy" }),
+    })
+    expect(write.status).toBe(200)
+    expect(await write.json()).toMatchObject({ ok: true })
+    expect(await Bun.file(`${tmp.path}/legacy.txt`).text()).toBe("legacy")
+
+    // `filePath` is accepted as an alias for `commentFilePath`.
+    const alias = await app().request("/comment/file?sessionId=s&filePath=foo.html", {
+      headers: { "x-opencode-directory": tmp.path },
+    })
+    expect(alias.status).toBe(200)
+    expect(await alias.json()).toMatchObject({ comments: [] })
+
+    // Both legacy paths stay out of the public OpenAPI/SDK surface.
+    const effect = effectOpenApi()
+    expect(effect.paths["/content"]).toBeUndefined()
+    expect(effect.paths["/comment/file/{commentId}"]).toBeUndefined()
+    // `filePath` is accepted at runtime but hidden from the SDK; `commentFilePath`
+    // is the documented (and required) field.
+    expect(parameterSchema({ spec: effect, path: "/comment/file", method: "get", name: "filePath" })).toBeUndefined()
+    expect(parameterSchema({ spec: effect, path: "/comment/file", method: "get", name: "commentFilePath" })).toEqual({
+      type: "string",
+    })
   })
 })

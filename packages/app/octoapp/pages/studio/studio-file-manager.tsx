@@ -149,7 +149,7 @@ function estimateLongSideFromRatio(aspectRatio: string): number | null {
   return Math.round(1024 * ratio)
 }
 
-type FileManagerMedia = {
+export type FileManagerMedia = {
   id: string
   turnID: string
   generationID: string
@@ -165,12 +165,13 @@ type FileManagerMedia = {
   capability?: string
   duration?: string
   createdAt: number
+  sessionID?: string
 }
 
-type DateGroup = {
+export type DateGroup<T extends FileManagerMedia = FileManagerMedia> = {
   dateLabel: string
   timestamp: number
-  items: FileManagerMedia[]
+  items: T[]
 }
 
 function createCheckboxState(labels: string[]) {
@@ -192,7 +193,7 @@ function formatDateLabel(timestamp: number): string {
   return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`
 }
 
-function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
+export function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
   const media: FileManagerMedia[] = []
 
   for (const turn of turns) {
@@ -239,8 +240,11 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
   return media
 }
 
-function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
-  const groups = new Map<string, DateGroup>()
+export function groupMediaByDate<T extends FileManagerMedia>(
+  media: T[],
+  order: "asc" | "desc" = "desc",
+): DateGroup<T>[] {
+  const groups = new Map<string, DateGroup<T>>()
 
   for (const item of media) {
     const d = new Date(item.createdAt)
@@ -257,11 +261,12 @@ function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
     }
   }
 
+  const direction = order === "asc" ? 1 : -1
   return Array.from(groups.values())
-    .sort((a, b) => b.timestamp - a.timestamp)
+    .sort((a, b) => direction * (a.timestamp - b.timestamp))
     .map((group) => ({
       ...group,
-      items: group.items.sort((a, b) => b.createdAt - a.createdAt),
+      items: group.items.sort((a, b) => direction * (a.createdAt - b.createdAt)),
     }))
 }
 
