@@ -103,8 +103,32 @@ workspace 增加分类标记:**普通工作区(normal)/ 代码工作区(code)**,
 - **kind 驱动的行为差异全保留**:make 页 `buildArtifactFolderPrefix` 的 [Workspace]/[Artifact Folder] 分流、Design 页(use-workspace-kind / artifact-auto-save / scope=project 产物布局)、服务端 artifact.ts 的 scope=project 接口均未改动
 - 埋点:switch 的 extend.kind 语义微调 —— 已存在工作区记实际 kind,新建记 "code"(原为弹窗所选 kind)
 
+## P0 修复：系统提示词与 [Workspace] 注入对撞 + 死代码清理 — 2026-10-19
+
+PR #966 bug 审查发现的高危：e65df48612 引入 [Workspace] 注入时未同步改 octo_make.txt,系统提示词仍写"默认 `<artifact>` 标签生成"、write 只认 `[Artifact Folder]`、edit 引用永不注入的 `[Project artifacts]` 列表(d55b0fd32c 方案的遗留,被早返回架空成死代码)——code 工作区(新建默认)每轮与注入段对撞,产物交付方式不确定。
+
+**修复方案:系统提示词中性化(方案 A)**——octo_make.txt 不再硬编码普通工作区行为,三处规则改为按注入前缀分流,行为差异完全由前端注入段承担:
+
+- **约束优先级**:`[Artifact Folder]` 前缀(普通工作区)默认 `<artifact>` 标签生成;`[Workspace]` 前缀(代码工作区)直接在项目内写文件
+- **write**:普通工作区仅当用户/skill 明确要求时使用;代码工作区直接用 write 在项目内合适位置创建;未指定路径只能写入注入指引目录内
+- **edit**:普通工作区路径必须取自 `[Existing artifacts in this session]` 列表;代码工作区可直接对项目内文件使用 edit
+- 同步删除 make/index.tsx 的 projectScope 死分支(isProjectScope() 与 code 早返回同谓词,normal/code 均不可达)与 `PROJECT_ARTIFACT_LIST_MAX`;isProjectScope() 本体保留(上传/API scope 用途)
+
+**P1 同修:规划子会话误注入**(同日第二批)——sendMessage 的注入不区分目标 agent,规划子会话(octo_make_plan)也收到前缀:code 工作区的 [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与 plan agent 的 strategy-field/design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。修复:sendMessage 注入处加 `inPlanSession ? "" : buildArtifactFolderPrefix(sessionId)`(注入应用处本就有真值守卫,空串自动跳过);handleConfirmPlan 直发主会话不受影响。skill 暂存逻辑(handoff 存取/去重/childSessionId 校验/失败保留)已随修复前置审查,无问题。
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过
 - 手测路径:见 workspace-switcher 功能验收——/insight/:id 切目录回 /insight 新列表;/make/:id 同理;/:dir/studio/:id 切目录跳新 dir 的 studio 并恢复 last session;刷新后 lastProject 持久保持
 - 分类手测:选新文件夹→弹分类→选"代码"→蓝徽章+切换;弹窗取消→不加入;重选已有文件夹→直接切换不弹窗且分类不变;存量 workspace 显示灰"普通";重启后分类保持
+
+## P0/P1 修复的契约测试(零侵入) — 2026-10-19 追加
+
+抽离纯函数方案被否决(主代码不动),改用**源码契约测试**:注入逻辑的行为本质是字符串常量与谓词,读源文件断言即行为断言,主代码零改动。两个测试文件仅保留本地验证,未随修复提交。
+
+- **`packages/opencode/test/agent/octo-make-prompt.test.ts`**:与生产同款方式 import octo_make.txt(text.d.ts 的 `*.txt` 模块声明),断言分流规则在位——约束优先级/write/edit 三处均含"普通工作区+代码工作区"双分支语义、`[Project artifacts]` 死引用不回归
+- **`packages/app/octoapp/pages/make/artifact-injection-contract.test.ts`**:readFileSync 读 make/index.tsx 源码断言:
+  - **P1 在位**:sendMessage 注入含 `inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)`;handleConfirmPlan 主会话路径 `await buildArtifactFolderPrefix(mainSid)` 不受影响;4 个注入应用点真值守卫齐全(confirm-plan 的 parts/promptText + sendMessage 的 cmdParts/promptText,空串自动跳过);`await buildArtifactFolderPrefix(` 调用点恰 2 处(新增调用点需 consciously 更新契约)
+  - **P0 不回归**:`PROJECT_ARTIFACT_LIST_MAX` 与 `[Project artifacts]` 不在源码
+  - **注入文本契约**:code 段(kindOf 谓词 + `` `[Workspace]: ${folderProjDir}` `` + "产物目录即工作区目录本身"声明)与 normal 段(`[folderProjDir, ".octo", sessionId, "outputs"].join(sep)` + `` `[Artifact Folder]: ${artifactFolder}` `` + `[Existing artifacts in this session]` 列表 + "优先使用 <artifact> 标签输出"指引)
+- 运行:packages/opencode 下 `bun test test/agent/octo-make-prompt.test.ts`;packages/app 下 `bun test --preload ./happydom.ts ./octoapp/pages/make/artifact-injection-contract.test.ts`。当前 11/11 通过,两包 `bun run typecheck` 通过

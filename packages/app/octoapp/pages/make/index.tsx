@@ -142,9 +142,6 @@ const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
-// 代码工作区注入 [Project artifacts] 列表的上限:项目根文件可能很多,prompt 膨胀会挤占上下文
-const PROJECT_ARTIFACT_LIST_MAX = 50
-
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
   const params = useParams<{ id?: string }>()
@@ -3205,8 +3202,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const folderProjDir = projectDir()
     if (!folderProjDir || !sessionId) return ""
     // 代码工作区：注入 [Workspace] 提示词（直接在本工作区内读写项目文件），不走产物目录规则。
-    // 产物目录用声明式映射（= 工作区目录本身）而非条件式——agent 提示词(octo_make.txt)把
-    // .octo/<sessionId>/outputs/ 写成 write 的兜底路径,声明式才能确定性压过该锚点。
+    // 产物目录声明式映射为工作区目录本身,与 octo_make.txt 中按 [Workspace]/[Artifact Folder]
+    // 前缀分流的输出规则一一对应。
     if (kindOf(layout.projects.list().find((x) => x.worktree === folderProjDir)) === "code") {
       return [
         `[Workspace]: ${folderProjDir}`,
@@ -3216,23 +3213,17 @@ const sessionMessagesLoaded = createMemo(() => {
       ].join("\n")
     }
     const sep = folderProjDir.includes("\\") ? "\\" : "/"
-    const projectScope = isProjectScope()
-    const artifactFolder = projectScope ? folderProjDir : [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
     let existingList = ""
     try {
-      const relPath = projectScope ? "." : `.octo/${sessionId}/outputs`
-      const result = await sdk.client.file.list({ path: relPath })
-      const all = (result.data ?? []).filter((n) => n.type === "file" && !n.name.startsWith("."))
-      const truncated = projectScope && all.length > PROJECT_ARTIFACT_LIST_MAX
-      const files = truncated ? all.slice(0, PROJECT_ARTIFACT_LIST_MAX) : all
+      const result = await sdk.client.file.list({ path: `.octo/${sessionId}/outputs` })
+      const files = (result.data ?? []).filter((n) => n.type === "file" && !n.name.startsWith("."))
       if (files.length > 0) {
-        const lines = files.map((n) => `- ${n.absolute}`)
-        if (truncated) lines.push(`- ...（项目共 ${all.length} 个文件，仅列出前 ${PROJECT_ARTIFACT_LIST_MAX} 个）`)
         existingList = [
           ``,
-          projectScope ? `[Project artifacts]` : `[Existing artifacts in this session]`,
-          ...lines,
-          `用户在${projectScope ? "本项目" : "本会话"}中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
+          `[Existing artifacts in this session]`,
+          ...files.map((n) => `- ${n.absolute}`),
+          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -3381,7 +3372,10 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
 
       // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
-      const artifactFolderPrefix = await buildArtifactFolderPrefix(sessionId)
+      // 规划子会话不注入:octo_make_plan 不产文件(write/edit 均 deny),code 工作区的
+      // [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与其 strategy-field/
+      // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
+      const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
