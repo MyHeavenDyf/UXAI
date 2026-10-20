@@ -101,6 +101,7 @@ export function StudioConversation(props: {
   rebootingGenerationIDs: ReadonlySet<string>
   refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  onCancelExpansion?: () => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
   onRefreshGeneration: (generationID: string) => void
@@ -167,9 +168,20 @@ export function StudioConversation(props: {
                   </For>
                 </div>
               </Show>
-              <div class="studio-user-bubble">
+              <Show when={turn.recommendation?.kind !== "guide"}><div class="studio-user-bubble">
                 <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
-              </div>
+              </div></Show>
+              <Show when={turn.recommendation?.kind === "result"}>
+                <div class="studio-prompt-expansion" aria-live="polite">
+                  <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
+                    <span>{turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}</span>
+                    <button type="button" disabled={turn.recommendation?.status === "cancelling"} onClick={() => props.onCancelExpansion?.()}>取消</button>
+                  </Show>
+                  <Show when={turn.recommendation?.tags?.length}>
+                    <div class="studio-prompt-expansion-tags"><For each={turn.recommendation?.tags}>{(tag) => <span>{tag}</span>}</For></div>
+                  </Show>
+                </div>
+              </Show>
               <Show when={turn.editCapability} fallback={
                 <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
                   {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
@@ -187,7 +199,7 @@ export function StudioConversation(props: {
                   </button>
                 )}
               </Show>
-              <Show when={!turn.editCapability}>
+              <Show when={!turn.editCapability && !turn.recommendation}>
                 <StudioResultCard
                   turn={turn}
                   fallbackCapability={props.result?.capability}

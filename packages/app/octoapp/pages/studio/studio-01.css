@@ -611,6 +611,27 @@
   word-break: break-word;
 }
 
+.studio-prompt-recommendation-button {
+  pointer-events: auto;
+  color: var(--text-interactive-base, #5364df);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.studio-prompt-recommendation-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
+.studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
+.studio-prompt-expansion > button { margin-left: 12px; cursor: pointer; }
+.studio-prompt-expansion-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-prompt-expansion-tags > span { padding: 4px 10px; border-radius: 6px; background: rgba(99, 102, 241, .08); }
+
 .studio-composer-at-chip {
   display: inline-flex;
   align-items: center;

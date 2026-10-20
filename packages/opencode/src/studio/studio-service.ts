@@ -47,6 +47,7 @@ import { Instance } from "@/project/instance"
 import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect, Stream } from "effect"
+import { assertCanGenerate, withStudioSubmission } from "./prompt-recommendation-state"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 import {
@@ -1371,13 +1372,19 @@ function persistStudioSession(input: {
   }
 }
 
-export async function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
+export function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
+  return withStudioSubmission(input.sessionID, () => createEditorEntryImpl(input))
+}
+
+async function createEditorEntryImpl(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
   if (session.directory !== Instance.directory)
     throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   if (session.agent !== "octo_studio") throw new Error(`Session is not a Studio session: ${sessionID}`)
+
+  assertCanGenerate(input.sessionID)
 
   const callID = `studio_editor_entry_${input.entryID}`
   const existing = Database.use((db) =>
@@ -2788,7 +2795,11 @@ registerDisposer(async (directory) => {
     })
 })
 
-export async function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+export function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+  return withStudioSubmission(input.sessionID ?? "", () => createGenerationImpl(input))
+}
+
+async function createGenerationImpl(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
@@ -2796,6 +2807,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
     throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
+  assertCanGenerate(sessionID)
   const provider = resolveProvider(input)
   const promptRefine = submittingPromptRefine(input)
   const generationInput: StudioGenerationPromptInput = {
@@ -2848,6 +2860,7 @@ async function refreshGenerationOnce(id: string): Promise<StudioGenerationResult
   const record = loadGenerationRecord(id)
   if (!record) throw new Error(`Studio generation not found: ${id}`)
   if (record.status !== "abnormal") return getGeneration(id)
+  assertCanGenerate(record.session_id)
   const task = internalGenerationTask(record)
   const query = await queryInternalGeneration(task).catch((error) => {
     console.warn("[studio.service] refresh generation query failed", {
@@ -2877,17 +2890,24 @@ export function refreshGeneration(id: string): Promise<StudioGenerationResult & 
   const key = `${Instance.directory}:${id}`
   const current = refreshingGenerations.get(key)
   if (current) return current
-  const operation = refreshGenerationOnce(id).finally(() => refreshingGenerations.delete(key))
+  const record = loadGenerationRecord(id)
+  const operation = withStudioSubmission(record?.session_id ?? id, () => refreshGenerationOnce(id)).finally(() => refreshingGenerations.delete(key))
   refreshingGenerations.set(key, operation)
   return operation
 }
 
-export async function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+export function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const record = loadGenerationRecord(id)
+  return withStudioSubmission(record?.session_id ?? id, () => rebootGenerationImpl(id))
+}
+
+async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
   if (rebootingGenerations.has(id)) throw new Error("该任务正在重新生成")
   rebootingGenerations.add(id)
   try {
     const record = loadGenerationRecord(id)
     if (!record) throw new Error(`Studio generation not found: ${id}`)
+    assertCanGenerate(record.session_id)
     if (record.status === "create_failed")
       throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
     if (record.status !== "failed") throw new Error(`Only failed Studio generations can be rebooted: ${id}`)

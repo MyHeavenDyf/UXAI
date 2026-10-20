@@ -7,6 +7,9 @@ import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen,
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
+import { recommendationRequest } from "@/studio/prompt-recommendation-http"
+import { InitializePayload, ExpansionPayload, RecommendationState, RecommendationResponse, RecommendationErrorBody, RecommendationError, initializeSchema, submissionSchema } from "@/studio/prompt-recommendation-schema"
+import { zod } from "@/util/effect-zod"
 
 const StudioPromptGenInput = z.object({
   base64img: z.string().min(1),
@@ -145,8 +148,49 @@ const StudioEditorEntryInput = z.object({
   entryID: z.string().min(1),
 })
 
+async function studioResponse(work: () => Promise<unknown>, status = 200) {
+  try { return Response.json(await work(), { status }) }
+  catch (error) {
+    if (error instanceof RecommendationError) return Response.json(error.body(), { status: error.status })
+    throw error
+  }
+}
+
+function recommendationBody(schema: typeof initializeSchema | typeof submissionSchema) {
+  return { required: false, content: { "application/json": { schema: z.toJSONSchema(schema, { io: "input" }) } } } as NonNullable<Parameters<typeof describeRoute>[0]["requestBody"]>
+}
+
+function recommendationResponses(status: number, state: boolean) {
+  return {
+    [status]: { description: "Studio prompt recommendation", content: { "application/json": { schema: resolver(zod(state ? RecommendationState : RecommendationResponse)) } } },
+    ...Object.fromEntries([400, 404, 409, 413, 429, 503].map((code) => [code, {
+      description: "Studio prompt recommendation error", content: { "application/json": { schema: resolver(zod(RecommendationErrorBody)) } },
+    }])),
+  }
+}
+
 export const StudioRoutes = lazy(() =>
   new Hono()
+    .post("/prompt-recommendations", describeRoute({
+      operationId: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation",
+      requestBody: recommendationBody(initializeSchema),
+      responses: recommendationResponses(200, false),
+    }), (c) => recommendationRequest(c.req.raw, "initialize"))
+    .post("/prompt-expansions", describeRoute({
+      operationId: "studio.prompt-expansions.create", summary: "Submit Studio prompt expansion",
+      requestBody: recommendationBody(submissionSchema),
+      responses: recommendationResponses(202, false),
+    }), (c) => recommendationRequest(c.req.raw, "submit"))
+    .get("/sessions/:sessionID/prompt-recommendation", describeRoute({
+      operationId: "studio.prompt-recommendations.get", summary: "Read Studio prompt recommendation",
+      parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }, { in: "query", name: "guidePartID", required: false, schema: { type: "string" } }],
+      responses: recommendationResponses(200, true),
+    }), (c) => recommendationRequest(c.req.raw, "state", c.req.param("sessionID")))
+    .post("/sessions/:sessionID/prompt-expansions/:assistantMessageID/cancel", describeRoute({
+      operationId: "studio.prompt-expansions.cancel", summary: "Cancel Studio prompt expansion",
+      parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }, { in: "path", name: "assistantMessageID", required: true, schema: { type: "string" } }],
+      responses: recommendationResponses(200, false),
+    }), (c) => recommendationRequest(c.req.raw, "cancel", c.req.param("sessionID"), c.req.param("assistantMessageID")))
     .get(
       "/prompt-tags",
       describeRoute({
@@ -362,10 +406,11 @@ export const StudioRoutes = lazy(() =>
             content: { "application/json": { schema: resolver(z.unknown()) } },
           },
           ...errors(400),
+          409: { description: "Studio session busy", content: { "application/json": { schema: resolver(zod(RecommendationErrorBody)) } } },
         },
       }),
       validator("json", StudioEditorEntryInput),
-      async (c) => c.json(await createEditorEntry(c.req.valid("json"))),
+      (c) => studioResponse(() => createEditorEntry(c.req.valid("json"))),
     )
     .post(
       "/generations",
@@ -383,6 +428,7 @@ export const StudioRoutes = lazy(() =>
             },
           },
           ...errors(400),
+          409: { description: "Studio session busy", content: { "application/json": { schema: resolver(zod(RecommendationErrorBody)) } } },
         },
       }),
       validator("json", StudioGenerationInput),
@@ -400,11 +446,11 @@ export const StudioRoutes = lazy(() =>
           referenceImageCount: input.referenceImages?.length ?? 0,
           hasSourceImage: Boolean(input.sourceImage),
         })
-        return c.json(await createGeneration(input), 202)
+        return studioResponse(() => createGeneration(input), 202)
       },
     )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
-  .post("/generations/:generationID/reboot", async (c) => c.json(await rebootGeneration(c.req.param("generationID"))))
-  .post("/generations/:generationID/refresh", async (c) => c.json(await refreshGeneration(c.req.param("generationID"))))
+  .post("/generations/:generationID/reboot", (c) => studioResponse(() => rebootGeneration(c.req.param("generationID"))))
+  .post("/generations/:generationID/refresh", (c) => studioResponse(() => refreshGeneration(c.req.param("generationID"))))
   .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
 )

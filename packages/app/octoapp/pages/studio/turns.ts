@@ -1,6 +1,7 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
 import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
+import { promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -10,6 +11,7 @@ export type StudioTurnData = {
   assistantText: string
   editCapability?: StudioCapability
   editorEntryID?: string
+  recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
   toolTitle?: string
   toolError?: string
   toolName?: string
@@ -659,7 +661,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     .filter((message) => message.role === "user")
     .map((user) => {
     const index = messages.findIndex((message) => message.id === user.id)
-    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant")
+    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant" && message.parentID === user.id)
     const userText =
       input.parts[user.id]
         ?.filter(isTextPart)
@@ -673,6 +675,15 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
+    const recommendation = assistantParts.map(promptMetadata).find((metadata) => metadata !== undefined)
+    if (recommendation) {
+      return {
+        id: user.id, userText, assistantText, createdAt: user.time.created, isLatest: false,
+        recommendation: { kind: recommendation.kind, status: recommendation.status,
+          tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
+        inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),
+      } satisfies StudioTurnData
+    }
     const entry = editorEntry(tools)
     if (entry) {
       return {
