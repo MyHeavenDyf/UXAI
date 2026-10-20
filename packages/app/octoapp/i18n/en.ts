@@ -25,7 +25,7 @@ export const dict = {
   "studio.history.empty.file": "No related files",
   "studio.history.retry": "Retry",
   "studio.history.delete.title": "Confirm delete",
-  "studio.history.delete.message": "Deleted history cannot be recovered",
+  "studio.history.delete.message": "Deleted assets cannot be recovered",
   "studio.history.sessionDeleted": "This session was deleted; only its media remains in history.",
   "studio.history.openSession": "View session",
   "studio.history.back": "Back",

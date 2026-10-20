@@ -1,5 +1,5 @@
 import * as Database from "@/storage/db"
-import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "@/storage/db"
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "@/storage/db"
 import { readdir, rm, stat } from "node:fs/promises"
 import path from "path"
 import type { SessionID } from "@/session/schema"
@@ -123,7 +123,8 @@ function historyTextFields(result: Record<string, unknown> | undefined, input: u
   return {
     prompt: stringField(inputRecord, "prompt"),
     displayPrompt: stringField(inputRecord, "displayPrompt"),
-    detailPrompt: stringField(inputRecord, "detailPrompt"),
+    // 旧数据/部分路径没有持久化 detailPrompt，回退到用户展示文案，避免详情面板"提示词"显示 "-"。
+    detailPrompt: stringField(inputRecord, "detailPrompt") ?? stringField(inputRecord, "displayPrompt"),
     detailTitle: stringField(inputRecord, "detailTitle"),
     styleModel,
     model: stringField(result, "model") ?? styleModel,
@@ -379,7 +380,8 @@ export function generationHistorySnapshot(directory: string, generationID: strin
     capability: head.capability,
     prompt: head.prompt,
     displayPrompt: head.displayPrompt,
-    detailPrompt: head.detailPrompt,
+    // 历史行可能未存 detailPrompt（旧数据），回退到展示文案/提示词，供详情面板复用。
+    detailPrompt: head.detailPrompt ?? head.displayPrompt ?? head.prompt,
     detailTitle: head.detailTitle,
     model: head.model,
     styleModel: head.styleModel,
@@ -450,7 +452,54 @@ function rememberBackfilled(directory: string) {
   if (oldest !== undefined) backfilledDirectories.delete(oldest)
 }
 
+// 幂等修复历史视频的分辨率：旧 provider 的 std/pro 档位，以及尚未写入分辨率的行（含会话已删除、
+// generation 行不存在的老数据）。每次列表/指纹查询都会调用；候选行修完后为 0，开销可忽略，
+// 因此不依赖进程重启。请求档位优先，结果/历史档位兜底。
+function repairLegacyVideoResolutions(directory: string) {
+  Database.transaction((db) => {
+    const rows = db
+      .select({
+        id: StudioHistoryTable.id,
+        resolution: StudioHistoryTable.resolution,
+        mode: StudioHistoryTable.video_quality_mode,
+        request: StudioGenerationTable.request,
+        result: StudioGenerationTable.result,
+      })
+      .from(StudioHistoryTable)
+      .leftJoin(StudioGenerationTable, and(
+        eq(StudioGenerationTable.id, StudioHistoryTable.generation_id),
+        eq(StudioGenerationTable.directory, StudioHistoryTable.directory),
+      ))
+      .where(and(
+        eq(StudioHistoryTable.directory, directory),
+        eq(StudioHistoryTable.kind, "video"),
+        // 只挑还没写入分辨率的行：缺失时用请求/结果/历史档位补齐；修完后即离开候选集。
+        isNull(StudioHistoryTable.resolution),
+        isNotNull(StudioHistoryTable.video_quality_mode),
+      ))
+      .all()
+    const updates = rows.flatMap((row) => {
+      const resolution = videoResolution(row.request?.input, row.result?.videoQualityMode ?? row.mode) ?? null
+      return resolution ? [{ id: row.id, resolution }] : []
+    })
+    if (updates.length === 0) return
+    const latest = db.select({ updated: sql<number | null>`max(${StudioHistoryTable.time_updated})` })
+      .from(StudioHistoryTable)
+      .where(eq(StudioHistoryTable.directory, directory))
+      .get()
+    const updated = Math.max(Date.now(), (latest?.updated ?? 0) + 1)
+    for (const row of updates) {
+      db.update(StudioHistoryTable)
+        .set({ resolution: row.resolution, time_updated: updated })
+        .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.id, row.id)))
+        .run()
+    }
+  })
+}
+
 export function backfillStudioHistory(directory: string) {
+  // 修复每次查询都幂等执行，避免依赖进程重启；全量回填（重且只需一次）仍走下面的缓存守卫。
+  repairLegacyVideoResolutions(directory)
   if (backfilledDirectories.has(directory)) return
   // 已物化的行也需要修正：旧实现把视频分辨率按宽高分桶（通常写成 NULL），
   // 且从未写入生成级文案列。只刷新分辨率与文案列，保留缩略图和媒体状态；

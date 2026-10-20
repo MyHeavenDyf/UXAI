@@ -29,7 +29,7 @@ export const dict = {
   "studio.history.empty.file": "暂无相关文件",
   "studio.history.retry": "重试",
   "studio.history.delete.title": "确认删除",
-  "studio.history.delete.message": "删除的历史记录将无法找回",
+  "studio.history.delete.message": "删除我的资产后将无法找回",
   "studio.history.sessionDeleted": "该会话已删除，仅保留历史媒体。",
   "studio.history.openSession": "查看会话",
   "studio.history.back": "返回",

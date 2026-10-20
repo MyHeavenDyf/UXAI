@@ -312,7 +312,7 @@ describe("Studio history service", () => {
     })
   })
 
-  test("materialization and session snapshots use result quality as fallback and leave unknown quality unclassified", async () => {
+  test("materialization and session snapshots classify legacy std/pro result quality", async () => {
     await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
       for (const quality of ["480", "720", "1080", "4k", "pro", "std", "unknown"]) {
         insertGeneration({
@@ -323,11 +323,36 @@ describe("Studio history service", () => {
         })
         materializeStudioGeneration(directory, quality)
       }
+      // 旧 std/pro 档位归一化后也能被 480P/720P 命中；只有真正无档位的 unknown 落空。
       expect(listStudioHistoryMedia(directory, { resolutions: ["480P", "720P", "1080P", "4K"] }).items.map((item) => item.id).sort())
-        .toEqual(["1080", "480", "4k", "720"])
+        .toEqual(["1080", "480", "4k", "720", "pro", "std"])
       snapshotSessionMedia(directory, sessionID)
       expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id)).toEqual(["1080"])
       expect(listStudioHistoryMedia(directory).items).toHaveLength(7)
+    })
+  })
+
+  test("backfills resolution for legacy std/pro videos whose generation was deleted", async () => {
+    await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
+      insertGeneration({
+        id: "legacy-std",
+        createdAt: 1,
+        images: [image({ id: "legacy-std", kind: "video", url: "https://example.com/std.mp4" })],
+        result: { videoQualityMode: "std" },
+      })
+      snapshotSessionMedia(directory, sessionID)
+      Database.use((db) => db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "legacy-std")).run())
+      // 模拟旧数据：历史行没有分辨率（generation 已随会话删除，无法从请求重算）。
+      Database.use((db) => db.update(StudioHistoryTable).set({ resolution: null })
+        .where(eq(StudioHistoryTable.id, "legacy-std")).run())
+
+      expect(listStudioHistoryMedia(directory, { resolutions: ["480P"] }).items.map((item) => item.id))
+        .toEqual(["legacy-std"])
+      expect(listStudioHistoryMedia(directory, { resolutions: ["720P"] }).items).toEqual([])
+      // 每次查询都会幂等修复：老 std 视频补齐 480P，且不依赖进程重启。
+      const repaired = Database.use((db) => db.select().from(StudioHistoryTable)
+        .where(eq(StudioHistoryTable.id, "legacy-std")).get())
+      expect(repaired?.resolution).toBe("480P")
     })
   })
 
@@ -339,7 +364,7 @@ describe("Studio history service", () => {
           createdAt: 1,
           images: [{ id, kind: "video", url: `https://example.com/${id}.mp4`, thumbnailUrl: "cover.webp", thumbnailStatus: "ready" }],
           request: id === "unknown" ? {} : { input: { extra: { resolution: "720p" } } },
-          result: { videoQualityMode: "pro" },
+          result: id === "unknown" ? {} : { videoQualityMode: "pro" },
         })
         materializeStudioGeneration(directory, id)
       }

@@ -7,7 +7,15 @@ export type StudioCapability =
   | "image.outpaint"
   | "image.fusion"
 
-// 请求档位优先，合法结果档位兜底；旧 provider 的 std/pro 不能确定分辨率。
+// 请求档位优先，合法结果档位兜底。
+// 旧 provider 只落在 std/pro 两档，按产品口径归一化：std→480P、pro→720P，
+// 让历史老数据也能被 480P/720P 的分辨率筛选命中。
+const LEGACY_VIDEO_QUALITY: Record<string, "480" | "720"> = { std: "480", pro: "720" }
+
+function legacyVideoQuality(value: unknown) {
+  return typeof value === "string" ? LEGACY_VIDEO_QUALITY[value] : undefined
+}
+
 export function resolveStudioVideoQualityMode(input: unknown, fallback?: unknown) {
   const extra = input && typeof input === "object" && "extra" in input ? input.extra : undefined
   const resolution = extra && typeof extra === "object" && "resolution" in extra ? extra.resolution : undefined
@@ -15,6 +23,9 @@ export function resolveStudioVideoQualityMode(input: unknown, fallback?: unknown
   if (resolution === "720p") return "720"
   if (resolution === "1080p") return "1080"
   if (resolution === "4k") return "4k"
+  const mode = extra && typeof extra === "object" && "mode" in extra ? extra.mode : undefined
+  if (legacyVideoQuality(mode)) return legacyVideoQuality(mode)
+  if (legacyVideoQuality(fallback)) return legacyVideoQuality(fallback)
   if (fallback === "480" || fallback === "720" || fallback === "1080" || fallback === "4k") return fallback
 }
 
