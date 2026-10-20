@@ -6,6 +6,7 @@ import type { SessionID } from "@/session/schema"
 import { SessionTable } from "@/session/session.sql"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { StudioHistoryExcludedTable, StudioHistoryTable } from "./studio-history.sql"
+import { resolveStudioVideoQualityMode } from "./image-provider"
 
 export type StudioHistoryMediaItem = {
   id: string
@@ -18,6 +19,7 @@ export type StudioHistoryMediaItem = {
   thumbnailStatus?: string
   width?: number
   height?: number
+  resolution?: string
   aspectRatio?: string
   capability?: string
   duration?: string
@@ -78,14 +80,10 @@ const RATIO_OPTIONS: { label: string; value: number }[] = [
 const RATIO_LABELS = new Set(RATIO_OPTIONS.map((o) => o.label))
 const RATIO_TOLERANCE = 0.02
 
-// 与前端 `studio-history-gallery` 的分桶逻辑保持一致，保证服务端筛选与展示口径相同。
-function mediaResolution(width?: number, height?: number): string | undefined {
-  const short = Math.min(width ?? 0, height ?? 0)
-  if (!short) return undefined
-  if (short <= 480) return "480P"
-  if (short <= 720) return "720P"
-  if (short <= 1080) return "1080P"
-  return "4K"
+function videoResolution(input: unknown, fallback?: unknown) {
+  const quality = resolveStudioVideoQualityMode(input, fallback)
+  if (!quality) return undefined
+  return quality === "4k" ? "4K" : `${quality}P`
 }
 
 function mediaRatio(aspectRatio?: string, width?: number, height?: number): string | undefined {
@@ -105,6 +103,7 @@ function extractMediaFromResult(
   result: Record<string, unknown> | undefined,
   sessionId: string,
   createdAt: number,
+  input?: unknown,
 ): StudioHistoryMediaItem[] {
   if (!result) return []
   const images = result.images
@@ -134,6 +133,7 @@ function extractMediaFromResult(
       thumbnailStatus: typeof img.thumbnailStatus === "string" ? img.thumbnailStatus : undefined,
       width: typeof img.width === "number" ? img.width : resultWidth,
       height: typeof img.height === "number" ? img.height : resultHeight,
+      resolution: kind === "video" ? videoResolution(input, result.videoQualityMode) : undefined,
       aspectRatio,
       capability,
       duration,
@@ -156,7 +156,7 @@ function toRow(item: StudioHistoryMediaItem, directory: string) {
     width: item.width ?? null,
     height: item.height ?? null,
     aspect_ratio: item.aspectRatio ?? null,
-    resolution: mediaResolution(item.width, item.height) ?? null,
+    resolution: item.resolution ?? null,
     ratio: mediaRatio(item.aspectRatio, item.width, item.height) ?? null,
     capability: item.capability ?? null,
     duration: item.duration ?? null,
@@ -246,6 +246,7 @@ function generationMedia(directory: string, generationID: string): StudioHistory
       row.result as Record<string, unknown> | undefined,
       row.session_id,
       row.completed_at ?? row.time_created,
+      row.request.input,
     ),
   )
 }
@@ -298,6 +299,40 @@ function rememberBackfilled(directory: string) {
 
 export function backfillStudioHistory(directory: string) {
   if (backfilledDirectories.has(directory)) return
+  // 已物化的视频也需要修正：旧实现按宽高分桶，通常写成 NULL。
+  // 只更新分辨率，保留缩略图和媒体状态；源任务已删除时保留快照中的档位。
+  Database.transaction((db) => {
+    const rows = db
+      .select({
+        id: StudioHistoryTable.id,
+        resolution: StudioHistoryTable.resolution,
+        request: StudioGenerationTable.request,
+        result: StudioGenerationTable.result,
+      })
+      .from(StudioHistoryTable)
+      .innerJoin(StudioGenerationTable, and(
+        eq(StudioGenerationTable.id, StudioHistoryTable.generation_id),
+        eq(StudioGenerationTable.directory, StudioHistoryTable.directory),
+      ))
+      .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.kind, "video")))
+      .all()
+    const updates = rows.flatMap((row) => {
+      const resolution = videoResolution(row.request?.input, row.result?.videoQualityMode) ?? null
+      return resolution === row.resolution ? [] : [{ id: row.id, resolution }]
+    })
+    if (updates.length === 0) return
+    const latest = db.select({ updated: sql<number | null>`max(${StudioHistoryTable.time_updated})` })
+      .from(StudioHistoryTable)
+      .where(eq(StudioHistoryTable.directory, directory))
+      .get()
+    const updated = Math.max(Date.now(), (latest?.updated ?? 0) + 1)
+    for (const row of updates) {
+      db.update(StudioHistoryTable)
+        .set({ resolution: row.resolution, time_updated: updated })
+        .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.id, row.id)))
+        .run()
+    }
+  })
   // 只补尚未进入历史表的 generation（用子查询排除已物化的），既保留旧数据又避免重复 upsert。
   // 同时排除已有墓碑的 generation：用户删除全部媒体后 generation_id 不再出现在
   // studio_history 中，但墓碑表里仍有记录。不排除会导致每次重启都重新提取并尝试
@@ -334,6 +369,7 @@ export function backfillStudioHistory(directory: string) {
       row.result as Record<string, unknown> | undefined,
       row.session_id,
       row.completed_at ?? row.time_created,
+      row.request.input,
     ),
   )
   upsertMedia(directory, items)
@@ -436,7 +472,10 @@ export function listStudioHistoryMedia(directory: string, query: StudioHistoryQu
   return Database.use((db) => {
     const conditions = [eq(StudioHistoryTable.directory, directory)]
     if (query.kind) conditions.push(eq(StudioHistoryTable.kind, query.kind))
-    if (query.resolutions?.length) conditions.push(inArray(StudioHistoryTable.resolution, query.resolutions))
+    if (query.resolutions?.length) conditions.push(
+      eq(StudioHistoryTable.kind, "video"),
+      inArray(StudioHistoryTable.resolution, query.resolutions),
+    )
     if (query.ratios?.length) conditions.push(inArray(StudioHistoryTable.ratio, query.ratios))
     conditions.push(
       notInArray(
@@ -495,6 +534,7 @@ export function snapshotSessionMedia(directory: string, sessionID: string): numb
       row.result as Record<string, unknown> | undefined,
       sessionID,
       row.completed_at ?? row.time_created,
+      row.request.input,
     ),
   )
 

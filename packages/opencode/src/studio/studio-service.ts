@@ -48,6 +48,7 @@ import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect, Stream } from "effect"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
+import { resolveStudioVideoQualityMode } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 import {
   enqueueStudioMediaThumbnails,
@@ -294,12 +295,7 @@ function videoDuration(input: StudioGenerationRequest) {
 }
 
 function videoQualityMode(input: StudioGenerationRequest): "480" | "720" | "1080" | "4k" {
-  const value = input.extra?.resolution
-  if (value === "480p") return "480"
-  if (value === "720p") return "720"
-  if (value === "1080p") return "1080"
-  if (value === "4k") return "4k"
-  return "480"
+  return resolveStudioVideoQualityMode(input) ?? "480"
 }
 
 function isEditorGenerationCapability(capability: StudioCapability) {
@@ -1925,7 +1921,7 @@ function videoSnapshotFields(record: StudioGenerationRecord): Pick<StudioGenerat
   const input = generationRequest(record).input
   return {
     videoMode: videoMode(input),
-    videoQualityMode: videoQualityMode(input),
+    videoQualityMode: resolveStudioVideoQualityMode(input, record.result?.videoQualityMode),
   }
 }
 
@@ -2987,7 +2983,7 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
     ...(record.status === "succeeded" ? (record.result as StudioGenerationResult | undefined) : {}),
     // 旧视频记录把 provider 的 "std"/"pro" 模式写进了 videoQualityMode，与响应 schema 的
     // 480/720/1080/4k 不兼容，会让整个 GET 请求 400（历史详情面板因此一直 loading）。
-    // 统一从请求输入的分辨率重新解析视频字段，保证响应始终符合契约。
+    // 与资产筛选共用请求档位解析，缺失时仅使用合法结果档位，保证响应符合契约。
     ...(record.capability === "video.generate" ? videoSnapshotFields(record) : {}),
     sessionID: record.session_id,
     status: record.status,

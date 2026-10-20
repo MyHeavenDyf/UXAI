@@ -91,6 +91,19 @@ describe("Studio generation service", () => {
           expect(result.videoMode).toBe("text")
           expect(result.duration).toBe("4")
           expect(result.detailTitle).toBe("奔跑的猫")
+
+          Database.use((db) => db.update(StudioGenerationTable)
+            .set({
+              request: { input: { capability: "video.generate", prompt: "一只猫在奔跑" } },
+              result: { ...result, videoQualityMode: "1080" },
+            })
+            .where(eq(StudioGenerationTable.id, id)).run())
+          expect((await getGeneration(id)).videoQualityMode).toBe("1080")
+
+          Database.use((db) => db.update(StudioGenerationTable)
+            .set({ result: { ...result, videoQualityMode: "pro" } })
+            .where(eq(StudioGenerationTable.id, id)).run())
+          expect((await getGeneration(id)).videoQualityMode).toBeUndefined()
         } finally {
           Database.use((db) => {
             db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, id)).run()

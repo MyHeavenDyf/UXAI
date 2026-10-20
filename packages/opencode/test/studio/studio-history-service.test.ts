@@ -34,6 +34,8 @@ async function withStudioHistory(
       createdAt: number
       status?: "succeeded" | "failed"
       images?: GenerationImage[]
+      request?: Record<string, unknown>
+      result?: Record<string, unknown>
     }) => void
   }) => Promise<void> | void,
 ) {
@@ -63,7 +65,7 @@ async function withStudioHistory(
         await run({
           directory: Instance.directory,
           sessionID,
-          insertGeneration: ({ id, createdAt, status = "succeeded", images }) =>
+          insertGeneration: ({ id, createdAt, status = "succeeded", images, request, result }) =>
             Database.use((db) =>
               db
                 .insert(StudioGenerationTable)
@@ -74,12 +76,13 @@ async function withStudioHistory(
                   assistant_message_id: MessageID.ascending(),
                   tool_part_id: PartID.ascending(),
                   provider: "internel",
-                  capability: "image.generate",
+                  capability: images?.some((item) => item.kind === "video") ? "video.generate" : "image.generate",
                   status,
                   progress: 100,
-                  request: {},
+                  request: request ?? {},
                   result: {
                     id,
+                    ...result,
                     images: images ?? [
                       {
                         id: `${id}-0`,
@@ -220,9 +223,113 @@ describe("Studio history service", () => {
       expect(listStudioHistoryMedia(directory, { kind: "video" }).items.map((item) => item.id))
         .toEqual(["gen-video-0"])
       expect(listStudioHistoryMedia(directory, { resolutions: ["480P"] }).items.map((item) => item.id))
-        .toEqual(["gen-square-0"])
+        .toEqual([])
       expect(listStudioHistoryMedia(directory, { ratios: ["16:9"] }).items.map((item) => item.id))
         .toEqual(["gen-video-0", "gen-1080-0"])
+    })
+  })
+
+  test("filters videos by requested quality without dimensions and excludes images", async () => {
+    await withStudioHistory(async ({ directory, insertGeneration }) => {
+      insertGeneration({ id: "image-1080", createdAt: 1 })
+      const qualities = [
+        { request: "480p", result: "480", resolution: "480P" },
+        { request: "720p", result: "720", resolution: "720P" },
+        { request: "1080p", result: "1080", resolution: "1080P" },
+        { request: "4k", result: "4k", resolution: "4K" },
+      ]
+      qualities.forEach((quality, index) => insertGeneration({
+        id: quality.result,
+        createdAt: index + 2,
+        images: [{ id: quality.result, kind: "video", url: `https://example.com/${quality.result}.mp4` }],
+        request: { input: { extra: { resolution: quality.request } } },
+        // 请求优先于结果，同时兼容旧 std/pro；媒体完全没有宽高。
+        result: { videoQualityMode: quality.result === "720" ? "1080" : "pro" },
+      }))
+      qualities.forEach((quality) => {
+        expect(listStudioHistoryMedia(directory, { resolutions: [quality.resolution] }).items.map((item) => item.id))
+          .toEqual([quality.result])
+      })
+      expect(listStudioHistoryMedia(directory, { resolutions: ["720P", "1080P"] }).items.map((item) => item.id))
+        .toEqual(["1080", "720"])
+      expect(listStudioHistoryMedia(directory, { kind: "image", resolutions: ["1080P"] }).items).toEqual([])
+      expect(listStudioHistoryMedia(directory, { kind: "video", resolutions: ["720P"] }).items.map((item) => item.id))
+        .toEqual(["720"])
+      // 即使旧图片行有按宽高生成的标签，也不能混入视频分辨率筛选。
+      Database.use((db) => db.update(StudioHistoryTable).set({ resolution: "1080P" })
+        .where(eq(StudioHistoryTable.id, "image-1080-0")).run())
+      expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id))
+        .toEqual(["1080"])
+    })
+  })
+
+  test("materialization and session snapshots use result quality as fallback and leave unknown quality unclassified", async () => {
+    await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
+      for (const quality of ["480", "720", "1080", "4k", "pro", "std", "unknown"]) {
+        insertGeneration({
+          id: quality,
+          createdAt: 1,
+          images: [{ id: quality, kind: "video", url: `https://example.com/${quality}.mp4`, width: 1920, height: 1080 }],
+          result: quality === "unknown" ? {} : { videoQualityMode: quality },
+        })
+        materializeStudioGeneration(directory, quality)
+      }
+      expect(listStudioHistoryMedia(directory, { resolutions: ["480P", "720P", "1080P", "4K"] }).items.map((item) => item.id).sort())
+        .toEqual(["1080", "480", "4k", "720"])
+      snapshotSessionMedia(directory, sessionID)
+      expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id)).toEqual(["1080"])
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(7)
+    })
+  })
+
+  test("repairs existing video resolutions on first access and invalidates the history revision", async () => {
+    await withStudioHistory(async ({ directory, insertGeneration }) => {
+      for (const id of ["missing", "incorrect", "unknown"]) {
+        insertGeneration({
+          id,
+          createdAt: 1,
+          images: [{ id, kind: "video", url: `https://example.com/${id}.mp4`, thumbnailUrl: "cover.webp", thumbnailStatus: "ready" }],
+          request: id === "unknown" ? {} : { input: { extra: { resolution: "720p" } } },
+          result: { videoQualityMode: "pro" },
+        })
+        materializeStudioGeneration(directory, id)
+      }
+      Database.use((db) => {
+        db.update(StudioHistoryTable).set({ resolution: null, time_updated: 1 })
+          .where(eq(StudioHistoryTable.id, "missing")).run()
+        db.update(StudioHistoryTable).set({ resolution: "4K", time_updated: 1 })
+          .where(eq(StudioHistoryTable.id, "incorrect")).run()
+        db.update(StudioHistoryTable).set({ resolution: "480P", time_updated: 1 })
+          .where(eq(StudioHistoryTable.id, "unknown")).run()
+      })
+      const previous = Database.use((db) => db.select().from(StudioHistoryTable)
+        .where(eq(StudioHistoryTable.directory, directory)).all())
+      const revision = studioHistoryRevision(directory)
+      expect(revision.revision).not.toBe("3:1:1:unknown")
+      expect(listStudioHistoryMedia(directory, { resolutions: ["720P"] }).items.map((item) => item.id))
+        .toEqual(["missing", "incorrect"])
+      const repaired = Database.use((db) => db.select().from(StudioHistoryTable)
+        .where(eq(StudioHistoryTable.directory, directory)).all())
+      expect(repaired.every((item) => item.time_updated > 1)).toBe(true)
+      expect(repaired.find((item) => item.id === "unknown")?.resolution).toBeNull()
+      expect(repaired.map((item) => ({ ...item, resolution: null, time_updated: 0 })))
+        .toEqual(previous.map((item) => ({ ...item, resolution: null, time_updated: 0 })))
+      expect(studioHistoryRevision(directory)).toEqual(revision)
+    })
+  })
+
+  test("preserves snapshot resolution when its generation has been deleted", async () => {
+    await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
+      insertGeneration({
+        id: "snapshot-video",
+        createdAt: 1,
+        images: [{ id: "snapshot-video", kind: "video", url: "https://example.com/video.mp4" }],
+        request: { input: { extra: { resolution: "720p" } } },
+      })
+      snapshotSessionMedia(directory, sessionID)
+      Database.use((db) => db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "snapshot-video")).run())
+      expect(listStudioHistoryMedia(directory, { resolutions: ["720P"] }).items.map((item) => item.id))
+        .toEqual(["snapshot-video"])
     })
   })
 

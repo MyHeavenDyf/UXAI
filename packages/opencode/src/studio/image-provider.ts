@@ -7,6 +7,17 @@ export type StudioCapability =
   | "image.outpaint"
   | "image.fusion"
 
+// 请求档位优先，合法结果档位兜底；旧 provider 的 std/pro 不能确定分辨率。
+export function resolveStudioVideoQualityMode(input: unknown, fallback?: unknown) {
+  const extra = input && typeof input === "object" && "extra" in input ? input.extra : undefined
+  const resolution = extra && typeof extra === "object" && "resolution" in extra ? extra.resolution : undefined
+  if (resolution === "480p") return "480"
+  if (resolution === "720p") return "720"
+  if (resolution === "1080p") return "1080"
+  if (resolution === "4k") return "4k"
+  if (fallback === "480" || fallback === "720" || fallback === "1080" || fallback === "4k") return fallback
+}
+
 export type ImageGenerateInput = {
   capability: StudioCapability
   prompt: string
