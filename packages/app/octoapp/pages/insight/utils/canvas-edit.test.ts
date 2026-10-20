@@ -116,13 +116,13 @@ describe("C2D 使用真实 HTML 和资源", () => {
     await writeFile(filePath, '<img src="missing.svg">')
     await expect(createCanvasOptions(origin(directory, { tab: tab({ source: "path", filePath }) }))).rejects.toThrow("本地资源无法读取")
   })
-  test("无基准相对资源被阻止，外部 URL 原样保留并提示联网", async () => {
+  test("无基准相对资源被阻止，外部 URL 原样保留且不提示", async () => {
     const directory = await workspace()
     await expect(createCanvasOptions(origin(directory, { tab: tab({ content: '<img src="images/a.png">' }) }))).rejects.toThrow("保存到本地目录")
     const notices: string[] = []
     const html = '<img src="https://example.test/a.svg">'
     const options = await createCanvasOptions(origin(directory, { tab: tab({ source: "uri", content: html }), notify: title => { notices.push(title) } }))
-    expect(notices).toEqual(["外部资源依赖画布环境联网加载"])
+    expect(notices).toEqual([])
     expect(await (await unpack(await options.getZip())).html.file("index.html")!.async("string")).toBe(html)
   })
   test("Design 旧调用沿用 window.api 及读盘失败回退，不使用 Insight 的严格检查", async () => {
