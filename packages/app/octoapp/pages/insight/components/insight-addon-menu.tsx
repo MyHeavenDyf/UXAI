@@ -31,7 +31,6 @@ export function InsightAddonMenu(props: {
   selections: MentionSelection[]
   maxAttachments: boolean
   onAttachment: () => void
-  onRefresh: () => void
   onPending: (pending: boolean) => void
   mcpSelection: McpSelection | null
   onMcpSelect: (selection: McpSelection) => void
@@ -70,7 +69,7 @@ export function InsightAddonMenu(props: {
     if (lifetime.signal.aborted || !state.pending[id] || !result) return
     props.editor()?.insertMentions([{ type: "file", ...result.reference, id }])
     setState("pending", id, undefined!)
-    props.onRefresh()
+    // 与 design 一样只更新引用；刷新文件 resource 会触发页面外层 Suspense 闪屏。
   }
   const download = async (file: AssetFile, _progress: (pct: number) => void, signal?: AbortSignal) => {
     const id = assetFileId(file)

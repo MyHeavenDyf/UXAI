@@ -68,6 +68,27 @@ describe("产品资产导入", () => {
     expect(a.root.replace(/\\/g, "/")).toContain("/.octo/s1/uploads/")
     expect(await readFile(a.reference.path, "utf8")).toBe("data")
   })
+  test("ZIP 无法解压时与 design 一样保留原文件并引用文件地址", async () => {
+    const directory = await workspace()
+    const bytes = new TextEncoder().encode("asset source content").buffer
+    const result = await importProductAsset({ type: 40, fileName: "source.zip", docPath: "source.zip" }, {
+      directory, baseUrl: "", api, signal: new AbortController().signal, fetch: response(bytes),
+    })
+    expect(result.reference.isFolder).toBeUndefined()
+    expect(result.reference.path).toBe(`${result.root}/source.zip`)
+    expect(await readFile(result.reference.path, "utf8")).toBe("asset source content")
+    expect(prepareAssetReferences(`@${result.reference.filename}`, [result.reference]).text).toBe(`读取${result.reference.path} 这个文件`)
+  })
+  test("ZIP 接口返回网页、JSON 或空内容时不写盘，并提示检查下载来源", async () => {
+    const directory = await workspace()
+    for (const content of ["<!DOCTYPE html><html>Login</html>", ' {"error":"unauthorized"}', ""]) {
+      await expect(importProductAsset({ type: 40, fileName: "source.zip", docPath: "source.zip" }, {
+        directory, baseUrl: "", api, signal: new AbortController().signal,
+        fetch: response(new TextEncoder().encode(content).buffer),
+      })).rejects.toThrow(content ? "请检查登录状态和资产下载地址" : "下载内容为空")
+    }
+    expect(await readdir(directory)).toHaveLength(0)
+  })
   test("写入中取消不会注册/迁移结果", async () => {
     const directory = await workspace()
     const abort = new AbortController()

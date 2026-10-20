@@ -42,9 +42,22 @@ export async function importProductAsset(
   if (!response.ok) throw new Error(`资产下载失败（${response.status}）`)
   const buffer = await response.arrayBuffer()
   options.signal.throwIfAborted()
-  const isFolder = source.filename.toLowerCase().endsWith(".zip")
-  const entries = isFolder
-    ? Object.values((await JSZip.loadAsync(buffer)).files).filter(entry => !entry.dir).map(entry => ({
+  const zip = source.filename.toLowerCase().endsWith(".zip")
+    ? await JSZip.loadAsync(buffer).catch(() => {
+      options.signal.throwIfAborted()
+      if (!buffer.byteLength) throw new Error("资产下载内容为空，请重试或检查资产源文件")
+      const prefix = new TextDecoder().decode(buffer.slice(0, 4096)).trimStart()
+      // ZIP 下载接口可能以 HTTP 200 返回登录页或错误数据，不能将其注册成资产。
+      if (/^(?:<!doctype\s+html|<html\b|<head\b|<body\b)/i.test(prefix) || /^[\[{]/.test(prefix)) {
+        throw new Error("下载结果不是 ZIP，而是网页或 JSON 数据，请检查登录状态和资产下载地址后重试")
+      }
+      // 与 design 一致：无法解压时保留原文件，按文件地址引用。
+      return undefined
+    })
+    : undefined
+  const isFolder = !!zip
+  const entries = zip
+    ? Object.values(zip.files).filter(entry => !entry.dir).map(entry => ({
       // JSZip 会清洗 ../；必须校验原始路径，不能默默接受被改写的文件名。
       name: safeAssetPath((entry as typeof entry & { unsafeOriginalName?: string }).unsafeOriginalName ?? entry.name),
       read: () => entry.async("arraybuffer"),

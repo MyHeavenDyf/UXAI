@@ -2603,7 +2603,7 @@ function InsightContent() {
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
         files={mentionFiles() ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
         maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
-        onRefresh={() => setFilesRefreshKey(k => k + 1)} onPending={pending => setAddonState("pending", pending)}
+        onPending={pending => setAddonState("pending", pending)}
         mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
       />
     }</Show>
