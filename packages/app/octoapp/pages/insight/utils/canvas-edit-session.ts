@@ -62,8 +62,8 @@ export function createCanvasEditSession(config: {
         const result = await context.transport.prepare(prepared)
         if (!current(context.key, version)) { finish("cancelled", { reason: "view-changed" }); return }
         if (!result.actions.length) {
-          finish("failure", { reason: "no-actions" })
-          config.notify("当前没有可用的画布操作", true)
+          // 与 Design 一致，空菜单不作为接口失败提示；也不推断画布已打开。
+          finish("unconfirmed", { reason: "no-actions" })
           return
         }
         options = prepared

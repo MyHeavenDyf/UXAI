@@ -125,10 +125,11 @@ describe("画布操作生命周期", () => {
     const sample = setup({ prepare: async () => ({ uploadResult: { webview: null }, actions: [] }) })
     await sample.session.prepare()
     expect(sample.state().open).toBe(false)
-    expect(sample.notices).toEqual(["当前没有可用的画布操作"])
+    expect(sample.notices).toEqual([])
+    expect(events.at(-1)?.fields).toMatchObject({ status: "unconfirmed", reason: "no-actions" })
     sample.context.transport.prepare = async () => { throw new Error("private transport error") }
     await sample.session.prepare()
-    expect(sample.notices).toHaveLength(2)
+    expect(sample.notices).toEqual(["画布服务连接失败，请重试"])
     expect(sample.state().busy).toBe(false)
   })
   test("明确失败显示错误；用户取消不误报失败", async () => {
