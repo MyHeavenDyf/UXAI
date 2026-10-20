@@ -36,6 +36,13 @@ describe("Design 同款产品资产地址引用", () => {
     expect(prepareAssetReferences("原文  保留空格", [file])).toEqual({ text: "原文  保留空格", metadata: undefined, assets: [], files: [file] })
   })
 
+  test("资产路径与用户正文中的连续空格和零宽字符原样保留", () => {
+    const path = `C:/work  project${root}/a  b\u200b.txt`
+    const result = prepareAssetReferences("@asset.txt 请保留  两个空格", [{ filename: "asset.txt", path }])
+    expect(result.text).toBe(`读取${path} 这个文件 请保留  两个空格`)
+    expect(result.metadata?.insightProductAssets[0].path).toBe(path)
+  })
+
   test("正文再次写出已选资产的路径时，也不会误入自动内联；普通路径不受影响", () => {
     const assets = [{ filename: "包.zip", path: "C:\\project\\selected", isFolder: true }]
     expect(containsProductAssetPath("c:/PROJECT/selected/nested/../a.txt", assets)).toBe(true)

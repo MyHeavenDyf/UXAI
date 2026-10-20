@@ -92,7 +92,7 @@ export async function sendQueuedItem(
 
   // SPEC-INS-017 chip：模板 + 机器可读声明
   if (item.chip) {
-    syntheticTexts.push(buildChipTemplate(item.chip.selection, item.text, assetPrompt.assets.length > 0))
+    syntheticTexts.push(buildChipTemplate(item.chip.selection, item.text))
     syntheticTexts.push(buildChipDeclaration(item.chip.selection, item.text))
   }
 

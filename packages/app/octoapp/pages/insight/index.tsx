@@ -1551,7 +1551,7 @@ function InsightContent() {
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
-    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, text, assetPrompt.assets.length > 0) : undefined
+    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, text) : undefined
     const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, text) : undefined
     // SPEC-INS-023 @ 引用注入:技能读 SKILL.md、文件列引用清单,均 synthetic(模型可见、气泡不显、不暴露路径)。
     // 3b:不走 session.command,自读 SKILL.md 作 synthetic 注入 → 技能指令每轮确定进上下文。

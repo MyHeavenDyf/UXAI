@@ -126,4 +126,18 @@ describe("产品资产按地址发送", () => {
     const manifest = result.sent[0].parts.find(part => part.type === "text" && part.text.startsWith("[引用文件]"))
     expect(parseUploadedFiles(manifest?.type === "text" ? manifest.text : "")).toEqual([normal])
   })
+
+  test("后续轮次不重新选择资产，研究工具仍允许历史资产绝对路径", async () => {
+    const source = await asset()
+    const result = sender(source.api)
+    await result.send({ directory: source.directory, text: "@interviews.zip", files: [source.reference] })
+    await result.send({ directory: source.directory, text: "分析刚才的资产", chip: { selection: { preset: PRESET_PROMPTS[0] } } })
+    const template = result.sent[1].parts.find(part => part.type === "text" && part.text.startsWith("[MCP解析模式]"))
+    expect(template?.type).toBe("text")
+    if (template?.type !== "text") return
+    expect(template.text).toContain("历史资产无需重新选择")
+    expect(template.text).toContain("产品资产填实际文件的完整绝对路径")
+    expect(template.text).toContain("普通附件和引用文件仍照抄清单文件名")
+    expect(source.reads).toHaveLength(0)
+  })
 })

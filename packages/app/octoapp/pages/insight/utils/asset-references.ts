@@ -39,9 +39,9 @@ export function containsProductAssetPath(path: string, assets: FileReference[]) 
 export function prepareAssetReferences(text: string, references: FileReference[]) {
   const assets = references.filter(isProductAssetReference)
   const files = references.filter(file => !isProductAssetReference(file))
-  const processed = assets.reduce((value, asset) => value.replace(`@${asset.filename}`, () => ` 读取${asset.path} ${asset.isFolder ? "这个文件夹" : "这个文件"} `), text)
+  const processed = assets.reduce((value, asset) => value.replace(`@${asset.filename}`, () => `读取${asset.path} ${asset.isFolder ? "这个文件夹" : "这个文件"}`), text)
   return {
-    text: assets.length ? processed.replace(/\u200b/g, "").replace(/  +/g, " ").trim() : text,
+    text: assets.length ? processed.trim() : text,
     metadata: assets.length ? { displayText: text, insightProductAssets: assets } : undefined,
     assets,
     files,
