@@ -48,6 +48,11 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       return { ok: true }
     })
 
+    // Legacy `/content` path shares the write implementation.
+    const writeLegacy = Effect.fn("FileHttpApi.writeLegacy")(function* (ctx: { payload: { path: string; content: string } }) {
+      return yield* write(ctx)
+    })
+
     const status = Effect.fn("FileHttpApi.status")(function* () {
       return yield* svc.status()
     })
@@ -59,6 +64,7 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       .handle("list", list)
       .handle("content", content)
       .handle("write", write)
+      .handle("writeLegacy", writeLegacy)
       .handle("status", status)
   }),
 )

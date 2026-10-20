@@ -3,6 +3,7 @@ import { defineConfig } from "electron-vite"
 import { loadEnv } from "vite"
 import appPlugin from "@opencode-ai/app/vite"
 import { octoMockPlugin } from "../app/mock/index.ts"
+import { sharePagePlugin } from "../app/share-page-plugin.ts"
 import * as fs from "node:fs/promises"
 import { readFileSync } from "node:fs"
 
@@ -111,6 +112,8 @@ export default defineConfig(({ mode, command }) => {
         // Insight uxr-tool MCP server 地址:由 .env[.beta/.prod] 的 OCTO_UXR_MCP_URL 提供,
         // 经 createSidecarEnv 注入 sidecar 供 builtin-mcp 读;留空则 sidecar 回落代码内默认 beta IP。
         "import.meta.env.OCTO_UXR_MCP_URL": JSON.stringify(env.OCTO_UXR_MCP_URL ?? ""),
+        "import.meta.env.OCTO_SHARE_API_URL": JSON.stringify(env.OCTO_SHARE_API_URL ?? ""),
+        "import.meta.env.OCTO_SHARE_PAGE_URL": JSON.stringify(env.OCTO_SHARE_PAGE_URL ?? ""),
         // Insight 文件上传服务地址(SPEC-INS-015 按需上传):同 .env 里前端用的 VITE_OCTO_UPLOAD_ENDPOINT
         // 同一地址,经 createSidecarEnv 以 OCTO_UPLOAD_ENDPOINT 注入 sidecar,供 octo-upload-inject
         // 插件在模型调 MCP 时按需上传 S3(VITE_* 只有渲染进程读得到,sidecar 读不到 .env)。
@@ -166,9 +169,23 @@ export default defineConfig(({ mode, command }) => {
       },
     },
     renderer: {
-      plugins: [appPlugin, octoMockPlugin(), sentry, octoEnvDebugPlugin],
+      plugins: [appPlugin, octoMockPlugin(), sharePagePlugin(), sentry, octoEnvDebugPlugin],
       publicDir: "../../../app/public",
       root: "src/renderer",
+      // 分享对话查看页(/design/agent/share/*.html)调用的 API 走 mock server(3456)做本地联调;
+      // 生产部署后页面同源调真实后端,无需 proxy。
+      server: {
+        proxy: {
+          "/main/rest.root/octoAgentServer/agentSession": {
+            target: "http://localhost:3456",
+            changeOrigin: true,
+          },
+          "/tool/designAgentPreview": {
+            target: "http://localhost:3456",
+            changeOrigin: true,
+          },
+        },
+      },
       define: {
         "import.meta.env.VITE_OCTO_CHANNEL": JSON.stringify(channel),
         // 渲染进程 pipelineRequest.ts 读此值: 有值时走 IPC 调真实接口, 空值时走浏览器 fetch(外网 mock)

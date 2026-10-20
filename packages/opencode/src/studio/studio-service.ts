@@ -48,11 +48,13 @@ import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect, Stream } from "effect"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
+import { resolveStudioVideoQualityMode } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
+import { generationHistorySnapshot, materializeStudioGeneration } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
@@ -160,7 +162,9 @@ export type StudioGenerationResult = {
   task_type?: string
   taskId?: string
   model: string
+  styleModel?: string
   aspectRatio: string
+  isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
   duration?: string
   videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -293,12 +297,7 @@ function videoDuration(input: StudioGenerationRequest) {
 }
 
 function videoQualityMode(input: StudioGenerationRequest): "480" | "720" | "1080" | "4k" {
-  const value = input.extra?.resolution
-  if (value === "480p") return "480"
-  if (value === "720p") return "720"
-  if (value === "1080p") return "1080"
-  if (value === "4k") return "4k"
-  return "480"
+  return resolveStudioVideoQualityMode(input) ?? "480"
 }
 
 function isEditorGenerationCapability(capability: StudioCapability) {
@@ -1345,7 +1344,7 @@ function persistStudioSession(input: {
       metadata: {
         studio: {
           generationID: input.generationID,
-          status: "queued",
+          status: "creating",
           progress: 0,
         },
       },
@@ -1883,12 +1882,13 @@ function markGenerationCancelled(input: {
       if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed")
         return "cancelled" as const
       if (
+        current.status !== "creating" &&
         current.status !== "queued" &&
         current.status !== "running" &&
         !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")
       )
         return "terminal" as const
-      const updateTurn = current.status === "queued" || current.status === "running"
+      const updateTurn = current.status === "creating" || current.status === "queued" || current.status === "running"
       db.update(StudioGenerationTable)
         .set({
           status: input.status,
@@ -1917,6 +1917,14 @@ function markGenerationCancelled(input: {
     })
   }
   return claimed
+}
+
+function videoSnapshotFields(record: StudioGenerationRecord): Pick<StudioGenerationResult, "videoMode" | "videoQualityMode"> {
+  const input = generationRequest(record).input
+  return {
+    videoMode: videoMode(input),
+    videoQualityMode: resolveStudioVideoQualityMode(input, record.result?.videoQualityMode),
+  }
 }
 
 function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAccepted {
@@ -2121,6 +2129,13 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
   )
   if (!claimed) return
   completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  // 历史物化是非关键副作用：失败只记日志（backfill 会在下次列表时自愈），
+  // 不能让它跳过后续的服务端缩略图生成。
+  try {
+    materializeStudioGeneration(record.directory, record.id)
+  } catch (error) {
+    console.error("[studio.service] history materialization failed", { id: record.id, error })
+  }
   enqueueStudioMediaThumbnails(record.id)
 }
 
@@ -2645,7 +2660,7 @@ async function runGenerationCreatePipeline(id: string) {
           request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
           time_updated: Date.now(),
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     if (isGenerationCancelled(loadGenerationRecord(id))) return
@@ -2684,7 +2699,7 @@ async function runGenerationCreatePipeline(id: string) {
           next_poll_at: providerStartedAt,
           time_updated: providerStartedAt,
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     startStudioGenerationWorker()
@@ -2825,7 +2840,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
         tool_part_id: turn.toolPart.id,
         provider,
         capability: input.capability,
-        status: "running",
+        status: "creating",
         progress: 0,
         request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
         next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -2963,11 +2978,59 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
       .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
       .get(),
   )
-  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  // 会话删除会级联清理 studio_generation 行:此时历史详情面板仍在请求 /studio/generations/:id,
+  // 直接抛 not found 会让前端右栏一直停在 loading。改为回退到历史表里保留的快照,
+  // 文案/媒体/模型等字段足以支撑详情面板渲染;只有进度/错误等运行时字段用占位值。
+  if (!record) {
+    const history = generationHistorySnapshot(Instance.directory, id)
+    if (history) {
+      const result: StudioGenerationResult & { sessionID: string } = {
+        id: history.id,
+        sessionID: history.sessionID,
+        status: "succeeded",
+        capability: (history.capability ?? "image.generate") as StudioGenerationResult["capability"],
+        prompt: history.prompt ?? "",
+        displayPrompt: history.displayPrompt,
+        detailPrompt: history.detailPrompt,
+        detailTitle: history.detailTitle,
+        provider: (history.provider ?? "internel") as StudioGenerationResult["provider"],
+        model: history.model ?? history.styleModel ?? "internel",
+        styleModel: history.styleModel,
+        aspectRatio: history.aspectRatio ?? "3:4",
+        isCustom: history.isCustom,
+        videoMode: history.videoMode === "text" || history.videoMode === "first_last_frame" ? history.videoMode : undefined,
+        // 历史快照可能存有旧 provider 的 std/pro 档位，与响应 schema 的 480/720/1080/4k
+        // 不兼容；与上面 videoSnapshotFields 同口径做白名单过滤，保证回退响应符合契约。
+        videoQualityMode: resolveStudioVideoQualityMode(undefined, history.videoQualityMode),
+        toolAction: history.toolAction as StudioGenerationResult["toolAction"],
+        duration: history.duration,
+        images: history.images.map((img) => ({
+          id: img.id,
+          kind: img.kind,
+          url: img.url,
+          remoteUrl: img.url,
+          thumbnailUrl: img.thumbnailUrl,
+          thumbnailStatus: (img.thumbnailStatus ?? undefined) as "pending" | "ready" | "failed" | undefined,
+          width: img.width,
+          height: img.height,
+        })),
+        progress: 100,
+        createdAt: history.createdAt,
+        updatedAt: history.createdAt,
+        completedAt: history.createdAt,
+      }
+      return result
+    }
+    throw new Error(`Studio generation not found: ${id}`)
+  }
   const snapshot = generationSnapshot(record)
   return {
     ...snapshot,
     ...(record.status === "succeeded" ? (record.result as StudioGenerationResult | undefined) : {}),
+    // 旧视频记录把 provider 的 "std"/"pro" 模式写进了 videoQualityMode，与响应 schema 的
+    // 480/720/1080/4k 不兼容，会让整个 GET 请求 400（历史详情面板因此一直 loading）。
+    // 与资产筛选共用请求档位解析，缺失时仅使用合法结果档位，保证响应符合契约。
+    ...(record.capability === "video.generate" ? videoSnapshotFields(record) : {}),
     sessionID: record.session_id,
     status: record.status,
     progress: record.progress,

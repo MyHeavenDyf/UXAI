@@ -1074,7 +1074,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-design-preview-stage">
             <Show when={designPreviewKind(designFilePreview()!) === "image"}>
               <img
-                src={pathToLocalUrl(designFilePreview()!.path)}
+                src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                 alt=""
                 class="mention-design-preview-img"
                 draggable={false}
@@ -1083,7 +1083,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <Show when={designPreviewKind(designFilePreview()!) === "html"}>
               <div class="mention-design-preview-html">
                 <iframe
-                  src={pathToLocalUrl(designFilePreview()!.path)}
+                  src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                   sandbox="allow-scripts"
                 />
               </div>

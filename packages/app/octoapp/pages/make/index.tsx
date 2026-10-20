@@ -44,6 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -66,7 +67,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -143,6 +144,7 @@ const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
+  const layout = useLayout()
   const projectDir = useProjectDir({ mode: "project" })
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -151,7 +153,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id && layout.lastSessionPerTab.make(dir) !== params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -205,7 +207,7 @@ function MakeContent() {
   const prevMakeDir = lastMakeDir
   lastMakeDir = sdk.directory
   onMount(() => {
-    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id || layout.lastSessionPerTab.make(sdk.directory) === params.id) return
     navigate("/make", { replace: true })
   })
 
@@ -491,6 +493,7 @@ function MakeContent() {
 
     const ok = await removeSession(sdk.client, sessionID)
     if (!ok) return
+    sync.set("deleted", sessionID, true)
 
     tracker.interaction({ module: "design", name: "delete-session" })
     sync.set(
@@ -530,7 +533,14 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(sync.data.session.filter((s) => s.agent === "octo_make"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
@@ -544,7 +554,9 @@ function MakeContent() {
         session.id,
         newPinned,
         sdk.directory,
-        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       setSessionInfoMirror((prev) => {
@@ -552,6 +564,16 @@ function MakeContent() {
         return { ...prev, pinned: session.pinned, sort_order: session.sort_order }
       })
       throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await sdk.client.session.reorder({ ids, directory: sdk.directory })
+      } catch (err) {
+        console.error("[make] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
     }
     void refetchSession()
   }
@@ -1277,6 +1299,20 @@ const sessionMessagesLoaded = createMemo(() => {
     if (aTime !== bTime) return aTime - bTime
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
   })
+
+  const trackSkillUsage = createSkillUsageTracker({
+    module: "design",
+    scope: JSON.stringify([sdk.url, sdk.directory]),
+    sessionIDs: () => [
+      params.id,
+      ...childSessionIDs(),
+      planParentSessionId() === params.id ? activePlanSessionId() : undefined,
+      patternSubParentSessionId() === params.id ? activePatternSessionId() : undefined,
+    ].filter((id): id is string => !!id),
+    message: (sessionID, messageID) => sync.data.message[sessionID]?.find((message) => message.id === messageID),
+    report: (event) => tracker.interaction(event),
+  })
+  onCleanup(sdk.event.listen((event) => trackSkillUsage(event.details)))
 
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
@@ -5357,6 +5393,7 @@ const sessionMessagesLoaded = createMemo(() => {
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
               flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
               "min-width": `${MAKE_CENTER_MIN}px`,
+              "z-index": 11
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}

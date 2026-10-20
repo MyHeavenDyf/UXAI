@@ -1,0 +1,2245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OctoAgent - 分享对话</title>
+  <link rel="icon" type="image/svg+xml" href="./OctoLogo.svg" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #ffffff;
+      color: #191919;
+      display: flex;
+      flex-direction: column;
+    }
+    /* ── header ── */
+    .header {
+      height: 64px;
+      flex-shrink: 0;
+      background: #fff;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      position: relative;
+    }
+    .header-inner {
+      width: 100%;
+      height: 100%;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-logo { width: 90px; height: 18px; flex-shrink: 0; }
+    /* title 覆盖层:容器与 .chat-scroll-view 完全一致(1024px 居中 + 12px padding),
+       使 title 左边界对齐 conversation-list 左边界;pointer-events: none 让点击穿透到下方 logo/button */
+    .header-title-bar {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
+    .header-title {
+      width: 100%;
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 0 12px;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 24px;
+      color: #191919;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      /* 窄屏下避让两侧:左侧 logo(24px padding + 90px logo = 114px)、
+         右侧 button(~164px + 24px padding + 16px gap ≈ 220px) */
+      padding-left: 114px;
+      padding-right: 220px;
+    }
+    /* 宽屏:title 左边界恢复 12px,对齐 conversation-list 左边界 */
+    @media (min-width: 1230px) {
+      .header-title {
+        padding-left: 12px;
+      }
+    }
+    .header-btn {
+      padding: 8px 16px;
+      border: 0;
+      border-radius: 24px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 22px;
+      color: #fff;
+      background: #0055ff;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .header-btn:hover { background: #0858d8; }
+    .header-btn-icon { width: 14px; height: 14px; display: block; flex-shrink: 0; }
+    .open-app-dialog {
+      width: min(452px, calc(100vw - 48px));
+      margin: auto;
+      border: 0;
+      border-radius: 16px;
+      padding: 24px;
+      color: #191919;
+    }
+    .open-app-dialog::backdrop { background: rgba(25, 25, 25, .3); }
+    .open-app-dialog h2 { font-size: 16px; line-height: 24px; margin: 0 32px 4px 0; }
+    .open-app-dialog p { font-size: 14px; line-height: 22px; color: #666; }
+    .dialog-close { position: absolute; top: 18px; right: 18px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
+    .dialog-action { display: flex; justify-content: center; margin-top: 24px; }
+    .dialog-action a { display: inline-flex; align-items: center; gap: 6px; border-radius: 24px; background: #0055ff; color: #fff; padding: 10px 24px; font-size: 14px; line-height: 22px; text-decoration: none; }
+    .open-app-dialog .dialog-hint { text-align: center; margin-top: 16px; }
+    .open-app-dialog .dialog-hint a { color: #0055ff; cursor: pointer; text-decoration: none; }
+    /* ── conversation（对齐 design 页面 ScrollView + make-chat-content 结构）── */
+    .content {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      overflow-y: auto;
+      background: #fff;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+    }
+    .content::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .content::-webkit-scrollbar-thumb {
+      background-color: rgba(0, 0, 0, 0.15);
+      border-radius: 9999px;
+    }
+    .content::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(0, 0, 0, 0.3);
+    }
+    .chat-scroll-view {
+      width: 100%;
+      max-width: 1024px;
+      margin: 0 auto;
+      background: #fff;
+      /* 对齐 design ScrollView: 0 12px 16px 12px */
+      padding: 0 12px 16px 12px;
+    }
+    .chat-content {
+      /* 对齐 .make-chat-content.pt-4 */
+      padding-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #conversation-list {
+      /* turn 间距 16px 对齐 design .make-chat-content gap-4;
+         内容区距顶部 12px、底部 60px(分享页留白,独立于 design 的 16px 底距) */
+      padding: 12px 0 60px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    /* ── 空状态(无接口内容/无数据):图片+文案整体在内容区上下左右居中 ── */
+    .chat-scroll-view.is-empty {
+      display: flex;
+      flex-direction: column;
+      padding-bottom: 0;
+    }
+    .chat-scroll-view.is-empty .chat-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding-top: 0;
+    }
+    .chat-scroll-view.is-empty #conversation-list {
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+    .empty-state-img {
+      width: 150px;
+      height: 150px;
+      object-fit: contain;
+      display: block;
+    }
+    .empty-state-text {
+      font-size: 14px;
+      line-height: 22px;
+      color: rgba(0, 0, 0, 0.5);
+    }
+    .turn {
+      /* 对齐 .octo-make-turn.flex.flex-col.gap-4;relative 承载 hover 元信息 */
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+    .turn-user-row {
+      /* 对齐 .flex.flex-col.items-end.gap-4.px-3 */
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 16px;
+      padding: 0 12px;
+    }
+    .bubble-user {
+      background: rgba(10, 89, 247, 0.08);
+      padding: 12px 16px;
+      border-radius: 16px 16px 2px 16px;
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-width: 85%;
+      display: inline-block;
+    }
+    /* ── 用户图片附件(对齐 design InsightTurn: 80×80 缩略图,右对齐,在气泡上方) ── */
+    .user-attachments {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .user-image-thumb {
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background-color: rgba(0, 0, 0, 0.05);
+      cursor: default;
+    }
+    .user-image-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .turn-assistant-row {
+      /* 对齐 design .px-4 */
+      padding: 0 16px;
+    }
+    .text-assistant {
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    /* ── markdown 渲染(对齐 design [data-component="markdown"]) ── */
+    .text-assistant[data-component="markdown"] {
+      overflow-wrap: break-word;
+      line-height: 160%;
+    }
+    .text-assistant[data-component="markdown"] > *:first-child { margin-top: 0; }
+    .text-assistant[data-component="markdown"] > *:last-child { margin-bottom: 0; }
+    .text-assistant[data-component="markdown"] h1,
+    .text-assistant[data-component="markdown"] h2,
+    .text-assistant[data-component="markdown"] h3,
+    .text-assistant[data-component="markdown"] h4,
+    .text-assistant[data-component="markdown"] h5,
+    .text-assistant[data-component="markdown"] h6 {
+      font-size: 14px;
+      color: #191919;
+      font-weight: 500;
+      margin: 0 0 8px 0;
+      line-height: 1.4;
+    }
+    .text-assistant[data-component="markdown"] strong,
+    .text-assistant[data-component="markdown"] b {
+      color: #191919;
+      font-weight: 500;
+    }
+    .text-assistant[data-component="markdown"] p { margin: 0 0 8px 0; }
+    .text-assistant[data-component="markdown"] a {
+      color: #0a59f7;
+      text-decoration: none;
+    }
+    .text-assistant[data-component="markdown"] a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .text-assistant[data-component="markdown"] ul,
+    .text-assistant[data-component="markdown"] ol {
+      margin: 8px 0;
+      padding-left: 32px;
+      list-style-position: outside;
+    }
+    .text-assistant[data-component="markdown"] ul { list-style-type: disc; }
+    .text-assistant[data-component="markdown"] ol { list-style-type: decimal; padding-left: 2.25rem; }
+    .text-assistant[data-component="markdown"] li { margin-bottom: 8px; }
+    .text-assistant[data-component="markdown"] li > p:first-child { display: inline; margin: 0; }
+    .text-assistant[data-component="markdown"] li > ul,
+    .text-assistant[data-component="markdown"] li > ol { margin: 0.25rem 0; padding-left: 1rem; }
+    .text-assistant[data-component="markdown"] blockquote {
+      border-left: 2px solid #E5E7EB;
+      margin: 1.5rem 0;
+      padding-left: 0.5rem;
+      color: rgba(0,0,0,0.6);
+      font-style: normal;
+    }
+    .text-assistant[data-component="markdown"] hr { border: none; height: 0; margin: 0; }
+    /* ── 行内代码(对齐 design markdown.css :not(pre) > code:品牌蓝文字、无背景) ── */
+    .text-assistant[data-component="markdown"] :not(pre) > code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: #0A59F7;
+      font-weight: 500;
+    }
+    /* ── 代码块(对齐 design [data-component="markdown-code"]:48px 头部 + 复制/展开按钮) ── */
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] {
+      position: relative;
+      background: #f9f9fb;
+      border-radius: 16px;
+      overflow: hidden;
+      margin: 16px 0;
+    }
+    .text-assistant[data-component="markdown"] [data-slot="markdown-code-header"] {
+      height: 48px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      flex-shrink: 0;
+      background: #f9f9fb;
+    }
+    .text-assistant[data-component="markdown"] [data-slot="markdown-code-lang"] {
+      margin-right: auto;
+      font-size: 14px;
+      line-height: 22px;
+      color: rgba(0, 0, 0, 0.9);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .markdown-code-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: rgba(0, 0, 0, 0.6);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .markdown-code-btn:hover { background: rgba(0, 0, 0, 0.05); }
+    .markdown-code-btn svg { width: 16px; height: 16px; display: block; }
+    .markdown-code-btn .icon-check { display: none; }
+    .markdown-code-btn[data-copied="true"] .icon-copy { display: none; }
+    .markdown-code-btn[data-copied="true"] .icon-check { display: block; }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"]:not([data-expandable="true"]) [data-action="expand"] {
+      display: none;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] [data-action="expand"] svg {
+      transition: transform 0.2s;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expanded="true"] [data-action="expand"] svg {
+      transform: rotate(180deg);
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] pre {
+      margin: 0;
+      overflow: auto;
+      max-height: 320px;
+      overscroll-behavior: contain;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"]:not([data-expandable="true"]) pre,
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expanded="true"] pre {
+      max-height: none;
+      overflow: visible;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] pre code {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+      padding: 0 16px 16px 16px;
+      white-space: pre;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] pre::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"] pre::-webkit-scrollbar-thumb {
+      border-radius: 5px;
+      background: transparent;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"]:hover pre::-webkit-scrollbar-thumb {
+      background: rgba(223, 223, 223, 1);
+    }
+    /* ── 表格(对齐 design markdown.css table) ── */
+    .text-assistant[data-component="markdown"] table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 14px;
+      display: block;
+      overflow-x: auto;
+    }
+    .text-assistant[data-component="markdown"] th,
+    .text-assistant[data-component="markdown"] td {
+      border-bottom: 1px solid #f0f0f0;
+      padding: 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .text-assistant[data-component="markdown"] th {
+      color: #191919;
+      font-weight: 500;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    /* ── artifact 输出卡片(对齐 design InsightTurn outputCards) ── */
+    .artifact-card {
+      margin: 0 12px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%);
+      border: 1px solid rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .artifact-card-icon { width: 28px; height: 28px; flex-shrink: 0; }
+    .artifact-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+    .artifact-card-title {
+      color: rgb(25,25,25);
+      font-size: 14px;
+      line-height: 22px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .artifact-card-meta { color: #777; font-size: 12px; line-height: 22px; }
+    /* ── 思考过程折叠块(对齐 design insight-turn.tsx ReasoningCollapsed) ── */
+    .turn-reasoning {
+      /* 对齐 design .mx-3 */
+      margin: 0 12px;
+    }
+    .reasoning-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #191919;
+      font-size: 12px;
+      line-height: 18px;
+      user-select: none;
+      text-align: left;
+    }
+    .reasoning-toggle svg {
+      color: #777;
+      transition: transform 0.2s ease;
+    }
+    .reasoning-toggle[data-open="true"] svg {
+      transform: rotate(180deg);
+    }
+    .reasoning-body {
+      margin-top: 16px;
+      padding-left: 12px;
+      border-left: 1px solid rgba(0, 0, 0, 0.08);
+      font-size: 12px;
+      line-height: 18px;
+      color: #777;
+      max-height: 300px;
+      overflow: auto;
+    }
+    .reasoning-body p {
+      margin: 0;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .reasoning-divider {
+      margin: 6px 0;
+      border-top: 1px dashed rgba(0, 0, 0, 0.08);
+    }
+    /* ── 非图片附件 chip(对齐 design InsightTurn 附件 fallback) ── */
+    .user-file-chip {
+      background: rgba(0, 0, 0, 0.05);
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: rgba(0, 0, 0, 0.9);
+      font-size: 14px;
+      line-height: 22px;
+      gap: 6px;
+      display: inline-flex;
+      align-items: center;
+      max-width: 200px;
+      cursor: default;
+    }
+    .user-file-chip img { width: 24px; height: 24px; flex-shrink: 0; display: inline-block; }
+    .user-file-chip .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── 工具调用卡(对齐 design tool-call-card.tsx) ── */
+    .tool-cards { display: flex; flex-direction: column; gap: 8px; }
+    .tool-card {
+      margin: 0 12px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      border-radius: 6px;
+      background: #ffffff;
+      border: 1px solid #E5E7EB;
+    }
+    button.tool-card { cursor: pointer; text-align: left; width: 100%; }
+    .tool-card .tool-label { color: rgba(0, 0, 0, 0.6); flex-shrink: 0; }
+    .tool-card .tool-count { color: #191919; flex-shrink: 0; }
+    .tool-card .tool-spacer { flex: 1; }
+    .tool-card .tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #191919; }
+    .tool-card .tool-chevron { color: #BFBFBF; transition: transform 0.15s; flex-shrink: 0; display: inline-flex; }
+    .tool-card[data-open="true"] .tool-chevron { transform: rotate(90deg); }
+    .tool-group { margin: 0 12px; }
+    .tool-group > .tool-card { margin: 0; }
+    .tool-group-items { margin-top: 8px; display: none; flex-direction: column; gap: 8px; }
+    .tool-group-items[data-open="true"] { display: flex; }
+    .tool-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    .tool-badge-running { background: rgba(10, 89, 247, 0.08); color: #0a59f7; }
+    .tool-badge-done { background: rgba(227, 249, 238, 1); color: rgba(0, 205, 94, 1); }
+    .tool-badge-error { background: rgba(0, 0, 0, 0.05); color: rgba(0, 0, 0, 0.6); }
+    .tool-badge .pulse-dot,
+    .st-badge .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 9999px;
+      background: currentColor;
+      animation: octo-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      flex-shrink: 0;
+    }
+    @keyframes octo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    /* ── 文件操作摘要(对齐 design FileOpsSummary) ── */
+    .file-ops {
+      margin: 0 12px;
+      padding: 8px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border-radius: 6px;
+      background: #ffffff;
+      border: 1px solid #E5E7EB;
+    }
+    .file-ops-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(0, 0, 0, 0.6); }
+    .file-ops-row { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+    .file-ops-row .file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #191919; }
+    .op-badge { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+    .op-badge-w { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .op-badge-e { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+    .op-badge-r { background: rgba(107, 114, 128, 0.1); color: #6b7280; }
+    /* ── 涉及文件列表(对齐 design ProducedFilesList) ── */
+    .produced-files { margin: 0 12px; }
+    .produced-files-box { padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; border-radius: 6px; background: #ffffff; border: 1px solid rgba(0, 0, 0, 0.1); }
+    .produced-files-label { font-size: 11px; color: rgba(0, 0, 0, 0.6); }
+    .produced-files-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #191919; }
+    .produced-files-row .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── 子任务卡(对齐 design InsightTurn subtasks) ── */
+    .subtask-card { margin: 0 12px; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.1); background: #ffffff; }
+    .subtask-head {
+      width: 100%;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+    }
+    .subtask-head .st-chevron { color: #BFBFBF; transition: transform 0.15s; display: inline-flex; flex-shrink: 0; }
+    .subtask-head[data-open="true"] .st-chevron { transform: rotate(90deg); }
+    .subtask-head .st-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #191919; font-weight: 500; }
+    .subtask-head .st-count { font-size: 11px; color: #BFBFBF; flex-shrink: 0; }
+    .st-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+    .st-badge-running { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .st-badge-done { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+    .st-badge-cancelled { background: rgba(156, 163, 175, 0.1); color: #6b7280; }
+    .st-badge-error { background: rgba(0, 0, 0, 0.05); color: rgba(0, 0, 0, 0.6); }
+    .subtask-body { border-top: 1px solid #E5E7EB; }
+    .subtask-texts { padding: 6px 10px; font-size: 12px; line-height: 1.625; max-height: 120px; overflow: auto; color: rgba(0, 0, 0, 0.6); }
+    .subtask-texts p { margin: 0 0 4px; white-space: pre-wrap; }
+    .subtask-texts p:last-child { margin-bottom: 0; }
+    .subtask-outputs { padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .subtask-outputs.has-texts { border-top: 1px solid #E5E7EB; }
+    .subtask-outputs-label { font-size: 10px; color: #BFBFBF; margin-bottom: 4px; }
+    .subtask-output {
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(10, 89, 247, 0.03);
+      border: 1px solid rgba(10, 89, 247, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: default;
+    }
+    .subtask-output img { width: 28px; height: 28px; flex-shrink: 0; }
+    .subtask-output .so-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .subtask-output .so-title { font-size: 12px; line-height: 22px; font-weight: 500; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .subtask-output .so-preview { font-size: 12px; line-height: 22px; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── 压缩/中断分隔线(对齐 design MessageDivider) ── */
+    .msg-divider { display: flex; align-items: center; gap: 12px; width: 100%; }
+    .msg-divider .line { flex: 1 1 auto; height: 1px; background: #e5e5e5; }
+    .msg-divider .label { flex: 0 0 auto; white-space: nowrap; text-align: center; font-size: 12px; color: #8f8f8f; }
+    /* ── 错误/停滞提示(对齐 design MakeErrorNotice / 压缩提示) ── */
+    .error-notice {
+      margin: 0 12px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: rgba(254, 231, 232, 1);
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .error-notice .notice-title { font-weight: 500; }
+    .error-notice svg { flex-shrink: 0; margin-top: 4px; }
+    .stalled-notice {
+      margin: 0 12px;
+      padding: 8px 16px;
+      font-size: 14px;
+      line-height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      background: rgba(255, 247, 224, 1);
+      color: #7a4f00;
+    }
+    /* ── turn 元信息 hover(对齐 design insight-turn-meta.css) ── */
+    .turn-meta-wrapper {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      transform: translateY(100%);
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 12px;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      pointer-events: none;
+    }
+    .turn:hover .turn-meta-wrapper,
+    .turn:focus-within .turn-meta-wrapper { opacity: 1; }
+    .turn-meta { user-select: none; font-size: 12px; line-height: 18px; color: rgba(0, 0, 0, 0.5); cursor: default; }
+    /* ── 快速简报表单(静态展示,对齐 design QuickBriefFormView 锁定态) ── */
+    .qform-card {
+      max-width: 800px;
+      padding: 16px 20px;
+      margin: 0 auto;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #E5E7EB;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      opacity: 0.7;
+    }
+    .qform-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+    .qform-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      flex-shrink: 0;
+      background: #0a59f7;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .qform-titles { flex: 1; min-width: 0; }
+    .qform-title { font-weight: 600; font-size: 15px; color: #101828; margin-bottom: 4px; }
+    .qform-desc { font-size: 13px; color: rgba(0, 0, 0, 0.6); line-height: 1.5; }
+    .qform-pill { display: inline-flex; align-items: center; padding: 4px 10px; background: #f3f4f6; color: rgba(0, 0, 0, 0.6); border-radius: 999px; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+    .qform-body { display: flex; flex-direction: column; gap: 16px; }
+    .qf-field { display: flex; flex-direction: column; gap: 8px; }
+    .qf-label { display: flex; align-items: center; gap: 4px; font-weight: 500; font-size: 13px; color: #191919; }
+    .qf-required { color: #ef4444; font-size: 12px; }
+    .qf-options { display: flex; flex-wrap: wrap; gap: 6px; }
+    .qf-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      background: #f3f4f6;
+      color: #191919;
+      border: 1px solid #E5E7EB;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .qf-chip-on { background: #0a59f7; color: #fff; border-color: #0a59f7; }
+    .qf-input,
+    .qf-textarea {
+      padding: 8px 12px;
+      background: #f3f4f6;
+      color: #191919;
+      border: 1px solid #E5E7EB;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: vertical;
+    }
+    .qf-input::placeholder,
+    .qf-textarea::placeholder { color: #9CA3AF; }
+    .qform-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .qf-locked-note { font-size: 12px; color: #9CA3AF; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
+      <button type="button" class="header-btn" id="continue-btn" aria-haspopup="dialog" aria-controls="open-app-dialog">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    </div>
+    <div class="header-title-bar">
+      <h1 class="header-title" id="session-title"></h1>
+    </div>
+  </header>
+  <dialog class="open-app-dialog" id="open-app-dialog" aria-labelledby="open-app-title" aria-describedby="open-app-description">
+    <button type="button" class="dialog-close" id="close-app-dialog" aria-label="关闭">×</button>
+    <h2 id="open-app-title">在 Octo Agent 内继续</h2>
+    <p id="open-app-description">通过分享的链接开始你的对话</p>
+    <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
+    <p class="dialog-hint" id="open-app-hint">你安装了此应用吗？<a href="#" target="_blank" rel="noopener noreferrer">点击下载安装</a></p>
+  </dialog>
+  <main class="content">
+    <div class="chat-scroll-view">
+      <div class="chat-content">
+        <div id="conversation-list"></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    // 轻量内联 markdown 渲染器(对齐 design Markdown 组件的视觉输出,无需 CDN 依赖)
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+    function inlineMd(s) {
+      // 先摘出行内 code span,避免 code 内容里的 **/_/~~ 被后续规则误伤(对齐 marked 的处理顺序)
+      const codeSpans = []
+      const withoutCode = s.replace(/`([^`]+)`/g, (full, code) => {
+        codeSpans.push("<code>" + code + "</code>")
+        return "\u0000" + (codeSpans.length - 1) + "\u0000"
+      })
+      const styled = withoutCode
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" />')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+      return styled.replace(/\u0000(\d+)\u0000/g, (full, i) => codeSpans[+i])
+    }
+    // 代码块(对齐 design [data-component="markdown-code]:头部语言标签 + 复制/展开按钮 + 320px 限高)
+    const CODE_COPY_SVG = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10H4" stroke="currentColor" stroke-width="1.2"/></svg>'
+    const CODE_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    const CODE_CHEVRON_SVG = '<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+    function codeBlockHtml(lang, code) {
+      return (
+        '<div data-component="markdown-code">' +
+        '<div data-slot="markdown-code-header">' +
+        '<span data-slot="markdown-code-lang">' + (lang ? escapeHtml(lang) : "") + "</span>" +
+        '<button type="button" class="markdown-code-btn" data-action="copy" title="复制" aria-label="复制">' +
+        '<span class="icon-copy">' + CODE_COPY_SVG + "</span>" +
+        '<span class="icon-check">' + CODE_CHECK_SVG + "</span>" +
+        "</button>" +
+        '<button type="button" class="markdown-code-btn" data-action="expand" title="展开" aria-label="展开">' + CODE_CHEVRON_SVG + "</button>" +
+        "</div>" +
+        "<pre><code" + (lang ? ' class="language-' + escapeHtml(lang) + '"' : "") + ">" + escapeHtml(code) + "</code></pre>" +
+        "</div>"
+      )
+    }
+    // GFM 表格:| a | b | 紧跟 | --- | --- |
+    function isTableRow(line) {
+      const t = line.trim()
+      return t.length > 1 && t.startsWith("|") && t.endsWith("|") && (t.match(/\|/g) || []).length >= 2
+    }
+    function isTableDivider(line) {
+      const t = line.trim()
+      return /^\|?[\s:|-]*-[\s:|-]*\|?$/.test(t) && t.includes("-")
+    }
+    function splitTableRow(line) {
+      return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|")
+    }
+    // 列表(支持缩进嵌套,对齐 marked 输出结构;li>ul/li>ol 的间距由 CSS 控制)
+    const LIST_ITEM_RE = /^(\s*)([-*]|\d+\.)\s+(.*)$/
+    function parseListItems(lines, i) {
+      const items = []
+      while (i < lines.length) {
+        const m = LIST_ITEM_RE.exec(lines[i])
+        if (m) {
+          items.push({ indent: m[1].replace(/\t/g, "  ").length, ordered: /\d+\./.test(m[2]), text: m[3] })
+          i++
+          continue
+        }
+        // 列表项续行(缩进的非列表文本)并入上一项
+        if (items.length > 0 && /^\s+\S/.test(lines[i]) && !/^```|^#{1,6}\s|^>/.test(lines[i].trim())) {
+          items[items.length - 1].text += " " + lines[i].trim()
+          i++
+          continue
+        }
+        // 列表项之间的空行后仍是列表项 → 视为同一列表
+        if (lines[i].trim() === "" && i + 1 < lines.length && LIST_ITEM_RE.test(lines[i + 1])) {
+          i++
+          continue
+        }
+        break
+      }
+      return [items, i]
+    }
+    function renderListNodes(items) {
+      if (items.length === 0) return ""
+      let html = items[0].ordered ? "<ol>" : "<ul>"
+      let k = 0
+      while (k < items.length) {
+        const item = items[k]
+        const children = []
+        let j = k + 1
+        while (j < items.length && items[j].indent > item.indent) {
+          children.push(items[j])
+          j++
+        }
+        html += "<li>" + inlineMd(escapeHtml(item.text))
+        if (children.length > 0) html += renderListNodes(children)
+        html += "</li>"
+        k = j
+      }
+      return html + (items[0].ordered ? "</ol>" : "</ul>")
+    }
+    function renderMarkdown(text) {
+      if (!text) return ""
+      const lines = text.split("\n")
+      let html = ""
+      let i = 0
+      while (i < lines.length) {
+        const line = lines[i]
+        // 代码块
+        if (/^```/.test(line)) {
+          const lang = line.replace(/^```/, "").trim()
+          const buf = []
+          i++
+          while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++ }
+          i++ // skip closing ```
+          html += codeBlockHtml(lang, buf.join("\n"))
+          continue
+        }
+        // 标题
+        const hm = /^(#{1,6})\s+(.*)$/.exec(line)
+        if (hm) { html += `<h${hm[1].length}>${inlineMd(escapeHtml(hm[2]))}</h${hm[1].length}>`; i++; continue }
+        // 分隔线
+        if (/^---+$/.test(line.trim())) { html += "<hr>"; i++; continue }
+        // 表格
+        if (isTableRow(line) && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
+          const header = splitTableRow(line)
+          i += 2
+          const rows = []
+          while (i < lines.length && isTableRow(lines[i])) { rows.push(splitTableRow(lines[i])); i++ }
+          html +=
+            "<table><thead><tr>" +
+            header.map((c) => "<th>" + inlineMd(escapeHtml(c.trim())) + "</th>").join("") +
+            "</tr></thead><tbody>" +
+            rows.map((r) => "<tr>" + r.map((c) => "<td>" + inlineMd(escapeHtml(c.trim())) + "</td>").join("") + "</tr>").join("") +
+            "</tbody></table>"
+          continue
+        }
+        // 列表(含嵌套)
+        if (LIST_ITEM_RE.test(line)) {
+          const [items, next] = parseListItems(lines, i)
+          html += renderListNodes(items)
+          i = next
+          continue
+        }
+        // 引用
+        if (/^>\s?/.test(line)) {
+          const buf = []
+          while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, "")); i++ }
+          html += "<blockquote>" + inlineMd(escapeHtml(buf.join("\n"))) + "</blockquote>"
+          continue
+        }
+        // 空行
+        if (line.trim() === "") { i++; continue }
+        // 段落(连续非空行合并;软换行不产生 <br>,对齐 marked 默认 breaks:false)
+        const para = []
+        while (i < lines.length && lines[i].trim() !== "" && !/^```|^#{1,6}\s|^\s*[-*]\s+|^\s*\d+\.\s+|^>\s?|^---+$/.test(lines[i])) {
+          para.push(lines[i]); i++
+        }
+        html += "<p>" + inlineMd(escapeHtml(para.join("\n"))) + "</p>"
+      }
+      return html
+    }
+
+    // 提取用户可见文字(对齐 design insight-turn.tsx userText())
+    // 1) 优先 metadata.displayText(@mention 显示文本)
+    // 2) 否则取第一个 text part,用 lastIndexOf("\n---\n") 剥离系统前缀,只显示 --- 后的真实输入
+    function extractUserText(parts) {
+      const displayPart = parts.find(p => p.type === "text" && p.metadata && p.metadata.displayText)
+      if (displayPart) return displayPart.metadata.displayText.trim()
+      const textPart = parts.find(p => p.type === "text" && p.text)
+      if (!textPart || !textPart.text) return ""
+      const raw = textPart.text
+      const sepIdx = raw.lastIndexOf("\n---\n")
+      if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
+      return raw.trim()
+    }
+
+    // artifact type 映射(对齐 design ARTIFACT_TYPE_MAP)
+    const ARTIFACT_TYPE_MAP = {
+      html: "html", "text/html": "html",
+      "text/html+deck": "deck", deck: "deck",
+      svg: "svg", "image/svg+xml": "svg",
+      "markdown-document": "markdown-document",
+      "code-snippet": "code-snippet",
+      "react-component": "react-component",
+      diagram: "diagram",
+      "text/design-plan": "design-plan",
+      "text/link": "link",
+    }
+    // 从 assistant 文本中提取已闭合的 <artifact> 标签(对齐 design parseAllArtifactsFromText)
+    // 返回 { artifacts, prose },prose 为剥离 artifact 后的可见文字
+    function extractArtifacts(text) {
+      const artifacts = []
+      if (!text || !/<artifact/i.test(text)) return { artifacts, prose: text || "" }
+      const re = /<artifact\b([^>]*)>([\s\S]*?)<\/artifact>/gi
+      let prose = text.replace(re, (full, attrs, content) => {
+        const am = {}
+        attrs.replace(/(\w+)\s*=\s*"([^"]*)"/g, (s, k, v) => { am[k] = v })
+        const artifactType = am.type || ""
+        const mappedType = ARTIFACT_TYPE_MAP[artifactType]
+        // design-plan / plan- 前缀不显示卡片(走 plan banner)
+        if (!mappedType || mappedType === "design-plan" || (am.identifier || "").startsWith("plan-")) {
+          return ""
+        }
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性;
+        // content 提取失败时才回退 title 属性(对齐 design parseAllArtifactsFromText)
+        let title = am.title
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(content)
+          if (fromContent) title = fromContent
+        }
+        artifacts.push({
+          title: title || mappedType,
+          type: mappedType,
+          content: content,
+          artifactIdentifier: am.identifier || "",
+        })
+        return ""
+      })
+      return { artifacts, prose: prose.replace(/\n{3,}/g, "\n\n").trim() }
+    }
+    // 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题(对齐 design extractLinkTitle)
+    // URL:        提取最后的文件名(含扩展名),无路径时回退到 host
+    // 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
+    // fastui://<产物名>:标题就是产物名
+    function extractLinkTitle(content) {
+      const trimmed = (content ?? "").trim()
+      if (!trimmed) return ""
+      if (trimmed.toLowerCase().startsWith("fastui://")) {
+        let name = trimmed.slice("fastui://".length).replace(/\/+$/, "")
+        try { name = decodeURIComponent(name) } catch {}
+        if (/[/\\?#]/.test(name)) return ""
+        return name || "本地预览"
+      }
+      if (/^https?:\/\//i.test(trimmed)) {
+        try {
+          const u = new URL(trimmed)
+          const segments = u.pathname.split("/").filter(Boolean)
+          if (segments.length > 0) {
+            const last = segments[segments.length - 1]
+            try { return decodeURIComponent(last) } catch { return last }
+          }
+          return u.host
+        } catch {
+          // fall through to path handling
+        }
+      }
+      const parts = trimmed.split(/[/\\]/).filter(Boolean)
+      const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
+      const lastDot = filename.lastIndexOf(".")
+      if (lastDot > 0) return filename.slice(0, lastDot)
+      return filename
+    }
+
+    // 图片扩展名(对齐 design file-type-icons 的图片类型)
+    const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]
+    function isImageFile(filename, mime) {
+      if (mime && mime.startsWith("image/")) return true
+      const ext = (filename || "").split(".").pop().toLowerCase()
+      return IMAGE_EXTS.includes(ext)
+    }
+
+    // 从 manifest.files 构建图片 blob URL 映射: { [basename]: { url, mime } }
+    // blob 字段形如 "blobs/<sha256>",manifest 在 /tool{filePath}/manifest.json,
+    // 故 blob 文件 URL 为 /tool{filePath}/{blob}
+    function buildImageBlobMap(manifest, filePath) {
+      const map = {}
+      if (!manifest.files) return map
+      for (const f of manifest.files) {
+        const name = (f.path || "").split("/").pop()
+        if (!name) continue
+        const ext = (f.path || "").split(".").pop().toLowerCase()
+        if (!IMAGE_EXTS.includes(ext)) continue
+        const url = "/tool" + filePath + "/" + f.blob
+        const mime = ext === "svg" ? "image/svg+xml" : "image/" + ext
+        map[name] = { url, mime }
+      }
+      return map
+    }
+
+    // 异步加载 blob 为 object URL(blob 文件无扩展名,用预期 mime 强制类型确保 <img> 能渲染)
+    async function loadBlobImage(blobUrl, token, expectedMime) {
+      try {
+        const res = await fetch(blobUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) return blobUrl
+        const raw = await res.blob()
+        // 服务器未给正确 content-type 时,用 expectedMime 重建 blob
+        if (expectedMime && (!raw.type || raw.type === "application/octet-stream")) {
+          return URL.createObjectURL(new Blob([raw], { type: expectedMime }))
+        }
+        return URL.createObjectURL(raw)
+      } catch {
+        return blobUrl
+      }
+    }
+
+    // 按 hostname 选 deep link scheme,与桌面端 packages/desktop/src/main/shared-session.ts 的 parseSharedSessionLink 对齐:
+    //   beta(hostname 含 "beta") → octo-agent-beta (beta 桌面端注册)
+    //   其余(含 localhost/127.0.0.1) → octo-agent  (Octo Agent 桌面端注册)
+    // 注意:localhost 也用 octo-agent,避免唤起旧 opencode/electron 客户端。
+    function pickDeepLinkScheme() {
+      const host = location.hostname
+      if (host.indexOf("beta") !== -1) return "octo-agent-beta"
+      return "octo-agent"
+    }
+
+    // 安装包下载地址:按运行环境选择(Windows / macOS-Intel / macOS-Apple)。
+    const INSTALLER_URL_WINDOWS = "https://octo.hdesign.huawei.com/design/agentdesktop/windows/prod/octo-desktop-win-x64.exe"
+    const INSTALLER_URL_MAC_INTEL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-x64/prod/octo-desktop-mac-x64.dmg"
+    const INSTALLER_URL_MAC_ARM = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-arm64/prod/octo-desktop-mac-arm64.dmg"
+
+    function detectOS() {
+      const ua = navigator.userAgent || ""
+      const platform = navigator.platform || ""
+      if (/Windows|Win32|Win64/i.test(platform) || /Windows/i.test(ua)) return "windows"
+      if (/Mac/i.test(platform) || /Mac OS X/i.test(ua)) return "mac"
+      return "other"
+    }
+
+    // 浏览器无法用同步 API 区分 Apple/Intel 芯片:Chrome/Edge 走 UA-CH(architecture),
+    // Safari 回退 WebGL renderer,仍无法判断时按 Apple 芯片(当前多数 Mac)处理。
+    async function detectMacAppleSilicon() {
+      if (/arm64|aarch64/i.test(navigator.userAgent || "")) return true
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        try {
+          const data = await navigator.userAgentData.getHighEntropyValues(["architecture"])
+          if (data && data.architecture) return data.architecture === "arm"
+        } catch {}
+      }
+      try {
+        const gl = document.createElement("canvas").getContext("webgl")
+        const ext = gl && gl.getExtension("WEBGL_debug_renderer_info")
+        const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ""
+        if (/Apple/i.test(renderer)) return true
+        if (/Intel|AMD|NVIDIA/i.test(renderer)) return false
+      } catch {}
+      return true
+    }
+
+    async function pickDownloadUrl() {
+      const os = detectOS()
+      if (os === "windows") return INSTALLER_URL_WINDOWS
+      if (os === "mac") return (await detectMacAppleSilicon()) ? INSTALLER_URL_MAC_ARM : INSTALLER_URL_MAC_INTEL
+      return INSTALLER_URL_WINDOWS
+    }
+
+    function renderInstallHint(url) {
+      document.getElementById("open-app-hint").innerHTML =
+        '你安装了此应用吗？<a href="' + url + '" target="_blank" rel="noopener noreferrer">点击下载安装</a>'
+    }
+
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      const name = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+      const uniqueId = name && name !== "index" ? name : new URLSearchParams(location.search).get("uniqueId") || ""
+      const link = document.getElementById("open-app-link")
+      const hint = document.getElementById("open-app-hint")
+      if (/^[a-zA-Z0-9_-]{1,128}$/.test(uniqueId)) {
+        link.href = `${pickDeepLinkScheme()}://share?uniqueId=${encodeURIComponent(uniqueId)}`
+        hint.textContent = "你安装了此应用吗？点击下载安装"
+        pickDownloadUrl().then(renderInstallHint).catch(() => {})
+      } else {
+        link.removeAttribute("href")
+        hint.textContent = "分享码缺失或无效，请检查分享链接"
+      }
+      document.getElementById("open-app-dialog").showModal()
+    })
+    document.getElementById("close-app-dialog").addEventListener("click", () => {
+      document.getElementById("open-app-dialog").close()
+    })
+
+    ;(async function () {
+      // uniqueId 优先从路径提取（/design/agent/share/xxx.html → xxx）;
+      // 路径为 index.html 时回退到 query 参数 uniqueId（兼容 /design/agent/share/index.html?uniqueId=xxx）
+      let uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+      if (!uniqueId || uniqueId === "index") {
+        uniqueId = new URLSearchParams(location.search).get("uniqueId") || ""
+      }
+      if (!uniqueId) {
+        console.error("[share] missing uniqueId")
+        showEmptyState()
+        return
+      }
+
+      // uiplustoken: 从 localStorage 读取（用户登录后由 desktop 主进程或登录流程写入）
+      const token = localStorage.getItem("uiplusToken") || ""
+
+      // 同源调用 getShareSessionInfo（生产环境天然同源,无 CORS）
+      const infoUrl = "/main/rest.root/octoAgentServer/agentSession/getShareSessionInfo?uniqueId=" + encodeURIComponent(uniqueId)
+      try {
+        const res = await fetch(infoUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) {
+          console.error("[share] getShareSessionInfo HTTP " + res.status)
+          showEmptyState()
+          return
+        }
+        const data = await res.json()
+        console.log("[share] getShareSessionInfo response:", data)
+        if (data.errorCode === 400) {
+          const loginBase = location.hostname.indexOf("beta") !== -1
+            ? "https://login-beta.huawei.com/login1/"
+            : "https://login.huawei.com/login1/"
+          location.href = loginBase + "?redirect=" + encodeURIComponent(location.href)
+          return
+        }
+        if (!data.success || !data.content) {
+          console.error("[share] getShareSessionInfo success=false", data)
+          showEmptyState()
+          return
+        }
+        const filePath = data.content.versionInfo && data.content.versionInfo[0] && data.content.versionInfo[0].filePath
+        if (filePath) loadConversation(filePath, token)
+        else showEmptyState()
+      } catch (err) {
+        console.error("[share] getShareSessionInfo failed:", err)
+        showEmptyState()
+      }
+    })()
+
+    async function loadConversation(filePath, token) {
+      const manifestUrl = "/tool" + filePath + "/manifest.json"
+      try {
+        const res = await fetch(manifestUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) {
+          console.error("[share] manifest HTTP " + res.status)
+          showEmptyState()
+          return
+        }
+        const manifest = await res.json()
+        console.log("[share] manifest response:", manifest)
+        renderConversation(manifest, filePath, token)
+      } catch (err) {
+        console.error("[share] manifest failed:", err)
+        showEmptyState()
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 附件/文件图标(对齐 design kindFromMime + mimeFromFilename + file-type-icons kindIconMap)
+    // ─────────────────────────────────────────────────────────
+    const FILE_ICON_BASE = "/design/agent/share/icons/"
+    function mimeFromFilename(filename) {
+      const ext = (filename || "").split(".").pop()?.toLowerCase() ?? ""
+      const map = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+        svg: "image/svg+xml", html: "text/html", htm: "text/html", md: "text/markdown", txt: "text/plain",
+        json: "application/json", js: "application/javascript", ts: "application/typescript", css: "text/css",
+        pdf: "application/pdf", mp4: "video/mp4", webm: "video/webm", mp3: "audio/mpeg", wav: "audio/wav",
+      }
+      return map[ext] ?? "application/octet-stream"
+    }
+    function kindFromMime(mime) {
+      if (!mime) return "binary"
+      if (mime.startsWith("image/")) return "image"
+      if (mime.startsWith("video/")) return "video"
+      if (mime.startsWith("audio/")) return "audio"
+      if (mime === "application/pdf") return "pdf"
+      if (mime === "text/html") return "html"
+      if (mime === "image/svg+xml") return "svg"
+      if (mime === "text/markdown" || mime === "text/x-markdown") return "markdown"
+      if (mime.startsWith("text/")) return "text"
+      if (mime.includes("word") || mime.includes("docx")) return "document"
+      if (mime.includes("excel") || mime.includes("xlsx") || mime.includes("spreadsheet")) return "document"
+      if (mime.includes("powerpoint") || mime.includes("presentation")) return "document"
+      return "binary"
+    }
+    function getFileIconUrl(kind, filename) {
+      const ext = (filename || "").split(".").pop()?.toLowerCase() ?? ""
+      if (kind === "folder") return FILE_ICON_BASE + "folder.svg"
+      if (kind === "html") return FILE_ICON_BASE + "html.svg"
+      if (kind === "image") return FILE_ICON_BASE + "img.svg"
+      if (kind === "video") return FILE_ICON_BASE + "video.svg"
+      if (kind === "markdown") return FILE_ICON_BASE + "MD.svg"
+      if (kind === "code") return FILE_ICON_BASE + "code.svg"
+      if (kind === "pdf") return FILE_ICON_BASE + "PDF.svg"
+      if (kind === "svg") return FILE_ICON_BASE + "other.svg"
+      if (kind === "document") {
+        if (ext === "xlsx" || ext === "xls") return FILE_ICON_BASE + "Excel.svg"
+        if (ext === "pptx" || ext === "ppt") return FILE_ICON_BASE + "ppt.svg"
+        return FILE_ICON_BASE + "word.svg"
+      }
+      return FILE_ICON_BASE + "other.svg"
+    }
+    // [附件] synthetic 本地文件清单(对齐 design parseUploadedFiles:"- filename: path" 行)
+    function parseUploadedFilesBlock(block) {
+      const out = []
+      for (const line of block.split("\n")) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith("- ")) continue
+        const body = trimmed.slice(2)
+        const sep = body.indexOf(": ")
+        if (sep < 0) continue
+        const filename = body.slice(0, sep).trim()
+        const path = body.slice(sep + 2).trim()
+        if (filename && path) out.push({ filename, path })
+      }
+      return out
+    }
+    function makeSpan(cls, text) {
+      const s = document.createElement("span")
+      s.className = cls
+      s.textContent = text
+      return s
+    }
+    function buildFileChip(filename, kind) {
+      const chip = document.createElement("div")
+      chip.className = "user-file-chip"
+      chip.title = filename
+      const icon = document.createElement("img")
+      icon.src = getFileIconUrl(kind, filename)
+      icon.alt = ""
+      chip.appendChild(icon)
+      chip.appendChild(makeSpan("chip-name", filename))
+      return chip
+    }
+    // 用户消息行:附件(图片缩略图/文件 chip/[附件] 清单)+ 文字气泡(对齐 design userAttachments)
+    function buildUserRow(turn, imageBlobMap, token) {
+      const userRow = document.createElement("div")
+      userRow.className = "turn-user-row"
+      if (!turn.user) return userRow
+      const attBox = document.createElement("div")
+      attBox.className = "user-attachments"
+      // file parts:图片且 url/blob 可解析 → 80×80 缩略图;否则文件 chip(design 的 fallback)
+      const fileParts = (turn.user.parts || []).filter(p => p.type === "file" && p.filename)
+      for (const part of fileParts) {
+        const directUrl = (part.url && /^(data:|blob:|https?:)/.test(part.url)) ? part.url : null
+        const blobEntry = imageBlobMap[part.filename]
+        if (isImageFile(part.filename, part.mime) && (directUrl || blobEntry)) {
+          const thumb = document.createElement("div")
+          thumb.className = "user-image-thumb"
+          const img = document.createElement("img")
+          img.alt = part.filename || ""
+          if (directUrl) img.src = directUrl
+          else loadBlobImage(blobEntry.url, token, blobEntry.mime).then(u => { img.src = u })
+          thumb.appendChild(img)
+          attBox.appendChild(thumb)
+        } else {
+          attBox.appendChild(buildFileChip(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+        }
+      }
+      // [附件] 本地文件清单:chip;图片若已导出到 manifest.files 则显示缩略图
+      const attachBlock = (turn.user.parts || []).find(
+        p => p.type === "text" && p.synthetic === true && typeof p.text === "string" && p.text.startsWith("[附件]"),
+      )
+      if (attachBlock) {
+        for (const f of parseUploadedFilesBlock(attachBlock.text)) {
+          const mime = mimeFromFilename(f.filename)
+          const blobEntry = imageBlobMap[f.filename]
+          if (mime.startsWith("image/") && blobEntry) {
+            const thumb = document.createElement("div")
+            thumb.className = "user-image-thumb"
+            const img = document.createElement("img")
+            img.alt = f.filename
+            loadBlobImage(blobEntry.url, token, blobEntry.mime).then(u => { img.src = u })
+            thumb.appendChild(img)
+            attBox.appendChild(thumb)
+          } else {
+            attBox.appendChild(buildFileChip(f.filename, kindFromMime(mime)))
+          }
+        }
+      }
+      if (attBox.children.length > 0) userRow.appendChild(attBox)
+      const userTextContent = extractUserText(turn.user.parts || [])
+      if (userTextContent) {
+        const bubble = document.createElement("div")
+        bubble.className = "bubble-user"
+        bubble.textContent = userTextContent
+        userRow.appendChild(bubble)
+      }
+      return userRow
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 工具调用卡(对齐 design tool-call-card.tsx / file-ops-summary.tsx / ProducedFilesList)
+    // ─────────────────────────────────────────────────────────
+    const TOOL_FAMILY_RULES = [
+      [/write|create_file/, "write"],
+      [/edit|str_replace/, "edit"],
+      [/read|read_file/, "read"],
+      [/bash|shell/, "bash"],
+      [/glob|list/, "glob"],
+      [/grep/, "grep"],
+      [/search|websearch|web_search/, "search"],
+      [/task/, "task"],
+      [/skill/, "skill"],
+    ]
+    const TOOL_FAMILY_LABEL = {
+      write: "写入", edit: "编辑", read: "读取", bash: "执行命令", glob: "搜索文件",
+      grep: "搜索内容", search: "网络搜索", task: "子任务", skill: "调用技能", other: "工具调用",
+    }
+    function toolFamilyOf(name) {
+      const n = (name || "").toLowerCase()
+      for (const rule of TOOL_FAMILY_RULES) if (rule[0].test(n)) return rule[1]
+      return "other"
+    }
+    function toolStatusOf(state) {
+      const status = state.status
+      const err = state.error
+      const metadata = state.metadata || {}
+      const isCancelled = status === "error" && (err === "Cancelled" || err === "Tool execution aborted")
+      const isError = (status === "error" && !isCancelled) || (metadata.exit !== undefined && metadata.exit !== 0)
+      if (status === "completed") return "done"
+      if (isCancelled || isError) return "error"
+      return "running"
+    }
+    function normalizeToolCall(part) {
+      const state = part.state || {}
+      const input = state.input
+      const filePath = input ? (input.path ?? input.filepath ?? input.filePath ?? "") : ""
+      const name = part.tool ?? part.name ?? state.name ?? "unknown"
+      const hasOutput = typeof state.output === "string" && state.output.length > 0
+      return {
+        name,
+        status: toolStatusOf(state),
+        input,
+        output: hasOutput ? state.output : undefined,
+        filePath: filePath || undefined,
+        displayName: name === "skill" && input && typeof input.name === "string" ? input.name : undefined,
+      }
+    }
+    // skill 工具(user 消息注入 + assistant 调用)与非 task 工具(对齐 design skillToolCalls/otherToolCalls)
+    function collectToolCalls(turn, allParts) {
+      const userSkillCalls = []
+      for (const p of (turn.user && turn.user.parts) || []) {
+        if (p.type !== "tool" || p.tool !== "skill") continue
+        const input = (p.state || {}).input || {}
+        userSkillCalls.push({
+          name: "skill", status: "done", input, output: undefined, filePath: undefined,
+          displayName: typeof input.name === "string" ? input.name : undefined,
+        })
+      }
+      const calls = allParts.filter(x => x.part.type === "tool").map(x => normalizeToolCall(x.part))
+      const skillCalls = [...userSkillCalls, ...calls.filter(c => c.name === "skill")]
+      const otherCalls = calls.filter(c => c.name !== "skill" && !/task/i.test(c.name))
+      return { skillCalls, otherCalls }
+    }
+    function toolSummary(call) {
+      const input = call.input
+      if (!input) return ""
+      if (call.filePath) return call.filePath.split(/[/\\]/).pop() ?? call.filePath
+      if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
+      if (typeof input.pattern === "string") return input.pattern
+      if (typeof input.query === "string") return input.query
+      if (call.displayName) return call.displayName
+      if (typeof input.name === "string") return input.name
+      return ""
+    }
+    function buildToolBadge(status) {
+      const cfg = status === "running"
+        ? ["tool-badge-running", "运行中"]
+        : status === "done" ? ["tool-badge-done", "完成"] : ["tool-badge-error", "错误"]
+      const badge = document.createElement("span")
+      badge.className = "tool-badge " + cfg[0]
+      if (status === "running") {
+        const dot = document.createElement("span")
+        dot.className = "pulse-dot"
+        badge.appendChild(dot)
+      }
+      badge.appendChild(document.createTextNode(cfg[1]))
+      return badge
+    }
+    function buildSingleToolCard(call) {
+      const card = document.createElement("div")
+      card.className = "tool-card"
+      const command = call.input && typeof call.input.command === "string" ? call.input.command : ""
+      if (call.filePath) card.title = call.filePath
+      else if (command) card.title = command
+      card.appendChild(makeSpan("tool-label", TOOL_FAMILY_LABEL[toolFamilyOf(call.name)]))
+      const summary = toolSummary(call)
+      if (summary) card.appendChild(makeSpan("tool-summary", summary))
+      card.appendChild(buildToolBadge(call.status))
+      return card
+    }
+    // 连续同 family 分组(对齐 design groupByFamily);单个 → 单卡,多个 → 可折叠组
+    function buildToolGroupCards(calls, container) {
+      const groups = []
+      for (const call of calls) {
+        const family = toolFamilyOf(call.name)
+        const last = groups[groups.length - 1]
+        if (last && last.family === family) last.calls.push(call)
+        else groups.push({ family, calls: [call] })
+      }
+      for (const group of groups) {
+        if (group.calls.length === 1) {
+          container.appendChild(buildSingleToolCard(group.calls[0]))
+          continue
+        }
+        const wrap = document.createElement("div")
+        wrap.className = "tool-group"
+        const overall = group.calls.some(c => c.status === "error") ? "error"
+          : group.calls.every(c => c.status === "done") ? "done" : "running"
+        const btn = document.createElement("button")
+        btn.type = "button"
+        btn.className = "tool-card"
+        btn.setAttribute("data-open", "false")
+        btn.appendChild(makeSpan("tool-label", TOOL_FAMILY_LABEL[group.family]))
+        btn.appendChild(makeSpan("tool-count", "x" + group.calls.length))
+        const spacer = document.createElement("span")
+        spacer.className = "tool-spacer"
+        btn.appendChild(spacer)
+        btn.appendChild(buildToolBadge(overall))
+        const chev = document.createElement("span")
+        chev.className = "tool-chevron"
+        chev.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        btn.appendChild(chev)
+        const items = document.createElement("div")
+        items.className = "tool-group-items"
+        for (const call of group.calls) items.appendChild(buildSingleToolCard(call))
+        btn.addEventListener("click", () => {
+          const open = btn.getAttribute("data-open") === "true"
+          btn.setAttribute("data-open", String(!open))
+          items.setAttribute("data-open", String(!open))
+        })
+        wrap.appendChild(btn)
+        wrap.appendChild(items)
+        container.appendChild(wrap)
+      }
+    }
+    // 文件操作摘要(对齐 design FileOpsSummary:W/E/R 徽标 + 计数)
+    function buildFileOps(calls) {
+      const map = new Map()
+      for (const call of calls) {
+        const n = call.name.toLowerCase()
+        const op = /write|create_file/.test(n) ? "write" : /edit|str_replace/.test(n) ? "edit" : /read|read_file/.test(n) ? "read" : null
+        if (!op || !call.filePath) continue
+        const existing = map.get(call.filePath)
+        if (existing) {
+          if (!existing.ops.includes(op)) existing.ops.push(op)
+          if (call.status === "error") existing.status = "error"
+        } else {
+          map.set(call.filePath, { name: call.filePath.split(/[/\\]/).pop() ?? call.filePath, ops: [op], status: call.status })
+        }
+      }
+      if (map.size === 0) return null
+      let w = 0, e = 0, r = 0
+      for (const entry of map.values()) for (const op of entry.ops) { if (op === "write") w++; else if (op === "edit") e++; else r++ }
+      const parts = []
+      if (w) parts.push("写入 " + w)
+      if (e) parts.push("编辑 " + e)
+      if (r) parts.push("读取 " + r)
+      const box = document.createElement("div")
+      box.className = "file-ops"
+      const head = document.createElement("div")
+      head.className = "file-ops-head"
+      head.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4h8M2 6h8M2 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
+      head.appendChild(document.createTextNode("文件操作: " + parts.join(" · ")))
+      box.appendChild(head)
+      if (map.size <= 5) {
+        for (const entry of map.values()) {
+          const row = document.createElement("div")
+          row.className = "file-ops-row"
+          row.appendChild(makeSpan("file-name", entry.name))
+          for (const op of entry.ops) {
+            const badge = document.createElement("span")
+            badge.className = "op-badge op-badge-" + op[0]
+            badge.textContent = op[0].toUpperCase()
+            row.appendChild(badge)
+          }
+          box.appendChild(row)
+        }
+      }
+      return box
+    }
+    // 涉及文件列表(对齐 design ProducedFilesList)
+    function buildProducedFiles(calls) {
+      const seen = new Set()
+      const files = []
+      for (const call of calls) {
+        const n = call.name.toLowerCase()
+        if (!(n.includes("write") || n.includes("edit"))) continue
+        if (!call.filePath || call.status !== "done" || seen.has(call.filePath)) continue
+        seen.add(call.filePath)
+        files.push(call.filePath.split(/[/\\]/).pop() ?? call.filePath)
+      }
+      if (files.length === 0) return null
+      const wrap = document.createElement("div")
+      wrap.className = "produced-files"
+      const box = document.createElement("div")
+      box.className = "produced-files-box"
+      box.appendChild(makeSpan("produced-files-label", "涉及文件"))
+      for (const name of files) {
+        const row = document.createElement("div")
+        row.className = "produced-files-row"
+        const icon = document.createElement("span")
+        icon.style.display = "inline-flex"
+        icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="1" width="8" height="10" rx="1" stroke="currentColor" stroke-width="1"/><path d="M5 4h3M5 6h3M5 8h2" stroke="currentColor" stroke-width="0.7" stroke-linecap="round"/></svg>'
+        row.appendChild(icon)
+        row.appendChild(makeSpan("file-name", name))
+        box.appendChild(row)
+      }
+      wrap.appendChild(box)
+      return wrap
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 子任务(对齐 design InsightTurn subtasks:Task 工具 + manifest 子会话产物)
+    // ─────────────────────────────────────────────────────────
+    function collectSubtasks(allParts, sessionsById) {
+      const tasks = []
+      for (const x of allParts) {
+        const part = x.part
+        if (part.type !== "tool") continue
+        const state = part.state
+        if (!state) continue
+        const input = state.input
+        const toolName = part.tool ?? part.name ?? state.name
+        if (typeof toolName !== "string" || !/task/i.test(toolName) || !input) continue
+        const metadata = state.metadata || {}
+        const outputStr = typeof state.output === "string" ? state.output : ""
+        const hasOutput = outputStr.length > 0
+        const subSessionID = metadata.sessionId ?? (outputStr.match(/task_id:\s*(\S+)/) || [])[1]
+        const statusTool = toolStatusOf(state)
+        const status = state.error === "Cancelled" || state.error === "Tool execution aborted"
+          ? "cancelled"
+          : statusTool === "error" ? "error" : hasOutput ? "done" : "running"
+        const taskDescription = input.description
+          ?? (typeof input.prompt === "string" ? input.prompt.slice(0, 60) : null)
+          ?? "子任务"
+        const textParts = []
+        const artifactOutputs = []
+        if (!subSessionID) {
+          for (const a of extractArtifacts(outputStr).artifacts) {
+            artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+          }
+          if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|main|article|form|table|html)\b/i.test(outputStr)) {
+            artifactOutputs.push({ identifier: "degraded", title: "HTML 片段", content: outputStr })
+          }
+        } else {
+          const m = outputStr.match(/<task_result>([\s\S]*?)<\/task_result>/)
+          const resultContent = m ? m[1].trim() : ""
+          if (resultContent) {
+            for (const a of extractArtifacts(resultContent).artifacts) {
+              artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+            }
+            if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
+              artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
+            }
+            const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
+            if (proseOnly) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
+          }
+          // 子会话产物补充(对齐 design 从 msgStore 补充的逻辑,数据源为 manifest.sessions)
+          const child = sessionsById.get(subSessionID)
+          for (const msg of (child ? child.messages || [] : [])) {
+            if ((msg.info || {}).role !== "assistant") continue
+            for (const sp of msg.parts || []) {
+              if (sp.type !== "text" || typeof sp.text !== "string" || !sp.text.trim()) continue
+              for (const a of extractArtifacts(sp.text).artifacts) {
+                if (artifactOutputs.some(e2 => e2.identifier === (a.artifactIdentifier ?? ""))) continue
+                artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+              }
+            }
+          }
+        }
+        tasks.push({ taskDescription, subSessionID, status, textParts, artifactOutputs })
+      }
+      return tasks
+    }
+    function buildSubtaskBadge(status) {
+      const cfg = {
+        running: ["st-badge-running", "运行中", true],
+        done: ["st-badge-done", "完成", false],
+        cancelled: ["st-badge-cancelled", "已中止", false],
+        error: ["st-badge-error", "错误", false],
+      }[status] || ["st-badge-error", "错误", false]
+      const badge = document.createElement("span")
+      badge.className = "st-badge " + cfg[0]
+      if (cfg[2]) {
+        const dot = document.createElement("span")
+        dot.className = "pulse-dot"
+        badge.appendChild(dot)
+      }
+      badge.appendChild(document.createTextNode(cfg[1]))
+      return badge
+    }
+    function buildSubtaskCard(task) {
+      const card = document.createElement("div")
+      card.className = "subtask-card"
+      const head = document.createElement("button")
+      head.type = "button"
+      head.className = "subtask-head"
+      head.setAttribute("data-open", "true")
+      const chev = document.createElement("span")
+      chev.className = "st-chevron"
+      chev.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      head.appendChild(chev)
+      const icon = document.createElement("span")
+      icon.style.display = "inline-flex"
+      icon.style.color = "#0a59f7"
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3h10M2 7h10M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
+      head.appendChild(icon)
+      head.appendChild(makeSpan("st-title", task.taskDescription))
+      head.appendChild(buildSubtaskBadge(task.status))
+      if (task.artifactOutputs.length > 0) head.appendChild(makeSpan("st-count", task.artifactOutputs.length + " 输出"))
+      const body = document.createElement("div")
+      body.className = "subtask-body"
+      if (task.textParts.length > 0) {
+        const texts = document.createElement("div")
+        texts.className = "subtask-texts"
+        for (const t of task.textParts) {
+          const p = document.createElement("p")
+          p.textContent = t
+          texts.appendChild(p)
+        }
+        body.appendChild(texts)
+      }
+      if (task.artifactOutputs.length > 0) {
+        const outputs = document.createElement("div")
+        outputs.className = "subtask-outputs" + (task.textParts.length > 0 ? " has-texts" : "")
+        outputs.appendChild(makeSpan("subtask-outputs-label", "输出结果"))
+        for (const artifact of task.artifactOutputs) {
+          const out = document.createElement("div")
+          out.className = "subtask-output"
+          const img = document.createElement("img")
+          img.src = artifactIconSrc("html")
+          img.alt = ""
+          const col = document.createElement("div")
+          col.className = "so-col"
+          col.appendChild(makeSpan("so-title", artifact.title))
+          col.appendChild(makeSpan("so-preview", artifact.content.replace(/<[^>]+>/g, "").slice(0, 80) + (artifact.content.length > 80 ? "…" : "")))
+          out.appendChild(img)
+          out.appendChild(col)
+          outputs.appendChild(out)
+        }
+        body.appendChild(outputs)
+      }
+      const hasContent = body.children.length > 0
+      head.addEventListener("click", () => {
+        const open = head.getAttribute("data-open") === "true"
+        head.setAttribute("data-open", String(!open))
+        if (hasContent) body.style.display = open ? "none" : ""
+      })
+      card.appendChild(head)
+      if (hasContent) card.appendChild(body)
+      return card
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 分隔线 / 压缩提示 / turn 元信息(对齐 design MessageDivider、MakeErrorNotice、turnMeta)
+    // ─────────────────────────────────────────────────────────
+    function buildDivider(label) {
+      const divider = document.createElement("div")
+      divider.className = "msg-divider"
+      const line1 = document.createElement("span")
+      line1.className = "line"
+      divider.appendChild(line1)
+      divider.appendChild(makeSpan("label", label))
+      const line2 = document.createElement("span")
+      line2.className = "line"
+      divider.appendChild(line2)
+      return divider
+    }
+    function buildCompactionBlock(turn) {
+      const compacted = turn.assistants.some(m => {
+        const info = m.info || {}
+        return info.summary === true && !!info.finish && !info.error
+      })
+      if (compacted) return buildDivider("会话已压缩")
+      const failedMsg = turn.assistants.find(m => !!(m.info || {}).error)
+      if (failedMsg) {
+        const err = (failedMsg.info || {}).error || {}
+        const data = err.data || {}
+        const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+        const notice = document.createElement("div")
+        notice.className = "error-notice"
+        notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
+        const content = document.createElement("div")
+        content.style.minWidth = "0"
+        content.style.flex = "1"
+        content.appendChild(makeSpan("notice-title", "上下文压缩失败"))
+        if (message) {
+          const msg = document.createElement("div")
+          msg.textContent = message
+          content.appendChild(msg)
+        }
+        notice.appendChild(content)
+        return notice
+      }
+      const stalled = document.createElement("div")
+      stalled.className = "stalled-notice"
+      stalled.textContent = "上下文压缩未完成（可能已超时或中断）"
+      return stalled
+    }
+    function buildTurnMeta(turn) {
+      if (turn.assistants.length === 0) return null
+      const first = turn.assistants[0].info || {}
+      const last = turn.assistants[turn.assistants.length - 1].info || {}
+      let duration = ""
+      const start = first.time && typeof first.time.created === "number" ? first.time.created : undefined
+      const completed = last.time && typeof last.time.completed === "number" ? last.time.completed : undefined
+      if (start !== undefined && completed !== undefined && completed >= start) {
+        const secs = Math.round((completed - start) / 1000)
+        if (secs >= 0) duration = secs < 60 ? secs + " 秒" : Math.floor(secs / 60) + " 分 " + (secs % 60) + " 秒"
+      }
+      let agent = last.agent
+      if (agent === "octo_ai" || agent === "octo_make" || agent === "octo_make_plan") agent = "Octo_Design"
+      const agentLabel = agent ? agent[0].toUpperCase() + agent.slice(1) : ""
+      const modelLabel = last.modelID ?? ""
+      const interrupted = turn.assistants.some(m => ((m.info || {}).error || {}).name === "MessageAbortedError") ? "已中断" : ""
+      const meta = [agentLabel, modelLabel, duration, interrupted].filter(Boolean).join(" · ")
+      if (!meta) return null
+      const wrapper = document.createElement("div")
+      wrapper.className = "turn-meta-wrapper"
+      wrapper.appendChild(makeSpan("turn-meta", meta))
+      return wrapper
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 快速简报表单(对齐 design question-form.ts 解析;分享页静态展示,避免露出原始标签)
+    // ─────────────────────────────────────────────────────────
+    const MODULE_LIST_GUIDANCE = "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+    const PATTERN_MATCH_GUIDANCE = "已根据你的需求匹配到候选页面布局，请在上方选择最合适的典型页面模板。"
+    const QFORM_OPEN_RE = /<(question-form|ask-question)\b([^>]*)>/i
+    function splitProseSegments(input) {
+      const segments = []
+      let cursor = 0
+      while (cursor < input.length) {
+        const slice = input.slice(cursor)
+        const m = QFORM_OPEN_RE.exec(slice)
+        if (!m) { segments.push({ kind: "text", text: slice }); break }
+        const tagName = (m[1] || "question-form").toLowerCase()
+        const closeTag = "</" + tagName + ">"
+        const openStart = cursor + m.index
+        const openEnd = openStart + m[0].length
+        let closeIdx = -1
+        const lower = input.toLowerCase()
+        const closeLower = closeTag.toLowerCase()
+        for (let i = openEnd; i <= input.length - closeTag.length; i++) {
+          if (lower.startsWith(closeLower, i)) { closeIdx = i; break }
+        }
+        if (closeIdx === -1) {
+          // 未闭合:保留标签前文本,丢弃残缺标签(避免脏文字)
+          if (openStart > cursor) segments.push({ kind: "text", text: input.slice(cursor, openStart) })
+          break
+        }
+        if (openStart > cursor) segments.push({ kind: "text", text: input.slice(cursor, openStart) })
+        const form = tryParseQuestionForm(input.slice(openEnd, closeIdx), m[2] || "")
+        if (form) segments.push({ kind: "form", form })
+        // 解析失败的表单块整个丢弃(避免露出原始标签/JSON 脏文字)
+        cursor = closeIdx + closeTag.length
+      }
+      return segments.filter(s => s.kind === "form" || s.text.trim().length > 0)
+    }
+    function tryParseQuestionForm(body, attrsRaw) {
+      const trimmed = body.trim()
+      if (!trimmed) return null
+      const stripped = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()
+      let data
+      try { data = JSON.parse(stripped) } catch { return null }
+      if (!data || typeof data !== "object" || !Array.isArray(data.questions)) return null
+      const attrs = {}
+      attrsRaw.replace(/(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g, (s, k, v1, v2) => { attrs[k] = v1 ?? v2 ?? ""; return s })
+      const questions = []
+      data.questions.forEach((q, i) => {
+        if (!q || typeof q !== "object") return
+        const id = typeof q.id === "string" && q.id.trim() ? q.id.trim() : "q" + (i + 1)
+        const options = Array.isArray(q.options)
+          ? q.options
+              .map(o => typeof o === "string"
+                ? (o.trim() ? { label: o.trim(), value: o.trim() } : null)
+                : (o && typeof o === "object" && typeof o.label === "string" && o.label.trim()
+                  ? { label: o.label.trim(), value: typeof o.value === "string" && o.value.trim() ? o.value.trim() : o.label.trim() }
+                  : null))
+              .filter(Boolean)
+          : undefined
+        questions.push({
+          id,
+          label: typeof q.label === "string" ? q.label : id,
+          type: normalizeQuestionType(q.type),
+          options: options && options.length > 0 ? options : undefined,
+          placeholder: typeof q.placeholder === "string" ? q.placeholder : undefined,
+          required: q.required === true,
+          defaultValue: typeof q.defaultValue === "string" || Array.isArray(q.defaultValue) ? q.defaultValue : typeof q.default === "string" ? q.default : undefined,
+        })
+      })
+      if (questions.length === 0) return null
+      return {
+        id: attrs.id ?? (typeof data.id === "string" ? data.id : "discovery"),
+        title: attrs.title ?? (typeof data.title === "string" ? data.title : "A few quick questions"),
+        description: typeof data.description === "string" ? data.description : undefined,
+        questions,
+      }
+    }
+    function normalizeQuestionType(raw) {
+      if (typeof raw !== "string") return "text"
+      const lower = raw.toLowerCase().trim()
+      if (lower === "radio" || lower === "single" || lower === "choice") return "radio"
+      if (lower === "checkbox" || lower === "multi" || lower === "multiple") return "checkbox"
+      if (lower === "textarea" || lower === "long" || lower === "paragraph") return "textarea"
+      return "text"
+    }
+    function buildQuestionFormCard(form, submitted) {
+      const card = document.createElement("div")
+      card.className = "qform-card"
+      const head = document.createElement("div")
+      head.className = "qform-head"
+      const icon = document.createElement("span")
+      icon.className = "qform-icon"
+      icon.textContent = "?"
+      head.appendChild(icon)
+      const titles = document.createElement("div")
+      titles.className = "qform-titles"
+      titles.appendChild(makeSpan("qform-title", form.title))
+      if (form.description) titles.appendChild(makeSpan("qform-desc", form.description))
+      head.appendChild(titles)
+      if (submitted) head.appendChild(makeSpan("qform-pill", "已回答"))
+      card.appendChild(head)
+      const body = document.createElement("div")
+      body.className = "qform-body"
+      for (const q of form.questions) {
+        const field = document.createElement("div")
+        field.className = "qf-field"
+        const label = document.createElement("span")
+        label.className = "qf-label"
+        label.appendChild(document.createTextNode(q.label))
+        if (q.required) label.appendChild(makeSpan("qf-required", "*"))
+        field.appendChild(label)
+        if ((q.type === "radio" || q.type === "checkbox") && q.options) {
+          const options = document.createElement("div")
+          options.className = "qf-options"
+          for (const opt of q.options) {
+            const chip = document.createElement("button")
+            chip.type = "button"
+            chip.disabled = true
+            const selected = Array.isArray(q.defaultValue)
+              ? q.defaultValue.includes(opt.value) || q.defaultValue.includes(opt.label)
+              : q.defaultValue === opt.value || q.defaultValue === opt.label
+            chip.className = "qf-chip" + (selected ? " qf-chip-on" : "")
+            chip.textContent = opt.label
+            options.appendChild(chip)
+          }
+          field.appendChild(options)
+        } else if (q.type === "text" || q.type === "textarea") {
+          const input = document.createElement(q.type === "textarea" ? "textarea" : "input")
+          input.className = q.type === "textarea" ? "qf-textarea" : "qf-input"
+          input.disabled = true
+          if (q.type === "textarea") input.rows = 3
+          if (q.placeholder) input.placeholder = q.placeholder
+          if (typeof q.defaultValue === "string" && q.defaultValue) input.value = q.defaultValue
+          field.appendChild(input)
+        }
+        body.appendChild(field)
+      }
+      card.appendChild(body)
+      const foot = document.createElement("div")
+      foot.className = "qform-foot"
+      foot.appendChild(makeSpan("qf-locked-note", submitted ? "已锁定，无法修改" : "分享页仅供查看"))
+      card.appendChild(foot)
+      return card
+    }
+    // 表单是否已提交:后续 user 消息含 [快速简报]/[form answers —(对齐 design formSubmitted)
+    function isFormSubmitted(turns, index) {
+      for (let i = index + 1; i < turns.length; i++) {
+        const u = turns[i].user
+        if (!u) continue
+        for (const p of u.parts || []) {
+          if (p.type === "text" && p.text && (p.text.includes("[快速简报]") || p.text.includes("[form answers —"))) return true
+        }
+      }
+      return false
+    }
+    // prose 行:文本段 markdown + 表单段静态卡片(对齐 design proseSegments 渲染)
+    function buildProseRow(segments, formSubmittedFlag) {
+      if (segments.length === 0) return null
+      const row = document.createElement("div")
+      row.className = "turn-assistant-row"
+      for (const seg of segments) {
+        if (seg.kind === "text") {
+          if (!seg.text.trim()) continue
+          const text = document.createElement("div")
+          text.className = "text-assistant"
+          text.setAttribute("data-component", "markdown")
+          text.innerHTML = renderMarkdown(seg.text)
+          row.appendChild(text)
+        } else {
+          row.appendChild(buildQuestionFormCard(seg.form, formSubmittedFlag))
+        }
+      }
+      return row.children.length > 0 ? row : null
+    }
+
+    // 空状态:无接口内容/无数据时,内容区显示图片+文案(整体居中)
+    function showEmptyState() {
+      const scroll = document.querySelector(".chat-scroll-view")
+      const list = document.getElementById("conversation-list")
+      if (!scroll || !list) return
+      scroll.classList.add("is-empty")
+      list.innerHTML =
+        '<div class="empty-state">' +
+        '<img class="empty-state-img" src="/design/agent/share/empty.png" alt="" />' +
+        '<p class="empty-state-text">暂无数据</p>' +
+        "</div>"
+    }
+
+    function renderConversation(manifest, filePath, token) {
+      const list = document.getElementById("conversation-list")
+      if (!list) return
+      list.innerHTML = ""
+      // 代码块复制/展开按钮的事件委托(一次绑定,turns 渲染复用)
+      bindMarkdownCodeActions(list)
+      if (!manifest || manifest.format !== "octo-session") {
+        console.error("[share] manifest format not supported")
+        showEmptyState()
+        return
+      }
+      const session = (manifest.sessions || []).find(s => s.info && s.info.id === manifest.rootSessionID) || manifest.sessions?.[0]
+      if (!session) {
+        console.error("[share] session not found")
+        showEmptyState()
+        return
+      }
+      // 填充头部标题(优先 manifest.title,回退 session.info.title,与内容区左对齐)
+      const titleEl = document.getElementById("session-title")
+      if (titleEl) titleEl.textContent = manifest.title || session.info?.title || ""
+      const messages = session.messages || []
+
+      // 构建图片 blob 映射:filename → { url, mime }
+      const imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
+
+      // 按 user 分组: 每个 user 消息 + 后续 assistant 消息组成一个 turn（对齐 design 页面 InsightTurn 结构）
+      const turns = []
+      let current = null
+      for (const msg of messages) {
+        const role = msg.info && msg.info.role
+        if (role === "user") {
+          if (current) turns.push(current)
+          current = { user: msg, assistants: [] }
+        } else if (role === "assistant") {
+          if (!current) current = { user: null, assistants: [] }
+          current.assistants.push(msg)
+        }
+      }
+      if (current) turns.push(current)
+
+      // manifest 全部会话(根 + 子),供子任务产物补充(对齐 design msgStore 的角色)
+      const sessionsById = new Map((manifest.sessions || []).map(s => [s.info && s.info.id, s]))
+
+      for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
+        const turn = turns[turnIndex]
+        const turnEl = document.createElement("div")
+        turnEl.className = "turn"
+
+        // 用户消息行(附件:图片缩略图/文件 chip/[附件] 清单 + 文字气泡)
+        const userRow = buildUserRow(turn, imageBlobMap, token)
+        if (userRow.children.length > 0) turnEl.appendChild(userRow)
+
+        const allParts = turn.assistants.flatMap(m => (m.parts || []).map(p => ({ part: p, msg: m })))
+
+        // 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容(对齐 design isCompactionTurn)
+        const isCompactionTurn = ((turn.user && turn.user.parts) || []).some(p => p.type === "compaction")
+        if (isCompactionTurn) {
+          turnEl.appendChild(buildCompactionBlock(turn))
+        } else if (turn.assistants.length > 0) {
+          // pattern agent 的 turn:标签外文字归思考过程,prose 只留引导语(对齐 design isPatternAgentTurn)
+          const isPatternAgentTurn = turn.assistants.some(m => (m.info || {}).agent === "ict_pattern")
+
+          // 思考过程(对齐 design reasoningTexts:turn 内全部 reasoning part,折叠展示)
+          const reasoningTexts = allParts.filter(x => x.part.type === "reasoning" && x.part.text).map(x => x.part.text)
+          const textEntries = allParts.filter(x => x.part.type === "text" && x.part.text)
+          const lastText = textEntries.length > 0 ? textEntries[textEntries.length - 1] : null
+
+          // artifact 卡:从后往前找第一个含 artifact 的 text part(对齐 design outputCards);
+          // 卡片时间取该 part 的 time.end(artifact 生成完成时刻,对齐 design getTextPartTime),
+          // part 无时间时回退消息 completed/created —— 均已是毫秒,不能再乘 1000
+          let artifacts = []
+          let cardTime = null
+          for (let k = textEntries.length - 1; k >= 0; k--) {
+            const parsed = extractArtifacts(textEntries[k].part.text)
+            if (parsed.artifacts.length === 0) continue
+            artifacts = parsed.artifacts
+            const partTime = textEntries[k].part.time || {}
+            const msgTime = (textEntries[k].msg.info || {}).time || {}
+            cardTime = typeof partTime.end === "number" ? partTime.end
+              : typeof msgTime.completed === "number" ? msgTime.completed
+                : typeof msgTime.created === "number" ? msgTime.created : null
+            break
+          }
+
+          // prose:最后一个 text part,剥 <artifact>、pattern 标签;question-form 切分为
+          // 文本段(markdown)+ 表单段(静态卡片),不露出原始标签(对齐 design proseText/proseSegments)
+          let proseSegments = []
+          if (lastText) {
+            const raw = lastText.part.text
+            const hasPatternMatch = /<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/i.test(raw)
+            const hasModuleList = /<module-list[^>]*>[\s\S]*?<\/module-list>/i.test(raw)
+            const cleaned = raw
+              .replace(/<pattern-match[^>]*>[\s\S]*?<\/pattern-match>/gi, "")
+              .replace(/<module-list[^>]*>[\s\S]*?<\/module-list>/gi, "")
+              .replace(/<pattern-match[^>]*>[\s\S]*$/gi, "")
+              .replace(/<module-list[^>]*>[\s\S]*$/gi, "")
+            let prose = extractArtifacts(cleaned).prose.trim()
+            if (isPatternAgentTurn) {
+              if (prose) reasoningTexts.push(prose)
+              prose = hasModuleList ? MODULE_LIST_GUIDANCE : hasPatternMatch ? PATTERN_MATCH_GUIDANCE : ""
+            } else if (!prose) {
+              if (hasModuleList) prose = MODULE_LIST_GUIDANCE
+              else if (hasPatternMatch) prose = PATTERN_MATCH_GUIDANCE
+            }
+            proseSegments = splitProseSegments(prose)
+          }
+
+          if (reasoningTexts.length > 0) {
+            // 用时 = 最后一条 assistant 消息 completed-created(对齐 design reasoningDuration)
+            const lastTime = (turn.assistants[turn.assistants.length - 1].info || {}).time || {}
+            turnEl.appendChild(renderReasoningBlock(
+              reasoningTexts,
+              typeof lastTime.completed === "number" && typeof lastTime.created === "number"
+                ? lastTime.completed - lastTime.created
+                : 0,
+            ))
+          }
+
+          const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
+          if (proseRow) turnEl.appendChild(proseRow)
+
+          // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡,同一 8px 间距容器)
+          const { skillCalls, otherCalls } = collectToolCalls(turn, allParts)
+          const subtasks = collectSubtasks(allParts, sessionsById)
+          if (skillCalls.length > 0 || otherCalls.length > 0 || subtasks.length > 0) {
+            const toolsWrap = document.createElement("div")
+            toolsWrap.className = "tool-cards"
+            if (skillCalls.length > 0) buildToolGroupCards(skillCalls, toolsWrap)
+            if (otherCalls.length > 0) buildToolGroupCards(otherCalls, toolsWrap)
+            for (const st of subtasks) toolsWrap.appendChild(buildSubtaskCard(st))
+            turnEl.appendChild(toolsWrap)
+          }
+          // 文件操作摘要 + 涉及文件列表(对齐 design FileOpsSummary / ProducedFilesList)
+          const fileOps = buildFileOps(otherCalls)
+          if (fileOps) turnEl.appendChild(fileOps)
+          const producedFiles = buildProducedFiles(otherCalls)
+          if (producedFiles) turnEl.appendChild(producedFiles)
+
+          for (const a of artifacts) {
+            const card = document.createElement("div")
+            card.className = "artifact-card"
+            const icon = document.createElement("img")
+            icon.className = "artifact-card-icon"
+            icon.src = artifactIconSrc(a.type)
+            icon.alt = ""
+            const body = document.createElement("div")
+            body.className = "artifact-card-body"
+            const title = document.createElement("span")
+            title.className = "artifact-card-title"
+            title.textContent = a.title || a.type
+            body.appendChild(title)
+            if (cardTime !== null) {
+              const meta = document.createElement("span")
+              meta.className = "artifact-card-meta"
+              meta.textContent = formatTime(new Date(cardTime))
+              body.appendChild(meta)
+            }
+            card.appendChild(icon)
+            card.appendChild(body)
+            turnEl.appendChild(card)
+          }
+
+          // 中断提示(对齐 design isAborted 的 MessageDivider)
+          if (turn.assistants.some(m => ((m.info || {}).error || {}).name === "MessageAbortedError")) {
+            turnEl.appendChild(buildDivider("已中断"))
+          }
+        }
+
+        // hover 元信息:agent · model · 耗时 · 中断(对齐 design turnMeta)
+        const meta = buildTurnMeta(turn)
+        if (meta) turnEl.appendChild(meta)
+
+        list.appendChild(turnEl)
+      }
+
+      // 无任何 turn 可渲染(消息为空)→ 空状态
+      if (list.children.length === 0) {
+        showEmptyState()
+        return
+      }
+
+      // 渲染完成后标记超长代码块为可展开(对齐 design updateCodeExpandState:scrollHeight > 320 + 4)
+      markExpandableCodeBlocks(list)
+    }
+
+    // 思考过程折叠块(对齐 design insight-turn.tsx ReasoningCollapsed:已深度思考(用时X)+ 展开内容)
+    function formatDuration(ms) {
+      const secs = Math.round(ms / 1000)
+      if (secs <= 0) return ""
+      if (secs < 60) return secs + "s"
+      const m = Math.floor(secs / 60)
+      const s = secs % 60
+      return s > 0 ? m + "m " + s + "s" : m + "m"
+    }
+    function renderReasoningBlock(texts, durationMs) {
+      const wrap = document.createElement("div")
+      wrap.className = "turn-reasoning"
+      const toggle = document.createElement("button")
+      toggle.type = "button"
+      toggle.className = "reasoning-toggle"
+      toggle.setAttribute("data-open", "false")
+      toggle.setAttribute("aria-expanded", "false")
+      const duration = formatDuration(durationMs)
+      toggle.innerHTML =
+        "<span>已深度思考</span>" +
+        (duration ? "<span>（用时" + duration + "）</span>" : "") +
+        "<span style=\"display:inline-flex;align-items:center;flex-shrink:0;\">" + CODE_CHEVRON_SVG + "</span>"
+      const body = document.createElement("div")
+      body.className = "reasoning-body"
+      body.style.display = "none"
+      for (let idx = 0; idx < texts.length; idx++) {
+        if (idx > 0) {
+          const divider = document.createElement("div")
+          divider.className = "reasoning-divider"
+          body.appendChild(divider)
+        }
+        const p = document.createElement("p")
+        p.textContent = texts[idx]
+        body.appendChild(p)
+      }
+      toggle.addEventListener("click", () => {
+        const open = toggle.getAttribute("data-open") === "true"
+        toggle.setAttribute("data-open", String(!open))
+        toggle.setAttribute("aria-expanded", String(!open))
+        body.style.display = open ? "none" : ""
+      })
+      wrap.appendChild(toggle)
+      wrap.appendChild(body)
+      return wrap
+    }
+
+    // 代码块超长标记 + 复制/展开(事件委托,一次绑定)
+    function markExpandableCodeBlocks(scope) {
+      for (const box of scope.querySelectorAll('[data-component="markdown-code"]')) {
+        const pre = box.querySelector("pre")
+        if (pre && pre.scrollHeight > 320 + 4) box.setAttribute("data-expandable", "true")
+      }
+    }
+    function bindMarkdownCodeActions(root) {
+      if (root.dataset.codeActionsBound === "true") return
+      root.dataset.codeActionsBound = "true"
+      root.addEventListener("click", (e) => {
+        const btn = e.target instanceof Element ? e.target.closest(".markdown-code-btn") : null
+        if (!btn) return
+        const box = btn.closest('[data-component="markdown-code"]')
+        if (!box) return
+        if (btn.dataset.action === "copy") {
+          const code = box.querySelector("pre")
+          const text = code ? code.textContent : ""
+          const markCopied = () => {
+            btn.dataset.copied = "true"
+            setTimeout(() => { btn.dataset.copied = "false" }, 2000)
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(markCopied).catch(() => copyViaTextarea(text, markCopied))
+          } else {
+            copyViaTextarea(text, markCopied)
+          }
+        } else if (btn.dataset.action === "expand") {
+          const expanded = box.getAttribute("data-expanded") === "true"
+          if (expanded) box.removeAttribute("data-expanded")
+          else box.setAttribute("data-expanded", "true")
+        }
+      })
+    }
+    function copyViaTextarea(text, done) {
+      const textarea = document.createElement("textarea")
+      textarea.value = text
+      textarea.setAttribute("readonly", "")
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      document.body.appendChild(textarea)
+      textarea.select()
+      const ok = document.execCommand("copy")
+      textarea.remove()
+      if (ok) done()
+    }
+
+    // artifact 图标(对齐 design cardTypeIconSrc:所有类型统一返回 AI 文档图标)
+    // 走 share/icons/ 与其他图标同源,避免根路径 /AI_doc_plaintext.svg 在独立部署的 share 域名/路径下 404
+    function artifactIconSrc(_type) {
+      return FILE_ICON_BASE + "AI_doc_plaintext.svg"
+    }
+
+    // 时间格式化(对齐 design insight-turn.tsx formatTime)
+    function formatTime(d) {
+      return d.toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    }
+  </script>
+</body>
+</html>
