@@ -1,7 +1,7 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
-import type { ModelEditConfig } from '../components/model-edit-items/types'
+import type { IconConfig, IconConfirmArgs, ModelEditConfig } from '../components/model-edit-items/types'
 import defaultHandler, { defaultModelEditConfig, directModelEditConfig, DownloadCancelledError } from './default'
-import { demoIconConfig } from './demo'
+
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
@@ -9,6 +9,7 @@ import { createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
 import JSZip from 'jszip'
 import { createHistoryStore, fnv1aHash, relativePathToId, resolveRelativePath, getExt, VERSION_MANIFEST_FILE } from '../utils/history-store'
+import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
 
@@ -62,7 +63,68 @@ function applySelectorHint(body: string): string {
 }
 
 const pageAssetConfig = directModelEditConfig.assetConfig!
-const pageIconConfig = demoIconConfig   // 提示词模式：onConfirm 返回完整图标改动 prompt，由模型改源码后重新编译
+
+/**
+ * 图标配置项（IconConfig）—— 提示词替换版本示例
+ * 提示词模式：onConfirm 返回完整图标改动 prompt，由模型改源码后重新编译
+ */
+const pageIconConfig: IconConfig = {
+  // 自定义图标上传目录：HTML 同级 uploads/；无 filePath 时回退会话 assets 目录
+  getCustomIconDir: ({ sessionDir, filePath }) => {
+    if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
+    return `${sessionDir}/.octo/${sessionDir}/assets`
+  },
+  // 打开面板时从元素 data-icon-* 属性还原当前图标状态（回显）
+  getInitialState: (dom) => ({
+    name: dom.attributes['data-icon-name'] || '',
+    id: dom.attributes['data-icon-id'] || '',
+    isCustom: dom.attributes['data-icon-custom'] === 'true',
+    size: dom.attributes['data-icon-size'] || '24',
+    style: dom.attributes['data-icon-style'] || 'outline',
+    color: dom.attributes['data-icon-color'] || '#191919',
+    src: dom.attributes['data-icon-src'] || undefined,
+  }),
+  data: {
+    // 形状选项：label 展示文案，value 写入 data-icon-style
+    styles: [
+      { key: '线性', label: '线性', value: 'outline' },
+      { key: '线性双色', label: '线性双色', value: 'two-tone' },
+      { key: '方底托', label: '方底托', value: 'square' },
+      { key: '圆底托', label: '圆底托', value: 'circle' },
+    ],
+    // 语义色表：键为面板选色 key，twoColor/threeColor 供双色/三色图标配色
+    colors: iconColors,
+    // 尺寸快捷选项（px），写入 data-icon-size
+    sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
+    // 自定义上传允许的文件类型
+    acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
+  },
+  onConfirm: async ({ current, dom, filePath }: IconConfirmArgs) => {
+    // 不下载 SVG、不替换 DOM——只把图标弹窗面板拿到的数据给 AI，
+    // 由 AI 在源码中定位图标代码并改成目标数据；已有的 icon 组件会根据这些数据
+    // 请求 SVG 并展示，无需前端下载替换。
+    const lines: string[] = []
+    lines.push(`[文件路径: ${filePath}]`)
+    lines.push('')
+    lines.push('请修改以下元素的图标:')
+    lines.push(`标签: <${dom.tagName}>`)
+    if (dom.className) lines.push(`类名: ${dom.className}`)
+    lines.push(`选择器: ${dom.selector}（该元素可能是动态生成的）`)
+    lines.push(`当前HTML: ${dom.htmlHint}`)
+    lines.push('')
+    lines.push('目标图标数据:')
+    lines.push(`  名称: ${current.name ?? ''}`)
+    lines.push(`  尺寸: ${current.size ?? ''}`)
+    lines.push(`  颜色: ${current.color ?? ''}`)
+    lines.push(`  形状: ${current.style ?? ''}`)
+    lines.push(`  是否自定义: ${current.isCustom ? '是' : '否'}`)
+    if (current.isCustom && current.src) lines.push(`  自定义路径: ${current.src}`)
+    lines.push('')
+    lines.push('请将该元素的图标代码修改为使用上述数据（已有 Icon 组件会根据这些数据请求 SVG 并展示，无需下载 SVG 进行替换）。')
+
+    return lines.join('\n')
+  },
+}
 
 const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
@@ -320,3 +382,4 @@ async function readVersionManifest(
     return null
   }
 }
+
