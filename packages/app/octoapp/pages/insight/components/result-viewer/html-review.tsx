@@ -112,10 +112,13 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
 const ReviewContext = createContext<ReturnType<typeof createReview>>()
 export const useHtmlReview = () => useContext(ReviewContext)
 
+// #124 标注与历史版本暂未开放测试：整体停用（隐藏工具栏入口、不注入标注桥、不写历史快照）；恢复时改回 true。
+const htmlReviewEnabled = false
+
 export function HtmlReviewProvider(props: {
   tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void; children: JSX.Element
 }) {
-  const review = createReview(props)
+  const review = htmlReviewEnabled ? createReview(props) : undefined
   return <ReviewContext.Provider value={review}>{props.children}</ReviewContext.Provider>
 }
 
