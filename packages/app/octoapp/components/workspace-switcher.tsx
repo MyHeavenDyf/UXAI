@@ -100,11 +100,15 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         .octo-ws-menu {
           position: fixed; z-index: 99999;
           display: flex; flex-direction: column; gap: 2px;
-          width: 280px; max-height: 340px; overflow-y: auto;
+          width: 280px; max-height: 340px; overflow: hidden;
           padding: 4px; background: #ffffff;
           border: 1px solid #E5E7EB; border-radius: 8px;
           box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
           animation: octo-ws-pop-in 120ms cubic-bezier(0.23,1,0.32,1);
+        }
+        .octo-ws-list {
+          flex: 1 1 auto; min-height: 0; overflow-y: auto;
+          display: flex; flex-direction: column; gap: 2px;
         }
         @keyframes octo-ws-pop-in { from { opacity: 0; } to { opacity: 1; } }
         .octo-ws-item {
@@ -133,6 +137,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           display: flex; align-items: center; gap: 8px;
           padding: 8px; font-size: 14px; line-height: 20px;
           color: rgba(0,0,0,0.9);
+          flex-shrink: 0;
         }
       `}</style>
       <button
@@ -177,30 +182,34 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         <Portal>
           <div class="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
           <div class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
-            <For each={projects()}>
-              {(project) => (
-                <button
-                  type="button"
-                  class="octo-ws-item"
-                  classList={{ "octo-ws-item-active": project.worktree === props.value }}
-                  onClick={() => pick(project.worktree)}
-                >
-                  <FileIcon node={{ path: project.worktree, type: "directory" }} plain class="shrink-0 size-4" />
-                  <span class="octo-ws-item-text">
-                    <span class="octo-ws-item-name">
-                      {project.name || getFilename(project.worktree)}
+            <div class="octo-ws-list">
+              <For each={projects()}>
+                {(project) => (
+                  <button
+                    type="button"
+                    class="octo-ws-item"
+                    classList={{ "octo-ws-item-active": project.worktree === props.value }}
+                    onClick={() => pick(project.worktree)}
+                  >
+                    <FileIcon node={{ path: project.worktree, type: "directory" }} plain class="shrink-0 size-4" />
+                    <span class="octo-ws-item-text">
+                      <span class="octo-ws-item-name">
+                        {project.name || getFilename(project.worktree)}
+                      </span>
+                      <span class="octo-ws-item-path">{displayPath(project.worktree)}</span>
                     </span>
-                    <span class="octo-ws-item-path">{displayPath(project.worktree)}</span>
-                  </span>
-                  <Show when={project.worktree === props.value}>
-                    <svg class="octo-ws-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </Show>
-                </button>
-              )}
-            </For>
-            <div class="octo-ws-divider" />
+                    <Show when={project.worktree === props.value}>
+                      <svg class="octo-ws-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+            <Show when={projects().length > 0}>
+              <div class="octo-ws-divider" />
+            </Show>
             <button type="button" class="octo-ws-item octo-ws-choose" onClick={() => void chooseFolder()}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="shrink-0">
                 <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
