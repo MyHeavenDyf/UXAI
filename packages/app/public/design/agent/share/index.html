@@ -96,6 +96,7 @@
     .dialog-action { display: flex; justify-content: center; margin-top: 24px; }
     .dialog-action a { display: inline-flex; align-items: center; gap: 6px; border-radius: 24px; background: #0055ff; color: #fff; padding: 10px 24px; font-size: 14px; line-height: 22px; text-decoration: none; }
     .open-app-dialog .dialog-hint { text-align: center; margin-top: 16px; }
+    .open-app-dialog .dialog-hint a { color: #0055ff; cursor: pointer; text-decoration: none; }
     /* ── conversation（对齐 design 页面 ScrollView + make-chat-content 结构）── */
     .content {
       flex: 1;
@@ -303,7 +304,7 @@
     <h2 id="open-app-title">在 Octo Agent 内继续</h2>
     <p id="open-app-description">通过分享的链接开始你的对话</p>
     <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
-    <p class="dialog-hint" id="open-app-hint">请先安装 Octo Agent，再点击打开</p>
+    <p class="dialog-hint" id="open-app-hint">你安装了此应用吗？<a href="#" target="_blank" rel="noopener noreferrer">点击下载安装</a></p>
   </dialog>
   <main class="content">
     <div class="chat-scroll-view">
@@ -503,16 +504,63 @@
       return "octo-agent"
     }
 
+    // 安装包下载地址:按运行环境选择(Windows / macOS-Intel / macOS-Apple)。
+    const INSTALLER_URL_WINDOWS = "https://octo.hdesign.huawei.com/design/agentdesktop/windows/prod/octo-desktop-win-x64.exe"
+    const INSTALLER_URL_MAC_INTEL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-x64/prod/octo-desktop-mac-x64.dmg"
+    const INSTALLER_URL_MAC_ARM = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-arm64/prod/octo-desktop-mac-arm64.dmg"
+
+    function detectOS() {
+      const ua = navigator.userAgent || ""
+      const platform = navigator.platform || ""
+      if (/Windows|Win32|Win64/i.test(platform) || /Windows/i.test(ua)) return "windows"
+      if (/Mac/i.test(platform) || /Mac OS X/i.test(ua)) return "mac"
+      return "other"
+    }
+
+    // 浏览器无法用同步 API 区分 Apple/Intel 芯片:Chrome/Edge 走 UA-CH(architecture),
+    // Safari 回退 WebGL renderer,仍无法判断时按 Apple 芯片(当前多数 Mac)处理。
+    async function detectMacAppleSilicon() {
+      if (/arm64|aarch64/i.test(navigator.userAgent || "")) return true
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        try {
+          const data = await navigator.userAgentData.getHighEntropyValues(["architecture"])
+          if (data && data.architecture) return data.architecture === "arm"
+        } catch {}
+      }
+      try {
+        const gl = document.createElement("canvas").getContext("webgl")
+        const ext = gl && gl.getExtension("WEBGL_debug_renderer_info")
+        const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ""
+        if (/Apple/i.test(renderer)) return true
+        if (/Intel|AMD|NVIDIA/i.test(renderer)) return false
+      } catch {}
+      return true
+    }
+
+    async function pickDownloadUrl() {
+      const os = detectOS()
+      if (os === "windows") return INSTALLER_URL_WINDOWS
+      if (os === "mac") return (await detectMacAppleSilicon()) ? INSTALLER_URL_MAC_ARM : INSTALLER_URL_MAC_INTEL
+      return INSTALLER_URL_WINDOWS
+    }
+
+    function renderInstallHint(url) {
+      document.getElementById("open-app-hint").innerHTML =
+        '你安装了此应用吗？<a href="' + url + '" target="_blank" rel="noopener noreferrer">点击下载安装</a>'
+    }
+
     document.getElementById("continue-btn").addEventListener("click", () => {
       const name = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
       const uniqueId = name && name !== "index" ? name : new URLSearchParams(location.search).get("uniqueId") || ""
       const link = document.getElementById("open-app-link")
+      const hint = document.getElementById("open-app-hint")
       if (/^[a-zA-Z0-9_-]{1,128}$/.test(uniqueId)) {
         link.href = `${pickDeepLinkScheme()}://share?uniqueId=${encodeURIComponent(uniqueId)}`
-        document.getElementById("open-app-hint").textContent = "请先安装 Octo Agent，再点击打开"
+        hint.textContent = "你安装了此应用吗？点击下载安装"
+        pickDownloadUrl().then(renderInstallHint).catch(() => {})
       } else {
         link.removeAttribute("href")
-        document.getElementById("open-app-hint").textContent = "分享码缺失或无效，请检查分享链接"
+        hint.textContent = "分享码缺失或无效，请检查分享链接"
       }
       document.getElementById("open-app-dialog").showModal()
     })
