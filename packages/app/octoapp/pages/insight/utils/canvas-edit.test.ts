@@ -54,8 +54,9 @@ function returned(filename: string, content: string) {
 }
 
 describe("Insight HTML 画布入口条件", () => {
-  test("占位接口始终不可用；内容、模式和会话分别给出原因", () => {
-    expect(insightCanvasTransport.available).toBe(false)
+  test("开放 Design 共用菜单；内容、模式和会话分别给出原因", () => {
+    expect(insightCanvasTransport.available).toBe(true)
+    expect(canvasDisabledReason(tab(), "preview", "s1", insightCanvasTransport.available)).toBe("")
     expect(canvasDisabledReason(tab(), "preview", "s1", false)).toContain("当前环境暂不支持")
     expect(canvasDisabledReason(tab(), "source", "s1", true)).toContain("切换到预览")
     expect(canvasDisabledReason(tab({ content: undefined }), "preview", "s1", true)).toContain("加载中")

@@ -3,7 +3,7 @@ import type { PixsoAction, UploadZipOptions } from "@/utils/useZipTransport"
 import { tracker } from "@/utils/tracker"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { createCanvasEditSession } from "./canvas-edit-session"
-import type { CanvasTransport } from "./canvas-transport"
+import { insightCanvasTransport, type CanvasTransport } from "./canvas-transport"
 
 const events: Array<{ name: string; fields: Record<string, unknown> }> = []
 const tracking = spyOn(tracker, "interaction").mockImplementation(event => { events.push({ name: event.name, fields: JSON.parse(event.extend ?? "{}") }) })
@@ -39,6 +39,13 @@ function setup(values: Partial<CanvasTransport> = {}) {
 }
 
 describe("画布操作生命周期", () => {
+  test("正式适配器与 Design 共用接口并开放三个画布菜单", async () => {
+    const sample = setup(insightCanvasTransport)
+    await sample.session.prepare()
+    expect(sample.notices).toEqual([])
+    expect(sample.state()).toMatchObject({ open: true, busy: false })
+    expect(sample.state().actions.map(action => action.label)).toEqual(["导入到画板", "打开画布", "查看文件位置"])
+  })
   test("未登录或未声明可用性不触发打包和传输", async () => {
     const sample = setup()
     sample.context.loggedIn = false

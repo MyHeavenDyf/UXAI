@@ -12,10 +12,10 @@ export type CanvasTransport = {
   } | undefined
 }
 
-// 公共接口目前是占位实现。真实对接交付后在此声明能力及回执映射，
-// 不使用环境变量把占位 success:true 当作已启用，不影响 Design 调用方。
+// 与 Design 一致开放公共接口返回的菜单。available 仅表示入口可调用，
+// 不代表真实画布已接通；缺少可验证回执的动作仍记为 unconfirmed。
 export const insightCanvasTransport: CanvasTransport = {
-  available: false,
+  available: true,
   prepare: usePixsoTransport,
   actionId: () => "other",
 }
