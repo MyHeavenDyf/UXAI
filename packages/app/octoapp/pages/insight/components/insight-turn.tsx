@@ -3,6 +3,8 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { DataProvider } from "@opencode-ai/ui/context/data"
+import { displayAssetParts } from "../utils/asset-references"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -179,6 +181,9 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  const shownParts = createMemo(() => displayAssetParts(data.store.part[props.messageID] ?? []))
+  const displayParts = new Proxy(data.store.part, { get: (_parts, key) => key === props.messageID ? shownParts() : Reflect.get(data.store.part, key) })
+  const displayData = new Proxy(data.store, { get: (_store, key) => key === "part" ? displayParts : Reflect.get(data.store, key) })
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -621,15 +626,17 @@ export function InsightTurn(props: {
       </Show>
 
       {/* I18nProvider 薄包一层:仅覆盖工具标题键(TOOL_TITLE_OVERRIDES),把过程展示换成人话 */}
-      <I18nProvider value={withInsightToolTitles(i18n)}>
-        <SessionTurn
-          sessionID={props.sessionID}
-          messageID={props.messageID}
-          status={props.status}
-          active={props.active || (props.status.type === "retry" && isLatestTurn())}
-          classes={{ root: "px-3" }}
-        />
-      </I18nProvider>
+      <DataProvider data={displayData} directory={data.directory} onNavigateToSession={data.navigateToSession} onSessionHref={data.sessionHref}>
+        <I18nProvider value={withInsightToolTitles(i18n)}>
+          <SessionTurn
+            sessionID={props.sessionID}
+            messageID={props.messageID}
+            status={props.status}
+            active={props.active || (props.status.type === "retry" && isLatestTurn())}
+            classes={{ root: "px-3" }}
+          />
+        </I18nProvider>
+      </DataProvider>
 
       <Show when={showGenerating()}>
         <div
@@ -646,7 +653,7 @@ export function InsightTurn(props: {
 
       {/* 内网知识库引用列表(SPEC-INS-030):行内 [[n]](url) 由上游 Markdown 渲染,这里补底部来源清单 */}
       <Show when={kbSources().length > 0}>
-        <KnowledgeReferences sources={kbSources()} />
+        <KnowledgeReferences sources={kbSources()} sessionId={props.sessionID} />
       </Show>
 
       {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)
@@ -658,7 +665,10 @@ export function InsightTurn(props: {
           <OutputEntryCard
             card={card}
             onClick={() => props.onOpenResult(card)}
-            onRetry={() => retryMaterialize(card)}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: card.type, source: "materialize" }) })
+              retryMaterialize(card)
+            }}
           />
         )}
       </For>

@@ -5,7 +5,7 @@
 //   - ArchiveDialogs:复用归档弹窗 + 成功弹窗,调用方持 open/target 状态,本组件负责 confirm 执行。
 // 两者均:确定即关弹窗 + toast「任务已加入任务列表」,任务(头部任务中心可见)完成后再开成功弹窗。
 
-import { createSignal, Show } from "solid-js"
+import { createEffect, createRoot, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
@@ -20,6 +20,7 @@ import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, u
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
 import { archiveFileSizeError } from "../utils/archive-size"
+import { beginInsightOperation } from "../utils/interaction-tracking"
 
 export type ArchiveTarget =
   | {
@@ -138,6 +139,7 @@ async function runArchiveHtmlTask(
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
 ): Promise<void> {
+  const finish = beginInsightOperation("archive", { sessionId: target.sessionId, mode: "html" })
   const taskId = `archive-html-${Date.now()}`
   const name = target.htmlFileName
   TaskStore.add([htmlArchiveTask(taskId, name, 0, "pending")])
@@ -172,6 +174,7 @@ async function runArchiveHtmlTask(
       if (!uploadResult.success) throw new Error("归档上传失败")
       TaskStore.finish([{ key: taskId, progress: 100, status: "completed" }])
       const viewUrl = uniqueId ? buildHtmlPreviewUrl(uniqueId) : undefined
+      finish("success", { destination: "cloud" })
       onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
     } else {
       // 未登录:无法上传到云端,仅本地下载 zip。不开成功弹窗(无云端路径/链接),用 toast 收尾即可。
@@ -184,10 +187,12 @@ async function runArchiveHtmlTask(
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      finish("success", { destination: "local" })
       TaskStore.finish([{ key: taskId, progress: 100, status: "completed" }])
       showToast({ title: "归档完成", description: "ZIP文件已下载" })
     }
   } catch (err) {
+    finish("failure", { reason: "archive" })
     TaskStore.error([{ key: taskId, status: "error" }])
     console.error("[Archive] Failed:", err)
     showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
@@ -209,9 +214,17 @@ async function runArchiveFileTask(
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
 ): Promise<void> {
+  const report = beginInsightOperation("archive", { sessionId: target.sessionId, mode: "file" })
+  let stopWatching: (() => void) | undefined
+  const finish: typeof report = (status, fields) => {
+    report(status, fields)
+    stopWatching?.()
+    stopWatching = undefined
+  }
   try {
     const file = await target.getFile()
     if (!file) {
+      finish("failure", { reason: "file-unavailable" })
       showToast({ title: "归档失败", description: "无法获取文件内容" })
       return
     }
@@ -220,6 +233,7 @@ async function runArchiveFileTask(
     // (空文件 = 0 字节同样在此拦)。
     const sizeErr = archiveFileSizeError(file.size)
     if (sizeErr) {
+      finish("failure", { reason: "file-size" })
       showToast({ title: "归档失败", description: sizeErr })
       return
     }
@@ -227,7 +241,10 @@ async function runArchiveFileTask(
     dt.items.add(file)
     // apiFetch 失败时已弹 toast 并返回 null(见 pipelineRequest.reportRequestError),这里仅判空返回。
     const activity = await getActivityByTeam(data.teamId)
-    if (!activity) return
+    if (!activity) {
+      finish("failure", { reason: "activity" })
+      return
+    }
     // TaskStore 的 add/progress/finish/error 在本业务回调里调(EdmUtil 不再包办)。
     EdmUtil.upload(dt.files, {
       onInit: (taskId, files) => {
@@ -248,6 +265,19 @@ async function runArchiveFileTask(
           createdAt: Date.now(),
           fileIndex: index,
         })))
+        // Observe only this archive's tasks. Keep observing across dialog closure,
+        // and release the observer on any terminal result (no global store change).
+        stopWatching?.()
+        stopWatching = createRoot((dispose) => {
+          createEffect(() => {
+            const items = TaskStore.items().filter((item) => item.taskId === taskId)
+            if (items.length && items.every((item) => item.status === "cancelled")) {
+              finish("cancelled")
+              dispose()
+            }
+          })
+          return dispose
+        })
         showToast({ title: "该任务已添加到任务列表" })
       },
       onProgress: (taskId, files) => {
@@ -264,7 +294,10 @@ async function runArchiveFileTask(
         const live = files
           .map((file, index) => ({ file, index, key: `${taskId}-${index}` }))
           .filter((e) => !TaskStore.wasCancelled(e.key))
-        if (live.length === 0) return
+        if (live.length === 0) {
+          finish("cancelled")
+          return
+        }
         TaskStore.finish(live.map((e) => ({
           key: e.key,
           progress: 100,
@@ -279,16 +312,22 @@ async function runArchiveFileTask(
         })
           .then((res) => {
             // apiFetch 失败返回 null(已 toast);成功返回 UploadDeliverableResult[](归档一个文件 → 取 [0])。
-            if (!res || res.length === 0) return
+            if (!res || res.length === 0) {
+              finish("failure", { reason: "deliverable" })
+              return
+            }
             const id = res[0].id
             const viewUrl = id > 0 ? buildDeliverableViewUrl(id) : undefined
+            finish("success", { destination: "cloud" })
             onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
           })
           .catch((e) => {
+            finish("failure", { reason: "deliverable" })
             showToast({ title: "归档失败", description: e instanceof Error ? e.message : String(e) })
           })
       },
       onError: (taskId, errors) => {
+        finish(TaskStore.wasCancelled(`${taskId}-0`) ? "cancelled" : "failure", { reason: "upload" })
         TaskStore.error(TaskStore.items()
           .filter((f) => f.taskId === taskId)
           .map((f) => ({ key: f.key, status: "error" })))
@@ -296,6 +335,7 @@ async function runArchiveFileTask(
       },
     })
   } catch (err) {
+    finish("failure", { reason: "archive" })
     showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
   }
 }

@@ -1,9 +1,12 @@
 import { Hono } from "hono"
+import { HTTPException } from "hono/http-exception"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
+import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
+import { previewSession, PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -24,7 +27,7 @@ import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
-import { zodObject } from "@/util/effect-zod"
+import { zod, zodObject } from "@/util/effect-zod"
 import { Bus } from "@/bus"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { jsonRequest, runRequest } from "./trace"
@@ -122,6 +125,120 @@ export const SessionRoutes = lazy(() =>
           const svc = yield* SessionStatus.Service
           return Object.fromEntries(yield* svc.list())
         }),
+    )
+    .post(
+      "/import",
+      describeRoute({
+        summary: "Import portable session",
+        description: "Import a complete session tree, including messages, todos, uploads, and outputs.",
+        operationId: "session.portableImport",
+        responses: {
+          200: {
+            description: "Imported portable session",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    sessionID: SessionID.zod,
+                    sessions: z.number(),
+                    files: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string().min(1) })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableImport", c, function* () {
+          return yield* importPortableSession(c.req.valid("json").path)
+        }),
+    )
+    .post(
+      "/:sessionID/export",
+      describeRoute({
+        summary: "Export portable session",
+        description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
+        operationId: "session.portableExport",
+        responses: {
+          200: {
+            description: "Exported portable session",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    output: z.string(),
+                    sessions: z.number(),
+                    files: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", z.object({ path: z.string().min(1) })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableExport", c, function* () {
+          return yield* exportPortableSession({
+            sessionID: c.req.valid("param").sessionID,
+            output: c.req.valid("json").path,
+          })
+        }),
+    )
+    .post(
+      "/:sessionID/portable-share",
+      describeRoute({
+        summary: "Share portable session",
+        description: "Export a complete session, upload its ZIP archive, and return a shareable web URL.",
+        operationId: "session.portableShare",
+        responses: {
+          200: {
+            description: "Shared portable session",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ uniqueId: z.string(), url: z.string().url() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) =>
+        jsonRequest("SessionRoutes.portableShare", c, function* () {
+          return yield* sharePortableSession({
+            sessionID: c.req.valid("param").sessionID,
+            headers: Object.fromEntries(c.req.raw.headers.entries()),
+          }).pipe(
+            Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
+          )
+        }),
+    )
+    .get(
+      "/:sessionID/share-preview",
+      describeRoute({
+        summary: "Preview shared conversation",
+        description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+        operationId: "session.sharePreview",
+        responses: {
+          200: { description: "Read-only share preview", content: { "application/json": { schema: resolver(zod(PreviewPage)) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("query", z.object({ limit: z.coerce.number().int().min(1).max(20).optional(), before: z.string().optional() })),
+      async (c) => c.json(await runRequest("SessionRoutes.sharePreview", c, Effect.gen(function* () {
+        const query = c.req.valid("query")
+        if (query.before) {
+          yield* Effect.try({ try: () => MessageV2.cursor.decode(query.before!), catch: () => new HTTPException(400, { res: Response.json({ message: "Invalid preview cursor" }, { status: 400 }) }) })
+        }
+        return yield* previewSession({ ...c.req.valid("param"), ...query })
+      }))),
     )
     .get(
       "/:sessionID",

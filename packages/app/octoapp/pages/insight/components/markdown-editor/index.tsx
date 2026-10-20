@@ -11,6 +11,7 @@ import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { interceptExternalLink } from "../../utils/external-link"
 import { usePlatform } from "@/context/platform"
 import { useParams } from "@solidjs/router"
+import { beginInsightOperation } from "../../utils/interaction-tracking"
 
 // 无边框窗口(titleBarStyle:"hidden")macOS 在左上画红绿灯,留出避让宽度(与 _shell/topbar 一致)
 const TRAFFIC_LIGHT_INSET = 80
@@ -169,9 +170,14 @@ export function MarkdownEditor(props: {
   const fileName = () => ensureMarkdownExt(defaultFilename(props.tab))
 
   async function doSave(value: string) {
-    if (!targetPath) return
+    const finish = beginInsightOperation("md-save", { sessionId: params.id, source: props.tab.source })
+    if (!targetPath) {
+      finish("failure", { reason: "path-unavailable" })
+      return
+    }
     const api = getDesktopApi()
     if (typeof api?.writeFile !== "function") {
+      finish("failure", { reason: "write-unavailable" })
       setSaveState("error")
       setSaveError("缺少 window.api.writeFile")
       showToast({ title: "保存失败", description: "桌面端缺少 writeFile 能力,请联系开发团队补壳", variant: "error" })
@@ -181,10 +187,12 @@ export function MarkdownEditor(props: {
     console.log("[octo:mdedit] save-start", { path: targetPath, bytes: value.length })
     try {
       await api.writeFile!(targetPath, value)
+      finish("success")
       console.log("[octo:mdedit] save-ok", { path: targetPath, bytes: value.length })
       setSaveState("saved")
       setSaveError("")
     } catch (err) {
+      finish("failure", { reason: "write" })
       const msg = err instanceof Error ? err.message : String(err)
       console.error("[octo:mdedit] save-failed", { path: targetPath, err: msg })
       setSaveState("error")

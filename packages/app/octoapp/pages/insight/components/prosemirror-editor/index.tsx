@@ -30,7 +30,7 @@ export interface InsightEditorRef {
   /** 覆盖式回填「文本 + 引用」(排队项回填):按 @名 重建 mention 胶囊,selections 由 syncPlugin 自动派生 */
   setContent: (text: string, mentions: MentionAttrs[]) => void
   isAlive: () => boolean
-  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined) => void
+  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined, cursor?: "start" | "end") => void
 }
 
 
@@ -110,7 +110,7 @@ export function ProseMirrorEditor(props: Props) {
     const selections: MentionSelection[] = mentions.map((m) =>
       m.type === "skill"
         ? { type: "skill", name: m.name, label: m.label }
-        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined },
+        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.isFolder },
     )
     props.setMentionSelections(selections)
     setIsEmpty(empty)
@@ -221,12 +221,12 @@ export function ProseMirrorEditor(props: Props) {
         v.dispatch(tr)
       },
       isAlive: () => connected(view()),
-      replaceDoc: (json) => {
+      replaceDoc: (json, cursor = "start") => {
         const v = view()
         if (!connected(v)) return
         const doc = restoreDoc(json)
         const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, doc.content)
-        tr.setSelection(TextSelection.atStart(tr.doc))
+        tr.setSelection(cursor === "end" ? TextSelection.atEnd(tr.doc) : TextSelection.atStart(tr.doc))
         v.dispatch(tr)
       },
     })
@@ -235,7 +235,7 @@ export function ProseMirrorEditor(props: Props) {
     props.setMentionSelections(initialMentions.map((mention) =>
       mention.type === "skill"
         ? { type: "skill", name: mention.name, label: mention.label }
-        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined },
+        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined, isFolder: mention.isFolder },
     ))
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)
@@ -297,7 +297,7 @@ export function ProseMirrorEditor(props: Props) {
     const attrs =
       selection.type === "skill"
         ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-        : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+        : { id: selection.id ?? selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path, isFolder: selection.isFolder ?? false }
 
     const node = editorSchema.nodes.mention.create(attrs)
     // 文件走多选:在 @query 后(光标处)插入胶囊,保留 @query 与浮窗以继续选择下一项;

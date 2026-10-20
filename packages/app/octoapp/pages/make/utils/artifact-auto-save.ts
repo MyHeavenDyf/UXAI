@@ -1,5 +1,6 @@
 import type { OutputCard } from "../components/insight-turn"
 import { getDesktopApi } from "../lib/electron-api"
+import type { WorkspaceKind } from "@/context/server"
 
 export const ARTIFACTS_SUBDIR = ".octo"
 
@@ -38,15 +39,19 @@ export function hasExtension(title: string, type: OutputCard["type"]): boolean {
   return title.toLowerCase().endsWith(ext.toLowerCase())
 }
 
+// kind="code"(代码工作区): 产物落项目根目录,所有 session 共享;
+// 缺省 "normal": 落 <projectDir>/.octo/<sessionId>/outputs/ (原行为)。
 export function computeArtifactFilePath(
   title: string,
   type: OutputCard["type"],
   sessionId: string,
   projectDir: string,
+  kind?: WorkspaceKind,
 ): string {
   const sep = projectDir.includes("\\") ? "\\" : "/"
   const baseName = hasExtension(title, type) ? title : title + getExtension(type)
   const filename = sanitizeFilename(baseName)
+  if (kind === "code") return [projectDir, filename].join(sep)
   return [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, "outputs", filename].join(sep)
 }
 
@@ -55,14 +60,15 @@ export async function inferArtifactFilePath(
   type: OutputCard["type"],
   sessionId: string,
   projectDir: string,
+  kind?: WorkspaceKind,
 ): Promise<{ filePath: string; exists: boolean }> {
   const api = getDesktopApi()
-  const filePath = computeArtifactFilePath(title, type, sessionId, projectDir)
-  
+  const filePath = computeArtifactFilePath(title, type, sessionId, projectDir, kind)
+
   if (!api?.readFileBuffer) {
     return { filePath, exists: false }
   }
-  
+
   const existing = await api.readFileBuffer(filePath)
   return { filePath, exists: existing !== null }
 }
@@ -71,6 +77,7 @@ export async function autoSaveArtifact(
   sessionId: string,
   card: OutputCard,
   projectDir: string,
+  kind?: WorkspaceKind,
 ): Promise<string | undefined> {
   const api = getDesktopApi()
   if (!api?.writeFileBuffer || !api?.readFileBuffer) return
@@ -81,10 +88,7 @@ export async function autoSaveArtifact(
   const content = extractFileContent(card)
   if (!content) return
 
-  const sep = projectDir.includes("\\") ? "\\" : "/"
-  const baseName = hasExtension(card.title, card.type) ? card.title : card.title + getExtension(card.type)
-  const filename = sanitizeFilename(baseName)
-  const filePath = [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, "outputs", filename].join(sep)
+  const filePath = computeArtifactFilePath(card.title, card.type, sessionId, projectDir, kind)
 
   // 检查文件是否已存在，不覆盖用户编辑的内容
   const existing = await api.readFileBuffer(filePath)

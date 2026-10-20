@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js"
 import "./knowledge-references.css"
+import { trackInsight } from "../utils/interaction-tracking"
 
 // 内网知识库引用列表(SPEC-INS-030 §2 引用 UI 重建)。
 //
@@ -63,7 +64,7 @@ export function readKnowledgeSources(parts: Array<Record<string, unknown>>): Kno
 // 附带收益:`<a href>` 支持右键复制链接 / 中键新标签页打开,button 做不到。
 
 /** 回答下方的折叠「引用 N 篇资料」列表;编号与正文里的 [n] 对应。 */
-export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
+export function KnowledgeReferences(props: { sources: KnowledgeSource[]; sessionId?: string }) {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="octo-kb-refs">
@@ -86,6 +87,13 @@ export function KnowledgeReferences(props: { sources: KnowledgeSource[] }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     title={s.title}
+                    onClick={() => {
+                      // 只打点,**不 preventDefault / 不 stopPropagation** —— 导航仍由 href 与桌面壳
+                      // 那个全局 `a.external-link` 监听负责(见上方注释)。本处理器在目标阶段先跑,
+                      // 再冒泡到 document,两件事都发生。trackInsight 自带 try/catch,打点失败不会
+                      // 拦住用户的跳转。
+                      trackInsight("knowledge-reference-open", { sessionId: props.sessionId, source: "reference-list", index: s.n })
+                    }}
                   >
                     {s.title}
                   </a>

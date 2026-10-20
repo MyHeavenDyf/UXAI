@@ -20,9 +20,11 @@ import {
   type StudioTemplateVisibleUser,
 } from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
+import { useLanguage } from "@/context/language"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
+import { StudioDownloadIcon } from "./studio-download-icon"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -99,9 +101,11 @@ export function StudioConversation(props: {
   actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
   rebootingGenerationIDs: ReadonlySet<string>
+  refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
+  onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
   onUseInputImage: (url: string) => void
@@ -193,9 +197,11 @@ export function StudioConversation(props: {
                   actionBusy={props.actionBusy}
                   cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
                   rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
+                  refreshing={Boolean(turn.result && props.refreshingGenerationIDs.has(turn.result.id))}
                   onCancelGeneration={props.onCancelGeneration}
                   onEditGeneration={props.onEditGeneration}
                   onRebootGeneration={props.onRebootGeneration}
+                  onRefreshGeneration={props.onRefreshGeneration}
                   onSelectImage={props.onSelectImage}
                 />
               </Show>
@@ -321,6 +327,7 @@ export function StudioResultCanvas(props: {
   onTemplateCreatorClose: (key: string) => void
   children?: JSX.Element
 }): JSX.Element {
+  const language = useLanguage()
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
   // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
@@ -329,13 +336,13 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
     return props.image
   })
   const shouldShowCanvas = createMemo(() => {
     if (props.canvasView === "template-creator") return true
     // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return false
     return !!showImage() || (props.showFileManager === true && !fileManagerLoading()) || props.templateCreatorTabOpen
   })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
@@ -393,7 +400,7 @@ export function StudioResultCanvas(props: {
     <>
       <Show when={shouldShowCanvas()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
-          <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
+          <Show when={props.status === "creating" || props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
                 <div class="text-[16px] font-semibold text-[#b42318]">
@@ -558,7 +565,7 @@ export function StudioResultCanvas(props: {
                   sessionID={props.sessionID}
                 />
               </div>
-              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                 <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
@@ -577,7 +584,7 @@ export function StudioResultCanvas(props: {
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
                   <Show when={showImage()} fallback={
-                    <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+                    <Show when={props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                       <StudioEmptyState />
                     </Show>
                   }>
@@ -648,36 +655,32 @@ export function StudioResultCanvas(props: {
                     }>
                       <div class="studio-canvas-action-group">
                         <button type="button" onClick={props.onUpscale} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.upscale")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
-                          <span>变清晰</span>
+                          <span>{language.t("studio.action.upscale")}</span>
                         </button>
                         <button type="button" onClick={props.onCutout} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.cutout")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
-                          <span>抠图</span>
+                          <span>{language.t("studio.action.cutout")}</span>
                         </button>
                         <button type="button" onClick={props.onInpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.inpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
-                          <span>智能重绘</span>
+                          <span>{language.t("studio.action.inpaint")}</span>
                         </button>
                         <button type="button" onClick={props.onOutpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.outpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
-                          <span>扩图</span>
+                          <span>{language.t("studio.action.outpaint")}</span>
                         </button>
                       </div>
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span>下载</span>
+                    <StudioDownloadIcon />
+                    <span>{language.t("studio.action.download")}</span>
                   </button>
                 </div>
               </div>
@@ -800,7 +803,8 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-export function StudioEmptyState(): JSX.Element {
+export function StudioEmptyState(props: { label?: string } = {}): JSX.Element {
+  const language = useLanguage()
   return (
     <>
       <div class="studio-empty-state-dots">
@@ -810,7 +814,7 @@ export function StudioEmptyState(): JSX.Element {
         <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "116px", left: "80px", background: "#7f78f1", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
         <span class="studio-empty-dot" style={{ width: "20px", height: "20px", top: "80px", left: "116px", background: "#5c77f4", animation: "studio-float-5 2s ease-in-out infinite 1.4s" }} />
       </div>
-      <div class="text-[14px] font-bold pl-[20px]">生成中...</div>
+      <div class="text-[14px] font-bold pl-[20px]">{props.label ?? language.t("studio.generating")}</div>
     </>
   )
 }
@@ -822,6 +826,7 @@ export function StudioDetails(props: {
   imageLabel: string
   regenerateDisabled: boolean
   showVideoGeneration: boolean
+  hideCover?: boolean
   onSelectImage: (id: string) => void
   onRegenerate: () => void
   onGenerateVideo: () => void
@@ -863,27 +868,29 @@ export function StudioDetails(props: {
   })
   return (
     <ScrollView class="studio-detail-panel">
-      <div class="studio-detail-cover">
-        <For each={props.result.images}>
-          {(image, mediaIndex) => (
-            <button
-              type="button"
-              onClick={() => props.onSelectImage(image.id)}
-              class="studio-detail-preview-button"
-              classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
-            >
-              <StudioMediaThumbnail
-                image={image}
-                class="studio-detail-preview-image"
-                duration={props.result.duration}
-                generationID={props.result.id}
-                mediaIndex={mediaIndex()}
-              />
-            </button>
-          )}
-        </For>
-      </div>
-      <section class="studio-detail-section">
+      <Show when={!props.hideCover}>
+        <div class="studio-detail-cover">
+          <For each={props.result.images}>
+            {(image, mediaIndex) => (
+              <button
+                type="button"
+                onClick={() => props.onSelectImage(image.id)}
+                class="studio-detail-preview-button"
+                classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
+              >
+                <StudioMediaThumbnail
+                  image={image}
+                  class="studio-detail-preview-image"
+                  duration={props.result.duration}
+                  generationID={props.result.id}
+                  mediaIndex={mediaIndex()}
+                />
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <section class="studio-detail-section" classList={{ "studio-detail-section--no-divider": props.hideCover }}>
         <div class="studio-detail-title">{detailTitle()}</div>
         <p class="studio-detail-copy">
           {detailCopy()}
@@ -904,7 +911,7 @@ export function StudioDetails(props: {
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <Show when={isVideoResult()}>
-          <InfoRow label="分辨率" value={props.result.videoQualityMode ? STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode].toUpperCase() : "-"} />
+          <InfoRow label="分辨率" value={(props.result.videoQualityMode && STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode]?.toUpperCase()) || "-"} />
         </Show>
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>

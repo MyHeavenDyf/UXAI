@@ -76,6 +76,7 @@ const DEFAULT_NAV_ITEMS = [
 ] as const
 
 export type SidebarShellProps = ParentProps & {
+  onNavigation?: (target: "project" | "skills" | "assets" | "settings" | "update") => void
   /** Show ProjectInfo at top. Default true. */
   showProjectInfo?: boolean
   /** Show bottom nav (技能库 etc). Default true. */
@@ -169,7 +170,7 @@ export function SidebarShell(props: SidebarShellProps) {
       {/* ─── Top: ProjectInfo + New button + Divider ─── */}
       <div class="shrink-0 flex flex-col px-[12px]">
         <Show when={props.showProjectInfo !== false}>
-          <ProjectInfo />
+          <ProjectInfo onOpen={() => props.onNavigation?.("project")} />
         </Show>
         <div class="relative">
           <button
@@ -234,7 +235,10 @@ export function SidebarShell(props: SidebarShellProps) {
               <Show when={!item.hidden}>
                 <button
                   type="button"
-                  onClick={() => props.onNavClick?.(item.key)}
+                  onClick={() => {
+                    if (item.key === "skill_market" || item.key === "knowledge_base") props.onNavigation?.(item.key === "skill_market" ? "skills" : "assets")
+                    props.onNavClick?.(item.key)
+                  }}
                   title={item.label}
                   classList={{
                     "w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]": true,
@@ -289,9 +293,11 @@ export function SidebarShell(props: SidebarShellProps) {
           onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
           onClick={() => {
             if (props.onSettingsClick) {
+              props.onNavigation?.("settings")
               props.onSettingsClick()
             } else {
               setSettingsActive(true)
+              props.onNavigation?.("settings")
               dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
             }
           }}
@@ -314,7 +320,7 @@ export function SidebarShell(props: SidebarShellProps) {
             />
           </Show>
         </button>
-        <UpdateButton />
+        <UpdateButton onOpen={() => props.onNavigation?.("update")} />
       </div>
     </div>
   )

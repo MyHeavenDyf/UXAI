@@ -3,7 +3,9 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, refreshGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
+import { deleteStudioHistoryMedia, listStudioHistoryExcludedIds, listStudioHistoryMedia, snapshotSessionMedia, splitHistoryFilter, studioHistoryRevision } from "@/studio/studio-history-service"
+import { Instance } from "@/project/instance"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -143,6 +145,23 @@ const StudioEditorEntryInput = z.object({
     "image.outpaint",
   ]),
   entryID: z.string().min(1),
+})
+
+const StudioHistorySnapshotInput = z.object({
+  sessionID: z.string(),
+})
+
+const StudioHistoryDeleteInput = z.object({
+  mediaIds: z.array(z.string()),
+})
+
+const StudioHistoryListQuery = z.object({
+  kind: z.enum(["image", "video"]).optional(),
+  resolution: z.string().optional(),
+  ratio: z.string().optional(),
+  sort: z.enum(["desc", "asc"]).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
 })
 
 export const StudioRoutes = lazy(() =>
@@ -405,5 +424,102 @@ export const StudioRoutes = lazy(() =>
     )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
   .post("/generations/:generationID/reboot", async (c) => c.json(await rebootGeneration(c.req.param("generationID"))))
-  .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
+  .post("/generations/:generationID/refresh", async (c) => c.json(await refreshGeneration(c.req.param("generationID"))))
+  .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID"))))
+  .get(
+    "/history",
+    describeRoute({
+      summary: "List Studio history media",
+      description: "Returns all Studio media across sessions, including media from deleted sessions.",
+      operationId: "studio.history.list",
+      responses: {
+        200: {
+          description: "Studio history media list",
+          content: { "application/json": { schema: resolver(z.unknown()) } },
+        },
+        ...errors(400),
+      },
+    }),
+    validator("query", StudioHistoryListQuery),
+    async (c) => {
+      const query = c.req.valid("query")
+      return c.json(
+        listStudioHistoryMedia(Instance.directory, {
+          kind: query.kind,
+          resolutions: splitHistoryFilter(query.resolution),
+          ratios: splitHistoryFilter(query.ratio),
+          sort: query.sort,
+          cursor: query.cursor,
+          limit: query.limit,
+        }),
+      )
+    },
+  )
+  .post(
+    "/history/snapshot",
+    describeRoute({
+      summary: "Snapshot session media to history",
+      description: "Copies a session's media to the history table before session deletion.",
+      operationId: "studio.history.snapshot",
+      responses: {
+        200: {
+          description: "Snapshot result",
+          content: { "application/json": { schema: resolver(z.unknown()) } },
+        },
+        ...errors(400),
+      },
+    }),
+    validator("json", StudioHistorySnapshotInput),
+    async (c) =>
+      c.json({ snapshotted: snapshotSessionMedia(Instance.directory, c.req.valid("json").sessionID) }),
+  )
+  .post(
+    "/history/delete",
+    describeRoute({
+      summary: "Delete Studio history media",
+      description: "Permanently removes history media entries. The underlying session generation data and files are not deleted.",
+      operationId: "studio.history.delete",
+      responses: {
+        200: {
+          description: "Deleted media count",
+          content: { "application/json": { schema: resolver(z.unknown()) } },
+        },
+        ...errors(400),
+      },
+    }),
+    validator("json", StudioHistoryDeleteInput),
+    async (c) => c.json({ deleted: await deleteStudioHistoryMedia(Instance.directory, c.req.valid("json").mediaIds) }),
+  )
+  .get(
+    "/history/excluded",
+    describeRoute({
+      summary: "List excluded Studio history media IDs",
+      description: "Returns media IDs that were deleted from Studio history and must stay excluded.",
+      operationId: "studio.history.excluded.list",
+      responses: {
+        200: {
+          description: "Excluded media IDs",
+          content: { "application/json": { schema: resolver(z.unknown()) } },
+        },
+        ...errors(400),
+      },
+    }),
+    async (c) => c.json({ ids: listStudioHistoryExcludedIds(Instance.directory) }),
+  )
+  .get(
+    "/history/revision",
+    describeRoute({
+      summary: "Get Studio history revision",
+      description: "Returns a lightweight fingerprint of a directory's Studio history so clients can skip refetching unchanged data.",
+      operationId: "studio.history.revision",
+      responses: {
+        200: {
+          description: "Studio history revision",
+          content: { "application/json": { schema: resolver(z.unknown()) } },
+        },
+        ...errors(400),
+      },
+    }),
+    async (c) => c.json(studioHistoryRevision(Instance.directory)),
+  ),
 )

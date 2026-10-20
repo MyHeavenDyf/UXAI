@@ -8,7 +8,59 @@
 
 > 注：下表 `module` 恒为 `insight`，故省去该列；`type` 除 `insight-page` 为 `page` 外，其余全部为 `interaction`。当前 tracker SDK 的 `interaction` 仅接受 `module / name / subType / extend`，**不支持 `from`**（`from` 只在 `page` 上）。因此「来源区域 / 方式」等维度统一并入 `extend` JSON（如 `source` / `method`），而非顶层 `from`。`tracker.duration` 也已下线。`/docs/tracker.md` 的旧描述待该 SDK 维护方同步修订。
 
-> 排列方式：**按功能模块分组**（不再按上线批次 / 序号）。新增打点追加到所属模块分组的表尾即可。当前在用 44 个 name（另有 1 个已废弃，见文末）。
+> 历史分组表保留在下方；完整代码盘点见 [2026-10-15 清单](./tracking-inventory-2026-10-15.md)，该基线为 80 个唯一 name。本次新增 18 个 name，按相同范围合计 98 个；旧表中的历史入口不能作为当前覆盖全集。
+
+## 2026-10-20 HTML 画布编辑（已接入，待真实画布联调）
+
+命名及结果映射见 [实施方案](./tracking-plan.md#2026-10-20-html-画布编辑124)。新增 5 个事件名，module=insight。
+
+| name | 触发与结果口径 | 实现位置 |
+| --- | --- | --- |
+| canvas-edit-open | 登录、内容、会话和真实传输可用性通过后的有效入口点击；source/fromAttachment/viewMode | utils/canvas-edit-session.ts |
+| canvas-edit-start / canvas-edit-result | action=prepare/import/open/reveal/other；operationId、原 sessionId、status、durationMs、reason/evidence；prepare 成功只证明动作准备好；执行动作缺少确认回执标记 unconfirmed，不计成功 | utils/canvas-edit-session.ts |
+| canvas-return-save-start / canvas-return-save-result | format=html/zip/other；实际保存完成才记 success；部分写入失败记 partial；保存后的列表刷新失败不更改保存结果 | utils/canvas-edit.ts |
+
+真实传输能力在 `utils/canvas-transport.ts` 局部声明。当前 available=false，不调用占位动作；真实 Pixso 转换、打开及回传尚未获得端到端验证。事件不含正文、文件名、路径、URL、Base64 或令牌，也不产生 artifact-* 模型产物事件。
+
+## 2026-10-15 第一、第二批补齐（已实现，待发版）
+
+### 按需项增补（已实现，待发版）
+
+在前两批 98 个唯一 name 基础上新增 5 个，当前相同盘点范围合计 **103 个**。
+
+| name | 触发与字段 | 边界 |
+| --- | --- | --- |
+| files-delete-start / files-delete-result | 确认删除后调用接口；sessionId、operationId、mode=single/batch、count；结果 status、durationMs、deletedCount 或 reason=delete | 删除接口成功先记录，再更新 UI；批量按返回数量区分 success/partial/failure；取消确认不报 |
+| result-preview-ready | tabType、source、fromAttachment、viewMode（文本类）、sessionId、evidence | 图片 image-load；Markdown/导图 rendered；源码 content-ready；音视频 media-loaded；HTML/PDF frame-load。文件本地打开兜底不报；不上传路径/正文/URI |
+| knowledge-reference-open | 引用列表有 URL 的条目点击；sessionId、source=reference-list、index | 不上传标题/URL，不包括模型正文任意外链 |
+| navigation-open | target=skills/assets/settings/update/project、source=sidebar；sessionId 可选 | 主侧栏沿 InsightSidebar → GroupedSidebar → AgentSidebar → SidebarShell 传递可选回调；旧槽位入口保留兼容。只在 Insight 接入，不代表目的页面加载或项目选择成功 |
+
+预览按当前实例的 tab、内容/资源版本、模式和证据去重，重复加载通知不重复计；重开或刷新可重新计。`content-ready` 不保证代码高亮完成；`frame-load` 不保证 PDF 可读或 HTML 外部资源成功。不能将上述证据全部视为端到端渲染成功。项目、更新等共享组件只增加可选回调，其他调用方不新增事件。
+
+以下均为前端 `module=insight`、`type=interaction`。成对事件使用 `operationId` 关联，带启动时的 `sessionId`（可得时），结果包含 `status` 和 `durationMs`。一次执行最多一个结果；重试是新的执行。统计操作次数请按 start 的 operationId 去重，不将 start/result 相加。
+
+| name | 触发与结果口径 | 专属 extend | 实现位置 |
+| --- | --- | --- | --- |
+| files-upload-start / files-upload-result | 文件管理选择/拖入文件或文件夹后执行上传；单文件逐个计，目录一次计；实际上传完成记结果，后续刷新失败不覆盖上传成功 | kind=file/folder、method=picker/drop、count、successCount、rejectedCount（可得时）；status=success/partial/failure | file-manager/index.tsx |
+| md-save-start / md-save-result | 自动保存、快捷键和关闭保存共用 doSave；writeFile 成功才记 success；无路径或写入 API 也记 failure | source、reason=path-unavailable/write-unavailable/write | markdown-editor/index.tsx |
+| archive-start / archive-result | 确认归档开始执行；文件云端归档需上传后创建交付物成功；HTML 云端需上传成功；任务取消记 cancelled | mode=file/html、destination=cloud/local；reason=file-unavailable/file-size/activity/upload/deliverable/archive | archive-flow.tsx |
+| context-compact-start / context-compact-result | 确认压缩后执行命令，按实际业务返回判 success/failure/cancelled | command、reason=command-result/command-request | index.tsx |
+| permission-decision-start / permission-decision-result | 有效权限决策请求及响应；success 指请求成功，不表示工具执行成功 | decision=once/always/reject、permission、reason=request | permission-dock.tsx |
+| question-response-start / question-response-result | 提交答案/拒绝请求及响应；success 指请求成功 | action=reply/reject、questionCount、reason=request；不记录答案 | question-dock.tsx |
+| addon-import-start / addon-import-result | 每次产品资产导入尝试；成功指本地导入完成，不代表已发送消息；中止单独记 cancelled | count、reason=import | insight-addon-menu.tsx |
+| addon-import-retry / addon-import-remove | 有效重试、移除待导入项 | sessionId、busy（移除时） | insight-addon-menu.tsx |
+| model-select | Insight 欢迎页/会话页模型选择生效后；外网风险确认取消不报 | sessionId、modelId、providerId、isExternal | index.tsx → 共享 ModelSelectorPopover 可选回调 |
+| message-queue-remove | 有效队列项移除后 | sessionId、remainingCount；不记录消息内容 | index.tsx |
+
+现有事件补入口（不新增 name）：
+
+| name | 新增覆盖 |
+| --- | --- |
+| result-retry | path 加载失败、URI 加载失败、输出卡落盘失败；source=path/uri/materialize |
+| result-download | 附件 tab 下载；source=attachment、tabType，表示发起下载 |
+| file-open-in-app / file-reveal-folder | path 结果操作栏快捷按钮；source=result-toolbar、fileType，表示发起打开/定位 |
+
+边界：HTML 未登录本地归档的 success 仅指触发 ZIP 下载，不证明系统保存完成。本仓库 EDM 上传为外网占位实现，文件归档的真实回调仍需内网包验收。新增前端事件沿用 tracker，开发者工具可看到上报，不提供服务端持久化补报保证；没有终态回调时不虚构结果。不会改变既有 artifact-* 和 agent-tool-call-* 的采集与发送，也不会将用户手动保存算作模型产物。
 
 ## 一、页面
 

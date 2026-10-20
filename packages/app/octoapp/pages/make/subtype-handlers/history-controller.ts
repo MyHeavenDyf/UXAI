@@ -1,4 +1,4 @@
-import { createHistoryStore, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
+import { createHistoryStore, fnv1aHash, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
 import { getSubtypeHandler } from "../utils/subtype-registry"
 import { getSubtypeConfig } from "../utils/subtype-config"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
@@ -6,17 +6,6 @@ import type { ResultTab } from "../components/result-viewer/tab-store"
 import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 import { tracker } from "@/utils/tracker"
-
-/** FNV-1a hash：同步、纯 JS，对短文本足够精确 */
-function fnv1aHash(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let h = 0x811c9dc5
-  for (let i = 0; i < bytes.length; i++) {
-    h ^= bytes[i]
-    h = (h * 0x01000193) >>> 0
-  }
-  return h.toString(16)
-}
 
 export interface HistoryControllerCallbacks {
   setVersionList: (updater: (prev: VersionEntry[]) => VersionEntry[]) => void
@@ -101,7 +90,30 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        callbacks.setCurrentVersionId(() => existing[0]?.id ?? null)
+        let newestId = existing[0].id
+        const currentHash = await getTabFileSetHash(tab)
+        if (currentHash) {
+          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
+          const hashes: string[] = []
+          for (const vf of versionFiles) {
+            const h = await getFileHash(vf.filePath)
+            if (h) hashes.push(h)
+          }
+          if (hashes.join("|") !== currentHash) {
+            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+            if (entry) {
+              newestId = entry.id
+              listGeneration++
+              if (callbacks.isActiveTab(tab.id)) {
+                const list = await historyStore.listVersions(tab)
+                callbacks.setVersionList(() => list)
+              } else {
+                callbacks.setVersionList((prev) => [entry, ...prev])
+              }
+            }
+          }
+        }
+        callbacks.setCurrentVersionId(() => newestId)
         return
       }
     }

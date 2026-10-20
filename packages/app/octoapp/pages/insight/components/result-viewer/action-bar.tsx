@@ -12,11 +12,14 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { TruncatedText } from "./truncated-text"
 import { tracker } from "@/utils/tracker"
+import { trackInsight } from "../../utils/interaction-tracking"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
+import { CanvasEditMenu } from "./canvas-edit-menu"
+import { HtmlReviewActions } from "./html-review"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -261,6 +264,10 @@ export function ActionBar(props: {
   /** 全屏预览切换 */
   focusMode?: boolean
   onFocusModeToggle?: () => void
+  onFilesRefresh?: () => void | Promise<void>
+  refreshKey?: number
+  canvasLoadState?: "loading" | "error" | "ready"
+  working?: boolean
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -390,8 +397,14 @@ export function ActionBar(props: {
         <div class="flex items-center gap-0.5">
           <Show when={showActions()}>
             <Show when={props.tab.source === "path" && props.tab.filePath}>
-              <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
-              <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
+              <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => {
+                trackInsight("file-open-in-app", { fileType: props.tab.filePath!.match(/\.([a-z0-9]{1,16})$/i)?.[1]?.toLowerCase() ?? "unknown", source: "result-toolbar" })
+                void openFileLocally(props.tab.filePath!)
+              }} />
+              <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => {
+                trackInsight("file-reveal-folder", { fileType: props.tab.filePath!.match(/\.([a-z0-9]{1,16})$/i)?.[1]?.toLowerCase() ?? "unknown", source: "result-toolbar" })
+                void revealFileInFolder(props.tab.filePath!)
+              }} />
             </Show>
             <Show when={canEdit()}>
               <ActionBtn
@@ -423,6 +436,8 @@ export function ActionBar(props: {
                 copyToClipboard(props.tab.content!)
               }}
             />
+            <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <DownloadMenu tab={props.tab} disabled={!ready()} />
           </Show>
           <Tooltip
@@ -451,7 +466,7 @@ export function ActionBar(props: {
       <ArchiveDialogs target={archiveTarget()} open={archiveDialogOpen()} onClose={() => setArchiveDialogOpen(false)} />
       </>
     }>
-      {/* 会话附件 tab:design 风格 — 只有 4 个按钮:刷新、下载、历史、全屏 */}
+      {/* 会话附件沿用 Design 风格，HTML 增加画布编辑入口。 */}
       <div class="octo-action-bar shrink-0">
         <div class="octo-action-bar-left">
           <Show when={props.onRefresh}>
@@ -462,10 +477,15 @@ export function ActionBar(props: {
         </div>
         <div class="octo-action-bar-right">
           <div class="octo-action-bar-fixed">
+            <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <button
               type="button"
               class="octo-action-btn octo-action-btn-download"
-              onClick={() => void handleAttachmentDownload()}
+              onClick={() => {
+                trackInsight("result-download", { source: "attachment", tabType: props.tab.type })
+                void handleAttachmentDownload()
+              }}
               title="下载"
             >
               <IconActionDownload size={16} />

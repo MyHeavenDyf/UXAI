@@ -150,6 +150,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
     app.get(SessionPaths.messages, (c) => handler(c.req.raw, context))
     app.get(SessionPaths.message, (c) => handler(c.req.raw, context))
     app.post(SessionPaths.create, (c) => handler(c.req.raw, context))
+    app.post(SessionPaths.portableShare, (c) => handler(c.req.raw, context))
     app.delete(SessionPaths.remove, (c) => handler(c.req.raw, context))
     app.patch(SessionPaths.update, (c) => handler(c.req.raw, context))
     app.post(SessionPaths.init, (c) => handler(c.req.raw, context))

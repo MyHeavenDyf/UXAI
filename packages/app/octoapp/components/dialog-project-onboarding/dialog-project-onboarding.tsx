@@ -1,9 +1,8 @@
 import { Splash } from "@opencode-ai/ui/logo"
-import { usePlatform } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useServer } from "@/context/server"
-import { useLanguage } from "@/context/language"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
+import { WorkspaceSwitcher } from "@/components/workspace-switcher"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import { Portal } from "solid-js/web"
@@ -18,10 +17,8 @@ interface DialogProjectOnboardingProps {
 }
 
 export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
-  const platform = usePlatform()
   const globalSync = useGlobalSync()
   const server = useServer()
-  const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
@@ -52,7 +49,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   })
 
   const [directory, setDirectory] = createSignal<string>("")
-  const [selecting, setSelecting] = createSignal(false)
+  const [triedSubmit, setTriedSubmit] = createSignal(false)
 
   createEffect(() => {
     const init = initialDirectory()
@@ -61,41 +58,12 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     }
   })
 
-  const displayPath = createMemo(() => {
-    const dir = directory()
-    if (!dir) return ""
-    const home = globalSync.data.path.home
-    if (home && dir.startsWith(home)) {
-      return "~" + dir.slice(home.length)
-    }
-    return dir
-  })
-
-  async function handlePickDirectory() {
-    if (selecting()) return
-    setSelecting(true)
-    try {
-      const home = globalSync.data.path.home
-      const defaultPath = isValidUserPath(directory()) 
-        ? directory() 
-        : (isValidUserPath(home) ? home : undefined)
-      
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("command.project.open"),
-        multiple: false,
-        defaultPath,
-      })
-      if (typeof result === "string" && result) {
-        setDirectory(result)
-      }
-    } finally {
-      setSelecting(false)
-    }
-  }
-
   function handleConfirm() {
     const dir = directory()
-    if (!dir) return
+    if (!dir) {
+      setTriedSubmit(true)
+      return
+    }
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
@@ -127,6 +95,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   }
 
   const hasDirectory = createMemo(() => directory().length > 0)
+  const showDirError = createMemo(() => triedSubmit() && !hasDirectory())
 
   return (
     <Portal>
@@ -164,47 +133,39 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             }}
           />
         </div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>关联本地文件夹</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
+          <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
+          <span>关联本地文件夹</span>
+        </div>
 
-        <button
-          type="button"
-          onClick={handlePickDirectory}
-          disabled={selecting()}
-          class="w-full mb-5 flex items-center gap-2 px-3"
-          style={{
-            height: "40px",
-            "margin-top": "4px",
-            border: "1px solid var(--octo-border-input, #D1D5DB)",
-            "border-radius": "6px",
-            background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "transparent",
-            cursor: selecting() ? "not-allowed" : "pointer",
-            overflow: "hidden",
-          }}
-        >
-          <Show when={displayPath()} fallback={<span class="text-text-weak text-[14px]">选择文件夹</span>}>
-            <span
-              class="text-[14px] font-mono text-text-base overflow-hidden truncate"
-              style={{
-                color: "#191919"
-              }}
-            >
-              {displayPath()}
-            </span>
+        <div style={{ width: "100%", "margin-top": "4px" }}>
+          <WorkspaceSwitcher
+            value={directory()}
+            error={showDirError()}
+            onChange={(dir) => {
+              setDirectory(dir)
+              setTriedSubmit(false)
+            }}
+          />
+        </div>
+
+        <div style={{ width: "100%", height: "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px", "margin-bottom": "8px" }}>
+          <Show when={showDirError()}>
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" style={{ "flex-shrink": "0" }}>
+              <circle cx="10" cy="10" r="8.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" />
+              <path d="M7.5 7.5L12.5 12.5M12.5 7.5L7.5 12.5" stroke="var(--octo-danger, #ef4444)" stroke-width="1.5" stroke-linecap="square" />
+            </svg>
+            <span id="dir-error" role="alert" style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>未选择关联本地文件夹</span>
           </Show>
-          <svg width="10" height="10" viewBox="0 0 10.0034 10" fill="none" style={{ "flex-shrink": "0", "margin-left": "auto" }}>
-            <path d="M4.64832 7.6045L0.148315 3.10462C-0.0494385 2.90662 -0.0494385 2.59547 0.148315 2.39747C0.346558 2.19953 0.657593 2.19953 0.855347 2.39753L5.00183 6.54383L9.14783 2.39753C9.34607 2.19953 9.6571 2.19953 9.85486 2.39747C10.0531 2.59547 10.0531 2.90662 9.85486 3.10462L5.35535 7.6045C5.25769 7.7021 5.13953 7.75092 5.00183 7.75092C4.86365 7.75092 4.74597 7.7021 4.64832 7.6045Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
-          </svg>
-        </button>
-
+        </div>
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!hasDirectory()}
-          class="w-full h-[40px] rounded-md text-[14px] font-medium text-white"
+          class="w-full h-[48px] rounded-[12px] text-[14px] font-medium text-white"
           style={{
-            background: hasDirectory() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
-            cursor: hasDirectory() ? "pointer" : "not-allowed",
+            background: hasDirectory() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
             color: "#fff",
+            cursor: hasDirectory() ? "pointer" : "default",
           }}
         >
           确定

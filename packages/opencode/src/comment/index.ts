@@ -48,12 +48,16 @@ export type CommentAttachment = Schema.Schema.Type<typeof CommentAttachment>
 export type FileComment = Schema.Schema.Type<typeof FileComment>
 export type CommentPosition = Schema.Schema.Type<typeof CommentPosition>
 
+// scope="project" (代码类型工作区): 标注不随 session 隔离,统一存 <项目>/.octo/comments/<safeName>/。
+// 缺省 (session scope): 存 <项目>/.octo/<sessionId>/comments/<safeName>/ (原行为)。
+export type CommentScope = "project"
+
 type Interface = {
-  load: (sessionId: string, filePath: string) => Effect.Effect<FileComment[], PlatformError, AppFileSystem.Service>
-  save: (sessionId: string, filePath: string, comment: FileComment) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
-  delete: (sessionId: string, filePath: string, commentId: string) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
-  uploadAttachment: (sessionId: string, filePath: string, commentId: string, file: { sourceFilePath: string; filename: string; mime: string; size: number }) => Effect.Effect<CommentAttachment, PlatformError, AppFileSystem.Service>
-  deleteAttachment: (sessionId: string, filePath: string, commentId: string, attachmentId: string) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
+  load: (sessionId: string, filePath: string, scope?: CommentScope) => Effect.Effect<FileComment[], PlatformError, AppFileSystem.Service>
+  save: (sessionId: string, filePath: string, comment: FileComment, scope?: CommentScope) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
+  delete: (sessionId: string, filePath: string, commentId: string, scope?: CommentScope) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
+  uploadAttachment: (sessionId: string, filePath: string, commentId: string, file: { sourceFilePath: string; filename: string; mime: string; size: number }, scope?: CommentScope) => Effect.Effect<CommentAttachment, PlatformError, AppFileSystem.Service>
+  deleteAttachment: (sessionId: string, filePath: string, commentId: string, attachmentId: string, scope?: CommentScope) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Comment") {}
@@ -63,35 +67,35 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
 
-const getCommentsFilePath = (sessionId: string, commentFilePath: string, instance: InstanceContext): string => {
+const getCommentsFilePath = (sessionId: string, commentFilePath: string, instance: InstanceContext, scope?: CommentScope): string => {
   const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
-  
+
   return path.join(
     instance.directory,
     ".octo",
-    sessionId,
+    ...(scope === "project" ? [] : [sessionId]),
     "comments",
     safeFolderName,
     "comments.json"
   )
 }
 
-const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId: string, instance: InstanceContext): string => {
+const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId: string, instance: InstanceContext, scope?: CommentScope): string => {
   const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
-  
+
   return path.join(
     instance.directory,
     ".octo",
-    sessionId,
+    ...(scope === "project" ? [] : [sessionId]),
     "comments",
     safeFolderName,
     commentId
   )
 }
 
-const load = Effect.fn("Comment.load")(function* (sessionId: string, commentFilePath: string) {
+const load = Effect.fn("Comment.load")(function* (sessionId: string, commentFilePath: string, scope?: CommentScope) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance, scope)
   
   const exists = yield* fs.exists(commentsPath)
   if (!exists) {
@@ -114,11 +118,11 @@ const load = Effect.fn("Comment.load")(function* (sessionId: string, commentFile
   return comments
 })
 
-const save = Effect.fn("Comment.save")(function* (sessionId: string, commentFilePath: string, comment: FileComment) {
+const save = Effect.fn("Comment.save")(function* (sessionId: string, commentFilePath: string, comment: FileComment, scope?: CommentScope) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
-  
-  const comments = yield* load(sessionId, commentFilePath)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance, scope)
+
+  const comments = yield* load(sessionId, commentFilePath, scope)
   const mutableComments = [...comments]
   
   const now = Date.now()
@@ -136,16 +140,16 @@ const save = Effect.fn("Comment.save")(function* (sessionId: string, commentFile
   yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
 })
 
-const deleteComment = Effect.fn("Comment.delete")(function* (sessionId: string, commentFilePath: string, commentId: string) {
+const deleteComment = Effect.fn("Comment.delete")(function* (sessionId: string, commentFilePath: string, commentId: string, scope?: CommentScope) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
-  
-  const comments = yield* load(sessionId, commentFilePath)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance, scope)
+
+  const comments = yield* load(sessionId, commentFilePath, scope)
   const filtered = comments.filter(c => c.id !== commentId)
-  
+
   yield* fs.writeFileString(commentsPath, JSON.stringify(filtered, null, 2))
-  
-  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
+
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance, scope)
   const attachExists = yield* fs.exists(attachmentDir)
   if (attachExists) {
     yield* fs.remove(attachmentDir, { recursive: true })
@@ -159,10 +163,11 @@ const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
   sessionId: string,
   commentFilePath: string,
   commentId: string,
-  file: { sourceFilePath: string; filename: string; mime: string; size: number }
+  file: { sourceFilePath: string; filename: string; mime: string; size: number },
+  scope?: CommentScope,
 ) {
   const instance = yield* InstanceState.context
-  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance, scope)
   yield* fs.makeDirectory(attachmentDir, { recursive: true })
   
   const attachmentId = crypto.randomUUID()
@@ -183,17 +188,17 @@ const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
     uploadedAt: Date.now()
   }
   
-  const comments = yield* load(sessionId, commentFilePath)
+  const comments = yield* load(sessionId, commentFilePath, scope)
   const mutableComments = [...comments]
   const commentIndex = mutableComments.findIndex(c => c.id === commentId)
-  
+
   if (commentIndex >= 0) {
     const comment = mutableComments[commentIndex]
     const mutableAttachments = [...(comment.attachments || [])]
     mutableAttachments.push(attachment)
     mutableComments[commentIndex] = { ...comment, attachments: mutableAttachments }
-    
-    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
+
+    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance, scope)
     yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
   }
   
@@ -212,30 +217,31 @@ const deleteAttachment = Effect.fn("Comment.deleteAttachment")(function* (
   sessionId: string,
   commentFilePath: string,
   commentId: string,
-  attachmentId: string
+  attachmentId: string,
+  scope?: CommentScope,
 ) {
   const instance = yield* InstanceState.context
-  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
-  
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance, scope)
+
   const files = yield* fs.readDirectory(attachmentDir)
   const attachmentFile = files.find((f: string) => f.startsWith(attachmentId))
-  
+
   if (attachmentFile) {
     const attachmentPath = path.join(attachmentDir, attachmentFile)
     yield* fs.remove(attachmentPath)
     log.debug("Deleted attachment file", { path: attachmentPath })
   }
-  
-  const comments = yield* load(sessionId, commentFilePath)
+
+  const comments = yield* load(sessionId, commentFilePath, scope)
   const mutableComments = [...comments]
   const commentIndex = mutableComments.findIndex(c => c.id === commentId)
-  
+
   if (commentIndex >= 0) {
     const comment = mutableComments[commentIndex]
     const filteredAttachments = (comment.attachments || []).filter((a: CommentAttachment) => a.id !== attachmentId)
     mutableComments[commentIndex] = { ...comment, attachments: filteredAttachments }
-    
-    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
+
+    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance, scope)
     yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
   }
   

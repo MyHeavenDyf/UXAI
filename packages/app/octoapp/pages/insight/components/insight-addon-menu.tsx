@@ -5,6 +5,7 @@ import { assetFileId, type AssetFile } from "@/pages/make/components/addon-menu/
 import type { ArtifactFile } from "@/pages/make/utils/artifact-file-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { beginInsightOperation, trackInsight } from "../utils/interaction-tracking"
 import type { InsightEditorRef } from "./prosemirror-editor"
 import type { MentionFiles, MentionSelection, MentionSkill } from "./mention-popover"
 import type { McpSelection } from "../store/mcp-trigger"
@@ -30,7 +31,6 @@ export function InsightAddonMenu(props: {
   selections: MentionSelection[]
   maxAttachments: boolean
   onAttachment: () => void
-  onRefresh: () => void
   onPending: (pending: boolean) => void
   mcpSelection: McpSelection | null
   onMcpSelect: (selection: McpSelection) => void
@@ -53,11 +53,12 @@ export function InsightAddonMenu(props: {
     }
     return props.files ? { generated: props.files.generated.map(map), uploaded: props.files.uploaded.map(map) } : null
   })
-  const selections = () => [...props.selections, ...Object.values(state.pending).map(item => item.selection)]
+  const selections = createMemo(() => [...props.selections, ...Object.values(state.pending).map(item => item.selection)])
   const deselect = (selection: MenuSelection) => {
     if (selection.type === "product-asset") return
     if (selection.type === "skill") return props.editor()?.removeMention(selection)
     const id = selection.id ?? selection.path
+    if (state.pending[id]) trackInsight("addon-import-remove", { sessionId: props.sessionId, busy: state.pending[id].busy === true })
     tasks.get(id)?.abort()
     setState("pending", id, undefined!)
     props.selections.filter(item => item.type === "file" && (item.id === id || item.path === selection.path))
@@ -66,14 +67,17 @@ export function InsightAddonMenu(props: {
   const finish = (id: string) => {
     const result = results.get(id)
     if (lifetime.signal.aborted || !state.pending[id] || !result) return
-    props.editor()?.insertMentions(result.files.map(file => ({ type: "file", ...file, id })))
+    props.editor()?.insertMentions([{ type: "file", ...result.reference, id }])
     setState("pending", id, undefined!)
-    props.onRefresh()
+    // 与 design 一样只更新引用；刷新文件 resource 会触发页面外层 Suspense 闪屏。
   }
   const download = async (file: AssetFile, _progress: (pct: number) => void, signal?: AbortSignal) => {
     const id = assetFileId(file)
     if (!state.pending[id]) return ""
     const task = new AbortController()
+    const finishImport = beginInsightOperation("addon-import", { sessionId: props.sessionId })
+    const cancelled = () => finishImport("cancelled")
+    task.signal.addEventListener("abort", cancelled, { once: true })
     tasks.set(id, task)
     const abort = () => task.abort()
     signal?.addEventListener("abort", abort, { once: true })
@@ -85,13 +89,19 @@ export function InsightAddonMenu(props: {
         baseUrl: import.meta.env.VITE_OCTO_BASE_URL || "", api: getDesktopApi() ?? {}, signal: task.signal,
       })
       task.signal.throwIfAborted()
-      if (!state.pending[id] || lifetime.signal.aborted || tasks.get(id) !== task) return ""
+      if (!state.pending[id] || lifetime.signal.aborted || tasks.get(id) !== task) {
+        finishImport("cancelled")
+        return ""
+      }
       results.set(id, result)
+      finishImport("success", { count: 1 })
       return result.root
     } catch (error) {
+      finishImport(task.signal.aborted ? "cancelled" : "failure", { reason: "import" })
       if (state.pending[id] && !task.signal.aborted && tasks.get(id) === task) setState("pending", id, "error", error instanceof Error ? error.message : String(error))
       throw error
     } finally {
+      task.signal.removeEventListener("abort", cancelled)
       signal?.removeEventListener("abort", abort)
       if (tasks.get(id) === task) {
         tasks.delete(id)
@@ -102,6 +112,7 @@ export function InsightAddonMenu(props: {
   const retry = async (id: string) => {
     const item = state.pending[id]
     if (!item?.file || item.busy) return
+    trackInsight("addon-import-retry", { sessionId: props.sessionId })
     await download(item.file, () => {}).then(() => finish(id)).catch(() => {})
   }
   return <>
@@ -114,6 +125,7 @@ export function InsightAddonMenu(props: {
       onDeselect={deselect}
       onAssetSelect={selection => {
         if (selection.type !== "file") return
+        results.delete(selection.path)
         setState("pending", selection.path, { selection: { ...selection, id: selection.path } })
       }}
       onAssetDeselect={deselect} productId={props.productId}
