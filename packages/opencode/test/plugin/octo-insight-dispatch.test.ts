@@ -18,6 +18,14 @@ const DOCS = ["a.docx", "b.xlsx", "c.pdf"].map((filename) => {
 const LARGE_TEXT = path.join(DIR, "large.txt")
 fs.writeFileSync(LARGE_TEXT, "x".repeat(33 * 1024))
 
+test("产品资产按地址引用，不自动读取体量或触发服务端分治；普通附件不受影响", async () => {
+  const result = await decideInsightDispatch([{ type: "text", text: `读取${LARGE_TEXT} 这个文件`, metadata: { insightProductAssets: [{ filename: "large.txt", path: LARGE_TEXT }] } }])
+  expect(result.files).toHaveLength(0)
+  expect(result.mode).toBe("inline")
+  const ordinary = await decideInsightDispatch([{ type: "text", text: `[附件]\n- large.txt: ${LARGE_TEXT}`, synthetic: true }])
+  expect(ordinary.mode).toBe("dispatch")
+})
+
 afterAll(() => fs.rmSync(DIR, { recursive: true, force: true }))
 
 function manifest(files = DOCS) {
