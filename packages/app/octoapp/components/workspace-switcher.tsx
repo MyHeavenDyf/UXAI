@@ -109,6 +109,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         .octo-ws-list {
           flex: 1 1 auto; min-height: 0; overflow-y: auto;
           display: flex; flex-direction: column; gap: 2px;
+          overscroll-behavior: contain;
         }
         @keyframes octo-ws-pop-in { from { opacity: 0; } to { opacity: 1; } }
         .octo-ws-item {
