@@ -1,5 +1,6 @@
 import { createMemo, createResource, createSignal, createEffect, onCleanup, Show, Switch, Match } from "solid-js"
 import { Portal } from "solid-js/web"
+import { createStore } from "solid-js/store"
 import type { JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tabLocalPath, type ResultTab, type TabViewMode } from "./tab-store"
@@ -77,6 +78,8 @@ export function ResultViewer(props: {
   // 磁盘内容版本:编辑器保存后关闭时 +1,驱动 LocalFileTabBody 重新读盘。
   // 磁盘是真相源(§5)——编辑器写的是磁盘,预览就该回去读磁盘,而不是显示一份内存里的回写值。
   const [diskVersion, setDiskVersion] = createSignal(0)
+  const [canvasPreview, setCanvasPreview] = createStore({ key: "", state: "loading" as "loading" | "error" | "ready" })
+  const canvasKey = () => JSON.stringify([activeTab()?.id, activeTab()?.filePath, activeTab()?.uri, props.refreshKey, diskVersion()])
   // 全屏预览:focusMode=true 时容器 position:fixed 铺满视口,盖在所有面板之上
   const [focusMode, setFocusMode] = createSignal(false)
   // Esc 退出全屏
@@ -128,6 +131,9 @@ export function ResultViewer(props: {
                 onRefresh={() => { setDiskVersion(v => v + 1); props.onRefresh?.() }}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => setFocusMode(f => !f)}
+                onFilesRefresh={props.onFilesRefresh}
+                refreshKey={(props.refreshKey ?? 0) + diskVersion()}
+                canvasLoadState={canvasPreview.key === canvasKey() ? canvasPreview.state : "loading"}
               />
               {/* select-text:应用外壳(pages/layoutnet.tsx)整体 `select-none`(Electron 原生手感,
                   避免拖窗/拖分隔线误选),白名单只有 input/textarea/contenteditable。产物预览是**内容**,
@@ -141,6 +147,7 @@ export function ResultViewer(props: {
                   onCacheContent={props.onCacheContent}
                   refreshKey={props.refreshKey}
                   diskVersion={diskVersion()}
+                  onCanvasState={state => setCanvasPreview({ key: canvasKey(), state })}
                 />
               </div>
             </div>
@@ -193,8 +200,14 @@ function TabBody(props: {
   refreshKey?: number
   /** 磁盘内容可能已变(write 覆盖 / 编辑器保存)时 +1,驱动重新读盘 */
   diskVersion?: number
+  onCanvasState?: (state: "loading" | "error" | "ready") => void
 }): JSX.Element {
   const localPath = () => tabLocalPath(props.tab)
+  createEffect(() => {
+    if (props.tab.type === "html" && !localPath() && (props.tab.source !== "uri" || props.tab.content !== undefined)) {
+      props.onCanvasState?.(typeof props.tab.content === "string" ? "ready" : "loading")
+    }
+  })
   const params = useParams()
   const ready = createPreviewTracker(() => ({
     key: [props.tab.id, props.tab.filePath, props.tab.uri, props.refreshKey],
@@ -216,11 +229,12 @@ function TabBody(props: {
             diskVersion={props.diskVersion}
             refreshKey={props.refreshKey}
             onCacheContent={props.onCacheContent}
+            onCanvasState={props.onCanvasState}
           />
         )}
       </Match>
       <Match when={props.tab.source === "uri" && !props.tab.content}>
-        <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+        <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} onCanvasState={props.onCanvasState} />
       </Match>
     </Switch>
   )
@@ -240,6 +254,7 @@ function LocalFileTabBody(props: {
   diskVersion?: number
   refreshKey?: number
   onCacheContent?: (id: string, content: string) => void
+  onCanvasState?: (state: "loading" | "error" | "ready") => void
 }): JSX.Element {
   const [resource, { refetch }] = createResource(
     // source 必须是可按值比较的结构:返回新对象会让 createResource 每次 effect 都重跑,
@@ -260,6 +275,10 @@ function LocalFileTabBody(props: {
       return text
     },
   )
+
+  createEffect(() => {
+    if (props.tab.type === "html") props.onCanvasState?.(resource.loading ? "loading" : resource.error ? "error" : "ready")
+  })
 
   return (
     <Show
@@ -292,6 +311,7 @@ function LocalFileTabBody(props: {
 function UriTabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
+  onCanvasState?: (state: "loading" | "error" | "ready") => void
 }): JSX.Element {
   const [resource, { refetch }] = createResource(
     () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri } : null),
@@ -301,6 +321,10 @@ function UriTabBody(props: {
       return text
     },
   )
+
+  createEffect(() => {
+    if (props.tab.type === "html") props.onCanvasState?.(resource.loading ? "loading" : resource.error ? "error" : "ready")
+  })
 
   return (
     <Show

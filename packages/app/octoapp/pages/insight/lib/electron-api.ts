@@ -42,6 +42,8 @@ export type DesktopApi = {
   statFile?: (path: string) => Promise<{ size: number } | null>
   /** 轻量存在性预检:只 stat 不读盘,仅当路径是存在的普通文件时返回 true(打开卡片前判断文件是否已被删) */
   fileExists?: (path: string) => Promise<boolean>
+  /** 画布回传另存时同时检查文件和目录撞名；preload 已提供该 IPC。 */
+  dirExists?: (path: string) => Promise<boolean>
   /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */
   openLink?: (url: string) => void
   /** SPEC-INS-023:读技能 SKILL.md 正文(@技能 注入用);命中→{success:true,content},否则 {success:false,error} */
