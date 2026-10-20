@@ -54,7 +54,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
-import { materializeStudioGeneration } from "./studio-history-service"
+import { generationHistorySnapshot, materializeStudioGeneration } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
@@ -162,7 +162,9 @@ export type StudioGenerationResult = {
   task_type?: string
   taskId?: string
   model: string
+  styleModel?: string
   aspectRatio: string
+  isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
   duration?: string
   videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -2976,7 +2978,51 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
       .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
       .get(),
   )
-  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  // 会话删除会级联清理 studio_generation 行:此时历史详情面板仍在请求 /studio/generations/:id,
+  // 直接抛 not found 会让前端右栏一直停在 loading。改为回退到历史表里保留的快照,
+  // 文案/媒体/模型等字段足以支撑详情面板渲染;只有进度/错误等运行时字段用占位值。
+  if (!record) {
+    const history = generationHistorySnapshot(Instance.directory, id)
+    if (history) {
+      const result: StudioGenerationResult & { sessionID: string } = {
+        id: history.id,
+        sessionID: history.sessionID,
+        status: "succeeded",
+        capability: (history.capability ?? "image.generate") as StudioGenerationResult["capability"],
+        prompt: history.prompt ?? "",
+        displayPrompt: history.displayPrompt,
+        detailPrompt: history.detailPrompt,
+        detailTitle: history.detailTitle,
+        provider: (history.provider ?? "internel") as StudioGenerationResult["provider"],
+        model: history.model ?? history.styleModel ?? "internel",
+        styleModel: history.styleModel,
+        aspectRatio: history.aspectRatio ?? "3:4",
+        isCustom: history.isCustom,
+        videoMode: history.videoMode === "text" || history.videoMode === "first_last_frame" ? history.videoMode : undefined,
+        // 历史快照可能存有旧 provider 的 std/pro 档位，与响应 schema 的 480/720/1080/4k
+        // 不兼容；与上面 videoSnapshotFields 同口径做白名单过滤，保证回退响应符合契约。
+        videoQualityMode: resolveStudioVideoQualityMode(undefined, history.videoQualityMode),
+        toolAction: history.toolAction as StudioGenerationResult["toolAction"],
+        duration: history.duration,
+        images: history.images.map((img) => ({
+          id: img.id,
+          kind: img.kind,
+          url: img.url,
+          remoteUrl: img.url,
+          thumbnailUrl: img.thumbnailUrl,
+          thumbnailStatus: (img.thumbnailStatus ?? undefined) as "pending" | "ready" | "failed" | undefined,
+          width: img.width,
+          height: img.height,
+        })),
+        progress: 100,
+        createdAt: history.createdAt,
+        updatedAt: history.createdAt,
+        completedAt: history.createdAt,
+      }
+      return result
+    }
+    throw new Error(`Studio generation not found: ${id}`)
+  }
   const snapshot = generationSnapshot(record)
   return {
     ...snapshot,

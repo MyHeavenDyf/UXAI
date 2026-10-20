@@ -307,6 +307,38 @@ describe("HttpApi server", () => {
     expect(time?.properties?.archived).toEqual({ type: "number" })
   })
 
+  // 历史条目的生成级文案快照列（会话删除后详情面板复原依赖）必须出现在公共 spec 里，
+  // 否则 SDK 拿不到字段、HttpApi 编码时也会把它们剥掉。
+  test("documents studio history text snapshot fields in the SDK spec", () => {
+    const effect = effectOpenApi()
+    const responseFields = (path: string, method: (typeof methods)[number]) => {
+      const operation = effect.paths[path]?.[method] as
+        | { responses?: Record<string, { content?: Record<string, { schema?: OpenApiSchema }> }> }
+        | undefined
+      return operation?.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {}
+    }
+    const historyFields = ((responseFields("/studio/history", "get").items as { items?: OpenApiSchema })
+      ?.items?.properties ?? {}) as Record<string, unknown>
+    for (const name of [
+      "prompt",
+      "displayPrompt",
+      "detailPrompt",
+      "detailTitle",
+      "model",
+      "styleModel",
+      "provider",
+      "videoMode",
+      "videoQualityMode",
+      "toolAction",
+      "isCustom",
+    ]) {
+      expect(historyFields[name], `studio history item field ${name}`).toBeDefined()
+    }
+    const generationFields = responseFields("/studio/generations/{generationID}", "get")
+    expect(generationFields.styleModel, "generation result styleModel").toBeDefined()
+    expect(generationFields.isCustom, "generation result isCustom").toBeDefined()
+  })
+
   test("documents event routes as server-sent events", () => {
     const effect = effectOpenApi()
 

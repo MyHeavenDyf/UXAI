@@ -873,32 +873,33 @@
   gap: 6px;
 }
 
-.studio-history-filter-menu--scrollable {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable {
   max-height: 450px;
   overflow-y: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--text-strong) 25%, transparent) transparent;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar {
   width: 4px;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar-thumb {
-  background: transparent;
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-strong) 25%, transparent);
   border-radius: 2px;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar-track {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.studio-history-filter-menu--scrollable:hover {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+.studio-history-filter-menu.studio-history-filter-menu--scrollable:hover {
+  scrollbar-color: color-mix(in oklch, var(--text-strong) 40%, transparent) transparent;
 }
 
-.studio-history-filter-menu--scrollable:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+.studio-history-filter-menu.studio-history-filter-menu--scrollable:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-strong) 40%, transparent);
 }
 
 .studio-history-filter-menu [data-slot="dropdown-menu-group"] {

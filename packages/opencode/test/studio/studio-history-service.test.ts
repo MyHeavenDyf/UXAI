@@ -263,6 +263,55 @@ describe("Studio history service", () => {
     })
   })
 
+  test("repairs text fields of materialized rows on first access and invalidates the history revision", async () => {
+    await withStudioHistory(async ({ directory, insertGeneration }) => {
+      insertGeneration({
+        id: "gen-text",
+        createdAt: 1_000,
+        images: [image({ id: "gen-text-0" })],
+        request: { input: { prompt: "一只猫在奔跑", detailTitle: "奔跑的猫", styleModel: "wan2.2" } },
+        result: { model: "wan2.2", provider: "internel", toolAction: "generate_image" },
+      })
+      materializeStudioGeneration(directory, "gen-text")
+      // 模拟旧版本物化的行：文案列全部为空。
+      Database.use((db) =>
+        db.update(StudioHistoryTable)
+          .set({
+            prompt: null,
+            display_prompt: null,
+            detail_prompt: null,
+            detail_title: null,
+            model: null,
+            style_model: null,
+            provider: null,
+            video_mode: null,
+            video_quality_mode: null,
+            tool_action: null,
+            is_custom: null,
+            time_updated: 1,
+          })
+          .where(eq(StudioHistoryTable.id, "gen-text-0"))
+          .run(),
+      )
+
+      const items = listStudioHistoryMedia(directory).items
+      expect(items.find((item) => item.id === "gen-text-0")).toMatchObject({
+        prompt: "一只猫在奔跑",
+        detailTitle: "奔跑的猫",
+        model: "wan2.2",
+        styleModel: "wan2.2",
+        provider: "internel",
+        toolAction: "generate_image",
+      })
+      const row = Database.use((db) =>
+        db.select().from(StudioHistoryTable).where(eq(StudioHistoryTable.id, "gen-text-0")).get(),
+      )
+      expect(row?.prompt).toBe("一只猫在奔跑")
+      expect(row?.model).toBe("wan2.2")
+      expect(row?.time_updated).toBeGreaterThan(1)
+    })
+  })
+
   test("materialization and session snapshots use result quality as fallback and leave unknown quality unclassified", async () => {
     await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
       for (const quality of ["480", "720", "1080", "4k", "pro", "std", "unknown"]) {
