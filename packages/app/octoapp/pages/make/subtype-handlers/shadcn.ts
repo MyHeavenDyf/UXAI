@@ -204,13 +204,15 @@ export default {
         downloadHtml: async (data) => {
           const baseDir = sdkDirectory
           const sid = sessionId
-          
+
           if (!baseDir || !sid || !api?.writeFileBuffer) {
             showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
-          
-          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+
+          const uploadsDir = ctx.workspaceKind === "code"
+            ? `${baseDir}`
+            : `${baseDir}/.octo/${sid}/uploads`
           const lastDotIndex = data.filename.lastIndexOf('.')
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
           const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''

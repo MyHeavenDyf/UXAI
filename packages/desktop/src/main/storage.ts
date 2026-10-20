@@ -19,6 +19,53 @@ export type DesktopStorage = {
   reason?: string
 }
 
+// ---------------------------------------------------------------------------
+// Effective XDG path resolution (mirror of what the sidecar actually sees).
+//
+// The sidecar resolves its config dir via xdg-basedir (`env.XDG_CONFIG_HOME ||
+// ~/.config`) AFTER sidecar.ts prepareSidecarEnv applied storage.env over
+// process.env. Main-process code that manages files the server reads by its
+// storage-visible path (global octo.json / MCP 配置) MUST use these helpers
+// instead of raw process.env — otherwise app-data-fallback mode splits the
+// write location from the read location.
+// 例外:技能库与资产库(skill 目录 / skills.json / skill_config.json /
+// assets_config.json)2026-10 起恒定 ~/.config/octo,不走这些 helpers —— 以标准
+// XDG 目录为唯一权威落点;代价是 ~/.config/octo 不可写的机器上 skill/资产
+// 部署与写入会失败(部署仅 warn 不阻塞)。
+// Empty-string XDG values count as unset (`||`, matching xdg-basedir).
+// ---------------------------------------------------------------------------
+
+let activeStorage: DesktopStorage | null = null
+
+export function setActiveStorage(storage: DesktopStorage | null) {
+  activeStorage = storage
+}
+
+export function getActiveStorage(): DesktopStorage | null {
+  return activeStorage
+}
+
+export function standardXdgConfigHome(env: Record<string, string | undefined> = process.env): string {
+  return env.XDG_CONFIG_HOME || join(homedir(), ".config")
+}
+
+/**
+ * storage.env wins over main-process env — same precedence as sidecar.ts prepareSidecarEnv.
+ * 不传参时读 activeStorage holder(index.ts 启动时 setActiveStorage 注入)——主进程 env
+ * 在 fallback 覆盖模式下并没有那个变量,holder 才是 sidecar 实际看到的语义。
+ */
+export function effectiveXdgConfigHome(storage?: DesktopStorage | null): string {
+  return (storage ?? activeStorage)?.env.XDG_CONFIG_HOME || process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+}
+
+export function effectiveXdgCacheHome(storage?: DesktopStorage | null): string {
+  return (storage ?? activeStorage)?.env.XDG_CACHE_HOME || process.env.XDG_CACHE_HOME || join(homedir(), ".cache")
+}
+
+export function octoConfigDir(storage?: DesktopStorage | null): string {
+  return join(effectiveXdgConfigHome(storage), "octo")
+}
+
 export function resolveDesktopStorage(userDataPath: string) {
   const storedMode = getStore().get(STORAGE_MODE_KEY)
   if (storedMode === "app-data-fallback") return createAppDataFallbackStorage(userDataPath, "stored-fallback")
@@ -34,22 +81,35 @@ export function resolveDesktopStorage(userDataPath: string) {
   return fallback
 }
 
-export function createAppDataFallbackStorage(userDataPath: string, reason?: string): DesktopStorage {
+export function createAppDataFallbackStorage(
+  userDataPath: string,
+  reason?: string,
+  env: Record<string, string | undefined> = process.env,
+): DesktopStorage {
   const dataHome = userDataPath
   const dataDirectory = join(dataHome, "opencode")
   const databasePath = join(dataDirectory, databaseFileName())
-  const storage = {
-    mode: "app-data-fallback" as const,
+  // Probe the standard config home: if `<xdg-config>/octo` is writable, keep
+  // using it — the desktop deploys/manages skills there and existing installs
+  // already have their content there. Only relocate config into userData when
+  // the standard location is broken, mirroring why fallback exists at all
+  // (unwritable ~/.local). Unconditional relocation made the sidecar scan
+  // <userData>/xdg-config/octo/skill while deploys landed in ~/.config/octo/skill
+  // → server discovered zero skills.
+  const standardConfigWritable = ensureWritableDirectory(join(standardXdgConfigHome(env), "octo")).ok
+  const sidecarEnv: Record<string, string> = {
+    OPENCODE_DB: databasePath,
+    XDG_DATA_HOME: dataHome,
+    XDG_CACHE_HOME: join(userDataPath, "xdg-cache"),
+    XDG_STATE_HOME: join(userDataPath, "xdg-state"),
+  }
+  if (!standardConfigWritable) sidecarEnv.XDG_CONFIG_HOME = join(userDataPath, "xdg-config")
+  const storage: DesktopStorage = {
+    mode: "app-data-fallback",
     dataHome,
     dataDirectory,
     databasePath,
-    env: {
-      OPENCODE_DB: databasePath,
-      XDG_DATA_HOME: dataHome,
-      XDG_CONFIG_HOME: join(userDataPath, "xdg-config"),
-      XDG_CACHE_HOME: join(userDataPath, "xdg-cache"),
-      XDG_STATE_HOME: join(userDataPath, "xdg-state"),
-    },
+    env: sidecarEnv,
     explicitDatabase: false,
     reason,
   }

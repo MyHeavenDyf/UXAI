@@ -781,7 +781,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       session: Session.Info
       model: Provider.Model
     }) {
-      const messages = structuredClone(yield* MessageV2.filterCompactedEffect(input.sessionID))
+      // 不要 structuredClone:对象是本次从 SQLite 新读的、无共享引用,深拷贝只会在
+      // 大会话上把峰值内存翻倍(2026-10-15 用户侧 sidecar OOM 的放大器之一)
+      const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
       const lastUser = messages.findLast((message) => message.info.role === "user")?.info
       const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
       if (!lastUser || lastUser.role !== "user") throw new Error("Compacted context has no user message")

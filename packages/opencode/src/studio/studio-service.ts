@@ -54,6 +54,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
+import { materializeStudioGeneration } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
@@ -1927,6 +1928,14 @@ function markGenerationCancelled(input: {
   return claimed
 }
 
+function videoSnapshotFields(record: StudioGenerationRecord): Pick<StudioGenerationResult, "videoMode" | "videoQualityMode"> {
+  const input = generationRequest(record).input
+  return {
+    videoMode: videoMode(input),
+    videoQualityMode: videoQualityMode(input),
+  }
+}
+
 function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAccepted {
   const data = generationRequest(record)
   const result = record.result as StudioGenerationResult | undefined
@@ -2129,6 +2138,13 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
   )
   if (!claimed) return
   completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  // 历史物化是非关键副作用：失败只记日志（backfill 会在下次列表时自愈），
+  // 不能让它跳过后续的服务端缩略图生成。
+  try {
+    materializeStudioGeneration(record.directory, record.id)
+  } catch (error) {
+    console.error("[studio.service] history materialization failed", { id: record.id, error })
+  }
   enqueueStudioMediaThumbnails(record.id)
 }
 
@@ -2989,6 +3005,10 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
   return {
     ...snapshot,
     ...(record.status === "succeeded" ? (record.result as StudioGenerationResult | undefined) : {}),
+    // 旧视频记录把 provider 的 "std"/"pro" 模式写进了 videoQualityMode，与响应 schema 的
+    // 480/720/1080/4k 不兼容，会让整个 GET 请求 400（历史详情面板因此一直 loading）。
+    // 统一从请求输入的分辨率重新解析视频字段，保证响应始终符合契约。
+    ...(record.capability === "video.generate" ? videoSnapshotFields(record) : {}),
     sessionID: record.session_id,
     status: record.status,
     progress: record.progress,

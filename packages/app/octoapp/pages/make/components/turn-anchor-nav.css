@@ -53,21 +53,21 @@
 
 .octo-turn-anchor-bar {
   display: block;
-  width: 12px;
+  width: 10px;
   height: 4px;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 999px;
   transition: width 150ms ease, background-color 150ms ease;
 }
 
-/* 非激活锚点 hover:16px + 深一档灰;置于激活规则之前,激活锚点 hover 仍保持 #0a59f7 */
+/* 非激活锚点 hover:14px + 深一档灰;置于激活规则之前,激活锚点 hover 仍保持 #0a59f7 */
 .octo-turn-anchor:hover .octo-turn-anchor-bar {
-  width: 16px;
+  width: 14px;
   background-color: rgba(0, 0, 0, 0.3);
 }
 
 .octo-turn-anchor[data-active="true"] .octo-turn-anchor-bar {
-  width: 16px;
+  width: 14px;
   background-color: #0a59f7;
 }
 

@@ -30,7 +30,9 @@ const getBase = (): Configuration => ({
     buildResources: "resources",
   },
   releaseInfo: { releaseNotes },
-  files: ["out/**/*", "resources/**/*"],
+  // resources/plugin-sdk 排除出 asar：它经 extraResources 单独放入安装目录 resources/plugin-sdk，
+  // 若不排除会双份打包（rg 二进制的老问题）
+  files: ["out/**/*", "resources/**/*", "!resources/plugin-sdk/**"],
   extraResources: [
     {
       from: "native/",
@@ -52,6 +54,11 @@ const getBase = (): Configuration => ({
     {
       from: "resources/bin",
       to: "bin",
+      filter: ["**/*"],
+    },
+    {
+      from: "resources/plugin-sdk",
+      to: "plugin-sdk",
       filter: ["**/*"],
     },
     {
@@ -80,7 +87,7 @@ const getBase = (): Configuration => ({
   },
   protocols: {
     name: "Octo Agent",
-    schemes: ["octo agent"],
+    schemes: ["octo-agent"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -129,7 +136,7 @@ function getConfig() {
         ...base,
         appId: "com.huawei.octoagent.beta",
         productName: "Octo Agent Beta",
-        protocols: { name: "Octo Agent Beta", schemes: ["oc"] },
+        protocols: { name: "Octo Agent Beta", schemes: ["oc", "octo-agent-beta"] },
         publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
         rpm: { packageName: "octo-agent-beta" },
       }

@@ -1,5 +1,7 @@
 import { createSignal } from "solid-js"
+import type { Node as PMNode } from "prosemirror-model"
 import type { McpSelection } from "../store/mcp-trigger"
+import type { FileReference } from "../components/mention-popover"
 
 /**
  * 发送排队队列(SPEC-INS-007 §3.3.3)
@@ -22,10 +24,12 @@ import type { McpSelection } from "../store/mcp-trigger"
 
 export interface QueuedSend {
   text: string
+  /** 入队时的编辑器文档；回填时保留每个引用的身份与位置，包括同名资产。 */
+  doc?: ReturnType<PMNode["toJSON"]>
   /** @技能 选中的技能名(label);flush 时用于注入 SKILL.md synthetic part */
   skills?: string[]
-  /** @文件 引用的会话文件(filename + 绝对 path);flush 时注入 [引用文件] synthetic 清单 */
-  files?: Array<{ filename: string; path: string }>
+  /** 文件/资产目录引用；保留资产身份供取消回填，资产按地址交给模型读取。 */
+  files?: FileReference[]
   /** SPEC-INS-027:入队时的项目目录;后台 drain 据此建目录级 scoped client 发送(缺则无法发送) */
   directory?: string
   /** SPEC-INS-027:入队时用户选中的模型;缺则服务端按 agent 默认 */

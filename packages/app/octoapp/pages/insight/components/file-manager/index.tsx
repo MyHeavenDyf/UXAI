@@ -51,7 +51,7 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
-import { ALLOWED_EXT, getExt, validateFileForExternal } from "../../lib/upload"
+import { validateFileForExternal } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
@@ -1061,8 +1061,6 @@ function FileRow(props: {
               <Show when={props.onAddToSession && !props.file.isFolder}>
                 <MenuItem
                   label="添加至会话区"
-                  disabled={!ALLOWED_EXT.includes(getExt(props.file.name) as (typeof ALLOWED_EXT)[number])}
-                  disabledHint="当前会话不支持上传该文件格式"
                   onClick={() => { setMenuOpen(false); requestAddToSession(() => props.onAddToSession!(props.file)) }}
                 />
                 <MenuDivider />

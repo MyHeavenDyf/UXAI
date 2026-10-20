@@ -12,6 +12,7 @@ import type {
   ArtifactArchiveResponses,
   ArtifactDeleteBatchResponses,
   ArtifactDeleteResponses,
+  ArtifactListErrors,
   ArtifactListResponses,
   ArtifactReadErrors,
   ArtifactReadResponses,
@@ -202,6 +203,12 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPortableExportErrors,
+  SessionPortableExportResponses,
+  SessionPortableImportErrors,
+  SessionPortableImportResponses,
+  SessionPortableShareErrors,
+  SessionPortableShareResponses,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -211,6 +218,8 @@ import type {
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
+  SessionSharePreviewErrors,
+  SessionSharePreviewResponses,
   SessionShareResponses,
   SessionShellErrors,
   SessionShellResponses,
@@ -238,6 +247,16 @@ import type {
   StudioGenerationsRebootResponses,
   StudioGenerationsRefreshErrors,
   StudioGenerationsRefreshResponses,
+  StudioHistoryDeleteErrors,
+  StudioHistoryDeleteResponses,
+  StudioHistoryExcludedListErrors,
+  StudioHistoryExcludedListResponses,
+  StudioHistoryListErrors,
+  StudioHistoryListResponses,
+  StudioHistoryRevisionErrors,
+  StudioHistoryRevisionResponses,
+  StudioHistorySnapshotErrors,
+  StudioHistorySnapshotResponses,
   StudioPromptExpansionsCancelErrors,
   StudioPromptExpansionsCancelResponses,
   StudioPromptExpansionsCreateErrors,
@@ -785,16 +804,17 @@ export class Artifact extends HeyApiClient {
   /**
    * List artifacts
    *
-   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.
+   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root. 'scope=project' (code workspace) resolves paths project-wide: generated lists the project root, uploaded lists .octo/uploads, and sessionId is not required.
    */
   public list<ThrowOnError extends boolean = false>(
-    parameters: {
+    parameters?: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       category?: "generated" | "uploaded"
       path?: string
       recursive?: "true" | "false"
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -809,11 +829,12 @@ export class Artifact extends HeyApiClient {
             { in: "query", key: "category" },
             { in: "query", key: "path" },
             { in: "query", key: "recursive" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
     )
-    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<ArtifactListResponses, ArtifactListErrors, ThrowOnError>({
       url: "/artifact/list",
       ...options,
       ...params,
@@ -1000,7 +1021,7 @@ export class Artifact extends HeyApiClient {
   /**
    * Upload artifact
    *
-   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder.
+   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder. 'scope=project' (code workspace) uploads into the project tree: 'dir' is a project-root-relative target directory (defaults to project root) and sessionId is not required.
    */
   public upload<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -1010,6 +1031,8 @@ export class Artifact extends HeyApiClient {
       filename?: string
       content?: string
       path?: string
+      scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1024,6 +1047,8 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "filename" },
             { in: "body", key: "content" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],
@@ -1056,6 +1081,8 @@ export class Artifact extends HeyApiClient {
         content: string
       }>
       path?: string
+      scope?: "project"
+      dir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1070,6 +1097,8 @@ export class Artifact extends HeyApiClient {
             { in: "body", key: "folderName" },
             { in: "body", key: "files" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "dir" },
           ],
         },
       ],
@@ -1099,8 +1128,9 @@ export class Artifact extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
       path: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1113,6 +1143,7 @@ export class Artifact extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
             { in: "query", key: "path" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -1135,7 +1166,8 @@ export class Comment extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
+      scope?: "project"
       commentFilePath: string
       commentId: string
     },
@@ -1149,6 +1181,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
+            { in: "query", key: "scope" },
             { in: "query", key: "commentFilePath" },
             { in: "query", key: "commentId" },
           ],
@@ -1171,7 +1204,8 @@ export class Comment extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
+      scope?: "project"
       commentFilePath: string
     },
     options?: Options<never, ThrowOnError>,
@@ -1184,6 +1218,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
+            { in: "query", key: "scope" },
             { in: "query", key: "commentFilePath" },
           ],
         },
@@ -1206,6 +1241,7 @@ export class Comment extends HeyApiClient {
       directory?: string
       workspace?: string
       sessionId?: string
+      scope?: "project"
       commentFilePath?: string
       comment?: {
         id: string
@@ -1249,6 +1285,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "sessionId" },
+            { in: "body", key: "scope" },
             { in: "body", key: "commentFilePath" },
             { in: "body", key: "comment" },
           ],
@@ -1277,7 +1314,8 @@ export class Comment extends HeyApiClient {
       attachmentId: string
       directory?: string
       workspace?: string
-      sessionId: string
+      sessionId?: string
+      scope?: "project"
       commentFilePath: string
       commentId: string
     },
@@ -1292,6 +1330,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
+            { in: "query", key: "scope" },
             { in: "query", key: "commentFilePath" },
             { in: "query", key: "commentId" },
           ],
@@ -1319,6 +1358,7 @@ export class Comment extends HeyApiClient {
       directory?: string
       workspace?: string
       sessionId?: string
+      scope?: "project"
       commentFilePath?: string
       commentId?: string
       sourceFilePath?: string
@@ -1336,6 +1376,7 @@ export class Comment extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "sessionId" },
+            { in: "body", key: "scope" },
             { in: "body", key: "commentFilePath" },
             { in: "body", key: "commentId" },
             { in: "body", key: "sourceFilePath" },
@@ -3871,6 +3912,162 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionStatusResponses, SessionStatusErrors, ThrowOnError>({
       url: "/session/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import portable session
+   *
+   * Import a complete session tree, including messages, todos, uploads, and outputs.
+   */
+  public portableImport<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableImportResponses,
+      SessionPortableImportErrors,
+      ThrowOnError
+    >({
+      url: "/session/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export portable session
+   *
+   * Export a complete session tree, including messages, todos, uploads, and outputs.
+   */
+  public portableExport<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableExportResponses,
+      SessionPortableExportErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/export",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Share portable session
+   *
+   * Export a complete session, upload its ZIP archive, and return a shareable web URL.
+   */
+  public portableShare<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableShareResponses,
+      SessionPortableShareErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/portable-share",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Preview shared conversation
+   *
+   * Read bounded, paginated conversation text and file names without exporting files or loading tool output.
+   */
+  public sharePreview<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+      before?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "before" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionSharePreviewResponses, SessionSharePreviewErrors, ThrowOnError>({
+      url: "/session/{sessionID}/share-preview",
       ...options,
       ...params,
     })
@@ -6528,9 +6725,9 @@ export class TemplateList extends HeyApiClient {
       directory?: string
       workspace?: string
       user_id: string
-      only_public: string
-      page: string
-      page_size: string
+      only_public: number
+      page: number
+      page_size: number
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6926,6 +7123,205 @@ export class EditorEntries extends HeyApiClient {
   }
 }
 
+export class Excluded extends HeyApiClient {
+  /**
+   * List excluded Studio history media IDs
+   *
+   * Returns media IDs that were deleted from Studio history and must stay excluded.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioHistoryExcludedListResponses,
+      StudioHistoryExcludedListErrors,
+      ThrowOnError
+    >({
+      url: "/studio/history/excluded",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class History2 extends HeyApiClient {
+  /**
+   * List Studio history media
+   *
+   * Returns all Studio media across sessions, including media from deleted sessions.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      kind?: "image" | "video"
+      resolution?: string
+      ratio?: string
+      sort?: "desc" | "asc"
+      cursor?: string
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "kind" },
+            { in: "query", key: "resolution" },
+            { in: "query", key: "ratio" },
+            { in: "query", key: "sort" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<StudioHistoryListResponses, StudioHistoryListErrors, ThrowOnError>({
+      url: "/studio/history",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Snapshot session media to history
+   *
+   * Copies a session's media to the history table before session deletion.
+   */
+  public snapshot<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioHistorySnapshotResponses,
+      StudioHistorySnapshotErrors,
+      ThrowOnError
+    >({
+      url: "/studio/history/snapshot",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete Studio history media
+   *
+   * Permanently removes history media entries. The underlying session generation data and files are not deleted.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      mediaIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "mediaIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<StudioHistoryDeleteResponses, StudioHistoryDeleteErrors, ThrowOnError>(
+      {
+        url: "/studio/history/delete",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Get Studio history revision
+   *
+   * Returns a lightweight fingerprint of a directory's Studio history so clients can skip refetching unchanged data.
+   */
+  public revision<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioHistoryRevisionResponses,
+      StudioHistoryRevisionErrors,
+      ThrowOnError
+    >({
+      url: "/studio/history/revision",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _excluded?: Excluded
+  get excluded(): Excluded {
+    return (this._excluded ??= new Excluded({ client: this.client }))
+  }
+}
+
 export class Studio2 extends HeyApiClient {
   private _promptRecommendations?: PromptRecommendations
   get promptRecommendations(): PromptRecommendations {
@@ -6990,6 +7386,11 @@ export class Studio2 extends HeyApiClient {
   private _editorEntries?: EditorEntries
   get editorEntries(): EditorEntries {
     return (this._editorEntries ??= new EditorEntries({ client: this.client }))
+  }
+
+  private _history?: History2
+  get history(): History2 {
+    return (this._history ??= new History2({ client: this.client }))
   }
 }
 

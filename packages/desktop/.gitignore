@@ -26,3 +26,5 @@ out/
 
 resources/opencode-cli*
 resources/icons
+resources/plugin-sdk
+resources/.plugin-sdk-staging
