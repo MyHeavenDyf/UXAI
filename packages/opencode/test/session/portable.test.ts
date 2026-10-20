@@ -25,6 +25,65 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([false, true])("preflights duplicate shared attachment names across imported sessions (conflict: %s)", async (conflict) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({ directory: source.path, fn: async () => {
+      const root = await runSession((svc) => svc.create({ title: "Root" }))
+      const child = await runSession((svc) => svc.create({ parentID: root.id, title: "Child" }))
+      await Bun.write(path.join(source.path, ".octo", root.id, "uploads", "brief.txt"), "root attachment")
+      await Bun.write(path.join(source.path, ".octo", child.id, "uploads", "brief.txt"), conflict ? "child attachment" : "root attachment")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: path.join(source.path, "session.zip") }))
+    } })
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      if (conflict) {
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "project"))).rejects.toThrow("共享附件同名且内容不同")
+        expect(await Bun.file(path.join(target.path, "brief.txt")).exists()).toBe(false)
+        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
+        return
+      }
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "project"))
+      expect(imported.files).toBe(3)
+      expect(await Bun.file(path.join(target.path, "brief.txt")).text()).toBe("root attachment")
+    } })
+  })
+
+  test.each([undefined, "project"] as const)("restores private uploads without changing chat references (target scope: %s)", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Uploaded attachment" }))
+      const messageID = MessageID.ascending()
+      await runSession((svc) => svc.updateMessage({
+        id: messageID, sessionID: session.id, role: "user", time: { created: Date.now() }, agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      }))
+      await Bun.write(path.join(source.path, ".octo", session.id, "uploads", "资料", "说明.txt"), "attachment")
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "file", filename: "说明.txt", mime: "text/plain",
+        url: pathToFileURL(path.join(source.path, ".octo", session.id, "uploads", "资料", "说明.txt")).href,
+      }))
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip") }))
+    } })
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, scope))
+      const attachment = path.join(target.path, ".octo", imported.sessionID, "uploads", "资料", "说明.txt")
+      expect(await Bun.file(attachment).text()).toBe("attachment")
+      expect(await Bun.file(path.join(target.path, "资料", "说明.txt")).exists()).toBe(scope === "project")
+      const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+      expect(messages[0].parts[0]).toMatchObject({ type: "file", url: pathToFileURL(attachment).href })
+      if (scope !== "project") return
+      expect(await Bun.file(path.join(target.path, "资料", "说明.txt")).text()).toBe("attachment")
+      // Reimporting identical attachments reuses the shared file instead of overwriting it.
+      await AppRuntime.runPromise(importPortableSession(archive.output, scope))
+      await Bun.write(path.join(target.path, "资料", "说明.txt"), "existing file")
+      const count = (await runSession((svc) => svc.list({ directory: target.path }))).length
+      await expect(AppRuntime.runPromise(importPortableSession(archive.output, scope))).rejects.toThrow("共享文件已存在且内容不同")
+      expect(await Bun.file(path.join(target.path, "资料", "说明.txt")).text()).toBe("existing file")
+      expect((await runSession((svc) => svc.list({ directory: target.path }))).length).toBe(count)
+    } })
+  })
+
   test("includes shared workspace files once, preserves references, and keeps ordinary exports isolated", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })

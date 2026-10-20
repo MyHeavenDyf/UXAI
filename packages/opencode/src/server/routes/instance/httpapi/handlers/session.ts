@@ -36,7 +36,7 @@ import {
   MessagesQuery,
   PreviewQuery,
   PermissionResponsePayload,
-  PortablePathPayload,
+  PortableImportPayload,
   PortableExportPayload,
   PortableScopeQuery,
   PromptPayload,
@@ -94,9 +94,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const portableImport = Effect.fn("SessionHttpApi.portableImport")(function* (ctx: {
-      payload: typeof PortablePathPayload.Type
+      payload: typeof PortableImportPayload.Type
     }) {
-      return yield* importPortableSession(ctx.payload.path)
+      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope)
     })
 
     const portableExport = Effect.fn("SessionHttpApi.portableExport")(function* (ctx: {

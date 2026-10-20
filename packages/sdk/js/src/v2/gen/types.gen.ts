@@ -6010,6 +6010,7 @@ export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusRe
 export type SessionPortableImportData = {
   body?: {
     path: string
+    scope?: "project"
   }
   path?: never
   query?: {

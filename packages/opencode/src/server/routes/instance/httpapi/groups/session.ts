@@ -88,6 +88,7 @@ export const PortableExportPayload = Schema.Struct({
   ...PortablePathPayload.fields,
   ...PortableScopeQuery.fields,
 })
+export const PortableImportPayload = PortableExportPayload
 export const PortableImportResult = Schema.Struct({
   sessionID: SessionID,
   sessions: Schema.Number,
@@ -163,7 +164,7 @@ export const SessionApi = HttpApi.make("session")
           }),
         ),
         HttpApiEndpoint.post("portableImport", SessionPaths.portableImport, {
-          payload: PortablePathPayload,
+          payload: PortableImportPayload,
           success: described(PortableImportResult, "Imported portable session"),
           error: HttpApiError.BadRequest,
         }).annotateMerge(

@@ -53,7 +53,9 @@ test("imports a shared archive into the selected folder with real artifacts and 
       if (!body || typeof body !== "object" || !("path" in body) || typeof body.path !== "string") return new Response(null, { status: 400 })
       const file = body.path
       downloadedPaths.push(file)
-      return Response.json(await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(importPortableSession(file)) }))
+      const scope = "scope" in body && body.scope === "project" ? "project" : undefined
+      expect(scope).toBe("project")
+      return Response.json(await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(importPortableSession(file, scope)) }))
     }
     const sessionID = SessionID.make(url.pathname.split("/").at(-1)!)
     return Response.json(await provideTestInstance({ directory, fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.get(sessionID))) }))
@@ -61,6 +63,7 @@ test("imports a shared archive into the selected folder with real artifacts and 
   try {
     const input = {
       uniqueId: "Ab12Cd34Ef", directory,
+      scope: "project" as const,
       uploadURL: `http://127.0.0.1:${server.port}/agentSession/createShareSession`,
       server: { url: `http://127.0.0.1:${server.port}`, username: "opencode", password: "test" },
       remoteFetch: fetch,

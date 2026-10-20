@@ -10,6 +10,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { createSharedSessionCache } from "./shared-session-cache"
+import { kindOf } from "./workspace-switcher"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
@@ -20,7 +21,11 @@ export function SharedSessionHandler() {
   const navigate = useNavigate()
   const inFlight = new Set<string>()
   const cache = createSharedSessionCache({
-    importSession: async (uniqueId, directory) => platform.importSharedSession?.(uniqueId, directory),
+    importSession: async (uniqueId, directory) => platform.importSharedSession?.(
+      uniqueId,
+      directory,
+      kindOf(server.projects.list().find((project) => project.worktree === directory)) === "code" ? "project" : undefined,
+    ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
       const response = await globalSDK.createClient({ throwOnError: false }).session.get({

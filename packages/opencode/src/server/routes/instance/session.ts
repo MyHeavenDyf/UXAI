@@ -150,10 +150,10 @@ export const SessionRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", z.object({ path: z.string().min(1) })),
+      validator("json", z.object({ path: z.string().min(1), scope: z.literal("project").optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableImport", c, function* () {
-          return yield* importPortableSession(c.req.valid("json").path)
+          return yield* importPortableSession(c.req.valid("json").path, c.req.valid("json").scope)
         }),
     )
     .post(

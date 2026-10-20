@@ -551,11 +551,38 @@ async function sharedFileTarget(directory: string, file: FileEntry) {
   return path.join(directory, ...segments)
 }
 
-export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string) {
+function importFiles(manifest: Manifest, scope?: "project") {
+  if (scope !== "project") return manifest.files
+  const shared = new Map(
+    manifest.files.filter((file) => file.scope === "project")
+      .map((file) => [path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/")), file]),
+  )
+  const files = [...manifest.files]
+  for (const file of manifest.files) {
+    if (file.scope && file.scope !== "session") continue
+    const relative = path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))
+    if (!relative.startsWith("uploads/")) continue
+    const target = relative.slice("uploads/".length)
+    if (!isProjectFile(target)) continue
+    const existing = shared.get(target)
+    if (existing) {
+      if (existing.sha256 !== file.sha256) throw new Error(`共享附件同名且内容不同，无法导入：${target}`)
+      continue
+    }
+    // Keep the private copy and its chat references; expose an additional shared copy.
+    const entry = { ...file, scope: "project" as const, directory: ".", path: target }
+    shared.set(target, entry)
+    files.push(entry)
+  }
+  return files
+}
+
+export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string, scope?: "project") {
   const context = yield* InstanceState.context
   const sessions = yield* Session.Service
   const todos = yield* Todo.Service
   const bundle = yield* readBundle(path.resolve(file))
+  const files = importFiles(bundle.manifest, scope)
   const sessionIDs = new Map<string, SessionID>()
   const created: SessionID[] = []
   const sharedFiles: string[] = []
@@ -563,7 +590,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
   const importEffect = Effect.gen(function* () {
     // Fail before creating sessions or writing files when a shared path conflicts.
     yield* Effect.forEach(
-      bundle.manifest.files.filter((file) => file.scope === "project"),
+      files.filter((file) => file.scope === "project"),
       (file) => Effect.promise(() => sharedFileTarget(context.directory, file)),
       { concurrency: 8 },
     )
@@ -625,7 +652,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       }
     }
 
-    for (const fileEntry of bundle.manifest.files) {
+    for (const fileEntry of files) {
       if (fileEntry.scope === "project") {
         yield* Effect.promise(async () => {
           const target = await sharedFileTarget(context.directory, fileEntry)
@@ -661,7 +688,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     return {
       sessionID: sessionIDs.get(bundle.manifest.rootSessionID)!,
       sessions: sessionIDs.size,
-      files: bundle.manifest.files.length,
+      files: files.length,
     }
   })
 
