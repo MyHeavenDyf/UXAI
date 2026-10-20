@@ -77,6 +77,7 @@ const QueryParameterSchemas = {
   "GET /find/file limit": { type: "integer", minimum: 1, maximum: 200 },
   "GET /session/{sessionID}/diff messageID": { type: "string", pattern: "^msg.*" },
   "GET /session/{sessionID}/message limit": { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  "GET /session/{sessionID}/share-preview limit": { type: "integer", minimum: 1, maximum: 20 },
   "GET /experimental/session cursor": { type: "string" },
   "GET /studio/template-list only_public": {
     type: "integer",

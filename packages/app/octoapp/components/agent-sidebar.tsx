@@ -6,8 +6,7 @@ import { batch, createEffect, createMemo, createResource, createSignal, on, onCl
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
-// useGlobalSync is currently unused; re-enable when sync-specific hooks are needed
-// import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSync } from "@/context/global-sync"
 import { sessionTitle } from "@/utils/session-title"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -155,6 +154,7 @@ function writeSidebarCache(key: string, value: { sessions: Session[]; cursor?: s
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
   const dialog = useDialog()
@@ -854,6 +854,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
     const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
     if (!ok) return
+    globalSync.child(session.directory, { bootstrap: false })[1]("deleted", session.id, true)
     bustSidebarCache()
 
     closeContextMenu()
@@ -875,7 +876,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const deleted = new Set<string>()
     await Promise.all(sessions.map(async (s) => {
       const ok = await removeSession(globalSDK.createClient({ directory: s.directory }), s.id)
-      if (ok) deleted.add(s.id)
+      if (!ok) return
+      deleted.add(s.id)
+      globalSync.child(s.directory, { bootstrap: false })[1]("deleted", s.id, true)
     }))
     if (deleted.size) {
       bustSidebarCache()

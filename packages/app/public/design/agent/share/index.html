@@ -18,60 +18,136 @@
     .header {
       height: 64px;
       flex-shrink: 0;
+      background: #fff;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      position: relative;
+    }
+    .header-inner {
+      width: 100%;
+      height: 100%;
+      padding: 0 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
-      background: #fff;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      gap: 16px;
     }
-    .header-logo { width: 90px; height: 18px; }
+    .header-logo { width: 90px; height: 18px; flex-shrink: 0; }
+    /* title 覆盖层:容器与 .chat-scroll-view 完全一致(1024px 居中 + 12px padding),
+       使 title 左边界对齐 conversation-list 左边界;pointer-events: none 让点击穿透到下方 logo/button */
+    .header-title-bar {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
+    .header-title {
+      width: 100%;
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 0 12px;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 24px;
+      color: #191919;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      /* 窄屏下避让两侧:左侧 logo(24px padding + 90px logo = 114px)、
+         右侧 button(~164px + 24px padding + 16px gap ≈ 220px) */
+      padding-left: 114px;
+      padding-right: 220px;
+    }
+    /* 宽屏:title 左边界恢复 12px,对齐 conversation-list 左边界 */
+    @media (min-width: 1230px) {
+      .header-title {
+        padding-left: 12px;
+      }
+    }
     .header-btn {
-      height: 32px;
-      padding: 0 16px;
+      padding: 8px 16px;
       border: 0;
-      border-radius: 16px;
+      border-radius: 24px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 400;
       line-height: 22px;
       color: #fff;
-      background: #0969ff;
+      background: #0055ff;
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      flex-shrink: 0;
     }
     .header-btn:hover { background: #0858d8; }
     .header-btn-icon { width: 14px; height: 14px; display: block; flex-shrink: 0; }
+    .open-app-dialog {
+      width: min(452px, calc(100vw - 48px));
+      margin: auto;
+      border: 0;
+      border-radius: 16px;
+      padding: 24px;
+      color: #191919;
+    }
+    .open-app-dialog::backdrop { background: rgba(25, 25, 25, .3); }
+    .open-app-dialog h2 { font-size: 16px; line-height: 24px; margin: 0 32px 4px 0; }
+    .open-app-dialog p { font-size: 14px; line-height: 22px; color: #666; }
+    .dialog-close { position: absolute; top: 18px; right: 18px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
+    .dialog-action { display: flex; justify-content: center; margin-top: 24px; }
+    .dialog-action a { display: inline-flex; align-items: center; gap: 6px; border-radius: 24px; background: #0055ff; color: #fff; padding: 10px 24px; font-size: 14px; line-height: 22px; text-decoration: none; }
+    .open-app-dialog .dialog-hint { text-align: center; margin-top: 16px; }
+    .open-app-dialog .dialog-hint a { color: #0055ff; cursor: pointer; text-decoration: none; }
     /* ── conversation（对齐 design 页面 ScrollView + make-chat-content 结构）── */
     .content {
       flex: 1;
       width: 100%;
       display: flex;
-      overflow: hidden;
+      overflow-y: auto;
       background: #fff;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+    }
+    .content::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .content::-webkit-scrollbar-thumb {
+      background-color: rgba(0, 0, 0, 0.15);
+      border-radius: 9999px;
+    }
+    .content::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(0, 0, 0, 0.3);
     }
     .chat-scroll-view {
-      height: 100%;
       width: 100%;
       max-width: 1024px;
       margin: 0 auto;
       background: #fff;
-      padding: 12px;
-      overflow-y: auto;
+      /* 对齐 design ScrollView: 0 12px 16px 12px */
+      padding: 0 12px 16px 12px;
     }
     .chat-content {
+      /* 对齐 .make-chat-content.pt-4 */
       padding-top: 16px;
       display: flex;
       flex-direction: column;
       gap: 16px;
     }
+    #conversation-list {
+      /* 内容区距顶部 12px、底部 60px */
+      padding: 12px 0 60px 0;
+    }
     .turn {
+      /* 对齐 .octo-make-turn.flex.flex-col.gap-4 */
       display: flex;
       flex-direction: column;
       gap: 16px;
     }
     .turn-user-row {
+      /* 对齐 .flex.flex-col.items-end.gap-4.px-3 */
       display: flex;
       flex-direction: column;
       align-items: flex-end;
@@ -90,46 +166,146 @@
       max-width: 85%;
       display: inline-block;
     }
-    .turn-assistant-row { padding: 0 16px; }
+    /* ── 用户图片附件(对齐 design InsightTurn: 80×80 缩略图,右对齐,在气泡上方) ── */
+    .user-attachments {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .user-image-thumb {
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background-color: rgba(0, 0, 0, 0.05);
+      cursor: default;
+    }
+    .user-image-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .turn-assistant-row {
+      /* 对齐 design .px-4 */
+      padding: 0 16px;
+    }
     .text-assistant {
       color: #191919;
       font-size: 14px;
       line-height: 22px;
-      white-space: pre-wrap;
-      word-break: break-word;
     }
-    /* ── 文件卡片(对齐 design 页面 InsightTurn 附件卡片样式) ── */
-    .file-list {
+    /* ── markdown 渲染(对齐 design [data-component="markdown"]) ── */
+    .text-assistant[data-component="markdown"] {
+      overflow-wrap: break-word;
+      line-height: 160%;
+    }
+    .text-assistant[data-component="markdown"] > *:first-child { margin-top: 0; }
+    .text-assistant[data-component="markdown"] > *:last-child { margin-bottom: 0; }
+    .text-assistant[data-component="markdown"] h1,
+    .text-assistant[data-component="markdown"] h2,
+    .text-assistant[data-component="markdown"] h3,
+    .text-assistant[data-component="markdown"] h4,
+    .text-assistant[data-component="markdown"] h5,
+    .text-assistant[data-component="markdown"] h6 {
+      font-size: 14px;
+      color: #191919;
+      font-weight: 500;
+      margin: 0 0 8px 0;
+      line-height: 1.4;
+    }
+    .text-assistant[data-component="markdown"] strong,
+    .text-assistant[data-component="markdown"] b {
+      color: #191919;
+      font-weight: 500;
+    }
+    .text-assistant[data-component="markdown"] p { margin: 0 0 8px 0; }
+    .text-assistant[data-component="markdown"] a {
+      color: #0a59f7;
+      text-decoration: none;
+    }
+    .text-assistant[data-component="markdown"] a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .text-assistant[data-component="markdown"] ul,
+    .text-assistant[data-component="markdown"] ol {
+      margin: 8px 0;
+      padding-left: 32px;
+      list-style-position: outside;
+    }
+    .text-assistant[data-component="markdown"] ul { list-style-type: disc; }
+    .text-assistant[data-component="markdown"] ol { list-style-type: decimal; padding-left: 2.25rem; }
+    .text-assistant[data-component="markdown"] li { margin-bottom: 8px; }
+    .text-assistant[data-component="markdown"] li > p:first-child { display: inline; margin: 0; }
+    .text-assistant[data-component="markdown"] li > ul,
+    .text-assistant[data-component="markdown"] li > ol { margin: 0.25rem 0; padding-left: 1rem; }
+    .text-assistant[data-component="markdown"] blockquote {
+      border-left: 2px solid #E5E7EB;
+      margin: 1.5rem 0;
+      padding-left: 0.5rem;
+      color: rgba(0,0,0,0.6);
+      font-style: normal;
+    }
+    .text-assistant[data-component="markdown"] hr { border: none; height: 0; margin: 0; }
+    .text-assistant[data-component="markdown"] code {
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: rgba(0,0,0,0.05);
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .text-assistant[data-component="markdown"] pre {
+      margin: 16px 0;
+    }
+    .text-assistant[data-component="markdown"] pre code {
+      display: block;
+      background: #f9f9fb;
+      border-radius: 16px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+    /* ── artifact 输出卡片(对齐 design InsightTurn outputCards) ── */
+    .artifact-card {
+      margin: 0 12px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%);
+      border: 1px solid rgba(0,0,0,0.1);
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      align-items: center;
+      gap: 12px;
     }
-    .file-card {
-      background: rgba(0, 0, 0, 0.05);
-      padding: 8px 12px;
-      border-radius: 8px;
-      color: rgba(0, 0, 0, 0.9);
+    .artifact-card-icon { width: 28px; height: 28px; flex-shrink: 0; }
+    .artifact-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+    .artifact-card-title {
+      color: rgb(25,25,25);
       font-size: 14px;
       line-height: 22px;
-      gap: 6px;
-      display: inline-flex;
-      align-items: center;
-      max-width: 200px;
-      cursor: default;
-    }
-    .file-card img { width: 24px; height: 24px; flex-shrink: 0; }
-    .file-name {
+      font-weight: 500;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .artifact-card-meta { color: #777; font-size: 12px; line-height: 22px; }
   </style>
 </head>
 <body>
   <header class="header">
-    <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
-    <button class="header-btn" onclick="window.open('/', '_blank')">在Octo Agent内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    <div class="header-inner">
+      <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
+      <button type="button" class="header-btn" id="continue-btn" aria-haspopup="dialog" aria-controls="open-app-dialog">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+    </div>
+    <div class="header-title-bar">
+      <h1 class="header-title" id="session-title"></h1>
+    </div>
   </header>
+  <dialog class="open-app-dialog" id="open-app-dialog" aria-labelledby="open-app-title" aria-describedby="open-app-description">
+    <button type="button" class="dialog-close" id="close-app-dialog" aria-label="关闭">×</button>
+    <h2 id="open-app-title">在 Octo Agent 内继续</h2>
+    <p id="open-app-description">通过分享的链接开始你的对话</p>
+    <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
+    <p class="dialog-hint" id="open-app-hint">你安装了此应用吗？<a href="#" target="_blank" rel="noopener noreferrer">点击下载安装</a></p>
+  </dialog>
   <main class="content">
     <div class="chat-scroll-view">
       <div class="chat-content">
@@ -138,7 +314,261 @@
     </div>
   </main>
   <script>
-    (async function () {
+    // 轻量内联 markdown 渲染器(对齐 design Markdown 组件的视觉输出,无需 CDN 依赖)
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+    function inlineMd(s) {
+      return s
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" />')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    }
+    function renderMarkdown(text) {
+      if (!text) return ""
+      const lines = text.split("\n")
+      let html = ""
+      let i = 0
+      while (i < lines.length) {
+        const line = lines[i]
+        // 代码块
+        if (/^```/.test(line)) {
+          const lang = line.replace(/^```/, "").trim()
+          const buf = []
+          i++
+          while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++ }
+          i++ // skip closing ```
+          html += '<pre><code' + (lang ? ` class="language-${escapeHtml(lang)}"` : "") + ">" + escapeHtml(buf.join("\n")) + "</code></pre>"
+          continue
+        }
+        // 标题
+        const hm = /^(#{1,6})\s+(.*)$/.exec(line)
+        if (hm) { html += `<h${hm[1].length}>${inlineMd(escapeHtml(hm[2]))}</h${hm[1].length}>`; i++; continue }
+        // 分隔线
+        if (/^---+$/.test(line.trim())) { html += "<hr>"; i++; continue }
+        // 无序列表
+        if (/^\s*[-*]\s+/.test(line)) {
+          const items = []
+          while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+            items.push("<li>" + inlineMd(escapeHtml(lines[i].replace(/^\s*[-*]\s+/, ""))) + "</li>")
+            i++
+          }
+          html += "<ul>" + items.join("") + "</ul>"
+          continue
+        }
+        // 有序列表
+        if (/^\s*\d+\.\s+/.test(line)) {
+          const items = []
+          while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+            items.push("<li>" + inlineMd(escapeHtml(lines[i].replace(/^\s*\d+\.\s+/, ""))) + "</li>")
+            i++
+          }
+          html += "<ol>" + items.join("") + "</ol>"
+          continue
+        }
+        // 引用
+        if (/^>\s?/.test(line)) {
+          const buf = []
+          while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, "")); i++ }
+          html += "<blockquote>" + inlineMd(escapeHtml(buf.join("\n"))) + "</blockquote>"
+          continue
+        }
+        // 空行
+        if (line.trim() === "") { i++; continue }
+        // 段落(连续非空行合并)
+        const para = []
+        while (i < lines.length && lines[i].trim() !== "" && !/^```|^#{1,6}\s|^\s*[-*]\s+|^\s*\d+\.\s+|^>\s?|^---+$/.test(lines[i])) {
+          para.push(lines[i]); i++
+        }
+        html += "<p>" + inlineMd(escapeHtml(para.join("<br>"))) + "</p>"
+      }
+      return html
+    }
+
+    // 提取用户可见文字(对齐 design insight-turn.tsx userText())
+    // 1) 优先 metadata.displayText(@mention 显示文本)
+    // 2) 否则取第一个 text part,用 lastIndexOf("\n---\n") 剥离系统前缀,只显示 --- 后的真实输入
+    function extractUserText(parts) {
+      const displayPart = parts.find(p => p.type === "text" && p.metadata && p.metadata.displayText)
+      if (displayPart) return displayPart.metadata.displayText.trim()
+      const textPart = parts.find(p => p.type === "text" && p.text)
+      if (!textPart || !textPart.text) return ""
+      const raw = textPart.text
+      const sepIdx = raw.lastIndexOf("\n---\n")
+      if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
+      return raw.trim()
+    }
+
+    // artifact type 映射(对齐 design ARTIFACT_TYPE_MAP)
+    const ARTIFACT_TYPE_MAP = {
+      html: "html", "text/html": "html",
+      "text/html+deck": "deck", deck: "deck",
+      svg: "svg", "image/svg+xml": "svg",
+      "markdown-document": "markdown-document",
+      "code-snippet": "code-snippet",
+      "react-component": "react-component",
+      diagram: "diagram",
+      "text/design-plan": "design-plan",
+      "text/link": "link",
+    }
+    // 从 assistant 文本中提取已闭合的 <artifact> 标签(对齐 design parseAllArtifactsFromText)
+    // 返回 { artifacts, prose },prose 为剥离 artifact 后的可见文字
+    function extractArtifacts(text) {
+      const artifacts = []
+      if (!text || !/<artifact/i.test(text)) return { artifacts, prose: text || "" }
+      const re = /<artifact\b([^>]*)>([\s\S]*?)<\/artifact>/gi
+      let prose = text.replace(re, (full, attrs, content) => {
+        const am = {}
+        attrs.replace(/(\w+)\s*=\s*"([^"]*)"/g, (s, k, v) => { am[k] = v })
+        const artifactType = am.type || ""
+        const mappedType = ARTIFACT_TYPE_MAP[artifactType]
+        // design-plan / plan- 前缀不显示卡片(走 plan banner)
+        if (!mappedType || mappedType === "design-plan" || (am.identifier || "").startsWith("plan-")) {
+          return ""
+        }
+        const title = (mappedType === "link" ? extractLinkTitle(content) : am.title) || mappedType
+        artifacts.push({
+          title: title,
+          type: mappedType,
+          content: content,
+          artifactIdentifier: am.identifier || "",
+        })
+        return ""
+      })
+      return { artifacts, prose: prose.replace(/\n{3,}/g, "\n\n").trim() }
+    }
+    function extractLinkTitle(content) {
+      try {
+        const url = content.trim()
+        const u = new URL(url)
+        const last = u.pathname.split("/").filter(Boolean).pop() || u.host
+        return decodeURIComponent(last)
+      } catch { return null }
+    }
+
+    // 图片扩展名(对齐 design file-type-icons 的图片类型)
+    const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]
+    function isImageFile(filename, mime) {
+      if (mime && mime.startsWith("image/")) return true
+      const ext = (filename || "").split(".").pop().toLowerCase()
+      return IMAGE_EXTS.includes(ext)
+    }
+
+    // 从 manifest.files 构建图片 blob URL 映射: { [basename]: { url, mime } }
+    // blob 字段形如 "blobs/<sha256>",manifest 在 /tool{filePath}/manifest.json,
+    // 故 blob 文件 URL 为 /tool{filePath}/{blob}
+    function buildImageBlobMap(manifest, filePath) {
+      const map = {}
+      if (!manifest.files) return map
+      for (const f of manifest.files) {
+        const name = (f.path || "").split("/").pop()
+        if (!name) continue
+        const ext = (f.path || "").split(".").pop().toLowerCase()
+        if (!IMAGE_EXTS.includes(ext)) continue
+        const url = "/tool" + filePath + "/" + f.blob
+        const mime = ext === "svg" ? "image/svg+xml" : "image/" + ext
+        map[name] = { url, mime }
+      }
+      return map
+    }
+
+    // 异步加载 blob 为 object URL(blob 文件无扩展名,用预期 mime 强制类型确保 <img> 能渲染)
+    async function loadBlobImage(blobUrl, token, expectedMime) {
+      try {
+        const res = await fetch(blobUrl, {
+          method: "GET",
+          credentials: "include",
+          headers: token ? { uiplustoken: token } : {},
+        })
+        if (!res.ok) return blobUrl
+        const raw = await res.blob()
+        // 服务器未给正确 content-type 时,用 expectedMime 重建 blob
+        if (expectedMime && (!raw.type || raw.type === "application/octet-stream")) {
+          return URL.createObjectURL(new Blob([raw], { type: expectedMime }))
+        }
+        return URL.createObjectURL(raw)
+      } catch {
+        return blobUrl
+      }
+    }
+
+    // 按 hostname 选 deep link scheme,与桌面端 packages/desktop/src/main/shared-session.ts 的 parseSharedSessionLink 对齐:
+    //   beta(hostname 含 "beta") → octo-agent-beta (beta 桌面端注册)
+    //   其余(含 localhost/127.0.0.1) → octo-agent  (Octo Agent 桌面端注册)
+    // 注意:localhost 也用 octo-agent,避免唤起旧 opencode/electron 客户端。
+    function pickDeepLinkScheme() {
+      const host = location.hostname
+      if (host.indexOf("beta") !== -1) return "octo-agent-beta"
+      return "octo-agent"
+    }
+
+    // 安装包下载地址:按运行环境选择(Windows / macOS-Intel / macOS-Apple)。
+    const INSTALLER_URL_WINDOWS = "https://octo.hdesign.huawei.com/design/agentdesktop/windows/prod/octo-desktop-win-x64.exe"
+    const INSTALLER_URL_MAC_INTEL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-x64/prod/octo-desktop-mac-x64.dmg"
+    const INSTALLER_URL_MAC_ARM = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-arm64/prod/octo-desktop-mac-arm64.dmg"
+
+    function detectOS() {
+      const ua = navigator.userAgent || ""
+      const platform = navigator.platform || ""
+      if (/Windows|Win32|Win64/i.test(platform) || /Windows/i.test(ua)) return "windows"
+      if (/Mac/i.test(platform) || /Mac OS X/i.test(ua)) return "mac"
+      return "other"
+    }
+
+    // 浏览器无法用同步 API 区分 Apple/Intel 芯片:Chrome/Edge 走 UA-CH(architecture),
+    // Safari 回退 WebGL renderer,仍无法判断时按 Apple 芯片(当前多数 Mac)处理。
+    async function detectMacAppleSilicon() {
+      if (/arm64|aarch64/i.test(navigator.userAgent || "")) return true
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        try {
+          const data = await navigator.userAgentData.getHighEntropyValues(["architecture"])
+          if (data && data.architecture) return data.architecture === "arm"
+        } catch {}
+      }
+      try {
+        const gl = document.createElement("canvas").getContext("webgl")
+        const ext = gl && gl.getExtension("WEBGL_debug_renderer_info")
+        const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ""
+        if (/Apple/i.test(renderer)) return true
+        if (/Intel|AMD|NVIDIA/i.test(renderer)) return false
+      } catch {}
+      return true
+    }
+
+    async function pickDownloadUrl() {
+      const os = detectOS()
+      if (os === "windows") return INSTALLER_URL_WINDOWS
+      if (os === "mac") return (await detectMacAppleSilicon()) ? INSTALLER_URL_MAC_ARM : INSTALLER_URL_MAC_INTEL
+      return INSTALLER_URL_WINDOWS
+    }
+
+    function renderInstallHint(url) {
+      document.getElementById("open-app-hint").innerHTML =
+        '你安装了此应用吗？<a href="' + url + '" target="_blank" rel="noopener noreferrer">点击下载安装</a>'
+    }
+
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      const name = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
+      const uniqueId = name && name !== "index" ? name : new URLSearchParams(location.search).get("uniqueId") || ""
+      const link = document.getElementById("open-app-link")
+      const hint = document.getElementById("open-app-hint")
+      if (/^[a-zA-Z0-9_-]{1,128}$/.test(uniqueId)) {
+        link.href = `${pickDeepLinkScheme()}://share?uniqueId=${encodeURIComponent(uniqueId)}`
+        hint.textContent = "你安装了此应用吗？点击下载安装"
+        pickDownloadUrl().then(renderInstallHint).catch(() => {})
+      } else {
+        link.removeAttribute("href")
+        hint.textContent = "分享码缺失或无效，请检查分享链接"
+      }
+      document.getElementById("open-app-dialog").showModal()
+    })
+    document.getElementById("close-app-dialog").addEventListener("click", () => {
+      document.getElementById("open-app-dialog").close()
+    })
+
+    ;(async function () {
       // uniqueId 优先从路径提取（/design/agent/share/xxx.html → xxx）;
       // 路径为 index.html 时回退到 query 参数 uniqueId（兼容 /design/agent/share/index.html?uniqueId=xxx）
       let uniqueId = (location.pathname.split("/").pop() || "").replace(/\.html$/, "")
@@ -167,6 +597,13 @@
         }
         const data = await res.json()
         console.log("[share] getShareSessionInfo response:", data)
+        if (data.errorCode === 400) {
+          const loginBase = location.hostname.indexOf("beta") !== -1
+            ? "https://login-beta.huawei.com/login1/"
+            : "https://login.huawei.com/login1/"
+          location.href = loginBase + "?redirect=" + encodeURIComponent(location.href)
+          return
+        }
         if (!data.success || !data.content) {
           console.error("[share] getShareSessionInfo success=false", data)
           return
@@ -192,13 +629,13 @@
         }
         const manifest = await res.json()
         console.log("[share] manifest response:", manifest)
-        renderConversation(manifest)
+        renderConversation(manifest, filePath, token)
       } catch (err) {
         console.error("[share] manifest failed:", err)
       }
     }
 
-    function renderConversation(manifest) {
+    function renderConversation(manifest, filePath, token) {
       const list = document.getElementById("conversation-list")
       if (!list) return
       list.innerHTML = ""
@@ -211,7 +648,13 @@
         console.error("[share] session not found")
         return
       }
+      // 填充头部标题(优先 manifest.title,回退 session.info.title,与内容区左对齐)
+      const titleEl = document.getElementById("session-title")
+      if (titleEl) titleEl.textContent = manifest.title || session.info?.title || ""
       const messages = session.messages || []
+
+      // 构建图片 blob 映射:filename → { url, mime }
+      const imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
 
       // 按 user 分组: 每个 user 消息 + 后续 assistant 消息组成一个 turn（对齐 design 页面 InsightTurn 结构）
       const turns = []
@@ -235,11 +678,40 @@
         if (turn.user) {
           const userRow = document.createElement("div")
           userRow.className = "turn-user-row"
-          const bubble = document.createElement("div")
-          bubble.className = "bubble-user"
-          const textParts = (turn.user.parts || []).filter(p => p.type === "text" && p.text)
-          bubble.textContent = textParts.map(p => p.text).join("\n\n")
-          userRow.appendChild(bubble)
+          // 用户图片附件(对齐 design InsightTurn:图片在气泡上方,右对齐,80×80 缩略图)
+          const fileParts = (turn.user.parts || []).filter(p => p.type === "file" && p.filename)
+          const imageParts = fileParts.filter(p => isImageFile(p.filename, p.mime))
+          if (imageParts.length > 0) {
+            const attBox = document.createElement("div")
+            attBox.className = "user-attachments"
+            for (const part of imageParts) {
+              // 优先用 part.url(data:/blob: URL 直接可用);否则从 manifest.files blob 加载
+              const directUrl = (part.url && /^(data:|blob:|https?:)/.test(part.url)) ? part.url : null
+              const blobEntry = imageBlobMap[part.filename]
+              const thumb = document.createElement("div")
+              thumb.className = "user-image-thumb"
+              const img = document.createElement("img")
+              img.alt = part.filename || ""
+              if (directUrl) {
+                img.src = directUrl
+              } else if (blobEntry) {
+                loadBlobImage(blobEntry.url, token, blobEntry.mime).then(u => { img.src = u })
+              } else {
+                continue
+              }
+              thumb.appendChild(img)
+              attBox.appendChild(thumb)
+            }
+            if (attBox.children.length > 0) userRow.appendChild(attBox)
+          }
+          // 用户文字气泡
+          const userTextContent = extractUserText(turn.user.parts || [])
+          if (userTextContent) {
+            const bubble = document.createElement("div")
+            bubble.className = "bubble-user"
+            bubble.textContent = userTextContent
+            userRow.appendChild(bubble)
+          }
           turnEl.appendChild(userRow)
         }
 
@@ -248,58 +720,69 @@
           assistantRow.className = "turn-assistant-row"
           const text = document.createElement("div")
           text.className = "text-assistant"
+          text.setAttribute("data-component", "markdown")
+          // 聚合该 assistant 的所有 text part,剥离 <artifact> 后渲染 markdown
           const textParts = (assistant.parts || []).filter(p => p.type === "text" && p.text)
-          text.textContent = textParts.map(p => p.text).join("\n\n")
+          const rawText = textParts.map(p => p.text).join("\n\n")
+          const { artifacts, prose } = extractArtifacts(rawText)
+          text.innerHTML = prose ? renderMarkdown(prose) : ""
           assistantRow.appendChild(text)
+          // 渲染该 assistant 产出的 artifact 卡(对齐 design outputCards:icon + title + time)
+          const created = assistant.info && assistant.info.time && assistant.info.time.created
+            ? assistant.info.time.created * 1000 : null
+          for (const a of artifacts) {
+            const card = document.createElement("div")
+            card.className = "artifact-card"
+            const icon = document.createElement("img")
+            icon.className = "artifact-card-icon"
+            icon.src = artifactIconSrc(a.type)
+            icon.alt = ""
+            const body = document.createElement("div")
+            body.className = "artifact-card-body"
+            const title = document.createElement("span")
+            title.className = "artifact-card-title"
+            title.textContent = a.title || a.type
+            body.appendChild(title)
+            if (created) {
+              const meta = document.createElement("span")
+              meta.className = "artifact-card-meta"
+              meta.textContent = formatTime(new Date(created))
+              body.appendChild(meta)
+            }
+            card.appendChild(icon)
+            card.appendChild(body)
+            assistantRow.appendChild(card)
+          }
           turnEl.appendChild(assistantRow)
         }
 
         list.appendChild(turnEl)
       }
-
-      // 渲染 manifest.files(会话产物/附件),文件图标对齐 design 页面 file-type-icons
-      if (manifest.files && manifest.files.length > 0) {
-        const filesTurn = document.createElement("div")
-        filesTurn.className = "turn"
-        const filesRow = document.createElement("div")
-        filesRow.className = "turn-assistant-row"
-        const filesList = document.createElement("div")
-        filesList.className = "file-list"
-        for (const file of manifest.files) {
-          const card = document.createElement("div")
-          card.className = "file-card"
-          const icon = document.createElement("img")
-          icon.src = fileIconUrl(file.path)
-          const name = document.createElement("span")
-          name.className = "file-name"
-          name.textContent = (file.path || "").split("/").pop() || file.path || ""
-          card.appendChild(icon)
-          card.appendChild(name)
-          filesList.appendChild(card)
-        }
-        filesRow.appendChild(filesList)
-        filesTurn.appendChild(filesRow)
-        list.appendChild(filesTurn)
-      }
     }
 
-    // 文件扩展名 → SVG 图标(对齐 design 页面 file-type-icons.tsx 的 kindIconMap)
-    function fileIconUrl(filename) {
-      const ext = (filename.split(".").pop() || "").toLowerCase()
+    // artifact type → 图标(对齐 design cardTypeIconSrc,design 统一返回 /AI_doc_plaintext.svg)
+    function artifactIconSrc(type) {
       const map = {
-        html: "/design/agent/share/icons/html.svg", htm: "/design/agent/share/icons/html.svg",
-        md: "/design/agent/share/icons/MD.svg",
-        pdf: "/design/agent/share/icons/PDF.svg",
-        js: "/design/agent/share/icons/code.svg", ts: "/design/agent/share/icons/code.svg", json: "/design/agent/share/icons/code.svg", css: "/design/agent/share/icons/code.svg", xml: "/design/agent/share/icons/code.svg",
-        png: "/design/agent/share/icons/img.svg", jpg: "/design/agent/share/icons/img.svg", jpeg: "/design/agent/share/icons/img.svg", gif: "/design/agent/share/icons/img.svg", webp: "/design/agent/share/icons/img.svg",
-        mp4: "/design/agent/share/icons/video.svg", webm: "/design/agent/share/icons/video.svg", mov: "/design/agent/share/icons/video.svg",
-        xlsx: "/design/agent/share/icons/Excel.svg", xls: "/design/agent/share/icons/Excel.svg",
-        pptx: "/design/agent/share/icons/ppt.svg", ppt: "/design/agent/share/icons/ppt.svg",
-        docx: "/design/agent/share/icons/word.svg", doc: "/design/agent/share/icons/word.svg",
-        txt: "/design/agent/share/icons/txt.svg",
-        zip: "/design/agent/share/icons/zip.svg",
+        html: "/design/agent/share/icons/html.svg",
+        deck: "/design/agent/share/icons/ppt.svg",
+        svg: "/design/agent/share/icons/img.svg",
+        "markdown-document": "/design/agent/share/icons/MD.svg",
+        "code-snippet": "/design/agent/share/icons/code.svg",
+        "react-component": "/design/agent/share/icons/code.svg",
+        diagram: "/design/agent/share/icons/img.svg",
+        link: "/design/agent/share/icons/file.svg",
       }
-      return map[ext] || "/design/agent/share/icons/other.svg"
+      return map[type] || "/design/agent/share/icons/file.svg"
+    }
+
+    // 时间格式化(对齐 design insight-turn.tsx formatTime)
+    function formatTime(d) {
+      return d.toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     }
   </script>
 </body>

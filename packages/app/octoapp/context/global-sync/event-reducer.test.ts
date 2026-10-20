@@ -70,6 +70,7 @@ const baseState = (input: Partial<State> = {}) =>
     path: { directory: "/tmp" } as State["path"],
     session: [],
     sessionTotal: 0,
+    deleted: {},
     session_status: {},
     session_diff: {},
     todo: {},

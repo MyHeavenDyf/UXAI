@@ -493,6 +493,7 @@ function MakeContent() {
 
     const ok = await removeSession(sdk.client, sessionID)
     if (!ok) return
+    sync.set("deleted", sessionID, true)
 
     tracker.interaction({ module: "design", name: "delete-session" })
     sync.set(

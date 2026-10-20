@@ -1678,6 +1678,14 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3430,14 +3438,6 @@ export type EventTuiToastShow1 = {
     variant: "info" | "success" | "warning" | "error"
     duration?: number
   }
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type AuthRemoveData = {
@@ -6006,6 +6006,166 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionPortableImportData = {
+  body?: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionPortableImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionPortableImportError = SessionPortableImportErrors[keyof SessionPortableImportErrors]
+
+export type SessionPortableImportResponses = {
+  /**
+   * Imported portable session
+   */
+  200: {
+    sessionID: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableImportResponse = SessionPortableImportResponses[keyof SessionPortableImportResponses]
+
+export type SessionPortableExportData = {
+  body?: {
+    path: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/export"
+}
+
+export type SessionPortableExportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableExportError = SessionPortableExportErrors[keyof SessionPortableExportErrors]
+
+export type SessionPortableExportResponses = {
+  /**
+   * Exported portable session
+   */
+  200: {
+    output: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
+
+export type SessionPortableShareData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/portable-share"
+}
+
+export type SessionPortableShareErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableShareError = SessionPortableShareErrors[keyof SessionPortableShareErrors]
+
+export type SessionPortableShareResponses = {
+  /**
+   * Shared portable session
+   */
+  200: {
+    uniqueId: string
+    url: string
+  }
+}
+
+export type SessionPortableShareResponse = SessionPortableShareResponses[keyof SessionPortableShareResponses]
+
+export type SessionSharePreviewData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    before?: string
+  }
+  url: "/session/{sessionID}/share-preview"
+}
+
+export type SessionSharePreviewErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSharePreviewError = SessionSharePreviewErrors[keyof SessionSharePreviewErrors]
+
+export type SessionSharePreviewResponses = {
+  /**
+   * Read-only share preview
+   */
+  200: {
+    messages: Array<{
+      id: string
+      role: "user" | "assistant"
+      text: string
+      truncated: boolean
+      files: Array<{
+        name: string
+        mime: string
+      }>
+    }>
+    before?: string
+    running: boolean
+  }
+}
+
+export type SessionSharePreviewResponse = SessionSharePreviewResponses[keyof SessionSharePreviewResponses]
 
 export type SessionDeleteData = {
   body?: never

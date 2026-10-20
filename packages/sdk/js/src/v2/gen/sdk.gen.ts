@@ -203,6 +203,12 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPortableExportErrors,
+  SessionPortableExportResponses,
+  SessionPortableImportErrors,
+  SessionPortableImportResponses,
+  SessionPortableShareErrors,
+  SessionPortableShareResponses,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -212,6 +218,8 @@ import type {
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
+  SessionSharePreviewErrors,
+  SessionSharePreviewResponses,
   SessionShareResponses,
   SessionShellErrors,
   SessionShellResponses,
@@ -3906,6 +3914,162 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionStatusResponses, SessionStatusErrors, ThrowOnError>({
       url: "/session/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import portable session
+   *
+   * Import a complete session tree, including messages, todos, uploads, and outputs.
+   */
+  public portableImport<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableImportResponses,
+      SessionPortableImportErrors,
+      ThrowOnError
+    >({
+      url: "/session/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export portable session
+   *
+   * Export a complete session tree, including messages, todos, uploads, and outputs.
+   */
+  public portableExport<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableExportResponses,
+      SessionPortableExportErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/export",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Share portable session
+   *
+   * Export a complete session, upload its ZIP archive, and return a shareable web URL.
+   */
+  public portableShare<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionPortableShareResponses,
+      SessionPortableShareErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/portable-share",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Preview shared conversation
+   *
+   * Read bounded, paginated conversation text and file names without exporting files or loading tool output.
+   */
+  public sharePreview<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+      before?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "before" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionSharePreviewResponses, SessionSharePreviewErrors, ThrowOnError>({
+      url: "/session/{sessionID}/share-preview",
       ...options,
       ...params,
     })

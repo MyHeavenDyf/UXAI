@@ -582,7 +582,7 @@ function shouldInjectWebRequestAuth(resourceType: string) {
   return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
 }
 
-async function localStorageAuth(win: BrowserWindow) {
+export async function localStorageAuth(win: BrowserWindow) {
   const value = await win.webContents.executeJavaScript(
     `({
       uiplusToken: localStorage.getItem("uiplusToken"),

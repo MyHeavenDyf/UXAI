@@ -150,6 +150,7 @@ export function ConversationHeader(
 
     const ok = await removeSession(sdk.client, id)
     if (!ok) return
+    sync.set("deleted", id, true)
 
     tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "header" }) })
     sync.set(
