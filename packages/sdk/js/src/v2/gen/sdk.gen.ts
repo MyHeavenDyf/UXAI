@@ -319,6 +319,10 @@ import type {
   VcsDiffResponses,
   VcsGetResponses,
   VcsStatusResponses,
+  WorkspaceUpgradePreviewErrors,
+  WorkspaceUpgradePreviewResponses,
+  WorkspaceUpgradeRunErrors,
+  WorkspaceUpgradeRunResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -7495,6 +7499,104 @@ export class Insight extends HeyApiClient {
   }
 }
 
+export class WorkspaceUpgrade extends HeyApiClient {
+  /**
+   * Preview normal-to-code workspace upgrade
+   *
+   * Count sessions with artifact files under .octo/<sessionId>/outputs for the given workspace directory, plus total files/bytes. Studio sessions (octo_studio) are excluded and counted separately. Read-only.
+   */
+  public preview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkspaceUpgradePreviewResponses,
+      WorkspaceUpgradePreviewErrors,
+      ThrowOnError
+    >({
+      url: "/workspace-upgrade/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Run normal-to-code workspace upgrade
+   *
+   * Back up the database (VACUUM INTO), copy artifact files from .octo/<sessionId>/outputs into <workspace>/output/ (flat, renamed with a 12-char session-id timestamp prefix), then rewrite message/part path references in one transaction with read-back verification. Original .octo outputs are never deleted. Studio sessions are skipped.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkspaceUpgradeRunResponses, WorkspaceUpgradeRunErrors, ThrowOnError>(
+      {
+        url: "/workspace-upgrade/run",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -7661,5 +7763,10 @@ export class OpencodeClient extends HeyApiClient {
   private _insight?: Insight
   get insight(): Insight {
     return (this._insight ??= new Insight({ client: this.client }))
+  }
+
+  private _workspaceUpgrade?: WorkspaceUpgrade
+  get workspaceUpgrade(): WorkspaceUpgrade {
+    return (this._workspaceUpgrade ??= new WorkspaceUpgrade({ client: this.client }))
   }
 }

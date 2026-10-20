@@ -5017,7 +5017,7 @@ const sessionMessagesLoaded = createMemo(() => {
     let contentLoadedFromFile = false
     
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    // 代码工作区:推断/落盘到项目根 (kind="code");普通工作区:.octo/<sid>/outputs (原行为)
+    // 代码工作区:推断/落盘到 output/<sid前缀>-<原名> (kind="code",与升级迁移命名一致);普通工作区:.octo/<sid>/outputs (原行为)
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
