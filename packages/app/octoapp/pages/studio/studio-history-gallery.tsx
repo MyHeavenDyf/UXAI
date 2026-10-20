@@ -19,7 +19,6 @@ import {
 } from "./studio-history-store"
 import emptyPng from "../insight/icons/empty.png"
 import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
-import trashPng from "@/pages/_shell/icons/trash.png"
 import { StudioHistoryDeleteDialog } from "./studio-history-delete-dialog"
 import { FloatingNotice, type FloatingNoticeType } from "@/components/floating-notice"
 import { StudioDownloadIcon } from "./studio-download-icon"
@@ -653,17 +652,23 @@ export function StudioHistoryGallery(props: {
           </DropdownMenu>
         </div>
         <Show
-          when={!(state.batchMode && hasSelection())}
+          when={!state.batchMode}
           fallback={
             <div class="studio-history-batch-actions">
-              <button type="button" class="studio-history-batch-trigger" onClick={() => { tracker.interaction({ module: "studio", name: "history-batch-delete-trigger" }); setState("showDeleteDialog", true) }}>
-                <img src={trashPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
+              <button type="button" class="studio-history-batch-trigger" disabled={!hasSelection()} onClick={() => { if (!hasSelection()) return; tracker.interaction({ module: "studio", name: "history-batch-delete-trigger" }); setState("showDeleteDialog", true) }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style={{ "flex-shrink": "0" }} aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
                 <span>{language.t("common.delete")}</span>
               </button>
               <button
                 type="button"
                 class="studio-history-batch-trigger"
-                disabled={state.downloading}
+                disabled={!hasSelection() || state.downloading}
                 onClick={() => void downloadSelectedMedia()}
               >
                 <StudioDownloadIcon style={{ "flex-shrink": "0" }} />

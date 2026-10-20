@@ -791,7 +791,7 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #777777;
+  color: #191919;
   font-size: 14px;
   line-height: 20px;
   cursor: pointer;
@@ -851,7 +851,7 @@
   color: #bbbbbb;
 }
 
-.studio-history-batch-actions .studio-history-batch-trigger:disabled:hover {
+.studio-history-batch-actions .studio-history-batch-trigger:disabled {
   background: rgba(25, 25, 25, 0.05);
 }
 
