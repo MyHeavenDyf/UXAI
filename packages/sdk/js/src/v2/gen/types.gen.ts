@@ -5,13 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventSkillUsed
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -24,6 +17,7 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -32,6 +26,10 @@ export type Event =
   | EventSessionIdle
   | EventSessionCompacted
   | EventSessionCompactionEstimated
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -79,6 +77,8 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventServerConnected
+  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -104,61 +104,6 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type PermissionRequest = {
   id: string
@@ -341,6 +286,61 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type Project = {
   id: string
@@ -793,13 +793,6 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventSkillUsed
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -812,6 +805,7 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
+    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -820,6 +814,10 @@ export type GlobalEvent = {
     | EventSessionIdle
     | EventSessionCompacted
     | EventSessionCompactionEstimated
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -867,6 +865,8 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
+    | EventServerConnected
+    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1825,6 +1825,14 @@ export type ChatMigrationError = {
   }
 }
 
+export type WorkspaceUpgradeError = {
+  name: "WorkspaceUpgradeError"
+  data: {
+    stage: string
+    message: string
+  }
+}
+
 export type Session9 = {
   id: string
   slug: string
@@ -2444,30 +2452,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventSkillUsed = {
-  id: string
-  type: "skill.used"
-  properties: {
-    skillName: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2577,6 +2561,14 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -3193,6 +3185,22 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -8742,182 +8750,6 @@ export type StudioGenerationsGetResponses = {
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
 
-export type StudioGenerationsVideoPosterSaveData = {
-  body?: {
-    mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    content: string
-  }
-  path: {
-    generationID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/video-poster"
-}
-
-export type StudioGenerationsVideoPosterSaveErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsVideoPosterSaveError =
-  StudioGenerationsVideoPosterSaveErrors[keyof StudioGenerationsVideoPosterSaveErrors]
-
-export type StudioGenerationsVideoPosterSaveResponses = {
-  /**
-   * Saved Studio video poster
-   */
-  200: {
-    thumbnailUrl: string
-  }
-}
-
-export type StudioGenerationsVideoPosterSaveResponse =
-  StudioGenerationsVideoPosterSaveResponses[keyof StudioGenerationsVideoPosterSaveResponses]
-
-export type StudioGenerationsThumbnailSourceGetData = {
-  body?: never
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source"
-}
-
-export type StudioGenerationsThumbnailSourceGetErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailSourceGetError =
-  StudioGenerationsThumbnailSourceGetErrors[keyof StudioGenerationsThumbnailSourceGetErrors]
-
-export type StudioGenerationsThumbnailSourceGetResponses = {
-  /**
-   * Studio thumbnail source
-   */
-  200: string
-}
-
-export type StudioGenerationsThumbnailSourceGetResponse =
-  StudioGenerationsThumbnailSourceGetResponses[keyof StudioGenerationsThumbnailSourceGetResponses]
-
-export type StudioGenerationsThumbnailSaveData = {
-  body?: {
-    content: string
-  }
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail"
-}
-
-export type StudioGenerationsThumbnailSaveErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailSaveError =
-  StudioGenerationsThumbnailSaveErrors[keyof StudioGenerationsThumbnailSaveErrors]
-
-export type StudioGenerationsThumbnailSaveResponses = {
-  /**
-   * Saved Studio media thumbnail
-   */
-  200: {
-    thumbnailUrl: string
-  }
-}
-
-export type StudioGenerationsThumbnailSaveResponse =
-  StudioGenerationsThumbnailSaveResponses[keyof StudioGenerationsThumbnailSaveResponses]
-
-export type StudioGenerationsThumbnailInvalidateData = {
-  body?: never
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate"
-}
-
-export type StudioGenerationsThumbnailInvalidateErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailInvalidateError =
-  StudioGenerationsThumbnailInvalidateErrors[keyof StudioGenerationsThumbnailInvalidateErrors]
-
-export type StudioGenerationsThumbnailInvalidateResponses = {
-  /**
-   * Invalidated Studio media thumbnail
-   */
-  200: {
-    invalidated: boolean
-  }
-}
-
-export type StudioGenerationsThumbnailInvalidateResponse =
-  StudioGenerationsThumbnailInvalidateResponses[keyof StudioGenerationsThumbnailInvalidateResponses]
-
-export type StudioSessionsThumbnailsEnsureData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/sessions/{sessionID}/thumbnails/ensure"
-}
-
-export type StudioSessionsThumbnailsEnsureErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioSessionsThumbnailsEnsureError =
-  StudioSessionsThumbnailsEnsureErrors[keyof StudioSessionsThumbnailsEnsureErrors]
-
-export type StudioSessionsThumbnailsEnsureResponses = {
-  /**
-   * Queued Studio thumbnail jobs
-   */
-  200: {
-    queued: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-  }
-}
-
-export type StudioSessionsThumbnailsEnsureResponse =
-  StudioSessionsThumbnailsEnsureResponses[keyof StudioSessionsThumbnailsEnsureResponses]
-
 export type StudioGenerationsRefreshData = {
   body?: never
   path: {
@@ -9219,6 +9051,77 @@ export type InsightChatMigrationRunResponses = {
 }
 
 export type InsightChatMigrationRunResponse = InsightChatMigrationRunResponses[keyof InsightChatMigrationRunResponses]
+
+export type WorkspaceUpgradePreviewData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/preview"
+}
+
+export type WorkspaceUpgradePreviewErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradePreviewError = WorkspaceUpgradePreviewErrors[keyof WorkspaceUpgradePreviewErrors]
+
+export type WorkspaceUpgradePreviewResponses = {
+  /**
+   * Workspace upgrade preview
+   */
+  200: {
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    studioSkipped: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkspaceUpgradePreviewResponse = WorkspaceUpgradePreviewResponses[keyof WorkspaceUpgradePreviewResponses]
+
+export type WorkspaceUpgradeRunData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/run"
+}
+
+export type WorkspaceUpgradeRunErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradeRunError = WorkspaceUpgradeRunErrors[keyof WorkspaceUpgradeRunErrors]
+
+export type WorkspaceUpgradeRunResponses = {
+  /**
+   * Workspace upgrade result
+   */
+  200: {
+    migratedSessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedFiles: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    skippedStudio: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    backupPath?: string
+  }
+}
+
+export type WorkspaceUpgradeRunResponse = WorkspaceUpgradeRunResponses[keyof WorkspaceUpgradeRunResponses]
 
 export type PtyConnectData = {
   body?: never
