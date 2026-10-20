@@ -1,6 +1,7 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { ModelEditConfig } from '../components/model-edit-items/types'
 import defaultHandler, { defaultModelEditConfig, directModelEditConfig, DownloadCancelledError } from './default'
+import { demoIconConfig } from './demo'
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
@@ -61,7 +62,7 @@ function applySelectorHint(body: string): string {
 }
 
 const pageAssetConfig = directModelEditConfig.assetConfig!
-const pageIconConfig = directModelEditConfig.iconConfig!
+const pageIconConfig = demoIconConfig   // 提示词模式：onConfirm 返回完整图标改动 prompt，由模型改源码后重新编译
 
 const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
