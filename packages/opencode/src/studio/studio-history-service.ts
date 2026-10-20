@@ -24,6 +24,19 @@ export type StudioHistoryMediaItem = {
   capability?: string
   duration?: string
   createdAt: number
+  // 生成级文案字段：从 studio_generation.result/request.input 复制而来,
+  // 会话删除级联清理 studio_generation 后,这些字段支撑详情面板复原。
+  prompt?: string
+  displayPrompt?: string
+  detailPrompt?: string
+  detailTitle?: string
+  model?: string
+  styleModel?: string
+  provider?: string
+  videoMode?: string
+  videoQualityMode?: string
+  toolAction?: string
+  isCustom?: boolean
 }
 
 export type StudioHistorySort = "desc" | "asc"
@@ -54,8 +67,8 @@ type StudioHistoryRow = typeof StudioHistoryTable.$inferSelect
 const DEFAULT_LIMIT = 48
 const MAX_LIMIT = 200
 
-// SQLite 单条语句的绑定参数有上限（默认 32766），历史行每行 17 列，
-// 一次性 upsert 约 1900 行就会触发 "too many SQL variables"，必须分块。
+// SQLite 单条语句的绑定参数有上限（默认 32766），历史行每行 28 列，
+// 一次性 upsert 约 1100 行就会触发 "too many SQL variables"，必须分块。
 const SQLITE_CHUNK = 500
 
 function chunked<T>(items: T[]): T[][] {
@@ -99,6 +112,29 @@ function mediaRatio(aspectRatio?: string, width?: number, height?: number): stri
   return "自定义"
 }
 
+// 生成级文案字段：优先从 result 取（终态写入），其次从 request.input 取（入参）。
+// model: result.model 优先,fallback 到 input.styleModel,与 studio-service 快照逻辑一致。
+// backfill 修复存量行时与物化共用同一份解析，保证两条路径写入的值一致。
+function historyTextFields(result: Record<string, unknown> | undefined, input: unknown) {
+  const inputRecord = input && typeof input === "object" ? input as Record<string, unknown> : undefined
+  const stringField = (src: Record<string, unknown> | undefined, key: string): string | undefined =>
+    src && typeof src[key] === "string" ? src[key] as string : undefined
+  const styleModel = stringField(inputRecord, "styleModel")
+  return {
+    prompt: stringField(inputRecord, "prompt"),
+    displayPrompt: stringField(inputRecord, "displayPrompt"),
+    detailPrompt: stringField(inputRecord, "detailPrompt"),
+    detailTitle: stringField(inputRecord, "detailTitle"),
+    styleModel,
+    model: stringField(result, "model") ?? styleModel,
+    provider: stringField(result, "provider"),
+    videoMode: stringField(result, "videoMode"),
+    videoQualityMode: stringField(result, "videoQualityMode"),
+    toolAction: stringField(result, "toolAction"),
+    isCustom: typeof result?.isCustom === "boolean" ? result.isCustom : undefined,
+  }
+}
+
 function extractMediaFromResult(
   result: Record<string, unknown> | undefined,
   sessionId: string,
@@ -114,6 +150,7 @@ function extractMediaFromResult(
   const duration = typeof result.duration === "string" ? result.duration : undefined
   const resultWidth = typeof result.width === "number" ? result.width : undefined
   const resultHeight = typeof result.height === "number" ? result.height : undefined
+  const text = historyTextFields(result, input)
 
   return images.flatMap((image, mediaIndex): StudioHistoryMediaItem[] => {
     if (!image || typeof image !== "object") return []
@@ -138,6 +175,7 @@ function extractMediaFromResult(
       capability,
       duration,
       createdAt,
+      ...text,
     }]
   })
 }
@@ -161,6 +199,17 @@ function toRow(item: StudioHistoryMediaItem, directory: string) {
     capability: item.capability ?? null,
     duration: item.duration ?? null,
     created_at: item.createdAt,
+    prompt: item.prompt ?? null,
+    display_prompt: item.displayPrompt ?? null,
+    detail_prompt: item.detailPrompt ?? null,
+    detail_title: item.detailTitle ?? null,
+    model: item.model ?? null,
+    style_model: item.styleModel ?? null,
+    provider: item.provider ?? null,
+    video_mode: item.videoMode ?? null,
+    video_quality_mode: item.videoQualityMode ?? null,
+    tool_action: item.toolAction ?? null,
+    is_custom: item.isCustom === undefined ? null : (item.isCustom ? 1 : 0),
   }
 }
 
@@ -180,6 +229,17 @@ function toItem(row: StudioHistoryRow): StudioHistoryMediaItem {
     capability: row.capability ?? undefined,
     duration: row.duration ?? undefined,
     createdAt: row.created_at,
+    prompt: row.prompt ?? undefined,
+    displayPrompt: row.display_prompt ?? undefined,
+    detailPrompt: row.detail_prompt ?? undefined,
+    detailTitle: row.detail_title ?? undefined,
+    model: row.model ?? undefined,
+    styleModel: row.style_model ?? undefined,
+    provider: row.provider ?? undefined,
+    videoMode: row.video_mode ?? undefined,
+    videoQualityMode: row.video_quality_mode ?? undefined,
+    toolAction: row.tool_action ?? undefined,
+    isCustom: row.is_custom === null ? undefined : row.is_custom === 1,
   }
 }
 
@@ -219,6 +279,18 @@ function upsertMedia(directory: string, items: StudioHistoryMediaItem[]): number
             ratio: sql`excluded.ratio`,
             capability: sql`excluded.capability`,
             duration: sql`excluded.duration`,
+            // 文案字段同样在 upsert 时刷新,保证 backfill/snapshot 能补齐旧数据缺字段。
+            prompt: sql`excluded.prompt`,
+            display_prompt: sql`excluded.display_prompt`,
+            detail_prompt: sql`excluded.detail_prompt`,
+            detail_title: sql`excluded.detail_title`,
+            model: sql`excluded.model`,
+            style_model: sql`excluded.style_model`,
+            provider: sql`excluded.provider`,
+            video_mode: sql`excluded.video_mode`,
+            video_quality_mode: sql`excluded.video_quality_mode`,
+            tool_action: sql`excluded.tool_action`,
+            is_custom: sql`excluded.is_custom`,
             time_updated: Date.now(),
           },
         })
@@ -249,6 +321,87 @@ function generationMedia(directory: string, generationID: string): StudioHistory
       row.request.input,
     ),
   )
+}
+
+// 从历史表复原 generation 详情:会话删除会级联清理 studio_generation,
+// 历史表里仍保留的行可以让 /studio/generations/:id 在 generation 行不存在时
+// 回退出一份"够用"的快照,让详情面板能展示文案与媒体信息,而不是 404。
+export type StudioGenerationHistorySnapshot = {
+  id: string
+  sessionID: string
+  capability?: string
+  prompt?: string
+  displayPrompt?: string
+  detailPrompt?: string
+  detailTitle?: string
+  model?: string
+  styleModel?: string
+  provider?: string
+  aspectRatio?: string
+  videoMode?: string
+  videoQualityMode?: string
+  toolAction?: string
+  isCustom?: boolean
+  duration?: string
+  createdAt: number
+  images: Array<{
+    id: string
+    mediaIndex: number
+    kind: "image" | "video"
+    url: string
+    thumbnailUrl?: string
+    thumbnailStatus?: string
+    width?: number
+    height?: number
+  }>
+}
+
+export function generationHistorySnapshot(directory: string, generationID: string): StudioGenerationHistorySnapshot | undefined {
+  const rows = Database.use((db) =>
+    db
+      .select()
+      .from(StudioHistoryTable)
+      .where(and(
+        eq(StudioHistoryTable.directory, directory),
+        eq(StudioHistoryTable.generation_id, generationID),
+      ))
+      .orderBy(asc(StudioHistoryTable.media_index))
+      .all(),
+  )
+  if (rows.length === 0) return undefined
+  const first = rows[0]
+  if (!first) return undefined
+  const items = rows.map(toItem)
+  const head = items[0]!
+  return {
+    id: generationID,
+    sessionID: head.sessionID,
+    capability: head.capability,
+    prompt: head.prompt,
+    displayPrompt: head.displayPrompt,
+    detailPrompt: head.detailPrompt,
+    detailTitle: head.detailTitle,
+    model: head.model,
+    styleModel: head.styleModel,
+    provider: head.provider,
+    aspectRatio: head.aspectRatio,
+    videoMode: head.videoMode,
+    videoQualityMode: head.videoQualityMode,
+    toolAction: head.toolAction,
+    isCustom: head.isCustom,
+    duration: head.duration,
+    createdAt: head.createdAt,
+    images: items.map((item) => ({
+      id: item.id,
+      mediaIndex: item.mediaIndex,
+      kind: item.kind,
+      url: item.url,
+      thumbnailUrl: item.thumbnailUrl,
+      thumbnailStatus: item.thumbnailStatus,
+      width: item.width,
+      height: item.height,
+    })),
+  }
 }
 
 // 单个 generation 完成/缩略图就绪时物化到历史表。
@@ -299,13 +452,26 @@ function rememberBackfilled(directory: string) {
 
 export function backfillStudioHistory(directory: string) {
   if (backfilledDirectories.has(directory)) return
-  // 已物化的视频也需要修正：旧实现按宽高分桶，通常写成 NULL。
-  // 只更新分辨率，保留缩略图和媒体状态；源任务已删除时保留快照中的档位。
+  // 已物化的行也需要修正：旧实现把视频分辨率按宽高分桶（通常写成 NULL），
+  // 且从未写入生成级文案列。只刷新分辨率与文案列，保留缩略图和媒体状态；
+  // 源任务已删除时 inner join 不命中，保留快照中的值。
   Database.transaction((db) => {
     const rows = db
       .select({
         id: StudioHistoryTable.id,
+        kind: StudioHistoryTable.kind,
         resolution: StudioHistoryTable.resolution,
+        prompt: StudioHistoryTable.prompt,
+        display_prompt: StudioHistoryTable.display_prompt,
+        detail_prompt: StudioHistoryTable.detail_prompt,
+        detail_title: StudioHistoryTable.detail_title,
+        model: StudioHistoryTable.model,
+        style_model: StudioHistoryTable.style_model,
+        provider: StudioHistoryTable.provider,
+        video_mode: StudioHistoryTable.video_mode,
+        video_quality_mode: StudioHistoryTable.video_quality_mode,
+        tool_action: StudioHistoryTable.tool_action,
+        is_custom: StudioHistoryTable.is_custom,
         request: StudioGenerationTable.request,
         result: StudioGenerationTable.result,
       })
@@ -314,11 +480,31 @@ export function backfillStudioHistory(directory: string) {
         eq(StudioGenerationTable.id, StudioHistoryTable.generation_id),
         eq(StudioGenerationTable.directory, StudioHistoryTable.directory),
       ))
-      .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.kind, "video")))
+      .where(eq(StudioHistoryTable.directory, directory))
       .all()
     const updates = rows.flatMap((row) => {
-      const resolution = videoResolution(row.request?.input, row.result?.videoQualityMode) ?? null
-      return resolution === row.resolution ? [] : [{ id: row.id, resolution }]
+      const text = historyTextFields(row.result ?? undefined, row.request?.input)
+      const columns = {
+        prompt: text.prompt ?? null,
+        display_prompt: text.displayPrompt ?? null,
+        detail_prompt: text.detailPrompt ?? null,
+        detail_title: text.detailTitle ?? null,
+        model: text.model ?? null,
+        style_model: text.styleModel ?? null,
+        provider: text.provider ?? null,
+        video_mode: text.videoMode ?? null,
+        video_quality_mode: text.videoQualityMode ?? null,
+        tool_action: text.toolAction ?? null,
+        is_custom: text.isCustom === undefined ? null : (text.isCustom ? 1 : 0),
+      }
+      // 分辨率只对视频重算；图片行的旧宽高标签不影响筛选（筛选强制 kind=video），保持原值。
+      const resolution = row.kind === "video"
+        ? (videoResolution(row.request?.input, row.result?.videoQualityMode) ?? null)
+        : row.resolution
+      const textChanged = (Object.keys(columns) as (keyof typeof columns)[]).some((key) => columns[key] !== row[key])
+      return !textChanged && resolution === row.resolution
+        ? []
+        : [{ id: row.id, set: { resolution, ...columns } }]
     })
     if (updates.length === 0) return
     const latest = db.select({ updated: sql<number | null>`max(${StudioHistoryTable.time_updated})` })
@@ -328,7 +514,7 @@ export function backfillStudioHistory(directory: string) {
     const updated = Math.max(Date.now(), (latest?.updated ?? 0) + 1)
     for (const row of updates) {
       db.update(StudioHistoryTable)
-        .set({ resolution: row.resolution, time_updated: updated })
+        .set({ ...row.set, time_updated: updated })
         .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.id, row.id)))
         .run()
     }

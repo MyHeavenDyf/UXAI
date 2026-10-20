@@ -754,7 +754,17 @@ export function StudioHistoryGallery(props: {
                                 kind: item.kind,
                                 url: item.url,
                                 remoteUrl: item.url,
-                                thumbnailUrl: item.thumbnailUrl,
+                                // DB 里存的是相对路径 `.octo/<sid>/thumbnails/...`,
+                                // 不经 /artifact/serve 直接当 <img src> 会被浏览器解析成
+                                // `http://host/.octo/...` 而 404；这里解析为 serve URL,
+                                // 同时保留 thumbnail 形态供 isStudioThumbnailUrl 判别。
+                                thumbnailUrl: item.thumbnailUrl
+                                  ? resolveStudioThumbnailUrl({
+                                      value: item.thumbnailUrl,
+                                      sdkUrl: server.current?.http.url ?? "",
+                                      directory: props.directory,
+                                    })
+                                  : undefined,
                                 thumbnailStatus: item.thumbnailStatus,
                               }}
                               duration={item.duration}
