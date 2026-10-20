@@ -159,6 +159,30 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live("serves bounded share previews with matching pagination and errors through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Share preview" })
+      const first = yield* createTextMessage(tmp.path, session.id, "第一条")
+      const second = yield* createTextMessage(tmp.path, session.id, "第二条")
+      const path = pathFor(SessionPaths.sharePreview, { sessionID: session.id })
+      const before = MessageV2.cursor.encode({ id: second.info.id, time: second.info.time.created })
+      for (const experimental of [true, false]) {
+        const response = yield* requestWithBackend(experimental, `${path}?limit=1`, { headers: { "x-opencode-directory": tmp.path } })
+        expect(yield* json(response)).toEqual({
+          messages: [{ id: second.info.id, role: "user", text: "第二条", truncated: false, files: [] }], before, running: false,
+        })
+        const older = yield* requestWithBackend(experimental, `${path}?limit=1&before=${encodeURIComponent(before)}`, { headers: { "x-opencode-directory": tmp.path } })
+        expect(yield* json(older)).toEqual({ messages: [{ id: first.info.id, role: "user", text: "第一条", truncated: false, files: [] }], running: false })
+        for (const query of ["limit=0", "limit=21", "limit=1.5", "before=bad-cursor"]) {
+          const invalid = yield* requestWithBackend(experimental, `${path}?${query}`, { headers: { "x-opencode-directory": tmp.path } })
+          expect(invalid.status).toBe(400)
+        }
+        const missing = yield* requestWithBackend(experimental, pathFor(SessionPaths.sharePreview, { sessionID: "ses_missing" }), { headers: { "x-opencode-directory": tmp.path } })
+        expect(missing.status).toBe(404)
+      }
+    })),
+  )
+
   it.live(
     "forwards current share credentials through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>

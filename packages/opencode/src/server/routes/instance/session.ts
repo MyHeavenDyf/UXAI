@@ -6,6 +6,7 @@ import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
 import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
+import { previewSession, PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -26,7 +27,7 @@ import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
-import { zodObject } from "@/util/effect-zod"
+import { zod, zodObject } from "@/util/effect-zod"
 import { Bus } from "@/bus"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { jsonRequest, runRequest } from "./trace"
@@ -217,6 +218,27 @@ export const SessionRoutes = lazy(() =>
             Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
           )
         }),
+    )
+    .get(
+      "/:sessionID/share-preview",
+      describeRoute({
+        summary: "Preview shared conversation",
+        description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+        operationId: "session.sharePreview",
+        responses: {
+          200: { description: "Read-only share preview", content: { "application/json": { schema: resolver(zod(PreviewPage)) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("query", z.object({ limit: z.coerce.number().int().min(1).max(20).optional(), before: z.string().optional() })),
+      async (c) => c.json(await runRequest("SessionRoutes.sharePreview", c, Effect.gen(function* () {
+        const query = c.req.valid("query")
+        if (query.before) {
+          yield* Effect.try({ try: () => MessageV2.cursor.decode(query.before!), catch: () => new HTTPException(400, { res: Response.json({ message: "Invalid preview cursor" }, { status: 400 }) }) })
+        }
+        return yield* previewSession({ ...c.req.valid("param"), ...query })
+      }))),
     )
     .get(
       "/:sessionID",

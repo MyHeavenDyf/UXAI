@@ -218,6 +218,8 @@ import type {
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
+  SessionSharePreviewErrors,
+  SessionSharePreviewResponses,
   SessionShareResponses,
   SessionShellErrors,
   SessionShellResponses,
@@ -4032,6 +4034,42 @@ export class Session2 extends HeyApiClient {
       ThrowOnError
     >({
       url: "/session/{sessionID}/portable-share",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Preview shared conversation
+   *
+   * Read bounded, paginated conversation text and file names without exporting files or loading tool output.
+   */
+  public sharePreview<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+      before?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "before" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionSharePreviewResponses, SessionSharePreviewErrors, ThrowOnError>({
+      url: "/session/{sessionID}/share-preview",
       ...options,
       ...params,
     })

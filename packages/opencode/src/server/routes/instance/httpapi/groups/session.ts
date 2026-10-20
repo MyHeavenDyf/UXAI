@@ -2,6 +2,7 @@ import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
+import { PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -38,6 +39,10 @@ export const ListQuery = Schema.Struct({
 export const DiffQuery = Schema.Struct(Struct.omit(SessionSummary.DiffInput.fields, ["sessionID"]))
 export const MessagesQuery = Schema.Struct({
   limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+  before: Schema.optional(Schema.String),
+})
+export const PreviewQuery = Schema.Struct({
+  limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(20))),
   before: Schema.optional(Schema.String),
 })
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
@@ -97,6 +102,7 @@ export const SessionPaths = {
   portableImport: `${root}/import`,
   portableExport: `${root}/:sessionID/export`,
   portableShare: `${root}/:sessionID/portable-share`,
+  sharePreview: `${root}/:sessionID/share-preview`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
@@ -183,6 +189,16 @@ export const SessionApi = HttpApi.make("session")
             description: "Export a complete session, upload its ZIP archive, and return a shareable web URL.",
           }),
         ),
+        HttpApiEndpoint.get("sharePreview", SessionPaths.sharePreview, {
+          params: { sessionID: SessionID },
+          query: PreviewQuery,
+          success: described(PreviewPage, "Read-only share preview"),
+          error: [ApiBadRequestError, ApiNotFoundError],
+        }).annotateMerge(OpenApi.annotations({
+          identifier: "session.sharePreview",
+          summary: "Preview shared conversation",
+          description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+        })),
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Get session"),

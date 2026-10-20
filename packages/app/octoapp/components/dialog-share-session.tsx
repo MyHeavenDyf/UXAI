@@ -9,7 +9,7 @@ import { usePlatform } from "@/context/platform"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { directoryHeader } from "@/utils/headers"
 import { modelsApiToken } from "@/network/models-api"
-import preview from "./assets/session-share-preview.png"
+import { SessionSharePreview } from "./session-share-preview"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -89,9 +89,7 @@ export function DialogShareSession(props: { session: Session }) {
           <img src={closeIcon} width="14" height="14" alt="" />
         </Kobalte.CloseButton>
       </header>
-      <div class="session-share-preview">
-        <img src={preview} alt="聊天记录预览（示意图）" draggable={false} />
-      </div>
+      <SessionSharePreview session={props.session} />
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>
       <footer class="session-share-footer">
