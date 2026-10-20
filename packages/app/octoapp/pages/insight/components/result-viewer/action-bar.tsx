@@ -18,6 +18,8 @@ import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
+import { CanvasEditMenu } from "./canvas-edit-menu"
+import { HtmlReviewActions } from "./html-review"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -262,6 +264,10 @@ export function ActionBar(props: {
   /** 全屏预览切换 */
   focusMode?: boolean
   onFocusModeToggle?: () => void
+  onFilesRefresh?: () => void | Promise<void>
+  refreshKey?: number
+  canvasLoadState?: "loading" | "error" | "ready"
+  working?: boolean
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -430,6 +436,8 @@ export function ActionBar(props: {
                 copyToClipboard(props.tab.content!)
               }}
             />
+            <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <DownloadMenu tab={props.tab} disabled={!ready()} />
           </Show>
           <Tooltip
@@ -458,7 +466,7 @@ export function ActionBar(props: {
       <ArchiveDialogs target={archiveTarget()} open={archiveDialogOpen()} onClose={() => setArchiveDialogOpen(false)} />
       </>
     }>
-      {/* 会话附件 tab:design 风格 — 只有 4 个按钮:刷新、下载、历史、全屏 */}
+      {/* 会话附件沿用 Design 风格，HTML 增加画布编辑入口。 */}
       <div class="octo-action-bar shrink-0">
         <div class="octo-action-bar-left">
           <Show when={props.onRefresh}>
@@ -469,6 +477,8 @@ export function ActionBar(props: {
         </div>
         <div class="octo-action-bar-right">
           <div class="octo-action-bar-fixed">
+            <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <button
               type="button"
               class="octo-action-btn octo-action-btn-download"

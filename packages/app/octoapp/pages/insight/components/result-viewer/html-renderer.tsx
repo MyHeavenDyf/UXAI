@@ -1,6 +1,10 @@
 import { createMemo, createSignal, createEffect, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { stripCodeFence } from "../../utils/detect"
+import { createStore } from "solid-js/store"
+import { injectCommentBridge } from "@opencode-ai/core/bridge-scripts"
+import { useHtmlReview } from "./html-review"
+import { HtmlCommentLayer } from "./html-comment-layer"
 
 // 沙箱 iframe 预览模型生成的 HTML(不可信内容),对齐业界客户端预览标准做法:
 // 用 blob URL 作为 iframe.src,而不是 srcdoc。
@@ -12,6 +16,9 @@ import { stripCodeFence } from "../../utils/detect"
 export function HtmlRenderer(props: { content: string; onReady?: () => void }): JSX.Element {
   const html = createMemo(() => stripCodeFence(props.content).trim())
   const [blobUrl, setBlobUrl] = createSignal("")
+  const review = useHtmlReview()
+  const [frame, setFrame] = createStore<{ element?: HTMLIFrameElement }>({})
+  const commentsEnabled = createMemo(() => !!review?.comments())
 
   createEffect(() => {
     const src = html()
@@ -19,7 +26,7 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
       setBlobUrl("")
       return
     }
-    const url = URL.createObjectURL(new Blob([src], { type: "text/html; charset=utf-8" }))
+    const url = URL.createObjectURL(new Blob([commentsEnabled() ? injectCommentBridge(src) : src], { type: "text/html; charset=utf-8" }))
     setBlobUrl(url)
     // 内容变化前 / 组件卸载时回收,避免 blob 泄漏
     onCleanup(() => URL.revokeObjectURL(url))
@@ -34,7 +41,8 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
         </div>
       }
     >
-      <iframe
+      <div class="relative w-full h-full">
+      <iframe ref={element => setFrame("element", element)}
         src={blobUrl()}
         onLoad={() => { if (blobUrl()) props.onReady?.() }}
         sandbox="allow-scripts"
@@ -47,6 +55,10 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
           display: "block",
         }}
       />
+      <Show when={commentsEnabled()}>
+        <HtmlCommentLayer frame={frame.element} content={html()} />
+      </Show>
+      </div>
     </Show>
   )
 }
