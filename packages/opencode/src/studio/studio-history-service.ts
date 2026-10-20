@@ -497,10 +497,64 @@ function repairLegacyVideoResolutions(directory: string) {
   })
 }
 
+// 修复历史行的比例：旧实现按长边/短边分桶（竖版 3:4/9:16/2:3 被写成横版 4:3/16:9/3:2），
+// 且没有容差与「自定义」档，写错后没有任何路径重算 ratio，表现为详情面板显示 3:4 但筛选 3:4 落空。
+// 比例可直接由行内 aspect_ratio/width/height 重算，不依赖 generation 行，会话已删除的历史也能修。
+// 只对「旧实现写坏」的存量行有意义：新行一律经 toRow/mediaRatio 写入正确值，之后不存在再写错值的路径。
+// 因此放进一次性回填守卫（见 backfillStudioHistory），否则候选集永远无法收敛（缺比例信息的行会一直命中），
+// 每次列表/指纹查询都要全表扫描并逐行重算。
+function repairLegacyRatios(directory: string) {
+  Database.transaction((db) => {
+    const rows = db
+      .select({
+        id: StudioHistoryTable.id,
+        aspectRatio: StudioHistoryTable.aspect_ratio,
+        width: StudioHistoryTable.width,
+        height: StudioHistoryTable.height,
+        ratio: StudioHistoryTable.ratio,
+      })
+      .from(StudioHistoryTable)
+      .where(and(
+        eq(StudioHistoryTable.directory, directory),
+        or(
+          isNull(StudioHistoryTable.ratio),
+          and(
+            isNotNull(StudioHistoryTable.aspect_ratio),
+            sql`${StudioHistoryTable.ratio} <> ${StudioHistoryTable.aspect_ratio}`,
+          ),
+          and(
+            isNull(StudioHistoryTable.aspect_ratio),
+            isNotNull(StudioHistoryTable.width),
+          ),
+        ),
+      ))
+      .all()
+    const updates = rows.flatMap((row) => {
+      const ratio = mediaRatio(row.aspectRatio ?? undefined, row.width ?? undefined, row.height ?? undefined) ?? null
+      return ratio === row.ratio ? [] : [{ id: row.id, ratio }]
+    })
+    if (updates.length === 0) return
+    const latest = db.select({ updated: sql<number | null>`max(${StudioHistoryTable.time_updated})` })
+      .from(StudioHistoryTable)
+      .where(eq(StudioHistoryTable.directory, directory))
+      .get()
+    const updated = Math.max(Date.now(), (latest?.updated ?? 0) + 1)
+    for (const row of updates) {
+      db.update(StudioHistoryTable)
+        .set({ ratio: row.ratio, time_updated: updated })
+        .where(and(eq(StudioHistoryTable.directory, directory), eq(StudioHistoryTable.id, row.id)))
+        .run()
+    }
+  })
+}
+
 export function backfillStudioHistory(directory: string) {
   // 修复每次查询都幂等执行，避免依赖进程重启；全量回填（重且只需一次）仍走下面的缓存守卫。
   repairLegacyVideoResolutions(directory)
   if (backfilledDirectories.has(directory)) return
+  // 比例修复与全量回填一样只对存量数据有意义，放进同一个一次性守卫，避免每次查询都全表扫描
+  // （缺比例信息的行永远无法从候选集里消失，见 repairLegacyRatios 注释）。
+  repairLegacyRatios(directory)
   // 已物化的行也需要修正：旧实现把视频分辨率按宽高分桶（通常写成 NULL），
   // 且从未写入生成级文案列。只刷新分辨率与文案列，保留缩略图和媒体状态；
   // 源任务已删除时 inner join 不命中，保留快照中的值。
