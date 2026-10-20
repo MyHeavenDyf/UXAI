@@ -6118,6 +6118,55 @@ export type SessionPortableShareResponses = {
 
 export type SessionPortableShareResponse = SessionPortableShareResponses[keyof SessionPortableShareResponses]
 
+export type SessionSharePreviewData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    before?: string
+  }
+  url: "/session/{sessionID}/share-preview"
+}
+
+export type SessionSharePreviewErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSharePreviewError = SessionSharePreviewErrors[keyof SessionSharePreviewErrors]
+
+export type SessionSharePreviewResponses = {
+  /**
+   * Read-only share preview
+   */
+  200: {
+    messages: Array<{
+      id: string
+      role: "user" | "assistant"
+      text: string
+      truncated: boolean
+      files: Array<{
+        name: string
+        mime: string
+      }>
+    }>
+    before?: string
+    running: boolean
+  }
+}
+
+export type SessionSharePreviewResponse = SessionSharePreviewResponses[keyof SessionSharePreviewResponses]
+
 export type SessionDeleteData = {
   body?: never
   path: {

@@ -66,16 +66,38 @@
   width: 100%;
   height: 280px;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: auto;
+  overflow-anchor: none;
+  border: 1px solid #0000000f;
 }
 
-.session-share-preview img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top;
-}
+.session-share-preview-live { min-width: 0; }
+.share-preview-viewport { position: relative; overflow: hidden; border-radius: 12px; }
+.share-preview-viewport::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 48px; pointer-events: none; opacity: 0; background: linear-gradient(to bottom, #ffffff00, #fffffff5); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); mask-image: linear-gradient(to bottom, transparent, #000 75%); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 75%); transition: opacity 120ms; }
+.share-preview-viewport.has-more::after { opacity: 1; }
+.session-share-preview-live :is(.session-share-preview, .share-preview-markdown, .share-preview-files, table) { scrollbar-width: none; }
+.session-share-preview-live :is(.session-share-preview, .share-preview-markdown, .share-preview-files, table)::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.share-preview-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 12px; color: #666; }
+.share-preview-toolbar button, .share-preview-pages button, .share-preview-text-action { background: none; border: 0; color: #0a59f7; cursor: pointer; font-size: 12px; padding: 4px; flex-shrink: 0; }
+.session-share-preview-live button:disabled { opacity: .5; cursor: wait; }
+.session-share-preview-live button:focus-visible { outline: 2px solid #0a59f7; outline-offset: 2px; }
+.share-preview-pages { text-align: center; padding: 6px 12px; }
+.share-preview-window { position: relative; }
+.share-preview-message { position: absolute; width: 100%; padding: 8px 16px 16px; box-sizing: border-box; min-height: 64px; }
+.share-preview-role { font-size: 12px; color: #777; margin-bottom: 6px; }
+.share-preview-message.is-user .share-preview-role { text-align: right; }
+.share-preview-text { font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.share-preview-message.is-user .share-preview-text { padding: 12px 16px; margin-left: 32px; background: #0a59f714; border-radius: 16px 16px 2px 16px; }
+.share-preview-message.is-user .share-preview-markdown { padding: 12px 16px; margin-left: 32px; background: #0a59f714; border-radius: 16px 16px 2px 16px; }
+.share-preview-files { display: flex; gap: 4px; flex-wrap: wrap; max-height: 64px; overflow: auto; margin-bottom: 6px; }
+.share-preview-files span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; background: #0000000a; border-radius: 6px; font-size: 12px; }
+.share-preview-markdown { font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
+.share-preview-markdown pre { white-space: pre-wrap; padding: 8px; background: #00000005; }
+.share-preview-markdown :is(h1,h2,h3,h4) { font-size: 15px; margin: 8px 0; }
+.share-preview-markdown p { margin: 0 0 8px; }
+.share-preview-markdown table { display: block; max-width: 100%; overflow: auto; }
+.share-preview-markdown :is(th,td) { padding: 4px; border: 1px solid #ddd; }
+.share-preview-muted { margin: 6px 0 0; font-size: 12px; line-height: 18px; color: #777; }
 
 .session-share-footer {
   display: flex;
