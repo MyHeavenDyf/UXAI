@@ -127,7 +127,7 @@ export function buildChipDeclaration(sel: McpSelection, typedText: string): stri
  * (强倾向调用)。MCP 仪式段落从常驻提示词(octo_insight.md)整段迁入 —— 只在 chip turn 进入上下文;
  * 注入后随 session 历史常驻,后续"查询任务 X"的非 chip turn 仍能看到查询仪式与回复格式。
  */
-export function buildChipTemplate(sel: McpSelection, typedText: string): string {
+export function buildChipTemplate(sel: McpSelection, typedText: string, productAssets = false): string {
   const toolKey = mcpToolKey(sel.preset.expectedTool)
   const outlineRole = sel.preset.outlineRole
 
@@ -167,7 +167,9 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     `- task_id 只能来自工具的真实返回,**绝不允许编造**;没有成功的工具返回,就没有 task_id、没有"任务已提交"。`,
     `- 消息里的 [MCP声明] 段落是给系统读取的机器内容,不要向用户提及或复述它。`,
     ``,
-    `文件引用铁律:文件参数只能填会话文件清单(\`[附件]\` / \`[引用文件]\`)里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
+    productAssets
+      ? `文件引用铁律:普通附件和引用文件仍照抄清单文件名；产品资产按本地地址引用，正文没有内联。产品资产目录先用 glob 或 read 列出目录内容(不要读取正文)，download_links / outline_file_path 填该目录内实际文件的完整绝对路径；单文件资产可直接填所给文件绝对路径。不要把目录本身传给工具，不要编造文件名；系统只在实际调用时上传所引用文件并替换地址。绝不要填写、复述或改写任何 URL/网址/S3 地址。`
+      : `文件引用铁律:文件参数只能填会话文件清单(\`[附件]\` / \`[引用文件]\`)里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
     ``,
     `长任务规则:该工具是长任务,调用会在几秒内返回 task_id。拿到 task_id 后立即结束本轮:向用户原样转述工具返回的友好文案,不要再调用任何其他工具——尤其不要紧接着调 get_task_result(刚提交的任务立刻查询只会得到排队状态,浪费 token 且误导用户)。`,
     ``,

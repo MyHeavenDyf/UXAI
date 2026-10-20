@@ -9,6 +9,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount, currentUserId } from "./account"
 import { artifactTrackingExtra } from "./artifact-tracking"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./prompt-local-files"
+import { containsProductAssetPath, prepareAssetReferences } from "./asset-references"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
 
@@ -79,6 +80,8 @@ export async function sendQueuedItem(
     console.warn("[octo:queue] drain skipped: missing directory", { sessionID })
     return
   }
+  const assetPrompt = prepareAssetReferences(item.text, item.files ?? [])
+  const mentionFiles = assetPrompt.files
 
   const syntheticTexts: string[] = []
 
@@ -89,7 +92,7 @@ export async function sendQueuedItem(
 
   // SPEC-INS-017 chip：模板 + 机器可读声明
   if (item.chip) {
-    syntheticTexts.push(buildChipTemplate(item.chip.selection, item.text))
+    syntheticTexts.push(buildChipTemplate(item.chip.selection, item.text, assetPrompt.assets.length > 0))
     syntheticTexts.push(buildChipDeclaration(item.chip.selection, item.text))
   }
 
@@ -114,13 +117,12 @@ export async function sendQueuedItem(
   }
 
   // SPEC-INS-023 @文件：引用清单 synthetic（与 doSendPrompt 共用 formatMentionedFilesForPrompt，防两套文案漂移）
-  if (item.files?.length) {
-    syntheticTexts.push(formatMentionedFilesForPrompt(item.files))
+  if (mentionFiles.length) {
+    syntheticTexts.push(formatMentionedFilesForPrompt(mentionFiles))
   }
 
   // SPEC-INS-032 §2.3：与 doSendPrompt 同一套内联分层判定（防两套漂移）。
   // uploads 的 bytes 入队时已快照；`@` 引用和正文里的本地文件在 drain 时重新确认当前磁盘状态。
-  const mentionFiles = item.files ?? []
   const mentionBytes = new Map<string, number>()
   if (mentionFiles.length > 0) {
     const api = getDesktopApi()
@@ -135,7 +137,8 @@ export async function sendQueuedItem(
       }),
     )
   }
-  const promptLocalDocuments = await resolvePromptLocalDocuments(item.text, getDesktopApi(), home)
+  const promptLocalDocuments = (await resolvePromptLocalDocuments(item.text, getDesktopApi(), home))
+    .filter(file => !containsProductAssetPath(file.path, assetPrompt.assets))
   const inlineFiles = [
     ...(item.uploads ?? []),
     ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
@@ -176,7 +179,8 @@ export async function sendQueuedItem(
   }
 
   const { parts } = assembleInsightParts({
-    text: item.text,
+    text: assetPrompt.text,
+    textMetadata: assetPrompt.metadata,
     syntheticTexts,
     // `@` 引用的文件与附件走同一条内联路径（与 doSendPrompt 一致，SPEC-INS-023 §7.2 2026-08-20 修订）；
     // 非文本类与重复 path 由 decideInlineStrategy 内部处理。

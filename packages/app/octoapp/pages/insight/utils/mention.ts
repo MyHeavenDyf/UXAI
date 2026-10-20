@@ -1,5 +1,5 @@
 import type { Node as PMNode } from "prosemirror-model"
-import type { MentionSelection } from "../components/mention-popover"
+import type { FileReference, MentionSelection } from "../components/mention-popover"
 import { editorSchema, type MentionAttrs } from "../components/prosemirror-editor/schema"
 import type { MentionTriggerState } from "../components/prosemirror-editor/plugins/mention-trigger"
 import type { QueuedSend } from "./send-queue"
@@ -18,15 +18,15 @@ import type { QueuedSend } from "./send-queue"
  */
 export function splitMentions(selections: MentionSelection[]): {
   skills: string[]
-  files: Array<{ filename: string; path: string }>
+  files: FileReference[]
 } {
   const skills: string[] = []
-  const files: Array<{ filename: string; path: string }> = []
+  const files: FileReference[] = []
   for (const s of selections) {
     if (s.type === "skill") {
       if (!skills.includes(s.name)) skills.push(s.name)
     } else if (!files.some((f) => f.path === s.path)) {
-      files.push({ filename: s.filename, path: s.path })
+      files.push({ filename: s.filename, path: s.path, ...(s.id ? { id: s.id } : {}), ...(s.isFolder ? { isFolder: true } : {}) })
     }
   }
   return { skills, files }
@@ -41,11 +41,12 @@ export function queuedMentions(item: QueuedSend): MentionAttrs[] {
   return [
     ...(item.skills ?? []).map((name) => ({ id: name, name, type: "skill" as const, label: name, path: "" })),
     ...(item.files ?? []).map((f) => ({
-      id: f.filename,
+      id: f.id ?? f.filename,
       name: f.filename,
       type: "file" as const,
       label: f.filename,
       path: f.path,
+      ...(f.isFolder ? { isFolder: true } : {}),
     })),
   ]
 }
