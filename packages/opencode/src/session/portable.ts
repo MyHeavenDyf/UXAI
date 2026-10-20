@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
-import { readFile, readdir, rm } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -26,7 +26,7 @@ const ShareUploadResponse = Schema.Struct({
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
-  scope: Schema.optional(Schema.Union([Schema.Literal("session"), Schema.Literal("design-history")])),
+  scope: Schema.optional(Schema.Literals(["session", "design-history", "project"])),
   directory: Schema.String,
   path: Schema.String,
   size: NonNegativeInt,
@@ -59,7 +59,7 @@ type SessionEntry = {
 
 type FileEntry = {
   sessionID: SessionID
-  scope?: "session" | "design-history"
+  scope?: "session" | "design-history" | "project"
   directory: string
   path: string
   size: number
@@ -96,26 +96,37 @@ function portableInfo(info: Session.Info): Session.Info {
 }
 
 function isPortablePath(value: string) {
-  if (!value || path.isAbsolute(value)) return false
+  if (
+    !value ||
+    value.includes("\0") ||
+    path.posix.isAbsolute(value) ||
+    path.win32.isAbsolute(value) ||
+    value.includes(":")
+  )
+    return false
   const normalized = value.replaceAll("\\", "/")
-  return normalized !== ".." && !normalized.startsWith("../") && !normalized.includes("/../")
+  return !normalized.split("/").includes("..")
 }
 
 function digest(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex")
 }
 
-async function listFiles(root: string) {
+function isProjectFile(value: string) {
+  return value.replaceAll("\\", "/").split("/")
+    .every((part) => part && !/[\0:]/.test(part) && !part.startsWith(".") && part !== "node_modules")
+}
+
+async function listFiles(root: string, project = false) {
   const found: string[] = []
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
-    await Promise.all(
-      entries.map(async (entry) => {
-        const target = path.join(directory, entry.name)
-        if (entry.isDirectory()) return visit(target)
-        if (entry.isFile()) found.push(target)
-      }),
-    )
+    for (const entry of entries) {
+      if (project && !isProjectFile(entry.name)) continue
+      const target = path.join(directory, entry.name)
+      if (entry.isDirectory()) await visit(target)
+      if (entry.isFile()) found.push(target)
+    }
   }
   await visit(root)
   return found.sort()
@@ -148,75 +159,87 @@ function collectSessions(rootSessionID: SessionID) {
   })
 }
 
-function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip) {
-  return Effect.promise(async () => {
+function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project") {
+  return Effect.gen(function* () {
     const blobs = new Set<string>()
-    const files = (
-      await Promise.all(
-        entries.flatMap((entry) =>
-          [
-            {
-              scope: "session" as const,
-              root: path.join(sourceDirectory, sessionDirectory, entry.info.id),
-            },
-            {
-              scope: "design-history" as const,
-              root: path.join(sourceDirectory, sessionDirectory, "design", "history", entry.info.id),
-            },
-          ].map(async (location) =>
-            Promise.all(
-              (await listFiles(location.root)).map(async (file): Promise<FileEntry> => {
-                const relative = path.relative(location.root, file).replaceAll("\\", "/")
-                const content = new Uint8Array(await readFile(file))
-                const sha256 = digest(content)
-                const blob = `blobs/${sha256}`
-                if (!blobs.has(blob)) {
-                  zip.file(blob, content)
-                  blobs.add(blob)
-                }
-                return {
-                  sessionID: entry.info.id,
-                  scope: location.scope,
-                  directory: ".",
-                  path: relative,
-                  size: content.byteLength,
-                  sha256,
-                  blob,
-                }
-              }),
-            ),
-          ),
+    const locations = [
+      entries.flatMap((entry) => [
+        {
+          scope: "session" as const,
+          sessionID: entry.info.id,
+          root: path.join(sourceDirectory, sessionDirectory, entry.info.id),
+        },
+        {
+          scope: "design-history" as const,
+          sessionID: entry.info.id,
+          root: path.join(sourceDirectory, sessionDirectory, "design", "history", entry.info.id),
+        },
+      ]),
+      scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
+    ].flat()
+    const files = yield* Effect.forEach(
+      locations,
+      (location) =>
+        Effect.promise(async () =>
+          (await listFiles(location.root, location.scope === "project"))
+            .filter((file) => path.resolve(file) !== output)
+            .map((file) => ({ file, location })),
         ),
-      )
-    ).flat(2)
-    return files
+      { concurrency: 2 },
+    )
+    return yield* Effect.forEach(
+      files.flat(),
+      ({ file, location }) =>
+        Effect.promise(async (): Promise<FileEntry> => {
+          const relative = path.relative(location.root, file).replaceAll("\\", "/")
+          const content = new Uint8Array(await readFile(file))
+          const sha256 = digest(content)
+          const blob = `blobs/${sha256}`
+          if (!blobs.has(blob)) {
+            zip.file(blob, content)
+            blobs.add(blob)
+          }
+          return {
+            sessionID: location.sessionID,
+            scope: location.scope,
+            directory: ".",
+            path: relative,
+            size: content.byteLength,
+            sha256,
+            blob,
+          }
+        }),
+      { concurrency: 8 },
+    )
   })
 }
 
 export const exportPortableSession = Effect.fn("SessionPortable.export")(function* (input: {
   sessionID: SessionID
   output: string
+  scope?: "project"
 }) {
   const context = yield* InstanceState.context
   const entries = yield* collectSessions(input.sessionID)
   const zip = new JSZip()
+  const output = path.resolve(
+    input.output.toLowerCase().endsWith(".zip") ? input.output : `${input.output.replace(/\.octosession$/i, "")}.zip`,
+  )
   const manifest: Manifest = {
     format: "octo-session",
     version: bundleVersion,
     exportedAt: Date.now(),
     rootSessionID: input.sessionID,
     sourceDirectory: context.directory,
-    exclusions: ["credentials", "permissions", "share links", "active processes", "workspace binding"],
+    exclusions: [
+      "credentials", "permissions", "share links", "active processes", "workspace binding",
+      ...(input.scope === "project" ? ["hidden workspace files", "node_modules", "symbolic links", "export target"] : []),
+    ],
     sessions: entries,
-    files: yield* collectFiles(entries, context.directory, zip),
+    files: yield* collectFiles(entries, context.directory, zip, output, input.scope),
   }
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
   const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
-  const output = path.resolve(
-    input.output.toLowerCase().endsWith(".zip")
-      ? input.output
-      : `${input.output.replace(/\.octosession$/i, "")}.zip`,
-  )
   yield* Effect.promise(() => Filesystem.write(output, archive))
   return {
     output,
@@ -228,6 +251,7 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
 export const sharePortableSession = Effect.fn("SessionPortable.share")(function* (input: {
   sessionID: SessionID
   headers?: Record<string, string | undefined>
+  scope?: "project"
 }) {
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
@@ -241,7 +265,7 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
-    const exported = yield* exportPortableSession({ sessionID: input.sessionID, output })
+    const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
@@ -455,6 +479,17 @@ function validateManifest(manifest: Manifest, zip: JSZip) {
     if (!ids.has(file.sessionID)) throw new Error("Portable session file references an unknown session")
     if (!isPortablePath(file.directory) || !isPortablePath(file.path) || !isPortablePath(file.blob))
       throw new Error("Portable session contains an unsafe path")
+    if (
+      file.scope === "project" &&
+      !isProjectFile(
+        `${file.directory}/${file.path}`
+          .replaceAll("\\", "/")
+          .split("/")
+          .filter((part) => part !== ".")
+          .join("/"),
+      )
+    )
+      throw new Error("Portable session contains an unsafe shared file path")
     if (!zip.file(file.blob)) throw new Error(`Portable session is missing ${file.blob}`)
   }
 }
@@ -495,15 +530,70 @@ function orderedEntries(manifest: Manifest) {
   return ordered
 }
 
-export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string) {
+async function sharedFileTarget(directory: string, file: FileEntry) {
+  const segments = `${file.directory}/${file.path}`
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((part) => part !== ".")
+  for (const [index] of segments.entries()) {
+    const target = path.join(directory, ...segments.slice(0, index + 1))
+    const stat = await lstat(target).catch((error) => {
+      if (error.code === "ENOENT") return
+      throw error
+    })
+    if (!stat) continue
+    if (stat.isSymbolicLink()) throw new Error(`共享文件路径包含符号链接，无法导入：${file.path}`)
+    if (index < segments.length - 1 && !stat.isDirectory()) throw new Error(`共享文件目录冲突：${file.path}`)
+    if (index === segments.length - 1 && (!stat.isFile() || digest(await readFile(target)) !== file.sha256)) {
+      throw new Error(`共享文件已存在且内容不同，请更换导入目录：${file.path}`)
+    }
+  }
+  return path.join(directory, ...segments)
+}
+
+function importFiles(manifest: Manifest, scope?: "project") {
+  if (scope !== "project") return manifest.files
+  const shared = new Map(
+    manifest.files.filter((file) => file.scope === "project")
+      .map((file) => [path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/")), file]),
+  )
+  const files = [...manifest.files]
+  for (const file of manifest.files) {
+    if (file.scope && file.scope !== "session") continue
+    const relative = path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))
+    if (!relative.startsWith("uploads/")) continue
+    const target = relative.slice("uploads/".length)
+    if (!isProjectFile(target)) continue
+    const existing = shared.get(target)
+    if (existing) {
+      if (existing.sha256 !== file.sha256) throw new Error(`共享附件同名且内容不同，无法导入：${target}`)
+      continue
+    }
+    // Keep the private copy and its chat references; expose an additional shared copy.
+    const entry = { ...file, scope: "project" as const, directory: ".", path: target }
+    shared.set(target, entry)
+    files.push(entry)
+  }
+  return files
+}
+
+export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string, scope?: "project") {
   const context = yield* InstanceState.context
   const sessions = yield* Session.Service
   const todos = yield* Todo.Service
   const bundle = yield* readBundle(path.resolve(file))
+  const files = importFiles(bundle.manifest, scope)
   const sessionIDs = new Map<string, SessionID>()
   const created: SessionID[] = []
+  const sharedFiles: string[] = []
 
   const importEffect = Effect.gen(function* () {
+    // Fail before creating sessions or writing files when a shared path conflicts.
+    yield* Effect.forEach(
+      files.filter((file) => file.scope === "project"),
+      (file) => Effect.promise(() => sharedFileTarget(context.directory, file)),
+      { concurrency: 8 },
+    )
     for (const entry of orderedEntries(bundle.manifest)) {
       const parentID = entry.info.parentID ? sessionIDs.get(entry.info.parentID) : undefined
       const session = yield* sessions.create({
@@ -562,7 +652,23 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       }
     }
 
-    for (const fileEntry of bundle.manifest.files) {
+    for (const fileEntry of files) {
+      if (fileEntry.scope === "project") {
+        yield* Effect.promise(async () => {
+          const target = await sharedFileTarget(context.directory, fileEntry)
+          await mkdir(path.dirname(target), { recursive: true })
+          await writeFile(target, bundle.blobs.get(fileEntry.blob)!, { flag: "wx" }).then(
+            () => {
+              sharedFiles.push(target)
+            },
+            async (error) => {
+              if (error.code !== "EEXIST") throw error
+              await sharedFileTarget(context.directory, fileEntry)
+            },
+          )
+        })
+        continue
+      }
       const sessionID = sessionIDs.get(fileEntry.sessionID)!
       const target =
         fileEntry.scope === "design-history"
@@ -582,7 +688,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     return {
       sessionID: sessionIDs.get(bundle.manifest.rootSessionID)!,
       sessions: sessionIDs.size,
-      files: bundle.manifest.files.length,
+      files: files.length,
     }
   })
 
@@ -591,11 +697,12 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       Effect.all(created.slice(0, 1).map((id) => sessions.remove(id).pipe(Effect.ignore))).pipe(
         Effect.andThen(
           Effect.promise(() =>
-            Promise.all(
-              created.map((id) =>
+            Promise.all([
+              ...sharedFiles.map((file) => rm(file, { force: true })),
+              ...created.map((id) =>
                 rm(path.join(context.directory, sessionDirectory, id), { recursive: true, force: true }),
               ),
-            ),
+            ]),
           ).pipe(Effect.ignore),
         ),
       ),

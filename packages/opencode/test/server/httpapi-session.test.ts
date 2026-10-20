@@ -1,9 +1,10 @@
 import { afterEach, describe, expect } from "bun:test"
 import { NodeHttpServer } from "@effect/platform-node"
 import Http from "node:http"
+import JSZip from "jszip"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
@@ -159,6 +160,59 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live("exposes imported uploads in the shared file list only for project scope through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Uploaded file" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "uploads", "brief.txt"), "uploaded attachment"))
+      const output = path.join(tmp.path, ".exports", "session.zip")
+      const exported = yield* requestWithBackend(true, pathFor(SessionPaths.portableExport, { sessionID: session.id }), {
+        method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ path: output }),
+      })
+      expect(exported.status).toBe(200)
+      for (const experimental of [true, false]) {
+        for (const scope of [undefined, "project"]) {
+          const directory = path.join(tmp.path, ".imports", `${experimental}-${scope ?? "session"}`)
+          yield* Effect.promise(() => mkdir(directory, { recursive: true }))
+          const headers = { "x-opencode-directory": directory, "content-type": "application/json" }
+          const response = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+            method: "POST", headers, body: JSON.stringify({ path: output, scope }),
+          })
+          expect(response.status).toBe(200)
+          const imported = Schema.decodeUnknownSync(Schema.Struct({ sessionID: SessionID }))(yield* json(response))
+          expect(yield* Effect.promise(() => Bun.file(path.join(directory, ".octo", imported.sessionID, "uploads", "brief.txt")).text()))
+            .toBe("uploaded attachment")
+          const listed = yield* requestWithBackend(experimental, "/artifact/list?scope=project&category=generated&recursive=true", { headers })
+          expect(listed.status).toBe(200)
+          const body = Schema.decodeUnknownSync(Schema.Struct({ files: Schema.Array(Schema.Struct({ relativePath: Schema.String })) }))(yield* json(listed))
+          expect(body.files.some((file) => file.relativePath === "brief.txt")).toBe(scope === "project")
+        }
+      }
+    })),
+  )
+
+  it.live("exports shared workspace files only when requested through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Shared files" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "shared.html"), "<h1>shared</h1>"))
+      const endpoint = pathFor(SessionPaths.portableExport, { sessionID: session.id })
+      for (const experimental of [true, false]) {
+        for (const scope of [undefined, "project"]) {
+          const output = path.join(tmp.path, ".exports", `${experimental}-${scope ?? "session"}.zip`)
+          const response = yield* requestWithBackend(experimental, endpoint, {
+            method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+            body: JSON.stringify({ path: output, scope }),
+          })
+          expect(yield* json(response)).toEqual({ output, sessions: 1, files: scope ? 2 : 0 })
+          const zip = yield* Effect.promise(async () => JSZip.loadAsync(await Bun.file(output).arrayBuffer()))
+          const manifest = yield* Effect.promise(async () => JSON.parse(await zip.file("manifest.json")!.async("string")))
+          expect(manifest.files.map((file: { scope: string; path: string }) => ({ scope: file.scope, path: file.path })))
+            .toEqual(scope ? [{ scope: "project", path: "opencode.json" }, { scope: "project", path: "shared.html" }] : [])
+        }
+      }
+    })),
+  )
+
   it.live("serves bounded share previews with matching pagination and errors through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Share preview" })

@@ -81,6 +81,14 @@ export const PermissionResponsePayload = Schema.Struct({
 export const PortablePathPayload = Schema.Struct({
   path: Schema.String,
 })
+export const PortableScopeQuery = Schema.Struct({
+  scope: Schema.optional(Schema.Literal("project")),
+})
+export const PortableExportPayload = Schema.Struct({
+  ...PortablePathPayload.fields,
+  ...PortableScopeQuery.fields,
+})
+export const PortableImportPayload = PortableExportPayload
 export const PortableImportResult = Schema.Struct({
   sessionID: SessionID,
   sessions: Schema.Number,
@@ -156,7 +164,7 @@ export const SessionApi = HttpApi.make("session")
           }),
         ),
         HttpApiEndpoint.post("portableImport", SessionPaths.portableImport, {
-          payload: PortablePathPayload,
+          payload: PortableImportPayload,
           success: described(PortableImportResult, "Imported portable session"),
           error: HttpApiError.BadRequest,
         }).annotateMerge(
@@ -168,7 +176,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("portableExport", SessionPaths.portableExport, {
           params: { sessionID: SessionID },
-          payload: PortablePathPayload,
+          payload: PortableExportPayload,
           success: described(PortableExportResult, "Exported portable session"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
@@ -180,6 +188,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("portableShare", SessionPaths.portableShare, {
           params: { sessionID: SessionID },
+          query: PortableScopeQuery,
           success: described(PortableShareResult, "Shared portable session"),
           error: [ApiBadRequestError, ApiNotFoundError],
         }).annotateMerge(

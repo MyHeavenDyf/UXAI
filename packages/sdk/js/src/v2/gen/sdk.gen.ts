@@ -3929,6 +3929,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       path?: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3940,6 +3941,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
           ],
         },
       ],
@@ -3971,6 +3973,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       path?: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3983,6 +3986,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
+            { in: "body", key: "scope" },
           ],
         },
       ],
@@ -4013,6 +4017,7 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
+      scope?: "project"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4024,6 +4029,7 @@ export class Session2 extends HeyApiClient {
             { in: "path", key: "sessionID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "scope" },
           ],
         },
       ],

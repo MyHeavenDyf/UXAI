@@ -10,6 +10,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { directoryHeader } from "@/utils/headers"
 import { modelsApiToken } from "@/network/models-api"
 import { SessionSharePreview } from "./session-share-preview"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -18,6 +19,7 @@ export function DialogShareSession(props: { session: Session }) {
   const dialog = useDialog()
   const platform = usePlatform()
   const globalSDK = useGlobalSDK()
+  const workspaceKind = useWorkspaceKind()
   const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
 
   const copyLink = async () => {
@@ -28,7 +30,7 @@ export function DialogShareSession(props: { session: Session }) {
         const token = modelsApiToken()
         const cookie = localStorage.getItem("uiplusCookie")?.trim()
         const response = await (platform.fetch ?? fetch)(
-          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share${workspaceKind() === "code" ? "?scope=project" : ""}`,
           {
             method: "POST",
             headers: {

@@ -6010,6 +6010,7 @@ export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusRe
 export type SessionPortableImportData = {
   body?: {
     path: string
+    scope?: "project"
   }
   path?: never
   query?: {
@@ -6044,6 +6045,7 @@ export type SessionPortableImportResponse = SessionPortableImportResponses[keyof
 export type SessionPortableExportData = {
   body?: {
     path: string
+    scope?: "project"
   }
   path: {
     sessionID: string
@@ -6089,6 +6091,7 @@ export type SessionPortableShareData = {
   query?: {
     directory?: string
     workspace?: string
+    scope?: "project"
   }
   url: "/session/{sessionID}/portable-share"
 }

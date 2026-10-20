@@ -57,7 +57,7 @@ type SessionEntry = {
 
 type FileEntry = {
   sessionID: string
-  scope?: "session" | "design-history"
+  scope?: "session" | "design-history" | "project"
   directory: string
   path: string
   size: number
@@ -79,6 +79,18 @@ if (!manifest.sessions.some((item) => item.info.id === manifest.rootSessionID)) 
 `sourceDirectory` 只用于识别导出前的旧路径。在线查看器不能直接访问该目录，也不应向用户暴露完整本地路径。
 
 `exclusions` 会明确列出未导出的内容。目前通常不包含凭据、权限、分享链接、运行中的进程和工作区绑定。
+
+代码工作区分享会传入 `?scope=project`；直接导出时在 JSON 中传入 `scope: "project"`。
+此时收集整个工作区共享目录中的文件，使用 `scope: "project"` 标记，每个文件只收集一次，不按 Session 重复。
+不再按会话引用筛选文件，也不解析静态依赖，因此动态引用的目录内资源同样可以包含。
+共享文件保留相对工作区根目录的路径，跳过隐藏条目、`node_modules`、符号链接和本次导出目标 ZIP。
+普通工作区不传 `scope`，继续只导出会话私有文件。代码工作区的 ZIP 可能包含其他会话生成或上传的共享文件，但不会额外包含其他会话的聊天记录。
+导入时共享文件恢复到选中的工作区目录；已有文件内容相同则保留，内容不同则提示冲突并停止，不覆盖。
+导入到代码工作区时，请在 `POST /session/import` 请求体中传入 `scope: "project"`（桌面端打开分享会根据目标工作区自动传入）。
+此时旧包中会话私有的 `uploads/**` 附件会额外复制到目标工作区根目录，保留 `uploads/` 下的相对目录，供共享文件列表读取；私有副本和聊天附件引用保持不变。普通工作区省略 `scope`，仍按原有方式恢复。
+共享附件同名且内容相同则复用，内容不同则在写入前报冲突，不覆盖已有文件；ZIP 未包含的附件无法凭空恢复。
+导入只恢复 `manifest.files` 中的文件；之前按需导出的 ZIP 不会自动补齐文件，需要重新导出。
+文件读取并发上限为 8，相同内容通过 Blob 哈希去重。
 
 ## 4. Session 结构
 
@@ -314,6 +326,7 @@ function logicalFilePath(file: FileEntry) {
     .filter((part) => part && part !== ".")
     .join("/")
 
+  if (file.scope === "project") return tail
   if (file.scope === "design-history") {
     return `.octo/design/history/${file.sessionID}/${tail}`
   }
