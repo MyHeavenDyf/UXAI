@@ -6,8 +6,29 @@ import {
   isExtractableDocFile,
   isTextInlineFile,
   validateFile,
+  validateInsightFile,
   validateFileForExternal,
 } from "./upload"
+
+describe("Insight 附件格式与 Design 对齐", () => {
+  test("允许白名单外格式及无扩展名文件，不改变公共校验", () => {
+    for (const name of ["data.csv", "icon.svg", "archive.zip", "video.mp4", "README"]) {
+      const file = new File(["content"], name)
+      expect(validateInsightFile(file)).toBeNull()
+      expect(validateFile(file)?.code).toBe("EXT_NOT_ALLOWED")
+    }
+  })
+
+  test("保留空文件、空文件名和大小限制", () => {
+    expect(validateInsightFile(new File([], "empty.csv"))?.code).toBe("FILE_INVALID")
+    expect(validateInsightFile(new File(["content"], ".csv"))?.code).toBe("FILENAME_EMPTY")
+    expect(validateInsightFile(new File([new Uint8Array(100 * 1024 * 1024 + 1)], "large.zip"))?.code).toBe("FILE_TOO_LARGE")
+  })
+
+  test("外网模型仍拒绝白名单外格式", () => {
+    expect(validateFileForExternal(new File(["content"], "data.csv"))?.code).toBe("EXT_NOT_ALLOWED")
+  })
+})
 
 /**
  * SPEC-INS-032 §2.6：分治判定的两套口径在**文案**上也要分开说。
