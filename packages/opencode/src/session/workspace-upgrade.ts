@@ -89,7 +89,12 @@ interface OutputFile {
   size: number
 }
 
-/** 递归收集 <ws>/.octo/<sid>/outputs 下的所有普通文件(目录不存在/读不了 → 空)。 */
+/**
+ * 递归收集 <ws>/.octo/<sid>/outputs 下的所有普通文件(目录不存在/读不了 → 空)。
+ * `.` 开头的文件与子目录一律跳过:outputs 里的 .gitkeep(空目录占位)、.history/**
+ * (编辑器本地历史快照)是内部文件不是产物,既不计数也不迁移(与项目文件列表过滤
+ * `.` 条目的口径一致)。
+ */
 function listOutputFiles(ws: string, sid: SessionID, out: OutputFile[]): void {
   const root = path.join(ws, SESSION_BASE_DIR, sid, OUTPUTS_DIR)
   const walk = (dir: string, rel: string) => {
@@ -100,6 +105,7 @@ function listOutputFiles(ws: string, sid: SessionID, out: OutputFile[]): void {
       return
     }
     for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const childAbs = path.join(dir, entry.name)
       if (entry.isDirectory()) walk(childAbs, childRel)

@@ -128,6 +128,9 @@ describe("workspace upgrade preview (normal → code)", () => {
         writeOutput(ws.path, make1.id, "landing.html", "hello")
         writeOutput(ws.path, make1.id, "sub/chart.svg", "world")
         writeOutput(ws.path, studio.id, "poster.png", "poster")
+        // `.` 开头的内部文件(.gitkeep 占位、.history 编辑器本地快照)不算产物。
+        writeOutput(ws.path, make1.id, ".gitkeep", "")
+        writeOutput(ws.path, make1.id, ".history/page.20261020-163721.init/self.html", "snapshot")
 
         const result = previewWorkspaceUpgrade({ directory: ws.path })
         expect(result.sessions).toBe(1)
@@ -150,6 +153,8 @@ describe("workspace upgrade run (normal → code)", () => {
         writeOutput(ws.path, s1.id, "a.html", "A-content")
         writeOutput(ws.path, s1.id, "sub/a.html", "B-content") // 同 basename → -2 后缀
         writeOutput(ws.path, s1.id, "b.svg", "svg")
+        writeOutput(ws.path, s1.id, ".gitkeep", "") // 内部文件不迁移
+        writeOutput(ws.path, s1.id, ".history/a.html.20261020-163721.init/self.html", "snapshot")
 
         // 外来同名文件(内容不同)绝不覆盖:b.svg 的目标名已被占用 → 新副本挪到 -2。
         fs.mkdirSync(outputDir(ws.path), { recursive: true })
