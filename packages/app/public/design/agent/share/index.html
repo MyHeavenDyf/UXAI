@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OctoAgent - 分享对话</title>
-  <link rel="icon" type="image/svg+xml" href="/OctoLogo.svg" />
+  <link rel="icon" type="image/svg+xml" href="/pipeline/favicon.ico" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
@@ -2226,8 +2226,9 @@
     }
 
     // artifact 图标(对齐 design cardTypeIconSrc:所有类型统一返回 AI 文档图标)
+    // 走 share/icons/ 与其他图标同源,避免根路径 /AI_doc_plaintext.svg 在独立部署的 share 域名/路径下 404
     function artifactIconSrc(_type) {
-      return "/AI_doc_plaintext.svg"
+      return FILE_ICON_BASE + "AI_doc_plaintext.svg"
     }
 
     // 时间格式化(对齐 design insight-turn.tsx formatTime)
