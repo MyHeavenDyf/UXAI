@@ -285,9 +285,9 @@ const pageHandler = {
       if (!childSessionId) throw new Error('Agent session not created')
 
       try {
-        const zipBlob = await packOutputDir(ctx, outputDir)
-        const zipName = `${tab.title.replace(/\.html?$/i, '')}-eview-react.zip`
-        await downloadZipBlob(zipBlob, zipName, ctx)
+        // const zipBlob = await packOutputDir(ctx, outputDir)
+        // const zipName = `${tab.title.replace(/\.html?$/i, '')}-eview-react.zip`
+        // await downloadZipBlob(zipBlob, zipName, ctx)
       } finally {
         await sdk!.client.session.update({
           sessionID: childSessionId,
@@ -297,7 +297,7 @@ const pageHandler = {
 
       setAgentExecution(null)
       dismissOctoToast(loadingId)
-      showOctoToast({ title: '已下载' })
+      // showOctoToast({ title: '已下载' })
       return true
     } catch (e) {
       setAgentExecution(null)
