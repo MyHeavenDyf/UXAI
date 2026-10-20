@@ -886,7 +886,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                     <div class="addon-menu-asset-preview-stage">
                       <Show when={designPreviewKind(designFilePreview()!) === "image"}>
                         <img
-                          src={pathToLocalUrl(designFilePreview()!.path)}
+                          src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                           alt=""
                           class="addon-menu-asset-preview-img"
                           draggable={false}
@@ -895,7 +895,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       <Show when={designPreviewKind(designFilePreview()!) === "html"}>
                         <div class="addon-menu-asset-preview-html">
                           <iframe
-                            src={pathToLocalUrl(designFilePreview()!.path)}
+                            src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                             sandbox="allow-scripts"
                           />
                         </div>
