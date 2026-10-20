@@ -3919,7 +3919,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       path?: string
-      scope?: "project"
+      scope?: "project" | "session"
     },
     options?: Options<never, ThrowOnError>,
   ) {

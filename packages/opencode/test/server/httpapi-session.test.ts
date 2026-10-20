@@ -160,6 +160,38 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live("restores shared archives into private file lists through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Shared to private" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "index.html"), '<link href="assets/theme.css">'))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "assets", "theme.css"), "body {}"))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "uploads", "brief.txt"), "attachment"))
+      const output = path.join(tmp.path, ".exports", "shared.zip")
+      const exported = yield* requestWithBackend(true, pathFor(SessionPaths.portableExport, { sessionID: session.id }), {
+        method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ path: output, scope: "project" }),
+      })
+      expect(exported.status).toBe(200)
+      for (const experimental of [true, false]) {
+        const directory = path.join(tmp.path, ".imports", `private-${experimental}`)
+        yield* Effect.promise(() => mkdir(directory, { recursive: true }))
+        const headers = { "x-opencode-directory": directory, "content-type": "application/json" }
+        const response = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+          method: "POST", headers, body: JSON.stringify({ path: output, scope: "session" }),
+        })
+        expect(response.status).toBe(200)
+        const imported = Schema.decodeUnknownSync(Schema.Struct({ sessionID: SessionID }))(yield* json(response))
+        for (const category of ["generated", "uploaded"]) {
+          const listed = yield* requestWithBackend(experimental, `/artifact/list?sessionId=${imported.sessionID}&category=${category}&recursive=true`, { headers })
+          expect(listed.status).toBe(200)
+          const body = Schema.decodeUnknownSync(Schema.Struct({ files: Schema.Array(Schema.Struct({ name: Schema.String })) }))(yield* json(listed))
+          expect(body.files.map((file) => file.name)).toEqual(expect.arrayContaining(category === "generated" ? ["index.html", "theme.css"] : ["brief.txt"]))
+        }
+        expect(yield* Effect.promise(() => Bun.file(path.join(directory, "index.html")).exists())).toBe(false)
+      }
+    })),
+  )
+
   it.live("exposes imported uploads in the shared file list only for project scope through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Uploaded file" })

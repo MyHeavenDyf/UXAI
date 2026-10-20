@@ -24,7 +24,7 @@ export function parseSharedSessionLink(input: string) {
 export async function importSharedSession(input: {
   uniqueId: string
   directory: string
-  scope?: "project"
+  scope?: "project" | "session"
   uploadURL: string
   server: { url: string; username: string | null; password: string | null }
   remoteFetch: typeof fetch

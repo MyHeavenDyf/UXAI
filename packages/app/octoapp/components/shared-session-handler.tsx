@@ -24,7 +24,7 @@ export function SharedSessionHandler() {
     importSession: async (uniqueId, directory) => platform.importSharedSession?.(
       uniqueId,
       directory,
-      kindOf(server.projects.list().find((project) => project.worktree === directory)) === "code" ? "project" : undefined,
+      kindOf(server.projects.list().find((project) => project.worktree === directory)) === "code" ? "project" : "session",
     ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
