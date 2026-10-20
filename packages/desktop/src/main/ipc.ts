@@ -34,7 +34,7 @@ import type {
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
-import { effectiveXdgConfigHome, octoConfigDir } from "./storage"
+import { effectiveXdgConfigHome } from "./storage"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
@@ -959,18 +959,19 @@ export function registerIpcHandlers(deps: Deps) {
   // get-design-systems 的 prototype):server 端 proto_tool 硬编码 ~/.config/octo/prototype
   // (opencode/src/tool/proto_tool/load_components_docs.ts、agent/proto/theme.ts),
   // deployProtoTools 也硬编码同一路径 —— 这些指向 octoConfigDir() 反而会在
-  // app-data-fallback 覆盖模式下把桌面读取与 server 读取劈开。skill 相关路径
-  // 一律用下面的 storage 感知函数(octoConfigDir()),与 sidecar 扫描目录保持一致。
+  // app-data-fallback 覆盖模式下把桌面读取与 server 读取劈开。skill 与资产配置全家桶
+  // (添加、读取、扫描、内置部署)同样恒定走这里:技能库/资产库以 ~/.config/octo 为唯一
+  // 权威目录,不随存储模式漂移(2026-10 用户决策;代价见 storage.ts 注释)。
   const getOctoConfigPath = () => {
     const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
     return join(xdgConfig, "octo")
   }
-  const skillsConfigPath = () => join(octoConfigDir(), "skills.json")
-  const skillConfigPath = () => join(octoConfigDir(), "skill_config.json")
-  const assetsConfigPath = () => join(octoConfigDir(), "assets_config.json")
-  const octoSkillDir = () => join(octoConfigDir(), "skill")
+  const skillsConfigPath = () => join(getOctoConfigPath(), "skills.json")
+  const skillConfigPath = () => join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = () => join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = () => join(getOctoConfigPath(), "skill")
 
-  /** 从 octoConfig/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
   function regenerateSkillConfig() {
     try {
       const skillRoot = octoSkillDir()
@@ -1121,7 +1122,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
-      const skillDir = join(octoConfigDir(), "skill", skillName)
+      const skillDir = join(octoSkillDir(), skillName)
       const skillMdPath = join(skillDir, "SKILL.md")
 
       if (!existsSync(skillMdPath)) {
@@ -1156,6 +1157,7 @@ export function registerIpcHandlers(deps: Deps) {
   // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
+      // 恒定 ~/.config/octo/skill(见上方 getOctoConfigPath 注释),不随存储模式漂移
       const skillRoot = octoSkillDir()
       mkdirSync(skillRoot, { recursive: true })
 
@@ -1168,7 +1170,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // 重新生成 skill_config.json（从 octoConfig/skill 目录扫描）
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
       regenerateSkillConfig()
 
       return { success: true, skillName }
