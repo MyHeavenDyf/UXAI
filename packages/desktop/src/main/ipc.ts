@@ -955,32 +955,30 @@ export function registerIpcHandlers(deps: Deps) {
     setTitlebarOverlayHidden(win, hidden)
   })
 
-  // 裸 XDG 路径(不感知存储模式),仅限 carve-out 消费方使用(patternDir /
-  // get-design-systems 的 prototype):server 端 proto_tool 硬编码 ~/.config/octo/prototype
-  // (opencode/src/tool/proto_tool/load_components_docs.ts、agent/proto/theme.ts),
-  // deployProtoTools 也硬编码同一路径 —— 这些指向 octoConfigDir() 反而会在
-  // app-data-fallback 覆盖模式下把桌面读取与 server 读取劈开。skill 与资产配置全家桶
-  // (添加、读取、扫描、内置部署)同样恒定走这里:技能库/资产库以 ~/.config/octo 为唯一
-  // 权威目录,不随存储模式漂移(2026-10 用户决策;代价见 storage.ts 注释)。
+  // Use ~/.config/octo/ (xdg-basedir convention) instead of Electron userData
   const getOctoConfigPath = () => {
     const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
     return join(xdgConfig, "octo")
   }
-  const skillsConfigPath = () => join(getOctoConfigPath(), "skills.json")
-  const skillConfigPath = () => join(getOctoConfigPath(), "skill_config.json")
-  const assetsConfigPath = () => join(getOctoConfigPath(), "assets_config.json")
-  const octoSkillDir = () => join(getOctoConfigPath(), "skill")
+  // 这四个必须是字符串常量,不能改成函数:内网合并代码(jk 标记段内)按裸变量字符串引用,
+  // 函数化后 existsSync/join 收到的是函数,抛 "path must be of type string" → 添加技能报
+  // "string 地址"错误(2026-10 内网事故)。registerIpcHandlers 在模块加载时执行(早于
+  // setActiveStorage),所以这些值固定取主进程 env 的 XDG 路径,不随 app-data-fallback
+  // 覆盖漂移 —— 已知且可接受(2026-10 用户决策)。
+  const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
+  const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
 
   /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
   function regenerateSkillConfig() {
     try {
-      const skillRoot = octoSkillDir()
-      if (!existsSync(skillRoot)) return false
+      if (!existsSync(octoSkillDir)) return false
 
-      const skillNames = readdirSync(skillRoot, { withFileTypes: true })
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
-        .filter((name) => existsSync(join(skillRoot, name, "SKILL.md")))
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
         .sort()
 
       const panelSkills = skillNames.map((name, index) => ({
@@ -996,10 +994,9 @@ export function registerIpcHandlers(deps: Deps) {
         skillMap[name] = { description: name, import: true, type: "octo_make" }
       }
 
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(
-        target,
+        skillConfigPath,
         JSON.stringify(
           {
             skill: skillMap,
@@ -1021,9 +1018,8 @@ export function registerIpcHandlers(deps: Deps) {
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
     try {
-      const source = skillsConfigPath()
-      if (!existsSync(source)) return
-      const raw = JSON.parse(readFileSync(source, "utf-8"))
+      if (!existsSync(skillsConfigPath)) return
+      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
       const skillEntries: Record<string, { description?: string; import?: boolean; type?: string }> = raw.skill ?? {}
 
       const skillMap: Record<string, { description?: string; import?: boolean; type?: string }> = {}
@@ -1042,9 +1038,7 @@ export function registerIpcHandlers(deps: Deps) {
         }
       }
 
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
+      writeFileSync(skillConfigPath, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
     } catch (err) {
       console.error("syncSkillConfig failed", err)
     }
@@ -1055,9 +1049,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skills-config", () => {
     try {
-      const path = skillsConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(skillsConfigPath)) return {}
+      return JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1066,9 +1059,8 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
       // 写入 skill_config.json（新格式）
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1077,9 +1069,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skill-config", () => {
     try {
-      const path = skillConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(skillConfigPath)) return {}
+      return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1087,9 +1078,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skill-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1098,9 +1088,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-assets-config", () => {
     try {
-      const path = assetsConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(assetsConfigPath)) return {}
+      return JSON.parse(readFileSync(assetsConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1108,9 +1097,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-assets-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      const target = assetsConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(assetsConfigPath), { recursive: true })
+      writeFileSync(assetsConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-assets-config failed", err)
       throw new Error(`Failed to save assets config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1122,7 +1110,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
-      const skillDir = join(octoSkillDir(), skillName)
+      const skillDir = join(getOctoConfigPath(), "skill", skillName)
       const skillMdPath = join(skillDir, "SKILL.md")
 
       if (!existsSync(skillMdPath)) {
@@ -1157,12 +1145,11 @@ export function registerIpcHandlers(deps: Deps) {
   // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
-      // 恒定 ~/.config/octo/skill(见上方 getOctoConfigPath 注释),不随存储模式漂移
-      const skillRoot = octoSkillDir()
-      mkdirSync(skillRoot, { recursive: true })
+      const octoSkillDir = join(getOctoConfigPath(), "skill")
+      mkdirSync(octoSkillDir, { recursive: true })
 
       const skillName = basename(sourcePath)
-      const destDir = join(skillRoot, skillName)
+      const destDir = join(octoSkillDir, skillName)
 
       if (existsSync(destDir)) {
         return { success: false, error: "同名 skill 已存在" }
@@ -1183,20 +1170,19 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("ensure-skill-config", () => {
     // 仅确保目录存在，不重新生成。如果文件不存在则创建空
-    const target = skillConfigPath()
-    if (!existsSync(target)) {
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, "{}", "utf-8")
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
     }
   })
 
   ipcMain.handle("open-skill-folder", async () => {
-    const skillRoot = octoSkillDir()
-    if (existsSync(skillRoot)) {
-      await shell.openPath(skillRoot)
+    const octoSkillDir = join(getOctoConfigPath(), "skill")
+    if (existsSync(octoSkillDir)) {
+      await shell.openPath(octoSkillDir)
     } else {
-      mkdirSync(skillRoot, { recursive: true })
-      await shell.openPath(skillRoot)
+      mkdirSync(octoSkillDir, { recursive: true })
+      await shell.openPath(octoSkillDir)
     }
   })
 

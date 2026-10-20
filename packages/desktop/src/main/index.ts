@@ -237,9 +237,8 @@ function setupApp() {
       migrateAppId()
       migrate()
     }
-    // 存储模式要在 migrateLegacyOctoConfig / deployRipgrep 之前解析:它们的落点跟随
-    // sidecar 实际所见(octoConfigDir / effectiveXdgCacheHome)。skill 部署已恒定
-    // ~/.config/octo,不依赖存储模式。必须放在 migrateAppId/migrate 之后 —— fallback
+    // 存储模式要在 deploy 之前解析:deploy 的目标目录跟随 octoConfigDir()(即 sidecar
+    // 实际读到的 XDG_CONFIG_HOME)。必须放在 migrateAppId/migrate 之后 —— fallback
     // 会在 userData 里建目录,先跑会让 migrateAppId 误判"已有内容"而跳过 Tauri 迁移。
     const userDataPath = app.getPath("userData")
     const storage = resolveDesktopStorage(userDataPath)
@@ -385,8 +384,8 @@ async function initialize(storage: DesktopStorage) {
         storageReason: fallbackStorage.reason,
         configHomeOverridden: Boolean(fallbackStorage.env.XDG_CONFIG_HOME),
       })
-      // 覆盖激活时,把 ~/.config/octo 的用户内容迁到新配置目录(server 改扫那里)。
-      // skill 部署已恒定 ~/.config/octo,目标不随覆盖变化,重跑只是幂等兜底。
+      // 覆盖激活时,把 ~/.config/octo 的用户内容迁到新配置目录并重新部署内置 skill,
+      // 否则 server 扫描目录为空(启动早期 deploy 已落在旧目录)
       if (fallbackStorage.env.XDG_CONFIG_HOME) {
         migrateLegacyOctoConfig()
         deploySkillsJson()
