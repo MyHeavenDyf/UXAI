@@ -5,6 +5,8 @@
 // 真实实现见 packages/desktop/src/preload/index.ts;内网壳对接清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
 
 export type DesktopApi = {
+  /** HTML 历史快照列表；复用已有 preload 接口。 */
+  listDirectory?: (path: string) => Promise<Array<{ path: string; type: "file" | "directory"; size?: number }>>
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
   /** 在系统文件管理器中定位;文件不存在(被改名/移走)时返回 { ok: false, reason: "not-found" },约定永不 throw */

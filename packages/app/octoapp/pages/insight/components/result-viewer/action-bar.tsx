@@ -19,6 +19,7 @@ import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
 import { CanvasEditMenu } from "./canvas-edit-menu"
+import { HtmlReviewActions } from "./html-review"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -266,6 +267,7 @@ export function ActionBar(props: {
   onFilesRefresh?: () => void | Promise<void>
   refreshKey?: number
   canvasLoadState?: "loading" | "error" | "ready"
+  working?: boolean
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -435,6 +437,7 @@ export function ActionBar(props: {
               }}
             />
             <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <DownloadMenu tab={props.tab} disabled={!ready()} />
           </Show>
           <Tooltip
@@ -475,6 +478,7 @@ export function ActionBar(props: {
         <div class="octo-action-bar-right">
           <div class="octo-action-bar-fixed">
             <CanvasEditMenu tab={props.tab} mode={props.viewMode} sessionId={params.id} directory={projectDir() || ""} revision={props.refreshKey} loadState={props.canvasLoadState} onFilesRefresh={props.onFilesRefresh} />
+            <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <button
               type="button"
               class="octo-action-btn octo-action-btn-download"

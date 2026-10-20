@@ -29,6 +29,7 @@ import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 import { InsightFileManager } from "../file-manager"
 import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
 import { createPreviewTracker } from "../../utils/interaction-tracking"
+import { HtmlReviewProvider } from "./html-review"
 
 // ── Markdown 渲染器 ──────────────────────────────────────────
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
@@ -61,6 +62,7 @@ export function ResultViewer(props: {
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onFilesRefresh?: () => void
   refreshKey?: number
+  working?: boolean
   /** 刷新预览(重新读盘/重拉 uri) */
   onRefresh?: () => void
 }): JSX.Element {
@@ -91,6 +93,8 @@ export function ResultViewer(props: {
   })
 
   return (
+    <HtmlReviewProvider tab={activeTab()} tabs={props.tabs} refreshKey={(props.refreshKey ?? 0) + diskVersion()} working={props.working}
+      onRestore={() => { setDiskVersion(value => value + 1); props.onFilesRefresh?.() }}>
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{
@@ -134,6 +138,7 @@ export function ResultViewer(props: {
                 onFilesRefresh={props.onFilesRefresh}
                 refreshKey={(props.refreshKey ?? 0) + diskVersion()}
                 canvasLoadState={canvasPreview.key === canvasKey() ? canvasPreview.state : "loading"}
+                working={props.working}
               />
               {/* select-text:应用外壳(pages/layoutnet.tsx)整体 `select-none`(Electron 原生手感,
                   避免拖窗/拖分隔线误选),白名单只有 input/textarea/contenteditable。产物预览是**内容**,
@@ -174,6 +179,7 @@ export function ResultViewer(props: {
         )}
       </Show>
     </div>
+    </HtmlReviewProvider>
   )
 }
 
