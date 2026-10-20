@@ -227,18 +227,19 @@ function AssetDialog(props: {
     window.addEventListener("mouseup", onUp)
   }
 
-  const handleStageEnter = (e: MouseEvent, file: AssetFile) => {
-    const target = e.currentTarget as HTMLElement
-    const rect = target.getBoundingClientRect()
-    if (previewTimer) clearTimeout(previewTimer)
-    const stageRight = rect.right
-    const panelW = 256
-    const fitsRight = stageRight + 8 + panelW <= window.innerWidth
-    setPreviewPos({
-      left: fitsRight ? stageRight + 8 : rect.left - panelW - 8,
-      top: rect.top,
-    })
-    previewTimer = setTimeout(() => setPreviewFile(file), 100)
+  const handleStageEnter = (file: AssetFile) => {
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined }
+    const dialogRect = dialogRef?.getBoundingClientRect()
+    if (!dialogRect) return
+    const previewWidth = 256
+    let left = dialogRect.width + 4
+    if (dialogRect.right + 4 + previewWidth > window.innerWidth - 16) {
+      left = -previewWidth - 4
+    }
+    const grid = dialogRef?.querySelector('.me-asset-dialog-grid')
+    const top = grid ? grid.getBoundingClientRect().top - dialogRect.top : 0
+    setPreviewPos({ left, top })
+    setPreviewFile(file)
   }
 
   const handleStageLeave = () => {
@@ -297,7 +298,7 @@ function AssetDialog(props: {
                       <div class="me-asset-grid-item" onClick={() => selectFile(file)}>
                         <div
                           class="me-asset-grid-stage"
-                          onMouseEnter={(e) => handleStageEnter(e, file)}
+                          onMouseEnter={() => handleStageEnter(file)}
                           onMouseLeave={handleStageLeave}
                         >
                           <Show when={file.type === 40} fallback={
@@ -361,8 +362,6 @@ function AssetDialog(props: {
             <div
               class="me-asset-dialog-preview"
               style={{ left: `${previewPos().left}px`, top: `${previewPos().top}px` }}
-              onMouseEnter={() => { if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined } }}
-              onMouseLeave={() => setPreviewFile(null)}
             >
               <div class="me-asset-dialog-preview-name">{previewFile()!.fileName}</div>
               <div class="me-asset-dialog-preview-stage">

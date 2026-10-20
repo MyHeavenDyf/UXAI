@@ -185,7 +185,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
                   classList={{ "octo-ws-item-active": project.worktree === props.value }}
                   onClick={() => pick(project.worktree)}
                 >
-                  <FileIcon node={{ path: project.worktree, type: "directory" }} class="shrink-0 size-4" />
+                  <FileIcon node={{ path: project.worktree, type: "directory" }} plain class="shrink-0 size-4" />
                   <span class="octo-ws-item-text">
                     <span class="octo-ws-item-name">
                       {project.name || getFilename(project.worktree)}
