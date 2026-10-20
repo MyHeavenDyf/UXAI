@@ -134,6 +134,47 @@ thumbnails/ensure),功能无损。另发现 scripts/diff-sdk-types.sh 的 env �
   在 Windows 本机偶发超过 bun 默认 5s hook 超时,表现为一个 "(unnamed)" 偶发红 ——
   基准文件 session-chat-migration.test.ts 同样偶发,环境固有,与用例逻辑无关
 
+## 追加修复:代码工作区 auto-save 落点对齐 output/ 命名 — 2026-10-20
+
+升级后恢复 make 会话时出现**重复产物**:根目录原始名副本 + `output/` 前缀副本各一份。
+根因:kind 翻转为 code 后,insight-turn.tsx 的 auto-save createEffect(卡片渲染即触发)
+按 code 工作区旧规则(项目根 + 原始名,`computeArtifactFilePath` 的 `[projectDir, filename]`)
+落盘,对 output/ 里的迁移副本不可见 → 又写了一份到根目录。
+
+**修复**(前端 `packages/app/octoapp`):`computeArtifactFilePath` 的 code 分支改为
+`[projectDir, "output", "<sid 前 12 位>-<原名>"]`,sidPrefix 规则与本模块迁移命名
+**逐字一致**(`ses_` 后 12 位 hex,短 id 兜底整串)。auto-save 的"已存在即跳过"策略
+随即命中迁移副本,恢复会话不再产生根副本;跨会话前缀也避免同名产物互相覆盖。
+
+- 单点收口:三个 auto-save 调用点(insight-turn 渲染 effect / make 页开卡 Step -1 /
+  tab-persistence 编辑保存)全部经 `computeArtifactFilePath`,改一处全链路生效
+- 会话内索引:link 产物卡片引用已被迁移改写到 output/ 绝对路径;text 产物卡片点击时
+  Step -1 推断 filePath 命中 output/ 文件直接打开
+- 存量边界:2026-10-19 以来新建 code 工作区里已落**项目根**的历史 text 产物副本不迁移
+  不删除(仅是不再被 auto-save 复用),后续新产物一律按 output/ 命名落盘
+- `opencode_make.txt` 与 [Workspace] 注入段不改:model 用 write 落盘的位置本来就
+  "项目内合适位置"任意,auto-save 落点是前端兜底细节,两者不冲突
+- 验证:artifact-auto-save.test.ts 13/13(含 12 位前缀截取/短 id 兜底断言)、
+  packages/app typecheck 通过、make 注入契约测试 7/7;D:\octoAI\merge 根目录两份
+  重复副本确认逐字节一致后删除
+
+### 迁移后卡片 ↔ 文件对应核对(真实数据,D:\octoAI\merge)
+
+text artifact 卡片(DB 里本无路径引用,对应完全靠前端推导)实测三向一致:
+
+- DB 实况:两个 make 会话各产一张 text 卡片(`<artifact identifier type="text/html"
+  title="现代注册页">`),message/part 里 `.octo` 旧引用与 `output/` 新引用均为 **0 条**
+  (text 卡片内容在 fence 里,迁移改写步骤对其为 no-op)
+- 推导核对:`ses_ea78c72beffesyFDY3omLCuC1D` + 标题 `现代注册页` →
+  `output/ea78c72beffe-现代注册页.html`,与迁移落盘文件名**逐字一致**——.octo 里的
+  原名本就是 normal 时期同一条 title→filename 规则生成的,推导幂等;修复后恢复会话
+  auto-save 命中迁移副本即跳过,点击卡片 Step -1 推断 filePath 命中直接打开
+- link artifact 卡片(有路径引用的场景)由迁移改写保障:4 变体 → output/ 正斜杠绝对
+  路径(单测覆盖);未映射引用保留 .octo 旧路径经会话式 serve 兜底
+- 陈旧引用清查:真实 DB 旧引用残留 0、新引用缺失 0;渲染进程 localStorage
+  (leveldb)无任何 merge 路径快照——不存在指向已删根副本的陈旧 tab 快照
+  (若曾存在,恢复后编辑保存会向旧路径 PUT 重写根副本,属文件搬移类操作固有边界)
+
 ## 验证记录
 
 - `bun run typecheck`:opencode / sdk / app 三包通过(全仓 12/12)

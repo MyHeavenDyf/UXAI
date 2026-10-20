@@ -120,6 +120,8 @@ PR #966 bug 审查发现的高危：e65df48612 引入 [Workspace] 注入时未�
 
 存量 normal 工作区现可**单向原地升级**为 code(设置页 → 通用 → 工作区升级):产物文件平铺迁入 `<ws>/output/` 并按 sid 前 12 位重命名、DB 路径引用同步改写、原 `.octo` 产物目录保留,kind 翻转走 `server.projects.upgradeToCode`。设计记录、协议与已知限制见 [workspace-upgrade-normal-to-code.md](workspace-upgrade-normal-to-code.md)。
 
+**同日追加修复**:code 工作区前端 auto-save 落点从"项目根 + 原始名"对齐为 `output/<sid 前 12 位>-<原名>`(`computeArtifactFilePath` code 分支,与迁移命名逐字一致),消除升级后恢复会话时 auto-save 在根目录写出的重复副本;三个调用点(渲染 effect / 开卡 Step -1 / tab 编辑保存)单点收口。详见升级文档"追加修复"节。
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过
