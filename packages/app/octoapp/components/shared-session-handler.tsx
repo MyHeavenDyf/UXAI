@@ -5,23 +5,50 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { usePlatform } from "@/context/platform"
 import { useLayout } from "@/context/layout"
 import { useServer } from "@/context/server"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
+import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { INSIGHT_AGENT } from "@/constants/agent"
+import { createSharedSessionCache } from "./shared-session-cache"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
   const layout = useLayout()
   const server = useServer()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const inFlight = new Set<string>()
-  const completed = new Map<string, { sessionID: string; directory: string; agent?: string }>()
+  const cache = createSharedSessionCache({
+    importSession: async (uniqueId, directory) => platform.importSharedSession?.(uniqueId, directory),
+    isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
+    readSession: async (result) => {
+      const response = await globalSDK.createClient({ throwOnError: false }).session.get({
+        sessionID: result.sessionID,
+        directory: result.directory,
+      })
+      if (response.response.status === 404) return
+      if (!response.response.ok) throw new Error(`读取分享对话失败：${response.response.status}`)
+      return response.data
+    },
+  })
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
 
   const open = async (uniqueId: string, directory: string) => {
-    const key = JSON.stringify([directory, uniqueId])
-    const result = completed.get(key) ?? await platform.importSharedSession?.(uniqueId, directory)
+    const result = await cache.open(server.current?.http.url ?? globalSDK.url, uniqueId, directory)
     if (!result) return
-    completed.set(key, result)
+    const [store, setStore] = globalSync.child(result.directory, { bootstrap: false })
+    // Import events can arrive before this directory's store is subscribed.
+    // Hydrate the final metadata before routing, without loading the full history.
+    applyDirectoryEvent({
+      event: { type: "session.created", properties: { info: result.session } },
+      directory: result.directory,
+      store,
+      setStore,
+      push: () => {},
+      loadLsp: () => {},
+    })
     const page = result.agent === INSIGHT_AGENT ? "insight" : result.agent === "proto_triage" ? "pattern" : "make"
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
@@ -64,6 +91,11 @@ export function SharedSessionHandler() {
   })
 
   onMount(() => {
+    const unsubscribe = globalSDK.event.listen((event) => {
+      if (event.details.type !== "session.deleted") return
+      cache.invalidate(event.details.properties.info.directory, event.details.properties.info.id)
+    })
+    onCleanup(unsubscribe)
     const listener = (event: Event) => handle((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
     window.addEventListener("opencode:deep-link", listener)
     // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
