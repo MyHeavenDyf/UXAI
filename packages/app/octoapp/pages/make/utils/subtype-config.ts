@@ -131,6 +131,32 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
   },
 
+  page: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['.'],
+      /** page 是多文件产物（样式/脚本与 html 分离）：模型一次修改写多个文件再编译，
+       *  按 turn 记录最终态，避免把"css 已改、html 未编译"的中间态存成可切换版本 */
+      agentTurnRecord: 'turn',
+    },
+    rendering: {
+      customBridges: ['components-theme'],
+    },
+  },
+
   _default: {
     features: {
       refresh: true,

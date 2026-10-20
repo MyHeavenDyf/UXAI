@@ -101,4 +101,36 @@ describe("tool.webfetch", () => {
       },
     )
   })
+
+  test("queues concurrent requests instead of rejecting them", async () => {
+    const arrivals: number[] = []
+    await withFetch(
+      (req) => {
+        arrivals.push(Date.now())
+        return new Response(`ok ${new URL(req.url).pathname}`, {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        })
+      },
+      async (url) => {
+        await WithInstance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const results = await Promise.all(
+              ["/a.txt", "/b.txt", "/c.txt", "/d.txt"].map((p) =>
+                exec({ url: new URL(p, url).toString(), format: "text" }),
+              ),
+            )
+            expect(arrivals.length).toBe(4)
+            for (const result of results) {
+              expect(result.output).toContain("ok")
+            }
+            for (let i = 1; i < arrivals.length; i++) {
+              expect(arrivals[i]! - arrivals[i - 1]!).toBeGreaterThanOrEqual(900)
+            }
+          },
+        })
+      },
+    )
+  })
 })

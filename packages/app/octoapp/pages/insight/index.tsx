@@ -74,7 +74,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { validateFile, validateFileForExternal, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateInsightFile, validateFileForExternal, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
@@ -90,7 +90,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount, currentUserId } from "./utils/account"
 import { artifactTrackingExtra } from "./utils/artifact-tracking"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
-import { splitMentions, queuedMentions } from "./utils/mention"
+import { splitMentions, queuedMentions, queuedDoc } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
@@ -192,9 +192,8 @@ const MAX_ATTACHMENTS = 10
 // (make 页走 S3 无此约束,共用 validateFile 会波及,故加在调用点)。
 const INSIGHT_IMAGE_MAX = 5 * 1024 * 1024
 
-// 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
-// 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
-const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
+// 与 Design 一致，文件选择器允许任意格式；外网模型限制由上传入口校验。
+const UPLOAD_ACCEPT = "*/*"
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
 
@@ -1937,6 +1936,7 @@ function InsightContent() {
       }),
     })
 
+    const doc = promptDoc()
     clearComposers()
     setMentionSelections([]) // @引用已拆桶进 mentionsPayload,清空选择态
     // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
@@ -1962,6 +1962,7 @@ function InsightContent() {
         ...q,
         {
           text,
+          doc,
           skills: mentionSkills,
           files: mentionFileRefs,
           directory: projectDir(),
@@ -2008,7 +2009,11 @@ function InsightContent() {
     trackInsight("message-queue-remove", { sessionId: params.id, remainingCount: queue().length })
     // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
     // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
-    if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
+    if (!prompt().trim()) {
+      const doc = queuedDoc(item)
+      pmRefWelcome?.replaceDoc(doc, "end")
+      pmRefConv?.replaceDoc(doc, "end")
+    }
     // SPEC-INS-027 §3.7:取消排队 = 回到编辑态,把随这条消息快照走的附件也还原到附件栏(栏为空才还原,
     // 不覆盖用户正在选的附件),使编辑后可原样重发;文件本就在会话目录、不会丢,这里补回可见的 chip。
     if (attachments().length === 0 && (item.uploads?.length || item.images?.length)) {
@@ -2118,10 +2123,10 @@ function InsightContent() {
         name: "attachment-add",
         extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
       })
-      // 外网模型已在上方完成校验(validateFileForExternal);内网模型走常规 validateFile + 图片上限
+      // 外网模型已在上方完成校验；内网允许任意格式，保留文件校验和图片上限。
       const validationErr = isExternal
         ? null
-        : validateFile(file) ??
+        : validateInsightFile(file) ??
           (isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
             ? new UploadError("FILE_TOO_LARGE", `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`)
             : null)
@@ -2309,9 +2314,7 @@ function InsightContent() {
     request(() => addAttachments(files, "drop"))
   }
 
-  // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
-  // addAttachments→validateFile 把关——白名单内(txt/md/docx/xlsx)正常上传,白名单外
-  // (含图片)照常落「不支持的格式」错误 chip,与拖拽/选择器行为一致。
+  // 粘贴文件与拖拽/选择器共用 addAttachments 的校验和导入链路。
   // 纯文本/含文字的粘贴没有 file item,不拦截,交给 textarea 默认行为。
   function handlePaste(e: ClipboardEvent) {
     const files = Array.from(e.clipboardData?.items ?? [])

@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js"
+import type { Node as PMNode } from "prosemirror-model"
 import type { McpSelection } from "../store/mcp-trigger"
 import type { FileReference } from "../components/mention-popover"
 
@@ -23,6 +24,8 @@ import type { FileReference } from "../components/mention-popover"
 
 export interface QueuedSend {
   text: string
+  /** 入队时的编辑器文档；回填时保留每个引用的身份与位置，包括同名资产。 */
+  doc?: ReturnType<PMNode["toJSON"]>
   /** @技能 选中的技能名(label);flush 时用于注入 SKILL.md synthetic part */
   skills?: string[]
   /** 文件/资产目录引用；保留资产身份供取消回填，资产按地址交给模型读取。 */

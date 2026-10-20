@@ -20,6 +20,7 @@ interface ToolbarProps {
   onUploadFolder: () => void
   onBatchDownload: () => void
   onBatchDelete: () => void
+  showDelete?: boolean
 }
 
 export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
@@ -235,21 +236,23 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             <IconDownload size={16} />
             <span class="toolbar-btn-text">{language.t("designFiles.download")}</span>
           </button>
-          <button
-            type="button"
-            onClick={canDelete() ? props.onBatchDelete : undefined}
-            disabled={!canDelete()}
-            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
-            style={{ 
-              "font-size": "14px", 
-              "line-height": "22px",
-              color: canDelete() ? undefined : "#C9C9C9",
-              cursor: canDelete() ? "pointer" : "not-allowed"
-            }}
-            title={!canDelete() ? "当前仅支持删除上传文件" : undefined}
-          >
-            <span class="toolbar-btn-text">{language.t("designFiles.batchDelete")}</span>
-          </button>
+          <Show when={props.showDelete !== false}>
+            <button
+              type="button"
+              onClick={canDelete() ? props.onBatchDelete : undefined}
+              disabled={!canDelete()}
+              class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+              style={{
+                "font-size": "14px",
+                "line-height": "22px",
+                color: canDelete() ? undefined : "#C9C9C9",
+                cursor: canDelete() ? "pointer" : "not-allowed"
+              }}
+              title={!canDelete() ? "当前仅支持删除上传文件" : undefined}
+            >
+              <span class="toolbar-btn-text">{language.t("designFiles.batchDelete")}</span>
+            </button>
+          </Show>
         </Show>
 
         <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom-end" gutter={4}>

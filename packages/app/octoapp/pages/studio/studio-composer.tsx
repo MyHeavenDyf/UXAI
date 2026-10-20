@@ -153,7 +153,7 @@ export function StudioComposer(props: {
       : undefined
   ))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
-  const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const isBusy = createMemo(() => props.busy || props.status === "creating" || props.status === "queued" || props.status === "running" || props.status === "submitting")
   const toggleStyleTemplateEditor = () => {
     props.onOpenMenu(null)
     setMoreMenuOpen(false)

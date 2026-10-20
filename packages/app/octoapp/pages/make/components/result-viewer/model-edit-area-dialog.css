@@ -25,6 +25,11 @@
   cursor: grabbing;
 }
 
+.model-edit-area-asset {
+  padding: 0 16px;
+  margin-bottom: 8px;
+}
+
 .model-edit-area-body {
   padding: 0 16px 16px;
   height: 110px;

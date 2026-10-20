@@ -523,6 +523,26 @@ export function ActionBar(props: {
   async function handleDownload(option?: string) {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
 
+    const handler = getSubtypeHandler(props.tab.subtype)
+    const m = local.model.current()
+    const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+    const ctx = {
+      tab: props.tab,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: props.observedResourceUrls,
+      usePixsoTransport,
+      sdk,
+      modelKey,
+      sync,
+      sessionId: params.id,
+    }
+
+    // 节流探测：handler 自报 busy 时静默返回，不 add 任务项、不再调 handleDownload
+    if (handler?.isDownloadBusy?.(ctx, option)) return
+
     const taskId = `download-${Date.now()}`
     TaskStore.add([{
       key: taskId,
@@ -538,24 +558,7 @@ export function ActionBar(props: {
     }])
 
     try {
-      const handler = getSubtypeHandler(props.tab.subtype)
       if (handler?.handleDownload) {
-        const m = local.model.current()
-        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
-        const ctx = {
-          tab: props.tab,
-          showOctoToast,
-          tracker,
-          getDesktopApi,
-          extractCodeBlock,
-          observedUrlsGetter: props.observedResourceUrls,
-          usePixsoTransport,
-          sdk,
-          modelKey,
-          sync,
-          sessionId: params.id,
-        }
-
         const handled = await handler.handleDownload(ctx, option)
         if (handled === true) {
           TaskStore.finish([{ key: taskId, status: "completed" }])

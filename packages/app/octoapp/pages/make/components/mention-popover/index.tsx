@@ -7,6 +7,7 @@ import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/a
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import {
@@ -62,6 +63,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   // 外网模型:点击「设计资产」或「产品资产库」中文件夹(如「页面资产」)时先弹风险提示,
   // 确认后才展示资产/文件列表。tab 点击不拦截。
   const { request, gate } = useUploadRiskGate({ module: "design" })
+  // 代码工作区:设计文件列表为项目级,标题显示「项目文件」
+  const workspaceKind = useWorkspaceKind()
   
   // 产品资产库状态
   const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
@@ -784,7 +787,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       <Show when={activeTab() === 'files' && selectedCategory() === 'design' && filteredFiles()}>
         {(files) => (
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
-            <div class="mention-files-header">当前会话</div>
+            <div class="mention-files-header">{workspaceKind() === "code" ? "项目文件" : "当前会话"}</div>
             <div class="mention-secondary-content mention-secondary-content--files">
               <Show when={files().generated.length === 0 && files().uploaded.length === 0}>
                 <div class="mention-empty-state">
@@ -793,7 +796,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 </div>
               </Show>
               <Show when={files().generated.length > 0}>
-                <div class="mention-section-title">生成文件</div>
+                <Show when={workspaceKind() !== "code"}>
+                  <div class="mention-section-title">生成文件</div>
+                </Show>
                 <For each={files().generated}>
                   {(file) => {
                     const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }
@@ -1069,7 +1074,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-design-preview-stage">
             <Show when={designPreviewKind(designFilePreview()!) === "image"}>
               <img
-                src={pathToLocalUrl(designFilePreview()!.path)}
+                src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                 alt=""
                 class="mention-design-preview-img"
                 draggable={false}
@@ -1078,7 +1083,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <Show when={designPreviewKind(designFilePreview()!) === "html"}>
               <div class="mention-design-preview-html">
                 <iframe
-                  src={pathToLocalUrl(designFilePreview()!.path)}
+                  src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                   sandbox="allow-scripts"
                 />
               </div>

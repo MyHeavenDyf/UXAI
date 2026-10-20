@@ -30,7 +30,7 @@ export interface InsightEditorRef {
   /** 覆盖式回填「文本 + 引用」(排队项回填):按 @名 重建 mention 胶囊,selections 由 syncPlugin 自动派生 */
   setContent: (text: string, mentions: MentionAttrs[]) => void
   isAlive: () => boolean
-  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined) => void
+  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined, cursor?: "start" | "end") => void
 }
 
 
@@ -221,12 +221,12 @@ export function ProseMirrorEditor(props: Props) {
         v.dispatch(tr)
       },
       isAlive: () => connected(view()),
-      replaceDoc: (json) => {
+      replaceDoc: (json, cursor = "start") => {
         const v = view()
         if (!connected(v)) return
         const doc = restoreDoc(json)
         const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, doc.content)
-        tr.setSelection(TextSelection.atStart(tr.doc))
+        tr.setSelection(cursor === "end" ? TextSelection.atEnd(tr.doc) : TextSelection.atStart(tr.doc))
         v.dispatch(tr)
       },
     })

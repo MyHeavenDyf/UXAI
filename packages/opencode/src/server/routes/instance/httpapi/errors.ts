@@ -1,5 +1,10 @@
 import { Schema } from "effect"
 
+export class ApiBadRequestError extends Schema.ErrorClass<ApiBadRequestError>("BadRequestError")(
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+
 export class ApiNotFoundError extends Schema.ErrorClass<ApiNotFoundError>("NotFoundError")(
   {
     name: Schema.Literal("NotFoundError"),
