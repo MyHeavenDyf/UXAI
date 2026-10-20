@@ -329,9 +329,16 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   }).pipe(Effect.ensuring(Effect.promise(() => rm(output, { force: true }))))
 })
 
+type ReferencePaths = {
+  sourceDirectory: string
+  targetDirectory: string
+  sessionIDs: Map<string, SessionID>
+  relocate?: (value: string, rewrite: (value: string) => string) => string
+}
+
 function rewritePath(
   value: string,
-  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+  input: ReferencePaths,
 ) {
   const fileUrl = value.startsWith("file://")
   const normalize = (input: string) => {
@@ -374,34 +381,37 @@ function rewritePath(
 
 function rewriteFilePart(
   part: MessageV2.FilePart,
-  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+  input: ReferencePaths,
 ) {
   return {
     ...part,
-    url: rewritePath(part.url, input),
+    url: input.relocate ? input.relocate(part.url, (value) => rewritePath(value, input)) : rewritePath(part.url, input),
     source:
       part.source?.type === "file" || part.source?.type === "symbol"
-        ? { ...part.source, path: rewritePath(part.source.path, input) }
+        ? { ...part.source, path: input.relocate ? input.relocate(part.source.path, (value) => rewritePath(value, input)) : rewritePath(part.source.path, input) }
         : part.source,
   }
 }
 
 function rewriteReferences(
   value: unknown,
-  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+  input: ReferencePaths,
 ): unknown {
   if (typeof value === "string") {
-    const sessions = [...input.sessionIDs].reduce(
-      (result, [oldID, newID]) => result.replaceAll(oldID, newID),
-      value,
-    )
-    const sources = [
-      input.sourceDirectory,
-      input.sourceDirectory.replaceAll("\\", "/"),
-      input.sourceDirectory.replaceAll("/", "\\"),
-    ].filter((source, index, values) => source && values.indexOf(source) === index)
-    const rewritten = sources.reduce((result, source) => result.replaceAll(source, input.targetDirectory), sessions)
-    return sources.some((source) => value.includes(source)) ? rewritten.replaceAll("\\", "/") : rewritten
+    const rewrite = (value: string) => {
+      const sessions = [...input.sessionIDs].reduce(
+        (result, [oldID, newID]) => result.replaceAll(oldID, newID),
+        value,
+      )
+      const sources = [
+        input.sourceDirectory,
+        input.sourceDirectory.replaceAll("\\", "/"),
+        input.sourceDirectory.replaceAll("/", "\\"),
+      ].filter((source, index, values) => source && values.indexOf(source) === index)
+      const rewritten = sources.reduce((result, source) => result.replaceAll(source, input.targetDirectory), sessions)
+      return sources.some((source) => value.includes(source)) ? rewritten.replaceAll("\\", "/") : rewritten
+    }
+    return input.relocate ? input.relocate(value, rewrite) : rewrite(value)
   }
   if (Array.isArray(value)) return value.map((entry) => rewriteReferences(entry, input))
   if (!value || typeof value !== "object") return value
@@ -410,7 +420,7 @@ function rewriteReferences(
 
 function rewritePartReferences(
   part: MessageV2.Part,
-  input: { sourceDirectory: string; targetDirectory: string; sessionIDs: Map<string, SessionID> },
+  input: ReferencePaths,
 ) {
   return rewriteReferences(part, input) as MessageV2.Part
 }
@@ -425,6 +435,7 @@ export function remapPart(
     sessionIDs: Map<string, SessionID>
     sourceDirectory: string
     targetDirectory: string
+    relocate?: ReferencePaths["relocate"]
   },
 ): MessageV2.Part {
   const base = {
@@ -437,6 +448,7 @@ export function remapPart(
     sourceDirectory: input.sourceDirectory,
     targetDirectory: input.targetDirectory,
     sessionIDs: input.sessionIDs,
+    relocate: input.relocate,
   }
   if (base.type === "file") return rewritePartReferences(rewriteFilePart(base, paths), paths)
   if (base.type === "compaction" && base.tail_start_id) {
@@ -551,8 +563,52 @@ async function sharedFileTarget(directory: string, file: FileEntry) {
   return path.join(directory, ...segments)
 }
 
-function importFiles(manifest: Manifest, scope?: "project") {
-  if (scope !== "project") return manifest.files
+function importFiles(manifest: Manifest, scope?: "project" | "session") {
+  if (scope === "session" && manifest.files.some((file) => file.scope === "project")) {
+    const attachments = new Set(manifest.sessions.flatMap((session) => session.messages.filter((message) => message.info.role === "user").flatMap((message) =>
+      message.parts.flatMap((part) => {
+        // Non-image uploads are recorded as a synthetic manifest, not FileParts.
+        if (part.type === "text" && part.synthetic && /^\[附件\]\r?\n/.test(part.text)) {
+          return part.text.split(/\r?\n/).flatMap((line) => {
+            const match = /^- .+?: (.+)$/.exec(line)
+            return match ? [match[1]] : []
+          })
+        }
+        const files = part.type === "file" ? [part] : []
+        return files.flatMap((file) => [
+          file.url,
+          ...(file.source?.type === "file" || file.source?.type === "symbol" ? [file.source.path] : []),
+        ])
+      }),
+    )).map((value) => {
+      if (!value.startsWith("file://")) return value.replaceAll("\\", "/")
+      const url = new URL(value)
+      const decoded = decodeURIComponent(url.pathname)
+      return url.hostname ? `//${url.hostname}${decoded}` : decoded.replace(/^\/([A-Za-z]:\/)/, "$1")
+    }))
+    const files = new Map<string, FileEntry>()
+    const paths = new Map<string, FileEntry>()
+    const add = (file: FileEntry) => {
+      const key = `${file.scope ?? "session"}/${file.sessionID}/${path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))}`
+      const existing = files.get(key)
+      if (existing && existing.sha256 !== file.sha256) throw new Error(`私有文件同名且内容不同，无法导入：${file.path}`)
+      if (!existing) files.set(key, file)
+    }
+    manifest.files.filter((file) => file.scope !== "project").forEach(add)
+    for (const file of manifest.files.filter((file) => file.scope === "project")) {
+      const relative = path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))
+      const source = `${manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")}/${relative}`
+      const entry = { ...file, scope: "session" as const, directory: ".", path: `outputs/${relative}` }
+      // Keep the complete shared tree together so relative HTML/CSS/image dependencies still resolve.
+      add(entry)
+      const upload = attachments.has(source)
+      const target = upload ? { ...entry, path: `uploads/${relative}` } : entry
+      if (upload) add(target)
+      paths.set(relative, target)
+    }
+    return { files: [...files.values()], paths }
+  }
+  if (scope !== "project") return { files: manifest.files, paths: new Map<string, FileEntry>() }
   const shared = new Map(
     manifest.files.filter((file) => file.scope === "project")
       .map((file) => [path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/")), file]),
@@ -561,12 +617,12 @@ function importFiles(manifest: Manifest, scope?: "project") {
   for (const file of manifest.files) {
     if (file.scope && file.scope !== "session") continue
     const relative = path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))
-    if (!relative.startsWith("uploads/")) continue
-    const target = relative.slice("uploads/".length)
+    if (!/^(uploads|outputs)\//.test(relative)) continue
+    const target = relative.replace(/^(uploads|outputs)\//, "")
     if (!isProjectFile(target)) continue
     const existing = shared.get(target)
     if (existing) {
-      if (existing.sha256 !== file.sha256) throw new Error(`共享附件同名且内容不同，无法导入：${target}`)
+      if (existing.sha256 !== file.sha256) throw new Error(`共享文件同名且内容不同，无法导入：${target}`)
       continue
     }
     // Keep the private copy and its chat references; expose an additional shared copy.
@@ -574,15 +630,16 @@ function importFiles(manifest: Manifest, scope?: "project") {
     shared.set(target, entry)
     files.push(entry)
   }
-  return files
+  return { files, paths: new Map<string, FileEntry>() }
 }
 
-export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string, scope?: "project") {
+export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string, scope?: "project" | "session") {
   const context = yield* InstanceState.context
   const sessions = yield* Session.Service
   const todos = yield* Todo.Service
   const bundle = yield* readBundle(path.resolve(file))
-  const files = importFiles(bundle.manifest, scope)
+  const plan = importFiles(bundle.manifest, scope)
+  const files = plan.files
   const sessionIDs = new Map<string, SessionID>()
   const created: SessionID[] = []
   const sharedFiles: string[] = []
@@ -605,6 +662,29 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       sessionIDs.set(entry.info.id, session.id)
       created.push(session.id)
     }
+
+    // Protect relocated references from generic prefix rewriting, including same-directory imports.
+    const paths = new Map([...plan.paths].flatMap(([relative, entry]) => {
+      const source = `${bundle.manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")}/${relative}`
+      const url = new URL(source.startsWith("//") ? `file://${source.slice(2).split("/")[0]}/` : "file:///")
+      url.pathname = source.startsWith("//") ? source.slice(source.indexOf("/", 2)) : source.startsWith("/") ? source : `/${source}`
+      const target = path.join(context.directory, sessionDirectory, sessionIDs.get(entry.sessionID)!, entry.directory, entry.path)
+      return [
+        [source.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
+        [source.replaceAll("/", "\\"), target.replaceAll("\\", "/")] as const,
+        [url.href, pathToFileURL(target).href] as const,
+        [target, target] as const,
+        [target.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
+        [pathToFileURL(target).href, pathToFileURL(target).href] as const,
+      ]
+    }))
+    const pattern = paths.size
+      ? new RegExp("(" + [...paths.keys()].sort((a, b) => b.length - a.length)
+        .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?=$|[\\s\"'`<>\\[\\](){}?,;:!#，。；：！？]|\\.(?=\\s|$))", "g")
+      : undefined
+    const relocate: ReferencePaths["relocate"] = pattern
+      ? (value, rewrite) => value.split(pattern).map((part, index) => index % 2 ? paths.get(part)! : rewrite(part)).join("")
+      : undefined
 
     for (const entry of orderedEntries(bundle.manifest)) {
       const sessionID = sessionIDs.get(entry.info.id)!
@@ -646,6 +726,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
               sessionIDs,
               sourceDirectory: bundle.manifest.sourceDirectory,
               targetDirectory: context.directory,
+              relocate,
             }),
           )
         }

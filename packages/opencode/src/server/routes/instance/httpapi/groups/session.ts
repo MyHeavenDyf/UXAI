@@ -88,7 +88,10 @@ export const PortableExportPayload = Schema.Struct({
   ...PortablePathPayload.fields,
   ...PortableScopeQuery.fields,
 })
-export const PortableImportPayload = PortableExportPayload
+export const PortableImportPayload = Schema.Struct({
+  ...PortablePathPayload.fields,
+  scope: Schema.optional(Schema.Literals(["project", "session"])),
+})
 export const PortableImportResult = Schema.Struct({
   sessionID: SessionID,
   sessions: Schema.Number,

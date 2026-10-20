@@ -25,6 +25,158 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("imports a shared archive privately into its source directory without rewriting paths twice", async () => {
+    await using source = await tmpdir({ git: true })
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Same directory" }))
+      await Bun.write(path.join(source.path, "index.html"), "<h1>page</h1>")
+      const messageID = MessageID.ascending()
+      await runSession((svc) => svc.updateMessage({
+        id: messageID, sessionID: session.id, role: "user", time: { created: Date.now() }, agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "text",
+        text: `${path.join(source.path, "index.html")}:12\n${path.join(source.path, "index.html")}，完成\n${path.join(source.path, "index.html")}.bak`,
+      }))
+      const archive = await AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
+      const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+      const restored = path.join(source.path, ".octo", imported.sessionID, "outputs", "index.html").replaceAll("\\", "/")
+      expect(messages[0].parts[0]).toMatchObject({ text: `${restored}:12\n${restored}，完成\n${path.join(source.path, "index.html").replaceAll("\\", "/")}.bak` })
+      expect(await Bun.file(path.join(source.path, "index.html")).text()).toBe("<h1>page</h1>")
+    } })
+  })
+
+  test("relocates Windows shared file paths and encoded URLs into private directories", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const windows = "C:\\Users\\Alice\\项目 空间"
+    const archive = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Windows shared files" }))
+      await Bun.write(path.join(source.path, "index.html"), "<h1>page</h1>")
+      await Bun.write(path.join(source.path, "需求.txt"), "attachment")
+      const messageID = MessageID.ascending()
+      await runSession((svc) => svc.updateMessage({
+        id: messageID, sessionID: session.id, role: "user", time: { created: Date.now() }, agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      }))
+      const url = new URL("file:///C:/")
+      url.pathname = "/C:/Users/Alice/项目 空间/需求.txt"
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "file", filename: "需求.txt", mime: "text/plain", url: url.href,
+      }))
+      url.pathname = "/C:/Users/Alice/项目 空间/index.html"
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "text",
+        text: `${windows}\\index.html\n[页面](${url.href})`,
+      }))
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(archive.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    manifest.sourceDirectory = windows
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(archive.output, await zip.generateAsync({ type: "uint8array" }))
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
+      const root = path.join(target.path, ".octo", imported.sessionID)
+      const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+      expect(messages[0].parts.find((part) => part.type === "file")).toMatchObject({ url: pathToFileURL(path.join(root, "uploads", "需求.txt")).href })
+      expect(messages[0].parts.find((part) => part.type === "text")).toMatchObject({
+        text: `${path.join(root, "outputs", "index.html").replaceAll("\\", "/")}\n[页面](${pathToFileURL(path.join(root, "outputs", "index.html")).href})`,
+      })
+      expect(await Bun.file(path.join(root, "uploads", "需求.txt")).text()).toBe("attachment")
+      expect(await Bun.file(path.join(root, "outputs", "需求.txt")).text()).toBe("attachment")
+    } })
+  })
+
+  test.each([false, true])("preflights shared/private destination collisions (conflict: %s)", async (conflict) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Mixed files" }))
+      await Bun.write(path.join(source.path, "index.html"), "shared page")
+      await Bun.write(path.join(source.path, ".octo", session.id, "outputs", "index.html"), conflict ? "private page" : "shared page")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
+    } })
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      if (conflict) {
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "session"))).rejects.toThrow("私有文件同名且内容不同")
+        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
+        return
+      }
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
+      expect(imported.files).toBe(1)
+      expect(await Bun.file(path.join(target.path, ".octo", imported.sessionID, "outputs", "index.html")).text()).toBe("shared page")
+    } })
+  })
+
+  test.each([
+    { sourceScope: undefined, targetScope: "session" },
+    { sourceScope: undefined, targetScope: "project" },
+    { sourceScope: "project", targetScope: "session" },
+    { sourceScope: "project", targetScope: "project" },
+  ] as const)("restores artifacts, attachments and references across layouts: %j", async ({ sourceScope, targetScope }) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Layout compatibility" }))
+      const outputs = sourceScope ? source.path : path.join(source.path, ".octo", session.id, "outputs")
+      const uploads = sourceScope ? source.path : path.join(source.path, ".octo", session.id, "uploads")
+      await Bun.write(path.join(outputs, "index.html"), '<link href="assets/theme.css">')
+      await Bun.write(path.join(outputs, "assets", "theme.css"), "body { color: blue }")
+      await Bun.write(path.join(uploads, "资料 空间", "需求.txt"), "uploaded attachment")
+      await Bun.write(path.join(uploads, "guide.pdf"), "uploaded document")
+      const messageID = MessageID.ascending()
+      await runSession((svc) => svc.updateMessage({
+        id: messageID, sessionID: session.id, role: "user", time: { created: Date.now() }, agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "file", filename: "需求.txt", mime: "text/plain",
+        url: pathToFileURL(path.join(uploads, "资料 空间", "需求.txt")).href,
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "text",
+        text: `查看 [页面](${pathToFileURL(path.join(outputs, "index.html")).href})；附件：${path.join(uploads, "资料 空间", "需求.txt")}`,
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id, type: "text", synthetic: true,
+        text: `[附件]\n- guide.pdf: ${path.join(uploads, "guide.pdf")}`,
+      }))
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: sourceScope }))
+    } })
+    // Importing privately must not overwrite or expose unrelated files in the target project root.
+    if (targetScope === "session") await Bun.write(path.join(target.path, "index.html"), "unrelated file")
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(archive.output, targetScope))
+      const privateRoot = path.join(target.path, ".octo", imported.sessionID)
+      const outputs = targetScope === "session" ? path.join(privateRoot, "outputs") : target.path
+      const uploads = targetScope === "session" || !sourceScope ? path.join(privateRoot, "uploads") : target.path
+      expect(await Bun.file(path.join(outputs, "index.html")).text()).toBe('<link href="assets/theme.css">')
+      expect(await Bun.file(path.join(outputs, "assets", "theme.css")).text()).toBe("body { color: blue }")
+      expect(await Bun.file(path.join(uploads, "资料 空间", "需求.txt")).text()).toBe("uploaded attachment")
+      expect(await Bun.file(path.join(uploads, "guide.pdf")).text()).toBe("uploaded document")
+      const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+      expect(messages[0].parts.find((part) => part.type === "file")).toMatchObject({
+        url: pathToFileURL(path.join(uploads, "资料 空间", "需求.txt")).href,
+      })
+      // A private source retains its private references even when also exposed in the shared tree.
+      const page = !sourceScope ? path.join(privateRoot, "outputs", "index.html") : path.join(outputs, "index.html")
+      expect(messages[0].parts.find((part) => part.type === "text")).toMatchObject({
+        text: `查看 [页面](${pathToFileURL(page).href})；附件：${path.join(uploads, "资料 空间", "需求.txt").replaceAll("\\", "/")}`,
+      })
+      if (targetScope === "project") expect(await Bun.file(path.join(target.path, "资料 空间", "需求.txt")).text()).toBe("uploaded attachment")
+      if (targetScope !== "session") return
+      expect(await Bun.file(path.join(target.path, "index.html")).text()).toBe("unrelated file")
+      const again = await AppRuntime.runPromise(importPortableSession(archive.output, targetScope))
+      expect(again.sessionID).not.toBe(imported.sessionID)
+      expect(await Bun.file(path.join(target.path, ".octo", again.sessionID, "outputs", "index.html")).text())
+        .toBe('<link href="assets/theme.css">')
+    } })
+  })
+
   test.each([false, true])("preflights duplicate shared attachment names across imported sessions (conflict: %s)", async (conflict) => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
@@ -37,7 +189,7 @@ describe("portable session", () => {
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
       if (conflict) {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "project"))).rejects.toThrow("共享附件同名且内容不同")
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "project"))).rejects.toThrow("共享文件同名且内容不同")
         expect(await Bun.file(path.join(target.path, "brief.txt")).exists()).toBe(false)
         expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
         return

@@ -232,7 +232,7 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project") => {
+  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session") => {
     if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
       throw new Error("请先选择关联本地文件夹，再打开分享对话")
     }
