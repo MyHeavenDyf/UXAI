@@ -272,18 +272,17 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
   }
 
   // ── hover 预览(预览窗左上角对展示区右上角,4px 间距)──
-  const handleStageEnter = (e: MouseEvent, file: AssetFile) => {
+  const handleStageEnter = (file: AssetFile) => {
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined }
-    const stageRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const dialogRect = dialogRef?.getBoundingClientRect()
     if (!dialogRect) return
-    let left = stageRect.right - dialogRect.left + 4
-    const top = stageRect.top - dialogRect.top
     const previewWidth = 256
-    // 超出弹窗右缘则放到展示区左侧(同样留 4px 间距)
-    if (left + previewWidth > dialogRect.width) {
-      left = stageRect.left - dialogRect.left - previewWidth - 4
+    let left = dialogRect.width + 4
+    if (dialogRect.right + 4 + previewWidth > window.innerWidth - 16) {
+      left = -previewWidth - 4
     }
+    const grid = dialogRef?.querySelector('.asset-dialog-grid')
+    const top = grid ? grid.getBoundingClientRect().top - dialogRect.top : 0
     setPreviewPos({ left, top })
     setPreviewFile(file)
   }
@@ -379,7 +378,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                         <div class="asset-grid-item" onClick={() => toggleFile(file)}>
                           <div
                             class="asset-grid-stage"
-                            onMouseEnter={(e) => handleStageEnter(e, file)}
+                            onMouseEnter={() => handleStageEnter(file)}
                             onMouseLeave={handleStageLeave}
                           >
                             <Show when={file.type === 40} fallback={
