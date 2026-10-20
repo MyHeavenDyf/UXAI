@@ -110,6 +110,7 @@ export async function createCanvasOptions(input: CanvasOrigin): Promise<UploadZi
   return {
     config: { designName: options.tabTitle, sessionId: origin.sessionId },
     getZip: () => {
+      if (!zip) origin.notify("生成ZIP文件...")
       zip ??= createC2DZip(options).catch(() => {
         zip = undefined
         throw new Error("HTML 打包失败，请重试")
