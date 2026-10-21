@@ -229,6 +229,66 @@ describe("Studio history service", () => {
     })
   })
 
+  test("repairs legacy ratio buckets so every ratio filter matches the detail panel", async () => {
+    await withStudioHistory(async ({ directory, insertGeneration }) => {
+      // 旧实现只按长边/短边分桶：竖版（2:3/3:4/9:16）被写成横版孪生标签；
+      // 横版/方图行本身写对，但缺尺寸的行会写 NULL。corrupt 模拟各标签的旧数据形态。
+      const legacy = [
+        { label: "21:9", id: "gen-219", width: 2560, height: 1080, corrupt: null },
+        { label: "16:9", id: "gen-169", width: 1920, height: 1080, corrupt: null },
+        { label: "4:3", id: "gen-43", width: 1440, height: 1080, corrupt: null },
+        { label: "3:2", id: "gen-32", width: 1500, height: 1000, corrupt: null },
+        { label: "1:1", id: "gen-11", width: 1024, height: 1024, corrupt: null },
+        { label: "2:3", id: "gen-23", width: 1000, height: 1500, corrupt: "3:2" },
+        { label: "3:4", id: "gen-34", width: 1080, height: 1440, corrupt: "4:3" },
+        { label: "9:16", id: "gen-916", width: 1080, height: 1920, corrupt: "16:9" },
+      ]
+      legacy.forEach((row, index) => insertGeneration({
+        id: row.id,
+        createdAt: index + 1,
+        images: [image({ id: `${row.id}-0`, width: row.width, height: row.height })],
+        result: { aspectRatio: row.label },
+      }))
+      // 只有尺寸、没有生成级比例标签的竖版行：同样被分桶写错。
+      insertGeneration({ id: "portrait", createdAt: 9, images: [image({ id: "portrait-0", width: 1080, height: 1440 })] })
+      // 自定义尺寸：比例在容差外，归为「自定义」。
+      insertGeneration({ id: "custom", createdAt: 10, images: [image({ id: "custom-0", width: 1000, height: 700 })] })
+      // 完全没有比例信息的行：保持 NULL，只在无比例条件时可见。
+      insertGeneration({
+        id: "unknown",
+        createdAt: 11,
+        images: [{ id: "unknown-0", kind: "image", url: "https://example.com/unknown.png", remoteUrl: "https://example.com/unknown.png", thumbnailStatus: "pending" }],
+      })
+      for (const id of [...legacy.map((row) => row.id), "portrait", "custom", "unknown"]) materializeStudioGeneration(directory, id)
+      Database.use((db) => {
+        for (const row of legacy) {
+          db.update(StudioHistoryTable).set({ ratio: row.corrupt }).where(eq(StudioHistoryTable.id, `${row.id}-0`)).run()
+        }
+        db.update(StudioHistoryTable).set({ ratio: "4:3" }).where(eq(StudioHistoryTable.id, "portrait-0")).run()
+      })
+
+      // 首次列表查询触发幂等修复：每个比例筛选都精确命中自己的行，竖版不再被横版孪生标签污染。
+      for (const row of legacy) {
+        const expected = row.label === "3:4" ? [`${row.id}-0`, "portrait-0"] : [`${row.id}-0`]
+        expect(listStudioHistoryMedia(directory, { ratios: [row.label] }).items.map((item) => item.id).sort())
+          .toEqual(expected.sort())
+      }
+      expect(listStudioHistoryMedia(directory, { ratios: ["自定义"] }).items.map((item) => item.id))
+        .toEqual(["custom-0"])
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(11)
+
+      const ratios = Database.use((db) =>
+        db.select({ id: StudioHistoryTable.id, ratio: StudioHistoryTable.ratio }).from(StudioHistoryTable).all(),
+      )
+      expect(new Map(ratios.map((row) => [row.id, row.ratio]))).toEqual(new Map([
+        ...legacy.map((row) => [`${row.id}-0`, row.label] as const),
+        ["portrait-0", "3:4"],
+        ["custom-0", "自定义"],
+        ["unknown-0", null],
+      ]))
+    })
+  })
+
   test("filters videos by requested quality without dimensions and excludes images", async () => {
     await withStudioHistory(async ({ directory, insertGeneration }) => {
       insertGeneration({ id: "image-1080", createdAt: 1 })
@@ -312,7 +372,7 @@ describe("Studio history service", () => {
     })
   })
 
-  test("materialization and session snapshots use result quality as fallback and leave unknown quality unclassified", async () => {
+  test("materialization and session snapshots classify legacy std/pro result quality", async () => {
     await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
       for (const quality of ["480", "720", "1080", "4k", "pro", "std", "unknown"]) {
         insertGeneration({
@@ -323,11 +383,36 @@ describe("Studio history service", () => {
         })
         materializeStudioGeneration(directory, quality)
       }
+      // 旧 std/pro 档位归一化后也能被 480P/720P 命中；只有真正无档位的 unknown 落空。
       expect(listStudioHistoryMedia(directory, { resolutions: ["480P", "720P", "1080P", "4K"] }).items.map((item) => item.id).sort())
-        .toEqual(["1080", "480", "4k", "720"])
+        .toEqual(["1080", "480", "4k", "720", "pro", "std"])
       snapshotSessionMedia(directory, sessionID)
       expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id)).toEqual(["1080"])
       expect(listStudioHistoryMedia(directory).items).toHaveLength(7)
+    })
+  })
+
+  test("backfills resolution for legacy std/pro videos whose generation was deleted", async () => {
+    await withStudioHistory(async ({ directory, sessionID, insertGeneration }) => {
+      insertGeneration({
+        id: "legacy-std",
+        createdAt: 1,
+        images: [image({ id: "legacy-std", kind: "video", url: "https://example.com/std.mp4" })],
+        result: { videoQualityMode: "std" },
+      })
+      snapshotSessionMedia(directory, sessionID)
+      Database.use((db) => db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "legacy-std")).run())
+      // 模拟旧数据：历史行没有分辨率（generation 已随会话删除，无法从请求重算）。
+      Database.use((db) => db.update(StudioHistoryTable).set({ resolution: null })
+        .where(eq(StudioHistoryTable.id, "legacy-std")).run())
+
+      expect(listStudioHistoryMedia(directory, { resolutions: ["480P"] }).items.map((item) => item.id))
+        .toEqual(["legacy-std"])
+      expect(listStudioHistoryMedia(directory, { resolutions: ["720P"] }).items).toEqual([])
+      // 每次查询都会幂等修复：老 std 视频补齐 480P，且不依赖进程重启。
+      const repaired = Database.use((db) => db.select().from(StudioHistoryTable)
+        .where(eq(StudioHistoryTable.id, "legacy-std")).get())
+      expect(repaired?.resolution).toBe("480P")
     })
   })
 
@@ -339,7 +424,7 @@ describe("Studio history service", () => {
           createdAt: 1,
           images: [{ id, kind: "video", url: `https://example.com/${id}.mp4`, thumbnailUrl: "cover.webp", thumbnailStatus: "ready" }],
           request: id === "unknown" ? {} : { input: { extra: { resolution: "720p" } } },
-          result: { videoQualityMode: "pro" },
+          result: id === "unknown" ? {} : { videoQualityMode: "pro" },
         })
         materializeStudioGeneration(directory, id)
       }

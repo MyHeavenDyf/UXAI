@@ -105,7 +105,8 @@ describe("Studio generation service", () => {
           Database.use((db) => db.update(StudioGenerationTable)
             .set({ result: { ...result, videoQualityMode: "pro" } })
             .where(eq(StudioGenerationTable.id, id)).run())
-          expect((await getGeneration(id)).videoQualityMode).toBeUndefined()
+          // 旧 provider 的 pro 档按产品口径归一化为 720P。
+          expect((await getGeneration(id)).videoQualityMode).toBe("720")
         } finally {
           Database.use((db) => {
             db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, id)).run()
@@ -117,8 +118,8 @@ describe("Studio generation service", () => {
   })
 
   // 会话删除级联清理 studio_generation 后，getGeneration 回退到历史表快照。
-  // 快照里存的旧 std/pro 档位同样不能透传：响应契约只认 480/720/1080/4k。
-  test("history snapshot fallback sanitizes legacy videoQualityMode and keeps text fields", async () => {
+  // 快照里存的旧 std/pro 档位按产品口径归一化：std→480P、pro→720P。
+  test("history snapshot fallback normalizes legacy videoQualityMode and keeps text fields", async () => {
     await using directory = await tmpdir()
     await provideTestInstance({
       directory: directory.path,
@@ -192,7 +193,7 @@ describe("Studio generation service", () => {
           expect(snapshot.detailTitle).toBe("奔跑的猫")
           expect(snapshot.styleModel).toBe("t2v_seedance")
           expect(snapshot.videoMode).toBe("text")
-          expect(snapshot.videoQualityMode).toBeUndefined()
+          expect(snapshot.videoQualityMode).toBe("480")
           expect(snapshot.images[0]?.url).toBe("https://example.com/video.mp4")
         } finally {
           Database.use((db) => {

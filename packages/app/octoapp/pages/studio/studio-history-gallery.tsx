@@ -104,15 +104,20 @@ const HISTORY_TABS: {
 ]
 
 const RESOLUTION_OPTIONS = ["480P", "720P", "1080P", "4K"]
-const RATIO_OPTIONS: { label: string; value: number }[] = [
-  { label: "21:9", value: 21 / 9 },
-  { label: "16:9", value: 16 / 9 },
-  { label: "4:3", value: 4 / 3 },
-  { label: "3:2", value: 3 / 2 },
-  { label: "1:1", value: 1 },
-  { label: "2:3", value: 2 / 3 },
-  { label: "3:4", value: 3 / 4 },
-  { label: "9:16", value: 9 / 16 },
+// 图片/视频各自不支持的比例：视频没有 2:3/3:2/自定义，图片没有 21:9。
+// 选项仍然展示（不做禁用），只是在构造查询时把不适用于目标类型的比例排除掉。
+const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2", "自定义"])
+const IMAGE_HIDDEN_RATIOS = new Set(["21:9"])
+const RATIO_OPTIONS: { label: string; custom?: boolean }[] = [
+  { label: "21:9" },
+  { label: "16:9" },
+  { label: "4:3" },
+  { label: "3:2" },
+  { label: "1:1" },
+  { label: "2:3" },
+  { label: "3:4" },
+  { label: "9:16" },
+  { label: "自定义", custom: true },
 ]
 
 // 模块级缓存：组件在 <Show> 内随切换挂载/卸载，缓存必须跨挂载保留才能避免重复请求。
@@ -255,6 +260,20 @@ export function StudioHistoryGallery(props: {
     }
   }
 
+  // 筛选时真正生效的比例：分辨率为视频专属，一旦选中结果只可能是视频，
+  // 此时图片专属比例（2:3/3:2/自定义）不作为筛选条件；图片 tab 下同理排除 21:9。
+  // 全选当前上下文适用的全部比例等价于不筛选：比例无法判定（NULL）的行只在无比例条件时可见。
+  function effectiveRatios() {
+    const hidden = state.resolutionFilter.size > 0 || state.activeTab === "video"
+      ? VIDEO_HIDDEN_RATIOS
+      : state.activeTab === "image"
+        ? IMAGE_HIDDEN_RATIOS
+        : undefined
+    const applicable = RATIO_OPTIONS.filter((option) => !hidden?.has(option.label))
+    const selected = applicable.filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label)
+    return selected.length === applicable.length ? [] : selected
+  }
+
   // 目录 / tab / 筛选 / 排序 / 手动刷新任一变化即重置到第一页。
   // 不做后台事件驱动的实时刷新：组件在 <Show> 内随切换挂载/卸载，
   // 每次进入"我的资产"时重置副作用触发 loadFirstPage 拉取最新数据；
@@ -266,16 +285,21 @@ export function StudioHistoryGallery(props: {
       tab: state.activeTab,
       sort: state.sortOrder,
       resolution: [...state.resolutionFilter].sort(),
-      ratio: [...state.ratioFilter].sort(),
+      ratio: effectiveRatios().slice().sort(),
     }),
   )
 
   function historyParams(cursor?: string) {
     const tab = state.activeTab
+    const ratios = effectiveRatios()
     return {
-      kind: tab === "all" ? undefined : tab,
-      resolutions: state.resolutionFilter.size > 0 ? [...state.resolutionFilter] : undefined,
-      ratios: state.ratioFilter.size > 0 ? [...state.ratioFilter] : undefined,
+      // 勾了分辨率（即使 4 档全选）结果就只可能是视频；全选档位等价于不筛分辨率，
+      // 让无法识别档位的老视频也能命中。
+      kind: tab === "all" ? (state.resolutionFilter.size > 0 ? "video" : undefined) : tab,
+      resolutions: state.resolutionFilter.size > 0 && !RESOLUTION_OPTIONS.every((option) => state.resolutionFilter.has(option))
+        ? [...state.resolutionFilter]
+        : undefined,
+      ratios: ratios.length > 0 ? ratios : undefined,
       sort: state.sortOrder,
       cursor,
       limit: HISTORY_PAGE_SIZE,
@@ -437,9 +461,8 @@ export function StudioHistoryGallery(props: {
     return state.media.filter((item) => !excluded.has(item.id))
   })
 
-  const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2"])
   const visibleRatioOptions = createMemo(() => {
-    if (state.activeTab === "image") return RATIO_OPTIONS.filter((option) => option.label !== "21:9")
+    if (state.activeTab === "image") return RATIO_OPTIONS.filter((option) => !IMAGE_HIDDEN_RATIOS.has(option.label))
     if (state.activeTab === "video") return RATIO_OPTIONS.filter((option) => !VIDEO_HIDDEN_RATIOS.has(option.label))
     return RATIO_OPTIONS
   })
@@ -522,16 +545,12 @@ export function StudioHistoryGallery(props: {
                   type="button"
                   class="studio-file-manager-tab"
                   classList={{ active: state.activeTab === tab.key }}
-                  onClick={() => setState((prev) => {
+                  onClick={() => {
+                    if (state.activeTab === tab.key) return
                     tracker.interaction({ module: "studio", name: "history-tab-switch", extend: JSON.stringify({ tab: tab.key }) })
-                    const hidden = tab.key === "image" ? new Set(["21:9"]) : tab.key === "video" ? VIDEO_HIDDEN_RATIOS : new Set<string>()
-                    const ratioNeedsClean = [...prev.ratioFilter].some((r) => hidden.has(r))
-                    return {
-                      activeTab: tab.key,
-                      ...(tab.key === "image" && prev.resolutionFilter.size > 0 ? { resolutionFilter: new Set() } : {}),
-                      ...(ratioNeedsClean ? { ratioFilter: new Set([...prev.ratioFilter].filter((r) => !hidden.has(r))) } : {}),
-                    }
-                  })}
+                    // 切换 tab 清空上一次的筛选：分辨率与比例的可见范围随 tab 变化，保留会造成不可见条件。
+                    setState({ activeTab: tab.key, resolutionFilter: new Set(), ratioFilter: new Set() })
+                  }}
                 >
                   {language.t(tab.label)}
                 </button>
@@ -591,7 +610,7 @@ export function StudioHistoryGallery(props: {
                         onChange={() => toggleFilterValue("ratioFilter", option.label)}
                         closeOnSelect={false}
                       >
-                        <DropdownMenu.ItemLabel>{option.label}</DropdownMenu.ItemLabel>
+                        <DropdownMenu.ItemLabel>{option.custom ? language.t("studio.history.filter.customRatio") : option.label}</DropdownMenu.ItemLabel>
                         <DropdownMenu.ItemIndicator>
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                             <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
