@@ -334,6 +334,26 @@ function parseRangeHeader(range: string | null, totalSize: number): { start: num
   return { start, end }
 }
 
+// Windows 上新落盘文件可能被杀软实时扫描短暂持有(existsSync 通过但 open 返回
+// EPERM/EBUSY),或撞上写端句柄释放的尾巴;对这类瞬时错误做短退避重试,
+// 持续性拒绝(ACL)重试同样次数后原样抛出。
+const TRANSIENT_FS_ERRORS = new Set(["EPERM", "EBUSY", "EACCES"])
+
+async function readFileWithRetry(path: string, attempts = 3, baseDelayMs = 150): Promise<Buffer> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await readFile(path)
+    } catch (err) {
+      lastErr = err
+      const code = (err as NodeJS.ErrnoException).code
+      if (!code || !TRANSIENT_FS_ERRORS.has(code)) throw err
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 export function registerLocalProtocol() {
   if (protocol.isProtocolHandled("local")) return
 
@@ -397,7 +417,7 @@ export function registerLocalProtocol() {
       // 避免 readFile 整份读 2.5GB OOM 主进程。渲染端 fetch('local://...').blob() 拿真字节 Blob,
       // postMessage 结构化克隆只传 blob 引用不拷字节,iframe 拿到 size=2.5GB 的真 File。
       if (mimeType === "text/html" || mimeType === "text/htm") {
-        const content = await readFile(absolutePath)
+        const content = await readFileWithRetry(absolutePath)
         let htmlStr = decodeHtmlBytes(content)
 
         const filename = absolutePath.split(/[/\\]/).pop() || ''
@@ -499,6 +519,7 @@ export function registerLocalProtocol() {
         },
       })
     } catch (err) {
+      console.error(`[LocalProtocol] read failed: ${absolutePath}`, err)
       return new Response(`Read error: ${err}`, { status: 500 })
     }
   })
@@ -561,7 +582,7 @@ function shouldInjectWebRequestAuth(resourceType: string) {
   return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
 }
 
-async function localStorageAuth(win: BrowserWindow) {
+export async function localStorageAuth(win: BrowserWindow) {
   const value = await win.webContents.executeJavaScript(
     `({
       uiplusToken: localStorage.getItem("uiplusToken"),

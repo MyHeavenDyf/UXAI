@@ -5,6 +5,20 @@
 - 调用方式：[`/docs/tracker.md`](../../../../../../docs/tracker.md)
 - 已实现打点清单（实施后同步维护）：[`tracking.md`](./tracking.md)
 
+## 2026-10-20 HTML 画布编辑（124）
+
+仅新增 Insight 的用户操作事件，不生成模型产物事件。前置条件失败不报入口成功；初始化动作可能上传文件，因此单独记录 prepare。
+
+| name | 规则 | extend |
+| --- | --- | --- |
+| canvas-edit-open | HTML 有效入口点击且通过登录与可用性检查 | sessionId、tabType、source、fromAttachment、viewMode |
+| canvas-edit-start / canvas-edit-result | prepare 或执行真实接口动作；每次执行最多一个终态，重试换 operationId | operationId、原 sessionId、action=prepare/import/open/reveal/other、status、durationMs、reason、evidence（可得时） |
+| canvas-return-save-start / canvas-return-save-result | 真实回调开始保存及实际落盘完成；部分写入失败标记 partial | operationId、原 sessionId、format=html/zip/other、status、durationMs、count、reason |
+
+prepare 的 success 仅表示取得非空动作列表，evidence=actions-ready。动作返回 success:true 或 Promise resolve 不足以证明导入完成；缺少真实适配器的确认回执时使用 **unconfirmed**，不计入业务成功。适配器必须明确提供成功阶段 evidence，才能记录 success；可识别取消用 cancelled，明确失败用 failure。切换视图后的初始化结果记 cancelled，不回弹旧菜单。
+
+动作 ID 由 Insight 的真实传输适配器声明，不使用中文 label 作为埋点标识。所有字段均不包含 HTML 正文、标题、绝对路径、URL、Base64 或令牌。保存成功后刷新列表失败仅提示刷新问题，不改写已保存成功的结果。当前公共传输为占位，Insight 的 available=false，正式环境不会因占位返回值产生成功事件。
+
 ## 一、收集单 → SDK 的映射约定
 
 收集单的字段与 SDK 参数不是一一对应，统一按以下规则转换：

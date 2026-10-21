@@ -5,13 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventSkillUsed
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -24,6 +17,7 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -32,6 +26,10 @@ export type Event =
   | EventSessionIdle
   | EventSessionCompacted
   | EventSessionCompactionEstimated
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -79,6 +77,8 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventServerConnected
+  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -104,61 +104,6 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type PermissionRequest = {
   id: string
@@ -341,6 +286,61 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type Project = {
   id: string
@@ -793,13 +793,6 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventSkillUsed
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -812,6 +805,7 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
+    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -820,6 +814,10 @@ export type GlobalEvent = {
     | EventSessionIdle
     | EventSessionCompacted
     | EventSessionCompactionEstimated
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -867,6 +865,8 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
+    | EventServerConnected
+    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1678,6 +1678,14 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -1814,11 +1822,20 @@ export type StudioGenerationError = {
   name: "StudioGenerationError"
   data: {
     message: string
+    retryable?: boolean
   }
 }
 
 export type ChatMigrationError = {
   name: "ChatMigrationError"
+  data: {
+    stage: string
+    message: string
+  }
+}
+
+export type WorkspaceUpgradeError = {
+  name: "WorkspaceUpgradeError"
   data: {
     stage: string
     message: string
@@ -2444,30 +2461,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventSkillUsed = {
-  id: string
-  type: "skill.used"
-  properties: {
-    skillName: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2577,6 +2570,14 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -3196,6 +3197,22 @@ export type EventSessionNextCompactionEnded = {
   }
 }
 
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type SessionInfo = {
   id: string
   parentID?: string
@@ -3429,14 +3446,6 @@ export type EventTuiToastShow1 = {
     variant: "info" | "success" | "warning" | "error"
     duration?: number
   }
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type AuthRemoveData = {
@@ -3741,16 +3750,26 @@ export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscrib
 export type ArtifactListData = {
   body?: never
   path?: never
-  query: {
+  query?: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     category?: "generated" | "uploaded"
     path?: string
     recursive?: "true" | "false"
+    scope?: "project"
   }
   url: "/artifact/list"
 }
+
+export type ArtifactListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ArtifactListError = ArtifactListErrors[keyof ArtifactListErrors]
 
 export type ArtifactListResponses = {
   /**
@@ -3902,10 +3921,12 @@ export type ArtifactDeleteBatchResponse = ArtifactDeleteBatchResponses[keyof Art
 
 export type ArtifactUploadData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     filename: string
     content: string
     path?: string
+    scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {
@@ -3945,13 +3966,15 @@ export type ArtifactUploadResponse = ArtifactUploadResponses[keyof ArtifactUploa
 
 export type ArtifactUploadFolderData = {
   body?: {
-    sessionId: string
+    sessionId?: string
     folderName: string
     files: Array<{
       relativePath: string
       content: string
     }>
     path?: string
+    scope?: "project"
+    dir?: string
   }
   path?: never
   query?: {
@@ -3994,13 +4017,18 @@ export type ArtifactServeData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
     path: string
+    scope?: "project"
   }
   url: "/artifact/serve"
 }
 
 export type ArtifactServeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
   /**
    * Not found
    */
@@ -4024,7 +4052,8 @@ export type CommentDeleteData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
   }
@@ -4057,7 +4086,8 @@ export type CommentLoadData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
+    scope?: "project"
     commentFilePath: string
   }
   url: "/comment/file"
@@ -4115,7 +4145,8 @@ export type CommentLoadResponse = CommentLoadResponses[keyof CommentLoadResponse
 
 export type CommentSaveData = {
   body?: {
-    sessionId: string
+    sessionId?: string
+    scope?: "project"
     commentFilePath: string
     comment: {
       id: string
@@ -4185,7 +4216,8 @@ export type CommentDeleteAttachmentData = {
   query: {
     directory?: string
     workspace?: string
-    sessionId: string
+    sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
   }
@@ -4218,7 +4250,8 @@ export type CommentDeleteAttachmentResponse = CommentDeleteAttachmentResponses[k
 
 export type CommentUploadAttachmentData = {
   body?: {
-    sessionId: string
+    sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
     sourceFilePath: string
@@ -5981,6 +6014,169 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionPortableImportData = {
+  body?: {
+    path: string
+    scope?: "project" | "session"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionPortableImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionPortableImportError = SessionPortableImportErrors[keyof SessionPortableImportErrors]
+
+export type SessionPortableImportResponses = {
+  /**
+   * Imported portable session
+   */
+  200: {
+    sessionID: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableImportResponse = SessionPortableImportResponses[keyof SessionPortableImportResponses]
+
+export type SessionPortableExportData = {
+  body?: {
+    path: string
+    scope?: "project"
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/export"
+}
+
+export type SessionPortableExportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableExportError = SessionPortableExportErrors[keyof SessionPortableExportErrors]
+
+export type SessionPortableExportResponses = {
+  /**
+   * Exported portable session
+   */
+  200: {
+    output: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
+
+export type SessionPortableShareData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    scope?: "project"
+  }
+  url: "/session/{sessionID}/portable-share"
+}
+
+export type SessionPortableShareErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableShareError = SessionPortableShareErrors[keyof SessionPortableShareErrors]
+
+export type SessionPortableShareResponses = {
+  /**
+   * Shared portable session
+   */
+  200: {
+    uniqueId: string
+    url: string
+  }
+}
+
+export type SessionPortableShareResponse = SessionPortableShareResponses[keyof SessionPortableShareResponses]
+
+export type SessionSharePreviewData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    before?: string
+  }
+  url: "/session/{sessionID}/share-preview"
+}
+
+export type SessionSharePreviewErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSharePreviewError = SessionSharePreviewErrors[keyof SessionSharePreviewErrors]
+
+export type SessionSharePreviewResponses = {
+  /**
+   * Read-only share preview
+   */
+  200: {
+    messages: Array<{
+      id: string
+      role: "user" | "assistant"
+      text: string
+      truncated: boolean
+      files: Array<{
+        name: string
+        mime: string
+      }>
+    }>
+    before?: string
+    running: boolean
+  }
+}
+
+export type SessionSharePreviewResponse = SessionSharePreviewResponses[keyof SessionSharePreviewResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -8262,9 +8458,9 @@ export type StudioTemplateListListData = {
     directory?: string
     workspace?: string
     user_id: string
-    only_public: string
-    page: string
-    page_size: string
+    only_public: number
+    page: number
+    page_size: number
   }
   url: "/studio/template-list"
 }
@@ -8401,7 +8597,7 @@ export type StudioGenerationsCreateResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8420,7 +8616,9 @@ export type StudioGenerationsCreateResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8515,7 +8713,7 @@ export type StudioGenerationsCancelResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8534,7 +8732,9 @@ export type StudioGenerationsCancelResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8592,7 +8792,7 @@ export type StudioGenerationsRebootResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8611,7 +8811,9 @@ export type StudioGenerationsRebootResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8669,7 +8871,7 @@ export type StudioGenerationsGetResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8688,7 +8890,9 @@ export type StudioGenerationsGetResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8746,7 +8950,7 @@ export type StudioGenerationsRefreshResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8765,7 +8969,9 @@ export type StudioGenerationsRefreshResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8795,6 +9001,197 @@ export type StudioGenerationsRefreshResponses = {
 
 export type StudioGenerationsRefreshResponse =
   StudioGenerationsRefreshResponses[keyof StudioGenerationsRefreshResponses]
+
+export type StudioHistoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "image" | "video"
+    resolution?: string
+    ratio?: string
+    sort?: "desc" | "asc"
+    cursor?: string
+    limit?: number
+  }
+  url: "/studio/history"
+}
+
+export type StudioHistoryListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryListError = StudioHistoryListErrors[keyof StudioHistoryListErrors]
+
+export type StudioHistoryListResponses = {
+  /**
+   * Studio history media list
+   */
+  200: {
+    items: Array<{
+      id: string
+      sessionID: string
+      generationID: string
+      mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      kind: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      thumbnailStatus?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      aspectRatio?: string
+      capability?: string
+      duration?: string
+      prompt?: string
+      displayPrompt?: string
+      detailPrompt?: string
+      detailTitle?: string
+      model?: string
+      styleModel?: string
+      provider?: string
+      videoMode?: string
+      videoQualityMode?: string
+      toolAction?: string
+      isCustom?: boolean
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    nextCursor?: string
+  }
+}
+
+export type StudioHistoryListResponse = StudioHistoryListResponses[keyof StudioHistoryListResponses]
+
+export type StudioHistorySnapshotData = {
+  body?: {
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/snapshot"
+}
+
+export type StudioHistorySnapshotErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistorySnapshotError = StudioHistorySnapshotErrors[keyof StudioHistorySnapshotErrors]
+
+export type StudioHistorySnapshotResponses = {
+  /**
+   * Snapshot result
+   */
+  200: {
+    snapshotted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistorySnapshotResponse = StudioHistorySnapshotResponses[keyof StudioHistorySnapshotResponses]
+
+export type StudioHistoryDeleteData = {
+  body?: {
+    mediaIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/delete"
+}
+
+export type StudioHistoryDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryDeleteError = StudioHistoryDeleteErrors[keyof StudioHistoryDeleteErrors]
+
+export type StudioHistoryDeleteResponses = {
+  /**
+   * Deleted media count
+   */
+  200: {
+    deleted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryDeleteResponse = StudioHistoryDeleteResponses[keyof StudioHistoryDeleteResponses]
+
+export type StudioHistoryExcludedListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/excluded"
+}
+
+export type StudioHistoryExcludedListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryExcludedListError = StudioHistoryExcludedListErrors[keyof StudioHistoryExcludedListErrors]
+
+export type StudioHistoryExcludedListResponses = {
+  /**
+   * Excluded media IDs
+   */
+  200: {
+    ids: Array<string>
+  }
+}
+
+export type StudioHistoryExcludedListResponse =
+  StudioHistoryExcludedListResponses[keyof StudioHistoryExcludedListResponses]
+
+export type StudioHistoryRevisionData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/revision"
+}
+
+export type StudioHistoryRevisionErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryRevisionError = StudioHistoryRevisionErrors[keyof StudioHistoryRevisionErrors]
+
+export type StudioHistoryRevisionResponses = {
+  /**
+   * Studio history revision
+   */
+  200: {
+    revision: string
+    count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    headId?: string
+    headCreatedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryRevisionResponse = StudioHistoryRevisionResponses[keyof StudioHistoryRevisionResponses]
 
 export type InsightSessionsListData = {
   body?: never
@@ -9019,6 +9416,77 @@ export type InsightChatMigrationRunResponses = {
 }
 
 export type InsightChatMigrationRunResponse = InsightChatMigrationRunResponses[keyof InsightChatMigrationRunResponses]
+
+export type WorkspaceUpgradePreviewData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/preview"
+}
+
+export type WorkspaceUpgradePreviewErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradePreviewError = WorkspaceUpgradePreviewErrors[keyof WorkspaceUpgradePreviewErrors]
+
+export type WorkspaceUpgradePreviewResponses = {
+  /**
+   * Workspace upgrade preview
+   */
+  200: {
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    studioSkipped: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkspaceUpgradePreviewResponse = WorkspaceUpgradePreviewResponses[keyof WorkspaceUpgradePreviewResponses]
+
+export type WorkspaceUpgradeRunData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/run"
+}
+
+export type WorkspaceUpgradeRunErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradeRunError = WorkspaceUpgradeRunErrors[keyof WorkspaceUpgradeRunErrors]
+
+export type WorkspaceUpgradeRunResponses = {
+  /**
+   * Workspace upgrade result
+   */
+  200: {
+    migratedSessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedFiles: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    skippedStudio: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    backupPath?: string
+  }
+}
+
+export type WorkspaceUpgradeRunResponse = WorkspaceUpgradeRunResponses[keyof WorkspaceUpgradeRunResponses]
 
 export type PtyConnectData = {
   body?: never

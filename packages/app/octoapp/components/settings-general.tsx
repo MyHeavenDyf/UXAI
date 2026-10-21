@@ -1,6 +1,7 @@
-import { Component, Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
+import { Component, For, Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -10,13 +11,14 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
+import { getFilename } from "@opencode-ai/core/util/path"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { usePlatform, type DisplayBackend } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
-import { useLayout } from "@/context/layout"
+import { useLayout, type LocalProject } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   monoDefault,
@@ -36,6 +38,7 @@ import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { openAvailableUpdate } from "./update-checker"
+import { kindOf } from "./workspace-switcher"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -244,6 +247,7 @@ export const SettingsGeneral: Component = () => {
 
   const globalSync = useGlobalSync()
   const globalSdk = useGlobalSDK()
+  const layout = useLayout()
 
   const [shells] = createResource(
     () =>
@@ -1120,6 +1124,187 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  // ── 普通工作区 → 代码工作区原地升级(设计记录:opencode_modify/workspace-upgrade-normal-to-code.md)──
+  // 迁移主体在服务端(workspace-upgrade 接口):产物文件平铺复制到 <ws>/output/ 并按
+  // 会话前缀重命名、DB 里的路径引用同步改写、原 .octo 产物目录保留。前端只列出普通
+  // 工作区、懒加载预览计数、确认后调 run,成功后翻 kind 标记(单向);预览明确全 0 的
+  // 工作区没有要迁移的东西,直接翻 kind 不调 run(不建备份)。
+  type UpgradePreviewState =
+    | { status: "loading" }
+    | { status: "ready"; sessions: number; files: number }
+    | { status: "failed" }
+  const [upgradePreviews, setUpgradePreviews] = createStore<Record<string, UpgradePreviewState>>({})
+  const [upgrading, setUpgrading] = createStore<Record<string, boolean>>({})
+
+  const normalProjects = createMemo(() => layout.projects.list().filter((p) => kindOf(p) === "normal"))
+
+  const displayWsPath = (dir: string) => {
+    const home = globalSync.data.path.home
+    if (home && dir.startsWith(home)) return "~" + dir.slice(home.length)
+    return dir
+  }
+
+  // 预览计数逐工作区懒加载:目录不存在/实例未启动时拿不到计数,行内显示「预览不可用」,
+  // 升级按钮仍可用,最终结论以 run 结果为准。
+  createEffect(() => {
+    const api = globalSdk.client.workspaceUpgrade
+    if (!api) return
+    for (const project of normalProjects()) {
+      const dir = project.worktree
+      if (upgradePreviews[dir]) continue
+      setUpgradePreviews(dir, { status: "loading" })
+      void api
+        .preview({ body_directory: dir, query_directory: dir })
+        .then((result) => {
+          const data = result.data
+          if (!data) return
+          setUpgradePreviews(dir, {
+            status: "ready",
+            sessions: Number(data.sessions) || 0,
+            files: Number(data.files) || 0,
+          })
+        })
+        .catch((err) => {
+          console.warn("[settings:ws-upgrade] preview failed", dir, err)
+          setUpgradePreviews(dir, { status: "failed" })
+        })
+    }
+  })
+
+  const previewLabel = (dir: string) => {
+    const state = upgradePreviews[dir]
+    if (!state || state.status === "loading") return ""
+    if (state.status === "failed") return language.t("settings.workspaceUpgrade.previewFailed")
+    if (state.sessions === 0 && state.files === 0) return language.t("settings.workspaceUpgrade.noArtifacts")
+    return language.t("settings.workspaceUpgrade.counts", { sessions: state.sessions, files: state.files })
+  }
+
+  const runUpgrade = async (dir: string) => {
+    if (upgrading[dir]) return false
+    const api = globalSdk.client.workspaceUpgrade
+    if (!api) {
+      showToast({ variant: "error", title: language.t("settings.workspaceUpgrade.unsupported") })
+      return false
+    }
+    setUpgrading(dir, true)
+    try {
+      const result = await api.run({ body_directory: dir, query_directory: dir })
+      if (!result.data) {
+        const reason = (result.error as { data?: { message?: string } } | undefined)?.data?.message
+        showToast({ variant: "error", title: language.t("settings.workspaceUpgrade.failed"), description: reason })
+        return false
+      }
+      const sessions = Number(result.data.migratedSessions) || 0
+      const files = Number(result.data.movedFiles) || 0
+      const backupPath = typeof result.data.backupPath === "string" ? result.data.backupPath : ""
+      server.projects.upgradeToCode(dir)
+      showToast({
+        variant: "success",
+        title: language.t("settings.workspaceUpgrade.success.title"),
+        description: backupPath
+          ? language.t("settings.workspaceUpgrade.success.description", { sessions, files, backup: backupPath })
+          : undefined,
+      })
+      return true
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: language.t("settings.workspaceUpgrade.failed"),
+        description: err instanceof Error ? err.message : String(err),
+      })
+      return false
+    } finally {
+      setUpgrading(dir, false)
+    }
+  }
+
+  const handleUpgrade = (project: LocalProject) => {
+    const dir = project.worktree
+    const label = project.name || getFilename(dir)
+    const preview = upgradePreviews[dir]
+    if (preview?.status === "ready" && preview.files === 0) {
+      server.projects.upgradeToCode(dir)
+      showToast({ variant: "success", title: language.t("settings.workspaceUpgrade.success.title") })
+      return
+    }
+    dialog.show(() => (
+      <Dialog title={language.t("settings.workspaceUpgrade.confirm.title")} fit>
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="text-14-regular text-text-strong">
+              {preview?.status === "ready"
+                ? language.t("settings.workspaceUpgrade.confirm.description", {
+                    name: label,
+                    sessions: preview.sessions,
+                    files: preview.files,
+                  })
+                : language.t("settings.workspaceUpgrade.confirm.unknown", { name: label })}
+            </span>
+          </div>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              disabled={upgrading[dir]}
+              onClick={async () => {
+                if (await runUpgrade(dir)) dialog.close()
+              }}
+            >
+              {upgrading[dir] ? language.t("settings.workspaceUpgrade.buttonBusy") : language.t("settings.workspaceUpgrade.button")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
+
+  const WorkspaceUpgradeSection = () => (
+    <Show when={normalProjects().length > 0}>
+      <div class="flex flex-col gap-1">
+        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
+          {language.t("settings.workspaceUpgrade.title")}
+        </div>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+          <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>
+            {language.t("settings.workspaceUpgrade.description")}
+          </span>
+          <For each={normalProjects()}>
+            {(project) => (
+              <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
+                <div style={{ display: "flex", "min-width": 0, flex: 1, "flex-direction": "column", gap: "2px" }}>
+                  <span style={{ "font-size": "13px", "line-height": "20px", color: "rgba(0, 0, 0, 0.9)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                    {project.name || getFilename(project.worktree)}
+                  </span>
+                  <span
+                    style={{ "font-size": "12px", "line-height": "16px", color: "rgba(0,0,0,0.45)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}
+                    title={project.worktree}
+                  >
+                    {displayWsPath(project.worktree)}
+                  </span>
+                </div>
+                <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)", "white-space": "nowrap", "flex-shrink": 0 }}>
+                  {previewLabel(project.worktree)}
+                </span>
+                <Button
+                  size="small"
+                  variant="secondary"
+                  disabled={upgrading[project.worktree]}
+                  onClick={() => handleUpgrade(project)}
+                  style={{ width: "72px", "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px", "flex-shrink": 0 }}
+                >
+                  {upgrading[project.worktree] ? language.t("settings.workspaceUpgrade.buttonBusy") : language.t("settings.workspaceUpgrade.button")}
+                </Button>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
+  )
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
@@ -1172,6 +1357,8 @@ export const SettingsGeneral: Component = () => {
         <ProxySection />
 
         <ChatMigrationSection />
+
+        <WorkspaceUpgradeSection />
       </div>
     </div>
 )

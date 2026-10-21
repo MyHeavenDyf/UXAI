@@ -14,6 +14,7 @@ import './quick-brief-form.css'
 import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { createReportedSet } from "../utils/track-dedup"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { tracker } from "@/utils/tracker"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
@@ -665,6 +666,8 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  // 代码工作区:产物自动保存落项目根 (kind="code");普通工作区:.octo/<sid>/outputs
+  const workspaceKind = useWorkspaceKind()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
 
@@ -1320,7 +1323,7 @@ const stateStatus = state.status as string | undefined
       
       autoSavedArtifacts.add(key)
       
-      autoSaveArtifact(props.sessionID, card, props.projectDir!).then(() => {
+      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then(() => {
         props.onFilesRefresh?.()
       }).catch(err => {
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)

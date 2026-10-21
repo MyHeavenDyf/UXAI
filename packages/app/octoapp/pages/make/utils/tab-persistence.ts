@@ -2,6 +2,7 @@ import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { autoSaveArtifact } from "./artifact-auto-save"
 import { directoryHeader } from "@/utils/headers"
+import type { WorkspaceKind } from "@/context/server"
 
 /**
  * Unified persistence function for tab changes
@@ -20,6 +21,8 @@ export interface PersistenceOptions {
   snapshotStore: { save: (tab: ResultTab) => void }
   refreshSnapshots: () => void
   skipSnapshot?: boolean
+  /** 工作区分类:"code"(代码工作区)时产物落 output/<sid前缀>-<原名>;缺省 "normal" 落 .octo/<sessionId>/outputs */
+  workspaceKind?: WorkspaceKind
 }
 
 export async function persistTabChanges(
@@ -53,6 +56,7 @@ export async function persistTabChanges(
   
   // 3. Auto-save to project directory (Electron environment only)
   // Skip if file is from Design Files panel (already exists on disk)
+  // 代码工作区:output/ 前缀文件同样已在盘上,autoSaveArtifact 的"已存在即跳过"策略兜底 (isFromDesignFiles 不匹配 .octo 路径)
   const normalizedPath = tab.filePath?.replace(/\\/g, "/")
   const isFromDesignFiles = normalizedPath && normalizedPath.includes(".octo/") && normalizedPath.includes(`/${options.sessionId}/`)
   if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {
@@ -65,8 +69,8 @@ export async function persistTabChanges(
       artifactIdentifier: tab.artifactIdentifier,
       createdAt: tab.createdAt,
     }
-    
-    autoSaveArtifact(options.sessionId, card, options.projectDir).catch((err) => {
+
+    autoSaveArtifact(options.sessionId, card, options.projectDir, options.workspaceKind).catch((err) => {
       console.error("[TabPersistence] auto-save edited artifact failed:", err)
     })
   }

@@ -60,6 +60,7 @@ import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
 import { MakeGroupsProvider } from "@/context/make-groups"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { UpdateChecker } from "@/components/update-checker"
+import { SharedSessionHandler } from "@/components/shared-session-handler"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
@@ -495,6 +496,7 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
   return (
     <>
       <UpdateChecker />
+      <SharedSessionHandler />
       <FocusModeResetHandler />
       <NotificationProvider>
         <ModelsProvider>

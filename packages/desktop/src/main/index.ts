@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
 import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
@@ -56,6 +56,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-start
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import { parseSharedSessionLink } from "./shared-session"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
 import { initLogging } from "./logging"
@@ -71,12 +72,16 @@ import {
   setDefaultServerUrl,
   setWslConfig,
   spawnLocalServer,
+  type HealthCheck,
   type SidecarListener,
 } from "./server"
 import {
   createAppDataFallbackStorage,
+  getActiveStorage,
+  octoConfigDir,
   persistAppDataFallback,
   resolveDesktopStorage,
+  setActiveStorage,
   shouldRetryWithAppDataFallback,
   type DesktopStorage,
 } from "./storage"
@@ -88,7 +93,16 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployResourceLibraryScripts, deployRipgrep } from "./migrate"
+import {
+  migrate,
+  migrateAppId,
+  deploySkillsJson,
+  deployBuiltinSkills,
+  deployProtoTools,
+  deployResourceLibraryScripts,
+  deployRipgrep,
+  migrateLegacyOctoConfig,
+} from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -96,6 +110,26 @@ let initStep: InitStep = { phase: "server_waiting" }
 let mainWindow: BrowserWindow | null = null
 let server: SidecarListener | null = null
 const loadingComplete = defer<void>()
+
+// ---------------------------------------------------------------------------
+// Sidecar 自动重启:sidecar(utilityProcess)意外退出时渲染层只会对着旧 URL 无限重试
+// (global-sdk 250ms 循环),整个应用假死。按 1s/5s/15s 有界重试,复用同端口同密码,
+// 成功后渲染层自行恢复;耗尽后弹窗引导重启。killSidecar 是唯一"有意停止"漏斗
+// (before-quit/will-quit/relaunch/installUpdate 都走它),置 intentional 标志防复活。
+// ---------------------------------------------------------------------------
+const SIDECAR_RESTART_DELAYS_MS = [1_000, 5_000, 15_000]
+const SIDECAR_RESTART_UPTIME_RESET_MS = 60_000
+
+type SidecarSpawnConfig = { hostname: string; port: number; password: string }
+type StartSidecarFn = (storage: DesktopStorage) => Promise<{ listener: SidecarListener; health: HealthCheck }>
+
+let sidecarSpawnConfig: SidecarSpawnConfig | null = null
+let startSidecarFn: StartSidecarFn | null = null
+let sidecarRestartTimer: NodeJS.Timeout | null = null
+let sidecarRestartAttempts = 0
+let sidecarIntentionalStop = false
+let sidecarRelaunchPromptShown = false
+let sidecarUptimeResetTimer: NodeJS.Timeout | null = null
 
 const pendingDeepLinks: string[] = []
 
@@ -157,12 +191,13 @@ function setupApp() {
   }
 
   preferAppEnv(app.getPath("userData"))
+  pendingDeepLinks.push(...process.argv.filter((arg) => parseSharedSessionLink(arg)))
 
   // macOS shell 探测可能覆盖 proxy 环境变量,补注一次确保 Node.js HTTP agent 读到代理
   useEnvProxy()
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
+    const urls = argv.filter((arg: string) => arg.startsWith("opencode://") || parseSharedSessionLink(arg))
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
@@ -174,6 +209,7 @@ function setupApp() {
     event.preventDefault()
     logger.log("deep link received via open-url", { url })
     emitDeepLinks([url])
+    focusMainWindow()
   })
 
   app.on("before-quit", () => {
@@ -203,6 +239,17 @@ function setupApp() {
     if (!TEST_ONBOARDING) {
       migrateAppId()
       migrate()
+    }
+    // 存储模式要在 deploy 之前解析:deploy 的目标目录跟随 octoConfigDir()(即 sidecar
+    // 实际读到的 XDG_CONFIG_HOME)。必须放在 migrateAppId/migrate 之后 —— fallback
+    // 会在 userData 里建目录,先跑会让 migrateAppId 误判"已有内容"而跳过 Tauri 迁移。
+    const userDataPath = app.getPath("userData")
+    const storage = resolveDesktopStorage(userDataPath)
+    setActiveStorage(storage)
+    if (!TEST_ONBOARDING) {
+      // 必须在 deploySkillsJson 之前:它的 merge 逻辑要读目标目录现有 skills.json,
+      // 先迁移才能保住用户已有的 skill 配置
+      migrateLegacyOctoConfig({ rescueDir: join(userDataPath, "xdg-config", "octo") })
       deploySkillsJson()
       deployBuiltinSkills()
       deployProtoTools()
@@ -210,6 +257,12 @@ function setupApp() {
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
+    const shareScheme = CHANNEL === "beta" ? "octo-agent-beta" : "octo-agent"
+    if (process.defaultApp && process.argv[1]) {
+      app.setAsDefaultProtocolClient(shareScheme, process.execPath, [resolve(process.argv[1])])
+    } else {
+      app.setAsDefaultProtocolClient(shareScheme)
+    }
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()
@@ -222,7 +275,7 @@ function setupApp() {
     powerMonitor.on("resume", () => {
       BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
     })
-    await initialize()
+    await initialize(storage)
   })
 }
 
@@ -280,16 +333,38 @@ function setInitStep(step: InitStep) {
   initEmitter.emit("step", step)
 }
 
-async function initialize() {
+async function initialize(storage: DesktopStorage) {
   const userDataPath = app.getPath("userData")
-  const initialStorage = resolveDesktopStorage(userDataPath)
-  const needsMigration = !sqliteFileExists(initialStorage)
+  const needsMigration = !sqliteFileExists(storage)
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
   const hostname = "127.0.0.1"
   const url = `http://${hostname}:${port}`
   const password = randomUUID()
+
+  sidecarSpawnConfig = { hostname, port, password }
+
+  const startSidecar = (spawnStorage: DesktopStorage) =>
+    spawnLocalServer(
+      hostname,
+      port,
+      password,
+      () => {
+        ensureLoopbackNoProxy()
+        useEnvProxy()
+      },
+      {
+        needsMigration: !sqliteFileExists(spawnStorage),
+        storage: spawnStorage,
+        userDataPath,
+        onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
+        onStdout: (message) => logger.log("sidecar stdout", { message }),
+        onStderr: (message) => logger.warn("sidecar stderr", { message }),
+        onExit: handleSidecarExit,
+      },
+    )
+  startSidecarFn = startSidecar
 
   const loadingTask = (async () => {
     logger.log("sidecar connection started", { url })
@@ -300,46 +375,37 @@ async function initialize() {
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
     })
 
-    logger.log("spawning sidecar", { url, storageMode: initialStorage.mode, storageReason: initialStorage.reason })
-    const startSidecar = (storage: DesktopStorage) =>
-      spawnLocalServer(
-        hostname,
-        port,
-        password,
-        () => {
-          ensureLoopbackNoProxy()
-          useEnvProxy()
-        },
-        {
-          needsMigration: !sqliteFileExists(storage),
-          storage,
-          userDataPath,
-          onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
-          onStdout: (message) => logger.log("sidecar stdout", { message }),
-          onStderr: (message) => logger.warn("sidecar stderr", { message }),
-          onExit: (code) => {
-            logger.warn("sidecar exited", { code })
-            // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
-            FastuiExport.setServerInfo(null)
-          },
-        },
-      )
-
-    const { listener, health } = await startSidecar(initialStorage).catch((error) => {
-      if (!shouldRetryWithAppDataFallback(error, initialStorage)) throw error
+    logger.log("spawning sidecar", {
+      url,
+      storageMode: storage.mode,
+      storageReason: storage.reason,
+      configHome: octoConfigDir(storage),
+      configHomeOverridden: Boolean(storage.env.XDG_CONFIG_HOME),
+    })
+    const { listener, health } = await startSidecar(storage).catch((error) => {
+      if (!shouldRetryWithAppDataFallback(error, storage)) throw error
 
       persistAppDataFallback()
       const fallbackStorage = createAppDataFallbackStorage(userDataPath, serializeError(error).message)
+      setActiveStorage(fallbackStorage)
       logger.warn("retrying sidecar with app data storage", {
         storageMode: fallbackStorage.mode,
         storageReason: fallbackStorage.reason,
+        configHomeOverridden: Boolean(fallbackStorage.env.XDG_CONFIG_HOME),
       })
+      // 覆盖激活时,把 ~/.config/octo 的用户内容迁到新配置目录并重新部署内置 skill,
+      // 否则 server 扫描目录为空(启动早期 deploy 已落在旧目录)
+      if (fallbackStorage.env.XDG_CONFIG_HOME) {
+        migrateLegacyOctoConfig()
+        deploySkillsJson()
+        deployBuiltinSkills()
+      }
       return startSidecar(fallbackStorage)
     })
     server = listener
     // 导出代码包要问 server 要 skill 的实际位置(fastui-export.ts `skillDirFromServer`):
-    // 主进程与 sidecar 的 XDG_CONFIG_HOME 可能不是同一个值,自己算 `<octoConfig>/skill/`
-    // 会算到一个空目录上。
+    // 自己算 `<octoConfig>/skill/` 会和 server 实际扫描目录对不上。重启成功后由
+    // restartSidecar 重新设置。
     FastuiExport.setServerInfo({ url, username: "opencode", password })
     serverReady.resolve({
       url,
@@ -460,10 +526,106 @@ registerIpcHandlers({
 })
 
 async function killSidecar() {
+  sidecarIntentionalStop = true
+  if (sidecarRestartTimer) {
+    clearTimeout(sidecarRestartTimer)
+    sidecarRestartTimer = null
+  }
+  cancelSidecarUptimeReset()
   if (!server) return
   const current = server
   server = null
   await current.stop()
+}
+
+function cancelSidecarUptimeReset() {
+  if (!sidecarUptimeResetTimer) return
+  clearTimeout(sidecarUptimeResetTimer)
+  sidecarUptimeResetTimer = null
+}
+
+function handleSidecarExit(code: number) {
+  logger.warn("sidecar exited", { code })
+  // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
+  FastuiExport.setServerInfo(null)
+  // uptime 窗口已中断,旧 reset timer 不取消的话会在 crash 序列中途清零计数,
+  // 耗尽保护被 ~45s 周期的 crash loop 无限绕过(E2E 实测踩过)
+  cancelSidecarUptimeReset()
+  scheduleSidecarRestart()
+}
+
+function scheduleSidecarRestart() {
+  if (sidecarIntentionalStop) return
+  // 去重:spawn 未就绪即退出的场景下,onExit 回调与 spawn promise 的 rejection 会先后到达
+  if (sidecarRestartTimer) return
+  // server 为 null 说明初始 spawn 从未就绪,属 initialize 的既有错误路径(弹窗+exit)管辖
+  if (!server) return
+  if (sidecarRestartAttempts >= SIDECAR_RESTART_DELAYS_MS.length) {
+    void promptSidecarRelaunch()
+    return
+  }
+  const delayMs = SIDECAR_RESTART_DELAYS_MS[sidecarRestartAttempts]
+  sidecarRestartAttempts++
+  sidecarRestartTimer = setTimeout(() => {
+    sidecarRestartTimer = null
+    void restartSidecar()
+  }, delayMs)
+}
+
+async function restartSidecar() {
+  const cfg = sidecarSpawnConfig
+  const storage = getActiveStorage()
+  if (sidecarIntentionalStop || !cfg || !storage || !startSidecarFn) return
+  logger.warn("restarting sidecar", {
+    attempt: sidecarRestartAttempts,
+    url: `http://${cfg.hostname}:${cfg.port}`,
+  })
+  try {
+    const { listener, health } = await startSidecarFn(storage)
+    // spawn 期间用户可能正在退出应用(killSidecar 已置位),别把 sidecar 复活出来
+    if (sidecarIntentionalStop) {
+      await listener.stop().catch(() => {})
+      return
+    }
+    server = listener
+    FastuiExport.setServerInfo({
+      url: `http://${cfg.hostname}:${cfg.port}`,
+      username: "opencode",
+      password: cfg.password,
+    })
+    health.wait.catch((error) => logger.error("sidecar health check failed after restart", error))
+    // 稳定运行满窗口后清零计数,慢速 crash-loop 仍有界(3 次/窗口)。先取消旧 timer:
+    // 不取消的话每代重启各留一个,更早世代的会在 crash 序列中途清零计数
+    cancelSidecarUptimeReset()
+    sidecarUptimeResetTimer = setTimeout(() => {
+      sidecarUptimeResetTimer = null
+      sidecarRestartAttempts = 0
+    }, SIDECAR_RESTART_UPTIME_RESET_MS)
+  } catch (error) {
+    logger.error("sidecar restart failed", error)
+    scheduleSidecarRestart()
+  }
+}
+
+async function promptSidecarRelaunch() {
+  if (sidecarIntentionalStop) return
+  // 耗尽路径没有 timer 去重:spawn rejection 与 onExit 会先后走到这里,只弹一次
+  if (sidecarRelaunchPromptShown) return
+  sidecarRelaunchPromptShown = true
+  const result = await dialog.showMessageBox({
+    type: "error",
+    title: "Server Error",
+    message: "The background server stopped unexpectedly and could not be restarted.",
+    detail: "Relaunch the app to recover.",
+    buttons: ["Relaunch", "Ignore"],
+    defaultId: 0,
+  })
+  if (result.response === 0) {
+    await killSidecar().finally(() => {
+      app.relaunch()
+      app.exit(0)
+    })
+  }
 }
 
 function ensureLoopbackNoProxy() {

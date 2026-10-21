@@ -6,7 +6,7 @@ export interface MentionAttrs {
   type: "skill" | "file"
   label: string
   path?: string
-  files?: { filename: string; path: string }[]
+  isFolder?: boolean
 }
 
 export const mentionNodeSpec = {
@@ -20,7 +20,7 @@ export const mentionNodeSpec = {
     type: { default: "skill" },
     label: { default: "" },
     path: { default: "" },
-    files: { default: null },
+    isFolder: { default: false },
   },
   toDOM: (node: PMNode): readonly [string, ...any[]] => {
     const attrs = node.attrs as MentionAttrs
@@ -36,6 +36,7 @@ export const mentionNodeSpec = {
         "data-type": attrs.type,
         "data-label": attrs.label,
         "data-path": attrs.path || "",
+        "data-folder": attrs.isFolder ? "true" : "false",
       },
       `   @${attrs.label || attrs.name}   `,
     ] as const
@@ -49,6 +50,7 @@ export const mentionNodeSpec = {
         type: (dom.getAttribute("data-type") as "skill" | "file") || "skill",
         label: dom.getAttribute("data-label") || "",
         path: dom.getAttribute("data-path") || "",
+        isFolder: dom.getAttribute("data-folder") === "true",
       }),
     },
   ],
@@ -94,7 +96,7 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
         type: node.attrs.type,
         label: node.attrs.label,
         path: node.attrs.path,
-        ...(node.attrs.files ? { files: node.attrs.files } : {}),
+        ...(node.attrs.isFolder ? { isFolder: true } : {}),
       })
     }
   })

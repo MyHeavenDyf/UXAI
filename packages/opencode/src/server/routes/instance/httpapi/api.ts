@@ -26,6 +26,7 @@ import { V2Api } from "./groups/v2"
 import { StudioApi } from "./groups/studio"
 import { StudioGlobalApi } from "./groups/studio-global"
 import { InsightApi } from "./groups/insight"
+import { WorkspaceUpgradeApi } from "./groups/workspace-upgrade"
 
 // SSE event schemas built from the same BusEvent/SyncEvent registries that
 // the Hono spec uses, so both specs emit identical Event/SyncEvent components.
@@ -58,6 +59,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(WorkspaceApi)
   .addHttpApi(StudioApi)
   .addHttpApi(InsightApi)
+  .addHttpApi(WorkspaceUpgradeApi)
 
 export const OpenCodeHttpApi = HttpApi.make("opencode")
   .addHttpApi(RootHttpApi)

@@ -16,6 +16,14 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("abnormal", "queued")).toBe(true)
   })
 
+  test("rejects stale creation metadata after submission or cancellation", () => {
+    for (const status of ["queued", "running", "succeeded", "create_failed", "failed", "abnormal"] as const) {
+      expect(isStudioGenerationStatusRegression(status, "creating")).toBe(true)
+    }
+    expect(isStudioGenerationStatusRegression("creating", "running")).toBe(false)
+    expect(isStudioGenerationStatusRegression("creating", "create_failed")).toBe(false)
+  })
+
   test("allows active progress and terminal transitions", () => {
     expect(isStudioGenerationStatusRegression("queued", "running")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
@@ -25,6 +33,14 @@ describe("Studio generation status merging", () => {
 })
 
 describe("Studio result-card status", () => {
+  test("preserves creation while the tool and page are busy", () => {
+    expect(studioResultCardStatus({
+      result: { status: "creating", images: [] },
+      busy: true,
+      toolRunning: true,
+    })).toBe("creating")
+  })
+
   test("keeps a running generation with a legacy transient error in the generating state", () => {
     expect(studioResultCardStatus({
       result: { status: "running", images: [], error: "query_task returned status=500" },
@@ -503,6 +519,30 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.progress).toBe(12)
     expect(turns[0].result?.order).toBe(3)
     expect(turns[0].result?.rawStatus).toBe(6)
+  })
+
+  test("restores creating generation state from running tool metadata", () => {
+    const user = userMessage("msg_progress_user")
+    const assistant = assistantMessage("msg_progress_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_progress_text", user.id, "生成视频")],
+        [assistant.id]: [
+          runningToolPart("p_progress_tool", assistant.id, "internel_image_generate", {
+            generationID: "studio_gen_1",
+            status: "creating",
+            progress: 0,
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.id).toBe("studio_gen_1")
+    expect(turns[0].result?.status).toBe("creating")
+    expect(turns[0].result?.progress).toBe(0)
+    expect(turns[0].result?.order).toBeUndefined()
+    expect(turns[0].result?.rawStatus).toBeUndefined()
   })
 
   test("preserves video capability after cancelling the first generation", () => {
