@@ -7,7 +7,7 @@
  */
 import { createSignal } from "solid-js"
 
-import { getDesktopApi } from "../lib/electron-api"
+import { type FastuiTarget, getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 
 // ── 预览卡片的身份(SPEC-DES-004)──────────────────────────────────
@@ -50,18 +50,23 @@ export function isLocalPreviewUrl(url?: string | null): boolean {
   }
 }
 
-/** 与 index.tsx 建会话时的拼法一致:<projectDir>/.octo/<sessionId> */
-export function sessionDirOf(sdkDirectory?: string, sessionId?: string): string | null {
-  if (!sdkDirectory || !sessionId) return null
-  const sep = sdkDirectory.includes("\\") ? "\\" : "/"
-  return [sdkDirectory, ".octo", sessionId].join(sep)
+/**
+ * 卡片的目标(SPEC-DES-008 §3.7)。工程在哪由主进程按(工作区, 会话, 产物名)查 ——
+ * 普通工作区在 `.octo/<sid>/outputs/<产物名>`,代码工作区在 `<工作区>/<产物名>`,前端不拼路径。
+ * 产物名为空串表示「产物未知」(旧版卡片),交给主进程在对话只有一个工程时确定。
+ */
+export function fastuiTargetOf(workspaceDir?: string, sessionId?: string, name?: string): FastuiTarget | null {
+  if (!workspaceDir || !sessionId) return null
+  return { workspaceDir, sessionId, name: name || undefined }
 }
 
-// ── 判据:这个会话是不是 fastui 工程 ───────────────────────────────
+const keyOf = (t: FastuiTarget) => `${t.workspaceDir}\u0000${t.sessionId}\u0000${t.name ?? ""}`
+
+// ── 判据:这张卡片背后有没有 fastui 工程 ───────────────────────────
 // 导出按钮挂在 subtype "fastui" 的 tab 上(SPEC-DES-005),但仍以磁盘事实为准,不只看 tab 形态:
-// 判据取「会话目录下有没有 .octo-fastui.json」—— 只有 fastui skill 的 new-session 会写出
-// 那个文件,是确定的存在性判断,不是猜。旧版卡片转 fastui:// 时也用它判断会话(见 index.tsx)。
-const [fastuiSessions, setFastuiSessions] = createSignal<Record<string, boolean>>({})
+// 问主进程「按这个目标找不找得到工程」—— 与预览同一个查找函数,是确定的存在性判断,不是猜。
+// 旧版卡片转 fastui:// 时也用它判断(见 index.tsx)。
+const [fastuiTargets, setFastuiTargets] = createSignal<Record<string, boolean>>({})
 /** 已探测过的次数;肯定结果直接从 signal 走,不再进这里 */
 const probeCount = new Map<string, number>()
 
@@ -69,63 +74,62 @@ const probeCount = new Map<string, number>()
  * 否定结果重探几次再放弃。
  *
  * 正常时序下一次就够 —— URL tab 是 skill 输出 artifact 之后才创建的,而
- * `new-session` 远早于此,那时 `.octo-fastui.json` 必然已经在磁盘上。留几次重探是
+ * `new-session` 远早于此,那时工程标记必然已经在磁盘上。留几次重探是
  * 防时序变化,**必须靠 setTimeout 自己驱动**:只把结果写回 signal 不会再触发探测
  * (重渲染时读到的仍是同一个否定值),那样"自愈"只是注释里的说法。
  */
 const RENEGATIVE_PROBE_MS = 3000
 const MAX_NEGATIVE_PROBES = 3
 
-export function isFastuiSession(sessionDir: string): boolean {
-  const known = fastuiSessions()[sessionDir]
-  if (known) return true
+export function isFastuiProject(target: FastuiTarget): boolean {
+  const key = keyOf(target)
+  if (fastuiTargets()[key]) return true
 
-  const tried = probeCount.get(sessionDir) ?? 0
+  const tried = probeCount.get(key) ?? 0
   if (tried === 0) {
-    probeCount.set(sessionDir, 1)
-    void probeFastuiSession(sessionDir)
+    probeCount.set(key, 1)
+    void probeFastuiProject(target)
   }
   return false
 }
 
-/** 会话目录下有没有 fastui 状态文件(确定的存在性判断);结果顺带写入缓存 */
-export async function sessionHasFastuiState(sessionDir: string): Promise<boolean> {
+/** 主进程按这个目标找不找得到工程;结果顺带写入缓存 */
+export async function hasFastuiProject(target: FastuiTarget): Promise<boolean> {
   const api = getDesktopApi()
-  const sep = sessionDir.includes("\\") ? "\\" : "/"
   let exists = false
   try {
-    exists = !!(await api?.fileExists?.([sessionDir, ".octo-fastui.json"].join(sep)))
+    exists = !!(await api?.fastuiResolve?.(target))?.ok
   } catch {
-    /* 读不到就当不是 fastui 会话 */
+    /* 问不到就当不是 fastui 工程 */
   }
-  setFastuiSessions((prev) => (prev[sessionDir] === exists ? prev : { ...prev, [sessionDir]: exists }))
+  const key = keyOf(target)
+  setFastuiTargets((prev) => (prev[key] === exists ? prev : { ...prev, [key]: exists }))
   return exists
 }
 
-async function probeFastuiSession(sessionDir: string): Promise<void> {
-  const exists = await sessionHasFastuiState(sessionDir)
-  if (exists) return
-
-  const tried = probeCount.get(sessionDir) ?? 1
+async function probeFastuiProject(target: FastuiTarget): Promise<void> {
+  if (await hasFastuiProject(target)) return
+  const key = keyOf(target)
+  const tried = probeCount.get(key) ?? 1
   if (tried >= MAX_NEGATIVE_PROBES) return
-  probeCount.set(sessionDir, tried + 1)
-  setTimeout(() => void probeFastuiSession(sessionDir), RENEGATIVE_PROBE_MS)
+  probeCount.set(key, tried + 1)
+  setTimeout(() => void probeFastuiProject(target), RENEGATIVE_PROBE_MS)
 }
 
 // ── 导出 ─────────────────────────────────────────────────────────
-const [exportingDir, setExportingDir] = createSignal<string | null>(null)
+const [exportingKey, setExportingKey] = createSignal<string | null>(null)
 
-/** 这个会话正在导出(按钮显示「导出中…」) */
-export function isExporting(sessionDir: string | null): boolean {
-  return !!sessionDir && exportingDir() === sessionDir
+/** 这张卡片对应的工程正在导出(按钮显示「导出中…」) */
+export function isExporting(target: FastuiTarget | null): boolean {
+  return !!target && exportingKey() === keyOf(target)
 }
 
 /**
- * 有任何会话正在导出。锁是全局的(一次只跑一个打包脚本),所以按钮的 disabled 也要按
- * 全局判 —— 只按自己那个会话判的话,在另一个会话的 tab 上点导出会静默什么都不发生。
+ * 有任何工程正在导出。锁是全局的(一次只跑一个打包脚本),所以按钮的 disabled 也要按
+ * 全局判 —— 只按自己那张卡片判的话,在另一个会话的 tab 上点导出会静默什么都不发生。
  */
 export function isExportingAny(): boolean {
-  return exportingDir() !== null
+  return exportingKey() !== null
 }
 
 function formatBytes(bytes: number): string {
@@ -142,18 +146,18 @@ function baseNameOf(p: string): string {
  * 打包 → 让用户选保存位置 → 拷过去。
  * zip 已经在磁盘上,不走 action-bar 里 `downloadBlob` 那套(那是给内容型 tab 用的)。
  */
-export async function exportFastuiZip(sessionDir: string, projectName?: string): Promise<void> {
-  if (exportingDir()) return
+export async function exportFastuiZip(target: FastuiTarget): Promise<void> {
+  if (exportingKey()) return
   const api = getDesktopApi()
   if (!api?.fastuiExportZip) {
     showOctoToast({ title: "当前环境不支持导出代码包", variant: "error" })
     return
   }
 
-  setExportingDir(sessionDir)
+  setExportingKey(keyOf(target))
   try {
-    // 带产物名导出该工程:同一对话可以有多个工程,状态文件只记最后建的那个
-    const result = await api.fastuiExportZip(sessionDir, projectName || undefined)
+    // 带产物名导出该工程:同一对话可以有多个工程
+    const result = await api.fastuiExportZip(target)
     if (!result?.ok) {
       showOctoToast({
         title: "导出代码包失败",
@@ -185,6 +189,6 @@ export async function exportFastuiZip(sessionDir: string, projectName?: string):
       variant: "error",
     })
   } finally {
-    setExportingDir(null)
+    setExportingKey(null)
   }
 }

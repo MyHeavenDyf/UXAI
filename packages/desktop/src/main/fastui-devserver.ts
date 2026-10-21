@@ -3,7 +3,7 @@
  *
  * **卡片只记产物,不记端口;地址在点击那一刻由这里当场给出。**
  *
- *   前端:(会话目录, 产物名) ──IPC──▶ 这里
+ *   前端:(工作区, 会话, 产物名) ──IPC──▶ 这里(按 SPEC-DES-008 §3.7 找到工程)
  *   这里:内存里有这个工程的服务,进程活着,端口也能应答?
  *         ├─ 是 → 直接返回它的端口
  *         └─ 否 → 挑一个空闲端口 → 起服务 → 等端口可连 → 返回端口
@@ -32,7 +32,7 @@ import {
 } from "node:fs"
 import net from "node:net"
 import { homedir } from "node:os"
-import { basename, join, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 
 import log from "electron-log/main.js"
 
@@ -53,15 +53,20 @@ const START_MARK = "[octo-devserver] start port="
 /** 与 new-session 的 --name 校验一致:产物名不能带路径分隔符,防止拼出 outputs 以外的路径 */
 const PROJECT_NAME_RE = /^[\w.\-一-龥]+$/
 
+/** 起服务要用的环境信息:新工程取自工程标记,旧布局取自会话级状态文件(字段同名) */
 type SessionState = {
   projectDir?: string
   envDir?: string
   depsDir?: string
   nodeBin?: string
+  skill?: string
+  skillDir?: string
 }
 
+/** 前端点卡片 / 导出时给的目标。工程在哪由这里按 SPEC-DES-008 §3.7 的顺序查,前端不拼路径 */
+export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+
 type Entry = {
-  sessionDir: string
   projectDir: string
   name: string
   status: "starting" | "ready"
@@ -99,14 +104,21 @@ export function nodeBinOf(envDir: string) {
   return process.platform === "win32" ? join(envDir, "node", "node.exe") : join(envDir, "node", "bin", "node")
 }
 
-function runtimePaths(sessionDir: string, name: string) {
-  const dir = join(sessionDir, "devservers")
-  return { dir, record: join(dir, `${name}.json`), log: join(dir, `${name}.log`) }
+/** 工程标记与运行时目录名,与 skill 的 scripts/lib/paths.mjs `MARKER_FILE` / `RUNTIME_DIR` 一致 */
+const MARKER_FILE = ".octo-fastui.json"
+const RUNTIME_DIR = ".octo-fastui"
+/** 会话 id 只会是 `ses_…` 这类单段名;带路径分隔符的一律拒绝,防止拼出会话目录以外的路径 */
+const SESSION_ID_RE = /^[\w-]+$/
+
+/** 运行时文件按工程放(SPEC-DES-008 §3.7):多个对话共用一个工程时共用同一个服务 */
+function runtimePaths(projectDir: string) {
+  const dir = join(projectDir, RUNTIME_DIR)
+  return { dir, record: join(dir, "devserver.json"), log: join(dir, "devserver.log") }
 }
 
-function readState(sessionDir: string): SessionState | null {
+function readJson<T>(p: string): T | null {
   try {
-    return JSON.parse(readFileSync(join(sessionDir, ".octo-fastui.json"), "utf8")) as SessionState
+    return JSON.parse(readFileSync(p, "utf8")) as T
   } catch {
     return null
   }
@@ -116,37 +128,63 @@ function isProjectDir(dir: string) {
   return existsSync(join(dir, "packages", "portal"))
 }
 
+/**
+ * 这个目录是不是 fastui 工程,是的话返回起服务要用的环境信息。两条判据都是确定的存在性判断:
+ *   1. 工程根有标记 `.octo-fastui.json`(带 `schema` 字段)
+ *   2. 旧布局:`<会话目录>/outputs/<产物名>`、含 `packages/portal`,且会话目录下有旧状态文件(没有 `schema`)
+ */
+function identify(projectDir: string): SessionState | null {
+  if (!isProjectDir(projectDir)) return null
+  const marker = readJson<SessionState & { schema?: number }>(join(projectDir, MARKER_FILE))
+  if (marker?.schema) return marker
+  const outputs = dirname(projectDir)
+  if (basename(outputs) !== "outputs") return null
+  const legacy = readJson<SessionState & { schema?: number }>(join(dirname(outputs), MARKER_FILE))
+  return legacy && !legacy.schema ? legacy : null
+}
+
 type Resolved = { ok: true; projectDir: string; name: string; state: SessionState } | { ok: false; error: string }
 
 /**
- * (会话目录, 产物名) → 工程目录。
+ * (工作区, 会话, 产物名) → 工程目录(SPEC-DES-008 §3.7),命中就停:
+ *   1. `<工作区>/.octo/<会话>/outputs/<产物名>`:带标记或旧布局 —— 普通工作区、老对话
+ *   2. `<工作区>/<产物名>`:带标记 —— 代码工作区
+ * 先查会话范围:它只属于这个对话,同名时不会串到别的工程。查找不需要知道工作区类型。
  *
- * 产物名缺省是给**老卡片**用的(本方案之前生成的卡片只有 `http://127.0.0.1:<port>`):
- * 对话里只有一个工程就是它;有多个就明确报错,不去猜 —— 猜错的后果是显示另一个工程的页面。
+ * 产物名缺省是给**老卡片**用的(SPEC-DES-004 之前的卡片只有 `http://127.0.0.1:<port>`):
+ * 只在会话 outputs 里找,恰好一个工程就是它;有多个就明确报错,不去猜 —— 猜错的后果是显示另一个工程的页面。
  */
-export function resolveProject(sessionDir: string, name?: string): Resolved {
-  const state = readState(sessionDir)
-  if (!state) return { ok: false, error: "未找到该对话的预览工程信息，请让助手重新生成预览" }
+export function resolveProject(target: FastuiTarget): Resolved {
+  const { workspaceDir, sessionId, name } = target
+  if (!workspaceDir || !SESSION_ID_RE.test(sessionId ?? "")) return { ok: false, error: "预览工程信息不完整，请让助手重新生成预览" }
+  const outputs = join(workspaceDir, ".octo", sessionId, "outputs")
 
-  const outputs = join(sessionDir, "outputs")
   if (name) {
     if (!PROJECT_NAME_RE.test(name) || name === "." || name === "..") {
       return { ok: false, error: `预览工程名称不合法：${name}` }
     }
-    const projectDir = join(outputs, name)
-    if (!isProjectDir(projectDir)) return { ok: false, error: `未找到预览工程「${name}」，可能已被删除` }
-    return { ok: true, projectDir, name, state }
+    for (const projectDir of [join(outputs, name), join(workspaceDir, name)]) {
+      const state = identify(projectDir)
+      if (state) return { ok: true, projectDir, name, state }
+    }
+    return { ok: false, error: `未找到预览工程「${name}」，可能已被删除` }
   }
 
+  if (!readJson(join(dirname(outputs), MARKER_FILE))) {
+    return { ok: false, error: "未找到该对话的预览工程信息，请让助手重新生成预览" }
+  }
   let candidates: string[] = []
   try {
     candidates = readdirSync(outputs, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && isProjectDir(join(outputs, d.name)))
+      .filter((d) => d.isDirectory() && identify(join(outputs, d.name)))
       .map((d) => d.name)
   } catch {
     /* outputs 不存在 */
   }
-  if (candidates.length === 1) return { ok: true, projectDir: join(outputs, candidates[0]), name: candidates[0], state }
+  if (candidates.length === 1) {
+    const projectDir = join(outputs, candidates[0])
+    return { ok: true, projectDir, name: candidates[0], state: identify(projectDir)! }
+  }
   if (candidates.length === 0) return { ok: false, error: "未找到预览工程，请让助手重新生成预览" }
   return {
     ok: false,
@@ -282,32 +320,28 @@ function unregisterPid(envDir: string, pid: number) {
   }
 }
 
-function readRecord(sessionDir: string, name: string): { pid?: number; status?: string } | null {
-  try {
-    return JSON.parse(readFileSync(runtimePaths(sessionDir, name).record, "utf8"))
-  } catch {
-    return null
-  }
+function readRecord(projectDir: string): { pid?: number; status?: string } | null {
+  return readJson(runtimePaths(projectDir).record)
 }
 
 /**
  * 删记录前核对 pid 是不是自己的。
- * 记录按产物名存,新旧进程写同一个路径;旧进程退得慢(Windows 上 taskkill 是异步的)时,
+ * 记录按工程存,新旧进程写同一个路径;旧进程退得慢(Windows 上 taskkill 是异步的)时,
  * 新进程早已写好了记录 —— 不核对就会把新记录删掉,verify 从此找不到正在跑的服务。
  */
-function removeRecordIfOwned(sessionDir: string, name: string, pid: number) {
-  const r = readRecord(sessionDir, name)
+function removeRecordIfOwned(projectDir: string, pid: number) {
+  const r = readRecord(projectDir)
   if (!r || r.pid !== pid) return
   try {
-    rmSync(runtimePaths(sessionDir, name).record, { force: true })
+    rmSync(runtimePaths(projectDir).record, { force: true })
   } catch {
     /* 删不掉不影响什么 */
   }
 }
 
 /** 起服务失败时告诉 verify,让它立即失败,而不是白等之后在 Octo 里自己起一个关不掉的进程 */
-function writeErrorRecord(sessionDir: string, name: string, projectDir: string, result: { error: string; logTail?: string }) {
-  const { dir, record } = runtimePaths(sessionDir, name)
+function writeErrorRecord(projectDir: string, result: { error: string; logTail?: string }) {
+  const { dir, record } = runtimePaths(projectDir)
   try {
     mkdirSync(dir, { recursive: true })
     writeFileSync(
@@ -320,7 +354,7 @@ function writeErrorRecord(sessionDir: string, name: string, projectDir: string, 
 }
 
 function writeRecord(e: Entry, logPath: string) {
-  const { dir, record } = runtimePaths(e.sessionDir, e.name)
+  const { dir, record } = runtimePaths(e.projectDir)
   try {
     mkdirSync(dir, { recursive: true })
     writeFileSync(
@@ -361,7 +395,7 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
   if (!existsSync(cli)) return { ok: false, error: `共享依赖中缺少 turbo-ui-cli-service：${cli}` }
   const portalDir = join(e.projectDir, "packages", "portal")
 
-  const { dir, log: logPath } = runtimePaths(e.sessionDir, e.name)
+  const { dir, log: logPath } = runtimePaths(e.projectDir)
   mkdirSync(dir, { recursive: true })
   const deadline = Date.now() + startTimeoutMs()
   const excluded = new Set<number>()
@@ -435,7 +469,7 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
       if (e.status === "ready" && running.get(e.projectDir) === e) running.delete(e.projectDir)
     })
     // 记录的清理不受上面条目判断的限制:按 pid 核对,只删属于这个进程的那份
-    child.on("exit", () => removeRecordIfOwned(e.sessionDir, e.name, pid))
+    child.on("exit", () => removeRecordIfOwned(e.projectDir, pid))
 
     const outcome = await waitReady(child, port, deadline)
     if (outcome === "ready") {
@@ -461,9 +495,8 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
   return { ok: false, error: `连续 ${MAX_PORT_RETRIES} 个端口被占用，预览服务无法启动` }
 }
 
-function start(sessionDir: string, projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
+function start(projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
   const e: Entry = {
-    sessionDir,
     projectDir,
     name,
     status: "starting",
@@ -480,7 +513,7 @@ function start(sessionDir: string, projectDir: string, name: string, state: Sess
       if (!result.ok) {
         if (running.get(projectDir) === e) running.delete(projectDir)
         if (e.pid) killTree(e.pid)
-        writeErrorRecord(sessionDir, name, projectDir, result)
+        writeErrorRecord(projectDir, result)
       }
       return result
     })
@@ -498,29 +531,33 @@ const opening = new Map<string, Promise<OpenResult>>()
  * 打开一个产物的预览:活着且应答就复用,否则当场起。
  * 约定为「返回结果对象、永不 throw」。
  */
-export async function open(sessionDir: string, name?: string): Promise<OpenResult> {
-  const r = resolveProject(sessionDir, name)
+export async function open(target: FastuiTarget): Promise<OpenResult> {
+  const r = resolveProject(target)
   if (!r.ok) return { ok: false, error: r.error }
-  if (!r.state.envDir || !r.state.depsDir) return { ok: false, error: "预览工程信息不完整，请让助手重新生成预览" }
+  return openProject(r.projectDir, r.name, r.state)
+}
 
-  const inflight = opening.get(r.projectDir)
+/** 已经定位到工程之后的打开;skill 的请求带的就是工程目录,直接走这里 */
+function openProject(projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
+  if (!state.envDir || !state.depsDir) return Promise.resolve({ ok: false, error: "预览工程信息不完整，请让助手重新生成预览" })
+  const inflight = opening.get(projectDir)
   if (inflight) return inflight
-  const task = openResolved(sessionDir, r.projectDir, r.name, r.state).finally(() => {
-    if (opening.get(r.projectDir) === task) opening.delete(r.projectDir)
+  const task = openResolved(projectDir, name, state).finally(() => {
+    if (opening.get(projectDir) === task) opening.delete(projectDir)
   })
-  opening.set(r.projectDir, task)
+  opening.set(projectDir, task)
   return task
 }
 
-async function openResolved(sessionDir: string, projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
+async function openResolved(projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
   const existing = running.get(projectDir)
   if (existing) {
     if (existing.status === "starting") return existing.ready
     if (isAlive(existing)) {
       if (await canConnect(existing.port)) {
         // 记录可能被外部删掉过(旧版本的清理逻辑、用户清目录)—— verify 靠它找服务,复用时补齐
-        const rec = readRecord(existing.sessionDir, existing.name)
-        if (!rec || rec.pid !== existing.pid) writeRecord(existing, runtimePaths(existing.sessionDir, existing.name).log)
+        const rec = readRecord(existing.projectDir)
+        if (!rec || rec.pid !== existing.pid) writeRecord(existing, runtimePaths(existing.projectDir).log)
         return { ok: true, port: existing.port, reused: true }
       }
       // 进程在但不应答 —— 卡死了。杀掉当场重起,不让用户对着一个永远加载不出来的页面
@@ -530,7 +567,7 @@ async function openResolved(sessionDir: string, projectDir: string, name: string
       running.delete(projectDir)
     }
   }
-  return start(sessionDir, projectDir, name, state)
+  return start(projectDir, name, state)
 }
 
 function stopEntry(e: Entry, { sync = false }: { sync?: boolean } = {}): Promise<void> {
@@ -548,8 +585,8 @@ function stopEntry(e: Entry, { sync = false }: { sync?: boolean } = {}): Promise
 }
 
 /** 「重新编译」:结束当前服务,当场重起 */
-export async function restart(sessionDir: string, name?: string): Promise<OpenResult> {
-  const r = resolveProject(sessionDir, name)
+export async function restart(target: FastuiTarget): Promise<OpenResult> {
+  const r = resolveProject(target)
   if (!r.ok) return { ok: false, error: r.error }
   // 正在进行的打开先让它有结果,避免与它交错地杀掉/起服务
   await opening.get(r.projectDir)
@@ -560,7 +597,7 @@ export async function restart(sessionDir: string, name?: string): Promise<OpenRe
     const current = running.get(r.projectDir)
     if (current) await stopEntry(current)
   }
-  return open(sessionDir, name)
+  return openProject(r.projectDir, r.name, r.state)
 }
 
 /** app 退出时统一清理。必须同步 —— 否则进程还没杀掉 Electron 就没了 */
@@ -578,7 +615,6 @@ export function stopAll() {
 
 export function list() {
   return [...running.values()].map((e) => ({
-    sessionDir: e.sessionDir,
     projectDir: e.projectDir,
     port: e.port,
     pid: e.pid,
@@ -610,10 +646,17 @@ function removeHeartbeat() {
   heartbeatWrittenFor = undefined
 }
 
+/**
+ * 本宿主支持的工程布局版本,写进心跳(SPEC-DES-008 §3.4)。`2` = 认工程标记、运行时文件放工程内。
+ * 与 skill 的 scripts/lib/host.mjs `HOST_LAYOUT` 一致:skill 读到的不是 2 就报 HOST_OUTDATED,
+ * 不让「skill 先于 App 更新」的组合静默地建出宿主找不到的工程。
+ */
+const HOST_LAYOUT = 2
+
 function writeHeartbeat(envDir: string) {
   try {
     const tmp = `${heartbeatPath(envDir)}.${process.pid}.tmp`
-    writeFileSync(tmp, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
+    writeFileSync(tmp, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), layout: HOST_LAYOUT }))
     renameSync(tmp, heartbeatPath(envDir))
     heartbeatWrittenFor = envDir
   } catch (error) {
@@ -621,15 +664,18 @@ function writeHeartbeat(envDir: string) {
   }
 }
 
-/** 请求里的路径来自本机脚本,仍然校验:工程必须在会话目录的 outputs 下 */
-function validRequest(req: { sessionDir?: unknown; projectDir?: unknown }): { sessionDir: string; name: string } | null {
-  if (typeof req.sessionDir !== "string" || typeof req.projectDir !== "string") return null
-  const sessionDir = resolve(req.sessionDir)
+/**
+ * 请求里的路径来自本机脚本,仍然校验:必须是 fastui 工程(带标记或旧布局,SPEC-DES-008 §3.7)。
+ * 新版 skill 只带 `projectDir`;旧版还带 `sessionDir`,不再用它,也不再要求路径里有 `.octo` 段 ——
+ * 代码工作区下工程直接在工作区下,那条要求会把所有请求都静默丢掉(2026-10-21 内网实撞)。
+ */
+function validRequest(req: { projectDir?: unknown }): { projectDir: string; name: string; state: SessionState } | null {
+  if (typeof req.projectDir !== "string" || !isAbsolute(req.projectDir)) return null
   const projectDir = resolve(req.projectDir)
   const name = basename(projectDir)
-  if (!sessionDir.split(sep).includes(".octo")) return null
-  if (join(sessionDir, "outputs", name) !== projectDir) return null
-  return { sessionDir, name }
+  if (!PROJECT_NAME_RE.test(name)) return null
+  const state = identify(projectDir)
+  return state ? { projectDir, name, state } : null
 }
 
 function pollRequests() {
@@ -653,7 +699,7 @@ function pollRequests() {
   }
   for (const f of files) {
     const p = join(dir, f)
-    let req: { sessionDir?: unknown; projectDir?: unknown } | null = null
+    let req: { projectDir?: unknown } | null = null
     try {
       req = JSON.parse(readFileSync(p, "utf8"))
     } catch {
@@ -666,18 +712,17 @@ function pollRequests() {
     }
     const v = req ? validRequest(req) : null
     if (!v) {
-      log.warn("[fastui] 忽略无效的起服务请求", { file: f })
+      // 带上工程目录:只记文件名时,内网排查拿不到被拒的是哪个路径
+      log.warn("[fastui] 忽略无效的起服务请求", { file: f, projectDir: req?.projectDir })
       continue
     }
-    void open(v.sessionDir, v.name).then((result) => {
+    void openProject(v.projectDir, v.name, v.state).then((result) => {
       if (result.ok) return
-      log.warn("[fastui] 按请求起服务失败", { ...v, error: result.error })
+      log.warn("[fastui] 按请求起服务失败", { projectDir: v.projectDir, error: result.error })
       // 工程解析阶段就失败时 start() 不会被调用,这里补写,让 verify 立即知道。
       // 已有别的记录(可能是一个正在跑的服务)时不覆盖
-      const rec = readRecord(v.sessionDir, v.name)
-      if (!rec || rec.status === "error") {
-        writeErrorRecord(v.sessionDir, v.name, join(v.sessionDir, "outputs", v.name), result)
-      }
+      const rec = readRecord(v.projectDir)
+      if (!rec || rec.status === "error") writeErrorRecord(v.projectDir, result)
     })
   }
 }

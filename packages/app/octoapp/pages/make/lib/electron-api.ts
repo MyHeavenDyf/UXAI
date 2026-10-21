@@ -27,6 +27,12 @@ export interface CodeManifest {
   content: Record<string, string>
 }
 
+/**
+ * fastui 卡片的目标(SPEC-DES-008 §3.7):工作区(= sdk.directory)+ 会话 id + 产物名。
+ * 工程在哪由主进程查(先会话范围、再工作区范围),渲染进程不拼路径 —— 普通 / 代码工作区布局不同。
+ */
+export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
@@ -35,21 +41,20 @@ export type DesktopApi = {
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
    */
   fastuiPreviewOpen?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 「重新编译」:结束当前服务并当场重起 */
   fastuiPreviewRestart?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
+  fastuiResolve?: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
   /**
    * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
-   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。带产物名时导出该工程。
+   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。
    */
   fastuiExportZip?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
