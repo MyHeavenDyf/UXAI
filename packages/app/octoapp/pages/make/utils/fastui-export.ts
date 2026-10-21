@@ -116,6 +116,29 @@ async function probeFastuiProject(target: FastuiTarget): Promise<void> {
   setTimeout(() => void probeFastuiProject(target), RENEGATIVE_PROBE_MS)
 }
 
+/**
+ * 链接卡片里的磁盘路径 → 绝对路径(正斜杠)。与 make/index.tsx 打开链接卡片时的拼法一致:
+ * 绝对路径原样归一,相对路径相对工作区。
+ */
+export function absoluteLinkPath(link: string, workspaceDir: string): string {
+  const p = link.trim().replace(/\\/g, "/")
+  if (/^([A-Za-z]:\/|\/)/.test(p)) return p.replace(/\/+/g, "/")
+  return `${workspaceDir.replace(/\\/g, "/").replace(/\/+$/, "")}/${p}`.replace(/\/+/g, "/")
+}
+
+/**
+ * 文件属于哪个 fastui 工程,返回产物名;不属于、或环境不支持时返回 null(SPEC-DES-008 §3.8)。
+ * 判定在主进程:往上找工程标记,并按卡片的查找顺序反查同一个工程,对不上就不算。
+ */
+export async function fastuiProjectOfFile(target: FastuiTarget, filePath: string): Promise<string | null> {
+  try {
+    const r = await getDesktopApi()?.fastuiProjectOf?.({ ...target, filePath })
+    return r?.ok ? r.name : null
+  } catch {
+    return null
+  }
+}
+
 // ── 导出 ─────────────────────────────────────────────────────────
 const [exportingKey, setExportingKey] = createSignal<string | null>(null)
 

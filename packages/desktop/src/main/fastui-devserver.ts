@@ -32,7 +32,7 @@ import {
 } from "node:fs"
 import net from "node:net"
 import { homedir } from "node:os"
-import { basename, dirname, isAbsolute, join, resolve } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import log from "electron-log/main.js"
 
@@ -190,6 +190,42 @@ export function resolveProject(target: FastuiTarget): Resolved {
     ok: false,
     error: "该预览卡片由旧版本生成，当前对话包含多个产物工程，无法确定对应哪一个。请让助手重新生成预览",
   }
+}
+
+/** `child` 是否在 `parent` 之内(含等于)。win32 的 path.relative 大小写不敏感,斜杠方向也会被 resolve 统一 */
+function within(child: string, parent: string) {
+  const rel = relative(resolve(parent), resolve(child))
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
+}
+
+/** 工程目录不会很深;往上找标记的层数上限,防止异常路径一路爬到盘符根 */
+const MAX_OWNER_DEPTH = 32
+
+/**
+ * 文件 → 它所在的 fastui 工程(SPEC-DES-008 §3.8)。
+ *
+ * 模型直接改了工程里的 `.vue`、只按 octo_make 的规则输出了「被改文件」的路径卡片,没有跑 verify、
+ * 也没输出 `fastui://` 卡片 —— 前端打开这张卡片时问这里,是工程内的文件就按工程打开预览。
+ *
+ * 从文件所在目录逐级往上找标记,不出工作区。找到之后**再按卡片的正常查找顺序反查一次**,
+ * 必须落回同一个目录才算数:`fastui://<产物名>` 点开时走的是 resolveProject,两边对不上
+ * (比如文件在另一个对话的 outputs 里)就宁可不转,也不能打开成别的工程。
+ */
+export function projectOfFile(target: FastuiTarget & { filePath: string }): { ok: true; name: string; projectDir: string } | { ok: false } {
+  const { workspaceDir, filePath } = target
+  if (!workspaceDir || !filePath || !isAbsolute(filePath)) return { ok: false }
+  let dir = dirname(resolve(filePath))
+  for (let depth = 0; depth < MAX_OWNER_DEPTH && within(dir, workspaceDir); depth++) {
+    if (identify(dir)) {
+      const name = basename(dir)
+      const r = resolveProject({ ...target, name })
+      return r.ok && relative(resolve(r.projectDir), dir) === "" ? { ok: true, name, projectDir: dir } : { ok: false }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return { ok: false }
 }
 
 // ── 进程与端口 ───────────────────────────────────────────────────

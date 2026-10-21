@@ -112,6 +112,10 @@ export type ElectronAPI = {
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
   fastuiResolve: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
+  /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区)—— 指向工程内文件的卡片据此按工程打开预览,SPEC-DES-008 §3.8 */
+  fastuiProjectOf: (
+    target: FastuiTarget & { filePath: string },
+  ) => Promise<{ ok: true; name: string; projectDir: string } | { ok: false }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (
     target: FastuiTarget,

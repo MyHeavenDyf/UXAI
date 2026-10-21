@@ -128,3 +128,20 @@ describe("导出代码包按钮", () => {
     expect(probed).toBe(false)
   })
 })
+
+describe("absoluteLinkPath(SPEC-DES-008 §3.8 补预览卡片时把文件卡片的路径转成绝对路径)", () => {
+  test("Windows 绝对路径:反斜杠转正斜杠", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath("C:\\ws\\dash\\packages\\portal\\src\\views\\index.vue", "C:\\ws")).toBe(
+      "C:/ws/dash/packages/portal/src/views/index.vue",
+    )
+  })
+  test("相对路径:相对工作区拼接", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath("dash/packages/portal/src/views/index.vue", "C:\\ws\\")).toBe("C:/ws/dash/packages/portal/src/views/index.vue")
+  })
+  test("Unix 绝对路径:原样归一", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath(" /Users/a//ws/dash/index.vue ", "/Users/a/ws")).toBe("/Users/a/ws/dash/index.vue")
+  })
+})

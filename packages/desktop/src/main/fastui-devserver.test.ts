@@ -278,6 +278,43 @@ describe("resolveProject(SPEC-DES-008 §3.7 查找顺序)", () => {
   })
 })
 
+describe("projectOfFile(SPEC-DES-008 §3.8:指向工程内文件的卡片按工程打开)", () => {
+  const file = (dir: string, rel = "packages/portal/src/views/list/index.vue") => {
+    const p = join(dir, ...rel.split("/"))
+    mkdirSync(dirname(p), { recursive: true })
+    writeFileSync(p, "<template/>")
+    return p
+  }
+  test("代码工作区工程里的文件:找到工程,产物名就是工程目录名", () => {
+    const dir = codeProject("ws-owner", "dash")
+    const r = Host.projectOfFile({ ...codeTarget("ws-owner"), filePath: file(dir) })
+    expect(r).toEqual({ ok: true, name: "dash", projectDir: dir })
+  })
+  test("普通工作区本对话 outputs 里的工程:找到", () => {
+    const s = session("own1", ["alpha"])
+    const r = Host.projectOfFile({ ...target(s), filePath: file(join(s, "outputs", "alpha")) })
+    expect(r.ok && r.name).toBe("alpha")
+  })
+  test("文件在另一个对话的 outputs 里:反查对不上同一个工程,不转 —— 宁可不转也不打开错的", () => {
+    const other = session("own2", ["alpha"])
+    const mine = session("own3", ["beta"])
+    const r = Host.projectOfFile({ ...target(mine), filePath: file(join(other, "outputs", "alpha")) })
+    expect(r.ok).toBe(false)
+  })
+  test("工作区里不属于任何工程的文件、工作区外的文件:都不转", () => {
+    mkdirSync(join(root, "ws-plainfile"), { recursive: true })
+    const loose = join(root, "ws-plainfile", "notes.md")
+    writeFileSync(loose, "x")
+    expect(Host.projectOfFile({ ...codeTarget("ws-plainfile"), filePath: loose }).ok).toBe(false)
+    const outside = codeProject("ws-elsewhere", "dash")
+    expect(Host.projectOfFile({ ...codeTarget("ws-plainfile"), filePath: file(outside) }).ok).toBe(false)
+  })
+  test("相对路径:不转(前端传的必须是绝对路径)", () => {
+    codeProject("ws-rel", "dash")
+    expect(Host.projectOfFile({ ...codeTarget("ws-rel"), filePath: "dash/packages/portal/src/views/index.vue" }).ok).toBe(false)
+  })
+})
+
 describe("清理", () => {
   test("stopAll 结束全部服务进程", async () => {
     const s = session("c1", ["alpha", "beta"])

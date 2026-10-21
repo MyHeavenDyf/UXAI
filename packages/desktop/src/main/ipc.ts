@@ -274,6 +274,12 @@ export function registerIpcHandlers(deps: Deps) {
     const r = FastuiDevServer.resolveProject(target)
     return r.ok ? { ok: true, projectDir: r.projectDir, name: r.name } : { ok: false, error: r.error }
   })
+  // 文件属于哪个 fastui 工程:模型只给了被改文件的路径卡片时,前端据此按工程打开预览(SPEC-DES-008 §3.8)
+  ipcMain.handle(
+    "fastui-project-of",
+    (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget & { filePath: string }) =>
+      FastuiDevServer.projectOfFile(target),
+  )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
   // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
