@@ -440,8 +440,9 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }
     }
     tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skill.label }) })
     const displayName = lookupDisplayName(props.skillConfig?.skill, skill.label) ?? skill.label
-    const result = await sendTextToAgent(`\u200b@${skill.label}\u200b 评估下这个页面: ${filePath}`, {
+    const result = await sendTextToAgent(`\u200b@${skill.label}\u200b 对页面进行评估、评估结果保存到当前目录: ${filePath}`, {
       source: "assessment",
+      timeoutMs: 1200000,
       mentions: [{ id: skill.label, name: skill.label, type: "skill" as const, label: displayName, path: "" }],
     })
     if (!result.ok) showOctoToast({ title: "评估发送失败", description: result.message })
