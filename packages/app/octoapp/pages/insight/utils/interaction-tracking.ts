@@ -1,8 +1,8 @@
 import { tracker } from "@/utils/tracker"
 
 type Fields = Record<string, string | number | boolean | undefined>
-type Status = "success" | "partial" | "failure" | "cancelled"
-type Operation = "files-delete" | "files-upload" | "md-save" | "archive" | "context-compact" | "permission-decision" | "question-response" | "addon-import"
+type Status = "success" | "partial" | "failure" | "cancelled" | "unconfirmed"
+type Operation = "files-delete" | "files-upload" | "md-save" | "archive" | "context-compact" | "permission-decision" | "question-response" | "addon-import" | "canvas-edit" | "canvas-return-save"
 
 export function trackInsight(name: string, fields: Fields = {}) {
   // Telemetry must never turn a completed user action into a failed action.

@@ -104,15 +104,19 @@ const HISTORY_TABS: {
 ]
 
 const RESOLUTION_OPTIONS = ["480P", "720P", "1080P", "4K"]
-const RATIO_OPTIONS: { label: string; value: number }[] = [
-  { label: "21:9", value: 21 / 9 },
-  { label: "16:9", value: 16 / 9 },
-  { label: "4:3", value: 4 / 3 },
-  { label: "3:2", value: 3 / 2 },
-  { label: "1:1", value: 1 },
-  { label: "2:3", value: 2 / 3 },
-  { label: "3:4", value: 3 / 4 },
-  { label: "9:16", value: 9 / 16 },
+// 图片/视频各自不支持的比例：视频没有 2:3/3:2，图片没有 21:9。
+// 选项仍然展示（不做禁用），只是在构造查询时把不适用于目标类型的比例排除掉。
+const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2"])
+const IMAGE_HIDDEN_RATIOS = new Set(["21:9"])
+const RATIO_OPTIONS: { label: string }[] = [
+  { label: "21:9" },
+  { label: "16:9" },
+  { label: "4:3" },
+  { label: "3:2" },
+  { label: "1:1" },
+  { label: "2:3" },
+  { label: "3:4" },
+  { label: "9:16" },
 ]
 
 // 模块级缓存：组件在 <Show> 内随切换挂载/卸载，缓存必须跨挂载保留才能避免重复请求。
@@ -255,6 +259,20 @@ export function StudioHistoryGallery(props: {
     }
   }
 
+  // 筛选时真正生效的比例：分辨率为视频专属，一旦选中结果只可能是视频，
+  // 此时图片专属比例（2:3/3:2）不作为筛选条件；图片 tab 下同理排除 21:9。
+  // 全选当前上下文适用的全部比例等价于不筛选：比例无法判定（NULL）的行只在无比例条件时可见。
+  function effectiveRatios() {
+    const hidden = state.resolutionFilter.size > 0 || state.activeTab === "video"
+      ? VIDEO_HIDDEN_RATIOS
+      : state.activeTab === "image"
+        ? IMAGE_HIDDEN_RATIOS
+        : undefined
+    const applicable = RATIO_OPTIONS.filter((option) => !hidden?.has(option.label))
+    const selected = applicable.filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label)
+    return selected.length === applicable.length ? [] : selected
+  }
+
   // 目录 / tab / 筛选 / 排序 / 手动刷新任一变化即重置到第一页。
   // 不做后台事件驱动的实时刷新：组件在 <Show> 内随切换挂载/卸载，
   // 每次进入"我的资产"时重置副作用触发 loadFirstPage 拉取最新数据；
@@ -266,16 +284,21 @@ export function StudioHistoryGallery(props: {
       tab: state.activeTab,
       sort: state.sortOrder,
       resolution: [...state.resolutionFilter].sort(),
-      ratio: [...state.ratioFilter].sort(),
+      ratio: effectiveRatios().slice().sort(),
     }),
   )
 
   function historyParams(cursor?: string) {
     const tab = state.activeTab
+    const ratios = effectiveRatios()
     return {
-      kind: tab === "all" ? undefined : tab,
-      resolutions: state.resolutionFilter.size > 0 ? [...state.resolutionFilter] : undefined,
-      ratios: state.ratioFilter.size > 0 ? [...state.ratioFilter] : undefined,
+      // 勾了分辨率（即使 4 档全选）结果就只可能是视频；全选档位等价于不筛分辨率，
+      // 让无法识别档位的老视频也能命中。
+      kind: tab === "all" ? (state.resolutionFilter.size > 0 ? "video" : undefined) : tab,
+      resolutions: state.resolutionFilter.size > 0 && !RESOLUTION_OPTIONS.every((option) => state.resolutionFilter.has(option))
+        ? [...state.resolutionFilter]
+        : undefined,
+      ratios: ratios.length > 0 ? ratios : undefined,
       sort: state.sortOrder,
       cursor,
       limit: HISTORY_PAGE_SIZE,
@@ -432,17 +455,34 @@ export function StudioHistoryGallery(props: {
     })
   }
 
+  // 切换画像 tab：清空上一次的筛选，因为分辨率与比例的可见范围随 tab 变化，保留会造成不可见条件。
+  function selectTab(tab: HistoryTab) {
+    if (state.activeTab === tab) return
+    tracker.interaction({ module: "studio", name: "history-tab-switch", extend: JSON.stringify({ tab }) })
+    setState({ activeTab: tab, resolutionFilter: new Set(), ratioFilter: new Set() })
+  }
+
   const allMedia = createMemo(() => {
     const excluded = state.excludedIds
     return state.media.filter((item) => !excluded.has(item.id))
   })
 
-  const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2"])
   const visibleRatioOptions = createMemo(() => {
-    if (state.activeTab === "image") return RATIO_OPTIONS.filter((option) => option.label !== "21:9")
+    if (state.activeTab === "image") return RATIO_OPTIONS.filter((option) => !IMAGE_HIDDEN_RATIOS.has(option.label))
     if (state.activeTab === "video") return RATIO_OPTIONS.filter((option) => !VIDEO_HIDDEN_RATIOS.has(option.label))
     return RATIO_OPTIONS
   })
+
+  // 已选筛选值的展示文案：分辨率在前、比例在后，用「、」连成一行，筛选按钮据此切换为「已筛选：…」。
+  const activeFilterLabels = createMemo(() => [
+    ...RESOLUTION_OPTIONS.filter((option) => state.resolutionFilter.has(option)),
+    ...visibleRatioOptions().filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label),
+  ])
+
+  function clearFilters(event: MouseEvent) {
+    event.stopPropagation()
+    setState({ resolutionFilter: new Set(), ratioFilter: new Set() })
+  }
 
   const hasSelection = createMemo(() => Object.values(selectedItems).some(Boolean))
 
@@ -513,7 +553,10 @@ export function StudioHistoryGallery(props: {
       </Show>
       <Show when={detailItem()} fallback={
         <>
-      <div class="studio-file-manager-header">
+      <div
+        class="studio-file-manager-header"
+        classList={{ "studio-history-header--batch": state.batchMode }}
+      >
         <div class="studio-history-header-left">
           <div class="studio-file-manager-tabs">
             <For each={HISTORY_TABS}>
@@ -522,16 +565,7 @@ export function StudioHistoryGallery(props: {
                   type="button"
                   class="studio-file-manager-tab"
                   classList={{ active: state.activeTab === tab.key }}
-                  onClick={() => setState((prev) => {
-                    tracker.interaction({ module: "studio", name: "history-tab-switch", extend: JSON.stringify({ tab: tab.key }) })
-                    const hidden = tab.key === "image" ? new Set(["21:9"]) : tab.key === "video" ? VIDEO_HIDDEN_RATIOS : new Set<string>()
-                    const ratioNeedsClean = [...prev.ratioFilter].some((r) => hidden.has(r))
-                    return {
-                      activeTab: tab.key,
-                      ...(tab.key === "image" && prev.resolutionFilter.size > 0 ? { resolutionFilter: new Set() } : {}),
-                      ...(ratioNeedsClean ? { ratioFilter: new Set([...prev.ratioFilter].filter((r) => !hidden.has(r))) } : {}),
-                    }
-                  })}
+                  onClick={() => selectTab(tab.key)}
                 >
                   {language.t(tab.label)}
                 </button>
@@ -542,22 +576,41 @@ export function StudioHistoryGallery(props: {
           <DropdownMenu gutter={4} placement="bottom" open={state.showFilter} onOpenChange={(open) => setState("showFilter", open)}>
             <DropdownMenu.Trigger
               class="studio-history-filter-trigger"
-              classList={{ "studio-history-filter-trigger--open": state.showFilter }}
+              classList={{
+                "studio-history-filter-trigger--open": state.showFilter,
+                "studio-history-filter-trigger--filtered": activeFilterLabels().length > 0,
+              }}
             >
-              <span>{language.t("studio.history.filter")}</span>
-              <svg
-                width="10"
-                height="6"
-                viewBox="0 0 10 6"
-                fill="none"
-                style={{
-                  "margin-left": "4px",
-                  transform: state.showFilter ? "rotate(180deg)" : "rotate(0deg)",
-                  transition: "transform 0.15s ease",
-                }}
+              <Show
+                when={activeFilterLabels().length > 0}
+                fallback={<span>{language.t("studio.history.filter")}</span>}
               >
-                <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+                <span class="studio-history-filter-active">
+                  <span class="studio-history-filter-active-prefix">{language.t("studio.history.filter.active")}</span>{activeFilterLabels().join("、")}
+                </span>
+                <span
+                  class="studio-history-filter-clear"
+                  role="button"
+                  aria-label={language.t("studio.history.filter.clear")}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={clearFilters}
+                />
+              </Show>
+              <Show when={activeFilterLabels().length === 0}>
+                <svg
+                  width="10"
+                  height="6"
+                  viewBox="0 0 10 6"
+                  fill="none"
+                  style={{
+                    "margin-left": "4px",
+                    transform: state.showFilter ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.15s ease",
+                  }}
+                >
+                  <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </Show>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="studio-history-filter-menu studio-history-filter-menu--scrollable">
@@ -754,7 +807,17 @@ export function StudioHistoryGallery(props: {
                                 kind: item.kind,
                                 url: item.url,
                                 remoteUrl: item.url,
-                                thumbnailUrl: item.thumbnailUrl,
+                                // DB 里存的是相对路径 `.octo/<sid>/thumbnails/...`,
+                                // 不经 /artifact/serve 直接当 <img src> 会被浏览器解析成
+                                // `http://host/.octo/...` 而 404；这里解析为 serve URL,
+                                // 同时保留 thumbnail 形态供 isStudioThumbnailUrl 判别。
+                                thumbnailUrl: item.thumbnailUrl
+                                  ? resolveStudioThumbnailUrl({
+                                      value: item.thumbnailUrl,
+                                      sdkUrl: server.current?.http.url ?? "",
+                                      directory: props.directory,
+                                    })
+                                  : undefined,
                                 thumbnailStatus: item.thumbnailStatus,
                               }}
                               duration={item.duration}

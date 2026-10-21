@@ -55,7 +55,7 @@ export type ElectronAPI = {
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
-  importSharedSession: (uniqueId: string, directory: string) => Promise<SharedSessionResult | null>
+  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session") => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>

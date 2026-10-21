@@ -24,14 +24,10 @@ export type DesktopStorage = {
 //
 // The sidecar resolves its config dir via xdg-basedir (`env.XDG_CONFIG_HOME ||
 // ~/.config`) AFTER sidecar.ts prepareSidecarEnv applied storage.env over
-// process.env. Main-process code that manages files the server reads by its
-// storage-visible path (global octo.json / MCP 配置) MUST use these helpers
+// process.env. Main-process code that deploys or manages files the server
+// reads (skills, skill_config.json, global octo.json) MUST use these helpers
 // instead of raw process.env — otherwise app-data-fallback mode splits the
-// write location from the read location.
-// 例外:技能库与资产库(skill 目录 / skills.json / skill_config.json /
-// assets_config.json)2026-10 起恒定 ~/.config/octo,不走这些 helpers —— 以标准
-// XDG 目录为唯一权威落点;代价是 ~/.config/octo 不可写的机器上 skill/资产
-// 部署与写入会失败(部署仅 warn 不阻塞)。
+// deploy location from the scan location and the server finds nothing.
 // Empty-string XDG values count as unset (`||`, matching xdg-basedir).
 // ---------------------------------------------------------------------------
 

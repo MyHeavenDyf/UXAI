@@ -150,10 +150,10 @@ export const SessionRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", z.object({ path: z.string().min(1) })),
+      validator("json", z.object({ path: z.string().min(1), scope: z.enum(["project", "session"]).optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableImport", c, function* () {
-          return yield* importPortableSession(c.req.valid("json").path)
+          return yield* importPortableSession(c.req.valid("json").path, c.req.valid("json").scope)
         }),
     )
     .post(
@@ -181,12 +181,13 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("json", z.object({ path: z.string().min(1) })),
+      validator("json", z.object({ path: z.string().min(1), scope: z.literal("project").optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableExport", c, function* () {
           return yield* exportPortableSession({
             sessionID: c.req.valid("param").sessionID,
             output: c.req.valid("json").path,
+            scope: c.req.valid("json").scope,
           })
         }),
     )
@@ -209,11 +210,13 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("query", z.object({ scope: z.literal("project").optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableShare", c, function* () {
           return yield* sharePortableSession({
             sessionID: c.req.valid("param").sessionID,
             headers: Object.fromEntries(c.req.raw.headers.entries()),
+            scope: c.req.valid("query").scope,
           }).pipe(
             Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
           )

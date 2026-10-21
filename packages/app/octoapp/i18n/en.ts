@@ -6,6 +6,8 @@ export const dict = {
   "studio.history.sort": "Sort",
   "studio.history.filter.resolution": "Resolution",
   "studio.history.filter.ratio": "Aspect ratio",
+  "studio.history.filter.active": "Filtered: ",
+  "studio.history.filter.clear": "Clear filters",
   "studio.history.sort.time": "Time order",
   "studio.history.sort.desc": "Newest first",
   "studio.history.sort.asc": "Oldest first",
@@ -25,7 +27,7 @@ export const dict = {
   "studio.history.empty.file": "No related files",
   "studio.history.retry": "Retry",
   "studio.history.delete.title": "Confirm delete",
-  "studio.history.delete.message": "Deleted history cannot be recovered",
+  "studio.history.delete.message": "Deleted assets cannot be recovered",
   "studio.history.sessionDeleted": "This session was deleted; only its media remains in history.",
   "studio.history.openSession": "View session",
   "studio.history.back": "Back",
@@ -777,6 +779,25 @@ export const dict = {
   "settings.section.server": "Server",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
+
+  "settings.workspaceUpgrade.title": "Workspace upgrade",
+  "settings.workspaceUpgrade.description":
+    "Upgrade normal workspaces to code workspaces: artifact files are copied into the workspace output/ directory and renamed, and file references in chat history are updated accordingly. The database is backed up before upgrading, and the original .octo artifact folders are kept. This cannot be undone.",
+  "settings.workspaceUpgrade.counts": "{{sessions}} sessions · {{files}} files",
+  "settings.workspaceUpgrade.noArtifacts": "No artifacts",
+  "settings.workspaceUpgrade.previewFailed": "Preview unavailable",
+  "settings.workspaceUpgrade.button": "Upgrade",
+  "settings.workspaceUpgrade.buttonBusy": "Upgrading...",
+  "settings.workspaceUpgrade.confirm.title": "Upgrade to code workspace",
+  "settings.workspaceUpgrade.confirm.description":
+    "Upgrade \"{{name}}\" to a code workspace: {{files}} artifact files from {{sessions}} sessions will be copied into the output/ directory and renamed, and references in chat history will be updated. The database is backed up before upgrading, and the original .octo artifact folders are kept. This cannot be undone.",
+  "settings.workspaceUpgrade.confirm.unknown":
+    "Upgrade \"{{name}}\" to a code workspace. Artifact statistics for this workspace could not be loaded; the actual scan at upgrade time will be used.",
+  "settings.workspaceUpgrade.success.title": "Workspace upgraded",
+  "settings.workspaceUpgrade.success.description":
+    "Migrated {{files}} files from {{sessions}} sessions; the database was backed up to {{backup}} and can be deleted once verified",
+  "settings.workspaceUpgrade.failed": "Upgrade failed",
+  "settings.workspaceUpgrade.unsupported": "This feature is not available in the current version, please update and try again",
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL integration",
   "settings.desktop.wsl.description": "Run the OctoAI server inside WSL on Windows.",

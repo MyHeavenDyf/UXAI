@@ -57,7 +57,7 @@ type SessionEntry = {
 
 type FileEntry = {
   sessionID: string
-  scope?: "session" | "design-history"
+  scope?: "session" | "design-history" | "project"
   directory: string
   path: string
   size: number
@@ -79,6 +79,34 @@ if (!manifest.sessions.some((item) => item.info.id === manifest.rootSessionID)) 
 `sourceDirectory` 只用于识别导出前的旧路径。在线查看器不能直接访问该目录，也不应向用户暴露完整本地路径。
 
 `exclusions` 会明确列出未导出的内容。目前通常不包含凭据、权限、分享链接、运行中的进程和工作区绑定。
+
+代码工作区分享会传入 `?scope=project`；直接导出时在 JSON 中传入 `scope: "project"`。
+此时收集整个工作区共享目录中的文件，使用 `scope: "project"` 标记，每个文件只收集一次，不按 Session 重复。
+仍按整个共享目录导出，不按 Session 引用缩减文件；另外补收集当前页面的本地静态依赖，不改变现有文件管理业务逻辑。
+共享文件保留相对工作区根目录的路径，跳过隐藏条目、`node_modules`、符号链接和本次导出目标 ZIP。
+普通工作区不传 `scope`，继续只导出会话私有文件。代码工作区的 ZIP 可能包含其他会话生成或上传的共享文件，但不会额外包含其他会话的聊天记录。
+导入时共享文件恢复到选中的工作区目录；已有文件内容相同则保留，内容不同则提示冲突并停止，不覆盖。
+导入到代码工作区时，请在 `POST /session/import` 请求体中传入 `scope: "project"`（桌面端打开分享会根据目标工作区自动传入）。
+此时旧包中会话私有的 `uploads/**` 附件和 `outputs/**` 产物会额外复制到目标工作区根目录，保留各自子目录下的相对目录，供共享文件列表读取；私有副本和聊天附件引用保持不变。
+导入老目录（私有文件管理）时传入 `scope: "session"`。会话私有文件按新 Session ID 恢复；共享文件树整体恢复到 `.octo/<新SessionID>/outputs/`，保留 HTML/CSS/图片之间的相对依赖。用户消息中有明确本地附件记录的文件另存一份到 `uploads/`；没有来源信息的旧包文件统一归入产物，不根据扩展名猜测。聊天中的已知文件路径和 file URL 同步改写到私有落点。
+桌面端会根据目标目录自动传入导入模式。省略 `scope` 的旧客户端保持原有行为，不自动转换共享文件到私有目录。
+共享附件同名且内容相同则复用，内容不同则在写入前报冲突，不覆盖已有文件；ZIP 未包含的附件无法凭空恢复。
+导入只恢复 `manifest.files` 中的文件；之前按需导出的 ZIP 不会自动补齐文件，需要重新导出。
+文件读取并发上限为 8，相同内容通过 Blob 哈希去重。
+
+### 页面静态依赖
+
+导出从非隐藏目录内的 HTML/SVG 页面和 JSX/TSX 页面源码开始，递归分析其 CSS、JS/JSX/TS/TSX 依赖，解析静态资源地址、CSS `url()`/`@import`、模块引用和 `assets/` 资源常量；普通 JS/TS 源码仅在被页面引用时分析。JS 字符串示例不当作模块执行或导入，UMD/Browserify 的内部 `require()` ID 不作为缺失文件报错。隐藏历史快照仍原样保留，但不单独要求其相对资源地址可独立运行。
+
+本地依赖保留在页面对应的相对目录中。工作区内资源可读取；工作区外仅允许已安装的 `octo/skill(s)/ict-react-coder/scripts/preview/assets` 资源目录，并限制为静态资源类型。符号链接按受限解析后的真实文件内容打包，导入后恢复为普通文件，不依赖对方电脑的 Skill 目录。
+
+HTML 注释和 `data-src` 等非资源属性不参与依赖收集，内联及外置 JSX 同样适用。脚本中只在 `src`、`href`、`poster`、`image`、`backgroundImage` 等已支持资源赋值位置收集静态 `assets/` 字符串，不把无关字符串常量当作资源。`link` 按 `rel` 筛选样式表、图标及预加载资源，忽略 canonical、alternate 等元信息链接。外置脚本中的静态资源地址按引用它的 HTML 页面（含 `<base href>`）解析，并沿模块导入保留此上下文；模块导入及 `new URL(..., import.meta.url)` 则仍按脚本自身的位置解析。同一脚本被不同页面引用时分别收集对应资源，但复用文件解析结果。
+
+资源位置还支持 JSX `srcSet`、`setAttribute("src", ...)` 等静态调用，以及同一脚本中 `const` 字符串和常量别名（含前向引用）。只追踪实际用于资源位置的常量，别名追踪最多 32 层并检测循环；重复名称无法确认绑定时不猜测，不执行函数或表达式。动态拼接、跨模块变量传值不保证自动识别。
+
+必需静态依赖不存在、越界或超过安全分析限制时明确报错，不生成新的不完整 ZIP。不会执行页面、不会自动下载远端资源。单个文本依赖分析上限为 4 MiB，并发上限为 4（目录扫描并发 2），循环引用去重；缓存最多 16 个已读文件，供写入复用。动态计算路径和远端接口访问不保证离线可用。
+
+旧 ZIP 缺少的文件不会凭空恢复，需要在原资源可用的环境重新导出；已有 ZIP 的格式和导入接口保持兼容。
 
 ## 4. Session 结构
 
@@ -314,6 +342,7 @@ function logicalFilePath(file: FileEntry) {
     .filter((part) => part && part !== ".")
     .join("/")
 
+  if (file.scope === "project") return tail
   if (file.scope === "design-history") {
     return `.octo/design/history/${file.sessionID}/${tail}`
   }

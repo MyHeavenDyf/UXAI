@@ -24,6 +24,7 @@ export function parseSharedSessionLink(input: string) {
 export async function importSharedSession(input: {
   uniqueId: string
   directory: string
+  scope?: "project" | "session"
   uploadURL: string
   server: { url: string; username: string | null; password: string | null }
   remoteFetch: typeof fetch
@@ -58,7 +59,7 @@ export async function importSharedSession(input: {
       } : {}),
     }
     const imported = await fetch(new URL("/session/import", input.server.url), {
-      method: "POST", headers, body: JSON.stringify({ path: archive }),
+      method: "POST", headers, body: JSON.stringify({ path: archive, scope: input.scope }),
     })
     if (!imported.ok) throw new Error(`导入分享对话失败：${imported.status}`)
     const result = Schema.decodeUnknownSync(ImportResult)(await imported.json())

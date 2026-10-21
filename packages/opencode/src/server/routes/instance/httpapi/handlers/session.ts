@@ -36,7 +36,9 @@ import {
   MessagesQuery,
   PreviewQuery,
   PermissionResponsePayload,
-  PortablePathPayload,
+  PortableImportPayload,
+  PortableExportPayload,
+  PortableScopeQuery,
   PromptPayload,
   ReorderPayload,
   RevertPayload,
@@ -92,27 +94,29 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const portableImport = Effect.fn("SessionHttpApi.portableImport")(function* (ctx: {
-      payload: typeof PortablePathPayload.Type
+      payload: typeof PortableImportPayload.Type
     }) {
-      return yield* importPortableSession(ctx.payload.path)
+      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope)
     })
 
     const portableExport = Effect.fn("SessionHttpApi.portableExport")(function* (ctx: {
       params: { sessionID: SessionID }
-      payload: typeof PortablePathPayload.Type
+      payload: typeof PortableExportPayload.Type
     }) {
       return yield* SessionError.mapStorageNotFound(
-        exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path }),
+        exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path, scope: ctx.payload.scope }),
       )
     })
 
     const portableShare = Effect.fn("SessionHttpApi.portableShare")(function* (ctx: {
       params: { sessionID: SessionID }
+      query: typeof PortableScopeQuery.Type
     }) {
       yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
       return yield* sharePortableSession({
         sessionID: ctx.params.sessionID,
         headers: (yield* HttpServerRequest.HttpServerRequest).headers,
+        scope: ctx.query.scope,
       }).pipe(
         Effect.mapError((error) => new ApiBadRequestError({ message: error.message })),
       )

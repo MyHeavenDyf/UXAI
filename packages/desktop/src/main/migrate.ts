@@ -139,14 +139,10 @@ export function migrate() {
   getStore().set(TAURI_MIGRATED_KEY, true)
 }
 
-// 恒定 ~/.config/octo(standardXdgConfigHome = XDG_CONFIG_HOME || ~/.config,与 ipc.ts
-// getOctoConfigPath 同语义)—— 技能库不随 app-data-fallback 覆盖漂移到 <userData>/xdg-config。
-function constantOctoConfigDir() {
-  return join(standardXdgConfigHome(), "octo")
-}
-
 export function deploySkillsJson(options?: { configDir?: string; sourcePath?: string }) {
-  const configDir = options?.configDir ?? constantOctoConfigDir()
+  // 跟随 sidecar 实际读到的 octoConfig(app-data-fallback 覆盖时随之迁移),
+  // 不再硬编码 ~/.config/octo —— 否则 server 扫描目录与部署目录分裂。
+  const configDir = options?.configDir ?? octoConfigDir()
   const targetPath = join(configDir, "skills.json")
 
   const sourcePath =
@@ -190,7 +186,7 @@ export function deploySkillsJson(options?: { configDir?: string; sourcePath?: st
 }
 
 export function deployBuiltinSkills(options?: { configDir?: string; skillsSource?: string }) {
-  const octoSkillDir = join(options?.configDir ?? constantOctoConfigDir(), "skill")
+  const octoSkillDir = join(options?.configDir ?? octoConfigDir(), "skill")
 
   // Skills are now flattened in dist/node/skill/ during build
   const builtinSource =
