@@ -355,17 +355,15 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const list = await historyStore.listVersions(tab)
     if (seq !== listGeneration) return
     callbacks.setVersionList(() => list)
-    const files = await getTabFiles(tab)
-    const currentHash = await getTabFileSetHash(tab)
-    let currentId = list[0]?.id ?? null
-    if (list.length > 0) {
-      const matched = await findMatchingVersion(tab, files, list)
-      if (matched) currentId = matched.id
-    }
+
+    const persistedId = getPersistedCurrentId(tab.filePath!)
+    const persistedEntry = persistedId ? list.find((e) => e.id === persistedId) : undefined
+    let currentId = persistedEntry?.id ?? list[0]?.id ?? null
     if (seq !== listGeneration) return
     callbacks.setCurrentVersionId(() => currentId)
-    if (currentHash) {
-      lastFileHash.set(tab.filePath!, currentHash)
+    const hash = await getTabFileSetHash(tab)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
     }
     if (currentId) {
       setPersistedCurrentId(tab.filePath!, currentId)
@@ -384,13 +382,6 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!hCur || !hVer || hCur !== hVer) return false
     }
     return true
-  }
-
-  async function findMatchingVersion(tab: ResultTab, files: string[], list: VersionEntry[]): Promise<VersionEntry | null> {
-    for (const entry of list) {
-      if (await currentMatchesVersion(tab, files, entry.id)) return entry
-    }
-    return null
   }
 
   async function refreshVersions(tab: ResultTab): Promise<void> {
