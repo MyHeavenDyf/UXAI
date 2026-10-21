@@ -15,6 +15,22 @@ export interface HistoryControllerCallbacks {
   isActiveTab: (id: string) => boolean
 }
 
+export function removePersistedCurrentBySession(projectDir: string, sessionId: string): void {
+  if (!projectDir || !sessionId) return
+  const base = [projectDir.replace(/\\/g, "/"), ".octo", sessionId, "outputs"].join("/")
+  const prefix = "octo:history:current:"
+  try {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const p = k.slice(prefix.length).replace(/\\/g, "/")
+      if (p === base || p.startsWith(base + "/")) keys.push(k)
+    }
+    keys.forEach((k) => localStorage.removeItem(k))
+  } catch {}
+}
+
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   const historyStore = createHistoryStore()
   const writingTabs = new Set<string>()
@@ -78,6 +94,20 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     return true
   }
 
+  function getPersistedCurrentId(filePath: string): string | null {
+    try {
+      return localStorage.getItem("octo:history:current:" + filePath)
+    } catch {
+      return null
+    }
+  }
+
+  function setPersistedCurrentId(filePath: string, id: string): void {
+    try {
+      localStorage.setItem("octo:history:current:" + filePath, id)
+    } catch {}
+  }
+
   async function trigger(tab: ResultTab, event: HistoryTriggerEvent, actor: HistoryActor): Promise<void> {
     if (!isEligible(tab)) return
     const handler = getSubtypeHandler(tab.subtype)
@@ -90,10 +120,13 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        let newestId = existing[0].id
+        const persistedId = getPersistedCurrentId(tab.filePath!)
+        const persistedEntry = persistedId ? existing.find((e) => e.id === persistedId) : undefined
+        let newestId = persistedEntry?.id ?? existing[0].id
+        const compareTarget = persistedEntry ?? existing[0]
         const currentHash = await getTabFileSetHash(tab)
         if (currentHash) {
-          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
+          const versionFiles = await historyStore.getVersionFiles(compareTarget.id, tab, files)
           const hashes: string[] = []
           for (const vf of versionFiles) {
             const h = await getFileHash(vf.filePath)
@@ -103,6 +136,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
             const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
             if (entry) {
               newestId = entry.id
+              setPersistedCurrentId(tab.filePath!, entry.id)
               listGeneration++
               if (callbacks.isActiveTab(tab.id)) {
                 const list = await historyStore.listVersions(tab)
@@ -151,6 +185,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       } else {
         callbacks.setVersionList((prev) => [entry, ...prev])
       }
+      setPersistedCurrentId(tab.filePath!, entry.id)
     }
   }
 
@@ -166,6 +201,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
         await handler.applyVersionFiles(ctx, files)
       }
       callbacks.setCurrentVersionId(() => entry.id)
+      setPersistedCurrentId(tab.filePath!, entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
       const hash = await getTabFileSetHash(tab)
       if (hash) {
@@ -332,6 +368,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     callbacks.setCurrentVersionId(() => currentId)
     if (currentHash) {
       lastFileHash.set(tab.filePath!, currentHash)
+    }
+    if (currentId) {
+      setPersistedCurrentId(tab.filePath!, currentId)
     }
   }
 
