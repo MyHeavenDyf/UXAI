@@ -275,7 +275,7 @@ export const layer = Layer.effect(
       console.info("[TitleModel] selected", titleModelLog)
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)
+        : yield* MessageV2.toModelMessagesEffect(titleContext, mdl, { stripMedia: true })
       const text = yield* llm
         .stream({
           agent: ag,
