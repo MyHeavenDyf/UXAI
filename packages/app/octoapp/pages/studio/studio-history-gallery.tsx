@@ -104,11 +104,11 @@ const HISTORY_TABS: {
 ]
 
 const RESOLUTION_OPTIONS = ["480P", "720P", "1080P", "4K"]
-// 图片/视频各自不支持的比例：视频没有 2:3/3:2/自定义，图片没有 21:9。
+// 图片/视频各自不支持的比例：视频没有 2:3/3:2，图片没有 21:9。
 // 选项仍然展示（不做禁用），只是在构造查询时把不适用于目标类型的比例排除掉。
-const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2", "自定义"])
+const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2"])
 const IMAGE_HIDDEN_RATIOS = new Set(["21:9"])
-const RATIO_OPTIONS: { label: string; custom?: boolean }[] = [
+const RATIO_OPTIONS: { label: string }[] = [
   { label: "21:9" },
   { label: "16:9" },
   { label: "4:3" },
@@ -117,7 +117,6 @@ const RATIO_OPTIONS: { label: string; custom?: boolean }[] = [
   { label: "2:3" },
   { label: "3:4" },
   { label: "9:16" },
-  { label: "自定义", custom: true },
 ]
 
 // 模块级缓存：组件在 <Show> 内随切换挂载/卸载，缓存必须跨挂载保留才能避免重复请求。
@@ -261,7 +260,7 @@ export function StudioHistoryGallery(props: {
   }
 
   // 筛选时真正生效的比例：分辨率为视频专属，一旦选中结果只可能是视频，
-  // 此时图片专属比例（2:3/3:2/自定义）不作为筛选条件；图片 tab 下同理排除 21:9。
+  // 此时图片专属比例（2:3/3:2）不作为筛选条件；图片 tab 下同理排除 21:9。
   // 全选当前上下文适用的全部比例等价于不筛选：比例无法判定（NULL）的行只在无比例条件时可见。
   function effectiveRatios() {
     const hidden = state.resolutionFilter.size > 0 || state.activeTab === "video"
@@ -610,7 +609,7 @@ export function StudioHistoryGallery(props: {
                         onChange={() => toggleFilterValue("ratioFilter", option.label)}
                         closeOnSelect={false}
                       >
-                        <DropdownMenu.ItemLabel>{option.custom ? language.t("studio.history.filter.customRatio") : option.label}</DropdownMenu.ItemLabel>
+                        <DropdownMenu.ItemLabel>{option.label}</DropdownMenu.ItemLabel>
                         <DropdownMenu.ItemIndicator>
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                             <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />

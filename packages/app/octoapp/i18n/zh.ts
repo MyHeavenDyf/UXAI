@@ -10,7 +10,6 @@ export const dict = {
   "studio.history.sort": "排序",
   "studio.history.filter.resolution": "分辨率",
   "studio.history.filter.ratio": "比例",
-  "studio.history.filter.customRatio": "自定义",
   "studio.history.sort.time": "时间顺序",
   "studio.history.sort.desc": "近-远",
   "studio.history.sort.asc": "远-近",
