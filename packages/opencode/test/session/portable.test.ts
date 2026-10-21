@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 import { symlink } from "node:fs/promises"
 import JSZip from "jszip"
 import { Effect } from "effect"
+import { Global } from "@opencode-ai/core/global"
 import { AppRuntime } from "@/effect/app-runtime"
 import { MessageV2 } from "@/session/message-v2"
 import {
@@ -25,6 +26,36 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("exports installed preview assets as real files and imports them into private and shared layouts", async () => {
+    await using source = await tmpdir({ git: true })
+    await using resources = await tmpdir()
+    await using target = await tmpdir({ git: true })
+    const assets = path.join(resources.path, "skill", "ict-react-coder", "scripts", "preview", "assets")
+    await Bun.write(path.join(assets, "library/babel.min.js"), "window.Babel = {}")
+    await Bun.write(path.join(assets, "font/Regular.woff2"), "font bytes")
+    await Bun.write(path.join(assets, "library/unused.js"), "not referenced")
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Linked preview assets" }))
+      const preview = path.join(source.path, ".octo", session.id, "outputs", "preview")
+      await Bun.write(path.join(preview, "index.page.html"), '<script src="assets/library/babel.min.js"></script><style>@font-face { src: url("assets/font/Regular.woff2") }</style>')
+      await symlink(assets, path.join(preview, "assets"), process.platform === "win32" ? "junction" : "dir")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip") }).pipe(
+        Effect.provideService(Global.Service, Global.make({ octoConfig: resources.path })),
+      ))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "outputs/preview/assets/font/Regular.woff2", "outputs/preview/assets/library/babel.min.js", "outputs/preview/index.page.html",
+    ])
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const privateSession = await AppRuntime.runPromise(importPortableSession(exported.output, "session"))
+      expect(await Bun.file(path.join(target.path, ".octo", privateSession.sessionID, "outputs/preview/assets/library/babel.min.js")).text()).toBe("window.Babel = {}")
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      expect(await Bun.file(path.join(target.path, "preview/assets/font/Regular.woff2")).text()).toBe("font bytes")
+    } })
+  })
+
   test("imports a shared archive privately into its source directory without rewriting paths twice", async () => {
     await using source = await tmpdir({ git: true })
     await provideTestInstance({ directory: source.path, fn: async () => {
