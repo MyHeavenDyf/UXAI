@@ -304,6 +304,7 @@ const pageHandler = {
     const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
     downloadingTabs.add(tab.id)
     try {
+      const startTime = Date.now()
       const result = await antdToEviewOrchestrator({
         sdk: sdk!,
         sync,
@@ -336,9 +337,76 @@ const pageHandler = {
         }).catch(() => {})
       }
 
+      const elapsedMs = Date.now() - startTime
+      const secs = Math.round(elapsedMs / 1000)
+      const duration = secs < 60
+        ? `${secs} 秒`
+        : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
+
+      const msgResult = await sdk!.client.session.messages({ sessionID: childSessionId }).catch((err: unknown) => {
+        console.warn('[antd→eview orchestrator] 获取消息失败:', err)
+        return null
+      })
+      const msgItems = (msgResult?.data ?? []) as Array<{
+        info: {
+          role?: string
+          agent?: string
+          modelID?: string
+          cost?: number
+          tokens?: { input?: number; output?: number }
+          time?: { created?: number; completed?: number }
+        }
+        parts: unknown[]
+      }>
+      const assistantMsgs = msgItems.filter(item => item.info.role === 'assistant')
+      const totalCost = assistantMsgs.reduce((sum, item) => sum + (item.info.cost ?? 0), 0)
+      const totalTokens = assistantMsgs.reduce((sum, item) => sum + ((item.info.tokens?.input ?? 0) + (item.info.tokens?.output ?? 0)), 0)
+
+      console.log('[antd→eview orchestrator] 消息记录:', {
+        childSessionId,
+        messageCount: msgItems.length,
+        duration,
+        totalCost,
+        totalTokens,
+        messages: msgItems.map(item => ({
+          role: item.info.role,
+          agent: item.info.agent,
+          model: item.info.modelID,
+          time: item.info.time,
+          cost: item.info.cost,
+          tokens: item.info.tokens,
+          partCount: item.parts.length,
+        })),
+      })
+      console.log('[antd→eview orchestrator] 完整消息:', msgItems)
+
+      const desktopApi = ctx.getDesktopApi()
+      if (desktopApi?.writeFileBuffer) {
+        const debugPath = `${sdk!.directory}/.octo/${sessionId}/debug-log/orchestrator-${childSessionId}.json`
+        const payload = JSON.stringify({
+          childSessionId,
+          rootSessionId: sessionId,
+          savedAt: Date.now(),
+          duration,
+          totalCost,
+          totalTokens,
+          messages: msgItems,
+        }, null, 2)
+        await desktopApi.writeFileBuffer(debugPath, new TextEncoder().encode(payload).buffer).then(
+          () => console.log('[antd→eview orchestrator] 消息已保存至:', debugPath),
+          (err: unknown) => console.warn('[antd→eview orchestrator] 消息持久化失败:', err),
+        )
+      }
+
+      const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
+      const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
+
       setAgentExecution(null)
       dismissOctoToast(loadingId)
-      // showOctoToast({ title: '已下载' })
+      ctx.showOctoToast({
+        title: '编排完成',
+        description: `耗时 ${duration} · 上下文 ${tokensStr} tokens${costStr}`,
+      })
       return true
     } catch (e) {
       setAgentExecution(null)
@@ -366,6 +434,39 @@ const pageHandler = {
         },
       ],
     },
+  },
+
+  async buildArchiveSrc(ctx) {
+    try {
+      const api = ctx.getDesktopApi()
+      if (!api?.listDirectory || !api?.readFileBuffer) return null
+      const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
+      if (!filePath) return null
+      const codeDir = `${filePath.replace(/[/\\][^/\\]+$/, '').replace(/[/\\][^/\\]+$/, '')}/download-eview-react`
+
+      const listFiles = async () =>
+        ((await api.listDirectory!(codeDir)) ?? []).filter(e => e.type === 'file')
+
+      let files = await listFiles()
+      if (files.length === 0) {
+        ctx.showOctoToast({ title: '代码包尚未生成，正在触发下载流程...' })
+        await pageHandler.handleDownload(ctx)
+        files = await listFiles()
+      }
+      if (files.length === 0) return null
+
+      const out: { path: string; content: Uint8Array }[] = []
+      for (const entry of files) {
+        const rel = entry.path.replace(/\\/g, '/')
+        if (rel.startsWith('node_modules/')) continue
+        const buf = await api.readFileBuffer(`${codeDir}/${rel}`)
+        if (buf) out.push({ path: `download-eview-react/${rel}`, content: new Uint8Array(buf) })
+      }
+      return { files: out }
+    } catch (err) {
+      console.warn('[Archive] buildArchiveSrc failed:', err)
+      return null
+    }
   },
 
   /** 历史记录入口 1：'.'（index.page.html 自身）+ 动态发现的源码文件（样式/脚本等）。
