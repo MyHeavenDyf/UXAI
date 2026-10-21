@@ -5,7 +5,7 @@ import defaultHandler, { defaultModelEditConfig, directModelEditConfig, Download
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
-import { createSignal } from 'solid-js'
+import { createSignal, createRoot, createEffect } from 'solid-js'
 import type { JSX } from 'solid-js'
 import JSZip from 'jszip'
 import { createHistoryStore, fnv1aHash, relativePathToId, resolveRelativePath, getExt, VERSION_MANIFEST_FILE } from '../utils/history-store'
@@ -235,6 +235,41 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
   return Promise.resolve()
 }
 
+/** 等待子 session 真正跑完（session_status 离开 busy/retry）。
+ *  antd_to_eview_orchestrator 是多轮编排 agent，每轮都产出一条 completed 的
+ *  assistant 消息，getResultFromMessages 会在首轮完成即返；用 session_status 兜底
+ *  等整条流水线结束再继续归档/返回，避免内网偶发"agent 没跑完就往下走"。
+ *  超时则放行（agent 仍可在后台继续，归档不会中断它）并返回 'timeout' 让调用方提示。
+ *  返回 'idle' 表示 session_status 真正转闲；'timeout' 表示到达 timeoutMs 仍在忙。 */
+function waitSessionIdle(
+  sync: { data: { session_status?: Record<string, { type?: string } | undefined> } },
+  sessionID: string,
+  timeoutMs = 120 * 60 * 1000,
+): Promise<'idle' | 'timeout'> {
+  return new Promise<'idle' | 'timeout'>((resolve) => {
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (dispose: () => void, result: 'idle' | 'timeout') => {
+      if (disposed) return
+      disposed = true
+      if (timer) clearTimeout(timer)
+      dispose()
+      resolve(result)
+    }
+    const dispose = createRoot((dispose) => {
+      createEffect(() => {
+        if (disposed) { dispose(); return }
+        const status = sync?.data?.session_status?.[sessionID]
+        const type = status?.type ?? 'idle'
+        if (type === 'busy' || type === 'retry') return
+        finish(dispose, 'idle')
+      })
+      return dispose
+    })
+    timer = setTimeout(() => finish(dispose, 'timeout'), timeoutMs)
+  })
+}
+
 const downloadingTabs = new Set<string>()
 
 const pageHandler = {
@@ -283,6 +318,12 @@ const pageHandler = {
 
       if (result.error) throw new Error(result.error)
       if (!childSessionId) throw new Error('Agent session not created')
+
+      // 编排 agent 多轮跑，getResultFromMessages 首轮即返；用 session_status 兜底等整条流水线结束再归档
+      const idleState = await waitSessionIdle(sync, childSessionId)
+      if (idleState === 'timeout') {
+        ctx.showOctoToast({ title: '编排 Agent 运行超时（已超过 2 小时），建议检查运行状态' })
+      }
 
       try {
         // const zipBlob = await packOutputDir(ctx, outputDir)
