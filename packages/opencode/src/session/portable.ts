@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import JSZip from "jszip"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
+import { Global } from "@opencode-ai/core/global"
 import { InstanceState } from "@/effect/instance-state"
 import { Filesystem } from "@/util/filesystem"
 import { NonNegativeInt } from "@/util/schema"
@@ -12,6 +13,7 @@ import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
 import { Todo } from "./todo"
+import { collectPortableDependencies } from "./portable-dependencies"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
@@ -162,6 +164,16 @@ function collectSessions(rootSessionID: SessionID) {
 function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project") {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
+    const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
+    const contents = new Map<string, Promise<Uint8Array>>()
+    const read = (file: string) => {
+      const cached = contents.get(file)
+      if (cached) return cached
+      if (contents.size >= 16) contents.delete(contents.keys().next().value!)
+      const content = readFile(file).then((value) => new Uint8Array(value))
+      contents.set(file, content)
+      return content
+    }
     const locations = [
       entries.flatMap((entry) => [
         {
@@ -180,19 +192,26 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
     const files = yield* Effect.forEach(
       locations,
       (location) =>
-        Effect.promise(async () =>
-          (await listFiles(location.root, location.scope === "project"))
-            .filter((file) => path.resolve(file) !== output)
-            .map((file) => ({ file, location })),
-        ),
+        Effect.promise(async () => {
+          const files = (await listFiles(location.root, location.scope === "project")).filter((file) => path.resolve(file) !== output)
+          const dependencies = await collectPortableDependencies({
+            root: location.root, files, read,
+            trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
+          })
+          return [
+            ...files.map((file) => ({ file, source: file })),
+            ...dependencies.filter(({ file }) => path.resolve(file) !== output && (location.scope !== "project" || isProjectFile(path.relative(location.root, file)))),
+          ].map((file) => ({ ...file, location }))
+        }),
       { concurrency: 2 },
     )
     return yield* Effect.forEach(
       files.flat(),
-      ({ file, location }) =>
+      ({ file, source, location }) =>
         Effect.promise(async (): Promise<FileEntry> => {
           const relative = path.relative(location.root, file).replaceAll("\\", "/")
-          const content = new Uint8Array(await readFile(file))
+          const content = await read(source)
+          contents.delete(source)
           const sha256 = digest(content)
           const blob = `blobs/${sha256}`
           if (!blobs.has(blob)) {
