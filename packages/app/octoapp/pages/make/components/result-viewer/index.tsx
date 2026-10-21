@@ -717,7 +717,8 @@ archiving={featureMutex.state.archiving}
                       onHistoryToggle={props.onHistoryToggle}
                       sessionId={props.sessionId}
                       sdkDirectory={props.sdkDirectory}
-                       postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
+                       skillConfig={props.skillConfig}
+                        postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
                        onFilesRefresh={props.onFilesRefresh}
                        disabled={props.disabled}
                       />

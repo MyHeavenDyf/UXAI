@@ -23,6 +23,7 @@ export type SkillConfig = {
     octo_studio?: PanelSkill[]
     common?: PanelSkill[]
   }
+  presetSkills?: PanelSkill[]
 }
 
 /**
