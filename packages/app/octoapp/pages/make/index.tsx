@@ -5532,6 +5532,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   hasMessages={menuHasMessages()}
                   groups={groupsCtx?.groups}
                   sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="design"
                   onClose={closeMenu}
                   onRename={handleMenuRename}
                   onTogglePin={handleMenuTogglePin}

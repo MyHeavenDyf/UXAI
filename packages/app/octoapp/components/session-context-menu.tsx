@@ -6,6 +6,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
 import { DialogShareSession } from "@/components/dialog-share-session"
+import { tracker } from "@/utils/tracker"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
 import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
@@ -32,6 +33,7 @@ export type SessionContextMenuProps = {
   onMoveToGroup?: (session: Session, groupId: string) => void
   onRemoveFromGroup?: (session: Session) => void
   onCreateGroupForSession?: (session: Session) => void
+  trackerModule?: string
   /** Custom backdrop right-click handler. Used by the sidebar to re-target the
    *  menu to another session on right-click. Defaults to closing the menu. */
   onContextMenuBackdrop?: (e: MouseEvent) => void
@@ -65,8 +67,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   const shareSession = () => {
     const session = props.session
     if (!session) return
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "share-session" })
     props.onClose()
-    dialog.show(() => <DialogShareSession session={session} />)
+    dialog.show(() => <DialogShareSession session={session} trackerModule={props.trackerModule} />)
   }
 
   // Reset submenu state when the menu closes so it doesn't reappear on next open.
