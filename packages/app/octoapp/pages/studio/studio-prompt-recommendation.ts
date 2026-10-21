@@ -138,6 +138,10 @@ export function createPromptRecommendation(input: {
       if (disposed || operationScope !== input.scope() || target !== key()) return
       save()
       setStore(target, "unknown", false)
+      setStore(JSON.stringify([operationScope, result.sessionID]), {
+        ready: true, pending: result.sessionID === input.sessionID(), unknown: false,
+        state: { stateToken: result.stateToken, recommendation: result },
+      })
       input.navigate(result.sessionID)
       await input.reload(result.sessionID).catch(() => input.notice("推荐已开启，消息同步失败，请重新同步会话。"))
       await refresh().catch(() => input.notice("推荐已开启，状态同步失败，请重新同步会话。"))
@@ -283,7 +287,7 @@ export function createPromptRecommendation(input: {
         clearReplay = undefined
         uploads.clear()
         sequence++
-        setStore(key(), { ready: !input.sessionID(), pending: false, unknown: false })
+        setStore(key(), { ...store[key()], ready: !input.sessionID(), pending: false, unknown: store[key()]?.unknown ?? false })
         const target = key()
         void untrack(recover).catch(() => {
           if (disposed || target !== key()) return

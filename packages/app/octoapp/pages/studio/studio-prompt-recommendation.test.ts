@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
+import { createStore } from "solid-js/store"
 import { createPromptRecommendation } from "./studio-prompt-recommendation"
 
 const guide = {
@@ -307,4 +308,45 @@ test.each([
   } finally {
     dispose()
   }
+})
+
+
+test("returning to armed A retains its lock while refresh waits or fails after visiting B", async () => {
+  let dispose = () => {}
+  let fail = false
+  let release = () => {}
+  const scope = crypto.randomUUID()
+  const [session, setSession] = createStore({ id: "session" })
+  const api = createRoot((cleanup) => {
+    dispose = cleanup
+    return createPromptRecommendation({
+      scope: () => scope, sessionID: () => session.id, revision: () => "",
+      request: async () => {
+        if (session.id === "B") return Response.json({ stateToken: "B", recommendation: null })
+        if (fail) {
+          await new Promise<void>((resolve) => { release = resolve })
+          throw new Error("state unavailable")
+        }
+        return Response.json({ stateToken: "A", recommendation: guide })
+      },
+      uploadImage: async () => ({ path: "/uploaded/image.webp" }), reload: async () => {},
+      navigate: () => {}, notice: () => {},
+    })
+  })
+  try {
+    await Bun.sleep(0)
+    expect(api.armed()).toBe(true)
+    setSession("id", "B")
+    await Bun.sleep(0)
+    expect(api.armed()).toBe(false)
+    fail = true
+    setSession("id", "session")
+    await Bun.sleep(0)
+    expect(api.ready()).toBe(false)
+    expect(api.armed()).toBe(true)
+    release()
+    await Bun.sleep(0)
+    expect(api.armed()).toBe(true)
+    expect(api.ready()).toBe(false)
+  } finally { release(); dispose() }
 })

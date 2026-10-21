@@ -102,6 +102,7 @@ export function StudioComposer(props: {
   onUnsupportedReferenceUpload?: () => void
   onReversePrompt?: () => void
   onRecommend?: () => void
+  recommendationLocked?: boolean
   recommendationArmed?: boolean
   onCancel?: () => void
   onSubmit: () => void
@@ -1232,7 +1233,7 @@ export function StudioComposer(props: {
               <ToolButton
                 label={capabilityLabel(props.capability)}
                 active={props.openMenu === "capability"}
-                disabled={isBusy()}
+                disabled={isBusy() || props.recommendationLocked}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
               />
@@ -1242,7 +1243,7 @@ export function StudioComposer(props: {
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
-                  disabled={isBusy()}
+                  disabled={isBusy() || props.recommendationLocked}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                   onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
                 />
@@ -1283,7 +1284,7 @@ export function StudioComposer(props: {
                       <ToolButton
                         label="风格模板"
                         active={props.openMenu === "style-template"}
-                        disabled={isBusy()}
+                        disabled={isBusy() || props.recommendationLocked}
                         onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                         onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
                       />
@@ -1292,7 +1293,7 @@ export function StudioComposer(props: {
                     <SelectedTemplateButton
                       title={props.selectedStyleTemplate?.title ?? ""}
                       active={props.openMenu === "style-template"}
-                      disabled={isBusy()}
+                      disabled={isBusy() || props.recommendationLocked}
                       editable={Boolean(selectedExtractStyleTemplate())}
                       editorOpen={props.styleTemplateEditorOpen}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
@@ -1408,6 +1409,7 @@ export function StudioComposer(props: {
                         <button
                           type="button"
                           class="studio-composer-toolbar-more-item"
+                          disabled={isBusy() || props.recommendationLocked}
                           classList={{ active: props.openMenu === "style-template" }}
                           onClick={() => props.onOpenMenu("style-template")}
                         >
@@ -1421,7 +1423,7 @@ export function StudioComposer(props: {
                         <SelectedTemplateButton
                           title={props.selectedStyleTemplate?.title ?? ""}
                           active={props.openMenu === "style-template"}
-                          disabled={isBusy()}
+                          disabled={isBusy() || props.recommendationLocked}
                           editable={Boolean(selectedExtractStyleTemplate())}
                           editorOpen={props.styleTemplateEditorOpen}
                           toolbarMore
@@ -1460,7 +1462,7 @@ export function StudioComposer(props: {
                 </Show>
               </div>
           </Show>
-          <Show when={props.openMenu === "capability"}>
+          <Show when={!props.recommendationLocked && props.openMenu === "capability"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("capability", el)}>
               <CapabilityMenu
                 value={props.capability}
@@ -1469,7 +1471,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={isImageGeneration() && props.openMenu === "style"}>
+          <Show when={!props.recommendationLocked && isImageGeneration() && props.openMenu === "style"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style", el)}>
               <StyleMenu
                 value={props.styleModel}
@@ -1497,7 +1499,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={isImageGeneration() && props.openMenu === "style-template"}>
+          <Show when={!props.recommendationLocked && isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
                 canCreateTemplate={props.canCreateStyleTemplate}

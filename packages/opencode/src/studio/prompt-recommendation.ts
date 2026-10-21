@@ -1,3 +1,4 @@
+import { logRecommendationFailure } from "./prompt-recommendation-log"
 import { createHash } from "node:crypto"
 import path from "node:path"
 import { readRecommendationImages } from "./prompt-recommendation-images"
@@ -513,15 +514,28 @@ export async function submitExpansion(
       if (!acceptedResult.work) return acceptedResult.response
       committed = true
       const work = acceptedResult.work
+      const startedAt = Date.now()
+      const context = {
+        sessionID: row.id, requestID: input.requestID, guidePartID: input.guidePartID,
+        assistantMessageID: work.assistant.id, providerID: model.providerID, modelID: model.id,
+      }
       const done = Instance.bind(async () => {
         try {
           if (controller.signal.aborted) {
+            logRecommendationFailure(controller.signal.reason, {
+              ...context, stage: "execution", cancelled: true, elapsedMs: Date.now() - startedAt,
+            })
             finish(row.id, work.resultPartID, "cancelled")
             return
           }
           const result = await expandPrompt(expandedInput, work.user, model, controller.signal, services)
           finish(row.id, work.resultPartID, "completed", result)
         } catch (error) {
+          logRecommendationFailure(error, {
+            ...context, stage: "execution", elapsedMs: Date.now() - startedAt,
+            cancelled: controller.signal.aborted,
+            code: error instanceof RecommendationError ? error.code : "INVALID_MODEL_OUTPUT",
+          })
           finish(
             row.id,
             work.resultPartID,
@@ -539,10 +553,10 @@ export async function submitExpansion(
       current.runs.set(row.id, run)
       run.done = Promise.resolve()
         .then(done)
-        .catch(() => {
-          console.warn("[studio.prompt-expansion] terminal persistence failed", {
-            assistantMessageID: work.assistant.id,
-            code: "EXECUTION_INTERRUPTED",
+        .catch((error) => {
+          logRecommendationFailure(error, {
+            ...context, stage: "terminal-persistence", code: "EXECUTION_INTERRUPTED",
+            elapsedMs: Date.now() - startedAt,
           })
         })
       return acceptedResult.response

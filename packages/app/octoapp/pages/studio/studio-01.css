@@ -1,4 +1,5 @@
 .studio-page {
+  --studio-composer-border-gradient: linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%);
   position: relative;
   --studio-bg: #f8fbff;
   --octo-surface-page: #FFFFFF;
@@ -156,7 +157,7 @@
   border-radius: 24px;
   background:
     linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-    linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
+    var(--studio-composer-border-gradient) border-box;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
 }
 
@@ -613,8 +614,11 @@
 
 .studio-prompt-recommendation-button {
   pointer-events: auto;
-  color: var(--text-interactive-base, #5364df);
-  background: transparent;
+  background: linear-gradient(-40.30deg, rgba(255, 66, 210, 1) 0%, rgba(112, 111, 255, 1) 63.828%, rgba(0, 146, 255, 1) 108.418%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   border: 0;
   padding: 0;
   font: inherit;
@@ -622,15 +626,126 @@
 }
 
 .studio-prompt-recommendation-button:focus-visible {
-  outline: 2px solid currentColor;
+  outline: 2px solid #706fff;
   outline-offset: 2px;
 }
 
 .studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
 .studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
-.studio-prompt-expansion > button { margin-left: 12px; cursor: pointer; }
-.studio-prompt-expansion-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.studio-prompt-expansion-tags > span { padding: 4px 10px; border-radius: 6px; background: rgba(99, 102, 241, .08); }
+.studio-prompt-expansion-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.studio-prompt-expansion-copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.studio-prompt-expansion-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.studio-prompt-expansion-tags > span {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: 4px;
+  background: rgba(25, 25, 25, 0.05);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.studio-prompt-expansion-tags > span > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-prompt-expansion-editor {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background:
+    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+    linear-gradient(130.03deg, #6f69ff 5.795%, #ae42ff 18.126%, #179bff 26.732%, #00c4ff 34.809%, #00fffa 40.176%, #00fffa 47.663%, #4db3ff 57.608%, #db7bff 79.325%, #ff77eb 85.089%, #6784ff 95.104%) border-box;
+}
+
+.studio-prompt-expansion-editor-title {
+  width: fit-content;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  background: linear-gradient(
+    -40.30deg,
+    rgba(255, 66, 210, 1) 0%,
+    rgba(112, 111, 255, 1) 63.828%,
+    rgba(0, 146, 255, 1) 108.418%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.studio-prompt-expansion-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100px;
+  max-height: 480px;
+  padding: 0;
+  border: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-prompt-expansion-editor textarea:focus,
+.studio-prompt-expansion-editor textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.studio-prompt-expansion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.studio-prompt-expansion-actions button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(25, 25, 25, 1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.studio-prompt-expansion-actions button:hover { text-decoration: none; }
+.studio-prompt-expansion-actions button:disabled { opacity: 0.5; cursor: default; }
 
 .studio-composer-at-chip {
   display: inline-flex;

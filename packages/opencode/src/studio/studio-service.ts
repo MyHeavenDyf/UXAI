@@ -1262,6 +1262,13 @@ async function generateStudioDetailTitle(input: {
   }
 }
 
+export function promptExpansionMessageMetadata(extra: Record<string, unknown> | undefined) {
+  const source = extra?.promptExpansionSource
+  if (!source || typeof source !== "object" || Array.isArray(source)) return
+  if (!("assistantMessageID" in source) || typeof source.assistantMessageID !== "string" || !source.assistantMessageID.trim()) return
+  return { studioPromptExpansionSource: { assistantMessageID: source.assistantMessageID } }
+}
+
 function persistStudioSession(input: {
   generationID: string
   sessionID: SessionID
@@ -1325,6 +1332,7 @@ function persistStudioSession(input: {
     messageID: userID,
     type: "text",
     text: displayPrompt,
+    metadata: promptExpansionMessageMetadata(input.request.extra),
   }
   const assistantTextPart: MessageV2.TextPart = {
     id: assistantTextPartID,

@@ -22,6 +22,7 @@ export function createStudioSessionData(input: {
     message: {},
     part: {},
   })
+  const [snapshot, setSnapshot] = createStore<{ sessionID?: string }>({})
   let loadToken = 0
   const removedMessages = new Set<string>()
   const removedParts = new Set<string>()
@@ -38,6 +39,7 @@ export function createStudioSessionData(input: {
           batch(() => {
             setDataStore("message", {})
             setDataStore("part", {})
+            setSnapshot("sessionID", undefined)
           })
           return
         }
@@ -71,6 +73,7 @@ export function createStudioSessionData(input: {
             for (const [messageID, parts] of Object.entries(partMap)) {
               setDataStore("part", messageID, reconcile(parts, { key: "id" }))
             }
+            setSnapshot("sessionID", sessionID)
           })
         })
       })
@@ -78,6 +81,7 @@ export function createStudioSessionData(input: {
 
   createEffect(
     on(input.sessionID, (id) => {
+      setSnapshot("sessionID", undefined)
       if (!id) {
         batch(() => {
           setDataStore("message", {})
@@ -108,6 +112,7 @@ export function createStudioSessionData(input: {
     }
     if (payload.type === "session.deleted" && payload.properties.info.id === sessionID) {
       removedSessions.add(sessionID)
+      setSnapshot("sessionID", undefined)
       loadToken++
       setDataStore("message", sessionID, [])
       return
@@ -176,5 +181,10 @@ export function createStudioSessionData(input: {
     return dataStore.session_status[id] ?? ({ type: "idle" } as SessionStatus)
   })
 
-  return { dataStore, loadSessionMessages, sessionStatus }
+  return {
+    dataStore,
+    loadSessionMessages,
+    sessionStatus,
+    snapshotReady: () => Boolean(input.sessionID() && snapshot.sessionID === input.sessionID()),
+  }
 }

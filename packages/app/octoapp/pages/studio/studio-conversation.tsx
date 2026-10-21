@@ -25,6 +25,7 @@ import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, 
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
 import { StudioDownloadIcon } from "./studio-download-icon"
+import { StudioPromptExpansionReviewView } from "./studio-prompt-expansion-review-view"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -103,7 +104,11 @@ export function StudioConversation(props: {
   rebootingGenerationIDs: ReadonlySet<string>
   refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
-  onCancelExpansion?: () => void
+  expansionText: (turn: StudioTurnData) => string
+  expansionEditable: (turn: StudioTurnData) => boolean
+  expansionCanGenerate: boolean
+  onExpansionInput: (turn: StudioTurnData, text: string) => void
+  onExpansionChoose: (turn: StudioTurnData, choice: "confirmed" | "ignored") => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
   onRefreshGeneration: (generationID: string) => void
@@ -170,23 +175,33 @@ export function StudioConversation(props: {
                   </For>
                 </div>
               </Show>
-              <Show when={turn.recommendation?.kind !== "guide"}><div class="studio-user-bubble">
+              <Show when={!turn.hideUserBubble && turn.recommendation?.kind !== "guide"}><div class="studio-user-bubble">
                 <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
               </div></Show>
               <Show when={turn.recommendation?.kind === "result"}>
-                <div class="studio-prompt-expansion" aria-live="polite">
-                  <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
-                    <span>{turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}</span>
-                    <button type="button" disabled={turn.recommendation?.status === "cancelling"} onClick={() => props.onCancelExpansion?.()}>取消</button>
-                  </Show>
-                  <Show when={turn.recommendation?.tags?.length}>
-                    <div class="studio-prompt-expansion-tags"><For each={turn.recommendation?.tags}>{(tag) => <span>{tag}</span>}</For></div>
-                  </Show>
-                </div>
+                <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
+                  <div class="studio-prompt-expansion" role="status">
+                    {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
+                  </div>
+                </Show>
+                <Show when={turn.recommendation?.status === "completed"}>
+                  <StudioPromptExpansionReviewView
+                    turn={turn}
+                    text={props.expansionText(turn)}
+                    editable={props.expansionEditable(turn)}
+                    busy={props.actionBusy}
+                    canGenerate={props.expansionCanGenerate}
+                    onInput={(text) => props.onExpansionInput(turn, text)}
+                    onChoose={(choice) => props.onExpansionChoose(turn, choice)}
+                  />
+                </Show>
               </Show>
               <Show when={turn.editCapability} fallback={
-                <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
-                  {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                <Show when={!(turn.recommendation?.kind === "result" &&
+                  ["running", "cancelling", "completed"].includes(turn.recommendation.status))}>
+                  <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+                    {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                  </Show>
                 </Show>
               }>
                 {(editCapability) => (

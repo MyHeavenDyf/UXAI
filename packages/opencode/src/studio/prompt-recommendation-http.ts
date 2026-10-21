@@ -1,3 +1,4 @@
+import { logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import {
   initializeRecommendation,
@@ -17,6 +18,10 @@ export async function recommendationRequest(
   assistantMessageID?: string,
   services?: ExpansionServices,
 ) {
+  const startedAt = Date.now()
+  const context: Record<string, string | number | boolean | undefined> = {
+    action, sessionID, assistantMessageID, stage: action === "state" || action === "cancel" ? action : "read-request",
+  }
   try {
     if (action === "state")
       return Response.json(
@@ -47,6 +52,7 @@ export async function recommendationRequest(
         preparation.signal.removeEventListener("abort", abort)
         void reader.cancel().catch(() => {})
       })
+      Object.assign(context, recommendationLogIDs(value), { stage: action })
       preparation.check()
       if (action === "initialize") return Response.json(await initializeRecommendation(value, preparation))
       configureModelsApiHeaders(Object.fromEntries(request.headers.entries()))
@@ -60,6 +66,10 @@ export async function recommendationRequest(
     }
   } catch (error) {
     const safe = error instanceof SyntaxError ? new RecommendationError("INVALID_INPUT") : safeError(error)
+    logRecommendationFailure(error, {
+      ...context, code: safe.code, status: safe.status,
+      elapsedMs: Date.now() - startedAt, cancelled: request.signal.aborted,
+    })
     return Response.json(safe.body(), { status: safe.status })
   }
 }
