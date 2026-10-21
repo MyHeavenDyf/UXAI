@@ -9,6 +9,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { INSIGHT_AGENT } from "@/constants/agent"
+import { tracker } from "@/utils/tracker"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
 
@@ -63,6 +64,7 @@ export function SharedSessionHandler() {
       server.projects.touch(result.directory)
       navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
     })
+    tracker.interaction({ module: page === "make" ? "design" : page === "pattern" ? "prototype" : page, name: "share-import-success" })
     showToast({ variant: "success", title: "分享对话已打开" })
   }
 
