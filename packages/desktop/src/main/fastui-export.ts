@@ -7,13 +7,13 @@
  * 所以走 IPC 调脚本,与 fastui-devserver.ts 同一个模式:约定「返回结果对象、永不 throw」。
  */
 import { spawn, type ChildProcess } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
 import log from "electron-log/main.js"
 
-import { nodeBinOf, resolveProject } from "./fastui-devserver"
+import { type FastuiTarget, nodeBinOf, resolveProject } from "./fastui-devserver"
 import { effectiveXdgConfigHome } from "./storage"
 
 const SKILL_NAME = "fastui-vue-creator"
@@ -40,22 +40,6 @@ export type ExportResult =
   | { ok: true; zipPath: string; bytes: number; fileCount: number }
   | { ok: false; error: string }
 
-function readState(sessionDir: string): { envDir?: string; skillDir?: string } | null {
-  try {
-    return JSON.parse(readFileSync(join(sessionDir, ".octo-fastui.json"), "utf8")) as {
-      envDir?: string
-      skillDir?: string
-    }
-  } catch {
-    return null
-  }
-}
-
-/** `<projectDir>/.octo/<sid>` → `<projectDir>`,与前端 `sessionDirOf` 的拼法互逆 */
-function projectDirOf(sessionDir: string): string {
-  return dirname(dirname(sessionDir))
-}
-
 /**
  * **问 server 要 skill 的位置 —— 它是扫出这些 skill 的那一方,也是唯一知道它们在哪的。**
  *
@@ -74,14 +58,14 @@ function projectDirOf(sessionDir: string): string {
  *
  * 失败(server 未就绪、请求超时、该 skill 没装)一律返回 null,交给下面的候选链兜底。
  */
-async function skillDirFromServer(sessionDir: string): Promise<string | null> {
+async function skillDirFromServer(workspaceDir: string, skillName: string): Promise<string | null> {
   const info = serverInfo
   if (!info) return null
   try {
     const url = new URL("/skill", info.url)
     // instance 路由按目录解析实例(middleware 读 `directory` 查询参数),缺省会落到
     // sidecar 的 cwd —— 那样扫不到装在本项目目录下的 skill
-    url.searchParams.set("directory", projectDirOf(sessionDir))
+    url.searchParams.set("directory", workspaceDir)
 
     const headers = new Headers()
     if (info.password) {
@@ -95,7 +79,7 @@ async function skillDirFromServer(sessionDir: string): Promise<string | null> {
       return null
     }
     const list = (await res.json()) as Array<{ name?: string; location?: string }>
-    const hit = Array.isArray(list) ? list.find((item) => item?.name === SKILL_NAME) : undefined
+    const hit = Array.isArray(list) ? list.find((item) => item?.name === skillName) : undefined
     if (!hit?.location) return null
     return dirname(hit.location)
   } catch (error) {
@@ -120,7 +104,12 @@ export type PathEnv = { xdgConfig?: string; homeDir?: string }
  * `Global.Path.octoConfig` 同源;候选 #4 是旧版本硬编码部署在 `~/.config/octo/skill`
  * 的存量机器兜底 —— 修复前的机器上两个目录都可能持有内容,两条都要试。
  */
-export async function resolveScript(sessionDir: string, skillDir?: string, env?: PathEnv): Promise<string | null> {
+export async function resolveScript(
+  workspaceDir: string,
+  skillDir?: string,
+  env?: PathEnv,
+  skillName: string = SKILL_NAME,
+): Promise<string | null> {
   const homeDir = env?.homeDir ?? homedir()
   // 后半截**刻意用 `||` 而不是 `??`**:空串的 XDG_CONFIG_HOME 要当成"没设",这跟 server 侧
   // 一致(`xdg-basedir` 就是 `env.XDG_CONFIG_HOME || …`)。用 `??` 的话空串会被当成有效值,
@@ -128,15 +117,15 @@ export async function resolveScript(sessionDir: string, skillDir?: string, env?:
   // 但那是靠另一条候选救,不是这一行自己对;而且那条相对路径会混进 tried 诊断日志误导排查。
   const xdgConfig = env?.xdgConfig ?? effectiveXdgConfigHome()
   const candidates = [
-    await skillDirFromServer(sessionDir),
-    // new-session 写进状态文件的路径(SPEC-DES-001 §8.6.2)
+    await skillDirFromServer(workspaceDir, skillName),
+    // new-session 写进工程标记(旧布局:会话状态文件)的路径(SPEC-DES-001 §8.6.2)
     skillDir,
     // server 扫描的 <octoConfig>/skill/
-    join(xdgConfig, "octo", "skill", SKILL_NAME),
+    join(xdgConfig, "octo", "skill", skillName),
     // 旧版本 deployBuiltinSkills 硬编码部署的落点,存量机器兜底
-    join(homeDir, ".config", "octo", "skill", SKILL_NAME),
-    // SPEC-DES-001 §8.6.2 提到的工程内落点,留作兜底
-    join(dirname(sessionDir), "skills", SKILL_NAME),
+    join(homeDir, ".config", "octo", "skill", skillName),
+    // SPEC-DES-001 §8.6.2 提到的工作区内落点,留作兜底
+    join(workspaceDir, ".octo", "skills", skillName),
   ]
   const tried: string[] = []
   for (const dir of candidates) {
@@ -146,7 +135,7 @@ export async function resolveScript(sessionDir: string, skillDir?: string, env?:
     tried.push(script)
   }
   // 用户看到的是一句话,定位要靠这里 —— 把试过的路径都记上,省掉一轮来回问
-  log.warn("[fastui] 定位不到导出脚本", { sessionDir, serverKnown: !!serverInfo, tried })
+  log.warn("[fastui] 定位不到导出脚本", { workspaceDir, skillName, serverKnown: !!serverInfo, tried })
   return null
 }
 
@@ -167,36 +156,26 @@ function parseContract(stdout: string) {
   return { result, fields }
 }
 
-/** 打一个干净的交付包。失败以结果对象返回,`error` 已是可直接展示给用户的一句话。 */
-export async function exportZip(sessionDir: string, projectName?: string): Promise<ExportResult> {
-  const state = readState(sessionDir)
-  if (!state) {
-    return { ok: false, error: `读不到会话状态 ${join(sessionDir, ".octo-fastui.json")}` }
-  }
-  // 同一对话可以有多个产物工程,而状态文件只记最后建的那个 —— 卡片带了产物名就导出它,
-  // 否则导出的可能是另一个工程。产物名的合法性与存在性交给 resolveProject 统一判定。
-  let projectArgs: string[] = []
-  if (projectName) {
-    const r = resolveProject(sessionDir, projectName)
-    if (!r.ok) return { ok: false, error: r.error }
-    projectArgs = [`--project-dir=${r.projectDir}`]
-  }
-
-  const script = await resolveScript(sessionDir, state.skillDir)
+/**
+ * 打一个干净的交付包。失败以结果对象返回,`error` 已是可直接展示给用户的一句话。
+ *
+ * 工程按卡片的(工作区, 会话, 产物名)定位,与预览同一个查找函数(SPEC-DES-008 §3.7)——
+ * 同一对话可以有多个工程,带了产物名就导出它;老卡片没有产物名时由 resolveProject 按「恰好一个」判定。
+ */
+export async function exportZip(target: FastuiTarget): Promise<ExportResult> {
+  const r = resolveProject(target)
+  if (!r.ok) return { ok: false, error: r.error }
+  // chart-vue-creator 的工程用它自己的脚本(两份脚本相同,但 skill 装没装是各自的事)
+  const skillName = r.state.skill || SKILL_NAME
+  const script = await resolveScript(target.workspaceDir, r.state.skillDir, undefined, skillName)
   if (!script) {
-    return { ok: false, error: `未找到 ${SKILL_NAME} 的导出脚本,请确认该技能已安装` }
+    return { ok: false, error: `未找到 ${skillName} 的导出脚本,请确认该技能已安装` }
   }
-
-  return runExportScript(sessionDir, script, state.envDir, projectArgs)
+  return runExportScript(r.projectDir, script, r.state.envDir)
 }
 
 /** 跑脚本、解析契约行。与定位分开,这里只负责「把脚本跑完并翻译它的输出」。 */
-function runExportScript(
-  sessionDir: string,
-  script: string,
-  envDir: string | undefined,
-  projectArgs: string[],
-): Promise<ExportResult> {
+function runExportScript(projectDir: string, script: string, envDir: string | undefined): Promise<ExportResult> {
   return new Promise<ExportResult>((resolve) => {
     // 共享池的 node 优先;它不在时用 Electron 自己的 node 运行时(ELECTRON_RUN_AS_NODE),
     // 这样"环境还没装好但产物已经在磁盘上"也能把包导出来 —— 打包不依赖那 1GB 依赖。
@@ -207,7 +186,7 @@ function runExportScript(
 
     let child: ChildProcess
     try {
-      child = spawn(bin, [script, `--session-dir=${sessionDir}`, ...projectArgs], {
+      child = spawn(bin, [script, `--project-dir=${projectDir}`], {
         env,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
@@ -228,7 +207,7 @@ function runExportScript(
     }
 
     const timer = setTimeout(() => {
-      log.warn("[fastui] 导出脚本超时", { sessionDir })
+      log.warn("[fastui] 导出脚本超时", { projectDir })
       try {
         child.kill()
       } catch {
@@ -245,7 +224,7 @@ function runExportScript(
     })
     // spawn 的异步失败(ENOENT、权限不足)没有监听器时会被当成 unhandled error 打爆主进程
     child.on("error", (error) => {
-      log.warn("[fastui] 导出脚本无法执行", { sessionDir, bin, error: String(error) })
+      log.warn("[fastui] 导出脚本无法执行", { projectDir, bin, error: String(error) })
       finish({ ok: false, error: `导出脚本无法执行: ${String(error)}` })
     })
 
@@ -256,7 +235,7 @@ function runExportScript(
         const detail = result?.replace(/^FAIL\s*\|\s*/, "") || stderr.trim().split(/\r?\n/).slice(-3).join(" ")
         // HINT 是契约里定义的「可直接执行的下一步」(§5.1.1),带上比只报错有用
         const hint = fields.HINT ? `${detail}（${fields.HINT}）` : detail
-        log.warn("[fastui] 导出失败", { sessionDir, result, hint: fields.HINT, stderr: stderr.slice(-2000) })
+        log.warn("[fastui] 导出失败", { projectDir, result, hint: fields.HINT, stderr: stderr.slice(-2000) })
         finish({ ok: false, error: hint || "导出脚本未返回结果" })
         return
       }
@@ -265,7 +244,7 @@ function runExportScript(
         finish({ ok: false, error: "导出脚本没有返回代码包路径" })
         return
       }
-      log.info("[fastui] 导出完成", { sessionDir, zipPath, bytes: fields.ZIP_BYTES })
+      log.info("[fastui] 导出完成", { projectDir, zipPath, bytes: fields.ZIP_BYTES })
       finish({
         ok: true,
         zipPath,

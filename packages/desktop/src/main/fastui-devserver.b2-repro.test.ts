@@ -5,7 +5,7 @@
 import { afterAll, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "fastui-b2-")))
 const envDir = join(root, "env")
@@ -29,7 +29,8 @@ writeFileSync(
   join(sessionDir, ".octo-fastui.json"),
   JSON.stringify({ projectDir: join(sessionDir, "outputs", "alpha"), envDir, depsDir, nodeBin }),
 )
-const record = join(sessionDir, "devservers", "alpha.json")
+const record = join(sessionDir, "outputs", "alpha", ".octo-fastui", "devserver.json")
+const target = (s: string, name?: string) => ({ workspaceDir: dirname(dirname(s)), sessionId: basename(s), name })
 
 afterAll(() => {
   Host.stopAll()
@@ -37,10 +38,10 @@ afterAll(() => {
 })
 
 test("「重新编译」后旧进程慢退,不应删掉新进程的服务记录", async () => {
-  const first = await Host.open(sessionDir, "alpha")
+  const first = await Host.open(target(sessionDir, "alpha"))
   expect(first.ok).toBe(true)
 
-  const second = await Host.restart(sessionDir, "alpha") // stopEntry 等 5 秒超时后起新进程
+  const second = await Host.restart(target(sessionDir, "alpha")) // stopEntry 等 5 秒超时后起新进程
   expect(second.ok).toBe(true)
   if (!second.ok) return
   expect(existsSync(record)).toBe(true)
@@ -49,7 +50,7 @@ test("「重新编译」后旧进程慢退,不应删掉新进程的服务记录"
   expect(existsSync(record)).toBe(true) // ← 实际:false
 
   // open() 复用活着的服务,也不补写记录
-  const third = await Host.open(sessionDir, "alpha")
+  const third = await Host.open(target(sessionDir, "alpha"))
   expect(third.ok && third.reused).toBe(true)
   expect(existsSync(record) && JSON.parse(readFileSync(record, "utf8")).port).toBe(second.port)
 }, 30_000)

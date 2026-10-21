@@ -133,7 +133,7 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
-import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
@@ -4864,7 +4864,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const fastuiName = parseFastuiPreview(linkContent)
       const legacyFastui =
         fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
-          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          ? await hasFastuiProject(fastuiTargetOf(projectDir()!, params.id)!)
           : false
       if (fastuiName !== null || legacyFastui) {
         const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
