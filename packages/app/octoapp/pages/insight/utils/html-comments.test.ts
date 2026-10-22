@@ -1,8 +1,24 @@
 import { expect, test } from "bun:test"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { commentFileKey, commentTarget, createHtmlComments } from "./html-comments"
+import { commentAuthor, commentFileKey, commentTarget, createHtmlComments } from "./html-comments"
 import type { FileComment } from "../../make/components/result-viewer/comment-popover"
+
+test("标注作者沿用 Design 头像地址，无账号或登录数据损坏时回退", () => {
+  const previous = localStorage.getItem("userInfo")
+  try {
+    localStorage.setItem("userInfo", JSON.stringify({ nickName: "测试用户", account: "a123456" }))
+    expect(commentAuthor()).toMatchObject({ commenterName: "测试用户", commenterAccount: "a123456" })
+    expect(commentAuthor().commenterAvatar).toMatch(/^https:\/\/octo\.hdesign\.huawei\.com\/w3lab\/rest\/yellowpage\/face\/123456\/120\?ts=\d+$/)
+    localStorage.setItem("userInfo", "{}")
+    expect(commentAuthor().commenterAvatar).toBe("")
+    localStorage.setItem("userInfo", "invalid json")
+    expect(commentAuthor().commenterAvatar).toBe("")
+  } finally {
+    if (previous === null) localStorage.removeItem("userInfo")
+    else localStorage.setItem("userInfo", previous)
+  }
+})
 
 test("完整路径隔离同名文件，Windows 路径大小写归一，长路径键长度固定", async () => {
   expect(await commentFileKey("C:\\A\\page.html")).toBe(await commentFileKey("c:/a/page.html"))
@@ -39,6 +55,10 @@ test("通过 HTTP 复用标注协议，绑定原会话，保存后可读回与�
     const comment: FileComment = { id: "c1", filePath: "/a/page.html", elementId: "el-1", selector: "h1", label: "", text: "标题", htmlHint: "", note: "修改标题", position: { x: 0, y: 0, w: 1, h: 1 }, createdAt: 1, updatedAt: 1 }
     await client.save(comment)
     expect(await client.load()).toEqual([comment])
+    await client.save({ ...comment, commenterAccount: "b654321", commenterAvatar: "" })
+    expect((await client.load())[0].commenterAvatar).toContain("/face/654321/120?ts=")
+    await client.save({ ...comment, commenterAccount: "b654321", commenterAvatar: "https://example.com/existing-avatar.png" })
+    expect((await client.load())[0].commenterAvatar).toBe("https://example.com/existing-avatar.png")
     expect([...saved.keys()][0]).toStartWith("s1/")
     expect(await createHtmlComments({ ...origin, filePath: "/b/page.html" }).load()).toEqual([])
     await client.remove("c1")
