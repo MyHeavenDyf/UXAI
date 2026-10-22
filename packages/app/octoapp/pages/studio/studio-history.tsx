@@ -167,7 +167,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                 type="button"
                 class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
                 style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); props.toggleDrawer!(); }}
+                onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "history-drawer-toggle" }); props.toggleDrawer!(); }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
                   <rect x="0.5" y="0.5" width="11" height="14" rx="2" stroke="#000000" />
@@ -219,7 +219,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         <div class="flex items-center h-[36px] px-[12px] mt-[8px]">
           <button
             type="button"
-            onClick={() => setCollapsed((v) => !v)}
+            onClick={() => { tracker.interaction({ module: "studio", name: "history-section-toggle", extend: JSON.stringify({ collapsed: !collapsed() }) }); setCollapsed((v) => !v) }}
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px]">
@@ -311,6 +311,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                               <>
                                 <a
                                   href={`/${props.routeSlug}/studio/${session.id}`}
+                                  onClick={() => tracker.interaction({ module: "studio", name: "session-open", extend: JSON.stringify({ sessionID: session.id }) })}
                                   class="flex items-center w-full rounded-[8px] transition-colors"
                                   style={{ height: "36px", padding: "0 44px 0 12px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                                   classList={{
@@ -480,6 +481,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   <button
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
+                                      tracker.interaction({ module: "studio", name: "session-rename", extend: JSON.stringify({ sessionID: session.id }) })
                                       closeContextMenu()
                                       openTitleEditor(session)
                                     }}
@@ -490,6 +492,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   <button
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
+                                      tracker.interaction({ module: "studio", name: "session-delete", extend: JSON.stringify({ sessionID: session.id }) })
                                       closeContextMenu()
                                       dialog.show(() => (
                                         <DialogDeleteSession
@@ -532,7 +535,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         }}
         onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
         onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
-        onClick={() => { setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
+        onClick={() => { tracker.interaction({ module: "studio", name: "settings-open" }); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
       >
         <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
           <IconSettings1 size={20} />

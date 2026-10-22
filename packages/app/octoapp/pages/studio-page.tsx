@@ -2446,6 +2446,7 @@ export default function StudioPage() {
   function uploadWorkspaceImage(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    tracker.interaction({ module: "studio", name: "workspace-upload", extend: JSON.stringify({ capability: capability() }) })
     const isJimeng = imageTool() === "jimeng"
     const isGenerate = capability() === "image.generate"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
@@ -4722,6 +4723,7 @@ export default function StudioPage() {
                 cursor: "pointer",
               }}
               onClick={() => {
+                tracker.interaction({ module: "studio", name: "left-sidebar-toggle" })
                 if (isOverlayMode()) {
                   setStudioLeftOverlayOpen(true)
                 } else {
@@ -4759,7 +4761,7 @@ export default function StudioPage() {
                 }}
                 onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
                 onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
-                onClick={(e) => { e.stopPropagation(); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
+                onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "settings-open" }); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
               >
                 <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
                   <IconSettings1 size={20} />
@@ -4967,7 +4969,10 @@ export default function StudioPage() {
                   gutter={4}
                   placement="bottom-end"
                   open={headerTitle.menuOpen}
-                  onOpenChange={(open) => setHeaderTitle("menuOpen", open)}
+                  onOpenChange={(open) => {
+                    if (open) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    setHeaderTitle("menuOpen", open)
+                  }}
                 >
                   <DropdownMenu.Trigger
                     as={IconButton}
@@ -4989,6 +4994,7 @@ if (!headerTitle.pendingRename) return
                     >
                       <DropdownMenu.Item
                         onSelect={() => {
+                          tracker.interaction({ module: "studio", name: "header-rename-trigger" })
                           setHeaderTitle({ pendingRename: true, menuOpen: false })
                         }}
                       >
@@ -5017,7 +5023,7 @@ if (!headerTitle.pendingRename) return
                 type="button"
                 class="flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
                 style={{ width: "20px", height: "20px" }}
-                onClick={(e) => { e.stopPropagation(); setStudioWorkspaceOverlayOpen((v) => !v); }}
+                onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "workspace-panel-toggle" }); setStudioWorkspaceOverlayOpen((v) => !v); }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
                   <rect x="0.5" y="0.5" width="11" height="14" rx="2" stroke="#000000" />
@@ -5158,6 +5164,7 @@ if (!headerTitle.pendingRename) return
               btn?.click()
               return
             }
+            tracker.interaction({ module: "studio", name: "workspace-overlay-close" })
             setStudioWorkspaceOverlayOpen(false)
           }}
         />
@@ -5270,7 +5277,7 @@ if (!headerTitle.pendingRename) return
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"
-                    onClick={() => setShowStudioDetails((v) => !v)}
+                    onClick={() => { tracker.interaction({ module: "studio", name: "details-toggle", extend: JSON.stringify({ expanded: !showStudioDetails() }) }); setShowStudioDetails((v) => !v) }}
                     aria-label={showStudioDetails() ? "收起详情" : "展开详情"}
                   />
                   <Show when={showStudioDetails()}>
@@ -5413,7 +5420,7 @@ if (!headerTitle.pendingRename) return
             inset: "0",
             "z-index": "100",
           }}
-          onClick={() => setStudioLeftOverlayOpen(false)}
+          onClick={() => { tracker.interaction({ module: "studio", name: "left-overlay-close" }); setStudioLeftOverlayOpen(false) }}
         />
         <aside
           style={{
