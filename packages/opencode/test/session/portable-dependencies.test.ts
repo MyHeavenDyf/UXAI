@@ -1,8 +1,43 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import path from "node:path"
 import { symlink } from "node:fs/promises"
+import { pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { tmpdir } from "../fixture/fixture"
+
+test("warns with the original reference and source when an unrelated output page points at absent resources", async () => {
+  await using project = await tmpdir()
+  await using resources = await tmpdir()
+  const page = path.join(project.path, "register.html")
+  const copy = path.join(project.path, "output/login.html")
+  const icon = path.join(project.path, "outputs/resource/icon/icon.svg")
+  const reference = "./outputs/resource/icon/icon.svg"
+  await Bun.write(page, `<img src="${reference}"><script src="./assets/runtime.js"></script>`)
+  await Bun.write(copy, `<img src="${reference}"><img src="${reference}">`)
+  await Bun.write(icon, "<svg/>")
+  await Bun.write(path.join(resources.path, "runtime.js"), "window.ready = true")
+  await symlink(resources.path, path.join(project.path, "assets"), process.platform === "win32" ? "junction" : "dir")
+  const logging = spyOn(console, "warn")
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path,
+      files: [page, copy, icon],
+      trustedRoots: [resources.path],
+      read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+    })
+    expect(dependencies.map((item) => item.file)).toEqual([path.join(project.path, "assets/runtime.js")])
+    expect(logging).toHaveBeenCalledTimes(1)
+    expect(logging.mock.calls[0]?.[0]).toBe("[octo:share] missing dependency")
+    expect(JSON.parse(String(logging.mock.calls[0]?.[1]))).toEqual({
+      source: copy,
+      reference,
+      base: pathToFileURL(copy).href,
+      target: path.join(project.path, "output/outputs/resource/icon/icon.svg"),
+    })
+  } finally {
+    logging.mockRestore()
+  }
+})
 
 test.each(["inline", "external"])(
   "collects immutable resource bindings and setAttribute references in %s scripts",
@@ -65,7 +100,7 @@ test.each(["inline", "external"])(
         ? `<script type="text/babel">${missing}</script>`
         : '<script type="text/babel" src="./scripts/header.jsx"></script>',
     )
-    await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+    await expect(collectPortableDependencies(input)).resolves.toBeInstanceOf(Array)
   },
 )
 
@@ -103,7 +138,7 @@ test("collects actual JSX resources without treating data attributes or unrelate
     page,
     '<script type="text/babel">const Missing = () => <img src="./assets/uploads/missing.png" />;</script>',
   )
-  await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+  await expect(collectPortableDependencies(input)).resolves.toBeInstanceOf(Array)
 })
 
 test("ignores metadata links but collects stylesheet, icon and preload links", async () => {
@@ -136,7 +171,7 @@ test("ignores metadata links but collects stylesheet, icon and preload links", a
     "theme.css",
   ])
   await Bun.write(page, '<link rel="stylesheet" href="./missing.css">')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+  await expect(collectPortableDependencies(input)).resolves.toBeInstanceOf(Array)
 })
 
 test("ignores commented markup and data attributes while preserving actual resource attributes", async () => {
@@ -161,7 +196,7 @@ test("ignores commented markup and data attributes while preserving actual resou
     path.join(project.path, "real.svg"),
   ])
   await Bun.write(page, '<img src="missing.png">')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+  await expect(collectPortableDependencies(input)).resolves.toBeInstanceOf(Array)
 })
 
 test("keeps each document base through external script imports without changing module-relative URLs", async () => {
@@ -245,7 +280,7 @@ test("copies only referenced linked assets while preserving their logical paths 
   expect(dependencies.every((file) => file.source.startsWith(resources.path + path.sep))).toBe(true)
 })
 
-test("rejects missing dependencies and untrusted linked files instead of silently producing a broken or unsafe package", async () => {
+test("allows missing dependencies but still rejects untrusted links and escaping paths", async () => {
   await using project = await tmpdir()
   await using outside = await tmpdir()
   const page = path.join(project.path, "index.html")
@@ -256,7 +291,7 @@ test("rejects missing dependencies and untrusted linked files instead of silentl
     trustedRoots: [],
     read: async (file: string) => new Uint8Array(await Bun.file(file).arrayBuffer()),
   }
-  await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+  await expect(collectPortableDependencies(input)).resolves.toEqual([])
   await Bun.write(path.join(outside.path, "secret.js"), "not a trusted resource")
   await symlink(outside.path, path.join(project.path, "assets"), process.platform === "win32" ? "junction" : "dir")
   await Bun.write(page, '<script src="assets/secret.js"></script>')
@@ -288,7 +323,9 @@ test("resolves bundled JSX image strings against the HTML document instead of th
   expect((await collectPortableDependencies(input)).map((file) => file.file)).toEqual([
     path.join(project.path, "preview/assets/uploads/user.png"),
   ])
-  // Real module imports still resolve against the source file, and cannot be silently skipped.
+  // Missing module imports must not prevent existing assets from being collected.
   await Bun.write(component, `${source}\nimport "./missing.js";`)
-  await expect(collectPortableDependencies(input)).rejects.toThrow("页面依赖不存在")
+  expect((await collectPortableDependencies(input)).map((file) => file.file)).toEqual([
+    path.join(project.path, "preview/assets/uploads/user.png"),
+  ])
 })

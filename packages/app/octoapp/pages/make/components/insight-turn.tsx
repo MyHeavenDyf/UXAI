@@ -26,7 +26,7 @@ import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
-import { parseFastuiPreview } from "../utils/fastui-export"
+import { absoluteLinkPath, fastuiPreviewUrl, fastuiProjectOfFile, parseFastuiPreview } from "../utils/fastui-export"
 
 function renderMentionText(text: string): JSX.Element {
   // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
@@ -1308,6 +1308,51 @@ const stateStatus = state.status as string | undefined
     return []
   })
 
+  // ── fastui 预览卡片补位(SPEC-DES-008 §3.8)──────────────────────────
+  // 模型直接改了 fastui 工程里的 .vue,却没有输出 fastui:// 卡片(跳过了 verify,或者连文件卡片的标签
+  // 都没写对 —— 内网实测 DeepSeek 把 <artifact> 写成了它自己的工具标记)。所以**不从模型的文本里找**,
+  // 而是看这一轮实际执行成功的 write / edit(结构化的工具调用,即「涉及文件」那份清单),外加文件卡片。
+  // 文件属于某个 fastui 工程,就在卡片列表后面另补一张按工程打开的预览卡片;文件卡片照旧。
+  // 判定在主进程:往上找工程标记,并按卡片的查找顺序反查同一个工程,对不上就不补。
+  // 补出来的卡片只用于展示,不进自动保存与产物打点。
+  const [fastuiExtraCards, setFastuiExtraCards] = createSignal<OutputCard[]>([])
+  let fastuiExtraGen = 0
+  createEffect(
+    on([outputCards, producedFiles, showGenerating], ([cards, files, generating]) => {
+      const gen = ++fastuiExtraGen
+      const dir = props.projectDir
+      // 中断的一轮与产物卡片同样处理:不出卡片
+      if (!dir || generating || isAborted()) {
+        setFastuiExtraCards([])
+        return
+      }
+      const present = new Set(cards.map((c) => (c.type === "link" ? parseFastuiPreview(c.content) : null)).filter(Boolean))
+      // 文件卡片只看磁盘路径:fastui:// 与 http(s) 等带协议的链接不是文件
+      const linkPaths = cards
+        .filter((c) => c.type === "link" && !/^[a-z][a-z0-9+.-]*:\/\//i.test(c.content.trim()))
+        .map((c) => c.content)
+      const paths = [...new Set([...files.map((f) => f.path), ...linkPaths].map((p) => absoluteLinkPath(p, dir)))]
+      if (paths.length === 0) {
+        setFastuiExtraCards([])
+        return
+      }
+      const last = assistantMsgs().at(-1)?.time as { created?: number; completed?: number } | undefined
+      const createdAt = cards[0]?.createdAt ?? new Date(last?.completed ?? last?.created ?? Date.now())
+      const target = { workspaceDir: dir, sessionId: props.sessionID }
+      void Promise.all(paths.map((p) => fastuiProjectOfFile(target, p))).then((names) => {
+        if (gen !== fastuiExtraGen) return
+        const extra: OutputCard[] = []
+        for (const name of names) {
+          if (!name || present.has(name)) continue
+          present.add(name)
+          extra.push({ id: `card-${props.messageID}-fastui-${name}`, title: name, type: "link", content: fastuiPreviewUrl(name), createdAt })
+        }
+        setFastuiExtraCards(extra)
+      })
+    }),
+  )
+  const displayCards = createMemo(() => [...outputCards(), ...fastuiExtraCards()])
+
   // 自动保存 artifact 到磁盘（生成时立即触发，不等待用户点击）
   createEffect(() => {
     const cards = outputCards()
@@ -1709,7 +1754,7 @@ const stateStatus = state.status as string | undefined
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}
-      <For each={outputCards()}>
+      <For each={displayCards()}>
         {(capturedCard) => (
           <div
             title={capturedCard.type === "link" ? capturedCard.content : undefined}

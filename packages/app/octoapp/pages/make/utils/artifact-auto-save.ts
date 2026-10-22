@@ -7,8 +7,8 @@ export const CODE_OUTPUT_SUBDIR = "output"
 
 /**
  * sid 前 12 位 = `ses_` 之后的时间戳+计数器 hex 段,与会话一一对应且稳定;
- * 与服务端 workspace-upgrade 迁移命名(opencode src/session/workspace-upgrade.ts sidPrefix)
- * 保持逐字一致,规则改动需两侧同步。
+ * 代码工作区里作为 output/ 下的会话目录名,与服务端 workspace-upgrade 迁移落点
+ * (opencode src/session/workspace-upgrade.ts sidPrefix)保持逐字一致,规则改动需两侧同步。
  */
 function sidPrefix(sessionId: string): string {
   return sessionId.startsWith("ses_") && sessionId.length >= 16 ? sessionId.slice(4, 16) : sessionId
@@ -49,9 +49,11 @@ export function hasExtension(title: string, type: OutputCard["type"]): boolean {
   return title.toLowerCase().endsWith(ext.toLowerCase())
 }
 
-// kind="code"(代码工作区): 产物落 <projectDir>/output/<sid 前 12 位>-<原名>,与
-// workspace-upgrade 迁移命名一致 —— 升级后的工作区恢复会话时 auto-save 会命中迁移
-// 副本直接跳过,不会再在项目根写原始名副本(跨会话前缀也避免同名产物互相覆盖);
+// kind="code"(代码工作区): 产物落 <projectDir>/output/<sid 前 12 位>/<原名>,与
+// workspace-upgrade 迁移落点(源 .octo/<sid>/outputs/** → output/<前缀>/<原相对路径>)
+// 逐字一致 —— 升级后的工作区恢复会话时 auto-save 会命中迁移副本直接跳过,不会再
+// 在别处写重复副本(normal 期 auto-save 本就落 outputs 根平铺,推导无子目录、与迁移
+// 落点天然相同;带子目录的产物是 write 工件、有 DB 路径引用,不走标题推导);
 // 缺省 "normal": 落 <projectDir>/.octo/<sessionId>/outputs/ (原行为)。
 export function computeArtifactFilePath(
   title: string,
@@ -63,7 +65,7 @@ export function computeArtifactFilePath(
   const sep = projectDir.includes("\\") ? "\\" : "/"
   const baseName = hasExtension(title, type) ? title : title + getExtension(type)
   const filename = sanitizeFilename(baseName)
-  if (kind === "code") return [projectDir, CODE_OUTPUT_SUBDIR, `${sidPrefix(sessionId)}-${filename}`].join(sep)
+  if (kind === "code") return [projectDir, CODE_OUTPUT_SUBDIR, sidPrefix(sessionId), filename].join(sep)
   return [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, "outputs", filename].join(sep)
 }
 
