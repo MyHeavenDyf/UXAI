@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { commentAuthor, commentFileKey, commentTarget, createHtmlComments } from "./html-comments"
+import { commentAuthor, commentFileKey, commentPinTarget, commentTarget, createHtmlComments } from "./html-comments"
 import type { FileComment } from "../../make/components/result-viewer/comment-popover"
 
 test("标注作者沿用 Design 头像地址，无账号或登录数据损坏时回退", () => {
@@ -30,6 +30,16 @@ test("拒绝不完整、非有限坐标的 iframe 标注数据", () => {
   expect(commentTarget(null)).toBeUndefined()
   expect(commentTarget({ elementId: "a", selector: "h1", position: { x: 0, y: 0, w: 1, h: 1 } })?.selector).toBe("h1")
 })
+test("已有标记以当前视口坐标打开，拒绝非法坐标", () => {
+  const comment: FileComment = { id: "c1", filePath: "/a.html", elementId: "el-1", selector: "h1", label: "", text: "", htmlHint: "", note: "修改", position: { x: 0.9, y: 0.9, w: 0.1, h: 0.1 }, createdAt: 1, updatedAt: 1 }
+  const rect = { left: 80, top: 120, width: 40, height: 40 }
+  expect(commentPinTarget(comment, rect)).toMatchObject({ hoverPoint: { x: 128, y: 120 }, pinPosition: rect })
+  expect(commentPinTarget(comment, { ...rect, top: 30 })?.hoverPoint?.y).toBe(30)
+  expect(commentPinTarget(comment, { ...rect, top: NaN })).toBeUndefined()
+  expect(commentPinTarget(comment, null)).toBeUndefined()
+  expect(comment.position.y).toBe(0.9)
+})
+
 test("通过 HTTP 复用标注协议，绑定原会话，保存后可读回与删除", async () => {
   const saved = new Map<string, FileComment[]>()
   const server = createServer(async (request, response) => {

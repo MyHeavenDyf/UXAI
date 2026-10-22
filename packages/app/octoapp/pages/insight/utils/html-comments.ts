@@ -51,6 +51,20 @@ export function commentTarget(value: unknown): CommentPopoverTarget | undefined 
   }
 }
 
+/** 已有标记使用桥接事件的视口坐标，不能把历史文档比例当作当前视口比例。 */
+export function commentPinTarget(comment: FileComment, value: unknown): CommentPopoverTarget | undefined {
+  if (!value || typeof value !== "object") return
+  const rect = value as Record<string, unknown>
+  if (![rect.left, rect.top, rect.width, rect.height].every(n => typeof n === "number" && Number.isFinite(n))) return
+  const target = commentTarget(comment)
+  if (!target) return
+  return {
+    ...target,
+    pinPosition: { left: rect.left as number, top: rect.top as number, width: rect.width as number, height: rect.height as number },
+    hoverPoint: { x: (rect.left as number) + (rect.width as number) + 8, y: rect.top as number },
+  }
+}
+
 export function createHtmlComments(origin: { url: string; directory: string; sessionId: string; filePath: string }, request = fetch) {
   const snapshot = { ...origin }
   const scope = commentFileKey(snapshot.filePath).then(commentFilePath => ({ sessionId: snapshot.sessionId, commentFilePath }))
