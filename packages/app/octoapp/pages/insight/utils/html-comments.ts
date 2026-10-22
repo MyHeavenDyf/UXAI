@@ -1,15 +1,23 @@
 import { directoryHeader } from "@/utils/headers"
 import type { FileComment, CommentAttachment, CommentPopoverTarget } from "../../make/components/result-viewer/comment-popover"
 
+function commentAvatar(account: string) {
+  return account
+    ? `https://octo.hdesign.huawei.com/w3lab/rest/yellowpage/face/${encodeURIComponent(account.replace(/^[a-zA-Z]/, ""))}/120?ts=${Date.now()}`
+    : ""
+}
+
 export function commentAuthor() {
   try {
     const user = JSON.parse(localStorage.getItem("userInfo") ?? "{}")
+    const account = typeof user?.account === "string" ? user.account : ""
     return {
       commenterName: typeof user?.nickName === "string" ? user.nickName : "用户名",
-      commenterAccount: typeof user?.account === "string" ? user.account : "",
+      commenterAccount: account,
+      commenterAvatar: commentAvatar(account),
     }
   } catch {
-    return { commenterName: "用户名", commenterAccount: "" }
+    return { commenterName: "用户名", commenterAccount: "", commenterAvatar: "" }
   }
 }
 
@@ -43,6 +51,20 @@ export function commentTarget(value: unknown): CommentPopoverTarget | undefined 
   }
 }
 
+/** 已有标记使用桥接事件的视口坐标，不能把历史文档比例当作当前视口比例。 */
+export function commentPinTarget(comment: FileComment, value: unknown): CommentPopoverTarget | undefined {
+  if (!value || typeof value !== "object") return
+  const rect = value as Record<string, unknown>
+  if (![rect.left, rect.top, rect.width, rect.height].every(n => typeof n === "number" && Number.isFinite(n))) return
+  const target = commentTarget(comment)
+  if (!target) return
+  return {
+    ...target,
+    pinPosition: { left: rect.left as number, top: rect.top as number, width: rect.width as number, height: rect.height as number },
+    hoverPoint: { x: (rect.left as number) + (rect.width as number) + 8, y: rect.top as number },
+  }
+}
+
 export function createHtmlComments(origin: { url: string; directory: string; sessionId: string; filePath: string }, request = fetch) {
   const snapshot = { ...origin }
   const scope = commentFileKey(snapshot.filePath).then(commentFilePath => ({ sessionId: snapshot.sessionId, commentFilePath }))
@@ -57,7 +79,12 @@ export function createHtmlComments(origin: { url: string; directory: string; ses
     return data
   }
   return {
-    load: async (): Promise<FileComment[]> => (await send(`?${await query()}`)).comments,
+    load: async (): Promise<FileComment[]> => {
+      const comments: FileComment[] = (await send(`?${await query()}`)).comments
+      // 兼容之前只保存姓名和账号的标注，始终使用原作者账号补头像。
+      return comments.map(comment => comment.commenterAvatar || !comment.commenterAccount
+        ? comment : { ...comment, commenterAvatar: commentAvatar(comment.commenterAccount) })
+    },
     save: async (comment: FileComment) => send("", { method: "POST", body: JSON.stringify({ ...await scope, comment }) }),
     remove: async (commentId: string) => send(`?${await query({ commentId })}`, { method: "DELETE" }),
     upload: async (commentId: string, file: File, sourceFilePath: string): Promise<CommentAttachment> =>
