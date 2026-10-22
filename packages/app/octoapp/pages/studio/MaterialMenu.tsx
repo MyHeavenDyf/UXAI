@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, on, Show, type JSX, type Resource } from "solid-js"
+import { tracker } from "@/utils/tracker"
 
 export type MaterialTag = { en: string; zh: string }
 export type MaterialWordBook = { name: string; model: string[]; groups: { name: string; tags: MaterialTag[] }[] }
@@ -33,6 +34,7 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
   })
 
   function selectCategory(index: number) {
+    tracker.interaction({ module: "studio", name: "material-category", extend: JSON.stringify({ name: currentWordBook()[index]?.name }) })
     setCategoryIndex(index)
     setSubcategoryIndex(0)
   }
@@ -67,7 +69,10 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
                   type="button"
                   class="studio-material-sub-btn"
                   classList={{ active: index() === subcategoryIndex() }}
-                  onClick={() => setSubcategoryIndex(index())}
+                  onClick={() => {
+                    tracker.interaction({ module: "studio", name: "material-subcategory", extend: JSON.stringify({ name: sub.name }) })
+                    setSubcategoryIndex(index())
+                  }}
                 >
                   {sub.name}
                 </button>
@@ -82,6 +87,7 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
                   class="studio-material-tag-btn"
                   classList={{ active: selectedTag() === tag.zh }}
                   onClick={() => {
+                    tracker.interaction({ module: "studio", name: "material-tag", extend: JSON.stringify({ tag: tag.zh }) })
                     setSelectedTag(tag.zh)
                     props.onSelectTag(tag.zh)
                   }}
