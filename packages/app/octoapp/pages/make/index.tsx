@@ -122,7 +122,7 @@ import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
-import { createHistoryController } from "./subtype-handlers/history-controller"
+import { createHistoryController, removePersistedCurrentBySession } from "./subtype-handlers/history-controller"
 import {
   getSessionContextMetrics,
   isContextEstimateForMessage,
@@ -493,6 +493,8 @@ function MakeContent() {
 
     const ok = await removeSession(sdk.client, sessionID)
     if (!ok) return
+
+    if (projectDir()) removePersistedCurrentBySession(projectDir()!, sessionID)
 
     tracker.interaction({ module: "design", name: "delete-session" })
     sync.set(
