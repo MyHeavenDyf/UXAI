@@ -858,6 +858,10 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   // ── Send-text event listener (direct text → agent) ────────────────────────────
+  // 用户操作（资产库/图标/模型编辑保存）从 sendTextToAgent 开始到 model-edit:reply-done
+  // 结束是一个完整单元。期间 history-controller 的 'turn' 模式只 coalesce 不记录，
+  // 避免模型轮内多次写文件产生多条中间态版本；操作结束时 forceSettle 记一条最终态
+  let userActionPending = false
   createEffect(() => {
     const handleSendText = async (e: Event) => {
       const detail = (e as CustomEvent<SendTextEventDetail>).detail
@@ -874,9 +878,14 @@ const sessionMessagesLoaded = createMemo(() => {
         return
       }
 
+      // 资产库/图标/模型编辑保存：标记用户操作进行中，等 reply-done/idle 时 forceSettle
+      const isModelEditSource = detail.source === 'asset-confirm' || detail.source === 'icon-confirm' || detail.source === 'model-edit'
+      if (isModelEditSource) userActionPending = true
+
       const ok = await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
       if (!ok) {
         detail.ack?.({ ok: false, message: '发送失败' })
+        if (isModelEditSource) userActionPending = false
         return
       }
       tracker.interaction({
@@ -1022,9 +1031,16 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
-      } else if (e.type === "session.next.step.ended" || e.type === "session.idle") {
+      } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
+      } else if (e.type === "session.idle") {
+        // session.idle：用户操作的 fallback 结束信号（reply-done 没到达时兜底）。
+        // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态；
+        // 不再额外调 onFileRefresh（forceSettle 已包含完整结算，重复调会产生重复记录）
+        userActionPending = false
+        historyController.forceSettle(tabStore.tabs())
+        setFilesRefreshKey(k => k + 1)
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
@@ -1968,6 +1984,7 @@ const sessionMessagesLoaded = createMemo(() => {
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
+    isUserActionPending: () => userActionPending,
   })
 
   // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
@@ -2027,17 +2044,20 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
   })
 
-  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：补一次 onFileRefresh。
-  // components 页面的 index.components.html 由构建进程在回复内重新产出，SSE 的 tool/step 事件
-  // 时点上可能读不到新文件而漏记「模型编辑」版本；此刻模型已收工、产物已落盘，检查必然命中。
-  // hash 未变时 onFileRefresh 是空操作，与 SSE 路径幂等互斥（先到者记录并推进基线）。
+  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：用户操作结束。
+  // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态。
+  // 之前 SSE 路径的 coalesce 只更新了预览、没记录版本；此刻模型已收工、产物已落盘，
+  // forceSettle 必然命中最终态（hash 未变时 onFileRefresh 是空操作，幂等）。
+  // session.idle 会先到达并 forceSettle；reply-done 到达时 userActionPending 已 false 则跳过
   createEffect(() => {
     const handler = async (e: Event) => {
       const detail = (e as CustomEvent<{ filePath?: string }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target) return
-      await historyController.onFileRefresh([target])
+      if (!userActionPending) return
+      userActionPending = false
+      await historyController.forceSettle([target])
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
