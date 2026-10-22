@@ -139,12 +139,43 @@
   完成后写 .icon-result.json：
   { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "iconCallSites": <总数>, "confirmed": <自动改写数>, "residual": <手动处理数>, "shimRetained": [<保留原因>] }
 
-═══════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+阶段4 — 终检（orchestrator 直接做，不派子 agent）
+══════════════════════════════════════════════════════════════
+
+阶段3 完成后，主 agent 对 download-eview-react 做整体终检，确认转换质量。
+
+1. 交接文件状态（4 个）：
+   读 .umd-conversion.json（migrationPlan 非 null + verification.relativeImports=PASS）
+   读 .conversion-result.json / .migration-result.json / .icon-result.json 的 status 全部 PASS
+
+2. antd 痕迹残留 grep（输出应为空）：
+   grep -rn "from ['\"]antd" download-eview-react/src/          ← antd 组件导入残留
+   grep -rn "\.ant-" download-eview-react/src/                  ← antd CSS 选择器残留
+   grep -rn "assets/shared/icon" download-eview-react/src/      ← 旧 icon 路径残留
+   grep -rn "assets/shared/ip-input" download-eview-react/src/  ← IPInput 手写件残留
+   grep -rn "\./assets/uploads/" download-eview-react/src/      ← 旧图片路径残留
+
+3. 结构完整性：
+   - 关键文件存在：src/main.jsx / src/app.jsx / package.json / vite.config.js / index.html
+   - CSS 四层：src/styles/{base,light,theme,dark}.css 齐全
+   - public/uploads/ 有文件（仅当 .umd-conversion.json 的 uploadsAssets.copiedCount > 0）
+
+4. 向用户汇总：
+   - 各阶段状态（PASS/FAIL）
+   - 改了哪些文件（按阶段汇总数量）
+   - 残留问题（如有 grep 命中，列出文件:行号:内容）
+   - 预期保留项（icon shim 方案A 兜底，非遗漏）
+
+══════════════════════════════════════════════════════════════
 编排要点
 ══════════════════════════════════════════════════════════════
 
 - 阶段0 由主 agent 直接跑脚本（init-scaffold/extract-umd/build-migration-plan），
   不派发子 agent——子 agent 不能再派子 agent，把脚本步从子 agent 剥出来减轻其上下文
+
+- 阶段4 终检也由主 agent 直接做（bash grep 扫 antd 痕迹残留 + 读 4 个交接文件状态 + 检查结构完整性），
+  不派子 agent
 
 - 阶段1 子 agent 只做搬代码+验证（Steps 3-4），不跑脚本(1-2)、不做评估(5)，
   上下文从 80-120k 降到 60-90k

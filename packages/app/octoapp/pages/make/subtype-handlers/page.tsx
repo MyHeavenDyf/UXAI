@@ -455,10 +455,12 @@ const pageHandler = {
       }
       if (files.length === 0) return null
 
+      const skipFiles = new Set(['.umd-conversion.json', '.conversion-result.json', '.migration-result.json', '.icon-result.json', '.npmrc', 'package-lock.json'])
       const out: { path: string; content: Uint8Array }[] = []
       for (const entry of files) {
         const rel = entry.path.replace(/\\/g, '/')
-        if (rel.startsWith('node_modules/')) continue
+        if (rel.startsWith('node_modules/') || rel.startsWith('.history/')) continue
+        if (skipFiles.has(rel)) continue
         const buf = await api.readFileBuffer(`${codeDir}/${rel}`)
         if (buf) out.push({ path: `download-eview-react/${rel}`, content: new Uint8Array(buf) })
       }
