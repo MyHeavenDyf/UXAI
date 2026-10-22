@@ -420,8 +420,9 @@ export function StudioHistoryGallery(props: {
   // loadMoreFailed 时不自动重试，交由重试按钮恢复，避免失败后无限循环。
   function maybeLoadMore() {
     const viewport = viewportEl
-    // 详情打开后列表视图已卸载，viewportEl 指向游离节点：跳过检查，避免误触发一次多余请求。
-    if (!viewport?.isConnected) return
+    // 详情打开时列表只是被 display:none 隐藏（保持挂载以保留滚动位置），此时视口尺寸为 0
+    // 会被误判为贴近底部：跳过检查，避免误触发一次多余请求。
+    if (!viewport?.isConnected || detailItem()) return
     if (state.loading || state.loadingMore || state.loadMoreFailed || !state.nextCursor) return
     if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= LOAD_MORE_THRESHOLD_PX) {
       void loadMore()
@@ -434,8 +435,8 @@ export function StudioHistoryGallery(props: {
     requestAnimationFrame(() => maybeLoadMore())
   }, { defer: true }))
 
-  // viewport 在详情 <Show> 的 fallback 内，进出详情会卸载重建：
-  // 在 ref 回调里重新挂观察器，避免 ResizeObserver 一直观察已卸载的旧节点、resize 不再触发加载。
+  // 列表在详情打开时保持挂载（display:none 隐藏），viewport 不随详情切换重建；
+  // 观察器挂在 ref 回调里，覆盖组件随「我的资产」页面进出而重新挂载的场景。
   let viewportObserver: ResizeObserver | undefined
   const observeViewport = (el: HTMLDivElement) => {
     viewportEl = el
@@ -551,8 +552,9 @@ export function StudioHistoryGallery(props: {
           </div>
         )}
       </Show>
-      <Show when={detailItem()} fallback={
-        <>
+      {/* 进出详情只隐藏列表而不是卸载：保留滚动位置，返回时避免整列表重挂载造成的图片重载与布局抖动。
+          display:contents 让头部与滚动区继续作为 flex 子项参与布局，与未包裹时一致。 */}
+      <div style={{ display: detailItem() ? "none" : "contents" }}>
       <div
         class="studio-file-manager-header"
         classList={{ "studio-history-header--batch": state.batchMode }}
@@ -851,8 +853,8 @@ export function StudioHistoryGallery(props: {
           </Show>
         </Show>
       </ScrollView>
-        </>
-      }>
+      </div>
+      <Show when={detailItem()}>
         <div class="studio-history-detail">
           <div class="studio-file-manager-back-bar">
             <button
