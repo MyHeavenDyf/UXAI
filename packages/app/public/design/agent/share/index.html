@@ -206,6 +206,57 @@
       word-break: break-word;
       max-width: 85%;
       display: inline-block;
+      /* 对齐 design ExpandableBubble:外层容器 relative + overflow hidden */
+      position: relative;
+      overflow: hidden;
+    }
+    /* ── 长用户消息折叠/展开(对齐 design expandable-bubble.tsx) ── */
+    .bubble-user[data-expandable="true"]:not([data-expanded="true"]) .bubble-user-content {
+      /* design MAX_CONTENT_HEIGHT = 222 */
+      max-height: 222px;
+      overflow: hidden;
+    }
+    .bubble-user[data-expandable="true"][data-expanded="true"] {
+      /* design: 展开时为右下角按钮预留底部空间 */
+      padding-bottom: 38px;
+    }
+    .bubble-user-mask,
+    .bubble-expand-btn { display: none; }
+    .bubble-user[data-expandable="true"] .bubble-expand-btn { display: inline-flex; }
+    .bubble-user[data-expandable="true"]:not([data-expanded="true"]) .bubble-user-mask { display: block; }
+    .bubble-user-mask {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      /* design MASK_HEIGHT = 60 */
+      height: 60px;
+      background: linear-gradient(0deg, rgba(236,242,255,1) 50.226%, rgba(236,242,255,0.9) 70.355%, rgba(236,242,255,0) 100%);
+      pointer-events: none;
+    }
+    .bubble-expand-btn {
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: rgba(0, 0, 0, 0.6);
+      font-size: 14px;
+      line-height: 22px;
+      z-index: 1;
+    }
+    .bubble-expand-btn .bubble-expand-chevron {
+      display: inline-flex;
+      align-items: center;
+      transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .bubble-user[data-expanded="true"] .bubble-expand-chevron {
+      transform: rotate(180deg);
     }
     /* ── 用户图片附件(对齐 design InsightTurn: 80×80 缩略图,右对齐,在气泡上方) ── */
     .user-attachments {
@@ -1320,10 +1371,58 @@
       if (userTextContent) {
         const bubble = document.createElement("div")
         bubble.className = "bubble-user"
-        bubble.textContent = userTextContent
+        bubble.setAttribute("data-expanded", "false")
+        // 内容层 + 渐隐遮罩 + 展开按钮(对齐 design ExpandableBubble 的三层结构)
+        const bubbleContent = document.createElement("div")
+        bubbleContent.className = "bubble-user-content"
+        bubbleContent.textContent = userTextContent
+        bubble.appendChild(bubbleContent)
+        const mask = document.createElement("div")
+        mask.className = "bubble-user-mask"
+        bubble.appendChild(mask)
+        bubble.appendChild(buildBubbleExpandButton())
         userRow.appendChild(bubble)
       }
       return userRow
+    }
+
+    // 用户气泡展开/收起按钮(对齐 design expandable-bubble.tsx:右下角"展开/收起"+旋转箭头)
+    const BUBBLE_CHEVRON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="16" height="16" fill="none" style="flex-shrink:0"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/></svg>'
+    function buildBubbleExpandButton() {
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.className = "bubble-expand-btn"
+      const label = document.createElement("span")
+      label.textContent = "展开"
+      const chevron = document.createElement("span")
+      chevron.className = "bubble-expand-chevron"
+      chevron.innerHTML = BUBBLE_CHEVRON_SVG
+      btn.appendChild(label)
+      btn.appendChild(chevron)
+      btn.addEventListener("click", () => {
+        const bubble = btn.closest(".bubble-user")
+        if (!bubble) return
+        const expanded = bubble.getAttribute("data-expanded") !== "true"
+        bubble.setAttribute("data-expanded", String(expanded))
+        label.textContent = expanded ? "收起" : "展开"
+      })
+      return btn
+    }
+
+    // 用户气泡超长标记(对齐 design ExpandableBubble:scrollHeight > 222 + 4;
+    // ResizeObserver 跟随宽度变化重算,与 design 的 checkHeight 行为一致)
+    const USER_BUBBLE_MAX_HEIGHT = 222
+    function markExpandableUserBubbles(scope) {
+      for (const bubble of scope.querySelectorAll(".bubble-user")) {
+        const content = bubble.querySelector(".bubble-user-content")
+        if (!content || bubble.dataset.expandTracked === "true") continue
+        bubble.dataset.expandTracked = "true"
+        const check = () => {
+          bubble.setAttribute("data-expandable", String(content.scrollHeight > USER_BUBBLE_MAX_HEIGHT + 4))
+        }
+        check()
+        if (typeof ResizeObserver === "function") new ResizeObserver(check).observe(content)
+      }
     }
 
     // ─────────────────────────────────────────────────────────
@@ -2130,6 +2229,8 @@
 
       // 渲染完成后标记超长代码块为可展开(对齐 design updateCodeExpandState:scrollHeight > 320 + 4)
       markExpandableCodeBlocks(list)
+      // 渲染完成后标记超长用户气泡为可展开(对齐 design ExpandableBubble:scrollHeight > 222 + 4)
+      markExpandableUserBubbles(list)
     }
 
     // 思考过程折叠块(对齐 design insight-turn.tsx ReasoningCollapsed:已深度思考(用时X)+ 展开内容)
