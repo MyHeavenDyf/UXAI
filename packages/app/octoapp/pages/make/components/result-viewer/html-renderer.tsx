@@ -25,7 +25,7 @@ import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { createPrototypeArchiveZip } from "../../utils/archive-prototype"
 import { dirname, basename, joinPath } from "../../utils/references"
-import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { isLocalPreviewUrl, parseFastuiPreview } from "../../utils/fastui-export"
 import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 
@@ -1073,7 +1073,7 @@ createEffect(() => {
   let fastuiRestartNext = false
 
   createEffect(
-    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
+    // 工作区与会话也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
     on(
       [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
       ([name]) => {
@@ -1082,7 +1082,8 @@ createEffect(() => {
         fastuiRestartNext = false
         fastuiPreview.request({
           api: getDesktopApi(),
-          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          workspaceDir: props.sdkDirectory || null,
+          sessionId: props.sessionId || null,
           name,
           restart,
         })

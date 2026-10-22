@@ -385,6 +385,7 @@ export function ConversationHeader(
             hasMessages={menuHasMessages()}
             groups={groupsCtx?.groups}
             sessionGroupMapping={groupsCtx?.mapping}
+            trackerModule="insight"
             onClose={closeMenu}
             onRename={handleMenuRename}
             onTogglePin={handleMenuTogglePin}

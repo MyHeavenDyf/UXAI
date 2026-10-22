@@ -258,7 +258,10 @@ const StudioGenerationResult = Schema.Struct({
   task_type: Schema.optional(Schema.String),
   taskId: Schema.optional(Schema.String),
   model: Schema.String,
+  // getGeneration 历史快照回退会带上这两个生成级字段（详情面板模型名/自定义比例用）。
+  styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.String,
+  isCustom: Schema.optional(Schema.Boolean),
   videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
   duration: Schema.optional(Schema.String),
   videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("480"), Schema.Literal("720"), Schema.Literal("1080"), Schema.Literal("4k")])),
@@ -289,6 +292,18 @@ export const StudioHistoryMediaItemSchema = Schema.Struct({
   aspectRatio: Schema.optional(Schema.String),
   capability: Schema.optional(Schema.String),
   duration: Schema.optional(Schema.String),
+  // 生成级文案快照列：会话删除后详情面板靠它们复原（与 Hono 路由返回的服务层字段对齐）。
+  prompt: Schema.optional(Schema.String),
+  displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
+  detailTitle: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  styleModel: Schema.optional(Schema.String),
+  provider: Schema.optional(Schema.String),
+  videoMode: Schema.optional(Schema.String),
+  videoQualityMode: Schema.optional(Schema.String),
+  toolAction: Schema.optional(Schema.String),
+  isCustom: Schema.optional(Schema.Boolean),
   createdAt: Schema.Number,
 })
 

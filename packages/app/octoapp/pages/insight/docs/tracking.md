@@ -10,6 +10,18 @@
 
 > 历史分组表保留在下方；完整代码盘点见 [2026-10-15 清单](./tracking-inventory-2026-10-15.md)，该基线为 80 个唯一 name。本次新增 18 个 name，按相同范围合计 98 个；旧表中的历史入口不能作为当前覆盖全集。
 
+## 2026-10-20 HTML 画布编辑（已接入，待真实画布联调）
+
+命名及结果映射见 [实施方案](./tracking-plan.md#2026-10-20-html-画布编辑124)。新增 5 个事件名，module=insight。
+
+| name | 触发与结果口径 | 实现位置 |
+| --- | --- | --- |
+| canvas-edit-open | 登录、内容、会话和真实传输可用性通过后的有效入口点击；source/fromAttachment/viewMode | utils/canvas-edit-session.ts |
+| canvas-edit-start / canvas-edit-result | action=prepare/import/open/reveal/other；operationId、原 sessionId、status、durationMs、reason/evidence；prepare 成功只证明动作准备好；执行动作缺少确认回执标记 unconfirmed，不计成功 | utils/canvas-edit-session.ts |
+| canvas-return-save-start / canvas-return-save-result | format=html/zip/other；实际保存完成才记 success；部分写入失败记 partial；保存后的列表刷新失败不更改保存结果 | utils/canvas-edit.ts |
+
+真实传输能力在 `utils/canvas-transport.ts` 局部声明。当前 available=false，不调用占位动作；真实 Pixso 转换、打开及回传尚未获得端到端验证。事件不含正文、文件名、路径、URL、Base64 或令牌，也不产生 artifact-* 模型产物事件。
+
 ## 2026-10-15 第一、第二批补齐（已实现，待发版）
 
 ### 按需项增补（已实现，待发版）

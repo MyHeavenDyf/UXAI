@@ -679,6 +679,32 @@
   padding: 0 32px;
 }
 
+/* 窄屏且右侧显示了批量操作（删除/下载/取消选择）时，让操作按钮换行到下一行 */
+@media (max-width: 849px) {
+  .studio-history-gallery .studio-file-manager-header.studio-history-header--batch {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 80px;
+    align-content: center;
+    row-gap: 8px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+}
+
+/* 更窄时即便只显示「批量管理」按钮也换行 */
+@media (max-width: 649px) {
+  .studio-history-gallery .studio-file-manager-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 80px;
+    align-content: center;
+    row-gap: 8px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+}
+
 .studio-file-manager-tabs {
   display: flex;
   align-items: center;
@@ -729,6 +755,13 @@
   color: #000000;
 }
 
+/* 窄屏（窗口 < 900px）筛选按钮只显示已筛选结果，不显示「已筛选：」前缀 */
+@media (max-width: 899px) {
+  .studio-history-filter-active-prefix {
+    display: none;
+  }
+}
+
 .studio-history-header-left {
   display: flex;
   align-items: center;
@@ -746,6 +779,8 @@
   display: inline-flex;
   align-items: center;
   height: 32px;
+  max-width: 300px;
+  max-width: clamp(100px, calc(33.33vw - 200px), 300px);
   padding: 0 8px;
   border: none;
   border-radius: 4px;
@@ -762,6 +797,30 @@
 
 .studio-history-filter-trigger--open {
   color: #000000;
+}
+
+.studio-history-filter-trigger--filtered {
+  background: rgba(25, 25, 25, 0.05);
+}
+
+.studio-history-filter-active {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0a59f7;
+}
+
+.studio-history-filter-clear {
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  flex: 0 0 12px;
+  cursor: pointer;
+  color: #0a59f7;
+  background: currentColor;
+  mask: url("/studio/xmark.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
 }
 
 .studio-history-retry {
@@ -873,32 +932,39 @@
   gap: 6px;
 }
 
-.studio-history-filter-menu--scrollable {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable {
   max-height: 450px;
   overflow-y: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--text-strong) 25%, transparent) transparent;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar {
   width: 4px;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar-thumb {
-  background: transparent;
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-strong) 25%, transparent);
   border-radius: 2px;
 }
 
-.studio-history-filter-menu--scrollable::-webkit-scrollbar-track {
+.studio-history-filter-menu.studio-history-filter-menu--scrollable::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.studio-history-filter-menu--scrollable:hover {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+.studio-history-filter-menu.studio-history-filter-menu--scrollable:hover {
+  scrollbar-color: color-mix(in oklch, var(--text-strong) 40%, transparent) transparent;
 }
 
-.studio-history-filter-menu--scrollable:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+.studio-history-filter-menu.studio-history-filter-menu--scrollable:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-strong) 40%, transparent);
 }
 
 .studio-history-filter-menu [data-slot="dropdown-menu-group"] {

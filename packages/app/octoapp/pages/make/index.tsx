@@ -133,7 +133,7 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
-import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
@@ -4864,7 +4864,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const fastuiName = parseFastuiPreview(linkContent)
       const legacyFastui =
         fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
-          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          ? await hasFastuiProject(fastuiTargetOf(projectDir()!, params.id)!)
           : false
       if (fastuiName !== null || legacyFastui) {
         const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
@@ -5017,7 +5017,7 @@ const sessionMessagesLoaded = createMemo(() => {
     let contentLoadedFromFile = false
     
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    // 代码工作区:推断/落盘到项目根 (kind="code");普通工作区:.octo/<sid>/outputs (原行为)
+    // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
@@ -5532,6 +5532,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   hasMessages={menuHasMessages()}
                   groups={groupsCtx?.groups}
                   sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="design"
                   onClose={closeMenu}
                   onRename={handleMenuRename}
                   onTogglePin={handleMenuTogglePin}

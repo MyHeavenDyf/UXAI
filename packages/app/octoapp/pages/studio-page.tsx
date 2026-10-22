@@ -354,6 +354,7 @@ export default function StudioPage() {
     )
   }
   const removeStudioHistorySession = (sessionID: string) => {
+    setSyncStore("deleted", sessionID, true)
     setSyncStore(
       produce((draft) => {
         const index = draft.session.findIndex((item) => item.id === sessionID)
@@ -1954,6 +1955,7 @@ export default function StudioPage() {
 
     const ok = await removeSession(client, session.id)
     if (!ok) return false
+    setSyncStore("deleted", session.id, true)
 
     studioThumbnails.removeThumbnail(session.id)
 
