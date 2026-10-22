@@ -28,6 +28,7 @@ const URL_FEATURES: Features = {
   history: false,
   download: false,
   fullscreen: true,
+  assessment: false,
 }
 
 describe("能力表", () => {

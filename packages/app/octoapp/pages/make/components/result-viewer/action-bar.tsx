@@ -5,12 +5,15 @@ import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
 import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
-import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron } from "../../icons"
+import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron, IconAssessment } from "../../icons"
 import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
 import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
+import { sendTextToAgent } from "../../utils/agent-events"
+import type { PanelSkill, SkillConfig } from "../skill-config-types"
+import { lookupDisplayName } from "../skill-config-types"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { DownloadCancelledError } from "../../subtype-handlers/default"
@@ -399,6 +402,122 @@ function CanvasEditDropdown(props: {
   )
 }
 
+function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const [expanded, setExpanded] = createSignal(false)
+  let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!open()) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef?.contains(t) || menuRef?.contains(t)) return
+      close()
+    }
+    const onBlur = () => close()
+    document.addEventListener("mousedown", onDocMouseDown, true)
+    window.addEventListener("blur", onBlur)
+    onCleanup(() => {
+      document.removeEventListener("mousedown", onDocMouseDown, true)
+      window.removeEventListener("blur", onBlur)
+    })
+  })
+
+  const close = () => {
+    setOpen(false)
+    setExpanded(false)
+  }
+
+  const presetSkills = createMemo(() => props.skillConfig?.presetSkills ?? [])
+
+  const handleSkillClick = async (skill: PanelSkill) => {
+    close()
+    const filePath = props.tab.filePath?.replace(/\\/g, "/")
+    if (!filePath) {
+      showOctoToast({ title: "当前页面没有关联文件" })
+      return
+    }
+    tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skill.label }) })
+    const displayName = lookupDisplayName(props.skillConfig?.skill, skill.label) ?? skill.label
+    const result = await sendTextToAgent(`\u200b@${skill.label}\u200b 对页面进行评估、评估结果保存到当前目录: ${filePath}`, {
+      source: "assessment",
+      timeoutMs: 1200000,
+      mentions: [{ id: skill.label, name: skill.label, type: "skill" as const, label: displayName, path: "" }],
+    })
+    if (!result.ok) showOctoToast({ title: "评估发送失败", description: result.message })
+  }
+
+  return (
+    <div class="octo-dropdown">
+      <Tooltip placement="top" value="评估" inactive={open()}>
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-action-btn"
+          classList={{ "octo-viewport-btn-active": open() }}
+          onClick={() => (open() ? close() : setOpen(true))}
+        >
+          <IconAssessment size={16} />
+          <span>评估</span>
+        </button>
+      </Tooltip>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          {(() => {
+            const rect = btnRef?.getBoundingClientRect()
+            return (
+              <div
+                ref={menuRef}
+                class="octo-assessment-menu"
+                style={{
+                  top: `${(rect?.bottom ?? 0) + 4}px`,
+                  left: `${rect?.left ?? 0}px`,
+                }}
+              >
+                <button
+                  type="button"
+                  class={`octo-assessment-item${expanded() ? " octo-assessment-item--active" : ""}`}
+                  onClick={() => setExpanded(!expanded())}
+                >
+                  <span class="octo-assessment-item-text">规范遵从性评估</span>
+                </button>
+                <button type="button" class="octo-assessment-item" disabled>
+                  <span class="octo-assessment-item-text">美学评估</span>
+                </button>
+                <button type="button" class="octo-assessment-item" disabled>
+                  <span class="octo-assessment-item-text">DMG预审</span>
+                </button>
+                <Show when={expanded()}>
+                  <div class="octo-assessment-secondary">
+                    <Show when={presetSkills().length === 0}>
+                      <div class="octo-assessment-empty">暂无内容</div>
+                    </Show>
+                    <For each={presetSkills()}>
+                      {(skill) => (
+                        <button
+                          type="button"
+                          class="octo-assessment-item"
+                          disabled={skill.enable === false}
+                          onClick={() => handleSkillClick(skill)}
+                        >
+                          <span class="octo-assessment-item-text" title={skill.label}>
+                            {lookupDisplayName(props.skillConfig?.skill, skill.label) ?? skill.label}
+                          </span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            )
+          })()}
+        </Portal>
+      </Show>
+    </div>
+  )
+}
+
 function Dropdown(props: {
   options: { value: string; label: string; icon: JSX.Element }[]
   value: string
@@ -511,6 +630,7 @@ export function ActionBar(props: {
     onHistorySwitch?: (entry: VersionEntry) => void
     sessionId?: string
     sdkDirectory?: string
+    skillConfig?: SkillConfig
     postMessageToIframe?: (data: unknown) => void
     onFilesRefresh?: () => void
     disabled?: boolean
@@ -621,6 +741,7 @@ export function ActionBar(props: {
   const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
   const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
   const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
+  const showAssessment = () => featureVisible(config().features.assessment) && props.tab.type === "html" && !!props.tab.filePath
   const showComment = () => featureVisible(config().features.comment) && showViewport()
   const showArchive = () => featureVisible(config().features.archive) && showViewport()
   const showDownload = () => featureVisible(config().features.download)
@@ -840,6 +961,9 @@ export function ActionBar(props: {
               observedUrlsGetter={props.observedResourceUrls}
               onFilesRefresh={props.onFilesRefresh}
             />
+          )}
+          {showAssessment() && (
+            <AssessmentDropdown tab={props.tab} skillConfig={props.skillConfig} />
           )}
           <Show when={shouldShowCopy()}>
             <Tooltip placement="top" value="复制">

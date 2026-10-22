@@ -564,6 +564,109 @@
   background: var(--octo-brand-a8);
 }
 
+.octo-assessment-menu {
+  position: fixed;
+  z-index: 99999;
+  max-width: 360px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: octo-pop-in 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.octo-assessment-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.octo-assessment-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.octo-assessment-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.octo-assessment-item:disabled:hover {
+  background: transparent;
+}
+
+.octo-assessment-item--active,
+.octo-assessment-item--active:hover {
+  color: #0a59f7;
+  background: rgba(10, 89, 247, 0.1);
+}
+
+.octo-assessment-item-text {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 二级面板:与一级菜单顶部对齐 (top: 0);宽度独立自适应,同 360px 上限 */
+.octo-assessment-secondary {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 4px;
+  max-width: 360px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar {
+  width: 4px;
+  display: block;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar-thumb {
+  background-color: #dbdbdb;
+  border-radius: 9999px;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.octo-assessment-empty {
+  padding: 16px 8px;
+  font-size: 14px;
+  color: #777777;
+  text-align: center;
+}
+
 button[title="版本历史"] {
   display: none;
 }

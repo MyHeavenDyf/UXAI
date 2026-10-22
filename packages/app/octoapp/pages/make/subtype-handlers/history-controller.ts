@@ -15,6 +15,22 @@ export interface HistoryControllerCallbacks {
   isActiveTab: (id: string) => boolean
 }
 
+export function removePersistedCurrentBySession(projectDir: string, sessionId: string): void {
+  if (!projectDir || !sessionId) return
+  const base = [projectDir.replace(/\\/g, "/"), ".octo", sessionId, "outputs"].join("/")
+  const prefix = "octo:history:current:"
+  try {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const p = k.slice(prefix.length).replace(/\\/g, "/")
+      if (p === base || p.startsWith(base + "/")) keys.push(k)
+    }
+    keys.forEach((k) => localStorage.removeItem(k))
+  } catch {}
+}
+
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   const historyStore = createHistoryStore()
   const writingTabs = new Set<string>()
@@ -78,6 +94,20 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     return true
   }
 
+  function getPersistedCurrentId(filePath: string): string | null {
+    try {
+      return localStorage.getItem("octo:history:current:" + filePath)
+    } catch {
+      return null
+    }
+  }
+
+  function setPersistedCurrentId(filePath: string, id: string): void {
+    try {
+      localStorage.setItem("octo:history:current:" + filePath, id)
+    } catch {}
+  }
+
   async function trigger(tab: ResultTab, event: HistoryTriggerEvent, actor: HistoryActor): Promise<void> {
     if (!isEligible(tab)) return
     const handler = getSubtypeHandler(tab.subtype)
@@ -90,30 +120,31 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        let newestId = existing[0].id
-        const currentHash = await getTabFileSetHash(tab)
-        if (currentHash) {
-          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
-          const hashes: string[] = []
-          for (const vf of versionFiles) {
-            const h = await getFileHash(vf.filePath)
-            if (h) hashes.push(h)
-          }
-          if (hashes.join("|") !== currentHash) {
-            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
-            if (entry) {
-              newestId = entry.id
-              listGeneration++
-              if (callbacks.isActiveTab(tab.id)) {
-                const list = await historyStore.listVersions(tab)
-                callbacks.setVersionList(() => list)
-              } else {
-                callbacks.setVersionList((prev) => [entry, ...prev])
-              }
-            }
-          }
+        listGeneration++
+        callbacks.setVersionList(() => existing)
+
+        const persistedId = getPersistedCurrentId(tab.filePath!)
+        const persistedEntry = persistedId ? existing.find((e) => e.id === persistedId) : undefined
+        const compareEntry = persistedEntry ?? existing[0]
+        if (await currentMatchesVersion(tab, files, compareEntry.id)) {
+          callbacks.setCurrentVersionId(() => compareEntry.id)
+          setPersistedCurrentId(tab.filePath!, compareEntry.id)
+          return
         }
-        callbacks.setCurrentVersionId(() => newestId)
+        const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+        if (entry) {
+          setPersistedCurrentId(tab.filePath!, entry.id)
+          if (callbacks.isActiveTab(tab.id)) {
+            const list = await historyStore.listVersions(tab)
+            callbacks.setVersionList(() => list)
+            callbacks.setCurrentVersionId(() => entry.id)
+          } else {
+            callbacks.setVersionList((prev) => [entry, ...prev])
+            callbacks.setCurrentVersionId(() => entry.id)
+          }
+        } else {
+          callbacks.setCurrentVersionId(() => compareEntry.id)
+        }
         return
       }
     }
@@ -151,6 +182,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       } else {
         callbacks.setVersionList((prev) => [entry, ...prev])
       }
+      setPersistedCurrentId(tab.filePath!, entry.id)
     }
   }
 
@@ -166,6 +198,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
         await handler.applyVersionFiles(ctx, files)
       }
       callbacks.setCurrentVersionId(() => entry.id)
+      setPersistedCurrentId(tab.filePath!, entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
       const hash = await getTabFileSetHash(tab)
       if (hash) {
@@ -322,33 +355,33 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const list = await historyStore.listVersions(tab)
     if (seq !== listGeneration) return
     callbacks.setVersionList(() => list)
-    const currentHash = await getTabFileSetHash(tab)
-    let currentId = list[0]?.id ?? null
-    if (currentHash && list.length > 0) {
-      const matched = await findVersionByHash(tab, list, currentHash)
-      if (matched) currentId = matched.id
-    }
+
+    const persistedId = getPersistedCurrentId(tab.filePath!)
+    const persistedEntry = persistedId ? list.find((e) => e.id === persistedId) : undefined
+    let currentId = persistedEntry?.id ?? list[0]?.id ?? null
     if (seq !== listGeneration) return
     callbacks.setCurrentVersionId(() => currentId)
-    if (currentHash) {
-      lastFileHash.set(tab.filePath!, currentHash)
+    const hash = await getTabFileSetHash(tab)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
+    }
+    if (currentId) {
+      setPersistedCurrentId(tab.filePath!, currentId)
     }
   }
 
-  /** 对比 tab 当前合并 hash 和各版本同文件集的合并 hash，找匹配的版本 */
-  async function findVersionByHash(tab: ResultTab, list: VersionEntry[], targetHash: string): Promise<VersionEntry | null> {
-    const files = await getTabFiles(tab)
-    for (const entry of list) {
-      const versionFiles = await historyStore.getVersionFiles(entry.id, tab, files)
-      const hashes: string[] = []
-      for (const vf of versionFiles) {
-        const h = await getFileHash(vf.filePath)
-        if (h) hashes.push(h)
-      }
-      const combinedHash = hashes.join("|")
-      if (combinedHash === targetHash) return entry
+  /** 当前磁盘内容是否与版本内容一致：按版本文件夹内实际存在的文件逐个比对 hash。
+   *  版本未包含的文件（记录后才新增的）不参与——switchVersion 本就不会删除它们，
+   *  交集匹配才能在「切到旧版本后文件集有漂移」时仍正确识别当前所在版本 */
+  async function currentMatchesVersion(tab: ResultTab, files: string[], versionId: string): Promise<boolean> {
+    const versionFiles = await historyStore.getVersionFiles(versionId, tab, files)
+    if (versionFiles.length === 0) return false
+    for (const vf of versionFiles) {
+      const hCur = await getFileHash(vf.originalPath)
+      const hVer = await getFileHash(vf.filePath)
+      if (!hCur || !hVer || hCur !== hVer) return false
     }
-    return null
+    return true
   }
 
   async function refreshVersions(tab: ResultTab): Promise<void> {
