@@ -1,4 +1,5 @@
 import { onMount, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 
 export function StudioStyleTemplateDeleteDialog(props: {
   deleting: boolean
@@ -60,7 +61,10 @@ export function StudioStyleTemplateDeleteDialog(props: {
             type="button"
             class="studio-style-template-delete-button cancel"
             disabled={props.deleting}
-            onClick={props.onCancel}
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "style-template-delete-cancel" })
+              props.onCancel()
+            }}
           >
             取消
           </button>
@@ -69,7 +73,10 @@ export function StudioStyleTemplateDeleteDialog(props: {
             type="button"
             class="studio-style-template-delete-button confirm"
             disabled={props.deleting}
-            onClick={props.onConfirm}
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "style-template-delete-confirm" })
+              props.onConfirm()
+            }}
           >
             {props.deleting ? "删除中..." : "确认"}
           </button>
