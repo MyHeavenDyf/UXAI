@@ -677,7 +677,7 @@ export const dict = {
 
   "settings.workspaceUpgrade.title": "工作区升级",
   "settings.workspaceUpgrade.description":
-    "把普通工作区升级为代码工作区：历史产物文件将复制到工作区 output/ 目录并按会话前缀重命名，聊天记录中的文件引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
+    "把普通工作区升级为代码工作区：历史产物文件将按会话目录保留原目录结构复制到工作区 output/ 目录，聊天记录中的文件引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
   "settings.workspaceUpgrade.counts": "{{sessions}} 个会话 · {{files}} 个文件",
   "settings.workspaceUpgrade.noArtifacts": "无历史产物",
   "settings.workspaceUpgrade.previewFailed": "预览不可用",
@@ -685,7 +685,7 @@ export const dict = {
   "settings.workspaceUpgrade.buttonBusy": "升级中...",
   "settings.workspaceUpgrade.confirm.title": "升级为代码工作区",
   "settings.workspaceUpgrade.confirm.description":
-    "将把「{{name}}」升级为代码工作区：{{sessions}} 个会话的 {{files}} 个产物文件会复制到 output/ 目录并按会话前缀重命名，聊天记录中的引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
+    "将把「{{name}}」升级为代码工作区：{{sessions}} 个会话的 {{files}} 个产物文件会按会话目录保留原目录结构复制到 output/ 目录，聊天记录中的引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
   "settings.workspaceUpgrade.confirm.unknown":
     "将把「{{name}}」升级为代码工作区。未能获取该工作区的产物统计，升级时会以实际扫描结果为准。",
   "settings.workspaceUpgrade.success.title": "已升级为代码工作区",

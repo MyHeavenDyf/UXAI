@@ -9,8 +9,8 @@ import type { SessionID } from "./schema"
 // 普通工作区 → 代码工作区原地升级(设计记录:opencode_modify/workspace-upgrade-normal-to-code.md)。
 //
 // 迁移动作 = 两件事:
-//   1. 文件:把 <ws>/.octo/<sid>/outputs/** 平铺**复制**(不是移动)到 <ws>/output/,
-//      重命名为 <sid 前 12 位时间戳段>-<原文件名>(撞名加 -2/-3 后缀,绝不覆盖);
+//   1. 文件:把 <ws>/.octo/<sid>/outputs/** 按会话目录**复制**(不是移动)到
+//      <ws>/output/<sid 前 12 位>/<原相对路径>,保留原目录结构与文件名;
 //   2. DB:改写 in-scope 会话 message/part 行里对这些产物路径的引用(4 种旧路径变体 →
 //      output/ 新绝对路径),事务内改写 + 读回自检,任一已映射变体残留即回滚。
 //
@@ -36,7 +36,7 @@ const BACKUP_MARKER = ".ws-upgrade-bak-"
 // SQLite 单条语句绑定参数上限(旧版默认 999)。id 列表按此分批。
 const ID_BATCH = 500
 
-export type UpgradeStage = "resolve" | "busy" | "backup" | "verify-backup" | "copy" | "rewrite" | "cleanup"
+export type UpgradeStage = "resolve" | "busy" | "backup" | "verify-backup" | "plan" | "copy" | "rewrite" | "cleanup"
 
 export class WorkspaceUpgradeError extends Error {
   readonly stage: UpgradeStage
@@ -130,7 +130,7 @@ function sidPrefix(sid: SessionID): string {
 }
 
 interface PlannedFile extends OutputFile {
-  /** <ws>/output/<finalName> */
+  /** 相对 output/ 的 posix 目标路径 = <sidPrefix>/<relPath>,与前端 computeArtifactFilePath 推导逐字一致 */
   dest: string
   name: string
   /** true = 需要复制;false = 目标已存在且内容相同(重跑复用,不重复复制) */
@@ -138,7 +138,7 @@ interface PlannedFile extends OutputFile {
 }
 
 function sameFile(a: string, b: string): boolean {
-  // 先比大小再逐字节比;产物以 html/svg 等小文件为主。读不了按不同处理(走后缀去重)。
+  // 先比大小再逐字节比;产物以 html/svg 等小文件为主。读不了按不同处理(触发中断报错)。
   try {
     const sa = fs.statSync(a)
     const sb = fs.statSync(b)
@@ -150,36 +150,39 @@ function sameFile(a: string, b: string): boolean {
 }
 
 /**
- * 命名规划(只读盘判断撞名,不写入):relpath 排序保证确定性;撞名(本次先占或盘上已有)
- * 依次尝试 -2/-3 后缀;盘上已有且内容相同 → 复用(重跑幂等);绝不覆盖任何已有文件。
+ * 命名规划(纯只读,不创建任何目录/文件,备份失败时文件系统零触碰):目标 =
+ * <ws>/output/<sidPrefix>/<relPath>,保留原目录结构与文件名。撞名分两种,都**报错中断**
+ * 而不是加后缀:后缀会击穿「迁移落盘名 ↔ 前端 text 卡片推导」的逐字一致不变量,且嵌套
+ * 下撞名只可能是异常状态(盘上已有异内容同名文件),挪走冲突文件重跑即可(run 幂等)。
+ * 内容相同的目标复用(重跑幂等);createdDirs 记录本次需要新建的目录链(失败清理用)。
  */
-function planFileCopies(ws: string, files: OutputFile[]): { planned: PlannedFile[]; createdDir: boolean } {
-  const outputDir = path.join(ws, OUTPUT_DIR)
-  const createdDir = !fs.existsSync(outputDir)
-  if (createdDir) fs.mkdirSync(outputDir, { recursive: true })
-
+function planFileCopies(ws: string, files: OutputFile[]): { planned: PlannedFile[]; createdDirs: string[] } {
   const taken = new Set<string>()
+  const createdDirs = new Set<string>()
   const planned: PlannedFile[] = []
   const sorted = files.slice().sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
   for (const file of sorted) {
-    const base = `${sidPrefix(file.sid)}-${path.posix.basename(file.relPath)}`
-    for (let n = 1; ; n++) {
-      const name = n === 1 ? base : `${base}-${n}`
-      if (taken.has(name)) continue
-      const dest = path.join(outputDir, name)
-      if (!fs.existsSync(dest)) {
-        planned.push({ ...file, dest, name, copy: true })
-        taken.add(name)
-        break
+    const name = `${sidPrefix(file.sid)}/${file.relPath}`
+    if (taken.has(name)) {
+      throw new WorkspaceUpgradeError("plan", `会话产物目标路径冲突：${name}（会话 id 前缀异常，请检查会话数据）`)
+    }
+    const dest = path.join(ws, OUTPUT_DIR, ...name.split("/"))
+    if (fs.existsSync(dest)) {
+      if (!sameFile(file.src, dest)) {
+        throw new WorkspaceUpgradeError("plan", `目标已存在且内容不同：${dest}（请先移走该文件后重试）`)
       }
-      if (sameFile(file.src, dest)) {
-        planned.push({ ...file, dest, name, copy: false })
-        taken.add(name)
-        break
+      planned.push({ ...file, dest, name, copy: false })
+    } else {
+      planned.push({ ...file, dest, name, copy: true })
+      for (let dir = path.dirname(dest); ; dir = path.dirname(dir)) {
+        if (fs.existsSync(dir)) break
+        createdDirs.add(dir)
+        if (path.dirname(dir) === dir) break
       }
     }
+    taken.add(name)
   }
-  return { planned, createdDir }
+  return { planned, createdDirs: [...createdDirs] }
 }
 
 // ── 路径变体与替换映射 ──────────────────────────────────────────────────────
@@ -197,7 +200,7 @@ function jsonEscaped(s: string): string {
   return s.replace(/\\/g, "\\\\")
 }
 
-/** 旧路径变体 → <ws>/output/<finalName>(正斜杠绝对路径,与代码工作区 link artifact 惯例一致)。 */
+/** 旧路径变体 → <ws>/output/<sidPrefix>/<relPath>(正斜杠绝对路径,name 本就是 posix 路径)。 */
 function buildKeyMap(ws: string, planned: PlannedFile[]): Map<string, string> {
   const wsFwd = ws.replace(/\\/g, "/")
   const map = new Map<string, string>()
@@ -377,16 +380,26 @@ function backupAndVerify(dbPath: string, scopeIDs: SessionID[]): string {
 
 // ── 文件复制与失败清理 ──────────────────────────────────────────────────────
 
-/** 复制计划内的文件(copy 不 move)。失败时先清掉本次已建的副本再抛错(原件从未被动过)。 */
-function copyPlanned(planned: PlannedFile[], outputDir: string, createdDir: boolean): string[] {
+/** 复制计划内的文件(copy 不 move)。目录创建在这里做(mkdir recursive 幂等,plan 阶段零写入);
+ * 失败时先清掉本次已建的副本再抛错(原件从未被动过)。 */
+function copyPlanned(planned: PlannedFile[], createdDirs: string[]): string[] {
   const created: string[] = []
+  const dirs = new Set(planned.map((file) => path.dirname(file.dest)))
+  for (const dir of dirs) {
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+    } catch (err) {
+      cleanupCreated(created, createdDirs)
+      throw new WorkspaceUpgradeError("copy", `创建产物目录失败：${dir}（${String(err)}）`)
+    }
+  }
   for (const file of planned) {
     if (!file.copy) continue
     try {
       fs.cpSync(file.src, file.dest)
       created.push(file.dest)
     } catch (err) {
-      cleanupCreated(created, outputDir, createdDir)
+      cleanupCreated(created, createdDirs)
       throw new WorkspaceUpgradeError("copy", `复制产物文件失败：${file.src} → ${file.dest}（${String(err)}）`)
     }
   }
@@ -394,10 +407,11 @@ function copyPlanned(planned: PlannedFile[], outputDir: string, createdDir: bool
 }
 
 /**
- * 失败清理:只删**本次新建**的 output 副本(重跑复用的既有文件不删);output 目录是
- * 本次新建且已空 → 顺手删掉不留空壳。清理失败只打日志,不算迁移失败(重跑幂等)。
+ * 失败清理:只删**本次新建**的 output 副本(重跑复用的既有文件不删),再按深度降序
+ * rmdir 本次新建的目录链(只有空目录删得掉,留有复用文件的目录自然保留)。清理失败
+ * 只打日志,不算迁移失败(重跑幂等)。
  */
-function cleanupCreated(created: string[], outputDir: string, createdDir: boolean): void {
+function cleanupCreated(created: string[], createdDirs: string[]): void {
   for (const file of created) {
     try {
       fs.rmSync(file)
@@ -405,11 +419,13 @@ function cleanupCreated(created: string[], outputDir: string, createdDir: boolea
       console.error(`[octo:ws-upgrade] cleanup-failed`, JSON.stringify({ file, error: String(err) }))
     }
   }
-  if (createdDir) {
+  const depth = (dir: string) => dir.split(path.sep).length
+  const dirs = createdDirs.slice().sort((a, b) => depth(b) - depth(a))
+  for (const dir of dirs) {
     try {
-      fs.rmdirSync(outputDir)
+      fs.rmdirSync(dir)
     } catch {
-      // 目录非空/删不掉:留着无害(空目录或重跑现场),忽略。
+      // 目录非空/已不存在/删不掉:留着无害(空目录或重跑现场),忽略。
     }
   }
 }
@@ -447,10 +463,9 @@ export interface WorkspaceUpgradeResult {
 }
 
 /**
- * 执行升级。顺序不能变:命名规划(只读,可能新建空 output/) → 备份+校验 → 复制 →
- * 事务改写+自检。前两步失败还没动过任何数据(备份失败时空 output/ 目录由 catch 清理);
- * 复制失败原件不动、副本已清;改写失败事务回滚 + 副本清理,数据保持升级前状态。
- * 原 .octo 产物目录全程不删。
+ * 执行升级。顺序不能变:命名规划(纯只读,任何失败都还没碰过文件系统) → 备份+校验 →
+ * 复制(建目录+拷文件) → 事务改写+自检。规划/备份失败零触碰;复制失败原件不动、副本
+ * 已清;改写失败事务回滚 + 副本清理,数据保持升级前状态。原 .octo 产物目录全程不删。
  *
  * busy 守卫(运行中的会话拒绝升级)在 handler 层做(需要 Effect 服务);本模块的
  * 事务自检兜住「rows 算好到提交之间」的并发写入。
@@ -468,8 +483,7 @@ export function runWorkspaceUpgrade(input: { directory: string; dbPath?: string 
     return { migratedSessions: 0, movedFiles: 0, movedBytes: 0, skippedStudio: targets.studioSkipped }
   }
 
-  const { planned, createdDir } = planFileCopies(ws, files)
-  const outputDir = path.join(ws, OUTPUT_DIR)
+  const { planned, createdDirs } = planFileCopies(ws, files)
   const keyMap = buildKeyMap(ws, planned)
   const keysDescending = [...keyMap.keys()].sort((a, b) => b.length - a.length)
   const escapedKeys = keysDescending.map(jsonEscaped)
@@ -478,12 +492,12 @@ export function runWorkspaceUpgrade(input: { directory: string; dbPath?: string 
   let backupPath: string | undefined
   try {
     backupPath = backupAndVerify(dbPath, targets.sessions)
-    created = copyPlanned(planned, outputDir, createdDir)
+    created = copyPlanned(planned, createdDirs)
     const updates = rewriteRows(targets.sessions, keysDescending, keyMap)
     applyRewrite(targets.sessions, updates, escapedKeys)
   } catch (err) {
     try {
-      cleanupCreated(created, outputDir, createdDir)
+      cleanupCreated(created, createdDirs)
     } catch {
       // cleanup 自身绝不抛(内部已吞),这层只是形式上的保险。
     }

@@ -4,8 +4,8 @@
 > 动机:2026-10-19 起新建 workspace 默认 kind=code 且分类"选定不可更改"(setKind 已删),
 > 存量普通工作区及其历史会话无法享受代码工作区语义(产物直接写项目内、文件面板浏览项目树)。
 > 本功能提供**单向原地升级**:目录不变、历史会话留在原地,kind 翻转为 code,历史产物文件
-> 从 `.octo/<sid>/outputs` **平铺复制**到 `<workspace>/output/`,并改写 DB 中 message/part
-> 的路径引用;**原 `.octo/<sid>/outputs` 目录保留不删**。
+> 从 `.octo/<sid>/outputs` **按会话目录保留原结构复制**到 `<workspace>/output/<sid 前 12 位>/`,
+> 并改写 DB 中 message/part 的路径引用;**原 `.octo/<sid>/outputs` 目录保留不删**。
 
 ## 最高原则(同 session-chat-migration)
 
@@ -19,10 +19,10 @@
 
 ## 迁移协议
 
-顺序不能变:**命名规划(只读,可能新建空 output/)→ 备份+校验 → 复制 → 事务改写+自检**。
+顺序不能变:**命名规划(纯只读)→ 备份+校验 → 复制(建目录+拷文件)→ 事务改写+自检**。
 
-- 前两步失败还没动过任何数据(备份失败时空 output/ 由 catch 清理)
-- 复制失败:原件不动、本次新建副本已清
+- 规划/备份失败还没动过任何数据(plan 零写入,备份失败时文件系统根本没被触碰)
+- 复制失败:原件不动、本次新建副本已清(rmdir 本次新建的目录链,只有空目录删得掉)
 - 改写失败:事务回滚 + 副本清理,数据保持升级前状态
 - 原 .octo 产物目录全程不删
 
@@ -32,18 +32,25 @@
   **`.` 开头的文件与子目录一律跳过** —— `.gitkeep`(空目录占位)、`.history/**`(编辑器
   本地历史快照)是内部文件,既不计数也不迁移(与项目文件列表过滤 `.` 条目口径一致;
   实测 D:\octoAI\merge 曾因此把 2 个真产物数成 6)
-- 平铺**复制**(不是移动)到 `<ws>/output/`,重命名 `<sid 前 12 位>-<原文件名>`:
+- **复制**(不是移动)到 `<ws>/output/<sid 前 12 位>/<原相对路径>`,保留目录结构与文件名:
   - sid 前 12 位 = `ses_` 之后的时间戳+计数器 hex 段,同毫秒创建也不重复(id.ts),
     且不随 base62 随机段变化,重跑命名稳定;形态异常的 id 兜底用整串
-  - relpath 排序保证命名确定性;撞名(本次先占或盘上已有)依次 `-2`/`-3` 后缀,绝不覆盖
+  - 去掉 outputs 层级:`.octo/<sid>/outputs/sub/a.html` → `output/<前缀>/sub/a.html`;
+    跨会话同名天然隔离(每会话独立目录),文件名不再加前缀重命名
+  - **撞名 = 中断报错**(stage=plan):目标已存在且内容不同(异常状态,盘上有异内容
+    同名文件)→ 抛错不动任何数据,挪走冲突文件重跑即可。**不做 -2 后缀改名** ——
+    后缀会击穿「迁移落盘名 ↔ 前端 text 卡片推导」的逐字一致不变量(见 2026-10-22 节)
   - 盘上已有且内容相同(先比大小再逐字节)→ 复用不复制(重跑幂等)
+  - 目录创建在复制阶段(mkdir recursive 幂等);plan 记录 createdDirs(本次需新建的
+    目录链),失败清理时按深度降序 rmdir,只删本次新建的空目录
 
 ### DB 路径改写
 
 - 改写范围 = `directory === <ws>` 且 `agent ≠ 'octo_studio'` 的**全部**会话(含子会话/
   归档)的 message/part 行 —— 覆盖会话间交叉引用(子会话引用父会话产物)
-- 旧路径变体(每文件 4 个):绝对/相对 × 正斜杠/反斜杠;新值统一 `<ws>/output/<最终文件名>`
-  (正斜杠绝对路径,与代码工作区 link artifact 惯例一致)
+- 旧路径变体(每文件 4 个):绝对/相对 × 正斜杠/反斜杠;新值统一
+  `<ws>/output/<sid 前 12 位>/<原相对路径>`(正斜杠绝对路径,与代码工作区 link artifact
+  惯例及前端推导一致)
 - 替换在**原始 JSON 文本**上做(不 parse/stringify,避免 round-trip 风险);按变体**长度
   降序**应用(abs 变体包含 rel 子串,先替换 rel 会拼出 `D:/ws/D:/ws/output/...` 坏路径);
   DB 层 instr 自检用反斜杠转义后的变体(JSON 里 `\` 存为 `\\`)
@@ -78,15 +85,15 @@ kind 无关,不动即可用,搬了反而会坏。
 
 - `src/session/workspace-upgrade.ts`:核心模块。导出 `collectUpgradeTargets` /
   `previewWorkspaceUpgrade` / `runWorkspaceUpgrade` / `WorkspaceUpgradeError`(stage:
-  resolve|busy|backup|verify-backup|copy|rewrite|cleanup)/ `logWorkspaceUpgradeFailure`;
+  resolve|busy|backup|verify-backup|plan|copy|rewrite|cleanup)/ `logWorkspaceUpgradeFailure`;
   日志前缀 `[octo:ws-upgrade]`,排查口诀:**看到 failed 就一定没动过数据**
 - `src/server/routes/instance/httpapi/groups/workspace-upgrade.ts`:api group
   `/workspace-upgrade/preview|run`,错误 `ApiWorkspaceUpgradeError{stage,message}`(400)
 - `src/server/routes/instance/httpapi/handlers/workspace-upgrade.ts`:守卫 + 错误映射
 - `src/server/routes/instance/httpapi/api.ts` + `server.ts`:注册
-- `test/server/workspace-upgrade.test.ts`:8 用例(preview 计数/studio 排除、平铺命名去重
-  不覆盖、四变体改写+范围外/未映射不动、studio 原样、零产物早退、幂等重跑、备份快照、
-  备份失败中止零损伤)
+- `test/server/workspace-upgrade.test.ts`:9 用例(preview 计数/studio 排除、按会话目录
+  保留结构复制、撞名异内容中断零损伤、四变体改写+嵌套映射+范围外/未映射不动、studio
+  原样、零产物早退、幂等重跑、备份快照、备份失败中止零损伤)
 
 ### SDK
 
@@ -112,9 +119,14 @@ thumbnails/ensure),功能无损。另发现 scripts/diff-sdk-types.sh 的 env �
   (`globalSdk.client.workspaceUpgrade.preview`,body_directory+query_directory 双传);
   计数展示 `N 个会话 · M 个文件` / `无历史产物` / `预览不可用`
 - **preview 明确全 0 的工作区**:点升级直接翻 kind,不调 run、不弹确认(没有要迁移的
-  东西,零风险);有产物或预览不可用 → 确认弹窗(说明平铺迁移/重命名/原目录保留/先备份/
+  东西,零风险);有产物或预览不可用 → 确认弹窗(说明按会话目录保留结构迁移/先备份/
   不可撤销)→ run → toast(会话数/文件数/backupPath 可自行删除)→ upgradeToCode
 - i18n:`settings.workspaceUpgrade.*` 16 键(en+zh,其余 locale 缺键回退英文)
+- **入口默认隐藏 — 2026-10-21**:一次性不可逆运维操作,不给普通用户曝光。设置页打开
+  期间按 **Ctrl+Shift+U**(Win/Linux)/ **Cmd+Shift+U**(Mac)才显示
+  (`wsUpgradeEntryVisible` 模块级 signal,本次应用运行内保持可见,重启恢复隐藏);
+  监听用 `event.code === "KeyU"` 防中文输入法 key="Process",preview 懒加载 effect
+  同样以该 signal 为门,隐藏时不发预览请求
 
 ## 回滚口诀
 
@@ -122,12 +134,16 @@ thumbnails/ensure),功能无损。另发现 scripts/diff-sdk-types.sh 的 env �
 - 极端情况:`.ws-upgrade-bak-*` 是整库快照,用 SQLite 工具按行恢复;原件从不删除、
   从不覆盖,DB 改写只动 message/part 的 data 列
 
-## 已知限制(v1)
+## 已知限制(v2)
 
 - **产物文件内容不改写**:html 里的绝对自引用链接(如有)不跟着搬,只有 DB 里的引用改
 - **子串替换边界**:同目录存在 `x.html` 与 `x.html.bak` 两个产物时,`x.html` 的变体是
-  `x.html.bak` 引用的前缀子串,替换会把后者拼成不存在的 `output/<名>.bak`(卡片断,
+  `x.html.bak` 引用的前缀子串,替换会把后者拼成不存在的 `output/<前缀>/<名>.bak`(卡片断,
   原件保留)。真实数据中产物名带后缀重叠的场景罕见,接受
+- **存量平铺升级工作区不二次迁移**:2026-10-21 之前按旧平铺命名(`<前缀>-<原名>`)升级过
+  的工作区(kind 已翻 code,不会再触发升级),其 text 卡片经新推导规则落点
+  `output/<前缀>/<原名>` 不命中旧平铺文件 → auto-save 会在新位置多写一份(不丢数据、
+  旧文件保留)。功能上线 1 天且入口隐藏,受影响面近零,不做双路径探测兼容
 - busy/实例对齐守卫在 handler 层,单测只覆盖模块本体(HTTP 层迁移端点测试无先例,
   与 chat-migration 同口径);busy 逻辑已人工核对
 - 测试环境注意:`test/server/workspace-upgrade.test.ts` 的 afterEach(disposeAllInstances)
@@ -145,6 +161,7 @@ thumbnails/ensure),功能无损。另发现 scripts/diff-sdk-types.sh 的 env �
 `[projectDir, "output", "<sid 前 12 位>-<原名>"]`,sidPrefix 规则与本模块迁移命名
 **逐字一致**(`ses_` 后 12 位 hex,短 id 兜底整串)。auto-save 的"已存在即跳过"策略
 随即命中迁移副本,恢复会话不再产生根副本;跨会话前缀也避免同名产物互相覆盖。
+(2026-10-22 起落点调整为 `output/<sid 前 12 位>/<原名>`,推导不变量保持,见下节。)
 
 - 单点收口:三个 auto-save 调用点(insight-turn 渲染 effect / make 页开卡 Step -1 /
   tab-persistence 编辑保存)全部经 `computeArtifactFilePath`,改一处全链路生效
@@ -175,6 +192,27 @@ text artifact 卡片(DB 里本无路径引用,对应完全靠前端推导)实测
   (leveldb)无任何 merge 路径快照——不存在指向已删根副本的陈旧 tab 快照
   (若曾存在,恢复后编辑保存会向旧路径 PUT 重写根副本,属文件搬移类操作固有边界)
 
+## 追加变更:迁移落点改为按会话目录保留结构 — 2026-10-22
+
+需求变更:不再平铺 + 前缀重命名,产物按会话目录完整放入 output,目录结构与文件名原样保留。
+
+- **目标路径**:`.octo/<sid>/outputs/<rel>` → `output/<sid 前 12 位>/<rel>`(去掉 outputs
+  层级;前缀做会话目录名,畸形 id 兜底整串;跨会话同名天然隔离,文件名不再加前缀)
+- **服务端** `workspace-upgrade.ts`:planFileCopies 重写为纯只读(目录创建移到 copy 阶段,
+  备份失败时文件系统零触碰);撞名异内容从 -2 后缀改名改为 stage=plan 中断报错 ——
+  后缀会让 DB 引用指向 `x.html-2` 而前端推导指 `x.html`,击穿 text 卡片推导幂等;
+  cleanupCreated 扩展为按深度降序 rmdir 本次新建目录链(只删得动空目录)
+- **前端** `artifact-auto-save.ts`:computeArtifactFilePath code 分支同步改
+  `[projectDir, "output", sidPrefix(sid), filename]`,「迁移落盘名 ↔ 推导」逐字一致的
+  不变量保持(normal 期 auto-save 本就落 outputs 根平铺,推导无子目录天然对齐;
+  带子目录产物是 write 工件、有 DB 引用,不走标题推导)
+- **DB 改写**:4 变体机制与长度降序不变,新值目标嵌套化
+  (`<ws>/output/<前缀>/<原相对路径>`)
+- **SDK**:groups run description 更新,`bun run --cwd packages/sdk/js build` 重生成
+  (diff 恰好一行 description)
+- **i18n**:zh/en 的 description 与 confirm.description 改「按会话目录保留原目录结构复制」
+- **存量边界**:旧平铺命名升级过的工作区不做二次迁移/双探测,记入已知限制(v2)
+
 ## 验证记录
 
 - `bun run typecheck`:opencode / sdk / app 三包通过(全仓 12/12)
@@ -183,3 +221,14 @@ text artifact 卡片(DB 里本无路径引用,对应完全靠前端推导)实测
 - 手测(desktop dev):normal 工作区跑产 landing-page.html 的 make 会话 → 设置页升级 →
   历史消息文件卡片可打开、文件树可见 output/、原 .octo 产物还在、新会话按代码工作区
   行为、studio 不受影响、重复升级 no-op(建议按此清单过一遍)
+
+2026-10-22(目录结构改造):
+
+- `bun test test/server/workspace-upgrade.test.ts`:9/9 通过(唯一偶发红为 afterEach
+  Windows 超时,见已知限制)
+- `bun test --preload ./happydom.ts ./octoapp/pages/make/utils/artifact-auto-save.test.ts`
+  (packages/app):13/13 通过
+- `bun run typecheck`:opencode / app / sdk 三包通过
+- SDK `bun run build` 重生成:diff 仅 sdk.gen.ts 一行 description
+- desktop dev 手测建议:升级后 output/ 下结构为 `<12位前缀>/<原相对路径>`;预置异内容
+  同名文件再升级应报「目标已存在且内容不同」且数据零损伤;恢复历史会话卡片可打开
