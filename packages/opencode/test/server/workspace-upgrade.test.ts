@@ -82,8 +82,21 @@ function outputDir(ws: string) {
   return path.join(ws, "output")
 }
 
-function listOutput(ws: string): string[] {
-  return fs.existsSync(outputDir(ws)) ? fs.readdirSync(outputDir(ws)).sort() : []
+/** 递归列举 output/ 下全部文件的 posix 相对路径(含子目录,排序),结构断言用。 */
+function listTree(ws: string): string[] {
+  const root = outputDir(ws)
+  const out: string[] = []
+  const walk = (dir: string, rel: string) => {
+    if (!fs.existsSync(dir)) return
+    for (const name of fs.readdirSync(dir)) {
+      const childRel = rel ? `${rel}/${name}` : name
+      const childAbs = path.join(dir, name)
+      if (fs.statSync(childAbs).isDirectory()) walk(childAbs, childRel)
+      else out.push(childRel)
+    }
+  }
+  walk(root, "")
+  return out.sort()
 }
 
 /** 与模块 sidPrefix 同规则:ses_ 后 12 位时间戳+计数器 hex 段。 */
@@ -143,36 +156,38 @@ describe("workspace upgrade preview (normal → code)", () => {
 })
 
 describe("workspace upgrade run (normal → code)", () => {
-  test("copies artifacts flat into output/ with sid-prefix names, deduping without overwriting", async () => {
+  test("copies artifacts into output/<sid-prefix>/ preserving directory structure and file names", async () => {
     await using ws = await tmpdir({ git: true })
     await WithInstance.provide({
       directory: ws.path,
       fn: async () => {
         const s1 = await svc.create({ title: "make-1", agent: "octo_make" })
-        const p = prefixOf(s1.id)
+        const s2 = await svc.create({ title: "make-2", agent: "octo_make" })
+        const p1 = prefixOf(s1.id)
+        const p2 = prefixOf(s2.id)
         writeOutput(ws.path, s1.id, "a.html", "A-content")
-        writeOutput(ws.path, s1.id, "sub/a.html", "B-content") // 同 basename → -2 后缀
+        writeOutput(ws.path, s1.id, "sub/a.html", "B-content") // 子目录原样保留,不再平铺撞名
         writeOutput(ws.path, s1.id, "b.svg", "svg")
         writeOutput(ws.path, s1.id, ".gitkeep", "") // 内部文件不迁移
         writeOutput(ws.path, s1.id, ".history/a.html.20261020-163721.init/self.html", "snapshot")
-
-        // 外来同名文件(内容不同)绝不覆盖:b.svg 的目标名已被占用 → 新副本挪到 -2。
-        fs.mkdirSync(outputDir(ws.path), { recursive: true })
-        fs.writeFileSync(path.join(outputDir(ws.path), `${p}-b.svg`), "foreign-different")
+        writeOutput(ws.path, s2.id, "a.html", "other-session") // 跨会话同名:各归各的会话目录
 
         const result = runWorkspaceUpgrade({ directory: ws.path, dbPath: tempDbPath() })
-        expect(result.migratedSessions).toBe(1)
-        expect(result.movedFiles).toBe(3)
-        expect(result.movedBytes).toBe("A-content".length + "B-content".length + "svg".length)
+        expect(result.migratedSessions).toBe(2)
+        expect(result.movedFiles).toBe(4)
+        expect(result.movedBytes).toBe("A-content".length + "B-content".length + "svg".length + "other-session".length)
         expect(result.skippedStudio).toBe(0)
         expect(result.backupPath).toBeDefined()
 
-        // 平铺命名按 relpath 排序分配:a.html < b.svg < sub/a.html。
-        expect(listOutput(ws.path)).toEqual([`${p}-a.html`, `${p}-a.html-2`, `${p}-b.svg`, `${p}-b.svg-2`])
-        expect(fs.readFileSync(path.join(outputDir(ws.path), `${p}-a.html`), "utf8")).toBe("A-content")
-        expect(fs.readFileSync(path.join(outputDir(ws.path), `${p}-a.html-2`), "utf8")).toBe("B-content")
-        expect(fs.readFileSync(path.join(outputDir(ws.path), `${p}-b.svg-2`), "utf8")).toBe("svg")
-        expect(fs.readFileSync(path.join(outputDir(ws.path), `${p}-b.svg`), "utf8")).toBe("foreign-different")
+        // 目标 = output/<sid 前 12 位>/<原相对路径>,目录结构与文件名原样保留。
+        // 期望列表同样 sort:两个前缀的字典序不一定等于会话创建顺序。
+        expect(listTree(ws.path)).toEqual(
+          [`${p1}/a.html`, `${p1}/b.svg`, `${p1}/sub/a.html`, `${p2}/a.html`].sort(),
+        )
+        expect(fs.readFileSync(path.join(outputDir(ws.path), p1, "a.html"), "utf8")).toBe("A-content")
+        expect(fs.readFileSync(path.join(outputDir(ws.path), p1, "sub", "a.html"), "utf8")).toBe("B-content")
+        expect(fs.readFileSync(path.join(outputDir(ws.path), p1, "b.svg"), "utf8")).toBe("svg")
+        expect(fs.readFileSync(path.join(outputDir(ws.path), p2, "a.html"), "utf8")).toBe("other-session")
 
         // 原 .octo/<sid>/outputs 完整保留,原件一字未动。
         expect(fs.readFileSync(path.join(ws.path, ".octo", s1.id, "outputs", "a.html"), "utf8")).toBe("A-content")
@@ -180,6 +195,44 @@ describe("workspace upgrade run (normal → code)", () => {
           "B-content",
         )
         expect(fs.readFileSync(path.join(ws.path, ".octo", s1.id, "outputs", "b.svg"), "utf8")).toBe("svg")
+      },
+    })
+  })
+
+  test("aborts with plan error when the target already exists with different content", async () => {
+    await using ws = await tmpdir({ git: true })
+    const db = tempDbPath()
+    await WithInstance.provide({
+      directory: ws.path,
+      fn: async () => {
+        const s1 = await svc.create({ title: "make-1", agent: "octo_make" })
+        const p = prefixOf(s1.id)
+        writeOutput(ws.path, s1.id, "a.html", "A-content")
+        writeOutput(ws.path, s1.id, "b.svg", "svg")
+
+        // 盘上已有异内容同名文件:异常状态 → 中断报错,绝不覆盖、绝不改名挪 -2。
+        fs.mkdirSync(path.join(outputDir(ws.path), p), { recursive: true })
+        fs.writeFileSync(path.join(outputDir(ws.path), p, "b.svg"), "foreign-different")
+        const v = variantsOf(ws.path, s1.id, "b.svg")
+        const msg = insertMessage(s1.id, { text: v.absFwd })
+
+        let err: unknown
+        try {
+          runWorkspaceUpgrade({ directory: ws.path, dbPath: db })
+        } catch (e) {
+          err = e
+        }
+        expect(err).toBeInstanceOf(WorkspaceUpgradeError)
+        expect((err as WorkspaceUpgradeError).stage).toBe("plan")
+        expect((err as WorkspaceUpgradeError).message).toContain(path.join(outputDir(ws.path), p, "b.svg"))
+
+        // 中断 = 零副作用:plan 只读未复制任何文件,异内容文件原样,DB 未动,无备份。
+        expect(listTree(ws.path)).toEqual([`${p}/b.svg`])
+        expect(fs.readFileSync(path.join(outputDir(ws.path), p, "b.svg"), "utf8")).toBe("foreign-different")
+        expect((JSON.parse(rowData("message", msg)) as { text: string }).text).toBe(v.absFwd)
+        expect(fs.existsSync(path.join(ws.path, ".octo", s1.id, "outputs", "a.html"))).toBe(true)
+        expect(fs.existsSync(path.join(ws.path, ".octo", s1.id, "outputs", "b.svg"))).toBe(true)
+        expect(fs.readdirSync(path.dirname(db)).filter((n) => n.includes(".ws-upgrade-bak-"))).toEqual([])
       },
     })
   })
@@ -197,9 +250,12 @@ describe("workspace upgrade run (normal → code)", () => {
           fn: () => svc.create({ title: "elsewhere", agent: "octo_make" }),
         })
         writeOutput(ws.path, s1.id, "x.html", "X")
+        writeOutput(ws.path, s1.id, "sub/y.html", "Y")
 
         const v = variantsOf(ws.path, s1.id, "x.html")
-        const newPath = `${v.wsFwd}/output/${prefixOf(s1.id)}-x.html`
+        const newPath = `${v.wsFwd}/output/${prefixOf(s1.id)}/x.html`
+        const vSub = variantsOf(ws.path, s1.id, "sub/y.html")
+        const nestedPath = `${vSub.wsFwd}/output/${prefixOf(s1.id)}/sub/y.html`
 
         // 同一行里塞进全部 4 种旧形态:改写后应全部归一到同一条新绝对路径,且不能出现
         // 「先替换 rel 变体拼出 <abs><new>」的坏路径(长度降序替换的被测点)。
@@ -211,6 +267,8 @@ describe("workspace upgrade run (normal → code)", () => {
         const msg3 = insertMessage(elsewhere.id, { text: `outside: ${v.absFwd}` })
         // 磁盘上没有对应文件的引用:映射不到就不动(.octo 会话式 serve 兜底)。
         const msg4 = insertMessage(s1.id, { text: `unmapped: .octo/${s1.id}/outputs/missing.html` })
+        // 带子目录的产物:映射目标同样保留子目录结构。
+        const msg5 = insertMessage(s1.id, { text: `nested: ${vSub.absFwd}` })
 
         runWorkspaceUpgrade({ directory: ws.path, dbPath: tempDbPath() })
 
@@ -223,6 +281,7 @@ describe("workspace upgrade run (normal → code)", () => {
         expect((JSON.parse(rowData("message", msg4)) as { text: string }).text).toBe(
           `unmapped: .octo/${s1.id}/outputs/missing.html`,
         )
+        expect((JSON.parse(rowData("message", msg5)) as { text: string }).text).toBe(`nested: ${nestedPath}`)
       },
     })
   })
@@ -243,7 +302,7 @@ describe("workspace upgrade run (normal → code)", () => {
         expect(result.skippedStudio).toBe(1)
         expect(result.migratedSessions).toBe(1)
         expect(result.movedFiles).toBe(1)
-        expect(listOutput(ws.path)).toEqual([`${prefixOf(make.id)}-page.html`])
+        expect(listTree(ws.path)).toEqual([`${prefixOf(make.id)}/page.html`])
         // studio 的产物与引用原样保留:其路径白名单只认 .octo,搬走会坏。
         expect(fs.existsSync(path.join(ws.path, ".octo", studio.id, "outputs", "poster.png"))).toBe(true)
         expect((JSON.parse(rowData("message", studioMsg)) as { text: string }).text).toBe(`studio: ${v.absFwd}`)
@@ -279,12 +338,12 @@ describe("workspace upgrade run (normal → code)", () => {
 
         runWorkspaceUpgrade({ directory: ws.path, dbPath: tempDbPath() })
         const dataAfterFirst = rowData("message", msg)
-        expect((JSON.parse(dataAfterFirst) as { text: string }).text).toBe(`${v.wsFwd}/output/${p}-a.html`)
+        expect((JSON.parse(dataAfterFirst) as { text: string }).text).toBe(`${v.wsFwd}/output/${p}/a.html`)
 
         const second = runWorkspaceUpgrade({ directory: ws.path, dbPath: tempDbPath() })
-        // 内容相同的既有副本被复用,不重复复制,也不去顶 -2 后缀。
+        // 内容相同的既有副本被复用,不重复复制,也不改名膨胀。
         expect(second.movedFiles).toBe(1)
-        expect(listOutput(ws.path)).toEqual([`${p}-a.html`])
+        expect(listTree(ws.path)).toEqual([`${p}/a.html`])
         expect(rowData("message", msg)).toBe(dataAfterFirst)
       },
     })
@@ -328,7 +387,8 @@ describe("workspace upgrade run (normal → code)", () => {
         const msg = insertMessage(s1.id, { text: v.absFwd })
 
         expect(() => runWorkspaceUpgrade({ directory: ws.path, dbPath: ":memory:" })).toThrow(WorkspaceUpgradeError)
-        // 宁可中断也不丢数据:DB 未动、没有复制任何文件、规划期新建的空 output/ 已清理。
+        // 宁可中断也不丢数据:DB 未动、没有复制任何文件、文件系统从未被触碰
+        // (plan 阶段纯只读,目录创建在 copy 阶段,备份失败时 output/ 根本不存在)。
         expect((JSON.parse(rowData("message", msg)) as { text: string }).text).toBe(v.absFwd)
         expect(fs.existsSync(outputDir(ws.path))).toBe(false)
         expect(fs.existsSync(path.join(ws.path, ".octo", s1.id, "outputs", "x.html"))).toBe(true)

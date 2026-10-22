@@ -1,6 +1,6 @@
 /**
  * 代码类型工作区 (project mode) 路径推导测试:
- * - computeArtifactFilePath: kind="code" 产物落 output/<sid前12位>-<原名>(与升级迁移命名一致),普通工作区落 .octo/<sid>/outputs
+ * - computeArtifactFilePath: kind="code" 产物落 output/<sid前12位>/<原名>(与升级迁移落点一致),普通工作区落 .octo/<sid>/outputs
  * - extractCommentFilePath: 代码工作区按项目根推导标注定位键,普通工作区走 .octo/<sid>/ 前缀
  * - getProjectRelativePath: 项目根内文件的相对路径
  *
@@ -19,17 +19,17 @@ describe("computeArtifactFilePath", () => {
     expect(computeArtifactFilePath("page", "svg", "ses_1", "D:\\proj")).toBe("D:\\proj\\.octo\\ses_1\\outputs\\page.svg")
   })
 
-  test("code 工作区落 output/<sid前12位>-<原名>(与升级迁移命名一致)", () => {
+  test("code 工作区落 output/<sid前12位>/<原名>(与升级迁移落点一致)", () => {
     expect(computeArtifactFilePath("落地页", "html", "ses_ea78c72beffesyFDY3omLCuC1D", "/proj", "code")).toBe(
-      "/proj/output/ea78c72beffe-落地页.html",
+      "/proj/output/ea78c72beffe/落地页.html",
     )
     expect(computeArtifactFilePath("page", "svg", "ses_ea7918b67ffezHuZn6dwoYWyDF", "D:\\proj", "code")).toBe(
-      "D:\\proj\\output\\ea7918b67ffe-page.svg",
+      "D:\\proj\\output\\ea7918b67ffe\\page.svg",
     )
   })
 
-  test("code 工作区标题已带扩展名不重复追加;短 id 兜底用整串做前缀", () => {
-    expect(computeArtifactFilePath("index.html", "html", "ses_1", "/proj", "code")).toBe("/proj/output/ses_1-index.html")
+  test("code 工作区标题已带扩展名不重复追加;短 id 兜底用整串做目录名", () => {
+    expect(computeArtifactFilePath("index.html", "html", "ses_1", "/proj", "code")).toBe("/proj/output/ses_1/index.html")
   })
 })
 

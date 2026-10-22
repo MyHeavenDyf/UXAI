@@ -1,4 +1,4 @@
-import { Component, For, Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
+import { Component, For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -39,6 +39,10 @@ import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { openAvailableUpdate } from "./update-checker"
 import { kindOf } from "./workspace-switcher"
+
+// 工作区升级属于一次性、不可逆的运维操作,入口默认对普通用户隐藏:
+// 设置页打开期间按 Ctrl/Cmd+Shift+U 才显示,本次应用运行内保持可见(重启后恢复隐藏)。
+const [wsUpgradeEntryVisible, setWsUpgradeEntryVisible] = createSignal(false)
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -1125,8 +1129,8 @@ export const SettingsGeneral: Component = () => {
   )
 
   // ── 普通工作区 → 代码工作区原地升级(设计记录:opencode_modify/workspace-upgrade-normal-to-code.md)──
-  // 迁移主体在服务端(workspace-upgrade 接口):产物文件平铺复制到 <ws>/output/ 并按
-  // 会话前缀重命名、DB 里的路径引用同步改写、原 .octo 产物目录保留。前端只列出普通
+  // 迁移主体在服务端(workspace-upgrade 接口):产物文件按会话目录保留原结构复制到
+  // <ws>/output/<sid前缀>/、DB 里的路径引用同步改写、原 .octo 产物目录保留。前端只列出普通
   // 工作区、懒加载预览计数、确认后调 run,成功后翻 kind 标记(单向);预览明确全 0 的
   // 工作区没有要迁移的东西,直接翻 kind 不调 run(不建备份)。
   type UpgradePreviewState =
@@ -1138,6 +1142,17 @@ export const SettingsGeneral: Component = () => {
 
   const normalProjects = createMemo(() => layout.projects.list().filter((p) => kindOf(p) === "normal"))
 
+  // 用 event.code 而非 event.key:中文输入法激活时 key 可能是 "Process",物理键位不受影响。
+  onMount(() => {
+    const revealUpgradeEntry = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.code === "KeyU") {
+        setWsUpgradeEntryVisible(true)
+      }
+    }
+    window.addEventListener("keydown", revealUpgradeEntry)
+    onCleanup(() => window.removeEventListener("keydown", revealUpgradeEntry))
+  })
+
   const displayWsPath = (dir: string) => {
     const home = globalSync.data.path.home
     if (home && dir.startsWith(home)) return "~" + dir.slice(home.length)
@@ -1147,6 +1162,7 @@ export const SettingsGeneral: Component = () => {
   // 预览计数逐工作区懒加载:目录不存在/实例未启动时拿不到计数,行内显示「预览不可用」,
   // 升级按钮仍可用,最终结论以 run 结果为准。
   createEffect(() => {
+    if (!wsUpgradeEntryVisible()) return
     const api = globalSdk.client.workspaceUpgrade
     if (!api) return
     for (const project of normalProjects()) {
@@ -1262,7 +1278,7 @@ export const SettingsGeneral: Component = () => {
   }
 
   const WorkspaceUpgradeSection = () => (
-    <Show when={normalProjects().length > 0}>
+    <Show when={wsUpgradeEntryVisible() && normalProjects().length > 0}>
       <div class="flex flex-col gap-1">
         <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
           {language.t("settings.workspaceUpgrade.title")}
