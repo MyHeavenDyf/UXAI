@@ -718,7 +718,6 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       }
       if (entry.info.time.archived) yield* sessions.setArchived({ sessionID, time: entry.info.time.archived })
       yield* sessions.setSortOrder({ sessionID, sortOrder: entry.info.sort_order })
-      if (entry.info.pinned) yield* sessions.setPinned({ sessionID, pinned: true })
       if (entry.todos.length) yield* todos.update({ sessionID, todos: [...entry.todos] })
 
       const messageIDs = new Map(entry.messages.map((message) => [message.info.id, MessageID.ascending()]))

@@ -26,6 +26,39 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([undefined, "session", "project"] as const)(
+    "does not inherit pinned state from an archive for root or child sessions (scope: %s)",
+    async (scope) => {
+      await using source = await tmpdir({ git: true })
+      await using target = await tmpdir({ git: true })
+      const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+        const root = await runSession((svc) => svc.create({ title: "Pinned root" }))
+        const child = await runSession((svc) => svc.create({ parentID: root.id, title: "Pinned child" }))
+        for (const sessionID of [root.id, child.id]) {
+          await runSession((svc) => svc.setPinned({ sessionID, pinned: true }))
+        }
+        const archive = await AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: path.join(source.path, "pinned.zip") }))
+        expect((await runSession((svc) => svc.get(root.id))).pinned).toBe(true)
+        expect((await runSession((svc) => svc.get(child.id))).pinned).toBe(true)
+        return archive
+      } })
+      const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+      const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+        sessions: { info: { pinned: boolean } }[]
+      }
+      // Existing archives may still contain pinned=true; import must ignore that local UI preference.
+      expect(manifest.sessions.map((entry) => entry.info.pinned)).toEqual([true, true])
+      await provideTestInstance({ directory: target.path, fn: async () => {
+        const result = await AppRuntime.runPromise(importPortableSession(exported.output, scope))
+        const root = await runSession((svc) => svc.get(result.sessionID))
+        const children = await runSession((svc) => svc.children(root.id))
+        expect(root.pinned).toBe(false)
+        expect(children).toHaveLength(1)
+        expect(children[0].pinned).toBe(false)
+      } })
+    },
+  )
+
   test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
