@@ -26,6 +26,34 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const html = '<img src="./outputs/resource/icon/icon.svg">'
+    await Bun.write(path.join(source.path, "register.html"), html)
+    await Bun.write(path.join(source.path, "output/login.html"), html)
+    await Bun.write(path.join(source.path, "outputs/resource/icon/icon.svg"), "<svg/>")
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Register" }))
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "output/login.html", "outputs/resource/icon/icon.svg", "register.html",
+    ])
+    for (const file of manifest.files as { path: string; blob: string }[]) {
+      expect(await zip.file(file.blob)!.async("string")).toBe(file.path.endsWith(".html") ? html : "<svg/>")
+    }
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+    } })
+    expect(await Bun.file(path.join(target.path, "register.html")).text()).toBe(html)
+    expect(await Bun.file(path.join(target.path, "output/login.html")).text()).toBe(html)
+    expect(await Bun.file(path.join(target.path, "outputs/resource/icon/icon.svg")).text()).toBe("<svg/>")
+    expect(await Bun.file(path.join(target.path, "output/outputs/resource/icon/icon.svg")).exists()).toBe(false)
+  })
+
   test("exports installed preview assets as real files and imports them into private and shared layouts", async () => {
     await using source = await tmpdir({ git: true })
     await using resources = await tmpdir()
@@ -419,7 +447,7 @@ describe("portable session", () => {
     }
   })
 
-  test("uploads a generated ZIP and returns a share page URL", async () => {
+  test("uploads a generated ZIP despite a missing dependency in another shared page and returns a share page URL", async () => {
     const uploads: { fileName: string; description: string; size: number }[] = []
     const server = Bun.serve({
       port: 0,
@@ -435,7 +463,11 @@ describe("portable session", () => {
         if (!(file instanceof File)) return new Response("file is required", { status: 400 })
         const zip = await JSZip.loadAsync(await file.arrayBuffer())
         const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
-        expect(manifest.files).toEqual([expect.objectContaining({ scope: "project", path: "shared.html" })])
+        expect(manifest.files).toHaveLength(2)
+        expect(manifest.files).toEqual(expect.arrayContaining([
+          expect.objectContaining({ scope: "project", path: "shared.html" }),
+          expect.objectContaining({ scope: "project", path: "output/login.html" }),
+        ]))
         uploads.push({
           fileName: file.name,
           description: String(form.get("description") ?? ""),
@@ -456,6 +488,7 @@ describe("portable session", () => {
         fn: async () => {
           const session = await runSession((service) => service.create({ title: "Shared session" }))
           await Bun.write(path.join(source.path, "shared.html"), "<h1>Shared</h1>")
+          await Bun.write(path.join(source.path, "output/login.html"), '<img src="./outputs/resource/icon/missing.svg">')
           return AppRuntime.runPromise(
             sharePortableSession({
               sessionID: session.id,
