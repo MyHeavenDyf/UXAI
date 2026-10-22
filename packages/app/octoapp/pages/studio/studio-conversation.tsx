@@ -128,7 +128,7 @@ export function StudioConversation(props: {
         <For each={props.turns}>
           {(turn, index) => (
             <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
-              <Show when={turn.inputImages?.length}>
+              <Show when={!turn.hideUserBubble && turn.inputImages?.length}>
                 <div class="studio-user-input-images">
                   <For each={turn.inputImages}>
                     {(image) => (

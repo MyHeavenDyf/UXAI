@@ -888,7 +888,7 @@ bun typecheck
 - 后端 `persistStudioSession()` 在用户文本 part 的 `metadata.studioPromptExpansionSource` 保存来源，不删除真实消息或提示词。
 - `buildStudioTurns()` 将用户 part metadata 或生成工具请求中的来源转换为 `hideUserBubble`。用户文本 part 尚未到达时暂缓显示气泡，避免 SSE 分批到达造成闪现。
 - 临时生成结果同时携带 `hideUserBubble`，页面 pending turn 的创建、合并、失败状态和服务端响应替换均保留该值。
-- `studio-conversation.tsx` 仅根据此值跳过文字气泡，生成进度、结果、参考图和失败信息继续正常显示。
+- `studio-conversation.tsx` 根据此值同时跳过重复的文字气泡与 `studio-user-input-images` 参考图区域；参考图数据及生图请求仍完整保留，生成进度、结果和失败信息继续正常显示。原扩写轮次、普通生成及再次生成仍按原逻辑显示参考图。
 - `restoreGenerationInput()` 的所有分支使用 `studioRegenerationExtra()` 清除扩写来源，保留其他参数并继续 skip refine。因此再次生成仍显示原有“再次生成”气泡。
 - 新增 8 个气泡状态回归用例全部通过；后端 service 测试通过；前后端 `bun typecheck` 通过。
 - 完整旧 `turns.test.ts` 有 32 个既有失败；以 HEAD 原实现和原有用例复跑仍为相同 32 个失败，主要涉及 fixture 的 assistant.parentID 与 user.id 不匹配。本次新增用例单独运行全部通过，未扩展修复旧 fixture。

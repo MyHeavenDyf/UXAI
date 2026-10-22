@@ -1250,12 +1250,14 @@ describe("Studio expansion button user bubbles", () => {
       [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/generated.png"] }),
         "internel_image_generate", {
           capability: "image.generate", prompt: "扩写正文",
+          referenceImages: ["https://example.com/reference.png"],
           extra: { skipPromptRefine: true, promptExpansionSource: { assistantMessageID: "expansion-assistant" } },
         })],
     } })
     expect(turns[0]?.hideUserBubble).toBe(true)
     expect(turns[0]?.result?.images).toHaveLength(1)
     expect(turns[0]?.result?.prompt).toBe("扩写正文")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
   })
 
   test("regeneration removes only button origin and preserves its existing user bubble", () => {
@@ -1273,10 +1275,14 @@ describe("Studio expansion button user bubbles", () => {
     const turns = buildStudioTurns({ messages: [user, assistant], parts: {
       [user.id]: [textPart("text", user.id, "再次生成")],
       [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/regenerated.png"] }),
-        "internel_image_generate", { capability: "image.generate", prompt: "扩写正文", displayPrompt: "再次生成", extra })],
+        "internel_image_generate", {
+          capability: "image.generate", prompt: "扩写正文", displayPrompt: "再次生成", extra,
+          referenceImages: ["https://example.com/reference.png"],
+        })],
     } })
     expect(turns[0]?.hideUserBubble).toBe(false)
     expect(turns[0]?.userText).toBe("再次生成")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
   })
 
   test.each(["creating", "create_failed", "failed", "succeeded"] as const)("%s optimistic button tasks retain their hidden user bubble", (status) => {
