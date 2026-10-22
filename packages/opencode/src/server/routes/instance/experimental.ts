@@ -369,8 +369,8 @@ export const ExperimentalRoutes = lazy(() =>
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
           agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
-          pinned: z.enum(["true", "false"]).optional().meta({ description: "Only return pinned sessions" }),
-          grouped: z.enum(["true", "false"]).optional().meta({ description: "Only return sessions that belong to a group" }),
+          pinned: QueryBoolean.optional().meta({ description: "Only return pinned sessions" }),
+          grouped: QueryBoolean.optional().meta({ description: "Only return sessions that belong to a group" }),
         }),
       ),
       async (c) => {

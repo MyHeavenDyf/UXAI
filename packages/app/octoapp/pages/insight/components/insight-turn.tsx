@@ -3,6 +3,8 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { DataProvider } from "@opencode-ai/ui/context/data"
+import { displayAssetParts } from "../utils/asset-references"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -179,6 +181,9 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  const shownParts = createMemo(() => displayAssetParts(data.store.part[props.messageID] ?? []))
+  const displayParts = new Proxy(data.store.part, { get: (_parts, key) => key === props.messageID ? shownParts() : Reflect.get(data.store.part, key) })
+  const displayData = new Proxy(data.store, { get: (_store, key) => key === "part" ? displayParts : Reflect.get(data.store, key) })
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -621,15 +626,17 @@ export function InsightTurn(props: {
       </Show>
 
       {/* I18nProvider 薄包一层:仅覆盖工具标题键(TOOL_TITLE_OVERRIDES),把过程展示换成人话 */}
-      <I18nProvider value={withInsightToolTitles(i18n)}>
-        <SessionTurn
-          sessionID={props.sessionID}
-          messageID={props.messageID}
-          status={props.status}
-          active={props.active || (props.status.type === "retry" && isLatestTurn())}
-          classes={{ root: "px-3" }}
-        />
-      </I18nProvider>
+      <DataProvider data={displayData} directory={data.directory} onNavigateToSession={data.navigateToSession} onSessionHref={data.sessionHref}>
+        <I18nProvider value={withInsightToolTitles(i18n)}>
+          <SessionTurn
+            sessionID={props.sessionID}
+            messageID={props.messageID}
+            status={props.status}
+            active={props.active || (props.status.type === "retry" && isLatestTurn())}
+            classes={{ root: "px-3" }}
+          />
+        </I18nProvider>
+      </DataProvider>
 
       <Show when={showGenerating()}>
         <div

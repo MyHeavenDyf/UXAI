@@ -486,6 +486,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
+          // 删除/归档是终态:session 已从 store 移除且缓存被清理,重取会 404。
+          // 设计页等处的 missing 重试 effect 可能在 session.deleted 事件之后触发,
+          // 这里直接短路,避免 GET /session/:id 与 /session/:id/message 404。
+          if (store.deleted?.[sessionID]) return
           const key = keyFor(directory, sessionID)
 
           touch(directory, setStore, sessionID)

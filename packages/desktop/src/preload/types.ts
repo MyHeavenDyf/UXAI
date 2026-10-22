@@ -6,6 +6,11 @@ export type ServerReadyData = {
   password: string | null
 }
 
+/** fastui 卡片的目标:工程在哪由主进程按 SPEC-DES-008 §3.7 查,渲染进程不拼路径 */
+export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+
+export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
+
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
 export type WslConfig = { enabled: boolean }
@@ -53,6 +58,7 @@ export type ElectronAPI = {
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
+  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session") => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
@@ -95,20 +101,24 @@ export type ElectronAPI = {
   /**
    * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
+   * 工程在哪由主进程按(工作区, 会话, 产物名)查(SPEC-DES-008 §3.7)。
    */
   fastuiPreviewOpen: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 「重新编译」:结束当前服务并当场重起 */
   fastuiPreviewRestart: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
+  fastuiResolve: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
+  /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区)—— 指向工程内文件的卡片据此按工程打开预览,SPEC-DES-008 §3.8 */
+  fastuiProjectOf: (
+    target: FastuiTarget & { filePath: string },
+  ) => Promise<{ ok: true; name: string; projectDir: string } | { ok: false }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>

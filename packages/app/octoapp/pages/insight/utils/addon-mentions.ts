@@ -15,7 +15,7 @@ export function insertAddonMentions(state: EditorState, selections: MentionSelec
     existing.add(key)
     const attrs = selection.type === "skill"
       ? { id: selection.name, name: selection.name, type: "skill", label: selection.label, path: "" }
-      : { id: selection.id ?? selection.path, name: selection.filename, type: "file", label: selection.filename, path: selection.path, files: selection.files ?? null }
+      : { id: selection.id ?? selection.path, name: selection.filename, type: "file", label: selection.filename, path: selection.path, isFolder: selection.isFolder ?? false }
     return [state.schema.nodes.mention.create(attrs), state.schema.text(" ")]
   })
   if (!nodes.length) return state.tr

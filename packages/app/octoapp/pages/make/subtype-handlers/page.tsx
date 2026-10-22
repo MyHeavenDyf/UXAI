@@ -1,13 +1,15 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
-import type { ModelEditConfig } from '../components/model-edit-items/types'
-import defaultHandler, { defaultModelEditConfig, DownloadCancelledError } from './default'
+import type { IconConfig, IconConfirmArgs, ModelEditConfig } from '../components/model-edit-items/types'
+import defaultHandler, { defaultModelEditConfig, directModelEditConfig, DownloadCancelledError } from './default'
+
 import { showOctoToast, dismissOctoToast } from '../components/octo-toast'
 import { setAgentExecution } from '../utils/page-utils/agent-execution-state'
 import antdToEviewOrchestrator from '../../pattern/agents/antd-to-eview-orchestrator'
-import { createSignal } from 'solid-js'
+import { createSignal, createRoot, createEffect } from 'solid-js'
 import type { JSX } from 'solid-js'
 import JSZip from 'jszip'
 import { createHistoryStore, fnv1aHash, relativePathToId, resolveRelativePath, getExt, VERSION_MANIFEST_FILE } from '../utils/history-store'
+import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
 
@@ -60,6 +62,70 @@ function applySelectorHint(body: string): string {
   return body.split('（该元素可能是动态生成的）').join(SELECTOR_HINT ? `（${SELECTOR_HINT}）` : '')
 }
 
+const pageAssetConfig = directModelEditConfig.assetConfig!
+
+/**
+ * 图标配置项（IconConfig）—— 提示词替换版本示例
+ * 提示词模式：onConfirm 返回完整图标改动 prompt，由模型改源码后重新编译
+ */
+const pageIconConfig: IconConfig = {
+  // 自定义图标上传目录：HTML 同级 uploads/；无 filePath 时回退会话 assets 目录
+  getCustomIconDir: ({ sessionDir, filePath }) => {
+    if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
+    return `${sessionDir}/.octo/${sessionDir}/assets`
+  },
+  // 打开面板时从元素 data-icon-* 属性还原当前图标状态（回显）
+  getInitialState: (dom) => ({
+    name: dom.attributes['data-icon-name'] || '',
+    id: dom.attributes['data-icon-id'] || '',
+    isCustom: dom.attributes['data-icon-custom'] === 'true',
+    size: dom.attributes['data-icon-size'] || '24',
+    style: dom.attributes['data-icon-style'] || 'outline',
+    color: dom.attributes['data-icon-color'] || '#191919',
+    src: dom.attributes['data-icon-src'] || undefined,
+  }),
+  data: {
+    // 形状选项：label 展示文案，value 写入 data-icon-style
+    styles: [
+      { key: '线性', label: '线性', value: 'outline' },
+      { key: '线性双色', label: '线性双色', value: 'two-tone' },
+      { key: '方底托', label: '方底托', value: 'square' },
+      { key: '圆底托', label: '圆底托', value: 'circle' },
+    ],
+    // 语义色表：键为面板选色 key，twoColor/threeColor 供双色/三色图标配色
+    colors: iconColors,
+    // 尺寸快捷选项（px），写入 data-icon-size
+    sizes: ['12', '14', '16', '20', '24', '32', '36', '40'],
+    // 自定义上传允许的文件类型
+    acceptedFileTypes: '.svg,.png,.jpg,.jpeg',
+  },
+  onConfirm: async ({ current, dom, filePath }: IconConfirmArgs) => {
+    // 不下载 SVG、不替换 DOM——只把图标弹窗面板拿到的数据给 AI，
+    // 由 AI 在源码中定位图标代码并改成目标数据；已有的 icon 组件会根据这些数据
+    // 请求 SVG 并展示，无需前端下载替换。
+    const lines: string[] = []
+    lines.push(`[文件路径: ${filePath}]`)
+    lines.push('')
+    lines.push('请修改以下元素的图标:')
+    lines.push(`标签: <${dom.tagName}>`)
+    if (dom.className) lines.push(`类名: ${dom.className}`)
+    lines.push(`选择器: ${dom.selector}（该元素可能是动态生成的）`)
+    lines.push(`当前HTML: ${dom.htmlHint}`)
+    lines.push('')
+    lines.push('目标图标数据:')
+    lines.push(`  名称: ${current.name ?? ''}`)
+    lines.push(`  尺寸: ${current.size ?? ''}`)
+    lines.push(`  颜色: ${current.color ?? ''}`)
+    lines.push(`  形状: ${current.style ?? ''}`)
+    lines.push(`  是否自定义: ${current.isCustom ? '是' : '否'}`)
+    if (current.isCustom && current.src) lines.push(`  自定义路径: ${current.src}`)
+    lines.push('')
+    lines.push('请将该元素的图标代码修改为使用上述数据（已有 Icon 组件会根据这些数据请求 SVG 并展示，无需下载 SVG 进行替换）。')
+
+    return lines.join('\n')
+  },
+}
+
 const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
   deleteCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.deleteCallback(args))),
@@ -68,6 +134,18 @@ const pageModelEditConfig: ModelEditConfig = {
     `[选择器: ${selector}${SELECTOR_HINT ? `（${SELECTOR_HINT}）` : ''}]`,
     `[用户需求]:`
   ].join('\n'),
+  /** 选中 svg/img 时开放图标替换弹窗（与 demo/components 一致）；
+   *  确认产生的 prompt 包上 page 专属指引（定位源码 + 编译），与 saveCallback/deleteCallback/assetConfig 的包装模式一致 */
+  iconConfig: {
+    ...pageIconConfig,
+    onConfirm: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await pageIconConfig.onConfirm(args))),
+  },
+  /** 产品资产库：复用 default 的选择器/状态/下载逻辑，仅把确认 prompt 包上 page 专属指引
+   *  （定位源码 + 编译），与 saveCallback/deleteCallback 的包装模式一致 */
+  assetConfig: {
+    ...pageAssetConfig,
+    onConfirm: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await pageAssetConfig.onConfirm(args))),
+  },
 }
 
 /** 纳入历史的源码文件扩展名（文本类；图片/字体等二进制资源不记录） */
@@ -157,6 +235,41 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
   return Promise.resolve()
 }
 
+/** 等待子 session 真正跑完（session_status 离开 busy/retry）。
+ *  antd_to_eview_orchestrator 是多轮编排 agent，每轮都产出一条 completed 的
+ *  assistant 消息，getResultFromMessages 会在首轮完成即返；用 session_status 兜底
+ *  等整条流水线结束再继续归档/返回，避免内网偶发"agent 没跑完就往下走"。
+ *  超时则放行（agent 仍可在后台继续，归档不会中断它）并返回 'timeout' 让调用方提示。
+ *  返回 'idle' 表示 session_status 真正转闲；'timeout' 表示到达 timeoutMs 仍在忙。 */
+function waitSessionIdle(
+  sync: { data: { session_status?: Record<string, { type?: string } | undefined> } },
+  sessionID: string,
+  timeoutMs = 120 * 60 * 1000,
+): Promise<'idle' | 'timeout'> {
+  return new Promise<'idle' | 'timeout'>((resolve) => {
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (dispose: () => void, result: 'idle' | 'timeout') => {
+      if (disposed) return
+      disposed = true
+      if (timer) clearTimeout(timer)
+      dispose()
+      resolve(result)
+    }
+    const dispose = createRoot((dispose) => {
+      createEffect(() => {
+        if (disposed) { dispose(); return }
+        const status = sync?.data?.session_status?.[sessionID]
+        const type = status?.type ?? 'idle'
+        if (type === 'busy' || type === 'retry') return
+        finish(dispose, 'idle')
+      })
+      return dispose
+    })
+    timer = setTimeout(() => finish(dispose, 'timeout'), timeoutMs)
+  })
+}
+
 const downloadingTabs = new Set<string>()
 
 const pageHandler = {
@@ -191,6 +304,7 @@ const pageHandler = {
     const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
     downloadingTabs.add(tab.id)
     try {
+      const startTime = Date.now()
       const result = await antdToEviewOrchestrator({
         sdk: sdk!,
         sync,
@@ -206,10 +320,16 @@ const pageHandler = {
       if (result.error) throw new Error(result.error)
       if (!childSessionId) throw new Error('Agent session not created')
 
+      // 编排 agent 多轮跑，getResultFromMessages 首轮即返；用 session_status 兜底等整条流水线结束再归档
+      const idleState = await waitSessionIdle(sync, childSessionId)
+      if (idleState === 'timeout') {
+        ctx.showOctoToast({ title: '编排 Agent 运行超时（已超过 2 小时），建议检查运行状态' })
+      }
+
       try {
-        const zipBlob = await packOutputDir(ctx, outputDir)
-        const zipName = `${tab.title.replace(/\.html?$/i, '')}-eview-react.zip`
-        await downloadZipBlob(zipBlob, zipName, ctx)
+        // const zipBlob = await packOutputDir(ctx, outputDir)
+        // const zipName = `${tab.title.replace(/\.html?$/i, '')}-eview-react.zip`
+        // await downloadZipBlob(zipBlob, zipName, ctx)
       } finally {
         await sdk!.client.session.update({
           sessionID: childSessionId,
@@ -217,9 +337,76 @@ const pageHandler = {
         }).catch(() => {})
       }
 
+      const elapsedMs = Date.now() - startTime
+      const secs = Math.round(elapsedMs / 1000)
+      const duration = secs < 60
+        ? `${secs} 秒`
+        : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
+
+      const msgResult = await sdk!.client.session.messages({ sessionID: childSessionId }).catch((err: unknown) => {
+        console.warn('[antd→eview orchestrator] 获取消息失败:', err)
+        return null
+      })
+      const msgItems = (msgResult?.data ?? []) as Array<{
+        info: {
+          role?: string
+          agent?: string
+          modelID?: string
+          cost?: number
+          tokens?: { input?: number; output?: number }
+          time?: { created?: number; completed?: number }
+        }
+        parts: unknown[]
+      }>
+      const assistantMsgs = msgItems.filter(item => item.info.role === 'assistant')
+      const totalCost = assistantMsgs.reduce((sum, item) => sum + (item.info.cost ?? 0), 0)
+      const totalTokens = assistantMsgs.reduce((sum, item) => sum + ((item.info.tokens?.input ?? 0) + (item.info.tokens?.output ?? 0)), 0)
+
+      console.log('[antd→eview orchestrator] 消息记录:', {
+        childSessionId,
+        messageCount: msgItems.length,
+        duration,
+        totalCost,
+        totalTokens,
+        messages: msgItems.map(item => ({
+          role: item.info.role,
+          agent: item.info.agent,
+          model: item.info.modelID,
+          time: item.info.time,
+          cost: item.info.cost,
+          tokens: item.info.tokens,
+          partCount: item.parts.length,
+        })),
+      })
+      console.log('[antd→eview orchestrator] 完整消息:', msgItems)
+
+      const desktopApi = ctx.getDesktopApi()
+      if (desktopApi?.writeFileBuffer) {
+        const debugPath = `${sdk!.directory}/.octo/${sessionId}/debug-log/orchestrator-${childSessionId}.json`
+        const payload = JSON.stringify({
+          childSessionId,
+          rootSessionId: sessionId,
+          savedAt: Date.now(),
+          duration,
+          totalCost,
+          totalTokens,
+          messages: msgItems,
+        }, null, 2)
+        await desktopApi.writeFileBuffer(debugPath, new TextEncoder().encode(payload).buffer).then(
+          () => console.log('[antd→eview orchestrator] 消息已保存至:', debugPath),
+          (err: unknown) => console.warn('[antd→eview orchestrator] 消息持久化失败:', err),
+        )
+      }
+
+      const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
+      const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
+
       setAgentExecution(null)
       dismissOctoToast(loadingId)
-      showOctoToast({ title: '已下载' })
+      ctx.showOctoToast({
+        title: '编排完成',
+        description: `耗时 ${duration} · 上下文 ${tokensStr} tokens${costStr}`,
+      })
       return true
     } catch (e) {
       setAgentExecution(null)
@@ -247,6 +434,41 @@ const pageHandler = {
         },
       ],
     },
+  },
+
+  async buildArchiveSrc(ctx) {
+    try {
+      const api = ctx.getDesktopApi()
+      if (!api?.listDirectory || !api?.readFileBuffer) return null
+      const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
+      if (!filePath) return null
+      const codeDir = `${filePath.replace(/[/\\][^/\\]+$/, '').replace(/[/\\][^/\\]+$/, '')}/download-eview-react`
+
+      const listFiles = async () =>
+        ((await api.listDirectory!(codeDir)) ?? []).filter(e => e.type === 'file')
+
+      let files = await listFiles()
+      if (files.length === 0) {
+        ctx.showOctoToast({ title: '代码包尚未生成，正在触发下载流程...' })
+        await pageHandler.handleDownload(ctx)
+        files = await listFiles()
+      }
+      if (files.length === 0) return null
+
+      const skipFiles = new Set(['.umd-conversion.json', '.conversion-result.json', '.migration-result.json', '.icon-result.json', '.npmrc', 'package-lock.json'])
+      const out: { path: string; content: Uint8Array }[] = []
+      for (const entry of files) {
+        const rel = entry.path.replace(/\\/g, '/')
+        if (rel.startsWith('node_modules/') || rel.startsWith('.history/')) continue
+        if (skipFiles.has(rel)) continue
+        const buf = await api.readFileBuffer(`${codeDir}/${rel}`)
+        if (buf) out.push({ path: `download-eview-react/${rel}`, content: new Uint8Array(buf) })
+      }
+      return { files: out }
+    } catch (err) {
+      console.warn('[Archive] buildArchiveSrc failed:', err)
+      return null
+    }
   },
 
   /** 历史记录入口 1：'.'（index.page.html 自身）+ 动态发现的源码文件（样式/脚本等）。
@@ -304,3 +526,4 @@ async function readVersionManifest(
     return null
   }
 }
+

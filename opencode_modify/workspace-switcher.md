@@ -116,6 +116,12 @@ PR #966 bug 审查发现的高危：e65df48612 引入 [Workspace] 注入时未�
 
 **P1 同修:规划子会话误注入**(同日第二批)——sendMessage 的注入不区分目标 agent,规划子会话(octo_make_plan)也收到前缀:code 工作区的 [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与 plan agent 的 strategy-field/design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。修复:sendMessage 注入处加 `inPlanSession ? "" : buildArtifactFolderPrefix(sessionId)`(注入应用处本就有真值守卫,空串自动跳过);handleConfirmPlan 直发主会话不受影响。skill 暂存逻辑(handoff 存取/去重/childSessionId 校验/失败保留)已随修复前置审查,无问题。
 
+## 普通工作区原地升级 — 2026-10-20 追加
+
+存量 normal 工作区现可**单向原地升级**为 code(设置页 → 通用 → 工作区升级):产物文件平铺迁入 `<ws>/output/` 并按 sid 前 12 位重命名、DB 路径引用同步改写、原 `.octo` 产物目录保留,kind 翻转走 `server.projects.upgradeToCode`。设计记录、协议与已知限制见 [workspace-upgrade-normal-to-code.md](workspace-upgrade-normal-to-code.md)。
+
+**同日追加修复**:code 工作区前端 auto-save 落点从"项目根 + 原始名"对齐为 `output/<sid 前 12 位>-<原名>`(`computeArtifactFilePath` code 分支,与迁移命名逐字一致),消除升级后恢复会话时 auto-save 在根目录写出的重复副本;三个调用点(渲染 effect / 开卡 Step -1 / tab 编辑保存)单点收口。详见升级文档"追加修复"节。
+
 ## 验证
 
 - `bun run typecheck`(packages/app)通过;`vite build` 通过
