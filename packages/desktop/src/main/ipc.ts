@@ -1,5 +1,5 @@
 import { execFile, execFileSync, execSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
@@ -46,7 +46,7 @@ import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
 import { toExactArrayBuffer } from "./buffer-slice"
-import { importSharedSession } from "./shared-session"
+import { importSharedSession, prepareSharedSession } from "./shared-session"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -232,31 +232,78 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session") => {
-    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
-      throw new Error("请先选择关联本地文件夹，再打开分享对话")
-    }
+  const preparedShares = new Map<string, {
+    owner: number; uniqueId: string; server: string;
+    prepared: Awaited<ReturnType<typeof prepareSharedSession>>;
+    timer: ReturnType<typeof setTimeout>;
+  }>()
+  const owners = new Set<number>()
+  const releaseShare = async (token: string, owner: number) => {
+    const entry = preparedShares.get(token)
+    if (!entry || entry.owner !== owner) return
+    preparedShares.delete(token)
+    clearTimeout(entry.timer)
+    await rm(entry.prepared.temporary, { recursive: true, force: true })
+  }
+  const shareInput = async (event: IpcMainInvokeEvent) => {
     const uploadURL = process.env.OCTO_SHARE_API_URL || import.meta.env.OCTO_SHARE_API_URL
     if (!uploadURL) throw new Error("分享配置缺失：请配置环境变量 OCTO_SHARE_API_URL")
     if (!URL.canParse(uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
-    await mkdir(directory, { recursive: true })
     const win = BrowserWindow.fromWebContents(event.sender)
     const auth = win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
       ? await localStorageAuth(win)
       : null
-    return importSharedSession({
-      uniqueId,
-      directory,
-      scope,
+    return {
       uploadURL,
       server: await deps.awaitInitialization(() => undefined),
-      remoteFetch: (input, init) => {
+      remoteFetch: ((input, init) => {
         const headers = new Headers(init?.headers)
         if (auth?.uiplusToken) headers.set("uiplustoken", auth.uiplusToken)
         if (auth?.uiplusCookie) headers.set("Cookie", auth.uiplusCookie)
         return net.fetch(input instanceof URL ? input.toString() : input, { ...init, headers, redirect: "error" })
-      },
-    })
+      }) as typeof fetch,
+    }
+  }
+  ipcMain.handle("prepare-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string) => {
+    const input = await shareInput(event)
+    const prepared = await prepareSharedSession({ ...input, uniqueId })
+    if (event.sender.isDestroyed()) {
+      await rm(prepared.temporary, { recursive: true, force: true })
+      throw new Error("分享窗口已关闭")
+    }
+    const token = randomUUID()
+    const owner = event.sender.id
+    const timer = setTimeout(() => { void releaseShare(token, owner).catch(log.warn) }, 10 * 60_000)
+    timer.unref()
+    preparedShares.set(token, { owner, uniqueId, server: input.server.url, prepared, timer })
+    if (!owners.has(owner)) {
+      owners.add(owner)
+      event.sender.once("destroyed", () => {
+        owners.delete(owner)
+        for (const [key, entry] of preparedShares) {
+          if (entry.owner === owner) void releaseShare(key, owner).catch(log.warn)
+        }
+      })
+    }
+    return { token, agent: prepared.agent, module: prepared.module }
+  })
+  ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) => releaseShare(token, event.sender.id))
+  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => {
+    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
+      throw new Error("请先选择关联本地文件夹，再打开分享对话")
+    }
+    const input = await shareInput(event)
+    const entry = token ? preparedShares.get(token) : undefined
+    if (token && (!entry || entry.owner !== event.sender.id || entry.uniqueId !== uniqueId || entry.server !== input.server.url)) {
+      throw new Error("分享准备已失效，请重新打开链接")
+    }
+    await mkdir(directory, { recursive: true })
+    if (entry && token) {
+      preparedShares.delete(token)
+      clearTimeout(entry.timer)
+    }
+    // Directory/file restoration only starts after the renderer has switched to the identified module.
+    return importSharedSession({ ...input, uniqueId, directory, scope, prepared: entry?.prepared })
   })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
 

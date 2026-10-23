@@ -112,6 +112,12 @@ HTML 注释和 `data-src` 等非资源属性不参与依赖收集，内联及外
 
 ## 4. Session 结构
 
+### App 打开分享链接的模块隔离
+
+打开链接先下载 ZIP 到临时目录，仅流式读取 `manifest.json`，不解压产物、不创建 Session。通过 `rootSessionID` 对应的根 Session `info.agent` 识别归属：`octo_make` → Design、`octo_insight` → Insight、`proto_triage` → 原型；旧 ZIP 无需增加字段。未知或缺失 Agent 明确报错，不默认归入当前模块。
+
+识别成功后先切换目标模块，等待该页面真实 SDK/Sync 上下文、当前关联目录以及启动引导全部就绪，再按目标目录的文件管理模式导入同一份已下载 ZIP，最后打开新 Session。导入缓存按服务端、模块、目录及分享码隔离。准备阶段使用窗口绑定的不透明令牌，不把临时 ZIP 路径交给网页；成功、失败、窗口关闭或准备超时（10 分钟）均会清理临时包，不重复下载。
+
 网页应通过 `rootSessionID` 找到主 Session，并根据 `info.parentID` 构建子 Session 树。
 
 常用字段：
