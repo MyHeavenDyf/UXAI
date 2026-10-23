@@ -30,6 +30,9 @@ import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
 import { OctoSessionWorkdirPlugin } from "../agent/octo-session-workdir"
 import { OctoTaskSerializePlugin } from "../agent/octo-task-serialize"
 import { OctoInsightDispatchPlugin } from "../agent/octo-insight-dispatch"
+// octo 自有 server 插件:shell 调用注入根会话 id 与工作区目录(fastui skill 定位工程用)。
+// 见 ../agent/octo-shell-context.ts、SPEC-DES-008。
+import { OctoShellContextPlugin } from "../agent/octo-shell-context"
 import { Effect, Layer, Context, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -81,6 +84,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   OctoSessionWorkdirPlugin,
   OctoTaskSerializePlugin,
   OctoInsightDispatchPlugin,
+  OctoShellContextPlugin,
 ]
 
 function isServerPlugin(value: unknown): value is PluginInstance {

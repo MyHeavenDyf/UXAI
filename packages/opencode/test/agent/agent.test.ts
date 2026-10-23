@@ -988,3 +988,23 @@ test("octo_design/octo_code subagents carry design/code toolset", async () => {
     },
   })
 })
+
+// octo_make 放开 question 给 skill 用(fastui 等在已有工程/新建之间让用户选);全局 defaults 仍是 deny,
+// 只放开 octo_make 自己,别的 agent 别跟着变。路由架构下同理:skill 在主会话执行,question 通道
+// 由路由持有,子代理(octo_design/octo_code)仍 deny(上方用例已断言)。
+test("octo_make allows question for skill-driven confirmation; defaults stay deny", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const make = await load(tmp.path, (svc) => svc.get("octo_make"))
+      const general = await load(tmp.path, (svc) => svc.get("general"))
+      expect(evalPerm(make, "question")).toBe("allow")
+      expect(Permission.disabled(["question"], make!.permission).has("question")).toBe(false)
+      expect(evalPerm(general, "question")).toBe("deny")
+    },
+  })
+})
+    },
+  })
+})

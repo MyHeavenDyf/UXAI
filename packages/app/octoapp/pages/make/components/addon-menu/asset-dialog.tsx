@@ -281,8 +281,8 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     if (dialogRect.right + 4 + previewWidth > window.innerWidth - 16) {
       left = -previewWidth - 4
     }
-    const grid = dialogRef?.querySelector('.asset-dialog-grid')
-    const top = grid ? grid.getBoundingClientRect().top - dialogRect.top : 0
+    const panel = dialogRef?.querySelector('.asset-dialog-right')
+    const top = panel ? panel.getBoundingClientRect().top - dialogRect.top : 0
     setPreviewPos({ left, top })
     setPreviewFile(file)
   }

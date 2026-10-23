@@ -1315,6 +1315,7 @@ export const Model = Schema.Struct({
   name: Schema.String,
   family: optionalOmitUndefined(Schema.String),
   isExternal: optionalOmitUndefined(Schema.Boolean),
+  defaultDisabled: optionalOmitUndefined(Schema.Boolean),
   capabilities: ProviderCapabilities,
   cost: ProviderCost,
   limit: ProviderLimit,
@@ -1433,6 +1434,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     name: model.name,
     family: model.family,
     isExternal: model.isExternal,
+    defaultDisabled: model.defaultDisabled,
     api: {
       id: model.id,
       url: model.provider?.api ?? provider.api ?? "",

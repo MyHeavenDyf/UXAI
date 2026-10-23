@@ -1,5 +1,5 @@
 import { execFile, execFileSync, execSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
@@ -46,7 +46,7 @@ import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
 import { toExactArrayBuffer } from "./buffer-slice"
-import { importSharedSession } from "./shared-session"
+import { importSharedSession, prepareSharedSession } from "./shared-session"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -232,48 +232,106 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session") => {
-    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
-      throw new Error("请先选择关联本地文件夹，再打开分享对话")
-    }
+  const preparedShares = new Map<string, {
+    owner: number; uniqueId: string; server: string;
+    prepared: Awaited<ReturnType<typeof prepareSharedSession>>;
+    timer: ReturnType<typeof setTimeout>;
+  }>()
+  const owners = new Set<number>()
+  const releaseShare = async (token: string, owner: number) => {
+    const entry = preparedShares.get(token)
+    if (!entry || entry.owner !== owner) return
+    preparedShares.delete(token)
+    clearTimeout(entry.timer)
+    await rm(entry.prepared.temporary, { recursive: true, force: true })
+  }
+  const shareInput = async (event: IpcMainInvokeEvent) => {
     const uploadURL = process.env.OCTO_SHARE_API_URL || import.meta.env.OCTO_SHARE_API_URL
     if (!uploadURL) throw new Error("分享配置缺失：请配置环境变量 OCTO_SHARE_API_URL")
     if (!URL.canParse(uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
-    await mkdir(directory, { recursive: true })
     const win = BrowserWindow.fromWebContents(event.sender)
     const auth = win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
       ? await localStorageAuth(win)
       : null
-    return importSharedSession({
-      uniqueId,
-      directory,
-      scope,
+    return {
       uploadURL,
       server: await deps.awaitInitialization(() => undefined),
-      remoteFetch: (input, init) => {
+      remoteFetch: ((input, init) => {
         const headers = new Headers(init?.headers)
         if (auth?.uiplusToken) headers.set("uiplustoken", auth.uiplusToken)
         if (auth?.uiplusCookie) headers.set("Cookie", auth.uiplusCookie)
         return net.fetch(input instanceof URL ? input.toString() : input, { ...init, headers, redirect: "error" })
-      },
-    })
+      }) as typeof fetch,
+    }
+  }
+  ipcMain.handle("prepare-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string) => {
+    const input = await shareInput(event)
+    const prepared = await prepareSharedSession({ ...input, uniqueId })
+    if (event.sender.isDestroyed()) {
+      await rm(prepared.temporary, { recursive: true, force: true })
+      throw new Error("分享窗口已关闭")
+    }
+    const token = randomUUID()
+    const owner = event.sender.id
+    const timer = setTimeout(() => { void releaseShare(token, owner).catch(log.warn) }, 10 * 60_000)
+    timer.unref()
+    preparedShares.set(token, { owner, uniqueId, server: input.server.url, prepared, timer })
+    if (!owners.has(owner)) {
+      owners.add(owner)
+      event.sender.once("destroyed", () => {
+        owners.delete(owner)
+        for (const [key, entry] of preparedShares) {
+          if (entry.owner === owner) void releaseShare(key, owner).catch(log.warn)
+        }
+      })
+    }
+    return { token, agent: prepared.agent, module: prepared.module }
+  })
+  ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) => releaseShare(token, event.sender.id))
+  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => {
+    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
+      throw new Error("请先选择关联本地文件夹，再打开分享对话")
+    }
+    const input = await shareInput(event)
+    const entry = token ? preparedShares.get(token) : undefined
+    if (token && (!entry || entry.owner !== event.sender.id || entry.uniqueId !== uniqueId || entry.server !== input.server.url)) {
+      throw new Error("分享准备已失效，请重新打开链接")
+    }
+    await mkdir(directory, { recursive: true })
+    if (entry && token) {
+      preparedShares.delete(token)
+      clearTimeout(entry.timer)
+    }
+    // Directory/file restoration only starts after the renderer has switched to the identified module.
+    return importSharedSession({ ...input, uniqueId, directory, scope, prepared: entry?.prepared })
   })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
 
   // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
   // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
-  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.open(sessionDir, projectName),
+  // 目标统一是(工作区, 会话, 产物名),工程在哪由主进程按 SPEC-DES-008 §3.7 查,前端不拼路径。
+  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.open(target),
   )
-  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.restart(sessionDir, projectName),
+  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.restart(target),
+  )
+  // 这个(会话, 产物名)有没有 fastui 工程:导出按钮与老卡片转换用,与预览同一个查找函数
+  ipcMain.handle("fastui-resolve", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) => {
+    const r = FastuiDevServer.resolveProject(target)
+    return r.ok ? { ok: true, projectDir: r.projectDir, name: r.name } : { ok: false, error: r.error }
+  })
+  // 文件属于哪个 fastui 工程:模型只给了被改文件的路径卡片时,前端据此按工程打开预览(SPEC-DES-008 §3.8)
+  ipcMain.handle(
+    "fastui-project-of",
+    (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget & { filePath: string }) =>
+      FastuiDevServer.projectOfFile(target),
   )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
   // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
-  // 带产物名时导出该工程(同一对话可以有多个工程);不带时按会话状态文件里的工程导出。
-  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiExport.exportZip(sessionDir, projectName),
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiExport.exportZip(target),
   )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)

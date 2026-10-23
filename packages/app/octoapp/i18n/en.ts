@@ -6,6 +6,8 @@ export const dict = {
   "studio.history.sort": "Sort",
   "studio.history.filter.resolution": "Resolution",
   "studio.history.filter.ratio": "Aspect ratio",
+  "studio.history.filter.active": "Filtered: ",
+  "studio.history.filter.clear": "Clear filters",
   "studio.history.sort.time": "Time order",
   "studio.history.sort.desc": "Newest first",
   "studio.history.sort.asc": "Oldest first",

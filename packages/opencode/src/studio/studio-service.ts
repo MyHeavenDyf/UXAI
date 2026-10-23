@@ -249,6 +249,7 @@ export type StudioGenerationAccepted = Pick<
   | "detailTitle"
   | "provider"
   | "model"
+  | "styleModel"
   | "aspectRatio"
   | "taskId"
   | "images"
@@ -1941,6 +1942,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     detailTitle: data.input.detailTitle,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
+    // 详情面板优先展示 styleModel，与生成时选择的风格模型保持一致；
+    // 编辑类能力与工具输入同口径，不携带 styleModel。
+    styleModel: isEditorGenerationCapability(record.capability) ? undefined : data.input.styleModel,
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
     taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
     images: result?.images ?? [],

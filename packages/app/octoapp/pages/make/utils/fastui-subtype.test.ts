@@ -28,6 +28,7 @@ const URL_FEATURES: Features = {
   history: false,
   download: false,
   fullscreen: true,
+  assessment: false,
 }
 
 describe("能力表", () => {
@@ -76,27 +77,31 @@ describe("导出代码包按钮", () => {
     return typeof v === "function" ? v(ctx) : !!v
   }
 
-  const setFileExists = (fn?: (p: string) => Promise<boolean>) => {
-    ;(window as unknown as { api?: unknown }).api = fn ? { fileExists: fn } : undefined
+  // 判据是「主进程按(工作区, 会话, 产物名)找不找得到工程」(SPEC-DES-008 §3.7),前端不再拼会话目录探文件
+  type Target = { workspaceDir: string; sessionId: string; name?: string }
+  const setResolve = (fn?: (t: Target) => Promise<boolean>) => {
+    ;(window as unknown as { api?: unknown }).api = fn
+      ? { fastuiResolve: async (t: Target) => ((await fn(t)) ? { ok: true, projectDir: "/x", name: t.name ?? "" } : { ok: false, error: "" }) }
+      : undefined
   }
 
-  afterEach(() => setFileExists(undefined))
+  afterEach(() => setResolve(undefined))
 
   test("fastui:// 卡片在 fastui 会话里显示(会话判据异步探测后生效)", async () => {
-    const seen: string[] = []
-    setFileExists(async (p) => {
-      seen.push(p)
+    const seen: Target[] = []
+    setResolve(async (t) => {
+      seen.push(t)
       return true
     })
     const ctx = ctxFor("fastui://user-page", "s-visible")
     expect(visible(ctx)).toBe(false) // 首次触发探测
     await new Promise((r) => setTimeout(r, 0))
     expect(visible(ctx)).toBe(true)
-    expect(seen).toEqual(["/proj/.octo/s-visible/.octo-fastui.json"])
+    expect(seen).toEqual([{ workspaceDir: "/proj", sessionId: "s-visible", name: "user-page" }])
   })
 
   test("旧版卡片转来的 fastui://(产物名为空)同样适用", async () => {
-    setFileExists(async () => true)
+    setResolve(async () => true)
     const ctx = ctxFor("fastui://", "s-legacy")
     visible(ctx)
     await new Promise((r) => setTimeout(r, 0))
@@ -104,7 +109,7 @@ describe("导出代码包按钮", () => {
   })
 
   test("非 fastui 会话不显示", async () => {
-    setFileExists(async () => false)
+    setResolve(async () => false)
     const ctx = ctxFor("fastui://user-page", "s-plain")
     visible(ctx)
     await new Promise((r) => setTimeout(r, 0))
@@ -113,7 +118,7 @@ describe("导出代码包按钮", () => {
 
   test("只认 fastui:// 身份:裸 loopback 地址不显示,也不去探测", async () => {
     let probed = false
-    setFileExists(async () => {
+    setResolve(async () => {
       probed = true
       return true
     })
@@ -122,5 +127,22 @@ describe("导出代码包按钮", () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(visible(ctx)).toBe(false)
     expect(probed).toBe(false)
+  })
+})
+
+describe("absoluteLinkPath(SPEC-DES-008 §3.8 补预览卡片时把文件卡片的路径转成绝对路径)", () => {
+  test("Windows 绝对路径:反斜杠转正斜杠", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath("C:\\ws\\dash\\packages\\portal\\src\\views\\index.vue", "C:\\ws")).toBe(
+      "C:/ws/dash/packages/portal/src/views/index.vue",
+    )
+  })
+  test("相对路径:相对工作区拼接", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath("dash/packages/portal/src/views/index.vue", "C:\\ws\\")).toBe("C:/ws/dash/packages/portal/src/views/index.vue")
+  })
+  test("Unix 绝对路径:原样归一", async () => {
+    const { absoluteLinkPath } = await import("./fastui-export")
+    expect(absoluteLinkPath(" /Users/a//ws/dash/index.vue ", "/Users/a/ws")).toBe("/Users/a/ws/dash/index.vue")
   })
 })

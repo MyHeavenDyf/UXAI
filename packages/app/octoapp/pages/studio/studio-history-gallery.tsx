@@ -420,8 +420,9 @@ export function StudioHistoryGallery(props: {
   // loadMoreFailed 时不自动重试，交由重试按钮恢复，避免失败后无限循环。
   function maybeLoadMore() {
     const viewport = viewportEl
-    // 详情打开后列表视图已卸载，viewportEl 指向游离节点：跳过检查，避免误触发一次多余请求。
-    if (!viewport?.isConnected) return
+    // 详情打开时列表只是被 display:none 隐藏（保持挂载以保留滚动位置），此时视口尺寸为 0
+    // 会被误判为贴近底部：跳过检查，避免误触发一次多余请求。
+    if (!viewport?.isConnected || detailItem()) return
     if (state.loading || state.loadingMore || state.loadMoreFailed || !state.nextCursor) return
     if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= LOAD_MORE_THRESHOLD_PX) {
       void loadMore()
@@ -434,8 +435,8 @@ export function StudioHistoryGallery(props: {
     requestAnimationFrame(() => maybeLoadMore())
   }, { defer: true }))
 
-  // viewport 在详情 <Show> 的 fallback 内，进出详情会卸载重建：
-  // 在 ref 回调里重新挂观察器，避免 ResizeObserver 一直观察已卸载的旧节点、resize 不再触发加载。
+  // 列表在详情打开时保持挂载（display:none 隐藏），viewport 不随详情切换重建；
+  // 观察器挂在 ref 回调里，覆盖组件随「我的资产」页面进出而重新挂载的场景。
   let viewportObserver: ResizeObserver | undefined
   const observeViewport = (el: HTMLDivElement) => {
     viewportEl = el
@@ -455,6 +456,13 @@ export function StudioHistoryGallery(props: {
     })
   }
 
+  // 切换画像 tab：清空上一次的筛选，因为分辨率与比例的可见范围随 tab 变化，保留会造成不可见条件。
+  function selectTab(tab: HistoryTab) {
+    if (state.activeTab === tab) return
+    tracker.interaction({ module: "studio", name: "history-tab-switch", extend: JSON.stringify({ tab }) })
+    setState({ activeTab: tab, resolutionFilter: new Set(), ratioFilter: new Set() })
+  }
+
   const allMedia = createMemo(() => {
     const excluded = state.excludedIds
     return state.media.filter((item) => !excluded.has(item.id))
@@ -465,6 +473,17 @@ export function StudioHistoryGallery(props: {
     if (state.activeTab === "video") return RATIO_OPTIONS.filter((option) => !VIDEO_HIDDEN_RATIOS.has(option.label))
     return RATIO_OPTIONS
   })
+
+  // 已选筛选值的展示文案：分辨率在前、比例在后，用「、」连成一行，筛选按钮据此切换为「已筛选：…」。
+  const activeFilterLabels = createMemo(() => [
+    ...RESOLUTION_OPTIONS.filter((option) => state.resolutionFilter.has(option)),
+    ...visibleRatioOptions().filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label),
+  ])
+
+  function clearFilters(event: MouseEvent) {
+    event.stopPropagation()
+    setState({ resolutionFilter: new Set(), ratioFilter: new Set() })
+  }
 
   const hasSelection = createMemo(() => Object.values(selectedItems).some(Boolean))
 
@@ -533,9 +552,13 @@ export function StudioHistoryGallery(props: {
           </div>
         )}
       </Show>
-      <Show when={detailItem()} fallback={
-        <>
-      <div class="studio-file-manager-header">
+      {/* 进出详情只隐藏列表而不是卸载：保留滚动位置，返回时避免整列表重挂载造成的图片重载与布局抖动。
+          display:contents 让头部与滚动区继续作为 flex 子项参与布局，与未包裹时一致。 */}
+      <div style={{ display: detailItem() ? "none" : "contents" }}>
+      <div
+        class="studio-file-manager-header"
+        classList={{ "studio-history-header--batch": state.batchMode }}
+      >
         <div class="studio-history-header-left">
           <div class="studio-file-manager-tabs">
             <For each={HISTORY_TABS}>
@@ -544,12 +567,7 @@ export function StudioHistoryGallery(props: {
                   type="button"
                   class="studio-file-manager-tab"
                   classList={{ active: state.activeTab === tab.key }}
-                  onClick={() => {
-                    if (state.activeTab === tab.key) return
-                    tracker.interaction({ module: "studio", name: "history-tab-switch", extend: JSON.stringify({ tab: tab.key }) })
-                    // 切换 tab 清空上一次的筛选：分辨率与比例的可见范围随 tab 变化，保留会造成不可见条件。
-                    setState({ activeTab: tab.key, resolutionFilter: new Set(), ratioFilter: new Set() })
-                  }}
+                  onClick={() => selectTab(tab.key)}
                 >
                   {language.t(tab.label)}
                 </button>
@@ -560,22 +578,41 @@ export function StudioHistoryGallery(props: {
           <DropdownMenu gutter={4} placement="bottom" open={state.showFilter} onOpenChange={(open) => setState("showFilter", open)}>
             <DropdownMenu.Trigger
               class="studio-history-filter-trigger"
-              classList={{ "studio-history-filter-trigger--open": state.showFilter }}
+              classList={{
+                "studio-history-filter-trigger--open": state.showFilter,
+                "studio-history-filter-trigger--filtered": activeFilterLabels().length > 0,
+              }}
             >
-              <span>{language.t("studio.history.filter")}</span>
-              <svg
-                width="10"
-                height="6"
-                viewBox="0 0 10 6"
-                fill="none"
-                style={{
-                  "margin-left": "4px",
-                  transform: state.showFilter ? "rotate(180deg)" : "rotate(0deg)",
-                  transition: "transform 0.15s ease",
-                }}
+              <Show
+                when={activeFilterLabels().length > 0}
+                fallback={<span>{language.t("studio.history.filter")}</span>}
               >
-                <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+                <span class="studio-history-filter-active">
+                  <span class="studio-history-filter-active-prefix">{language.t("studio.history.filter.active")}</span>{activeFilterLabels().join("、")}
+                </span>
+                <span
+                  class="studio-history-filter-clear"
+                  role="button"
+                  aria-label={language.t("studio.history.filter.clear")}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={clearFilters}
+                />
+              </Show>
+              <Show when={activeFilterLabels().length === 0}>
+                <svg
+                  width="10"
+                  height="6"
+                  viewBox="0 0 10 6"
+                  fill="none"
+                  style={{
+                    "margin-left": "4px",
+                    transform: state.showFilter ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.15s ease",
+                  }}
+                >
+                  <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </Show>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="studio-history-filter-menu studio-history-filter-menu--scrollable">
@@ -816,8 +853,8 @@ export function StudioHistoryGallery(props: {
           </Show>
         </Show>
       </ScrollView>
-        </>
-      }>
+      </div>
+      <Show when={detailItem()}>
         <div class="studio-history-detail">
           <div class="studio-file-manager-back-bar">
             <button

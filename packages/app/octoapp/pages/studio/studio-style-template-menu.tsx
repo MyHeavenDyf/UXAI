@@ -1,6 +1,7 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import type { StudioTemplatePublishInput } from "./studio-template-creator"
 
 type StyleTemplateSection = "creative-square" | "mine"
@@ -89,6 +90,7 @@ export function StudioStyleTemplateMenu(props: {
 
   function switchSection(next: StyleTemplateSection) {
     if (section() === next) return
+    tracker.interaction({ module: "studio", name: "style-template-tab", extend: JSON.stringify({ section: next }) })
     setSection(next)
     void loadTemplates({ reset: true, section: next })
   }
@@ -136,7 +138,7 @@ export function StudioStyleTemplateMenu(props: {
           </button>
         </div>
         <Show when={props.canCreateTemplate}>
-          <button type="button" class="studio-style-template-create" onClick={props.onCreateTemplate}>
+          <button type="button" class="studio-style-template-create" onClick={() => { tracker.interaction({ module: "studio", name: "style-template-create" }); props.onCreateTemplate() }}>
             <span class="studio-style-template-create-plus" aria-hidden="true" />
             <span>创建模板</span>
           </button>
@@ -162,7 +164,10 @@ export function StudioStyleTemplateMenu(props: {
                     <button
                       type="button"
                       class="studio-style-template-card-select"
-                      onClick={() => props.onSelectTemplate?.(item)}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "style-template-select", extend: JSON.stringify({ templateID: item.idx, templateType: item.template_type }) })
+                        props.onSelectTemplate?.(item)
+                      }}
                     >
                       <div class="studio-style-template-card-cover">
                         <Show when={item.example_images[0]?.url}>
@@ -196,7 +201,10 @@ export function StudioStyleTemplateMenu(props: {
                             aria-label="编辑模板"
                             title={editing() ? undefined : "编辑模板"}
                             disabled={editing()}
-                            onClick={() => props.onEditTemplate?.(item)}
+                            onClick={() => {
+                              tracker.interaction({ module: "studio", name: "style-template-edit", extend: JSON.stringify({ templateID: item.idx }) })
+                              props.onEditTemplate?.(item)
+                            }}
                           >
                             <img src="/studio/studio_template_edit.svg" alt="" />
                           </button>
@@ -214,7 +222,10 @@ export function StudioStyleTemplateMenu(props: {
                             aria-label="删除模板"
                             title={editing() ? undefined : "删除模板"}
                             disabled={editing()}
-                            onClick={() => props.onRequestDeleteTemplate?.(item)}
+                            onClick={() => {
+                              tracker.interaction({ module: "studio", name: "style-template-delete-trigger", extend: JSON.stringify({ templateID: item.idx }) })
+                              props.onRequestDeleteTemplate?.(item)
+                            }}
                           >
                             <img src="/studio/studio_delete.svg" alt="" />
                           </button>

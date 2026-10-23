@@ -378,7 +378,10 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                question: "deny",
+                // 放开给 skill 用(fastui 等需要让用户在已有工程/新建之间选择);skill 在主会话
+                // 执行,question 通道由路由持有,子代理仍 deny。使用范围由 octo_make.txt 收窄为
+                // 「仅 skill 明确要求时」
+                question: "allow",
                 // skill 不能 deny：deny 会让 session.command 的 @skill 模板注入整链路报错
               }),
               user,
@@ -407,6 +410,7 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
+                // 子代理不与用户交互:task prompt 五段式已带全部输入,反问没有应答通道
                 question: "deny",
               }),
               user,

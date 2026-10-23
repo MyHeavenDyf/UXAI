@@ -7,6 +7,7 @@ type ApiModel = {
   name?: string
   family?: string
   isExternal?: boolean
+  defaultDisabled?: boolean
   attachment?: boolean
   reasoning?: boolean
   temperature?: boolean

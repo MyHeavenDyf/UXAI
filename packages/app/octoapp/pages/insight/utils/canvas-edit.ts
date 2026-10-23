@@ -97,8 +97,6 @@ export async function createCanvasOptions(input: CanvasOrigin): Promise<UploadZi
     }
     await read(path).catch(() => { throw new Error("部分本地资源无法读取，请检查后重试") })
   }
-  const contents = await Promise.all([...buffers.entries()].filter(entry => /\.(?:css|m?js)$/i.test(entry[0])).map(entry => entry[1].then(bytes => new TextDecoder().decode(bytes))))
-  if ([html, ...contents].some(content => /https?:\/\/|(?:\b(?:src|href|poster|srcset)\s*=\s*["']|\burl\(\s*["']?)\/\//i.test(content))) origin.notify("外部资源依赖画布环境联网加载")
   const options = {
     htmlContent: html,
     htmlFilePath: root,

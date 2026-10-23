@@ -1074,6 +1074,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         hasMessages={contextMenu.hasMessages}
         groups={props.groups}
         sessionGroupMapping={props.sessionGroupMapping}
+        trackerModule={props.trackerModule}
         onClose={closeContextMenu}
         onRename={(s) => { closeContextMenu(); startRename(s) }}
         onTogglePin={(s) => { closeContextMenu(); togglePin(s.id) }}
