@@ -1005,6 +1005,3 @@ test("octo_make allows question for skill-driven confirmation; defaults stay den
     },
   })
 })
-    },
-  })
-})
