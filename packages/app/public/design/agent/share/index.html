@@ -32,7 +32,7 @@
       justify-content: space-between;
       gap: 16px;
     }
-    .header-logo { width: 90px; height: 18px; flex-shrink: 0; }
+    .header-logo {  height: 24px; flex-shrink: 0; }
     /* title 覆盖层:容器与 .chat-scroll-view 完全一致(1024px 居中 + 12px padding),
        使 title 左边界对齐 conversation-list 左边界;pointer-events: none 让点击穿透到下方 logo/button */
     .header-title-bar {
@@ -238,7 +238,8 @@
       position: absolute;
       bottom: 12px;
       right: 16px;
-      display: inline-flex;
+      /* display 由上方 .bubble-user[data-expandable] 规则控制,此处不可再写 display,
+         否则同优先级靠后覆盖 display:none,短气泡也会出现按钮并与文字重叠 */
       align-items: center;
       gap: 4px;
       padding: 0;
