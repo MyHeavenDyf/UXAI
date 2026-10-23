@@ -277,9 +277,6 @@ export async function collectPortableDependencies(input: {
     })
     await Promise.all(
       batch.map(async ({ file, source, document }) => {
-        if ((await lstat(source)).size > 4 * 1024 * 1024) {
-          throw new Error(`页面依赖分析文件超过 4 MiB，无法确认完整性：${path.relative(input.root, file)}`)
-        }
         const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(await input.read(source)), file)
         parsedFiles.set(file, parsed)
         const base = new URL(parsed.base ?? "", pathToFileURL(file))
