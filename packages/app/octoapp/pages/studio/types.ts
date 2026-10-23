@@ -13,6 +13,7 @@ export type StudioImageTool = "jimeng" | "internel"
 export type StudioGenerationStatus =
   | "idle"
   | "submitting"
+  | "creating"
   | "queued"
   | "running"
   | "succeeded"

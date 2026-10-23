@@ -1315,6 +1315,7 @@ export const Model = Schema.Struct({
   name: Schema.String,
   family: optionalOmitUndefined(Schema.String),
   isExternal: optionalOmitUndefined(Schema.Boolean),
+  defaultDisabled: optionalOmitUndefined(Schema.Boolean),
   capabilities: ProviderCapabilities,
   cost: ProviderCost,
   limit: ProviderLimit,
@@ -1376,6 +1377,7 @@ export interface Interface {
 }
 
 interface State {
+  remoteCatalogSignature?: string
   models: Map<string, LanguageModelV3>
   providers: Record<ProviderID, Info>
   sdk: Map<string, BundledSDK>
@@ -1432,6 +1434,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     name: model.name,
     family: model.family,
     isExternal: model.isExternal,
+    defaultDisabled: model.defaultDisabled,
     api: {
       id: model.id,
       url: model.provider?.api ?? provider.api ?? "",
@@ -1639,6 +1642,7 @@ const layer: Layer.Layer<
             env: provider.env ?? existing?.env ?? [],
             options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
             source: "config",
+            title_model: existing?.title_model,
             models: existing?.models ?? {},
           }
 
@@ -1909,13 +1913,13 @@ const layer: Layer.Layer<
       }),
     )
 
-    let remoteCatalogSignature: string | undefined
     const syncRemoteProviders = Effect.fn("Provider.syncRemoteProviders")(function* () {
       const catalog = yield* Effect.promise(modelsApiCatalog)
       if (!catalog) return
 
       const signature = JSON.stringify(catalog)
-      if (signature === remoteCatalogSignature) return
+      const current = yield* InstanceState.get(state)
+      if (signature === current.remoteCatalogSignature) return
 
       const incoming = Object.values(catalog).flatMap((item) => {
         const provider = Option.getOrUndefined(decodeModelsApiProvider(item))
@@ -1923,7 +1927,6 @@ const layer: Layer.Layer<
         return provider ? [fromModelsDevProvider(provider, "remote")] : []
       })
       const remoteIDs = new Set(incoming.map((provider) => provider.id))
-      const current = yield* InstanceState.get(state)
 
       Object.entries(current.providers).forEach(([id, provider]) => {
         if (provider.source === "config") return
@@ -1935,7 +1938,7 @@ const layer: Layer.Layer<
       })
       current.models.clear()
       current.sdk.clear()
-      remoteCatalogSignature = signature
+      current.remoteCatalogSignature = signature
     })
 
     const list = Effect.fn("Provider.list")(function* () {
@@ -2312,6 +2315,7 @@ const layer: Layer.Layer<
           if (provider) {
             provider.name = created.name
             provider.env = created.env
+            provider.title_model = created.title_model
             provider.models = created.models
             return info
           }
@@ -2454,7 +2458,25 @@ const layer: Layer.Layer<
     const getTitleModel = Effect.fn("Provider.getTitleModel")(function* (providerID: ProviderID, modelID: ModelID) {
       yield* syncRemoteProviders()
       const s = yield* InstanceState.get(state)
-      return yield* getModel(providerID, resolveTitleModelID(s.providers[providerID], modelID))
+      const provider = s.providers[providerID]
+      const selected = resolveTitleModelID(provider, modelID)
+      const details = {
+        providerID,
+        source: provider?.source,
+        title_model: provider?.title_model ?? [],
+        selectedModelID: modelID,
+        titleModelID: selected,
+        reason: !provider
+          ? "provider_missing"
+          : provider.source === "custom" || provider.options?.["__octo_custom_provider"] === true
+            ? "custom_provider"
+            : provider.title_model?.some((id) => provider.models[id] !== undefined)
+              ? "provider_title_model"
+              : "no_available_title_model",
+      }
+      log.info("title model resolved", details)
+      console.info("[TitleModel] resolved", details)
+      return yield* getModel(providerID, selected)
     })
 
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {

@@ -67,7 +67,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -134,7 +134,7 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
-import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
@@ -145,6 +145,7 @@ const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
 export default function MakePage() {
+  const layout = useLayout()
   const projectDir = useProjectDir({ mode: "project" })
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -153,7 +154,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id && layout.lastSessionPerTab.make(dir) !== params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -207,7 +208,7 @@ function MakeContent() {
   const prevMakeDir = lastMakeDir
   lastMakeDir = sdk.directory
   onMount(() => {
-    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id || layout.lastSessionPerTab.make(sdk.directory) === params.id) return
     navigate("/make", { replace: true })
   })
 
@@ -493,6 +494,7 @@ function MakeContent() {
 
     const ok = await removeSession(sdk.client, sessionID)
     if (!ok) return
+    sync.set("deleted", sessionID, true)
 
     if (projectDir()) removePersistedCurrentBySession(projectDir()!, sessionID)
 
@@ -534,7 +536,14 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(sync.data.session.filter((s) => s.agent === "octo_make"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
@@ -548,7 +557,9 @@ function MakeContent() {
         session.id,
         newPinned,
         sdk.directory,
-        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       setSessionInfoMirror((prev) => {
@@ -556,6 +567,16 @@ function MakeContent() {
         return { ...prev, pinned: session.pinned, sort_order: session.sort_order }
       })
       throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await sdk.client.session.reorder({ ids, directory: sdk.directory })
+      } catch (err) {
+        console.error("[make] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
     }
     void refetchSession()
   }
@@ -838,6 +859,10 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   // ── Send-text event listener (direct text → agent) ────────────────────────────
+  // 用户操作（资产库/图标/模型编辑保存）从 sendTextToAgent 开始到 model-edit:reply-done
+  // 结束是一个完整单元。期间 history-controller 的 'turn' 模式只 coalesce 不记录，
+  // 避免模型轮内多次写文件产生多条中间态版本；操作结束时 forceSettle 记一条最终态
+  let userActionPending = false
   createEffect(() => {
     const handleSendText = async (e: Event) => {
       const detail = (e as CustomEvent<SendTextEventDetail>).detail
@@ -854,9 +879,14 @@ const sessionMessagesLoaded = createMemo(() => {
         return
       }
 
+      // 资产库/图标/模型编辑保存：标记用户操作进行中，等 reply-done/idle 时 forceSettle
+      const isModelEditSource = detail.source === 'asset-confirm' || detail.source === 'icon-confirm' || detail.source === 'model-edit'
+      if (isModelEditSource) userActionPending = true
+
       const ok = await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
       if (!ok) {
         detail.ack?.({ ok: false, message: '发送失败' })
+        if (isModelEditSource) userActionPending = false
         return
       }
       tracker.interaction({
@@ -1012,9 +1042,16 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
-      } else if (e.type === "session.next.step.ended" || e.type === "session.idle") {
+      } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
+      } else if (e.type === "session.idle") {
+        // session.idle：用户操作的 fallback 结束信号（reply-done 没到达时兜底）。
+        // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态；
+        // 不再额外调 onFileRefresh（forceSettle 已包含完整结算，重复调会产生重复记录）
+        userActionPending = false
+        historyController.forceSettle(tabStore.tabs())
+        setFilesRefreshKey(k => k + 1)
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
@@ -2175,6 +2212,7 @@ const sessionMessagesLoaded = createMemo(() => {
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
+    isUserActionPending: () => userActionPending,
   })
 
 
@@ -2269,17 +2307,20 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
   })
 
-  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：补一次 onFileRefresh。
-  // components 页面的 index.components.html 由构建进程在回复内重新产出，SSE 的 tool/step 事件
-  // 时点上可能读不到新文件而漏记「模型编辑」版本；此刻模型已收工、产物已落盘，检查必然命中。
-  // hash 未变时 onFileRefresh 是空操作，与 SSE 路径幂等互斥（先到者记录并推进基线）。
+  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：用户操作结束。
+  // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态。
+  // 之前 SSE 路径的 coalesce 只更新了预览、没记录版本；此刻模型已收工、产物已落盘，
+  // forceSettle 必然命中最终态（hash 未变时 onFileRefresh 是空操作，幂等）。
+  // session.idle 会先到达并 forceSettle；reply-done 到达时 userActionPending 已 false 则跳过
   createEffect(() => {
     const handler = async (e: Event) => {
       const detail = (e as CustomEvent<{ filePath?: string }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target) return
-      await historyController.onFileRefresh([target])
+      if (!userActionPending) return
+      userActionPending = false
+      await historyController.forceSettle([target])
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
@@ -5011,7 +5052,10 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
+    const finalPath = isProjectScope()
+      ? [projectDirValue, ".octo", "resource", "assets_config.json"].join(sep)
+      : [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
 
     try {
       const info = await api.getAssetsConfig() as AssetsConfig
@@ -5111,7 +5155,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const fastuiName = parseFastuiPreview(linkContent)
       const legacyFastui =
         fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
-          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          ? await hasFastuiProject(fastuiTargetOf(projectDir()!, params.id)!)
           : false
       if (fastuiName !== null || legacyFastui) {
         const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
@@ -5264,7 +5308,7 @@ const sessionMessagesLoaded = createMemo(() => {
     let contentLoadedFromFile = false
     
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    // 代码工作区:推断/落盘到项目根 (kind="code");普通工作区:.octo/<sid>/outputs (原行为)
+    // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
@@ -5779,6 +5823,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   hasMessages={menuHasMessages()}
                   groups={groupsCtx?.groups}
                   sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="design"
                   onClose={closeMenu}
                   onRename={handleMenuRename}
                   onTogglePin={handleMenuTogglePin}

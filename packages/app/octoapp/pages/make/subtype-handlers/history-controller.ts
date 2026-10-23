@@ -13,6 +13,11 @@ export interface HistoryControllerCallbacks {
   updateTabContent: (id: string, content: string) => void
   setFilesRefreshKey: (updater: (prev: number) => number) => void
   isActiveTab: (id: string) => boolean
+  /** 用户操作（资产库/图标/模型编辑保存等）是否进行中——从 sendTextToAgent 调用开始
+   *  到 model-edit:reply-done（或 session.idle 兜底）结束。
+   *  'turn' 模式在此期间只 coalesce 不记录，避免模型轮内多次写文件产生多条中间态版本，
+   *  只在操作结束时记一条最终态 */
+  isUserActionPending?: () => boolean
 }
 
 export function removePersistedCurrentBySession(projectDir: string, sessionId: string): void {
@@ -351,18 +356,46 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   // 自动补一次 turnEnd 记录。不依赖 turnEnd 事件时序——session.idle 可能赶在
   // 文件写入完成前到达（此时 hash==基线被跳过），之后的 file.edited 已无 turnEnd，
   // 改动会被永久搁置（表现为"停在原始版本/没有模型编辑记录"）。
+  // 用户操作进行中（isUserActionPending）只顺延不结算，避免模型轮内多次写文件
+  // （先替换元素再编译等）被记成多条中间态版本；操作结束时 forceRecord 强制记最终态。
+  // SETTLE_MAX_DEFER_MS 是 reply-done/idle 事件丢失的兜底上限，超时仍强制结算。
   let settleTimer: ReturnType<typeof setTimeout> | undefined
+  let settleArmedAt: number | undefined
   const SETTLE_DELAY_MS = 1500
+  const SETTLE_MAX_DEFER_MS = 300_000
 
   function scheduleSettle(tabs: ResultTab[]): void {
     if (settleTimer) clearTimeout(settleTimer)
+    settleArmedAt = Date.now()
     settleTimer = setTimeout(() => {
       settleTimer = undefined
-      void onFileRefresh(tabs, { turnEnd: true })
+      // 用户操作仍在进行：模型可能在两个工具调用间停顿（思考/编译），此时结算会把中间态记成版本。
+      // 顺延等待操作结束（reply-done/idle 会调 forceSettle 强制结算）；
+      // 超过上限（事件丢失的兜底）仍强制结算
+      if (callbacks.isUserActionPending?.() && settleArmedAt !== undefined && Date.now() - settleArmedAt < SETTLE_MAX_DEFER_MS) {
+        settleTimer = setTimeout(() => {
+          settleTimer = undefined
+          settleArmedAt = undefined
+          void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
+        }, SETTLE_DELAY_MS)
+        return
+      }
+      settleArmedAt = undefined
+      void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
     }, SETTLE_DELAY_MS)
   }
 
-  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean }): Promise<void> {
+  /** 用户操作结束（reply-done/idle）时调用：强制结算 pending 的 settle */
+  function forceSettle(tabs: ResultTab[]): void {
+    if (settleTimer) {
+      clearTimeout(settleTimer)
+      settleTimer = undefined
+    }
+    settleArmedAt = undefined
+    void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
+  }
+
+  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean; forceRecord?: boolean }): Promise<void> {
     if (refreshInFlight) {
       refreshQueued = true
       if (opts?.turnEnd) refreshQueuedTurnEnd = true
@@ -372,6 +405,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     try {
       do {
         const turnEnd = !!opts?.turnEnd || refreshQueuedTurnEnd
+        const forceRecord = !!opts?.forceRecord
         refreshQueued = false
         refreshQueuedTurnEnd = false
         for (const tab of tabs) {
@@ -386,7 +420,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
             continue
           }
           if (prevHash === hash) continue
-          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !turnEnd
+          /** 'turn' 模式在用户操作进行中（isUserActionPending）只 coalesce 不记录，
+           *  避免模型轮内多次写文件（先替换元素再编译等）产生多条中间态版本。
+           *  forceRecord=true（操作结束的 forceSettle 调用）绕过 coalesce 记最终态 */
+          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !forceRecord
           const api = getDesktopApi()
           if (coalesce) {
             // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录。
@@ -402,11 +439,12 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
             }
             continue
           }
-          // 记录路径（turnEnd 或 'each' 模式）：推进基线 + 记录
+          // 记录路径（forceRecord 或 'each' 模式）：推进基线 + 记录
           if (settleTimer) {
             clearTimeout(settleTimer)
             settleTimer = undefined
           }
+          settleArmedAt = undefined
           lastFileHash.set(tab.filePath!, hash)
           const buf = await api?.readFileBuffer?.(tab.filePath!)
           if (!buf) continue
@@ -477,6 +515,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     syncFileHash,
     onTabOpen,
     onFileRefresh,
+    forceSettle,
     loadVersions,
     refreshVersions,
     listVersions: historyStore.listVersions,

@@ -242,6 +242,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       }
       fileStore.setError(null)
     } catch (err) {
+      console.error("[DesignFilesPanel] refresh failed:", err)
       const message = err instanceof Error ? err.message : String(err)
       fileStore.setError(message)
     } finally {
@@ -1156,6 +1157,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                     onAddToSession={props.onAddToSession}
+                    requestAddToSession={request}
                     language={language}
                   />
                 </Show>
@@ -1183,6 +1185,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
+                      requestAddToSession={request}
                       language={language}
                     />
                   </Show>
@@ -1210,6 +1213,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
+                      requestAddToSession={request}
                       language={language}
                     />
                   </Show>
@@ -1232,6 +1236,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
+                    requestAddToSession={request}
                     language={language}
                   />
                 </Show>
@@ -1313,6 +1318,7 @@ function KindGroupRows(props: {
   onOpenInExplorer: (file: ArtifactFile) => void
   onNavigateFolder?: (folder: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
+  requestAddToSession: (action: () => void) => void
   language: ReturnType<typeof useLanguage>
 }): JSX.Element {
   return (
@@ -1350,6 +1356,8 @@ function KindGroupRows(props: {
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                      requestAddToSession={props.requestAddToSession}
+                      language={props.language}
                     />
                   )}
                 </For>
@@ -1387,6 +1395,8 @@ function KindGroupRows(props: {
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                      requestAddToSession={props.requestAddToSession}
+                      language={props.language}
                     />
                   )}
                 </For>
@@ -1410,11 +1420,11 @@ function FileRow(props: {
   onOpenInExplorer: () => void
   onNavigateFolder?: () => void
   onAddToSession?: () => void
+  requestAddToSession: (action: () => void) => void
+  language: ReturnType<typeof useLanguage>
 }): JSX.Element {
-  const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
-  const { request: requestAddToSession, gate: addToSessionGate } = useUploadRiskGate({ module: "design" })
 
   return (
     <>
@@ -1488,10 +1498,10 @@ function FileRow(props: {
           </div>
         </td>
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
-        {language.t(kindToI18nKey(props.file.kind))}
+        {props.language.t(kindToI18nKey(props.file.kind))}
       </td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
-        {formatTimestamp(props.file.mtime, language.t)}
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
+        {formatTimestamp(props.file.mtime, props.language.t)}
       </td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         <Kobalte open={showMenu()} onOpenChange={setShowMenu} modal={false} placement="bottom-end" gutter={4}>
@@ -1515,7 +1525,7 @@ function FileRow(props: {
                   type="button"
                   onClick={() => {
                     setShowMenu(false)
-                    requestAddToSession(() => {
+                    props.requestAddToSession(() => {
                       props.onAddToSession!()
                       tracker.interaction({ module: "design", name: "files-add-to-session" })
                     })
@@ -1585,7 +1595,6 @@ function FileRow(props: {
         </Kobalte>
       </td>
     </tr>
-    {addToSessionGate}
     </>
   )
 }

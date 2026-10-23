@@ -2,6 +2,7 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "vite"
 import desktopPlugin from "./vite"
 import { octoMockPlugin } from "./mock/index.ts"
+import { sharePagePlugin } from "./share-page-plugin.ts"
 
 const sentry =
   process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
@@ -22,9 +23,16 @@ const sentry =
 
 const octoBaseUrl = process.env.VITE_OCTO_BASE_URL
 
-const mockProxy = process.env.MOCK_API === "false"
+// share 页面同源调用的接口,生产由 nginx 同源转发,dev 下需代理到真实后端。
+// 独立于 MOCK_API:share 是真实功能,不应被 mock 开关阻断;只要 VITE_OCTO_BASE_URL 有值就启用。
+const shareProxy = octoBaseUrl
   ? {
-      "/pipeline/rest.root/workflow": {
+      "/main/rest.root/octoAgentServer/agentSession/getShareSessionInfo": {
+        target: octoBaseUrl,
+        changeOrigin: true,
+        secure: true,
+      },
+      "/tool": {
         target: octoBaseUrl,
         changeOrigin: true,
         secure: true,
@@ -32,8 +40,19 @@ const mockProxy = process.env.MOCK_API === "false"
     }
   : undefined
 
+const mockProxy = process.env.MOCK_API === "false"
+  ? {
+      "/pipeline/rest.root/workflow": {
+        target: octoBaseUrl,
+        changeOrigin: true,
+        secure: true,
+      },
+      ...shareProxy,
+    }
+  : shareProxy
+
 export default defineConfig({
-  plugins: [desktopPlugin, octoMockPlugin(), sentry] as any,
+  plugins: [desktopPlugin, octoMockPlugin(), sharePagePlugin(), sentry] as any,
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

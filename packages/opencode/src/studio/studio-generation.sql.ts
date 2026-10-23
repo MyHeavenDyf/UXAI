@@ -4,7 +4,7 @@ import { SessionTable } from "@/session/session.sql"
 import { Timestamps } from "@/storage/schema.sql"
 import type { StudioCapability } from "./image-provider"
 
-export type StudioGenerationStatus = "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+export type StudioGenerationStatus = "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
 
 export const StudioGenerationTable = sqliteTable(
   "studio_generation",

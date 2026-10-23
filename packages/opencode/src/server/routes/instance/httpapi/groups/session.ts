@@ -2,6 +2,7 @@ import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
+import { PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -15,7 +16,7 @@ import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, Op
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
-import { ApiNotFoundError } from "../errors"
+import { ApiBadRequestError, ApiNotFoundError } from "../errors"
 import { described } from "./metadata"
 
 const root = "/session"
@@ -38,6 +39,10 @@ export const ListQuery = Schema.Struct({
 export const DiffQuery = Schema.Struct(Struct.omit(SessionSummary.DiffInput.fields, ["sessionID"]))
 export const MessagesQuery = Schema.Struct({
   limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+  before: Schema.optional(Schema.String),
+})
+export const PreviewQuery = Schema.Struct({
+  limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(20))),
   before: Schema.optional(Schema.String),
 })
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
@@ -73,10 +78,42 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+export const PortablePathPayload = Schema.Struct({
+  path: Schema.String,
+})
+export const PortableScopeQuery = Schema.Struct({
+  scope: Schema.optional(Schema.Literal("project")),
+})
+export const PortableExportPayload = Schema.Struct({
+  ...PortablePathPayload.fields,
+  ...PortableScopeQuery.fields,
+})
+export const PortableImportPayload = Schema.Struct({
+  ...PortablePathPayload.fields,
+  scope: Schema.optional(Schema.Literals(["project", "session"])),
+})
+export const PortableImportResult = Schema.Struct({
+  sessionID: SessionID,
+  sessions: Schema.Number,
+  files: Schema.Number,
+})
+export const PortableExportResult = Schema.Struct({
+  output: Schema.String,
+  sessions: Schema.Number,
+  files: Schema.Number,
+})
+export const PortableShareResult = Schema.Struct({
+  uniqueId: Schema.String,
+  url: Schema.String,
+})
 
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
+  portableImport: `${root}/import`,
+  portableExport: `${root}/:sessionID/export`,
+  portableShare: `${root}/:sessionID/portable-share`,
+  sharePreview: `${root}/:sessionID/share-preview`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
@@ -129,6 +166,51 @@ export const SessionApi = HttpApi.make("session")
             description: "Retrieve the current status of all sessions, including active, idle, and completed states.",
           }),
         ),
+        HttpApiEndpoint.post("portableImport", SessionPaths.portableImport, {
+          payload: PortableImportPayload,
+          success: described(PortableImportResult, "Imported portable session"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableImport",
+            summary: "Import portable session",
+            description: "Import a complete session tree, including messages, todos, uploads, and outputs.",
+          }),
+        ),
+        HttpApiEndpoint.post("portableExport", SessionPaths.portableExport, {
+          params: { sessionID: SessionID },
+          payload: PortableExportPayload,
+          success: described(PortableExportResult, "Exported portable session"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableExport",
+            summary: "Export portable session",
+            description: "Export a complete session tree, including messages, todos, uploads, and outputs.",
+          }),
+        ),
+        HttpApiEndpoint.post("portableShare", SessionPaths.portableShare, {
+          params: { sessionID: SessionID },
+          query: PortableScopeQuery,
+          success: described(PortableShareResult, "Shared portable session"),
+          error: [ApiBadRequestError, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableShare",
+            summary: "Share portable session",
+            description: "Export a complete session, upload its ZIP archive, and return a shareable web URL.",
+          }),
+        ),
+        HttpApiEndpoint.get("sharePreview", SessionPaths.sharePreview, {
+          params: { sessionID: SessionID },
+          query: PreviewQuery,
+          success: described(PreviewPage, "Read-only share preview"),
+          error: [ApiBadRequestError, ApiNotFoundError],
+        }).annotateMerge(OpenApi.annotations({
+          identifier: "session.sharePreview",
+          summary: "Preview shared conversation",
+          description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+        })),
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Get session"),

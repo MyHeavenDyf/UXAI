@@ -1,5 +1,6 @@
 import { createEffect, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
+import { tracker } from "@/utils/tracker"
 
 const CONTROL_HIDE_DELAY_MS = 2500
 const PLAYBACK_CLICK_DELAY_MS = 220
@@ -12,6 +13,7 @@ export function formatStudioMediaTime(value: number) {
 
 export function StudioVideoPlayer(props: {
   src: string
+  poster?: string
   class?: string
   mount: () => HTMLElement
 }): JSX.Element {
@@ -98,9 +100,11 @@ export function StudioVideoPlayer(props: {
 
   function togglePlayback() {
     if (!videoRef.paused) {
+      tracker.interaction({ module: "studio", name: "video-pause" })
       videoRef.pause()
       return
     }
+    tracker.interaction({ module: "studio", name: "video-play" })
     startPlayback(true)
   }
 
@@ -119,6 +123,7 @@ export function StudioVideoPlayer(props: {
   }
 
   function toggleMuted() {
+    tracker.interaction({ module: "studio", name: "video-mute-toggle", extend: JSON.stringify({ muted: !(videoRef.muted || videoRef.volume === 0) }) })
     setAudioPreferenceTouched(true)
     if (videoRef.muted || videoRef.volume === 0) {
       videoRef.muted = false
@@ -135,9 +140,11 @@ export function StudioVideoPlayer(props: {
 
   function toggleFullscreen() {
     if (fullscreen()) {
+      tracker.interaction({ module: "studio", name: "video-fullscreen-exit" })
       exitFullscreen()
       return
     }
+    tracker.interaction({ module: "studio", name: "video-fullscreen-enter" })
     setFullscreen(true)
     setControlsVisible(true)
   }
@@ -247,6 +254,7 @@ export function StudioVideoPlayer(props: {
           <video
             ref={videoRef!}
             src={props.src}
+            poster={props.poster}
             class={`studio-video-player-media ${props.class ?? ""}`}
             playsinline
             preload="auto"
@@ -298,7 +306,10 @@ export function StudioVideoPlayer(props: {
               class="studio-video-player-close"
               aria-label="退出全屏"
               title="退出全屏"
-              onClick={exitFullscreen}
+              onClick={() => {
+                tracker.interaction({ module: "studio", name: "video-fullscreen-exit" })
+                exitFullscreen()
+              }}
             >
               <CloseIcon />
             </button>

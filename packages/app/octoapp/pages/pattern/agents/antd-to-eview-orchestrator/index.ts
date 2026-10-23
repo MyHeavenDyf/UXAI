@@ -24,8 +24,6 @@ export default async function antdToEviewOrchestrator(
 
   const humanMessage = [
     `当前工作目录（SRC）：${srcDirectory}`,
-    `目标工程根：${srcDirectory}-vite`,
-    '',
     '请开始执行三阶段流水线。',
   ].join('\n')
 

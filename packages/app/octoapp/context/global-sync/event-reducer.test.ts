@@ -70,6 +70,7 @@ const baseState = (input: Partial<State> = {}) =>
     path: { directory: "/tmp" } as State["path"],
     session: [],
     sessionTotal: 0,
+    deleted: {},
     session_status: {},
     session_diff: {},
     todo: {},
@@ -133,6 +134,33 @@ describe("applyGlobalEvent", () => {
 })
 
 describe("applyDirectoryEvent", () => {
+  test("hydrates a reimported session without old deletion state or duplicate list entries", () => {
+    const old = rootSession({ id: "old" })
+    const imported = { ...rootSession({ id: "new" }), title: "生成登录HTML", directory: "/tmp", agent: "octo_make" }
+    const [store, setStore] = createStore(baseState({ session: [old], sessionTotal: 1,
+      message: { old: [userMessage("old-message", "old")] },
+      part: { "old-message": [textPart("old-part", "old", "old-message")] },
+    }))
+    const apply = (event: { type: string; properties: unknown }) => applyDirectoryEvent({
+      event, store, setStore, directory: "/tmp", push() {}, loadLsp() {},
+    })
+    apply({ type: "session.deleted", properties: { info: old } })
+    apply({ type: "session.created", properties: { info: imported } })
+    // The actual SSE notification may arrive after the explicit import hydration.
+    apply({ type: "session.created", properties: { info: imported } })
+    apply({ type: "message.updated", properties: { info: userMessage("new-message", "new") } })
+    apply({ type: "message.part.updated", properties: { part: { ...textPart("new-part", "new", "new-message"), text: "生成一个登录的html文件" } } })
+    expect(store.session.map((session) => ({ id: session.id, title: session.title })))
+      .toEqual([{ id: "new", title: "生成登录HTML" }])
+    expect(store.sessionTotal).toBe(1)
+    expect(store.deleted?.old).toBe(true)
+    expect(store.deleted?.new).toBeUndefined()
+    expect(store.message.old).toBeUndefined()
+    expect(store.part["old-message"]).toBeUndefined()
+    expect(store.message.new[0].id).toBe("new-message")
+    expect(store.part["new-message"][0]).toMatchObject({ type: "text", text: "生成一个登录的html文件" })
+  })
+
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
     const [store, setStore] = createStore(
       baseState({
