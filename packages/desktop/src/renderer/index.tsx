@@ -257,6 +257,8 @@ const createPlatform = (): Platform => {
 
     parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
 
+    writeClipboardText: (text) => window.api.writeClipboardText(text),
+
     webviewZoom,
 
     checkAppExists: async (appName: string) => {
