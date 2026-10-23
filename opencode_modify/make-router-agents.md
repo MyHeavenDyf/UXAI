@@ -106,3 +106,9 @@ dev 侧 `ce30caa70a` 放开 octo_make 的 question（skill 明确要求时向用
 - agent.test.ts 双方新增用例并存（路由收敛用例 + question 放开用例），octo_make.txt 旧版工具清单块按路由重写版丢弃（write/edit/artifact 约束已拆入子代理提示词）
 - 合并后 typecheck 12 packages 全过；test/agent 三文件 121 pass，compaction.test.ts 的 4-5 个超时失败经合并前后对照确认为 Windows 环境性 flaky（失败用例漂移），与合并无关
 - 遗留待验证：fastui 类 skill 在子代理执行路径下的 question 交互（子代理 deny question，若 skill 流程在子会话内需要提问会降级——skill 主会话执行时无此问题）
+
+## 前端回归修复：双「生成中」指示（2026-10-23）
+
+演示彩排发现：task 派发生成期间出现**两块「生成中…」状态框**。根因：路由化后子会话 turn 内联渲染（自带 WaitingPill/流式卡片），而主会话（路由）turn 的 WaitingPill 在整个 task 运行期也在显示——单体时代主会话 pill 的 accumulatedText 会聚合子会话内容做预览（子会话不渲染时的补偿设计），内联渲染后成为重复。CDP 实证两块 pill 分属两个 turn（主会话 pill 的预览文本即聚合的子会话 `<artifact>` 内容）。
+
+修复（insight-turn.tsx）：新增 `childTurnActive` memo——存在 running subtask 且 `msgStore[subSessionID]` 已有消息（子会话 turn 已渲染）时，隐藏本 turn 的 WaitingPill。边界：纯聊天无 task 主 pill 照常；子会话 sync 未完成/失败时 msgStore 为空、主 pill 保留兜底，任何时刻都有状态指示；plan/pattern 子代理场景同样受益。E2E 验证：修复前 [Workspace] todo 复现 2 块，修复后记账工具场景（同为 octo_code 多文件）生成全程 4 次采样恒 1 块、完成干净消失、三文件落盘正常。

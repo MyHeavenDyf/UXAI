@@ -1266,6 +1266,15 @@ const stateStatus = state.status as string | undefined
     return hasSeenCount() > 0 ? lastSeenCards() : []
   })
 
+  // 子会话 turn 内联渲染时自带 WaitingPill/流式卡片，本 turn（路由/主会话）再显示
+  // WaitingPill 会出现两块「生成中」指示。msgStore 尚无子会话消息（sync 未完成或
+  // 失败）时保留本 turn 指示，保证任何时刻都有状态反馈。
+  const childTurnActive = createMemo(() =>
+    subtasks().some(
+      (t) => t.status === "running" && t.subSessionID && (msgStore?.[t.subSessionID]?.length ?? 0) > 0,
+    ),
+  )
+
   // ── NEW: produced files ──
   const producedFiles = createMemo(() => {
     const calls = toolCalls()
@@ -1812,8 +1821,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 生成中状态指示 */}
-      <Show when={showGenerating()}>
+      {/* 生成中状态指示（子会话 turn 已内联渲染时隐藏，避免双「生成中」） */}
+      <Show when={showGenerating() && !childTurnActive()}>
         <WaitingPill
           parts={assistantParts()}
           partStore={partStore}
