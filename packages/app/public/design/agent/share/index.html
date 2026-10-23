@@ -2047,11 +2047,29 @@
     }
 
     // Insight 分享只展示快照，不轮询任务或执行工具。
-    function buildInsightDetails(parts) {
+    function collectInsightTasks(parts) {
+      const tasks = new Map()
+      for (const part of parts) {
+        if (part?.type !== "tool" || part.state?.status !== "completed") continue
+        const meta = part.state.metadata || {}
+        let output = null
+        try { output = JSON.parse(part.state.output) } catch { /* 普通文本输出 */ }
+        const task = meta.structuredContent || (meta.task_id ? meta : output?.structuredContent)
+        if (!task?.task_id) continue
+        const id = String(task.task_id)
+        const text = task.status === "completed" && !/(^|[:_])stop_task$/.test(part.tool || "") && Array.isArray(output?.content)
+          ? output.content.find(item => item?.type === "text" && typeof item.text === "string" && item.text.length > 0)?.text
+          : undefined
+        tasks.set(id, { ...task, resultText: text || tasks.get(id)?.resultText })
+      }
+      return tasks
+    }
+
+    function buildInsightDetails(parts, snapshots = collectInsightTasks(parts)) {
       const root = document.createElement("div")
       root.className = "tool-cards"
       const sources = new Map()
-      const tasks = new Map()
+      const tasks = collectInsightTasks(parts)
       const resources = new Map()
       const addResource = value => {
         if (value && value.type === "resource_link" && typeof value.uri === "string") {
@@ -2074,13 +2092,6 @@
         let output = null
         if (state.status === "completed" && typeof state.output === "string") {
           try { output = JSON.parse(state.output) } catch { /* 普通文本输出不作为结构化结果 */ }
-        }
-        const task = meta.structuredContent || (meta.task_id ? meta : output?.structuredContent)
-        if (task && task.task_id) {
-          const text = task.status === "completed" && !/(^|[:_])stop_task$/.test(part.tool || "") && Array.isArray(output?.content)
-            ? output.content.find(item => item?.type === "text" && typeof item.text === "string")?.text
-            : undefined
-          tasks.set(String(task.task_id), { ...task, resultText: text })
         }
         // stop_task 返回控制信息，不是交付物。
         if (/(^|[:_])stop_task$/.test(part.tool || "")) continue
@@ -2114,7 +2125,8 @@
         root.appendChild(details)
       }
       const labels = { pending: "等待中", processing: "处理中", completed: "已完成", failed: "失败", stopped: "已停止" }
-      for (const [id, task] of tasks) {
+      for (const [id, local] of tasks) {
+        const task = snapshots.get(id) || local
         const card = document.createElement("div")
         card.className = "tool-card"
         card.textContent = `任务 ${id} · 分享时状态：${labels[task.status] || "未知"}${typeof task.message === "string" ? " · " + task.message : ""}`
@@ -2161,6 +2173,10 @@
       const titleEl = document.getElementById("session-title")
       if (titleEl) titleEl.textContent = manifest.title || session.info?.title || ""
       const messages = session.messages || []
+      // 跨轮按消息顺序汇总快照；每轮只展示本轮涉及的任务，引用和资源仍留在原轮次。
+      const insightTasks = session.info?.agent === "octo_insight"
+        ? collectInsightTasks(messages.filter(message => message.info?.role === "assistant").flatMap(message => message.parts || []))
+        : undefined
 
       // 构建图片 blob 映射:filename → { url, mime }
       const imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
@@ -2261,7 +2277,7 @@
           const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
           if (proseRow) turnEl.appendChild(proseRow)
           if (session.info?.agent === "octo_insight") {
-            const details = buildInsightDetails(allParts.map(entry => entry.part))
+            const details = buildInsightDetails(allParts.map(entry => entry.part), insightTasks)
             if (details.children.length) turnEl.appendChild(details)
           }
 
