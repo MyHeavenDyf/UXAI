@@ -2046,6 +2046,100 @@
         "</div>"
     }
 
+    // Insight 分享只展示快照，不轮询任务或执行工具。
+    function buildInsightDetails(parts) {
+      const root = document.createElement("div")
+      root.className = "tool-cards"
+      const sources = new Map()
+      const tasks = new Map()
+      const resources = new Map()
+      const addResource = value => {
+        if (value && value.type === "resource_link" && typeof value.uri === "string") {
+          resources.set(value.uri, value)
+        }
+      }
+      for (const part of parts) {
+        if (!part || typeof part !== "object") continue
+        addResource(part)
+        addResource(part.metadata?.resource_link)
+        if (Array.isArray(part.metadata?.content)) part.metadata.content.forEach(addResource)
+        if (part.type !== "tool") continue
+        const state = part.state || {}
+        const meta = state.metadata || {}
+        if (["knowledge_search", "insight_report_search"].includes(part.tool) && Array.isArray(meta.sources)) {
+          for (const source of meta.sources) {
+            if (source && typeof source.title === "string") sources.set(source.url || source.id || source.title, source)
+          }
+        }
+        let output = null
+        if (state.status === "completed" && typeof state.output === "string") {
+          try { output = JSON.parse(state.output) } catch { /* 普通文本输出不作为结构化结果 */ }
+        }
+        const task = meta.structuredContent || (meta.task_id ? meta : output?.structuredContent)
+        if (task && task.task_id) {
+          const text = task.status === "completed" && !/(^|[:_])stop_task$/.test(part.tool || "") && Array.isArray(output?.content)
+            ? output.content.find(item => item?.type === "text" && typeof item.text === "string")?.text
+            : undefined
+          tasks.set(String(task.task_id), { ...task, resultText: text })
+        }
+        // stop_task 返回控制信息，不是交付物。
+        if (/(^|[:_])stop_task$/.test(part.tool || "")) continue
+        addResource(meta.resource_link)
+        if (Array.isArray(meta.content)) meta.content.forEach(addResource)
+        if (Array.isArray(output?.content)) output.content.forEach(addResource)
+      }
+      const appendLink = (container, title, url) => {
+        // 分享文件内容不可信；禁止脚本、本地路径和自定义协议。
+        const link = document.createElement(typeof url === "string" && /^https?:\/\//i.test(url) ? "a" : "span")
+        link.textContent = title
+        if (link.tagName === "A") {
+          link.href = url
+          link.target = "_blank"
+          link.rel = "noopener noreferrer"
+        }
+        container.appendChild(link)
+      }
+      if (sources.size) {
+        const details = document.createElement("details")
+        const summary = document.createElement("summary")
+        summary.textContent = `引用 ${sources.size} 篇资料`
+        details.appendChild(summary)
+        const list = document.createElement("ol")
+        for (const source of sources.values()) {
+          const item = document.createElement("li")
+          appendLink(item, source.title, source.url)
+          list.appendChild(item)
+        }
+        details.appendChild(list)
+        root.appendChild(details)
+      }
+      const labels = { pending: "等待中", processing: "处理中", completed: "已完成", failed: "失败", stopped: "已停止" }
+      for (const [id, task] of tasks) {
+        const card = document.createElement("div")
+        card.className = "tool-card"
+        card.textContent = `任务 ${id} · 分享时状态：${labels[task.status] || "未知"}${typeof task.message === "string" ? " · " + task.message : ""}`
+        root.appendChild(card)
+        if (task.resultText) {
+          const result = document.createElement("details")
+          const summary = document.createElement("summary")
+          summary.textContent = "查看任务结果"
+          const text = document.createElement("pre")
+          text.style.whiteSpace = "pre-wrap"
+          text.textContent = task.resultText
+          result.append(summary, text)
+          root.appendChild(result)
+        }
+      }
+      for (const resource of resources.values()) {
+        const card = document.createElement("div")
+        card.className = "tool-card"
+        appendLink(card, typeof resource.name === "string" && resource.name ? resource.name : "查看结果", resource.uri)
+        root.appendChild(card)
+      }
+      if (resources.size || sources.size) root.appendChild(makeSpan("tool-label", "远端资料及结果需要相应访问权限，链接可能过期。"))
+      return root
+    }
+
     function renderConversation(manifest, filePath, token) {
       const list = document.getElementById("conversation-list")
       if (!list) return
@@ -2166,6 +2260,10 @@
 
           const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
           if (proseRow) turnEl.appendChild(proseRow)
+          if (session.info?.agent === "octo_insight") {
+            const details = buildInsightDetails(allParts.map(entry => entry.part))
+            if (details.children.length) turnEl.appendChild(details)
+          }
 
           // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡,同一 8px 间距容器)
           const { skillCalls, otherCalls } = collectToolCalls(turn, allParts)
