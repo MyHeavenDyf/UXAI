@@ -129,7 +129,9 @@ const createPlatform = (): Platform => {
 
   return {
     platform: "desktop",
-    importSharedSession: (uniqueId, directory, scope) => window.api.importSharedSession(uniqueId, directory, scope),
+    prepareSharedSession: (uniqueId) => window.api.prepareSharedSession(uniqueId),
+    releaseSharedSession: (token) => window.api.releaseSharedSession(token),
+    importSharedSession: (uniqueId, directory, scope, token) => window.api.importSharedSession(uniqueId, directory, scope, token),
     os,
     version: pkg.version,
 
