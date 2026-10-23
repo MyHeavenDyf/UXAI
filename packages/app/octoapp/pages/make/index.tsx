@@ -1268,9 +1268,9 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern / octo_design / octo_code），
       // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
-      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern", "octo_design", "octo_code"])
       const children = (res.data ?? []).filter((s: any) =>
         s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
       )
@@ -5888,6 +5888,8 @@ onPreview={(url) => {
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
                         active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
+                        mainSessionID={params.id}
+                        hideUserBubble={!!userMessages()[0].sessionID && userMessages()[0].sessionID !== params.id && (userMessages()[0].agent === "octo_design" || userMessages()[0].agent === "octo_code")}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -5920,6 +5922,8 @@ onPreview={(url) => {
                             messageID={msg.id}
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
                             active={sync.data.session_status[messageSessionID]?.type === "busy"}
+                            mainSessionID={params.id}
+                            hideUserBubble={messageSessionID !== params.id && (msg.agent === "octo_design" || msg.agent === "octo_code")}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}

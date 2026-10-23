@@ -663,6 +663,10 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
+  /** 主会话 id:task 子会话 turn 的 autoSave 归属主会话产物目录(.octo/<mainSid>/outputs) */
+  mainSessionID?: string
+  /** 隐藏用户气泡:task 子会话的 user 消息是路由派发的 task prompt,不是用户输入 */
+  hideUserBubble?: boolean
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -899,7 +903,8 @@ export function InsightTurn(props: {
       : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
 
     let agent = lastMsg.agent
-    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan') agent = 'Octo_Design'
+    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan' || agent === 'octo_design') agent = 'Octo_Design'
+    if (agent === 'octo_code') agent = 'Octo_Code'
     const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
     const modelLabel = (() => {
       const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
@@ -1323,7 +1328,7 @@ const stateStatus = state.status as string | undefined
       
       autoSavedArtifacts.add(key)
       
-      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then(() => {
+      autoSaveArtifact(props.mainSessionID ?? props.sessionID, card, props.projectDir!, workspaceKind()).then(() => {
         props.onFilesRefresh?.()
       }).catch(err => {
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
@@ -1352,8 +1357,8 @@ const stateStatus = state.status as string | undefined
 
   return (
     <div class="octo-make-turn flex flex-col gap-4" data-turn-id={props.messageID} style={{ "user-select": "text" }}>
-      {/* 用户消息气泡（右侧对齐） */}
-      <Show when={userText() || userAttachments().length > 0}>
+      {/* 用户消息气泡（右侧对齐）——task 子会话的 task prompt 不是用户输入,不显示气泡 */}
+      <Show when={!props.hideUserBubble && (userText() || userAttachments().length > 0)}>
         <div class="flex flex-col items-end gap-4 px-3">
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col items-end gap-4">
@@ -1554,6 +1559,10 @@ const stateStatus = state.status as string | undefined
           }
           const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
+          // 子会话消息已同步并内联渲染时,产物/文本由子会话 turn 完整展示,卡片只留头部防重复;
+          // 子会话 sync 失败时 msgStore 为空,自动降级回本卡片内的展示
+          const childInline = () => (msgStore?.[task.subSessionID]?.length ?? 0) > 0
+          const showExpandable = () => hasContent && !childInline()
           return (
             <div class="mx-3" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
@@ -1563,10 +1572,12 @@ const stateStatus = state.status as string | undefined
                 class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
                 style={{ background: "transparent" }}
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                  style={{ transform: expanded() ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "var(--octo-text-disabled)" }}>
-                  <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
-                </svg>
+                <Show when={showExpandable()}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    style={{ transform: expanded() ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "var(--octo-text-disabled)" }}>
+                    <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
+                  </svg>
+                </Show>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ color: "var(--octo-brand, #3b82f6)" }}>
                   <path d="M2 3h10M2 7h10M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
                 </svg>
@@ -1599,7 +1610,7 @@ const stateStatus = state.status as string | undefined
                 </Show>
               </button>
               {/* Expandable content */}
-              <Show when={expanded() && hasContent}>
+              <Show when={expanded() && showExpandable()}>
                 <div style={{ "border-top": "1px solid var(--octo-border-default)" }}>
                   {/* Sub-agent text responses */}
                   <Show when={task.textParts.length > 0}>

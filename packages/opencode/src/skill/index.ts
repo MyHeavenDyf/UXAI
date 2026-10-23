@@ -31,6 +31,7 @@ const SKILL_PATTERN = "**/SKILL.md"
 // Key: agent name pattern (supports "*" suffix for prefix match, e.g. "proto_*"), Value: target agent name to inherit from.
 const AGENT_SKILL_ALIASES: Record<string, string> = {
   "proto_*": "octo_make",
+  octo_design: "octo_make",
 }
 
 export const Info = Schema.Struct({

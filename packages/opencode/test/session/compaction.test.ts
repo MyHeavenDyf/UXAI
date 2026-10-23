@@ -642,6 +642,8 @@ describe("session.overflow.exceedsContext", () => {
     expect(exceedsContext({ model, input: 100, agent: "octo_make" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "octo_make_plan" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "ict_pattern" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "octo_design" })).toBe(false)
+    expect(exceedsContext({ model, input: 100, agent: "octo_code" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "proto_replanner", parentAgent: "octo_make" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "proto_replanner", parentAgent: "proto_triage" })).toBe(true)
   })

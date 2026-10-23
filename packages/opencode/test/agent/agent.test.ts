@@ -904,8 +904,9 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
 
       expect(evalPermPattern(insight, "task", "insight_reader")).toBe("allow")
       expect(evalPermPattern(make, "task", "insight_reader")).toBe("deny")
-      // 别的 agent 的 subagent 候选不受影响
-      expect(evalPermPattern(make, "task", "general")).toBe("allow")
+      // octo_make 路由化后 task 候选已收敛到 octo_design/octo_code(见下方路由用例),
+      // general 不再是它的候选 —— 与 insight 同款收敛模式
+      expect(evalPermPattern(make, "task", "general")).toBe("deny")
 
       // v2(2026-08-21 评审补):insight 的候选**真收敛** —— describeTask 列的是「所有未被 deny 的
       // subagent」,此前 insight 只 allow 了 insight_reader、没有 deny 其余,于是 general(bash /
@@ -920,6 +921,70 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
       expect(Permission.disabled(["task"], insight!.permission).has("task")).toBe(false)
       // octo_ai 自己整体 deny 了 task,仍应被隐藏(不受本次改动影响)
       expect(Permission.disabled(["task"], ai!.permission).has("task")).toBe(true)
+    },
+  })
+})
+
+// ── octo_make 路由化(feat/make-router)──────────────────────────────────────
+
+// 路由的 task 候选收敛:只允许 octo_design / octo_code 两个专职子代理,general/explore/
+// make_component 挡在候选外;但 task 工具本身保持可用(Permission.disabled 只认最后一条
+// 匹配规则,allow 必须排在 "*": "deny" 之后 —— 与 SPEC-INS-032 §5.2 同款语义)。
+test("octo_make router: task candidates converge to octo_design/octo_code", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const make = await load(tmp.path, (svc) => svc.get("octo_make"))
+      expect(make).toBeDefined()
+      expect(make?.mode).toBe("primary")
+      expect(evalPermPattern(make, "task", "octo_design")).toBe("allow")
+      expect(evalPermPattern(make, "task", "octo_code")).toBe("allow")
+      expect(evalPermPattern(make, "task", "general")).toBe("deny")
+      expect(evalPermPattern(make, "task", "explore")).toBe("deny")
+      expect(evalPermPattern(make, "task", "make_component")).toBe("deny")
+      // 路由不产文件:EDIT_TOOLS 共键,edit deny 连坐隐藏 write/apply_patch
+      expect(evalPerm(make, "edit")).toBe("deny")
+      expect(Permission.disabled(["write", "edit", "apply_patch"], make!.permission).has("write")).toBe(true)
+      // task 工具本身仍可用
+      expect(Permission.disabled(["task"], make!.permission).has("task")).toBe(false)
+      // skill 不能 deny:@skill 的 session.command 模板注入链路依赖(prompt.ts command() 守卫)
+      expect(evalPerm(make, "skill")).toBe("allow")
+      // pixso MCP 与 skills 声明随设计职责移交 octo_design
+      expect(make?.mcp).toBeUndefined()
+    },
+  })
+})
+
+test("octo_design/octo_code subagents carry design/code toolset", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const design = await load(tmp.path, (svc) => svc.get("octo_design"))
+      const code = await load(tmp.path, (svc) => svc.get("octo_code"))
+      expect(design).toBeDefined()
+      expect(code).toBeDefined()
+      expect(design?.mode).toBe("subagent")
+      expect(code?.mode).toBe("subagent")
+      // hidden 只挡用户 agent 列表,不影响 task 候选(describeTask 只按 mode 过滤)
+      expect(design?.hidden).toBe(true)
+      expect(code?.hidden).toBe(true)
+      // 产物落盘可用(write allow / edit ask)
+      expect(evalPerm(design, "write")).toBe("allow")
+      expect(evalPerm(design, "edit")).toBe("ask")
+      expect(evalPerm(code, "write")).toBe("allow")
+      expect(evalPerm(code, "edit")).toBe("ask")
+      // 防套娃 + 子代理不与用户交互
+      expect(evalPerm(design, "task")).toBe("deny")
+      expect(evalPerm(code, "task")).toBe("deny")
+      expect(evalPerm(design, "question")).toBe("deny")
+      expect(evalPerm(code, "question")).toBe("deny")
+      // 路由转发 skill 名后由子代理自行加载,skill 必须可用
+      expect(evalPerm(design, "skill")).toBe("allow")
+      // pixso MCP 绑定随设计职责移交 design
+      expect(design?.mcp).toEqual(["pixso"])
+      expect(code?.mcp).toBeUndefined()
     },
   })
 })
