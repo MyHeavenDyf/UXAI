@@ -44,9 +44,9 @@
 
 - 子代理生成大 HTML 时免 exceedsContext reject，与 octo_make 同待遇
 
-### `src/skill/index.ts` — AGENT_SKILL_ALIASES 加 `"octo_design": "octo_make"`
+### `src/skill/index.ts` — AGENT_SKILL_ALIASES 加 `"octo_design": "octo_make"` 与 `"octo_code": "octo_make"`
 
-- agent.skills 字段是惰性的；实际 skill 可见性由 skill_config.json 的 agent 映射决定（Skill.available，index.ts:379-395）。octo_design 不在用户 skill_config 里，经 alias 继承 octo_make 的映射 → html-prototype 对子代理可见
+- agent.skills 字段是惰性的；实际 skill 可见性由 skill_config.json 的 agent 映射决定（Skill.available，index.ts:379-405）。两个子代理都不在用户 skill_config 里，经 alias 继承 octo_make 的映射 → 可见清单与 octo_make 完全一致（octo_code 的 alias 于 10-23 补加，此前其清单为空、仅靠 get() 不设防兜底）
 - @skill 链路：前端 session.command 注入到主会话（路由）→ 路由五段式 prompt 转发 skill 名 → 子代理自己调 skill 工具加载（task 的 prompt 参数不做 slash command 模板解析）
 
 ### 测试

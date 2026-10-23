@@ -32,6 +32,7 @@ const SKILL_PATTERN = "**/SKILL.md"
 const AGENT_SKILL_ALIASES: Record<string, string> = {
   "proto_*": "octo_make",
   octo_design: "octo_make",
+  octo_code: "octo_make",
 }
 
 export const Info = Schema.Struct({

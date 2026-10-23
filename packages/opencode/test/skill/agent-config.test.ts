@@ -163,6 +163,13 @@ describe("skill agentConfig with skill_config.json", () => {
           const makeSkills = yield* skill.available(makeAgent("octo_make"))
           expect(makeSkills.map((s) => s.name).sort()).toEqual(["html-proto"])
 
+          // make-router 子代理经 AGENT_SKILL_ALIASES 继承 octo_make 的可见清单
+          const designSkills = yield* skill.available(makeAgent("octo_design"))
+          expect(designSkills.map((s) => s.name).sort()).toEqual(["html-proto"])
+
+          const codeSkills = yield* skill.available(makeAgent("octo_code"))
+          expect(codeSkills.map((s) => s.name).sort()).toEqual(["html-proto"])
+
           const insightSkills = yield* skill.available(makeAgent("octo_insight"))
           expect(insightSkills.map((s) => s.name).sort()).toEqual(["interview-ai"])
 
