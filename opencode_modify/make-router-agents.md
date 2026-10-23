@@ -96,3 +96,13 @@
 2. **「策略执行」按钮偶发首次点击无效**：handleConfirmPlan 早期 return（前端状态时序），刷新后重试成功。plan 流程代码本次未动，属既有问题。
 
 **验证方法**：CDP Runtime.evaluate（ProseMirror execCommand insertText + Enter 发消息）+ bun:sqlite 直查 opencode-local.db（session 表 parent_id / part 表 task 输入与 task_result）+ 文件系统落盘核对。项目切换经 storeSet 写 opencode.global.dat 的 server.lastProject.local。
+
+## 合并 origin/dev（2026-10-23，merge 476e0ee9f）
+
+dev 侧 `ce30caa70a` 放开 octo_make 的 question（skill 明确要求时向用户确认，fastui 等在已有工程/新建之间让用户选择）。合并决策：
+
+- **octo_make（路由）采纳 question: "allow"**：skill 在主会话执行（session.command 注入），question 通道由路由持有；prompt 侧把 dev 的 question 约束行适配进路由版「四、直接回答的行为」（仅 skill 明确要求时调用）
+- **octo_design/octo_code 保持 question: "deny"**：子代理不与用户交互，task prompt 五段式已带全部输入。注意 git 自动合并曾把 dev 的 allow 误套到 octo_design 块（行级对齐歧义），已手动修正——同类合并需复查
+- agent.test.ts 双方新增用例并存（路由收敛用例 + question 放开用例），octo_make.txt 旧版工具清单块按路由重写版丢弃（write/edit/artifact 约束已拆入子代理提示词）
+- 合并后 typecheck 12 packages 全过；test/agent 三文件 121 pass，compaction.test.ts 的 4-5 个超时失败经合并前后对照确认为 Windows 环境性 flaky（失败用例漂移），与合并无关
+- 遗留待验证：fastui 类 skill 在子代理执行路径下的 question 交互（子代理 deny question，若 skill 流程在子会话内需要提问会降级——skill 主会话执行时无此问题）
