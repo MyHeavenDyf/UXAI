@@ -4786,7 +4786,10 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
+    const finalPath = isProjectScope()
+      ? [projectDirValue, ".octo", "resource", "assets_config.json"].join(sep)
+      : [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
 
     try {
       const info = await api.getAssetsConfig() as AssetsConfig
