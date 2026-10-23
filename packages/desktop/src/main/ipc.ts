@@ -262,18 +262,29 @@ export function registerIpcHandlers(deps: Deps) {
 
   // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
   // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
-  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.open(sessionDir, projectName),
+  // 目标统一是(工作区, 会话, 产物名),工程在哪由主进程按 SPEC-DES-008 §3.7 查,前端不拼路径。
+  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.open(target),
   )
-  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.restart(sessionDir, projectName),
+  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.restart(target),
+  )
+  // 这个(会话, 产物名)有没有 fastui 工程:导出按钮与老卡片转换用,与预览同一个查找函数
+  ipcMain.handle("fastui-resolve", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) => {
+    const r = FastuiDevServer.resolveProject(target)
+    return r.ok ? { ok: true, projectDir: r.projectDir, name: r.name } : { ok: false, error: r.error }
+  })
+  // 文件属于哪个 fastui 工程:模型只给了被改文件的路径卡片时,前端据此按工程打开预览(SPEC-DES-008 §3.8)
+  ipcMain.handle(
+    "fastui-project-of",
+    (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget & { filePath: string }) =>
+      FastuiDevServer.projectOfFile(target),
   )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
   // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
-  // 带产物名时导出该工程(同一对话可以有多个工程);不带时按会话状态文件里的工程导出。
-  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiExport.exportZip(sessionDir, projectName),
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiExport.exportZip(target),
   )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)

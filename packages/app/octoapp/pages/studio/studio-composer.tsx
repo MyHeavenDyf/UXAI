@@ -2,6 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount,
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import emptyPng from "../insight/icons/empty.png"
 import { usePlatform } from "@/context/platform"
+import { tracker } from "@/utils/tracker"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelId, styleModelLabel } from "./data"
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
@@ -966,6 +967,7 @@ export function StudioComposer(props: {
       props.onUnsupportedReferenceUpload?.()
       return
     }
+    tracker.interaction({ module: "studio", name: "reference-upload" })
     props.onPickFile()
   }
 
@@ -1018,7 +1020,7 @@ export function StudioComposer(props: {
               onRemove={() => props.onRemoveVideoFrame("first")}
               onDrop={(event) => handleDrop(event, "first")}
             />
-            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧">
+            <button type="button" class="studio-composer-video-swap" onClick={() => { tracker.interaction({ module: "studio", name: "video-frame-swap" }); props.onSwapVideoFrames() }} aria-label="交换首尾帧" title="交换首尾帧">
               <img src="/studio/ic_public_switchover.svg" class="studio-composer-video-swap-icon" alt="" />
             </button>
             <VideoFrameButton
@@ -1070,6 +1072,7 @@ export function StudioComposer(props: {
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation()
+                            tracker.interaction({ module: "studio", name: "reference-remove" })
                             props.onRemoveAsset(asset.id)
                           }}
                           class="studio-composer-ref-remove"
@@ -1216,6 +1219,7 @@ export function StudioComposer(props: {
                     event.stopPropagation()
                     if (!STUDIO_VIDEO_GUIDE_URL) return
                     event.preventDefault()
+                    tracker.interaction({ module: "studio", name: "video-guide-link" })
                     platform.openLink(STUDIO_VIDEO_GUIDE_URL)
                   }}
                 >
@@ -1235,7 +1239,7 @@ export function StudioComposer(props: {
                 active={props.openMenu === "capability"}
                 disabled={isBusy() || props.recommendationLocked}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
+                onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-capability-open" }); props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability") }}
               />
             </div>
             <Show when={isImageGeneration()}>
@@ -1245,7 +1249,7 @@ export function StudioComposer(props: {
                   active={props.openMenu === "style"}
                   disabled={isBusy() || props.recommendationLocked}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-open" }); props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style") }}
                 />
               </div>
               <Show when={!toolbarOverflow().includes("settings")}>
@@ -1255,7 +1259,7 @@ export function StudioComposer(props: {
                     children={imageSettingsLabel()}
                     disabled={isBusy()}
                     onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                    onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
                   />
                 </div>
               </Show>
@@ -1269,6 +1273,7 @@ export function StudioComposer(props: {
                       disabled={isBusy()}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
                       onClick={() => {
+                        tracker.interaction({ module: "studio", name: "toolbar-at-open" })
                         if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
                         openMentionMenu()
                       }}
@@ -1286,7 +1291,7 @@ export function StudioComposer(props: {
                         active={props.openMenu === "style-template"}
                         disabled={isBusy() || props.recommendationLocked}
                         onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                        onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
+                        onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template") }}
                       />
                     }
                   >
@@ -1298,6 +1303,7 @@ export function StudioComposer(props: {
                       editorOpen={props.styleTemplateEditorOpen}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                       onClick={() => {
+                        tracker.interaction({ module: "studio", name: "toolbar-style-template-open" })
                         props.onStyleTemplateEditorOpen(false)
                         props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")
                       }}
@@ -1328,7 +1334,7 @@ export function StudioComposer(props: {
                       title=""
                       disabled={isBusy()}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                      onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-material-open" }); props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material") }}
                     />
                   </StudioToolbarTooltip>
                 </div>
@@ -1338,7 +1344,7 @@ export function StudioComposer(props: {
                   type="button"
                   ref={moreButtonRef!}
                   class="studio-composer-toolbar-more"
-                  onClick={() => setMoreMenuOpen((v) => !v)}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-more-open" }); setMoreMenuOpen((v) => !v) }}
                   title="更多"
                 />
               </Show>
@@ -1351,6 +1357,7 @@ export function StudioComposer(props: {
                   disabled={isBusy()}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                   onClick={() => {
+                    tracker.interaction({ module: "studio", name: "toolbar-video-mode-open" })
                     if (videoModeOpen()) { setVideoModeOpen(false); return }
                     props.onOpenMenu(null)
                     setVideoModeOpen(true)
@@ -1363,7 +1370,7 @@ export function StudioComposer(props: {
                   children={imageSettingsLabel()}
                   disabled={isBusy()}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
                 />
               </div>
             </Show>
@@ -1381,7 +1388,7 @@ export function StudioComposer(props: {
                       type="button"
                       class="studio-composer-toolbar-more-item"
                       classList={{ active: props.openMenu === "settings" }}
-                      onClick={() => props.onOpenMenu("settings")}
+                      onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu("settings") }}
                     >
                       <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
                       <span>图片设置</span>
@@ -1394,6 +1401,7 @@ export function StudioComposer(props: {
                       classList={{ active: atMenuOpen() }}
                       onPointerDown={() => { pointerDownAtMenuOpen = atMenuOpen() }}
                       onClick={() => {
+                        tracker.interaction({ module: "studio", name: "toolbar-at-open" })
                         if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
                         openMentionMenu()
                       }}
@@ -1411,7 +1419,7 @@ export function StudioComposer(props: {
                           class="studio-composer-toolbar-more-item"
                           disabled={isBusy() || props.recommendationLocked}
                           classList={{ active: props.openMenu === "style-template" }}
-                          onClick={() => props.onOpenMenu("style-template")}
+                          onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu("style-template") }}
                         >
                           <img class="studio-composer-toolbar-more-item-icon" src="/studio/studio-template-icon.svg" />
                           <span>风格模板</span>
@@ -1428,6 +1436,7 @@ export function StudioComposer(props: {
                           editorOpen={props.styleTemplateEditorOpen}
                           toolbarMore
                           onClick={() => {
+                            tracker.interaction({ module: "studio", name: "toolbar-style-template-open" })
                             props.onStyleTemplateEditorOpen(false)
                             props.onOpenMenu("style-template")
                           }}
@@ -1452,7 +1461,7 @@ export function StudioComposer(props: {
                       type="button"
                       class="studio-composer-toolbar-more-item"
                       classList={{ active: props.openMenu === "material" }}
-                      onClick={() => props.onOpenMenu("material")}
+                      onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-material-open" }); props.onOpenMenu("material") }}
                     >
                       <img src="/studio/IconMaterial.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
                       <span>词书</span>
@@ -1467,7 +1476,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { if (workspaceModeForCapability(value)) props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { tracker.interaction({ module: "studio", name: "capability-select", extend: JSON.stringify({ capability: value }) }); if (workspaceModeForCapability(value)) props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
@@ -1478,7 +1487,7 @@ export function StudioComposer(props: {
                 canUseSeedream={props.canUseSeedream}
                 permissionStatus={props.permissionStatus}
                 onRetry={props.onRetryPermission}
-                onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { tracker.interaction({ module: "studio", name: "style-model-select", extend: JSON.stringify({ styleModel: value }) }); props.onStyleModel(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
@@ -1542,7 +1551,7 @@ export function StudioComposer(props: {
             <div class="studio-composer-dropdown-anchor" ref={videoModeAnchorRef!}>
               <VideoModeMenu
                 value={props.videoMode}
-                onSelect={(value) => { props.onVideoMode(value); setVideoModeOpen(false) }}
+                onSelect={(value) => { tracker.interaction({ module: "studio", name: "video-mode-select", extend: JSON.stringify({ mode: value }) }); props.onVideoMode(value); setVideoModeOpen(false) }}
               />
             </div>
           </Show>
@@ -1599,7 +1608,7 @@ export function StudioComposer(props: {
       <div class="studio-composer-compliance">
         <span>遵守</span>
         <div class="studio-composer-compliance-guide">
-          <button type="button" class="studio-composer-compliance-trigger">合规指引</button>
+          <button type="button" class="studio-composer-compliance-trigger" onClick={() => tracker.interaction({ module: "studio", name: "compliance-guide-open" })}>合规指引</button>
           <span>，</span>
           <div role="tooltip" class="studio-composer-compliance-tooltip">
             <StudioVideoRiskContent
@@ -1769,7 +1778,7 @@ function StyleTemplatePresetEditor(props: {
           class="studio-composer-template-preset-editor-close"
           aria-label="关闭预设调整"
           title="关闭预设调整"
-          onClick={props.onClose}
+          onClick={() => { tracker.interaction({ module: "studio", name: "template-preset-editor-close" }); props.onClose() }}
         />
       </div>
       <div class="studio-composer-template-preset-editor-summary">
@@ -1799,7 +1808,7 @@ function StyleTemplatePresetEditor(props: {
                       type="button"
                       class="studio-composer-template-preset-editor-restore"
                       disabled={!changed()}
-                      onClick={() => props.onRestore(field.id)}
+                      onClick={() => { tracker.interaction({ module: "studio", name: "template-preset-restore", extend: JSON.stringify({ field: field.id }) }); props.onRestore(field.id) }}
                     >
                       <span class="studio-composer-template-preset-editor-restore-icon" aria-hidden="true" />
                       <span>还原</span>
@@ -1874,7 +1883,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
     <div class="studio-composer-video-frame-wrap">
       <button
         type="button"
-        onClick={props.onPick}
+        onClick={() => { tracker.interaction({ module: "studio", name: "video-frame-pick", extend: JSON.stringify({ label: props.label }) }); props.onPick() }}
         disabled={props.disabled}
         class="studio-composer-video-frame"
         classList={{ filled: Boolean(props.asset) }}
@@ -1898,6 +1907,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
           type="button"
           onClick={(event) => {
             event.stopPropagation()
+            tracker.interaction({ module: "studio", name: "video-frame-remove", extend: JSON.stringify({ label: props.label }) })
             props.onRemove()
           }}
           disabled={props.disabled}
@@ -2309,6 +2319,7 @@ function ImageSettings(props: {
   }
 
   function selectRatio(r: StudioAspectRatio) {
+    tracker.interaction({ module: "studio", name: "image-aspect-ratio", extend: JSON.stringify({ ratio: r }) })
     setIsCustom(false)
     props.onIsCustom(false)
     props.onAspectRatio(r)
@@ -2317,6 +2328,7 @@ function ImageSettings(props: {
   }
 
   function selectCustom() {
+    tracker.interaction({ module: "studio", name: "image-aspect-custom" })
     setIsCustom(true)
     setWidth(props.customWidth || 0)
     setHeight(props.customHeight || 0)
@@ -2384,7 +2396,7 @@ function ImageSettings(props: {
           {(item) => (
             <button
               type="button"
-              onClick={() => props.onCount(item)}
+              onClick={() => { tracker.interaction({ module: "studio", name: "image-count", extend: JSON.stringify({ count: item }) }); props.onCount(item) }}
               class="studio-image-settings-count"
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
@@ -2441,7 +2453,7 @@ function VideoSettings(props: {
           {(item) => (
             <button
               type="button"
-              onClick={() => props.onAspectRatio(item)}
+              onClick={() => { tracker.interaction({ module: "studio", name: "video-aspect-ratio", extend: JSON.stringify({ ratio: item }) }); props.onAspectRatio(item) }}
               class="studio-image-settings-ratio"
               classList={{ active: item === props.aspectRatio }}
               aria-pressed={item === props.aspectRatio}
@@ -2493,7 +2505,7 @@ function VideoSettings(props: {
                     class="studio-video-duration-tick"
                     classList={{ active: tick === props.duration }}
                     style={{ left: `${pos}%` }}
-                    onClick={() => props.onDuration(tick as StudioVideoDuration)}
+                    onClick={() => { tracker.interaction({ module: "studio", name: "video-duration", extend: JSON.stringify({ duration: tick }) }); props.onDuration(tick as StudioVideoDuration) }}
                   >
                     {tick}
                   </button>
@@ -2532,7 +2544,7 @@ function VideoSettings(props: {
           {(item) => (
             <button
               type="button"
-              onClick={() => props.onCount(item)}
+              onClick={() => { tracker.interaction({ module: "studio", name: "video-count", extend: JSON.stringify({ count: item }) }); props.onCount(item) }}
               class="studio-image-settings-count"
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
@@ -2553,7 +2565,7 @@ function VideoSettings(props: {
           {(item) => (
             <button
               type="button"
-              onClick={() => props.onQualityMode(item.value)}
+              onClick={() => { tracker.interaction({ module: "studio", name: "video-quality", extend: JSON.stringify({ quality: item.value }) }); props.onQualityMode(item.value) }}
               class="studio-image-settings-count"
               classList={{ active: item.value === props.qualityMode }}
               aria-pressed={item.value === props.qualityMode}

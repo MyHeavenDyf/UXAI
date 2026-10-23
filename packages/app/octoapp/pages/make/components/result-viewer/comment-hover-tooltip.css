@@ -87,4 +87,20 @@
   color: rgba(0, 0, 0, 0.9);
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+  scrollbar-width: auto;
+}
+.comment-hover-tooltip-note::-webkit-scrollbar {
+  width: 4px;
+}
+.comment-hover-tooltip-note::-webkit-scrollbar-track {
+  background: transparent;
+}
+.comment-hover-tooltip-note::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.comment-hover-tooltip-note::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
 }

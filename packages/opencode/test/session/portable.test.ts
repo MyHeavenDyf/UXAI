@@ -26,6 +26,67 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([undefined, "session", "project"] as const)(
+    "does not inherit pinned state from an archive for root or child sessions (scope: %s)",
+    async (scope) => {
+      await using source = await tmpdir({ git: true })
+      await using target = await tmpdir({ git: true })
+      const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+        const root = await runSession((svc) => svc.create({ title: "Pinned root" }))
+        const child = await runSession((svc) => svc.create({ parentID: root.id, title: "Pinned child" }))
+        for (const sessionID of [root.id, child.id]) {
+          await runSession((svc) => svc.setPinned({ sessionID, pinned: true }))
+        }
+        const archive = await AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: path.join(source.path, "pinned.zip") }))
+        expect((await runSession((svc) => svc.get(root.id))).pinned).toBe(true)
+        expect((await runSession((svc) => svc.get(child.id))).pinned).toBe(true)
+        return archive
+      } })
+      const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+      const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+        sessions: { info: { pinned: boolean } }[]
+      }
+      // Existing archives may still contain pinned=true; import must ignore that local UI preference.
+      expect(manifest.sessions.map((entry) => entry.info.pinned)).toEqual([true, true])
+      await provideTestInstance({ directory: target.path, fn: async () => {
+        const result = await AppRuntime.runPromise(importPortableSession(exported.output, scope))
+        const root = await runSession((svc) => svc.get(result.sessionID))
+        const children = await runSession((svc) => svc.children(root.id))
+        expect(root.pinned).toBe(false)
+        expect(children).toHaveLength(1)
+        expect(children[0].pinned).toBe(false)
+      } })
+    },
+  )
+
+  test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const html = '<img src="./outputs/resource/icon/icon.svg">'
+    await Bun.write(path.join(source.path, "register.html"), html)
+    await Bun.write(path.join(source.path, "output/login.html"), html)
+    await Bun.write(path.join(source.path, "outputs/resource/icon/icon.svg"), "<svg/>")
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Register" }))
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "output/login.html", "outputs/resource/icon/icon.svg", "register.html",
+    ])
+    for (const file of manifest.files as { path: string; blob: string }[]) {
+      expect(await zip.file(file.blob)!.async("string")).toBe(file.path.endsWith(".html") ? html : "<svg/>")
+    }
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+    } })
+    expect(await Bun.file(path.join(target.path, "register.html")).text()).toBe(html)
+    expect(await Bun.file(path.join(target.path, "output/login.html")).text()).toBe(html)
+    expect(await Bun.file(path.join(target.path, "outputs/resource/icon/icon.svg")).text()).toBe("<svg/>")
+    expect(await Bun.file(path.join(target.path, "output/outputs/resource/icon/icon.svg")).exists()).toBe(false)
+  })
+
   test("exports installed preview assets as real files and imports them into private and shared layouts", async () => {
     await using source = await tmpdir({ git: true })
     await using resources = await tmpdir()
@@ -419,7 +480,7 @@ describe("portable session", () => {
     }
   })
 
-  test("uploads a generated ZIP and returns a share page URL", async () => {
+  test("uploads a generated ZIP despite a missing dependency in another shared page and returns a share page URL", async () => {
     const uploads: { fileName: string; description: string; size: number }[] = []
     const server = Bun.serve({
       port: 0,
@@ -435,7 +496,11 @@ describe("portable session", () => {
         if (!(file instanceof File)) return new Response("file is required", { status: 400 })
         const zip = await JSZip.loadAsync(await file.arrayBuffer())
         const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
-        expect(manifest.files).toEqual([expect.objectContaining({ scope: "project", path: "shared.html" })])
+        expect(manifest.files).toHaveLength(2)
+        expect(manifest.files).toEqual(expect.arrayContaining([
+          expect.objectContaining({ scope: "project", path: "shared.html" }),
+          expect.objectContaining({ scope: "project", path: "output/login.html" }),
+        ]))
         uploads.push({
           fileName: file.name,
           description: String(form.get("description") ?? ""),
@@ -456,6 +521,7 @@ describe("portable session", () => {
         fn: async () => {
           const session = await runSession((service) => service.create({ title: "Shared session" }))
           await Bun.write(path.join(source.path, "shared.html"), "<h1>Shared</h1>")
+          await Bun.write(path.join(source.path, "output/login.html"), '<img src="./outputs/resource/icon/missing.svg">')
           return AppRuntime.runPromise(
             sharePortableSession({
               sessionID: session.id,

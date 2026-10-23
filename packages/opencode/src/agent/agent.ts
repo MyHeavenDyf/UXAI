@@ -373,7 +373,9 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                question: "deny",
+                // 放开给 skill 用(fastui 等需要让用户在已有工程/新建之间选择);
+                // 使用范围由 octo_make.txt 收窄为「仅 skill 明确要求时」,设计规划流程不用它
+                question: "allow",
               }),
               user,
             ),

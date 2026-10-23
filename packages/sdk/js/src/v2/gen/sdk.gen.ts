@@ -7743,7 +7743,7 @@ export class WorkspaceUpgrade extends HeyApiClient {
   /**
    * Run normal-to-code workspace upgrade
    *
-   * Back up the database (VACUUM INTO), copy artifact files from .octo/<sessionId>/outputs into <workspace>/output/ (flat, renamed with a 12-char session-id timestamp prefix), then rewrite message/part path references in one transaction with read-back verification. Original .octo outputs are never deleted. Studio sessions are skipped.
+   * Back up the database (VACUUM INTO), copy artifact files from .octo/<sessionId>/outputs into output/<12-char session prefix>/ (preserving the original relative directory structure), then rewrite message/part path references in one transaction with read-back verification. Original .octo outputs are never deleted. Studio sessions are skipped.
    */
   public run<ThrowOnError extends boolean = false>(
     parameters?: {

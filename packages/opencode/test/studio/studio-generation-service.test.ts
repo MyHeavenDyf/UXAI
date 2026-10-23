@@ -204,6 +204,113 @@ describe("Studio generation service", () => {
       },
     })
   })
+
+  // 会话仍存在时 getGeneration 走 generation 快照路径：result 里只有 provider 原始 model，
+  // 资产详情面板需要 styleModel 才能展示与生成时所选风格模型一致的名称（如「小艺agent」）。
+  describe("styleModel on live generation records", () => {
+    async function insertLiveGeneration(id: string, capability: "image.generate" | "image.upscale", styleModel?: string) {
+      const now = Date.now()
+      const sessionID = SessionID.descending()
+      Database.use((db) =>
+        db
+          .insert(SessionTable)
+          .values({
+            id: sessionID,
+            project_id: Instance.project.id,
+            slug: sessionID,
+            directory: Instance.directory,
+            title: "Studio generation styleModel test",
+            version: "test",
+            agent: "octo_studio",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      Database.use((db) =>
+        db
+          .insert(StudioGenerationTable)
+          .values({
+            id,
+            session_id: sessionID,
+            directory: Instance.directory,
+            assistant_message_id: MessageID.ascending(),
+            tool_part_id: PartID.ascending(),
+            provider: "internel",
+            capability,
+            status: "succeeded",
+            progress: 100,
+            request: {
+              input: {
+                capability,
+                prompt: "一只猫在奔跑",
+                styleModel,
+                aspectRatio: "3:4",
+                count: 1,
+                imageTool: "internel",
+                referenceImages: [],
+              },
+            },
+            result: {
+              id,
+              status: "succeeded",
+              capability,
+              prompt: "一只猫在奔跑",
+              provider: "internel",
+              model: "internel_raw_model",
+              aspectRatio: "3:4",
+              images: [{ id: `${id}-0`, kind: "image", url: "https://example.com/image.png" }],
+            },
+            next_poll_at: Number.MAX_SAFE_INTEGER,
+            completed_at: now,
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      return sessionID
+    }
+
+    test("returns request styleModel so history detail shows the selected style model", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const sessionID = await insertLiveGeneration("gen-style-model-live", "image.generate", "xiaoyi")
+          try {
+            const result = await getGeneration("gen-style-model-live")
+            expect(result.model).toBe("internel_raw_model")
+            expect(result.styleModel).toBe("xiaoyi")
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-style-model-live")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    // 编辑类能力（变清晰/抠图/重绘/扩图）与工具输入同口径不携带 styleModel。
+    test("omits styleModel for editor capabilities", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const sessionID = await insertLiveGeneration("gen-style-model-editor", "image.upscale", "xiaoyi")
+          try {
+            const result = await getGeneration("gen-style-model-editor")
+            expect(result.styleModel).toBeUndefined()
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-style-model-editor")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+            })
+          }
+        },
+      })
+    })
+  })
 })
 
 

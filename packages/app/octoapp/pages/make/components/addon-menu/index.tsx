@@ -4,7 +4,6 @@ import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
-import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
@@ -280,8 +279,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
-    const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-    const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+    const selection: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
@@ -724,8 +722,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={platformSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                           return (
                             <button
                               type="button"
@@ -735,7 +732,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               <Show when={isSelected(sel)}>
                                 <Icon name="check" size="small" style="color: #0A59F7" />
                               </Show>
-                              <span class="addon-menu-tertiary-item-text">{displayName}</span>
+                              <span class="addon-menu-tertiary-item-text">{skill.label}</span>
                             </button>
                           )
                         }}
@@ -756,8 +753,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={customSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                           return (
                             <button
                               type="button"
@@ -767,7 +763,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               <Show when={isSelected(sel)}>
                                 <Icon name="check" size="small" style="color: #0A59F7" />
                               </Show>
-                              <span class="addon-menu-tertiary-item-text">{displayName}</span>
+                              <span class="addon-menu-tertiary-item-text">{skill.label}</span>
                             </button>
                           )
                         }}

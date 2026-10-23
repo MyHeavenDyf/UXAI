@@ -242,6 +242,7 @@ export async function collectPortableDependencies(input: {
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
+  const missing = new Set<string>()
   const parsedFiles = new Map<string, ReturnType<typeof references>>()
   const key = (file: string, document?: string) => JSON.stringify([file, document])
   const pending = new Map<string, { file: string; source: string; document?: string }>(
@@ -276,9 +277,6 @@ export async function collectPortableDependencies(input: {
     })
     await Promise.all(
       batch.map(async ({ file, source, document }) => {
-        if ((await lstat(source)).size > 4 * 1024 * 1024) {
-          throw new Error(`页面依赖分析文件超过 4 MiB，无法确认完整性：${path.relative(input.root, file)}`)
-        }
         const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(await input.read(source)), file)
         parsedFiles.set(file, parsed)
         const base = new URL(parsed.base ?? "", pathToFileURL(file))
@@ -310,7 +308,22 @@ export async function collectPortableDependencies(input: {
           })()
           // Browserify/UMD bundles contain internal require() IDs that are not filesystem dependencies.
           if (!resolved && parsed.optional.has(raw)) continue
-          if (!resolved) throw new Error(`导出失败，页面依赖不存在：${path.relative(input.root, target)}`)
+          if (!resolved) {
+            const warning = JSON.stringify([file, reference.base.href, target])
+            if (!missing.has(warning)) {
+              missing.add(warning)
+              console.warn(
+                "[octo:share] missing dependency",
+                JSON.stringify({
+                  source: file,
+                  reference: raw,
+                  base: reference.base.href,
+                  target,
+                }),
+              )
+            }
+            continue
+          }
           if (!known.has(resolved.file)) found.set(resolved.file, resolved.source)
           if (textFile.test(resolved.file) && !visited.has(key(resolved.file, page))) {
             pending.set(key(resolved.file, page), { ...resolved, document: page })

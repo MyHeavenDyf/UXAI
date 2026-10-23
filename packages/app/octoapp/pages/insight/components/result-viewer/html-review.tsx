@@ -112,8 +112,8 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
 const ReviewContext = createContext<ReturnType<typeof createReview>>()
 export const useHtmlReview = () => useContext(ReviewContext)
 
-// #124 标注与历史版本暂未开放测试：整体停用（隐藏工具栏入口、不注入标注桥、不写历史快照）；恢复时改回 true。
-const htmlReviewEnabled = false
+// #124 开放 HTML 标注与历史版本，入口沿用各自工具栏的按钮样式。
+const htmlReviewEnabled = true
 
 export function HtmlReviewProvider(props: {
   tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void; children: JSX.Element
@@ -128,19 +128,23 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     open: false, anchor: null as DOMRect | null, selected: null as VersionEntry | null,
   })
   let button: HTMLButtonElement | undefined
+  const buttonClass = () => props.tab.fromAttachment
+    ? "octo-action-btn disabled:opacity-40 disabled:cursor-not-allowed"
+    : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
+  const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
   createEffect(() => { review?.key(); props.tab.viewMode; setState({ open: false, selected: null }) })
   return <Show when={props.tab.type === "html" && review}>
     <Tooltip value={disabled() || "标注"} placement="top">
-      <button type="button" class="octo-action-btn" disabled={!!disabled()}
+      <button type="button" class={buttonClass()} disabled={!!disabled()}
         classList={{ "opacity-40": !!disabled(), "octo-viewport-btn-active": review?.state.commenting }}
         style={review?.state.commenting ? { color: "#0a59f7", background: "rgba(10,89,247,0.08)" } : undefined}
         aria-pressed={review?.state.commenting} onClick={() => review?.toggle()}>
-        <svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16" fill="none"><path d="M2 18V10a8 8 0 1 1 8 8H2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" /></svg><span>标注</span>
+        <svg aria-hidden="true" viewBox="0 0 20 20" width={iconSize()} height={iconSize()} fill="none"><path d="M2 18V10a8 8 0 1 1 8 8H2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" /></svg><span>标注</span>
       </button>
     </Tooltip>
     <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史版本"} placement="top">
-      <button ref={button} type="button" class="octo-action-btn"
+      <button ref={button} type="button" class={buttonClass()}
         disabled={!review?.history() || review?.state.busy || props.working}
         classList={{ "opacity-40": !review?.history() || review?.state.busy || props.working }}
         aria-label="历史版本" aria-expanded={state.open}
@@ -148,7 +152,7 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
           setState({ open: !state.open, anchor: button?.getBoundingClientRect() ?? null })
           if (state.open) void review?.refresh()
         }}>
-        <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史"}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史版本"}</span>
       </button>
     </Tooltip>
     <Show when={state.open && state.anchor}>
