@@ -3,7 +3,26 @@ import path from "node:path"
 import { symlink } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
+import { isExcludedPortableFile } from "@/session/portable-exclusions"
 import { tmpdir } from "../fixture/fixture"
+
+test("does not read blacklisted ASAR dependencies or virtual contents, but retains unpacked dependencies", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  await Bun.write(page, '<script src="./app.asar"></script><script src="./virtual.ASAR/entry.js"></script><script src="./app.asar.unpacked/keep.js"></script>')
+  await Bun.write(path.join(project.path, "app.asar"), "archive bytes")
+  await Bun.write(path.join(project.path, "virtual.ASAR", "entry.js"), "archive content")
+  await Bun.write(path.join(project.path, "app.asar.unpacked", "keep.js"), "window.kept = true")
+  const dependencies = await collectPortableDependencies({ root: project.path, files: [page], trustedRoots: [], blacklist: [".asar"], read: async (file) => {
+    expect(isExcludedPortableFile(file, [".asar"])).toBe(false)
+    return new Uint8Array(await Bun.file(file).arrayBuffer())
+  } })
+  expect(dependencies.map((item) => path.relative(project.path, item.file))).toEqual([path.join("app.asar.unpacked", "keep.js")])
+  expect(isExcludedPortableFile("D:\\workspace\\APP.ASAR", [".asar"])).toBe(true)
+  expect(isExcludedPortableFile("D:\\workspace\\APP.ASAR\\entry.js", [".asar"])).toBe(true)
+  expect(isExcludedPortableFile("D:\\workspace\\app.asar.unpacked\\native.node", [".asar"])).toBe(false)
+  expect(isExcludedPortableFile("D:\\workspace\\app.asar")).toBe(false)
+})
 
 test("collects dependencies from HTML, JavaScript and CSS files larger than 4 MiB", async () => {
   await using project = await tmpdir()
