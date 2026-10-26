@@ -6031,7 +6031,7 @@ export type SessionPortableImportData = {
 
 export type SessionPortableImportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
 }
@@ -6068,7 +6068,7 @@ export type SessionPortableExportData = {
 
 export type SessionPortableExportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
   /**
