@@ -21,6 +21,13 @@ import { tracker } from "@/utils/tracker"
 import emptyPng from "../../icons/empty.png"
 import "./asset-module.css"
 
+/** 文件夹的文件数 = 自身 + 所有子孙的 fileCount 之和 */
+function sumFileCount(folder: AssetFolder): number {
+  let sum = folder.fileCount ?? 0
+  for (const child of folder.children ?? []) sum += sumFileCount(child)
+  return sum
+}
+
 export function AssetModule(props: {
   assetConfig: AssetConfig
   dom: ModelEditElement | null
@@ -422,8 +429,6 @@ function AssetDialog(props: {
             if (hasChildren()) toggleExpand(nodeKey())
           }}
         >
-          <FolderIcon class="me-asset-tree-icon" />
-          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <svg
               width="12" height="12" viewBox="0 0 8 8" fill="none"
@@ -432,6 +437,11 @@ function AssetDialog(props: {
             >
               <path d="M2 1L5.5 4L2 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
+          </Show>
+          <FolderIcon class="me-asset-tree-icon" />
+          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
+          <Show when={sumFileCount(props.folder) > 0}>
+            <span class="me-asset-tree-filecount">{sumFileCount(props.folder)}</span>
           </Show>
         </div>
         <Show when={hasChildren() && isExpanded()}>
