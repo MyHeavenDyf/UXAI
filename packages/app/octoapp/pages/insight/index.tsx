@@ -52,6 +52,7 @@ import { MakeGroupsProvider, useMakeGroupsContext, consumePendingGroup, clearPen
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
+import { useSharedSessionImportContext } from "@/components/shared-session-import-context"
 import { DialogPreviewUnavailable } from "../make/components/dialog-preview-unavailable"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
@@ -248,6 +249,7 @@ function InsightCrashFallback(props: { error: unknown }) {
 }
 
 function InsightContent() {
+  useSharedSessionImportContext("insight")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -338,7 +340,7 @@ function InsightContent() {
     didBootRestore = true
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
     // 若上次就在新建空态(id 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
-    if (params.id || !bootSaved?.id) return
+    if (params.id || !bootSaved?.id || layout.lastSessionPerTab.newConversation("cowork")) return
     const dir = projectDir() // InsightContent 仅在 sdk.directory 就绪后挂载,理论恒有值
     if (!dir) return
     // 目录不符不恢复:上次对话属于别的目录(如在其他页面切过目录后整页重载),
@@ -3115,4 +3117,3 @@ function InsightContent() {
     </DataProvider>
   )
 }
-

@@ -244,7 +244,7 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
 function waitSessionIdle(
   sync: { data: { session_status?: Record<string, { type?: string } | undefined> } },
   sessionID: string,
-  timeoutMs = 120 * 60 * 1000,
+  timeoutMs = 24 * 60 * 60 * 1000,
 ): Promise<'idle' | 'timeout'> {
   return new Promise<'idle' | 'timeout'>((resolve) => {
     let disposed = false

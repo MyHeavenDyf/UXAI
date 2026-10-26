@@ -30,6 +30,11 @@ export function createHtmlHistory(filePath: string, api: DesktopApi) {
         ? [{ id: name.slice(0, -6), folderPath: `${directory}/${name.slice(0, -6)}`, timestamp: Number(match[1]), actor: match[2] as HistoryActor }] : []
     }).sort((a, b) => b.timestamp - a.timestamp || b.id.localeCompare(a.id))
   }
+  const find = async (bytes: ArrayBuffer, entries: VersionEntry[]) => {
+    for (const entry of entries) {
+      if (equal(bytes, await read(entry.folderPath))) return entry
+    }
+  }
   const write = async (bytes: ArrayBuffer, actor: HistoryActor) => {
     if (!api.writeFileBuffer) throw new Error("当前环境不支持保存历史版本")
     const timestamp = Math.max(Date.now(), lastTimestamp + 1)
@@ -53,8 +58,8 @@ export function createHtmlHistory(filePath: string, api: DesktopApi) {
     record: (actor: HistoryActor = "user") => serial(async () => {
       const bytes = await read(path)
       const entries = await list()
-      if (entries[0] && equal(bytes, await read(entries[0].folderPath))) return entries[0]
-      return write(bytes, entries.length ? actor : "init")
+      // 恢复旧版本及重新打开文件时，复用内容匹配的已有版本。
+      return await find(bytes, entries) ?? write(bytes, entries.length ? actor : "init")
     }),
     restore: (id: string) => serial(async () => {
       const entries = await list()
@@ -64,12 +69,10 @@ export function createHtmlHistory(filePath: string, api: DesktopApi) {
       const current = await read(path)
       if (equal(current, target)) return
       // 恢复前先留存当前文件；备份失败时不得覆盖原文件。
-      if (!entries[0] || !equal(current, await read(entries[0].folderPath))) await write(current, "user")
+      if (!await find(current, entries)) await write(current, "user")
       if (!api.writeFileBuffer) throw new Error("当前环境不支持恢复历史版本")
       await api.writeFileBuffer(path, target)
       if (!equal(target, await read(path))) throw new Error("恢复校验失败，请从历史版本重试")
-      // 保存恢复后的版本，使下一次内容比较以恢复结果为基准。
-      await write(target, "user")
     }),
   }
 }
