@@ -6,6 +6,6 @@ export interface AgentExecutionState {
   visible: boolean
 }
 
-const [agentExecution, setAgentExecution] = createSignal<AgentExecutionState | null>(null)
+const [agentExecution, setAgentExecution] = createSignal<Record<string, AgentExecutionState>>({})
 
 export { agentExecution, setAgentExecution }
