@@ -179,7 +179,7 @@ describe("extract_document", () => {
     }),
   )
 
-  it.live("xlsx: Insight 和只读子代理自动注入 spreadsheets 技能", () =>
+  it.live("xlsx: Insight 和只读子代理自动附加 XLSX 阅读说明", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
       const file = path.join(FIXTURES, "sample.xlsx")
@@ -188,11 +188,12 @@ describe("extract_document", () => {
       const unrelated = yield* runAs(dir, file, "build")
 
       for (const result of [insight, reader]) {
-        expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+        expect(result.output).toContain('<document_guidance format="xlsx">')
+        expect(result.output).not.toContain("<skill_content")
         expect(result.output).toContain("Never count physical lines in the extracted Markdown or TSV")
         expect(result.output).toContain("even when the user only asks to read or summarize the workbook")
       }
-      expect(unrelated.output).not.toContain('<skill_content name="spreadsheets"')
+      expect(unrelated.output).not.toContain("<document_guidance")
       expect(unrelated.output).toContain("访谈记录: 2 个非空行（包含可能存在的表头）")
     }),
   )
@@ -205,14 +206,16 @@ describe("extract_document", () => {
       const workbook = new ExcelJS.Workbook()
       const sheet = workbook.addWorksheet("长内容")
       sheet.addRow(["说明"])
-      sheet.addRow(["长内容。".repeat(Math.ceil((46 * 1024) / Buffer.byteLength("长内容。", "utf8")))])
+      sheet.addRow(["长内容。".repeat(Math.ceil((47 * 1024) / Buffer.byteLength("长内容。", "utf8")))])
       yield* Effect.promise(() => workbook.xlsx.writeFile(file))
 
+      const unrelated = yield* runAs(dir, file, "build")
       const result = yield* runAs(dir, file, "octo_insight")
 
+      expect(unrelated.metadata.inlined).toBe(true)
       expect(result.metadata.inlined).toBe(false)
       expect((result.metadata as Record<string, unknown>).truncated).toBe(false)
-      expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+      expect(result.output).toContain('<document_guidance format="xlsx">')
       expect(result.output).toContain("正文过长,未直接返回")
     }),
   )
