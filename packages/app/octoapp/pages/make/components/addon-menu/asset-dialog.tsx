@@ -33,6 +33,13 @@ interface AssetDialogProps {
   onCancel: () => void
 }
 
+/** 文件夹的文件数 = 自身 + 所有子孙的 fileCount 之和(spec line 44) */
+function sumFileCount(folder: AssetFolder): number {
+  let sum = folder.fileCount ?? 0
+  for (const child of folder.children ?? []) sum += sumFileCount(child)
+  return sum
+}
+
 export function AssetDialog(props: AssetDialogProps): JSX.Element {
   const [tree, setTree] = createSignal<AssetFolder[]>([])
   // 树节点用「根到节点的 id 路径」作 key:mock 数据存在父子 id 重复(如 312220),
@@ -585,8 +592,6 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
             if (hasChildren()) toggleExpand(nodeKey())
           }}
         >
-          <span class="addon-menu-item-icon"><FolderIcon /></span>
-          <span class="addon-menu-item-text" title={props.folder.name}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <Icon
               name="chevron-right"
@@ -594,6 +599,11 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
               class="addon-menu-item-arrow asset-tree-arrow"
               style={isExpanded() ? "transform: rotate(90deg)" : undefined}
             />
+          </Show>
+          <span class="addon-menu-item-icon"><FolderIcon /></span>
+          <span class="addon-menu-item-text" title={props.folder.name}>{props.folder.name}</span>
+          <Show when={sumFileCount(props.folder) > 0}>
+            <span class="asset-tree-filecount">{sumFileCount(props.folder)}</span>
           </Show>
         </div>
         <Show when={hasChildren() && isExpanded()}>
