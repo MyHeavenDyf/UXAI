@@ -567,6 +567,12 @@ switch (manifest.version) {
 
 ## 跨平台路径兼容与旧包迁移
 
+导出黑名单通过环境变量 `OCTO_PORTABLE_BLACKLIST_URL` 指定的 HTTP(S) JSON 获取，格式为 `{"version":1,"excludedExtensions":[".asar"]}`。`version` 表示配置格式版本，不是内容更新序号。规则仅允许最多 128 个扩展名，大小写不敏感，不接受文件路径、通配符或脚本；配置 JSON 上限 64KiB，与 ZIP 大小限制无关。
+
+导出前获取一份配置快照，文件扫描、依赖收集和清单共用该快照，不按文件重复请求。客户端请求超时 3 秒，进程内缓存 5 分钟，并发导出合并请求。获取失败时使用该地址最近一次有效缓存；没有有效缓存或未配置 URL 时黑名单为 `[]`，不排除任何文件。缓存不跨应用重启保存。日志搜索 `[octo:portable-blacklist]`，可区分 `remote`、`cache` 和 `empty`。
+
+当远端包含 `.asar` 时，文件扫描和依赖收集均跳过这些归档及其虚拟内部路径；`.asar.unpacked` 不受 `.asar` 规则影响。排除规则写入清单的 `exclusions`，源文件不删除，也不会删除引用它们的页面内容。因而 ZIP 不包含被排除的安装产物，不保证其对应 Electron 应用可从分享包直接运行。若空黑名单兜底允许 `.asar` 参与导出，Electron 特殊读取导致的错误仍可能出现，这是不过滤策略的结果。
+
 导出和导入共用路径规划器。先在内存中规划全部路径，再校验、恢复文件；不会修改源工作区或原 ZIP。
 
 - 新清单可包含 `sourcePlatform`（`posix` / `win32`），旧包根据 `sourceDirectory` 判断来源。Windows 的反斜杠作为分隔符；Unix 文件名中的真实反斜杠编码为 `~005c~`。

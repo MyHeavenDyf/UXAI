@@ -15,6 +15,7 @@ import { Session } from "./session"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
+import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
@@ -143,13 +144,14 @@ function isProjectFile(value: string, legacy = false) {
     .every((part) => part && !(legacy ? /\0/ : /[\0:]/).test(part) && !part.startsWith(".") && part !== "node_modules")
 }
 
-async function listFiles(root: string, project = false) {
+async function listFiles(root: string, project = false, blacklist: readonly string[] = []) {
   const found: string[] = []
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
       if (project && !isProjectFile(entry.name, true)) continue
       const target = path.join(directory, entry.name)
+      if (isExcludedPortableFile(target, blacklist)) continue
       if (entry.isDirectory()) await visit(target)
       if (entry.isFile()) found.push(target)
     }
@@ -185,7 +187,7 @@ function collectSessions(rootSessionID: SessionID) {
   })
 }
 
-function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project") {
+function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project", blacklist: readonly string[] = []) {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
     const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
@@ -217,9 +219,9 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project")).filter((file) => path.resolve(file) !== output)
+          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
           const dependencies = await collectPortableDependencies({
-            root: location.root, files, read,
+            root: location.root, files, read, blacklist,
             trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
           })
           return [
@@ -227,6 +229,7 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
             ...dependencies.filter(
               ({ file }) =>
                 path.resolve(file) !== output &&
+                !isExcludedPortableFile(file, blacklist) &&
                 (location.scope !== "project" || isProjectFile(path.relative(location.root, file), true)),
             ),
           ].map((file) => ({ ...file, location }))
@@ -272,6 +275,8 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   const output = path.resolve(
     input.output.toLowerCase().endsWith(".zip") ? input.output : `${input.output.replace(/\.octosession$/i, "")}.zip`,
   )
+  // Snapshot once per export: scanning, dependency collection and the manifest use the same rules.
+  const blacklist = yield* Effect.promise(() => loadPortableFileBlacklist())
   const manifest: Manifest = {
     format: "octo-session",
     version: bundleVersion,
@@ -285,12 +290,13 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
       "share links",
       "active processes",
       "workspace binding",
+      ...blacklist.map((extension) => `*${extension} files and archive contents`),
       ...(input.scope === "project"
         ? ["hidden workspace files", "node_modules", "symbolic links", "export target"]
         : []),
     ],
     sessions: entries,
-    files: yield* collectFiles(entries, context.directory, zip, output, input.scope),
+    files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist),
   }
   yield* Effect.tryPromise({
     try: () => normalizeBundlePaths(manifest, zip),

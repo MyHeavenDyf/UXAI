@@ -27,6 +27,61 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each(["missing", "unavailable"] as const)("does not exclude files when remote blacklist is %s and uncached", async (mode) => {
+    await using source = await tmpdir({ git: true })
+    const previous = process.env.OCTO_PORTABLE_BLACKLIST_URL
+    const server = mode === "unavailable" ? Bun.serve({ port: 0, fetch: () => new Response(null, { status: 503 }) }) : undefined
+    process.env.OCTO_PORTABLE_BLACKLIST_URL = server ? `http://127.0.0.1:${server.port}/blacklist.json` : ""
+    try {
+      const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+        const session = await runSession((svc) => svc.create({ title: "Empty blacklist fallback" }))
+        await Bun.write(path.join(source.path, ".octo", session.id, "outputs", "app.asar"), "archive bytes")
+        return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip") }))
+      } })
+      const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+      const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[]; exclusions: string[] }
+      expect(manifest.files.map((file) => file.path)).toEqual(["outputs/app.asar"])
+      expect(manifest.exclusions).not.toContain("*.asar files and archive contents")
+    } finally {
+      if (previous === undefined) delete process.env.OCTO_PORTABLE_BLACKLIST_URL
+      else process.env.OCTO_PORTABLE_BLACKLIST_URL = previous
+      server?.stop(true)
+    }
+  })
+
+  test.each([undefined, "project"] as const)("excludes ASAR archives without excluding unpacked files (scope: %s)", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    const previous = process.env.OCTO_PORTABLE_BLACKLIST_URL
+    const server = Bun.serve({ port: 0, fetch: () => Response.json({ version: 1, excludedExtensions: [".asar"] }) })
+    process.env.OCTO_PORTABLE_BLACKLIST_URL = `http://127.0.0.1:${server.port}/portable-blacklist.json`
+    try {
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "ASAR blacklist" }))
+      const root = path.join(source.path, ".octo", session.id, "outputs")
+      await Bun.write(path.join(root, "app.asar"), "archive bytes")
+      await Bun.write(path.join(root, "UPPER.ASAR"), "archive bytes")
+      await Bun.write(path.join(root, "virtual.asar", "entry.js"), "must not traverse archive contents")
+      await Bun.write(path.join(root, "app.asar.unpacked", "native.node"), "native bytes")
+      await Bun.write(path.join(root, "index.html"), '<script src="./virtual.asar/entry.js"></script><script src="./app.asar"></script>')
+      await Bun.write(path.join(source.path, ".octo", "design", "history", session.id, "old.asar"), "archive bytes")
+      await Bun.write(path.join(source.path, "project.asar"), "archive bytes")
+      await Bun.write(path.join(source.path, "project.asar.unpacked", "library.dll"), "library bytes")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string; blob: string }[]; exclusions: string[] }
+    expect(manifest.files.map((file) => file.path).sort()).toEqual(scope === "project"
+      ? ["outputs/app.asar.unpacked/native.node", "outputs/index.html", "project.asar.unpacked/library.dll"]
+      : ["outputs/app.asar.unpacked/native.node", "outputs/index.html"])
+    expect(manifest.exclusions).toContain("*.asar files and archive contents")
+    expect(await zip.file(manifest.files.find((file) => file.path.endsWith("native.node"))!.blob)!.async("string")).toBe("native bytes")
+    } finally {
+      if (previous === undefined) delete process.env.OCTO_PORTABLE_BLACKLIST_URL
+      else process.env.OCTO_PORTABLE_BLACKLIST_URL = previous
+      server.stop(true)
+    }
+  })
+
   test.each(["session", "project"] as const)(
     "imports legacy colon filenames and rewrites page/chat references (%s)",
     async (scope) => {
