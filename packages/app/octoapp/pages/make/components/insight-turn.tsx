@@ -1431,7 +1431,7 @@ const stateStatus = state.status as string | undefined
         </div>
         <Show when={!props.revertPanelOpen}>
           <div class="octo-revert-icon-row">
-            <Tooltip value={copied() ? "已复制" : "复制消息"} placement="top" gutter={4}>
+            <Tooltip value={copied() ? "已复制" : "复制消息"} placement="bottom" gutter={4} arrow flip={false}>
               <button
                 type="button"
                 class="octo-revert-icon-btn"
@@ -1442,7 +1442,7 @@ const stateStatus = state.status as string | undefined
               </button>
             </Tooltip>
             <Show when={props.onRevertToMessage && props.showRevert}>
-              <Tooltip value="回退到本轮对话前" placement="top" gutter={4}>
+              <Tooltip value="回退到本轮对话前" placement="bottom" gutter={4} arrow flip={false}>
                 <button
                   type="button"
                   class="octo-revert-icon-btn"
@@ -1839,7 +1839,7 @@ const stateStatus = state.status as string | undefined
             </div>
           </Show>
           <Show when={replyCopyable()}>
-            <Tooltip value={replyCopied() ? "已复制" : "复制回复"} placement="top" gutter={4}>
+            <Tooltip value={replyCopied() ? "已复制" : "复制回复"} placement="bottom" gutter={4} arrow flip={false}>
               <button
                 type="button"
                 class="octo-revert-icon-btn"
@@ -1851,7 +1851,7 @@ const stateStatus = state.status as string | undefined
             </Tooltip>
           </Show>
           <Show when={regeneratable()}>
-            <Tooltip value="点击将重新生成内容，此会话后的内容都将被覆盖，请谨慎操作。" placement="top" gutter={4}>
+            <Tooltip value="点击将重新生成内容，此会话后的内容都将被覆盖，请谨慎操作。" placement="bottom" gutter={4} arrow flip={false}>
               <button
                 type="button"
                 class="octo-revert-icon-btn"

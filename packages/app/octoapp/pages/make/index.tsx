@@ -1028,10 +1028,6 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID && toolName) {
           toolCallMap.set(callID, { tool: toolName, path: toolPath })
         }
-        // 写前基线：write/edit 即将改写 outputs 下从未版本化的文件 → 先记 init（原始版本 = 修改前内容）
-        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID ?? sid)) {
-          recordArtifactInit(toolPath)
-        }
       } else if (e.type === "session.next.tool.success") {
         const callID = props?.callID as string | undefined
         if (callID) {
@@ -1039,10 +1035,6 @@ const sessionMessagesLoaded = createMemo(() => {
           if (entry) {
             setFilesRefreshKey(k => k + 1)
             void historyController.onFileRefresh(tabStore.tabs())
-            // 伪 tab 版本记录（tab 未打开的 outputs 文件）：write 新建补 init / write-edit 落盘记 模型编辑
-            if (entry.path && isOutputsWriteTool(entry.tool, entry.path, eventSessionID ?? sid)) {
-              void recordToolVersionsAfter(entry.path)
-            }
             toolCallMap.delete(callID)
           }
         }
@@ -1072,6 +1064,71 @@ const sessionMessagesLoaded = createMemo(() => {
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
+      }
+    })
+    onCleanup(unsub)
+  })
+
+  // ── 全局 SSE 监听器：版本基线记录（与当前视图无关）──
+  // 上面的监听器是 session 作用域（params.id 变化即重订阅，非当前 session 的事件被过滤）——
+  // 用户在模型回复中切走 session 会让该轮的伪 tab 基线（init/agent 版本）永久丢失。
+  // 伪 tab 记录（recordArtifactInit / recordToolVersionsAfter）只依赖文件路径、不碰视图状态，
+  // 挪到这里（mount 时订阅一次、不随 session 切换重订阅）即可切走也不丢基线。
+  // code 模式 html 产物的 tab 打开推迟到 session.idle（回复完成）：正在看该 session 才开，
+  // 切走了直接丢弃（基线已记录，用户可从文件面板手动打开）。
+  const globalToolCallMap = new Map<string, { tool: string; path?: string }>()
+  const pendingCodeArtifactTabs = new Map<string, Set<string>>()
+  createEffect(() => {
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = props?.sessionID as string | undefined
+      if (!eventSessionID) return
+
+      if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        const input = (props?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
+        if (callID && toolName) {
+          globalToolCallMap.set(callID, { tool: toolName, path: toolPath })
+        }
+        // 写前基线（outputs 域 + code 模式 html 产物）：编辑场景在写盘前抢记 init = 修改前内容；
+        // 新建文件此时不存在 → recordVersion 落空（success 后由 recordToolVersionsAfter 补 init）
+        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID)) {
+          recordArtifactInit(toolPath)
+        }
+        if (toolName && toolPath && isCodeHtmlArtifactWrite(toolName, toolPath)) {
+          recordArtifactInit(toolPath)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (!callID) return
+        const entry = globalToolCallMap.get(callID)
+        globalToolCallMap.delete(callID)
+        if (!entry?.path) return
+        if (isOutputsWriteTool(entry.tool, entry.path, eventSessionID)) {
+          void recordToolVersionsAfter(entry.path)
+        }
+        if (isCodeHtmlArtifactWrite(entry.tool, entry.path)) {
+          void recordToolVersionsAfter(entry.path)
+          // 累积到该 session 的待开列表，idle（回复完成）时统一打开
+          const set = pendingCodeArtifactTabs.get(eventSessionID) ?? new Set<string>()
+          set.add(entry.path)
+          pendingCodeArtifactTabs.set(eventSessionID, set)
+        }
+      } else if (e.type === "session.idle") {
+        const paths = pendingCodeArtifactTabs.get(eventSessionID)
+        pendingCodeArtifactTabs.delete(eventSessionID)
+        if (!paths || paths.size === 0) return
+        // 切走的 session：tab 直接丢弃（基线已记录，不补开）
+        if (params.id !== eventSessionID) return
+        for (const path of paths) {
+          const normalized = path.replace(/\\/g, "/")
+          // 过滤用户中途手动打开的 tab（避免无谓激活）
+          if (tabStore.tabs().some((t) => t.filePath && t.filePath.replace(/\\/g, "/") === normalized)) continue
+          handleOpenLocalFile(path)
+        }
       }
     })
     onCleanup(unsub)
@@ -1977,6 +2034,7 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (id) => {
     if (id) return
     const pending = pendingNewChatAttachments()
+    console.log("[octo:make] pending-attachments effect", { id, pending: pending?.length ?? null, current: attachments().length })
     if (!pending) return
     setPendingNewChatAttachments(null)
     setAttachments(pending)
@@ -2083,10 +2141,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const isFirst = userMessages()[0]?.id === msg.id
 
     if (isFirst) {
-      const draft = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+      const draft = await executeRevert(msg)
+      if (!draft) return
+      console.log("[octo:make] first-message revert draft", {
+        attachments: draft.attachments.length,
+        parts: ((sync.data.part[msg.id] ?? []) as RevertDraftPart[]).map((p) => `${p.type}${p.synthetic ? "(synthetic)" : ""}`).join(","),
+      })
+      tracker.interaction({ module: "design", name: "revert-session-restart" })
       const ok = await removeSession(sdk.client, sid)
       if (!ok) return
-      tracker.interaction({ module: "design", name: "revert-session-restart" })
       sync.set(
         produce((draftState) => {
           const i = draftState.session.findIndex((s) => s.id === sid)
@@ -2100,6 +2163,24 @@ const sessionMessagesLoaded = createMemo(() => {
       setRevertPanelID(null)
       navigate("/make", { replace: true })
       showOctoToast({ title: "已回退并删除当前会话，消息已恢复到输入框" })
+      // 兜底：rAF 时序上晚于路由切换提交的全部 effect（含 :733 清空附件与上面的 pending effect），
+      // pending effect 因任何时序问题未消费时由此直接应用；两者幂等（都先置 null 再应用，先到先得）
+      requestAnimationFrame(() => {
+        const pending = pendingNewChatAttachments()
+        console.log("[octo:make] rAF fallback", { paramsId: params.id, pending: pending?.length ?? null, current: attachments().length })
+        if (params.id) return
+        if (!pending) return
+        setPendingNewChatAttachments(null)
+        setAttachments(pending)
+      })
+      // 500ms 终态：判定「应用后被清」vs「从未应用」vs「应用了但没渲染」
+      setTimeout(() => {
+        console.log("[octo:make] revert final state", {
+          paramsId: params.id,
+          attachments: attachments().length,
+          pendingLeft: pendingNewChatAttachments()?.length ?? null,
+        })
+      }, 500)
       return
     }
 
@@ -2224,6 +2305,21 @@ const sessionMessagesLoaded = createMemo(() => {
     const lower = toolName.toLowerCase()
     if (!lower.includes("write") && !lower.includes("edit")) return false
     return filePath.replace(/\\/g, "/").includes(`.octo/${sessionID}/outputs/`)
+  }
+
+  /** code 模式 html 产物判定：write/edit 工具 + 项目内 + .html 扩展（排除 .octo 内部目录）。
+   *  agent 在 code 模式按 [Workspace] 提示词直接写项目文件，html 页面是回退恢复的主要对象。
+   *  版本基线经全局 SSE 监听器记录（伪 tab init/agent）；tab 打开推迟到 session.idle（回复完成） */
+  function isCodeHtmlArtifactWrite(toolName: string, filePath: string): boolean {
+    if (!isProjectScope()) return false
+    const lower = toolName.toLowerCase()
+    if (!lower.includes("write") && !lower.includes("edit")) return false
+    const normalized = filePath.replace(/\\/g, "/")
+    if (!/\.html?$/i.test(normalized)) return false
+    if (normalized.includes("/.octo/")) return false
+    const dir = projectDir()?.replace(/\\/g, "/")
+    if (!dir) return false
+    return normalized.startsWith(dir.endsWith("/") ? dir : dir + "/")
   }
 
   function pseudoHistoryTab(filePath: string): ResultTab {
