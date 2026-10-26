@@ -79,7 +79,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
-import { isPreviewableMedia } from "../insight/utils/output-type"
+import { isBlockedLocalFile, isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
 import { TurnAnchorNav } from "./components/turn-anchor-nav"
@@ -140,6 +140,10 @@ import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+
+// 本地文件读入 tab content 的字节上限(与 result-viewer/text-renderer.tsx 的 MAX_PREVIEW_BYTES 同值):
+// 超过此规模的文本不做 decode/渲染,防止巨型文件撑爆 store 与渲染器
+const MAX_LOCAL_PREVIEW_BYTES = 1024 * 1024
 
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
@@ -5125,6 +5129,24 @@ const sessionMessagesLoaded = createMemo(() => {
       return
     }
 
+    // 根部收口:任何带本地 filePath 的卡片,扩展名属于不可预览集合(exe/office/压缩包等)
+    // → 弹下载 dialog,不开 tab。覆盖 artifact 卡片/文件管理入口/未来新增打开入口;
+    // http URL 不在此列(后续 URL 分支处理);link 卡片路径在 content 里(filePath 通常为空),
+    // 由下方 link 校验块的守卫覆盖。
+    if (card.filePath && !/^https?:\/\//i.test(card.filePath) && isBlockedLocalFile(card.filePath)) {
+      const fp = card.filePath
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={fp.split(/[/\\]/).pop() ?? card.title}
+          filePath={fp}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-unavailable", extend: JSON.stringify({ title: card.title }) })
+      return
+    }
+
     // link 类型先校验,打不开直接 toast 返回,不切 tabs 模式(否则右侧停留在无 tab 的 tabs 视图)
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
@@ -5136,6 +5158,26 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!/^([A-Za-z]:[/\\]|\/)/.test(linkContent) && !projectDir()) {
         showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
         tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "no-project-dir" }) })
+        return
+      }
+      // 磁盘路径(绝对/相对)指向不可预览扩展名(exe/office/压缩包等)→ 弹下载 dialog,不开 tab。
+      if (!/^https?:\/\//i.test(linkContent) && isBlockedLocalFile(linkContent)) {
+        const normalizedLink = linkContent.replace(/\\/g, "/")
+        const dir = projectDir()
+        const absolutePath = /^([A-Za-z]:[/\\]|\/)/.test(linkContent)
+          ? normalizedLink.replace(/\/+/g, "/")
+          : dir
+            ? dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/" + normalizedLink
+            : normalizedLink
+        dialog.show(() => (
+          <DialogPreviewUnavailable
+            filename={absolutePath.split("/").pop() ?? card.title}
+            filePath={absolutePath}
+            sdkUrl={sdk.url}
+            sdkDirectory={sdk.directory || ""}
+          />
+        ))
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "unpreviewable-ext" }) })
         return
       }
     }
@@ -5234,8 +5276,8 @@ const sessionMessagesLoaded = createMemo(() => {
         // ★ 先 activate,后台再比对磁盘内容(镜像 non-link 分支的优化)
         tabStore.activate(existingLocal.id)
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
-        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU
-        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
+        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU; 不可预览扩展名也跳过
+        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type) && !isBlockedLocalFile(existingLocal.filePath ?? "")) {
           // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
           const existingBefore = { ...existingLocal } as ResultTab
           // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
@@ -5286,7 +5328,8 @@ const sessionMessagesLoaded = createMemo(() => {
       if (inferredType !== "design-plan") {
         const api = getDesktopApi()
         const buf = await api?.readFileBuffer?.(absolutePath)
-        if (buf) {
+        // 超大文件跳过 decode:防止巨型文本撑爆 tab store 与下游渲染器
+        if (buf && buf.byteLength <= MAX_LOCAL_PREVIEW_BYTES) {
           const fileContent = new TextDecoder().decode(buf)
           if (fileContent) {
             tabStore.updateTabContent(tabId, fileContent)
