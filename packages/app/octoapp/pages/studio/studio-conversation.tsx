@@ -26,6 +26,7 @@ import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, 
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
 import { StudioDownloadIcon } from "./studio-download-icon"
+import { StudioPromptExpansionReviewView } from "./studio-prompt-expansion-review-view"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -104,6 +105,11 @@ export function StudioConversation(props: {
   rebootingGenerationIDs: ReadonlySet<string>
   refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  expansionText: (turn: StudioTurnData) => string
+  expansionEditable: (turn: StudioTurnData) => boolean
+  expansionCanGenerate: boolean
+  onExpansionInput: (turn: StudioTurnData, text: string) => void
+  onExpansionChoose: (turn: StudioTurnData, choice: "confirmed" | "ignored") => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
   onRefreshGeneration: (generationID: string) => void
@@ -123,7 +129,7 @@ export function StudioConversation(props: {
         <For each={props.turns}>
           {(turn, index) => (
             <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
-              <Show when={turn.inputImages?.length}>
+              <Show when={!turn.hideUserBubble && turn.inputImages?.length}>
                 <div class="studio-user-input-images">
                   <For each={turn.inputImages}>
                     {(image) => (
@@ -171,12 +177,33 @@ export function StudioConversation(props: {
                   </For>
                 </div>
               </Show>
-              <div class="studio-user-bubble">
+              <Show when={!turn.hideUserBubble && turn.recommendation?.kind !== "guide"}><div class="studio-user-bubble">
                 <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
-              </div>
+              </div></Show>
+              <Show when={turn.recommendation?.kind === "result"}>
+                <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
+                  <div class="studio-prompt-expansion" role="status">
+                    {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
+                  </div>
+                </Show>
+                <Show when={turn.recommendation?.status === "completed"}>
+                  <StudioPromptExpansionReviewView
+                    turn={turn}
+                    text={props.expansionText(turn)}
+                    editable={props.expansionEditable(turn)}
+                    busy={props.actionBusy}
+                    canGenerate={props.expansionCanGenerate}
+                    onInput={(text) => props.onExpansionInput(turn, text)}
+                    onChoose={(choice) => props.onExpansionChoose(turn, choice)}
+                  />
+                </Show>
+              </Show>
               <Show when={turn.editCapability} fallback={
-                <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
-                  {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                <Show when={!(turn.recommendation?.kind === "result" &&
+                  ["running", "cancelling", "completed"].includes(turn.recommendation.status))}>
+                  <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+                    {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                  </Show>
                 </Show>
               }>
                 {(editCapability) => (
@@ -194,7 +221,7 @@ export function StudioConversation(props: {
                   </button>
                 )}
               </Show>
-              <Show when={!turn.editCapability}>
+              <Show when={!turn.editCapability && !turn.recommendation}>
                 <StudioResultCard
                   turn={turn}
                   fallbackCapability={props.result?.capability}

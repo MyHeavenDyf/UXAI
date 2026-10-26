@@ -102,6 +102,9 @@ export function StudioComposer(props: {
   onRecipeExtraPrompt: (value: string) => void
   onUnsupportedReferenceUpload?: () => void
   onReversePrompt?: () => void
+  onRecommend?: () => void
+  recommendationLocked?: boolean
+  recommendationArmed?: boolean
   onCancel?: () => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
@@ -1113,14 +1116,14 @@ export function StudioComposer(props: {
               fallback={<div class="studio-composer-template-prompt-disabled">此图片模板不支持输入提示词</div>}
             >
               <Show
-                when={isRecipeTemplate()}
+                when={isRecipeTemplate() && !props.recommendationArmed}
                 fallback={
                   <>
                     <div
                       ref={inputRef}
                       class="studio-composer-input"
                       contenteditable={!isEditingCapability()}
-                      data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                      data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : undefined}
                       onFocus={() => { activeMentionField = "prompt" }}
                       onInput={() => {
                         const text = inputRef.innerText.replace(/\u200B/g, "")
@@ -1139,7 +1142,9 @@ export function StudioComposer(props: {
                     />
                     <Show when={!isVideoGeneration() && !props.prompt}>
                       <div class="studio-composer-input-placeholder">
-                        {isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                        <Show when={!isEditingCapability() && props.capability === "image.generate" && !props.selectedStyleTemplate} fallback={isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}>
+                          上传参考图、输入文字或@主体，描述你想生成的图片，或使用<button type="button" class="studio-prompt-recommendation-button" disabled={props.busy} onClick={(event) => { event.stopPropagation(); props.onRecommend?.() }}>AI推荐</button>描述内容。
+                        </Show>
                       </div>
                     </Show>
                   </>
@@ -1232,7 +1237,7 @@ export function StudioComposer(props: {
               <ToolButton
                 label={capabilityLabel(props.capability)}
                 active={props.openMenu === "capability"}
-                disabled={isBusy()}
+                disabled={isBusy() || props.recommendationLocked}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-capability-open" }); props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability") }}
               />
@@ -1242,7 +1247,7 @@ export function StudioComposer(props: {
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
-                  disabled={isBusy()}
+                  disabled={isBusy() || props.recommendationLocked}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                   onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-open" }); props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style") }}
                 />
@@ -1284,7 +1289,7 @@ export function StudioComposer(props: {
                       <ToolButton
                         label="风格模板"
                         active={props.openMenu === "style-template"}
-                        disabled={isBusy()}
+                        disabled={isBusy() || props.recommendationLocked}
                         onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                         onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template") }}
                       />
@@ -1293,7 +1298,7 @@ export function StudioComposer(props: {
                     <SelectedTemplateButton
                       title={props.selectedStyleTemplate?.title ?? ""}
                       active={props.openMenu === "style-template"}
-                      disabled={isBusy()}
+                      disabled={isBusy() || props.recommendationLocked}
                       editable={Boolean(selectedExtractStyleTemplate())}
                       editorOpen={props.styleTemplateEditorOpen}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
@@ -1412,6 +1417,7 @@ export function StudioComposer(props: {
                         <button
                           type="button"
                           class="studio-composer-toolbar-more-item"
+                          disabled={isBusy() || props.recommendationLocked}
                           classList={{ active: props.openMenu === "style-template" }}
                           onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu("style-template") }}
                         >
@@ -1425,7 +1431,7 @@ export function StudioComposer(props: {
                         <SelectedTemplateButton
                           title={props.selectedStyleTemplate?.title ?? ""}
                           active={props.openMenu === "style-template"}
-                          disabled={isBusy()}
+                          disabled={isBusy() || props.recommendationLocked}
                           editable={Boolean(selectedExtractStyleTemplate())}
                           editorOpen={props.styleTemplateEditorOpen}
                           toolbarMore
@@ -1465,7 +1471,7 @@ export function StudioComposer(props: {
                 </Show>
               </div>
           </Show>
-          <Show when={props.openMenu === "capability"}>
+          <Show when={!props.recommendationLocked && props.openMenu === "capability"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("capability", el)}>
               <CapabilityMenu
                 value={props.capability}
@@ -1474,7 +1480,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={isImageGeneration() && props.openMenu === "style"}>
+          <Show when={!props.recommendationLocked && isImageGeneration() && props.openMenu === "style"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style", el)}>
               <StyleMenu
                 value={props.styleModel}
@@ -1502,7 +1508,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={isImageGeneration() && props.openMenu === "style-template"}>
+          <Show when={!props.recommendationLocked && isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
                 canCreateTemplate={props.canCreateStyleTemplate}
@@ -1586,7 +1592,7 @@ export function StudioComposer(props: {
               onClick={props.onSubmit}
               disabled={!props.canSubmit}
               class="studio-composer-send"
-              title="生成"
+              title={props.recommendationArmed ? "扩写" : "生成"}
             />
           </Show>
           <Show when={isBusy() && props.onCancel}>
@@ -1594,7 +1600,7 @@ export function StudioComposer(props: {
               type="button"
               onClick={props.onCancel}
               class="studio-composer-stop"
-              title="停止生成"
+              title="停止"
             />
           </Show>
         </div>
