@@ -1,7 +1,7 @@
 type SharedSessionRef = { sessionID: string; directory: string; agent?: string }
 
 export function createSharedSessionCache<T extends { id: string; directory: string; agent?: string }>(input: {
-  importSession: (uniqueId: string, directory: string) => Promise<SharedSessionRef | null | undefined>
+  importSession: (uniqueId: string, directory: string, token?: string) => Promise<SharedSessionRef | null | undefined>
   readSession: (result: SharedSessionRef) => Promise<T | undefined>
   isDeleted: (result: SharedSessionRef) => boolean
 }) {
@@ -13,8 +13,8 @@ export function createSharedSessionCache<T extends { id: string; directory: stri
         if (result.directory === directory && result.sessionID === sessionID) completed.delete(key)
       }
     },
-    async open(server: string, uniqueId: string, directory: string) {
-      const key = JSON.stringify([server, directory, uniqueId])
+    async open(server: string, uniqueId: string, directory: string, module?: string, token?: string) {
+      const key = JSON.stringify([server, directory, uniqueId, module])
       const cached = completed.get(key)
       if (cached && !input.isDeleted(cached)) {
         const session = await input.readSession(cached)
@@ -23,7 +23,7 @@ export function createSharedSessionCache<T extends { id: string; directory: stri
         }
       }
       completed.delete(key)
-      const result = await input.importSession(uniqueId, directory)
+      const result = await input.importSession(uniqueId, directory, token)
       if (!result) return
       const session = await input.readSession(result)
       if (!session) throw new Error("导入的对话不存在，请重新打开分享链接")

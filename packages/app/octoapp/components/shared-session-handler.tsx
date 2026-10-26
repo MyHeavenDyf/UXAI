@@ -1,6 +1,6 @@
-import { batch, createEffect, onMount, onCleanup, untrack } from "solid-js"
+import { batch, createEffect, createRoot, onMount, onCleanup, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
+import { useLocation, useNavigate } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
 import { usePlatform } from "@/context/platform"
 import { useLayout } from "@/context/layout"
@@ -8,10 +8,11 @@ import { useServer } from "@/context/server"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
-import { INSIGHT_AGENT } from "@/constants/agent"
 import { tracker } from "@/utils/tracker"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
+import { openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
+import { sharedSessionImportContext } from "./shared-session-import-context"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
@@ -20,13 +21,20 @@ export function SharedSessionHandler() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
+  const location = useLocation()
+  const lifetime = new AbortController()
+  onCleanup(() => lifetime.abort())
   const inFlight = new Set<string>()
   const cache = createSharedSessionCache({
-    importSession: async (uniqueId, directory) => platform.importSharedSession?.(
-      uniqueId,
-      directory,
-      kindOf(server.projects.list().find((project) => project.worktree === directory)) === "code" ? "project" : "session",
-    ),
+    importSession: async (uniqueId, directory, token) =>
+      platform.importSharedSession?.(
+        uniqueId,
+        directory,
+        kindOf(server.projects.list().find((project) => project.worktree === directory)) === "code"
+          ? "project"
+          : "session",
+        token,
+      ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
       const response = await globalSDK.createClient({ throwOnError: false }).session.get({
@@ -41,9 +49,49 @@ export function SharedSessionHandler() {
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
 
-  const open = async (uniqueId: string, directory: string) => {
-    const result = await cache.open(server.current?.http.url ?? globalSDK.url, uniqueId, directory)
-    if (!result) return
+  const waitForContext = (module: SharedSessionModule) =>
+    new Promise<string>((resolve, reject) => {
+      createRoot((dispose) => {
+        const fail = (message: string) => {
+          dispose()
+          reject(new Error(message))
+        }
+        const timer = setTimeout(() => fail("目标模块尚未就绪，请稍后重新打开分享链接"), 30_000)
+        const aborted = () => fail("分享打开已取消")
+        lifetime.signal.addEventListener("abort", aborted, { once: true })
+        onCleanup(() => {
+          clearTimeout(timer)
+          lifetime.signal.removeEventListener("abort", aborted)
+        })
+        const ready = () => {
+          const page = module === "design" ? "make" : module
+          return (
+            !lifetime.signal.aborted &&
+            server.ready() &&
+            !layout.onboarding.show() &&
+            (location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)) &&
+            sharedSessionImportContext.module === module &&
+            sharedSessionImportContext.ready &&
+            !!sharedSessionImportContext.directory &&
+            sharedSessionImportContext.directory === server.projects.last()
+          )
+        }
+        if (lifetime.signal.aborted) return aborted()
+        createEffect(() => {
+          if (!ready()) return
+          // Let the page's mount-time restore/route guards finish before creating the imported session.
+          queueMicrotask(() => {
+            if (!ready()) return
+            const directory = sharedSessionImportContext.directory
+            dispose()
+            resolve(directory)
+          })
+        })
+      })
+    })
+
+  const showImported = (result: NonNullable<Awaited<ReturnType<typeof cache.open>>>, module: SharedSessionModule) => {
+    if (lifetime.signal.aborted) return
     const [store, setStore] = globalSync.child(result.directory, { bootstrap: false })
     // Import events can arrive before this directory's store is subscribed.
     // Hydrate the final metadata before routing, without loading the full history.
@@ -55,17 +103,44 @@ export function SharedSessionHandler() {
       push: () => {},
       loadLsp: () => {},
     })
-    const page = result.agent === INSIGHT_AGENT ? "insight" : result.agent === "proto_triage" ? "pattern" : "make"
+    const page = module === "design" ? "make" : module
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
       if (page === "pattern") layout.lastSessionPerTab.setPattern(result.sessionID)
+      if (page === "insight") layout.lastSessionPerTab.setCowork(result.sessionID)
       layout.lastSessionPerTab.setNewConversation(page, false)
+      if (page === "insight") layout.lastSessionPerTab.setNewConversation("cowork", false)
       layout.projects.open(result.directory)
       server.projects.touch(result.directory)
       navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
     })
-    tracker.interaction({ module: page === "make" ? "design" : page === "pattern" ? "prototype" : page, name: "share-import-success" })
+    tracker.interaction({
+      module: page === "make" ? "design" : page === "pattern" ? "prototype" : page,
+      name: "share-import-success",
+    })
     showToast({ variant: "success", title: "分享对话已打开" })
+  }
+
+  const open = async (uniqueId: string) => {
+    if (!platform.prepareSharedSession || !platform.releaseSharedSession) throw new Error("请升级 App 后再打开分享对话")
+    const connection = server.current?.http.url ?? globalSDK.url
+    await openPreparedSharedSession({
+      prepare: () => platform.prepareSharedSession!(uniqueId),
+      select: (module) => {
+        if (lifetime.signal.aborted) throw new Error("分享打开已取消")
+        const page = module === "design" ? "make" : module
+        layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
+        navigate(`/${page}`)
+      },
+      ready: waitForContext,
+      importSession: (prepared, directory) => {
+        if (lifetime.signal.aborted || connection !== (server.current?.http.url ?? globalSDK.url))
+          throw new Error("连接已变更，请重新打开分享链接")
+        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token)
+      },
+      open: showImported,
+      release: (token) => platform.releaseSharedSession!(token),
+    })
   }
 
   const handle = (urls: string[]) => {
@@ -90,9 +165,16 @@ export function SharedSessionHandler() {
     untrack(() => {
       setPending("ids", [])
       for (const uniqueId of ids) {
-        queue = queue.then(() => open(uniqueId, directory)).catch((error) => {
-          showToast({ variant: "error", title: "打开分享对话失败", description: error instanceof Error ? error.message : String(error) })
-        }).finally(() => inFlight.delete(uniqueId))
+        queue = queue
+          .then(() => open(uniqueId))
+          .catch((error) => {
+            showToast({
+              variant: "error",
+              title: "打开分享对话失败",
+              description: error instanceof Error ? error.message : String(error),
+            })
+          })
+          .finally(() => inFlight.delete(uniqueId))
       }
     })
   })

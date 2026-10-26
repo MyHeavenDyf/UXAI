@@ -7,7 +7,7 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "@/studio/studio-generation.sql"
 import { StudioHistoryTable } from "@/studio/studio-history.sql"
 import { materializeStudioGeneration } from "@/studio/studio-history-service"
-import { getGeneration } from "../../src/studio/studio-service"
+import { getGeneration, promptExpansionMessageMetadata } from "../../src/studio/studio-service"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
 
 // 历史视频记录曾把 provider 的 "std"/"pro" 模式写进 videoQualityMode，
@@ -311,4 +311,16 @@ describe("Studio generation service", () => {
       })
     })
   })
+})
+
+
+test("button generation persists expansion origin in the user text metadata", () => {
+  expect(promptExpansionMessageMetadata({
+    skipPromptRefine: true,
+    promptExpansionSource: { assistantMessageID: "expansion-assistant" },
+  })).toEqual({ studioPromptExpansionSource: { assistantMessageID: "expansion-assistant" } })
+  expect(promptExpansionMessageMetadata({ skipPromptRefine: true })).toBeUndefined()
+  expect(promptExpansionMessageMetadata(undefined)).toBeUndefined()
+  expect(promptExpansionMessageMetadata({ promptExpansionSource: { assistantMessageID: " " } })).toBeUndefined()
+  expect(promptExpansionMessageMetadata({ promptExpansionSource: "invalid" })).toBeUndefined()
 })

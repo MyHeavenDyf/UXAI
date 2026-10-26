@@ -92,6 +92,22 @@
   color: #262626;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: auto;
+}
+.comment-popover-note-readonly::-webkit-scrollbar {
+  width: 4px;
+}
+.comment-popover-note-readonly::-webkit-scrollbar-track {
+  background: transparent;
+}
+.comment-popover-note-readonly::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.comment-popover-note-readonly::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
 }
 
 .comment-popover-attachments-readonly {

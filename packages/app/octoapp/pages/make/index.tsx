@@ -71,6 +71,7 @@ import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAncho
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportContext } from "@/components/shared-session-import-context"
 import { kindOf } from "@/components/workspace-switcher"
 import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { getMappingStore } from "@/hooks/use-session-groups"
@@ -179,6 +180,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const location = useLocation()

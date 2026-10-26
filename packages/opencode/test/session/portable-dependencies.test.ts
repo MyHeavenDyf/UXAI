@@ -5,6 +5,26 @@ import { pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { tmpdir } from "../fixture/fixture"
 
+test("collects dependencies from HTML, JavaScript and CSS files larger than 4 MiB", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const padding = "x".repeat(4 * 1024 * 1024 + 1)
+  await Bun.write(page, `<!--${padding}--><script src="./large.js"></script><link rel="stylesheet" href="./large.css">`)
+  await Bun.write(path.join(project.path, "large.js"), `/*${padding}*/\nimport "./extra.js";`)
+  await Bun.write(path.join(project.path, "large.css"), `/*${padding}*/\n@font-face { src: url("./font.woff2") }`)
+  await Bun.write(path.join(project.path, "extra.js"), "window.ready = true")
+  await Bun.write(path.join(project.path, "font.woff2"), "font bytes")
+  const dependencies = await collectPortableDependencies({
+    root: project.path,
+    files: [page],
+    trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })
+  expect(dependencies.map((item) => path.basename(item.file)).sort()).toEqual([
+    "extra.js", "font.woff2", "large.css", "large.js",
+  ])
+})
+
 test("warns with the original reference and source when an unrelated output page points at absent resources", async () => {
   await using project = await tmpdir()
   await using resources = await tmpdir()
