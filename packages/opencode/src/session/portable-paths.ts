@@ -145,8 +145,10 @@ export function planPortablePaths<T extends File>(input: {
   ) => {
     if (!value || /^(?:https?:|data:|blob:|javascript:|mailto:|#|\/\/)/i.test(value)) return value
     const fileURL = value.startsWith("file://") ? new URL(value) : undefined
-    const split = url ? /^([^?#]*)(.*)$/.exec(value)! : [value, value, ""]
-    const decoded = url ? decodeURIComponentSafe(split[1]) : split[1]
+    const offset = url ? value.search(/[?#]/) : -1
+    const pathname = offset < 0 ? value : value.slice(0, offset)
+    const suffix = offset < 0 ? "" : value.slice(offset)
+    const decoded = url ? decodeURIComponentSafe(pathname) : pathname
     const local = fileURL
       ? normalize(decodeURIComponentSafe(`${fileURL.hostname ? `//${fileURL.hostname}` : ""}${fileURL.pathname}`).replace(/^\/([a-z]:\/)/i, "$1"))
       : normalize(decoded)
@@ -172,7 +174,7 @@ export function planPortablePaths<T extends File>(input: {
       fileURL.pathname = (fileURL.hostname ? result.slice(result.indexOf("/", 2)) : result.startsWith("/") ? result : `/${result}`).replaceAll("%", "%25")
       return fileURL.href
     }
-    return (url ? result.split("/").map(encodeURIComponent).join("/") : result) + split[2]
+    return (url ? result.split("/").map(encodeURIComponent).join("/") : result) + suffix
   }
   const absoluteMappings = mapped.flatMap((entry) => {
     const original = `${entry.root}/${entry.original}`

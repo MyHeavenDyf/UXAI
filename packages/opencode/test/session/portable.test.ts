@@ -78,7 +78,7 @@ describe("portable session", () => {
       for (const file of manifest.files) {
         file.path = file.path.replace("assets_README.md", "assets:README.md")
         if (!file.path.endsWith("index.html")) continue
-        const text = '<a href="./assets:README.md">Readme</a><a href="./assets%3AREADME.md">Encoded</a>'
+        const text = '<a href="./assets:README.md">Readme</a><a href="./assets%3AREADME.md">Encoded</a><script>const example = `unrelated?\nfirst line\nsecond line`;</script>'
         file.size = Buffer.byteLength(text)
         file.sha256 = createHash("sha256").update(text).digest("hex")
         file.blob = `blobs/${file.sha256}`
@@ -93,7 +93,7 @@ describe("portable session", () => {
           const root = path.join(target.path, ".octo", result.sessionID, "outputs")
           expect(await Bun.file(path.join(root, "assets~003a~README.md")).text()).toBe("readme")
           expect(await Bun.file(path.join(root, "index.html")).text()).toBe(
-            '<a href="./assets~003a~README.md">Readme</a><a href="./assets~003a~README.md">Encoded</a>',
+            '<a href="./assets~003a~README.md">Readme</a><a href="./assets~003a~README.md">Encoded</a><script>const example = `unrelated?\nfirst line\nsecond line`;</script>',
           )
           const messages = await runSession((svc) => svc.messages({ sessionID: result.sessionID }))
           expect(messages[0].parts[0]).toMatchObject({

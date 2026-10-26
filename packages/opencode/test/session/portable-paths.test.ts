@@ -4,6 +4,16 @@ import { planPortablePaths, rewritePortableDocument } from "@/session/portable-p
 const files = (names: string[], scope: "project" | "session" = "project") =>
   names.map((path) => ({ sessionID: "ses_test", scope, directory: ".", path }))
 
+test("does not crash on multiline strings containing query or fragment markers", () => {
+  const plan = planPortablePaths({ sourceDirectory: "/work", files: files(["index.html", "assets:icon.svg"]) })
+  const query = "./assets:icon.svg?v=1\n&theme=light\n"
+  const fragment = "./assets:icon.svg#part\nsecond line\n"
+  expect(plan.reference(query, 0)).toBe("./assets~003a~icon.svg?v=1\n&theme=light\n")
+  expect(plan.reference(fragment, 0)).toBe("./assets~003a~icon.svg#part\nsecond line\n")
+  const script = 'const example = `unrelated?\nfirst line\nsecond line`;'
+  expect(rewritePortableDocument(script, "example.js", (value) => plan.reference(value, 0))).toBe(script)
+})
+
 test("plans deterministic encoding for invalid characters, reserved names and trailing dots/spaces", () => {
   const plan = planPortablePaths({
     sourceDirectory: "/workspace",
