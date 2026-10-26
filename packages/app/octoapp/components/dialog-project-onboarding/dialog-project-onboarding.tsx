@@ -72,7 +72,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         domain: selections.domain,
         productLine: selections.productLine,
         product: selections.product,
-        version: selections.version,
+        versionInfo: selections.version,
         dir
       }),
     })
