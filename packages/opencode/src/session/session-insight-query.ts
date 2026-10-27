@@ -1,5 +1,5 @@
 import { Database } from "@/storage/db"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, asc, desc, eq, sql } from "drizzle-orm"
 import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable } from "./session.sql"
 import { fromRow, type Info } from "./session"
@@ -46,7 +46,11 @@ export function listInsightSessions(input: {
       .select()
       .from(SessionTable)
       .where(and(...conditions))
-      .orderBy(desc(SessionTable.time_updated))
+      // 与侧栏「最近」显示顺序一致(sort_order 优先、time 次之、id 兜底):
+      // 客户端 recentSessions 按 sort_order asc + time desc 排,若这里仍按
+      // time desc 分页,后续页可能含 sort_order 更小的会话,追加后跳到已显示
+      // 条目之上,把列表第一条顶下去(见 experimental.session.list order=sort_order)。
+      .orderBy(asc(SessionTable.sort_order), desc(SessionTable.time_updated), desc(SessionTable.id))
       .limit(input.limit)
       .offset(input.offset)
       .all()

@@ -1627,6 +1627,7 @@ export class Session extends HeyApiClient {
       grouped?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
       agent?: string
+      order?: "updated" | "sort_order"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1646,6 +1647,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "grouped" },
             { in: "query", key: "archived" },
             { in: "query", key: "agent" },
+            { in: "query", key: "order" },
           ],
         },
       ],
