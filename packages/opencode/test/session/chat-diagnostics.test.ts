@@ -1,5 +1,9 @@
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test"
-import { chatError, chatTransportMetadata, createChatTrace } from "../../src/session/chat-diagnostics"
+import { Cause, Effect, Exit, Layer } from "effect"
+import { testEffect } from "../lib/effect"
+import { chatError, chatStep, chatTransportMetadata, createChatTrace } from "../../src/session/chat-diagnostics"
+
+const it = testEffect(Layer.empty)
 
 const output = spyOn(console, "info").mockImplementation(() => {})
 afterEach(() => output.mockClear())
@@ -113,3 +117,58 @@ test("byte counters and unknown finish values do not leak content", () => {
   expect(records().at(-1)).toMatchObject({ chunks: 2, bytes: 579 })
   expect(JSON.stringify(records())).not.toContain("secret")
 })
+
+test("keeps TypeError detail and code positions without paths, function names or secrets", () => {
+  const error = new TypeError("Cannot read properties of undefined (reading 'cache')")
+  error.stack = [
+    error.toString(),
+    "    at privateSecret (file:///C:/Users/privateSecret/resources/app.asar/out/main/chunks/node-test.js:123:45)",
+    "    at secret (/Users/privateSecret/UXAI/packages/opencode/src/session/prompt.ts:1855:18)",
+    "    at secret (https://host/secret.js?token=privateSecret:1:2)",
+    "    at privateSecret (native)",
+  ].join("\n")
+  const result = chatError(error)
+  expect(result).toMatchObject({
+    errorDetails: ["Cannot read properties of undefined (reading 'cache')"],
+    stackFrames: ["node-test.js:123:45", "prompt.ts:1855:18"],
+  })
+  expect(JSON.stringify(result)).not.toContain("privateSecret")
+  expect(JSON.stringify(result)).not.toContain("C:/Users")
+})
+
+test("redacts unknown TypeError fields and arbitrary error messages", () => {
+  expect(chatError(new TypeError("Cannot read properties of null (reading 'credentialSecret')")).errorDetails).toEqual([
+    "Cannot read properties of null (reading '[field]')",
+  ])
+  expect(chatError(new Error("token=credentialSecret")).errorDetails).toEqual([])
+})
+
+it.live("preparation failure identifies the stage and preserves the original defect", () =>
+  Effect.gen(function* () {
+    const original = new TypeError("Cannot read properties of null (reading 'limit')")
+    const exit = yield* Effect.exit(
+      chatStep({ layer: "prompt", sessionID: "ses_test" }, "loop:model", Effect.die(original)),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(original)
+    const failure = records().find((item) => item.stage === "loop:model:failed")
+    expect(failure).toMatchObject({
+      diagnosticVersion: 2,
+      sessionID: "ses_test",
+      failedAt: "loop:model",
+      errorNames: ["TypeError"],
+      errorDetails: ["Cannot read properties of null (reading 'limit')"],
+    })
+    expect(failure.stepID).toBe(records().find((item) => item.stage === "loop:model:start").stepID)
+    expect(records().some((item) => item.stage === "loop:model:success")).toBe(false)
+  }),
+)
+
+it.live("preparation success preserves its value and runs only once", () =>
+  Effect.gen(function* () {
+    const value = { ready: true }
+    const result = yield* chatStep({ layer: "prompt" }, "prepare:tools", Effect.succeed(value))
+    expect(result).toBe(value)
+    expect(records().map((item) => item.stage)).toEqual(["prepare:tools:start", "prepare:tools:success"])
+  }),
+)

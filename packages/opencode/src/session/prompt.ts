@@ -46,7 +46,7 @@ import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
-import { chatLog, createChatTrace } from "./chat-diagnostics"
+import { chatLog, chatStep, createChatTrace } from "./chat-diagnostics"
 import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -719,7 +719,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       onStructuredOutput: (output: unknown) => void
     }) {
       const lastUserMsg = input.messages.findLast((message) => message.info.role === "user")
-      const tools = yield* resolveTools({
+      const diagnostic = { layer: "prompt" as const, sessionID: input.session.id, userMessageID: input.lastUser.id }
+      const tools = yield* chatStep(diagnostic, "prepare:tools", resolveTools({
         agent: input.agent,
         session: input.session,
         model: input.model,
@@ -727,7 +728,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         processor: input.processor,
         bypassAgentCheck: lastUserMsg?.parts.some((part) => part.type === "agent") ?? false,
         messages: input.messages,
-      })
+      }))
       const studioImageGeneration =
         input.agent.name === "octo_studio" &&
         Object.entries(input.lastUser.tools ?? {}).some(
@@ -744,13 +745,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       }
 
-      yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
-      const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-        sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
-        sys.environment(input.model),
-        instruction.system().pipe(Effect.orDie),
-        MessageV2.toModelMessagesEffect(input.messages, input.model),
-      ])
+      yield* chatStep(diagnostic, "prepare:messages-plugin", plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages }))
+      const [skills, env, instructions, modelMsgs] = yield* chatStep(diagnostic, "prepare:context", Effect.all([
+        chatStep(diagnostic, "prepare:skills", sys.skills(input.agent)).pipe(Effect.catch(() => Effect.succeed(undefined))),
+        chatStep(diagnostic, "prepare:environment", sys.environment(input.model)),
+        chatStep(diagnostic, "prepare:instructions", instruction.system().pipe(Effect.orDie)),
+        chatStep(diagnostic, "prepare:model-messages", MessageV2.toModelMessagesEffect(input.messages, input.model)),
+      ]))
       const system = [...env, ...instructions, ...(skills ? [skills] : [])]
       const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
         .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
@@ -1737,7 +1738,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           yield* slog.info("loop", { step })
           chatLog({ layer: "prompt", sessionID }, "loop:step", { step })
 
-          let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+          let msgs = yield* chatStep({ layer: "prompt", sessionID }, "loop:history", MessageV2.filterCompactedEffect(sessionID))
 
           let lastUser: MessageV2.User | undefined
           let lastAssistant: MessageV2.Assistant | undefined
@@ -1754,6 +1755,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          const diagnostic = { layer: "prompt" as const, sessionID, userMessageID: lastUser.id }
+          chatLog(diagnostic, "loop:history-ready", { messageCount: msgs.length, taskCount: tasks.length, hasLastFinished: Boolean(lastFinished) })
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -1797,7 +1800,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               history: msgs,
             }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          const model = yield* chatStep(diagnostic, "loop:model", getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID))
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
@@ -1873,7 +1876,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             continue
           }
 
-          const agent = yield* agents.get(lastUser.agent)
+          const agent = yield* chatStep(diagnostic, "loop:agent", agents.get(lastUser.agent))
           if (!agent) {
             const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
             const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
@@ -1883,7 +1886,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           const maxSteps = agent.steps ?? Infinity
           const isLastStep = step >= maxSteps
-          msgs = yield* insertReminders({ messages: msgs, agent, session })
+          msgs = yield* chatStep(diagnostic, "loop:reminders", insertReminders({ messages: msgs, agent, session }))
 
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
@@ -1900,12 +1903,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             time: { created: Date.now() },
             sessionID,
           }
-          yield* sessions.updateMessage(msg)
-          const handle = yield* processor.create({
+          yield* chatStep(diagnostic, "loop:assistant-save", sessions.updateMessage(msg))
+          const handle = yield* chatStep(diagnostic, "loop:processor-create", processor.create({
             assistantMessage: msg,
             sessionID,
             model,
-          })
+          }))
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             if (step === 1)
@@ -1930,7 +1933,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
 
             const lastUserMsg = msgs.findLast((message) => message.info.role === "user")
-            const request = yield* prepareRequest({
+            const request = yield* chatStep(diagnostic, "loop:request-prepare", prepareRequest({
               messages: msgs,
               lastUser,
               agent,
@@ -1940,7 +1943,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               onStructuredOutput(output) {
                 structured = output
               },
-            })
+            }))
             if (estimateAfterAutoCompaction) {
               const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
               const limit = model.limit.input ?? model.limit.context

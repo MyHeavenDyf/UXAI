@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { Cause, Effect } from "effect"
 
 type Metadata = {
   sessionID?: string
@@ -14,17 +15,19 @@ type Fields = Record<string, string | number | boolean | null | undefined | stri
 
 export function chatLog(metadata: Metadata, stage: string, fields: Fields = {}) {
   try {
-    console.info("[octo:chat]", JSON.stringify({ diagnosticVersion: 1, ...metadata, stage, ...fields }))
+    console.info("[octo:chat]", JSON.stringify({ diagnosticVersion: 2, ...metadata, stage, ...fields }))
   } catch {
     // Observability must never prevent a user request from running.
   }
 }
 
-/** Classify errors without writing message, stack, body, headers or tool input. */
+/** Only known error templates and stack file basenames/line numbers may leave this function. */
 export function chatError(error: unknown): Fields {
   const names: string[] = []
   const codes: string[] = []
   const statuses: number[] = []
+  const details: string[] = []
+  const frames: string[] = []
   const categories = new Set<string>()
   const seen = new Set<object>()
   const pending: unknown[] = [error]
@@ -38,6 +41,58 @@ export function chatError(error: unknown): Fields {
       if (typeof item.code === "string" && /^(?:E[A-Z0-9_]+|UND_ERR_[A-Z_]+)$/.test(item.code)) codes.push(item.code)
       const status = item.statusCode ?? item.status
       if (typeof status === "number" && status >= 100 && status <= 599) statuses.push(status)
+      if (typeof item.message === "string") {
+        const reading = /^Cannot read properties of (undefined|null) \(reading ['"]([^'"\r\n]{1,100})['"]\)$/.exec(
+          item.message,
+        )
+        if (reading) {
+          const field = [
+            "input",
+            "output",
+            "context",
+            "cache",
+            "read",
+            "write",
+            "total",
+            "parts",
+            "info",
+            "model",
+            "providerID",
+            "modelID",
+            "limit",
+            "name",
+            "text",
+            "time",
+            "created",
+            "options",
+            "permission",
+            "status",
+            "id",
+            "length",
+            "map",
+            "filter",
+          ].includes(reading[2])
+            ? reading[2]
+            : "[field]"
+          details.push(`Cannot read properties of ${reading[1]} (reading '${field}')`)
+        }
+        if (/^Cannot convert undefined or null to object$/.test(item.message))
+          details.push("Cannot convert undefined or null to object")
+        if (/ is not a function$/.test(item.message)) details.push("[value] is not a function")
+        if (/ is not iterable(?: \(cannot read property Symbol\(Symbol.iterator\)\))?$/.test(item.message))
+          details.push("[value] is not iterable")
+      }
+      if (typeof item.stack === "string") {
+        item.stack
+          .slice(0, 16_000)
+          .split("\n")
+          .slice(1, 25)
+          .forEach((line) => {
+            if (!/^\s*at\s/.test(line) || frames.length >= 16) return
+            const frame = /(?:^|[/\\])([A-Za-z0-9_.$-]{1,120}\.(?:[cm]?js|tsx?)):(\d{1,9}):(\d{1,9})\)?$/.exec(line)
+            if (frame) frames.push(`${frame[1]}:${frame[2]}:${frame[3]}`)
+          })
+      }
       // Inspect only for a classification. Never print the actual error text.
       const text = `${typeof item.name === "string" ? item.name : ""} ${typeof item.message === "string" ? item.message.slice(0, 4096) : ""}`
       if (
@@ -58,7 +113,38 @@ export function chatError(error: unknown): Fields {
   } catch {
     categories.add("inspection-failed")
   }
-  return { errorNames: names, errorCodes: codes, httpStatuses: statuses, categories: [...categories] }
+  return {
+    errorNames: names,
+    errorCodes: codes,
+    httpStatuses: statuses,
+    categories: [...categories],
+    errorDetails: details,
+    stackFrames: frames,
+  }
+}
+
+/** Observe preparation without changing its errors, interruption or scheduling. */
+export function chatStep<A, E, R>(metadata: Metadata, stage: string, effect: Effect.Effect<A, E, R>) {
+  return Effect.suspend(() => {
+    const started = Date.now()
+    const stepID = randomUUID()
+    chatLog(metadata, `${stage}:start`, { stepID })
+    return effect.pipe(
+      Effect.tap(() =>
+        Effect.sync(() => chatLog(metadata, `${stage}:success`, { stepID, elapsedMs: Date.now() - started })),
+      ),
+      Effect.tapCause((cause) =>
+        Effect.sync(() =>
+          chatLog(metadata, `${stage}:failed`, {
+            stepID,
+            failedAt: stage,
+            elapsedMs: Date.now() - started,
+            ...chatError(Cause.squash(cause)),
+          }),
+        ),
+      ),
+    )
+  })
 }
 
 export function createChatTrace(metadata: Metadata, heartbeatMs = 30_000) {

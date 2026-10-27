@@ -2,6 +2,12 @@
 
 安装包含本次改动的客户端后，发送一条消息复现。打开 `main.log` 同目录的 `design.log`，查找 `[octo:chat]`，提供从发送前到失败或等待结束这一整段日志。
 
+本版聊天日志为 `diagnosticVersion: 2`。新增准备阶段的 `:start`、`:success`、`:failed`，通过 `stepID` 配对；失败记录中的 `failedAt` 明确指出当前阶段。
+
+准备阶段包括：`loop:history`、`loop:model`、`loop:agent`、`loop:reminders`、`loop:assistant-save`、`loop:processor-create`、`loop:request-prepare`，以及 `prepare:tools`、`prepare:messages-plugin`、`prepare:context` 下的 skills/environment/instructions/model-messages 子步骤。最后一个成功阶段与失败步骤可缩小模型调用前的错误位置。
+
+`errorDetails` 只保留已识别的 TypeError 模板，未知属性名替换为 `[field]`，其他错误正文不输出。`stackFrames` 最多保留 16 个代码文件名及行列号（兼容 Windows/macOS），去掉完整目录、函数名和 URL 查询参数；打包版对应构建产物位置，可结合相同版本产物进一步定位。没有可安全识别的堆栈时为空，不代表没有异常。
+
 `sessionID` 关联会话，`messageID` 关联回复，`requestID` 关联某一层的一次请求；重试、标题生成等可能产生多次模型请求。`small: true` 表示辅助模型请求，不要误认为聊天正文请求。
 
 | 阶段                                                            | 用于判断                                                                                   |
