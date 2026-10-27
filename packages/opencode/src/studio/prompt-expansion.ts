@@ -7,6 +7,7 @@ import { LLM } from "@/session/llm"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "@/session/message-v2"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { createExpandedPromptReader } from "./prompt-expansion-text"
 import { logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
 import { RecommendationError, type Submission, type ExpansionInput } from "./prompt-recommendation-schema"
 
@@ -14,8 +15,9 @@ const providerRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
 const configRuntime = makeRuntime(Config.Service, Config.defaultLayer)
 const llmRuntime = makeRuntime(LLM.Service, LLM.defaultLayer)
 export type ExpansionServices = { provider: Provider.Interface; config: Config.Interface; llm?: LLM.Interface }
-export type ExpansionReasoning = {
-  event: (event: Extract<LLM.Event, { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" }>) => Effect.Effect<void, unknown>
+export type ExpansionPreview = {
+  start: (attempt: 1 | 2) => Effect.Effect<void, unknown>
+  append: (delta: string) => Effect.Effect<void, unknown>
   end: () => Effect.Effect<void, unknown>
 }
 const outputSchema = z.object({ expandedPrompt: z.string().trim().min(1), tags: z.array(z.string()).min(3).max(5) })
@@ -100,8 +102,9 @@ export function parseExpansion(text: string) {
   return validateExpansion(JSON.parse(objects[0]))
 }
 
-export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, progress: () => void, reasoning?: ExpansionReasoning) {
+export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, progress: () => void, preview?: ExpansionPreview) {
   return Effect.gen(function* () {
+    const reader = createExpandedPromptReader()
     let text = ""
     let textBytes = 0
     let progressBytes = 0
@@ -119,8 +122,6 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
             }))
           finished = true
         }
-        if (event.type === "reasoning-start" || event.type === "reasoning-end")
-          return reasoning?.event(event) ?? Effect.void
         if (event.type !== "text-delta" && event.type !== "reasoning-delta") return Effect.void
         if (!event.text) return Effect.void
         progressBytes += Buffer.byteLength(event.text)
@@ -131,7 +132,9 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
         if (textBytes > 64 * 1024 || progressBytes > 1024 * 1024)
           return Effect.fail(new RecommendationError("OUTPUT_LIMIT_EXCEEDED"))
         progress()
-        return event.type === "reasoning-delta" ? reasoning?.event(event) ?? Effect.void : Effect.void
+        if (event.type !== "text-delta") return Effect.void
+        const delta = reader.push(event.text)
+        return delta ? preview?.append(delta) ?? Effect.void : Effect.void
       }),
     )
     if (!finished) return yield* Effect.fail(new RecommendationError("MODEL_REQUEST_FAILED"))
@@ -201,7 +204,7 @@ export async function expandPrompt(
   model: Provider.Model,
   signal: AbortSignal,
   services?: ExpansionServices,
-  reasoning?: ExpansionReasoning,
+  preview?: ExpansionPreview,
 ) {
   const startedAt = Date.now()
   const context = {
@@ -223,6 +226,8 @@ export async function expandPrompt(
     }
     let timer = setTimeout(() => controller.abort(new RecommendationError("LLM_IDLE_TIMEOUT")), 120_000)
     try {
+      signal.throwIfAborted()
+      if (preview) await Effect.runPromise(attach(preview.start(repair ? 2 : 1)))
       const read = (llm: LLM.Interface) =>
         readExpansionStream(
           llm.stream({
@@ -254,7 +259,7 @@ export async function expandPrompt(
             retries: 0,
           }),
           reset,
-          reasoning,
+          preview,
         )
       const options = { signal: AbortSignal.any([signal, controller.signal]) }
       const exit = services?.llm
@@ -274,7 +279,7 @@ export async function expandPrompt(
       throw failure
     } finally {
       clearTimeout(timer)
-      if (reasoning) await Effect.runPromise(attach(reasoning.end()))
+      if (preview) await Effect.runPromise(attach(preview.end()))
     }
   }
   const first = await call(false)

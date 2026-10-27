@@ -55,7 +55,7 @@ describe("Studio expansion output", () => {
       ),
     ).rejects.toThrow("OUTPUT_LIMIT_EXCEEDED")
   })
-  test("forwards reasoning after progress and size checks without mixing it into JSON", async () => {
+  test("previews decoded text only while reasoning still updates progress and limits", async () => {
     const seen: string[] = []
     let progress = 0
     const text = await Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
@@ -70,31 +70,34 @@ describe("Studio expansion output", () => {
         outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
       } },
     ]), () => { progress++ }, {
-      event: (event) => Effect.sync(() => {
-        seen.push(event.type)
-        if (event.type === "reasoning-delta") expect(progress).toBe(1)
+      start: () => Effect.void,
+      append: (delta) => Effect.sync(() => {
+        seen.push(delta)
+        expect(progress).toBe(2)
       }),
       end: () => Effect.void,
     }))
     expect(parseExpansion(text)).toEqual(output)
     expect(progress).toBe(2)
-    expect(seen).toEqual(["reasoning-start", "reasoning-delta", "reasoning-end"])
+    expect(seen).toEqual([output.expandedPrompt])
   })
-  test("does not forward oversized reasoning and propagates observer failures", async () => {
+  test("does not preview oversized reasoning and propagates preview persistence failures", async () => {
     let forwarded = false
     await expect(Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
       { type: "reasoning-delta", id: "r", text: "x".repeat(1024 * 1024 + 1) },
     ]), () => {}, {
-      event: () => Effect.sync(() => { forwarded = true }),
+      start: () => Effect.void,
+      append: () => Effect.sync(() => { forwarded = true }),
       end: () => Effect.void,
     }))).rejects.toThrow("OUTPUT_LIMIT_EXCEEDED")
     expect(forwarded).toBe(false)
     await expect(Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
-      { type: "reasoning-start", id: "r" },
+      { type: "text-delta", id: "t", text: JSON.stringify(output) },
     ]), () => {}, {
-      event: () => Effect.fail(new Error("reasoning persistence failed")),
+      start: () => Effect.void,
+      append: () => Effect.fail(new Error("preview persistence failed")),
       end: () => Effect.void,
-    }))).rejects.toThrow("reasoning persistence failed")
+    }))).rejects.toThrow("preview persistence failed")
   })
 })
 

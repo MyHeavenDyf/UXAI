@@ -21,7 +21,7 @@ import { StudioGenerationTable } from "./studio-generation.sql"
 import { assertNoGeneration, studioSubmissionState } from "./prompt-recommendation-state"
 import { acquireBudget, createPreparation, type PreparationBudget } from "./prompt-recommendation-budget"
 import { expandPrompt, selectExpansionModel, type ExpansionServices } from "./prompt-expansion"
-import { createExpansionReasoning, closeExpansionReasoning } from "./prompt-expansion-reasoning"
+import { createExpansionPreview, closeExpansionPreview } from "./prompt-expansion-preview"
 import {
   GUIDE_TEXT,
   guideSchema,
@@ -212,7 +212,7 @@ function finish(
       if (message) {
         const info = { ...message.data, id: message.id, sessionID: message.session_id } as MessageV2.Info
         if (info.role === "assistant") {
-          closeExpansionReasoning(info)
+          closeExpansionPreview(info, PartID.make(resultPartID))
           SyncEvent.run(MessageV2.Event.Updated, {
             sessionID: value.sessionID,
             info: {
@@ -533,7 +533,7 @@ export async function submitExpansion(
           }
           const result = await expandPrompt(
             expandedInput, work.user, model, controller.signal, services,
-            createExpansionReasoning(work.assistant, work.resultPartID),
+            createExpansionPreview(work.assistant, work.resultPartID),
           )
           finish(row.id, work.resultPartID, "completed", result)
         } catch (error) {

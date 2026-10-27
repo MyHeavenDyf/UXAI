@@ -4,11 +4,11 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import type { Event, Part } from "@opencode-ai/sdk/v2/client"
 import { createStudioSessionData } from "./studio-session-data"
 
-test("reasoning deltas cannot cross sessions, revive deleted parts or append after final snapshots", async () => {
+test("preview deltas cannot cross sessions, revive deleted parts or append after final snapshots", async () => {
   const event = createGlobalEmitter<{ [key: string]: Event }>()
   const part = {
-    id: "r", messageID: "a", sessionID: "s", type: "reasoning", text: "",
-    time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },
+    id: "r", messageID: "a", sessionID: "s", type: "text", text: "",
+    time: { start: 1 }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 1, resultPartID: "result" } },
   } satisfies Part
   const snapshot = Promise.withResolvers<{ data: { agent: string } }>()
   const sdk = {

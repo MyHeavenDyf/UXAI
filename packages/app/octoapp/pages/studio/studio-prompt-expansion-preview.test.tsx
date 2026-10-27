@@ -9,9 +9,9 @@ import type { Part } from "@opencode-ai/sdk/v2/client"
 const transform = solid({ hot: false }).transform
 if (typeof transform !== "function") throw new Error("Solid transform is unavailable")
 plugin({
-  name: "studio-reasoning-dom-test",
+  name: "studio-preview-dom-test",
   setup(build) {
-    build.onLoad({ filter: /(?:studio-prompt-expansion-reasoning|markdown|helper|marked)\.tsx$/ }, async (args) => {
+    build.onLoad({ filter: /(?:studio-prompt-expansion-preview|markdown|helper|marked)\.tsx$/ }, async (args) => {
       const result: unknown = await Reflect.apply(transform, undefined, [await Bun.file(args.path).text(), args.path])
       if (!result || typeof result !== "object" || !("code" in result) || typeof result.code !== "string")
         throw new Error("Solid view could not be compiled")
@@ -19,44 +19,50 @@ plugin({
     })
   },
 })
-const { StudioPromptExpansionReasoning } = await import("./studio-prompt-expansion-reasoning")
+const { StudioPromptExpansionPreview } = await import("./studio-prompt-expansion-preview")
 const { MarkedProvider } = await import("@opencode-ai/ui/context/marked")
 
 const part = {
-  id: "reason", messageID: "assistant", sessionID: "session", type: "reasoning", text: "",
-  time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },
-} satisfies Extract<Part, { type: "reasoning" }>
+  id: "preview", messageID: "assistant", sessionID: "session", type: "text", text: "",
+  time: { start: 1 }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 1, resultPartID: "result" } },
+} satisfies Extract<Part, { type: "text" }>
 
-test("reasoning is temporary: streams while running and disappears for every other state", async () => {
-  const [state, setState] = createStore<{ status: string; parts: Extract<Part, { type: "reasoning" }>[] }>({
-    status: "running", parts: [part],
+test("body preview is temporary: streams while running and disappears for every other state", async () => {
+  const [state, setState] = createStore<{ status: string; part: Extract<Part, { type: "text" }> }>({
+    status: "running", part,
   })
   const container = document.createElement("div")
   document.body.append(container)
   const dispose = render(() => createComponent(MarkedProvider, {
     get children() {
-      return createComponent(StudioPromptExpansionReasoning, {
+      return createComponent(StudioPromptExpansionPreview, {
         get status() { return state.status },
-        get parts() { return state.parts },
+        get part() { return state.part },
       })
     },
   }), container)
   try {
     expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
-    setState("parts", 0, "text", "先考虑**构图**")
+    setState("part", "text", "先考虑**构图**")
     await Bun.sleep(10)
     expect(container.textContent).toContain("先考虑构图")
     expect(container.querySelector('[data-component="reasoning-part"][data-streaming]')).not.toBeNull()
-    setState("parts", 0, "text", "先考虑**构图**，再补充光线")
+    setState("part", "text", "先考虑**构图**，再补充光线")
     await Bun.sleep(10)
     expect(container.textContent).toContain("再补充光线")
-    setState("parts", 0, "time", { start: 1, end: 2 })
+    setState("part", "time", { start: 1, end: 2 })
     await Bun.sleep(10)
     expect(container.textContent).toContain("再补充光线")
+    setState("part", { ...part, id: "repair", text: "", time: { start: 3, end: undefined }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 2, resultPartID: "result" } } })
+    expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
+    setState("part", "text", "修复后的正文")
+    await Bun.sleep(10)
+    expect(container.textContent).toContain("修复后的正文")
+    expect(container.textContent).not.toContain("再补充光线")
     for (const status of ["completed", "cancelling", "failed", "cancelled"]) {
       setState("status", status)
       expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
-      setState("parts", 0, "text", `迟到的内容 ${status}`)
+      setState("part", "text", `迟到的内容 ${status}`)
       await Bun.sleep(10)
       expect(container.textContent).toBe("")
     }
@@ -67,10 +73,10 @@ test("reasoning is temporary: streams while running and disappears for every oth
   }
 })
 
-test("historical reasoning is hidden immediately and empty streams have no container", () => {
+test("historical preview is hidden immediately and empty streams have no container", () => {
   const container = document.createElement("div")
-  const dispose = render(() => createComponent(StudioPromptExpansionReasoning, {
-    status: "completed", parts: [{ ...part, text: "历史思考" }],
+  const dispose = render(() => createComponent(StudioPromptExpansionPreview, {
+    status: "completed", part: { ...part, text: "历史预览" },
   }), container)
   expect(container.textContent).toBe("")
   expect(container.children).toHaveLength(0)

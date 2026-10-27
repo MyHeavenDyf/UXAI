@@ -1,7 +1,7 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
 import { getDefaultDimensions, isPromptExpansionGeneration, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
-import { isExpansionReasoning, promptMetadata } from "./studio-prompt-state"
+import { latestExpansionPreview, previewMetadata, promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -10,7 +10,7 @@ export type StudioTurnData = {
   userText: string
   hideUserBubble?: boolean
   assistantText: string
-  reasoningParts?: Extract<Part, { type: "reasoning" }>[]
+  previewPart?: Extract<Part, { type: "text" }>
   editCapability?: StudioCapability
   editorEntryID?: string
   recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
@@ -679,16 +679,18 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     const assistantParts = assistant ? input.parts[assistant.id] ?? [] : []
     const assistantText = assistantParts
       .filter(isTextPart)
+      .filter((part) => !previewMetadata(part))
       .map((part) => part.text)
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
-    const recommendation = assistantParts.map(promptMetadata).find((metadata) => metadata !== undefined)
+    const recommendationPart = assistantParts.find((part) => promptMetadata(part) !== undefined)
+    const recommendation = promptMetadata(recommendationPart)
     if (recommendation) {
       return {
         id: user.id, userText, hideUserBubble, assistantText, createdAt: user.time.created, isLatest: false,
-        reasoningParts: recommendation.kind === "result" && recommendation.status === "running"
-          ? assistantParts.filter(isExpansionReasoning) : undefined,
+        previewPart: recommendation.kind === "result" && recommendation.status === "running" && recommendationPart
+          ? latestExpansionPreview(assistantParts, recommendationPart.id) : undefined,
         recommendation: { kind: recommendation.kind, status: recommendation.status,
           tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
         inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),

@@ -6,11 +6,10 @@ import { MessageTable, PartTable } from "@/session/session.sql"
 import { PartID } from "@/session/schema"
 import { SyncEvent } from "@/sync"
 import { resultSchema } from "./prompt-recommendation-schema"
-import type { ExpansionReasoning } from "./prompt-expansion"
+import type { ExpansionPreview } from "./prompt-expansion"
 
-export function createExpansionReasoning(assistant: MessageV2.Assistant, resultPartID: PartID): ExpansionReasoning {
-  const active = new Map<string, MessageV2.ReasoningPart>()
-  const ended = new Set<string>()
+export function createExpansionPreview(assistant: MessageV2.Assistant, resultPartID: PartID): ExpansionPreview {
+  let active: MessageV2.TextPart | undefined
   const writable = () => {
     const result = Database.use((db) => db.select().from(PartTable).where(eq(PartTable.id, resultPartID)).get())
     const message = Database.use((db) => db.select().from(MessageTable).where(eq(MessageTable.id, assistant.id)).get())
@@ -20,7 +19,7 @@ export function createExpansionReasoning(assistant: MessageV2.Assistant, resultP
       : undefined
     return metadata?.success === true && ["running", "cancelling"].includes(metadata.data.status)
   }
-  const save = (part: MessageV2.ReasoningPart) => Database.transaction(() => {
+  const save = (part: MessageV2.TextPart) => Database.transaction(() => {
     if (!writable()) return
     SyncEvent.run(MessageV2.Event.PartUpdated, {
       sessionID: assistant.sessionID,
@@ -28,66 +27,56 @@ export function createExpansionReasoning(assistant: MessageV2.Assistant, resultP
       time: Date.now(),
     })
   }, { behavior: "immediate" })
+  const end = () => Effect.sync(() => {
+    if (!active) return
+    active.time = { start: active.time?.start ?? Date.now(), end: Date.now() }
+    save(active)
+    active = undefined
+  })
 
   return {
-    event: (event) => Effect.gen(function* () {
-      if (ended.has(event.id)) return
+    start: (attempt) => Effect.gen(function* () {
+      yield* end()
       if (!writable()) return
-      if (event.type === "reasoning-end") {
-        const part = active.get(event.id)
-        if (part) {
-          part.time.end = Date.now()
-          save(part)
-          active.delete(event.id)
-        }
-        ended.add(event.id)
-        return
-      }
-      if (event.type === "reasoning-delta" && !event.text) return
-      const part = active.get(event.id) ?? {
+      const part: MessageV2.TextPart = {
         id: PartID.ascending(),
         sessionID: assistant.sessionID,
         messageID: assistant.id,
-        type: "reasoning" as const,
+        type: "text",
         text: "",
         time: { start: Date.now() },
-        metadata: { studioPromptExpansionReasoning: { version: 1 } },
+        metadata: { studioPromptExpansionPreview: { version: 1, attempt, resultPartID } },
       }
-      if (!active.has(event.id)) {
-        save(part)
-        active.set(event.id, part)
-      }
-      if (event.type !== "reasoning-delta") return
-      part.text += event.text
+      save(part)
+      active = part
+    }),
+    append: (delta) => Effect.gen(function* () {
+      const part = active
+      if (!part || !delta || !writable()) return
+      part.text += delta
       yield* Effect.promise(() => Bus.publish(MessageV2.Event.PartDelta, {
         sessionID: part.sessionID,
         messageID: part.messageID,
         partID: part.id,
         field: "text",
-        delta: event.text,
+        delta,
       }))
     }),
-    end: () => Effect.sync(() => {
-      active.forEach((part) => {
-        part.time.end = Date.now()
-        save(part)
-      })
-      active.clear()
-      ended.clear()
-    }),
+    end,
   }
 }
 
-// Recovery has no access to the lost run's in-memory deltas.
-export function closeExpansionReasoning(assistant: MessageV2.Assistant) {
+// Recovery can close persisted previews, but cannot reconstruct lost in-memory deltas.
+export function closeExpansionPreview(assistant: MessageV2.Assistant, resultPartID: PartID) {
   Database.use((db) => db.select().from(PartTable).where(eq(PartTable.message_id, assistant.id)).all())
     .forEach((row) => {
       const part = { ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id } as MessageV2.Part
-      if (part.type !== "reasoning" || part.time.end !== undefined ||
-        part.metadata?.studioPromptExpansionReasoning?.version !== 1) return
+      if (part.type !== "text" || part.time?.end !== undefined ||
+        part.metadata?.studioPromptExpansionPreview?.version !== 1 ||
+        part.metadata.studioPromptExpansionPreview.resultPartID !== resultPartID) return
       SyncEvent.run(MessageV2.Event.PartUpdated, {
         sessionID: assistant.sessionID,
-        part: { ...part, time: { ...part.time, end: Date.now() } },
+        part: { ...part, time: { start: part.time?.start ?? Date.now(), end: Date.now() } },
         time: Date.now(),
       })
     })

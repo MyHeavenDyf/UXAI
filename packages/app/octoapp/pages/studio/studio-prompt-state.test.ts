@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isExpansionReasoning, mergePromptPart } from "./studio-prompt-state"
+import { isExpansionPreview, isExpansionReasoning, latestExpansionPreview, mergePromptPart } from "./studio-prompt-state"
 import { buildStudioTurns, buildStudioConversationContext } from "./turns"
 
 const guide = {
@@ -92,13 +92,19 @@ test("recommendations retain proper parents, tags and input attachments without 
     time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },
   } satisfies Part
   const running = { ...result, metadata: { studioPromptExpansion: { ...result.metadata.studioPromptExpansion, status: "running" } } }
-  const active = { ...input, parts: { ...input.parts, a2: [running, reasoning] } }
-  expect(buildStudioTurns(active)[1].reasoningParts).toEqual([reasoning])
+  const preview = {
+    id: "preview", messageID: "a2", sessionID: "session", type: "text", text: "仅作临时反馈",
+    time: { start: 1 }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 1, resultPartID: "result" } },
+  } satisfies Part
+  const active = { ...input, parts: { ...input.parts, a2: [running, reasoning, preview] } }
+  expect(buildStudioTurns(active)[1].previewPart).toEqual(preview)
+  const repair = { ...preview, id: "repair", text: "", metadata: { studioPromptExpansionPreview: { version: 1, attempt: 2, resultPartID: "result" } } }
+  expect(buildStudioTurns({ ...active, parts: { ...active.parts, a2: [running, reasoning, preview, repair] } })[1].previewPart).toEqual(repair)
   expect(buildStudioTurns(active)[1].assistantText).toBe("扩写正文")
   for (const status of ["cancelling", "completed", "failed", "cancelled"]) {
     expect(buildStudioTurns({ ...active, parts: { ...active.parts, a2: [
-      { ...running, metadata: { studioPromptExpansion: { ...running.metadata.studioPromptExpansion, status } } }, reasoning,
-    ] } })[1].reasoningParts).toBeUndefined()
+      { ...running, metadata: { studioPromptExpansion: { ...running.metadata.studioPromptExpansion, status } } }, reasoning, preview,
+    ] } })[1].previewPart).toBeUndefined()
   }
 })
 
@@ -116,4 +122,21 @@ test("Studio reasoning uses validated markers and never regresses to an older sn
   expect(mergePromptPart(complete, { ...complete, text: "构图" })).toBe(complete)
   const divergent = { ...part, text: "服务端重建的基线" }
   expect(mergePromptPart(part, divergent)).toBe(divergent)
+})
+
+
+test("preview selection validates metadata, isolates results and keeps empty repair attempts", () => {
+  const part = {
+    id: "preview", messageID: "m", sessionID: "s", type: "text", text: "首轮正文",
+    time: { start: 1 }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 1, resultPartID: "result" } },
+  } satisfies Part
+  const repair = { ...part, id: "repair", text: "", metadata: { studioPromptExpansionPreview: { version: 1, attempt: 2, resultPartID: "result" } } }
+  expect(isExpansionPreview(part)).toBe(true)
+  expect(isExpansionPreview({ ...part, metadata: { studioPromptExpansionPreview: true } })).toBe(false)
+  expect(latestExpansionPreview([repair, part], "result")).toBe(repair)
+  expect(latestExpansionPreview([repair, part], "other-result")).toBeUndefined()
+  expect(mergePromptPart(part, { ...part, text: "" })).toBe(part)
+  const complete = { ...part, text: "首轮正文及细节", time: { start: 1, end: 2 } }
+  expect(mergePromptPart(part, complete)).toBe(complete)
+  expect(mergePromptPart(complete, part)).toBe(complete)
 })

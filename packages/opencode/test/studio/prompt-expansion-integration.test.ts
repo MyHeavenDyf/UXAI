@@ -110,7 +110,7 @@ it.live(
     provideTmpdirServer(
       ({ llm }) =>
         Effect.gen(function* () {
-          yield* llm.reason("先分析用户画面", { text: "not valid JSON" })
+          yield* llm.reason("先分析用户画面", { text: JSON.stringify({ expandedPrompt: "首轮未通过校验", tags: [] }) })
           yield* llm.reason("重新整理画面", { text: output })
           const instance = yield* InstanceState.context
           yield* Effect.promise(() =>
@@ -130,14 +130,17 @@ it.live(
                 await Bun.sleep(10)
               }
               expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("completed")
-              const reasoning = Database.use((db) => db.select().from(PartTable)
+              const previews = Database.use((db) => db.select().from(PartTable)
                 .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
-                .filter((row) => row.data.type === "reasoning")
-              expect(reasoning).toHaveLength(2)
-              expect(reasoning.map((row) => row.data)).toEqual(expect.arrayContaining([
-                expect.objectContaining({ text: "先分析用户画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
-                expect.objectContaining({ text: "重新整理画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                .filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview)
+              expect(previews).toHaveLength(2)
+              expect(previews.map((row) => row.data)).toEqual(expect.arrayContaining([
+                expect.objectContaining({ text: "首轮未通过校验", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                expect.objectContaining({ text: "雨后城市的霓虹街景。", time: expect.objectContaining({ end: expect.any(Number) }) }),
               ]))
+              expect(Database.use((db) => db.select().from(PartTable)
+                .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
+                .some((row) => row.data.type === "reasoning")).toBe(false)
             }),
           )
           expect(yield* llm.calls).toBe(2)
@@ -147,11 +150,11 @@ it.live(
   30_000,
 )
 
-it.live("persists streamed reasoning on cancellation without requiring the aborted signal", () =>
+it.live("previews text without reasoning and persists it on cancellation", () =>
   provideTmpdirServer(({ llm }) => Effect.gen(function* () {
     yield* llm.push({
       type: "sse",
-      head: [{ id: "test", object: "chat.completion.chunk", choices: [{ delta: { reasoning_content: "正在构思画面" } }] }],
+      head: [{ id: "test", object: "chat.completion.chunk", choices: [{ delta: { content: '{"expandedPrompt":"正在生成城市' } }] }],
       tail: [],
       hang: true,
     })
@@ -160,7 +163,7 @@ it.live("persists streamed reasoning on cancellation without requiring the abort
       const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
       const streamed = Promise.withResolvers<void>()
       const unsubscribe = Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
-        if (event.properties.sessionID === initialized.sessionID && event.properties.delta === "正在构思画面")
+        if (event.properties.sessionID === initialized.sessionID && event.properties.delta === "正在生成城市")
           streamed.resolve()
       })
       try {
@@ -168,7 +171,7 @@ it.live("persists streamed reasoning on cancellation without requiring the abort
           requestID: crypto.randomUUID(), sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
           prompt: "城市雨景", availableModels: [{ providerID: "test", modelID: "test-model" }],
         })
-        await Promise.race([streamed.promise, Bun.sleep(5000).then(() => { throw new Error("No reasoning delta received") })])
+        await Promise.race([streamed.promise, Bun.sleep(5000).then(() => { throw new Error("No preview delta received") })])
         expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("running")
         await cancelExpansion(initialized.sessionID, accepted.assistantMessageID!)
         const deadline = Date.now() + 5000
@@ -177,8 +180,8 @@ it.live("persists streamed reasoning on cancellation without requiring the abort
         expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("cancelled")
         const parts = Database.use((db) => db.select().from(PartTable)
           .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
-        expect(parts.filter((row) => row.data.type === "reasoning").map((row) => row.data)).toEqual([
-          expect.objectContaining({ text: "正在构思画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+        expect(parts.filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview).map((row) => row.data)).toEqual([
+          expect.objectContaining({ text: "正在生成城市", time: expect.objectContaining({ end: expect.any(Number) }) }),
         ])
       } finally {
         unsubscribe()

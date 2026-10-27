@@ -3,7 +3,7 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { batch, createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { SKIP_PART_TYPES } from "./studio-shared"
-import { isExpansionReasoning, mergePromptPart, promptMetadata } from "./studio-prompt-state"
+import { isExpansionPreview, isExpansionReasoning, mergePromptPart, promptMetadata } from "./studio-prompt-state"
 
 export type DataStore = {
   session: Session[]
@@ -169,10 +169,10 @@ export function createStudioSessionData(input: {
     const result = Binary.search(parts, props.partID, (part: Part) => part.id)
     if (!result.found) return
     const current = parts[result.index]
-    if (isExpansionReasoning(current) &&
+    if ((isExpansionReasoning(current) || isExpansionPreview(current)) &&
       (props.sessionID !== sessionID || props.field !== "text" ||
         removedSessions.has(sessionID) || removedMessages.has(props.messageID) || removedParts.has(props.partID) ||
-        current.time.end !== undefined)) return
+        current.time?.end !== undefined)) return
     setDataStore("part", props.messageID, produce((draft) => {
       const part = draft[result.index] as Record<string, unknown>
       part[props.field] = `${part[props.field] ?? ""}${props.delta}`
