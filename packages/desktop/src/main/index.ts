@@ -59,7 +59,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { parseSharedSessionLink } from "./shared-session"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
-import { initLogging } from "./logging"
+import { initLogging, logSidecarOutput } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
 import { normalizeReleaseNotes } from "./normalize-release-notes"
@@ -359,8 +359,8 @@ async function initialize(storage: DesktopStorage) {
         storage: spawnStorage,
         userDataPath,
         onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
-        onStdout: (message) => logger.log("sidecar stdout", { message }),
-        onStderr: (message) => logger.warn("sidecar stderr", { message }),
+        onStdout: (message) => logSidecarOutput(message, "stdout"),
+        onStderr: (message) => logSidecarOutput(message, "stderr"),
         onExit: handleSidecarExit,
       },
     )

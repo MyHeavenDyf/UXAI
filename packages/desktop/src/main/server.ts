@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { createInterface } from "node:readline"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
@@ -117,8 +118,10 @@ export async function spawnLocalServer(
   })
   child.on("error", (error) => options.onStderr?.(`utility process error: ${serializeError(error).message}`))
 
-  child.stdout?.on("data", (chunk: Buffer) => options.onStdout?.(chunk.toString("utf8").trimEnd()))
-  child.stderr?.on("data", (chunk: Buffer) => options.onStderr?.(chunk.toString("utf8").trimEnd()))
+  // Route complete UTF-8 lines so a chunk cannot split a diagnostic prefix
+  // or mix design diagnostics with unrelated main-process output.
+  if (child.stdout) createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", (line) => options.onStdout?.(line))
+  if (child.stderr) createInterface({ input: child.stderr, crlfDelay: Infinity }).on("line", (line) => options.onStderr?.(line))
 
   await new Promise<void>((resolve, reject) => {
     let done = false

@@ -9,6 +9,7 @@ import { lazy } from "@/util/lazy"
 import { jsonRequest, runRequest } from "./trace"
 import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
+import { traceConfigRead } from "./config-diagnostics"
 
 const log = Log.create({ service: "server.config" })
 
@@ -34,7 +35,7 @@ export const ConfigRoutes = lazy(() =>
       async (c) =>
         jsonRequest("ConfigRoutes.get", c, function* () {
           const cfg = yield* Config.Service
-          return yield* cfg.get()
+          return yield* traceConfigRead(cfg.get(), "hono")
         }),
     )
     .patch(

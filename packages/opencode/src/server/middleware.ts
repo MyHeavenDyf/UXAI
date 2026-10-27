@@ -15,6 +15,8 @@ import * as ServerBackend from "./backend"
 import { isAllowedCorsOrigin, type CorsOptions } from "./cors"
 import { isPtyConnectPath, PTY_CONNECT_TICKET_QUERY } from "./shared/pty-ticket"
 import { isPublicUIPath } from "./shared/public-ui"
+import { configFailure } from "./routes/instance/config-diagnostics"
+import { randomUUID } from "node:crypto"
 
 const log = Log.create({ service: "server" })
 
@@ -71,7 +73,15 @@ export function LoggerMiddleware(backendAttributes: ServerBackend.Attributes): M
     }
     log.info("request", attributes)
     const timer = log.time("request", attributes)
+    const configRequest = c.req.method === "GET" && c.req.path === "/config"
+      ? { requestID: randomUUID(), backend: "hono", directory: c.req.query("directory") ?? c.req.header("x-opencode-directory") }
+      : undefined
+    if (configRequest) console.info("[octo:config]", JSON.stringify({ ...configRequest, stage: "request" }))
     await next()
+    if (configRequest) console.info("[octo:config]", JSON.stringify({
+      ...configRequest, stage: "response", status: c.res.status,
+      ...(c.error ? { error: configFailure(c.error) } : {}),
+    }))
     timer.stop()
   }
 }
