@@ -135,6 +135,14 @@
   transition: transform 150ms ease;
 }
 
+/* 文件夹行尾的文件数 */
+.me-asset-tree-filecount {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 22px;
+  color: #777777;
+}
+
 /* File grid */
 .me-asset-dialog-grid {
   display: flex;

@@ -100,6 +100,9 @@
   写 .migration-result.json：
   { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "checks": { "relative-imports": "PASS(skip)", "i18n-keys": "PASS"/"FAIL", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" } }
 
+
+如果当前子agent没有完成任务（如超时、上下文不足等），可以再派生一个子 agent 继续处理。
+
 完成后主 agent 读 .migration-result.json 判定。PASS 才进阶段3。
 
 ═══════════════════════════════════════════════════════════════
@@ -143,7 +146,7 @@
 阶段4 — 终检（orchestrator 直接做，不派子 agent）
 ══════════════════════════════════════════════════════════════
 
-阶段3 完成后，主 agent 对 download-eview-react 做整体终检，确认转换质量。
+主 agent 对 download-eview-react 做整体终检，确认转换质量。
 
 1. 交接文件状态（4 个）：
    读 .umd-conversion.json（migrationPlan 非 null + verification.relativeImports=PASS）
@@ -178,14 +181,13 @@
   不派子 agent
 
 - 阶段1 子 agent 只做搬代码+验证（Steps 3-4），不跑脚本(1-2)、不做评估(5)，
-  上下文从 80-120k 降到 60-90k
 
 - 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
 
 - **阶段3 是独立新 agent（不 resume 阶段2）**——内网上下文有限，resume 会把阶段2
   的 100-150k 上下文带过来再加图标增量，撑爆限制。新起 agent 上下文从 0 开始，
   只读 iconCallSites 指向的文件（3-8 个，不是全部源文件）+ match-icons 报告 +
-  residual 候选短名单，控制在 40-60k
+  residual 候选短名单
 
 - 阶段3 触发条件看 iconCallSites（预扫）或 <Icon name> grep 站点，
   不看 antdIcons（ict-coder 产物用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）

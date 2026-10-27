@@ -11,20 +11,27 @@ interface Props {
   refreshKey: number
 }
 
+// 与 make/index.tsx 的 MAX_LOCAL_PREVIEW_BYTES 同值:超过此规模不做文本预览。
+const MAX_PREVIEW_BYTES = 1024 * 1024
+
 export function TextRenderer(props: Props): JSX.Element {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
 
   const [content] = createResource(
     () => ({ path: props.filePath, url: globalSDK.url, dir: sdk.directory, key: props.refreshKey }),
-    async ({ path, url, dir }) => {
+    async ({ path, url, dir }): Promise<string | null> => {
       try {
         const resp = await fetch(`${url}/artifact/content?path=${encodeURIComponent(path)}`, {
           headers: { ...directoryHeader(dir || "") },
         })
         if (resp.ok) {
           const data = await resp.json()
-          if (typeof data.content === "string" && data.content) return data.content
+          // 二进制文件:服务端返回 base64 + encoding 标记,不当文本渲染
+          if (data.encoding === "base64") return null
+          if (typeof data.content === "string" && data.content) {
+            return data.content.length > MAX_PREVIEW_BYTES ? null : data.content
+          }
         }
       } catch {
         /* fall through to desktop file read */
@@ -32,8 +39,9 @@ export function TextRenderer(props: Props): JSX.Element {
       // HTTP 失败时(文件在项目目录外,服务端 File.read access-denied → 500)走
       // Electron IPC 读盘兜底(无项目目录限制),镜像 html-renderer 的 diskContent 模式
       const buf = await getDesktopApi()?.readFileBuffer?.(path)
-      if (buf) return new TextDecoder().decode(buf)
-      throw new Error("Failed to load")
+      if (!buf) throw new Error("Failed to load")
+      if (buf.byteLength > MAX_PREVIEW_BYTES) return null
+      return new TextDecoder().decode(buf)
     }
   )
 
@@ -49,6 +57,13 @@ export function TextRenderer(props: Props): JSX.Element {
       <Show when={content.error}>
         <div class="p-4 text-[12px]" style={{ color: "var(--octo-text-error)" }}>
           Failed to load
+        </div>
+      </Show>
+      <Show when={!content.loading && !content.error && content() === null}>
+        <div class="flex items-center justify-center h-full">
+          <span style={{ color: "var(--octo-text-secondary)", "font-size": "14px" }}>
+            此文件为二进制或过大，不支持预览
+          </span>
         </div>
       </Show>
       <Show when={!content.loading && !content.error && content()}>
