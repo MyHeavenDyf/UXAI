@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto"
 import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http"
-import { configCause } from "../../config-diagnostics"
+import { configCause, configTraceFailure, configTraceLog, ConfigTraceContext, createConfigTrace } from "../../config-diagnostics"
 
 // Run outside instance/auth routing so an early rejection is visible too.
 export const configDiagnosticsLayer = HttpRouter.middleware()((effect) =>
@@ -9,21 +8,22 @@ export const configDiagnosticsLayer = HttpRouter.middleware()((effect) =>
     const request = yield* HttpServerRequest.HttpServerRequest
     const url = new URL(request.url, "http://localhost")
     if (request.method !== "GET" || !["/config", "/api/config"].includes(url.pathname)) return yield* effect
-    const metadata = {
-      requestID: randomUUID(),
+    const trace = createConfigTrace({
       backend: "httpapi",
-      path: url.pathname,
       directory: url.searchParams.get("directory") ?? request.headers["x-opencode-directory"],
-    }
-    const started = Date.now()
-    console.info("[octo:config]", JSON.stringify({ ...metadata, stage: "request" }))
+    })
+    configTraceLog(trace, "request", {
+      path: url.pathname, platform: process.platform, arch: process.arch,
+      runtime: { node: process.versions.node, electron: process.versions.electron, bun: process.versions.bun },
+    })
     return yield* effect.pipe(
-      Effect.tap((response) => Effect.sync(() => console.info("[octo:config]", JSON.stringify({
-        ...metadata, stage: "response", status: response.status, elapsedMs: Date.now() - started,
-      })))),
-      Effect.tapCause((cause) => Effect.sync(() => console.error("[octo:config]", JSON.stringify({
-        ...metadata, stage: "request:failed", elapsedMs: Date.now() - started, errors: configCause(cause),
-      })))),
+      Effect.tap((response) => Effect.sync(() => {
+        configTraceLog(trace, "response", { status: response.status })
+        if (response.status >= 400) configTraceFailure(trace,
+          trace.errors.length ? trace.errors : [{ name: "HTTPResponse", status: response.status }])
+      })),
+      Effect.tapCause((cause) => Effect.sync(() => configTraceFailure(trace, configCause(cause)))),
+      Effect.provideService(ConfigTraceContext, trace),
     )
   }),
   { global: true },
