@@ -17,6 +17,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
+import { extOfUri } from "../../utils/output-type"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
 import { CanvasEditMenu } from "./canvas-edit-menu"
 import { HtmlReviewActions } from "./html-review"
@@ -440,6 +441,7 @@ export function ActionBar(props: {
             <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <DownloadMenu tab={props.tab} disabled={!ready()} />
           </Show>
+          <Show when={extOfUri(props.tab.fileName || props.tab.filePath || props.tab.uri || props.tab.title) !== "exe"}>
           <Tooltip
             placement="top"
             value={archiveTitle()}
@@ -461,6 +463,7 @@ export function ActionBar(props: {
               归档
             </button>
           </Tooltip>
+          </Show>
         </div>
       </div>
       <ArchiveDialogs target={archiveTarget()} open={archiveDialogOpen()} onClose={() => setArchiveDialogOpen(false)} />

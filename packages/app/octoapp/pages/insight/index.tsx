@@ -1085,11 +1085,6 @@ function InsightContent() {
   // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
-    // exe 与 Design 一致只显示下载弹窗，不打开带归档操作的结果页。
-    if (/\.exe$/i.test(file.name)) {
-      handleOpenLocalFile(file.path)
-      return
-    }
     // resolveOutputType 已将 png/jpg/gif/svg 等映射到 "image"(走 ImageRenderer),
     // psd/ai/sketch/fig 等不可浏览器渲染的归 "file"(走 FileFallback),其余分流到 file/code。
     // 与对话入口卡走的是**同一个函数**(§4.2)——两个入口结论一致,tab 才去得掉重。
