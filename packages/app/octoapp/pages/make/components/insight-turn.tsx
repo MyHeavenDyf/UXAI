@@ -1367,10 +1367,12 @@ const stateStatus = state.status as string | undefined
       if (!saveable.includes(card.type)) continue
       
       autoSavedArtifacts.add(key)
-      
-      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then(() => {
+
+      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then((saved) => {
+        if (saved === undefined) autoSavedArtifacts.delete(key)
         props.onFilesRefresh?.()
       }).catch(err => {
+        autoSavedArtifacts.delete(key)
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
       })
     }
