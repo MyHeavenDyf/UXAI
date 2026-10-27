@@ -955,6 +955,7 @@ export function* listGlobal(input?: {
   agent?: string
   pinned?: boolean
   grouped?: boolean
+  order?: "sort_order"
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)
 }
