@@ -158,3 +158,8 @@ export function isPreviewableMedia(filename: string, mimeType?: string): boolean
   }
   return false
 }
+
+/** 有扩展名且属于 FILE_EXT 非媒体(exe/office/压缩包/字体等)→ 禁止开 tab,应弹下载 dialog。*/
+export function isBlockedLocalFile(filePath: string): boolean {
+  return extOf(filePath) !== "" && !isPreviewableMedia(filePath)
+}

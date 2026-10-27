@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { studioResultCardStatus } from "./studio-shared"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus } from "./types"
@@ -35,7 +36,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     busy: props.busy,
     toolRunning: Boolean(props.turn.toolRunning),
   })
-  const generating = () => status() === "queued" || status() === "running"
+  const generating = () => status() === "creating" || status() === "queued" || status() === "running"
   const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
   const editable = () =>
     Boolean(props.turn.result) &&
@@ -82,11 +83,8 @@ export function StudioResultCard(props: StudioResultCardProps) {
   const isSingle1x1 = () => is1x1() && (props.turn.result?.images.length ?? 0) === 1
   const isMulti1x1 = () => is1x1() && (props.turn.result?.images.length ?? 0) > 1
   const statusLabel = () => {
-    if (status() === "queued") {
-      if (props.turn.result?.order != null && props.turn.result.order > 0) return "排队中"
-      if (progress() > 0 || props.busy) return "生成中"
-      return ""
-    }
+    if (status() === "creating") return "创建中"
+    if (status() === "queued") return "排队中"
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
     if (status() === "create_failed") return "创建失败"
@@ -99,6 +97,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
       class="studio-result-card"
       classList={{
         generating: generating(),
+        queued: status() === "queued",
         complete: status() === "succeeded",
         failed: status() === "failed" || status() === "create_failed",
         abnormal: status() === "abnormal",
@@ -111,7 +110,10 @@ export function StudioResultCard(props: StudioResultCardProps) {
             <span>{mediaLabel()}</span>
           </div>
           <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
-          <Show when={generating()}>
+          <Show when={status() === "queued"}>
+            <span class="studio-result-queue-count">当前排队{props.turn.result?.order || 1}人</span>
+          </Show>
+          <Show when={status() === "running"}>
             <>
               <div
                 class="studio-result-progress-track"
@@ -155,7 +157,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
               type="button"
               class="studio-result-action studio-result-reboot"
               disabled={props.actionBusy || props.rebooting}
-              onClick={() => props.turn.result && props.onRebootGeneration(props.turn.result.id)}
+              onClick={() => {
+                if (!props.turn.result) return
+                tracker.interaction({ module: "studio", name: "reboot-generation", extend: JSON.stringify({ generationID: props.turn.result.id }) })
+                props.onRebootGeneration(props.turn.result.id)
+              }}
             >
               {props.rebooting ? "重新生成中..." : "重新生成"}
             </button>
@@ -165,7 +171,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
               type="button"
               class="studio-result-action studio-result-refresh"
               disabled={props.actionBusy || props.refreshing}
-              onClick={() => props.turn.result && props.onRefreshGeneration(props.turn.result.id)}
+              onClick={() => {
+                if (!props.turn.result) return
+                tracker.interaction({ module: "studio", name: "refresh-generation", extend: JSON.stringify({ generationID: props.turn.result.id }) })
+                props.onRefreshGeneration(props.turn.result.id)
+              }}
             >
               {props.refreshing ? "刷新中..." : "刷新状态"}
             </button>
@@ -194,7 +204,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
               {(image, mediaIndex) => (
                 <button
                   type="button"
-                  onClick={() => props.turn.result && props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })}
+                  onClick={() => {
+                    if (!props.turn.result) return
+                    tracker.interaction({ module: "studio", name: "result-select-image", extend: JSON.stringify({ resultID: props.turn.result.id, imageID: image.id }) })
+                    props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })
+                  }}
                   class="studio-result-thumb"
                 >
                   <StudioMediaThumbnail

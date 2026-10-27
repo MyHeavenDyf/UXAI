@@ -1,3 +1,4 @@
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useGlobalSDK } from "@/context/global-sdk"
 
 // Remember the "最近" sort_order a session held before it was pinned, so
@@ -11,7 +12,7 @@ const PRE_PIN_ORDER_LIMIT = 100
 // Earlier iteration stored every session in one blob under this key.
 const LEGACY_PRE_PIN_ORDER_KEY = "octo:session-pre-pin-sort-order"
 
-type PrePinEntry = { order: number; at: number }
+type PrePinEntry = { order: number; at: number; nextId?: string; atEnd?: boolean }
 
 function store(): Storage | undefined {
   try {
@@ -29,9 +30,19 @@ function parseEntry(raw: string | null): PrePinEntry | undefined {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed === "number" && Number.isFinite(parsed)) return { order: parsed, at: 0 }
     if (parsed && typeof parsed === "object") {
-      const { order, at } = parsed as { order?: unknown; at?: unknown }
+      const { order, at, nextId, atEnd } = parsed as {
+        order?: unknown
+        at?: unknown
+        nextId?: unknown
+        atEnd?: unknown
+      }
       if (typeof order === "number" && Number.isFinite(order)) {
-        return { order, at: typeof at === "number" && Number.isFinite(at) ? at : 0 }
+        return {
+          order,
+          at: typeof at === "number" && Number.isFinite(at) ? at : 0,
+          nextId: typeof nextId === "string" && nextId.length > 0 ? nextId : undefined,
+          atEnd: atEnd === true,
+        }
       }
     }
   } catch {
@@ -76,15 +87,31 @@ function migrateLegacyPrePinOrders() {
 
 /** Peek the sort_order to restore when unpinning `sessionID` (undefined if unknown or corrupt). */
 export function peekRecentSortOrderBeforePin(sessionID: string): number | undefined {
-  migrateLegacyPrePinOrders()
-  return parseEntry(store()?.getItem(PRE_PIN_ORDER_PREFIX + sessionID) ?? null)?.order
+  return peekRecentPositionBeforePin(sessionID)?.order
 }
 
-function rememberRecentSortOrderBeforePin(sessionID: string, order: number) {
+/**
+ * Peek the remembered pre-pin position of `sessionID`: the "最近" sort_order it
+ * held, plus the id of the session that sat directly below it (the neighbour to
+ * reinsert before when unpinning). Returns undefined when nothing is known.
+ */
+export function peekRecentPositionBeforePin(
+  sessionID: string,
+): { order: number; nextId?: string; atEnd: boolean } | undefined {
+  migrateLegacyPrePinOrders()
+  const entry = parseEntry(store()?.getItem(PRE_PIN_ORDER_PREFIX + sessionID) ?? null)
+  if (!entry) return undefined
+  return { order: entry.order, nextId: entry.nextId, atEnd: entry.atEnd === true }
+}
+
+function rememberRecentSortOrderBeforePin(sessionID: string, order: number, nextId?: string, atEnd?: boolean) {
   const localStorageStore = store()
   if (!localStorageStore) return
   try {
-    localStorageStore.setItem(PRE_PIN_ORDER_PREFIX + sessionID, JSON.stringify({ order, at: Date.now() }))
+    localStorageStore.setItem(
+      PRE_PIN_ORDER_PREFIX + sessionID,
+      JSON.stringify({ order, at: Date.now(), ...(nextId ? { nextId } : {}), ...(atEnd ? { atEnd: true } : {}) }),
+    )
     prunePrePinOrders(localStorageStore)
   } catch {
     // Storage may be unavailable (quota exceeded / private mode). The pin
@@ -111,6 +138,49 @@ function prunePrePinOrders(localStorageStore: Storage) {
 }
 
 /**
+ * Order sessions the way the "最近" sidebar does (manual sort_order first, then
+ * most-recent activity) and return their ids. Pinned and grouped sessions are
+ * excluded — they live in their own sections.
+ */
+export function orderRecentIds(sessions: Session[], isGrouped?: (id: string) => boolean): string[] {
+  return sessions
+    .filter((s) => !s.pinned && !isGrouped?.(s.id))
+    .sort((a, b) => {
+      const sa = Number(a.sort_order)
+      const sb = Number(b.sort_order)
+      if (sa !== sb) return sa - sb
+      return (b.time.updated ?? 0) - (a.time.updated ?? 0)
+    })
+    .map((s) => s.id)
+}
+
+/** The neighbour directly below `sessionID` in `recentIds`: the reinsert anchor to remember on pin. */
+export function recentAnchor(recentIds: string[], sessionID: string): { nextId?: string; atEnd: boolean } {
+  const idx = recentIds.indexOf(sessionID)
+  if (idx < 0) return { atEnd: false }
+  return { nextId: recentIds[idx + 1], atEnd: idx === recentIds.length - 1 }
+}
+
+/**
+ * Build the id order that reinserts `sessionID` at its remembered slot (before
+ * `nextId`, or appended when it was last). Returns undefined when the anchor is
+ * gone (deleted/pinned/grouped), so callers leave the position alone.
+ */
+export function reinsertRecent(
+  recentIds: string[],
+  sessionID: string,
+  anchor: { nextId?: string; atEnd?: boolean },
+): string[] | undefined {
+  const ids = recentIds.filter((id) => id !== sessionID)
+  if (anchor.nextId && ids.includes(anchor.nextId)) {
+    ids.splice(ids.indexOf(anchor.nextId), 0, sessionID)
+    return ids
+  }
+  if (anchor.atEnd && ids.length > 0) return [...ids, sessionID]
+  return undefined
+}
+
+/**
  * Shared pin/unpin logic for sessions.
  *
  * The caller is responsible for any optimistic UI updates and for re-fetching
@@ -124,6 +194,11 @@ function prunePrePinOrders(localStorageStore: Storage) {
  *
  * `rememberRecentOrder` (pin) — the session's current "最近" sort_order, saved
  * so unpinning can restore it (non-finite values are ignored).
+ * `rememberNextId` (pin) — the id of the session directly below it in "最近",
+ * saved so unpinning can reinsert it at the exact same slot (sort_order alone
+ * can't, since ties are broken by the activity time that pin/unpin bumps).
+ * `rememberAtEnd` (pin) — true when it was the last session in "最近", so unpin
+ * appends it back to the bottom instead of dropping it at the top.
  * `restoreRecentOrder` (unpin) — the sort_order to write back; callers resolve
  * it as `peekRecentSortOrderBeforePin(id) ?? 0`, so sessions pinned before this
  * memory existed (or on another device) fall back to `0` and merge into the
@@ -136,7 +211,7 @@ export function useSessionPin() {
     sessionID: string,
     pinned: boolean,
     directory: string,
-    options?: { rememberRecentOrder?: number; restoreRecentOrder?: number },
+    options?: { rememberRecentOrder?: number; rememberNextId?: string; rememberAtEnd?: boolean; restoreRecentOrder?: number },
   ) {
     const client = sdk.createClient({ directory })
 
@@ -144,7 +219,7 @@ export function useSessionPin() {
       await client.session.update({ sessionID, pinned, directory })
       const order = options?.rememberRecentOrder
       if (order !== undefined && Number.isFinite(order)) {
-        rememberRecentSortOrderBeforePin(sessionID, order)
+        rememberRecentSortOrderBeforePin(sessionID, order, options?.rememberNextId, options?.rememberAtEnd)
       }
     } else {
       await client.session.update({ sessionID, pinned, directory, sort_order: options?.restoreRecentOrder ?? 0 })

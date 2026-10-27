@@ -18,6 +18,7 @@ import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { tracker } from "@/utils/tracker"
 import { decode64 } from "@/utils/base64"
 import { resolveStudioThumbnailUrl } from "./studio-media"
 
@@ -35,7 +36,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; historyActive?: boolean; onOpenHistory?: () => void; sessions: Session[]; loading: boolean; onSessionUpdated: (session: Session) => void; onSessionRemoved: (sessionID: string) => void; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
@@ -52,6 +53,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   }, { defer: true }))
 
   const [collapsed, setCollapsed] = createSignal(false)
+  const historyActive = () => props.historyActive ?? !props.activeSessionID
 
   const [title, setTitle] = createStore({
     draft: "",
@@ -126,7 +128,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const deleteSession = async (session: Session) => {
     const nextSession = pickNextSession(props.sessions.filter((item) => !item.time?.archived), session.id)
 
-    const ok = await removeSession(globalSDK.createClient({ directory: props.directory }), session.id)
+    const client = globalSDK.createClient({ directory: props.directory })
+    const ok = await removeSession(client, session.id)
     if (!ok) return false
 
     const scrollTop = listScrollRef?.scrollTop ?? 0
@@ -164,7 +167,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                 type="button"
                 class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
                 style={{ width: "36px", height: "36px" }}
-                onClick={(e) => { e.stopPropagation(); props.toggleDrawer!(); }}
+                onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "history-drawer-toggle" }); props.toggleDrawer!(); }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
                   <rect x="0.5" y="0.5" width="11" height="14" rx="2" stroke="#000000" />
@@ -173,6 +176,42 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
               </button>
             </Show>
           </div>
+          <button
+            type="button"
+            class="relative flex items-center gap-3 w-full rounded-lg text-left transition-colors"
+            classList={{
+              "bg-[rgba(10,89,247,0.08)]": historyActive(),
+              "hover:bg-surface-base-hover": !historyActive(),
+            }}
+            style={{
+              height: "36px",
+              padding: "0 12px",
+              color: historyActive() ? "#0A59F7" : "#191919",
+              "font-size": "12px",
+              "line-height": "20px",
+            }}
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "history-open" })
+              if (props.onOpenHistory) props.onOpenHistory()
+              else navigate(`/${props.routeSlug}/studio?history=1`)
+            }}
+          >
+            <img src={historyActive() ? "/studio/studio_panels_active.png" : "/studio/studio_panels.png"} alt="" style={{ width: "20px", height: "20px", "flex-shrink": "0" }} />
+            <span>{language.t("sidebar.history.title")}</span>
+            <Show when={historyActive()}>
+              <span
+                class="absolute rounded-full pointer-events-none"
+                style={{
+                  right: "4px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: "4px",
+                  height: "28px",
+                  background: "#0A59F7",
+                }}
+              />
+            </Show>
+          </button>
           <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
         </div>
 
@@ -180,7 +219,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         <div class="flex items-center h-[36px] px-[12px] mt-[8px]">
           <button
             type="button"
-            onClick={() => setCollapsed((v) => !v)}
+            onClick={() => { tracker.interaction({ module: "studio", name: "history-section-toggle", extend: JSON.stringify({ collapsed: !collapsed() }) }); setCollapsed((v) => !v) }}
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px]">
@@ -217,8 +256,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       const thumbnailUrl = createMemo(() => {
-                        // Depend on version to re-evaluate when a thumbnail is set elsewhere
-                        void props.thumbnailVersion
                         const entry = props.thumbnails?.[session.id]
                         return resolveStudioThumbnailUrl({
                           value: entry?.url,
@@ -274,6 +311,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                               <>
                                 <a
                                   href={`/${props.routeSlug}/studio/${session.id}`}
+                                  onClick={() => tracker.interaction({ module: "studio", name: "session-open", extend: JSON.stringify({ sessionID: session.id }) })}
                                   class="flex items-center w-full rounded-[8px] transition-colors"
                                   style={{ height: "36px", padding: "0 44px 0 12px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                                   classList={{
@@ -443,6 +481,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   <button
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
+                                      tracker.interaction({ module: "studio", name: "session-rename", extend: JSON.stringify({ sessionID: session.id }) })
                                       closeContextMenu()
                                       openTitleEditor(session)
                                     }}
@@ -453,6 +492,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   <button
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
+                                      tracker.interaction({ module: "studio", name: "session-delete", extend: JSON.stringify({ sessionID: session.id }) })
                                       closeContextMenu()
                                       dialog.show(() => (
                                         <DialogDeleteSession
@@ -495,7 +535,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         }}
         onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
         onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
-        onClick={() => { setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
+        onClick={() => { tracker.interaction({ module: "studio", name: "settings-open" }); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
       >
         <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
           <IconSettings1 size={20} />

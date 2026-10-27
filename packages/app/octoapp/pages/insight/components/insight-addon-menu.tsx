@@ -31,7 +31,6 @@ export function InsightAddonMenu(props: {
   selections: MentionSelection[]
   maxAttachments: boolean
   onAttachment: () => void
-  onRefresh: () => void
   onPending: (pending: boolean) => void
   mcpSelection: McpSelection | null
   onMcpSelect: (selection: McpSelection) => void
@@ -54,7 +53,7 @@ export function InsightAddonMenu(props: {
     }
     return props.files ? { generated: props.files.generated.map(map), uploaded: props.files.uploaded.map(map) } : null
   })
-  const selections = () => [...props.selections, ...Object.values(state.pending).map(item => item.selection)]
+  const selections = createMemo(() => [...props.selections, ...Object.values(state.pending).map(item => item.selection)])
   const deselect = (selection: MenuSelection) => {
     if (selection.type === "product-asset") return
     if (selection.type === "skill") return props.editor()?.removeMention(selection)
@@ -68,12 +67,9 @@ export function InsightAddonMenu(props: {
   const finish = (id: string) => {
     const result = results.get(id)
     if (lifetime.signal.aborted || !state.pending[id] || !result) return
-    const selection = state.pending[id].selection
-    props.editor()?.insertMentions([{
-      type: "file", filename: selection.filename, path: result.root, id, files: result.files,
-    }])
+    props.editor()?.insertMentions([{ type: "file", ...result.reference, id }])
     setState("pending", id, undefined!)
-    props.onRefresh()
+    // 与 design 一样只更新引用；刷新文件 resource 会触发页面外层 Suspense 闪屏。
   }
   const download = async (file: AssetFile, _progress: (pct: number) => void, signal?: AbortSignal) => {
     const id = assetFileId(file)
@@ -98,7 +94,7 @@ export function InsightAddonMenu(props: {
         return ""
       }
       results.set(id, result)
-      finishImport("success", { count: result.files.length })
+      finishImport("success", { count: 1 })
       return result.root
     } catch (error) {
       finishImport(task.signal.aborted ? "cancelled" : "failure", { reason: "import" })
@@ -129,6 +125,7 @@ export function InsightAddonMenu(props: {
       onDeselect={deselect}
       onAssetSelect={selection => {
         if (selection.type !== "file") return
+        results.delete(selection.path)
         setState("pending", selection.path, { selection: { ...selection, id: selection.path } })
       }}
       onAssetDeselect={deselect} productId={props.productId}

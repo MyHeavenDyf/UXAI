@@ -44,6 +44,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -66,7 +67,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
@@ -78,7 +79,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
-import { isPreviewableMedia } from "../insight/utils/output-type"
+import { isBlockedLocalFile, isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry, type UserAttachment } from "./components/insight-turn"
 import { TurnAnchorNav } from "./components/turn-anchor-nav"
@@ -121,7 +122,7 @@ import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
-import { createHistoryController } from "./subtype-handlers/history-controller"
+import { createHistoryController, removePersistedCurrentBySession } from "./subtype-handlers/history-controller"
 import {
   getSessionContextMetrics,
   isContextEstimateForMessage,
@@ -133,20 +134,22 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
-import { fastuiPreviewUrl, isLocalPreviewUrl, parseFastuiPreview, sessionDirOf, sessionHasFastuiState } from "./utils/fastui-export"
+import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 
+// 本地文件读入 tab content 的字节上限(与 result-viewer/text-renderer.tsx 的 MAX_PREVIEW_BYTES 同值):
+// 超过此规模的文本不做 decode/渲染,防止巨型文件撑爆 store 与渲染器
+const MAX_LOCAL_PREVIEW_BYTES = 1024 * 1024
+
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 
-// 代码工作区注入 [Project artifacts] 列表的上限:项目根文件可能很多,prompt 膨胀会挤占上下文
-const PROJECT_ARTIFACT_LIST_MAX = 50
-
 export default function MakePage() {
+  const layout = useLayout()
   const projectDir = useProjectDir({ mode: "project" })
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -155,7 +158,7 @@ export default function MakePage() {
   
   createEffect(() => {
     const dir = projectDir()
-    if (lastProjectDir && dir && lastProjectDir !== dir && params.id) {
+    if (lastProjectDir && dir && lastProjectDir !== dir && params.id && layout.lastSessionPerTab.make(dir) !== params.id) {
       navigate("/make", { replace: true })
     }
     lastProjectDir = dir
@@ -209,7 +212,7 @@ function MakeContent() {
   const prevMakeDir = lastMakeDir
   lastMakeDir = sdk.directory
   onMount(() => {
-    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id || layout.lastSessionPerTab.make(sdk.directory) === params.id) return
     navigate("/make", { replace: true })
   })
 
@@ -495,6 +498,9 @@ function MakeContent() {
 
     const ok = await removeSession(sdk.client, sessionID)
     if (!ok) return
+    sync.set("deleted", sessionID, true)
+
+    if (projectDir()) removePersistedCurrentBySession(projectDir()!, sessionID)
 
     tracker.interaction({ module: "design", name: "delete-session" })
     sync.set(
@@ -534,7 +540,14 @@ function MakeContent() {
   /** 置顶/取消置顶当前会话，逻辑与左侧栏 togglePin 一致（update + reorder） */
   async function togglePinCurrent(session: Session) {
     const newPinned = !session.pinned
-    const restore = peekRecentSortOrderBeforePin(session.id) ?? 0
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(sync.data.session.filter((s) => s.agent === "octo_make"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
     setSessionInfoMirror((prev) => {
       if (!prev) return prev
       return {
@@ -548,7 +561,9 @@ function MakeContent() {
         session.id,
         newPinned,
         sdk.directory,
-        newPinned ? { rememberRecentOrder: Number(session.sort_order) } : { restoreRecentOrder: restore },
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       setSessionInfoMirror((prev) => {
@@ -556,6 +571,16 @@ function MakeContent() {
         return { ...prev, pinned: session.pinned, sort_order: session.sort_order }
       })
       throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await sdk.client.session.reorder({ ids, directory: sdk.directory })
+      } catch (err) {
+        console.error("[make] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
     }
     void refetchSession()
   }
@@ -838,6 +863,10 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   // ── Send-text event listener (direct text → agent) ────────────────────────────
+  // 用户操作（资产库/图标/模型编辑保存）从 sendTextToAgent 开始到 model-edit:reply-done
+  // 结束是一个完整单元。期间 history-controller 的 'turn' 模式只 coalesce 不记录，
+  // 避免模型轮内多次写文件产生多条中间态版本；操作结束时 forceSettle 记一条最终态
+  let userActionPending = false
   createEffect(() => {
     const handleSendText = async (e: Event) => {
       const detail = (e as CustomEvent<SendTextEventDetail>).detail
@@ -854,9 +883,14 @@ const sessionMessagesLoaded = createMemo(() => {
         return
       }
 
+      // 资产库/图标/模型编辑保存：标记用户操作进行中，等 reply-done/idle 时 forceSettle
+      const isModelEditSource = detail.source === 'asset-confirm' || detail.source === 'icon-confirm' || detail.source === 'model-edit'
+      if (isModelEditSource) userActionPending = true
+
       const ok = await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
       if (!ok) {
         detail.ack?.({ ok: false, message: '发送失败' })
+        if (isModelEditSource) userActionPending = false
         return
       }
       tracker.interaction({
@@ -994,10 +1028,6 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID && toolName) {
           toolCallMap.set(callID, { tool: toolName, path: toolPath })
         }
-        // 写前基线：write/edit 即将改写 outputs 下从未版本化的文件 → 先记 init（原始版本 = 修改前内容）
-        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID ?? sid)) {
-          recordArtifactInit(toolPath)
-        }
       } else if (e.type === "session.next.tool.success") {
         const callID = props?.callID as string | undefined
         if (callID) {
@@ -1005,16 +1035,19 @@ const sessionMessagesLoaded = createMemo(() => {
           if (entry) {
             setFilesRefreshKey(k => k + 1)
             void historyController.onFileRefresh(tabStore.tabs())
-            // 伪 tab 版本记录（tab 未打开的 outputs 文件）：write 新建补 init / write-edit 落盘记 模型编辑
-            if (entry.path && isOutputsWriteTool(entry.tool, entry.path, eventSessionID ?? sid)) {
-              void recordToolVersionsAfter(entry.path)
-            }
             toolCallMap.delete(callID)
           }
         }
-      } else if (e.type === "session.next.step.ended" || e.type === "session.idle") {
+      } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs(), { turnEnd: true })
+      } else if (e.type === "session.idle") {
+        // session.idle：用户操作的 fallback 结束信号（reply-done 没到达时兜底）。
+        // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态；
+        // 不再额外调 onFileRefresh（forceSettle 已包含完整结算，重复调会产生重复记录）
+        userActionPending = false
+        historyController.forceSettle(tabStore.tabs())
+        setFilesRefreshKey(k => k + 1)
       } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
@@ -1031,6 +1064,71 @@ const sessionMessagesLoaded = createMemo(() => {
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
+      }
+    })
+    onCleanup(unsub)
+  })
+
+  // ── 全局 SSE 监听器：版本基线记录（与当前视图无关）──
+  // 上面的监听器是 session 作用域（params.id 变化即重订阅，非当前 session 的事件被过滤）——
+  // 用户在模型回复中切走 session 会让该轮的伪 tab 基线（init/agent 版本）永久丢失。
+  // 伪 tab 记录（recordArtifactInit / recordToolVersionsAfter）只依赖文件路径、不碰视图状态，
+  // 挪到这里（mount 时订阅一次、不随 session 切换重订阅）即可切走也不丢基线。
+  // code 模式 html 产物的 tab 打开推迟到 session.idle（回复完成）：正在看该 session 才开，
+  // 切走了直接丢弃（基线已记录，用户可从文件面板手动打开）。
+  const globalToolCallMap = new Map<string, { tool: string; path?: string }>()
+  const pendingCodeArtifactTabs = new Map<string, Set<string>>()
+  createEffect(() => {
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = props?.sessionID as string | undefined
+      if (!eventSessionID) return
+
+      if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        const input = (props?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
+        if (callID && toolName) {
+          globalToolCallMap.set(callID, { tool: toolName, path: toolPath })
+        }
+        // 写前基线（outputs 域 + code 模式 html 产物）：编辑场景在写盘前抢记 init = 修改前内容；
+        // 新建文件此时不存在 → recordVersion 落空（success 后由 recordToolVersionsAfter 补 init）
+        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID)) {
+          recordArtifactInit(toolPath)
+        }
+        if (toolName && toolPath && isCodeHtmlArtifactWrite(toolName, toolPath)) {
+          recordArtifactInit(toolPath)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (!callID) return
+        const entry = globalToolCallMap.get(callID)
+        globalToolCallMap.delete(callID)
+        if (!entry?.path) return
+        if (isOutputsWriteTool(entry.tool, entry.path, eventSessionID)) {
+          void recordToolVersionsAfter(entry.path)
+        }
+        if (isCodeHtmlArtifactWrite(entry.tool, entry.path)) {
+          void recordToolVersionsAfter(entry.path)
+          // 累积到该 session 的待开列表，idle（回复完成）时统一打开
+          const set = pendingCodeArtifactTabs.get(eventSessionID) ?? new Set<string>()
+          set.add(entry.path)
+          pendingCodeArtifactTabs.set(eventSessionID, set)
+        }
+      } else if (e.type === "session.idle") {
+        const paths = pendingCodeArtifactTabs.get(eventSessionID)
+        pendingCodeArtifactTabs.delete(eventSessionID)
+        if (!paths || paths.size === 0) return
+        // 切走的 session：tab 直接丢弃（基线已记录，不补开）
+        if (params.id !== eventSessionID) return
+        for (const path of paths) {
+          const normalized = path.replace(/\\/g, "/")
+          // 过滤用户中途手动打开的 tab（避免无谓激活）
+          if (tabStore.tabs().some((t) => t.filePath && t.filePath.replace(/\\/g, "/") === normalized)) continue
+          handleOpenLocalFile(path)
+        }
       }
     })
     onCleanup(unsub)
@@ -1299,6 +1397,20 @@ const sessionMessagesLoaded = createMemo(() => {
     if (aTime !== bTime) return aTime - bTime
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
   })
+
+  const trackSkillUsage = createSkillUsageTracker({
+    module: "design",
+    scope: JSON.stringify([sdk.url, sdk.directory]),
+    sessionIDs: () => [
+      params.id,
+      ...childSessionIDs(),
+      planParentSessionId() === params.id ? activePlanSessionId() : undefined,
+      patternSubParentSessionId() === params.id ? activePatternSessionId() : undefined,
+    ].filter((id): id is string => !!id),
+    message: (sessionID, messageID) => sync.data.message[sessionID]?.find((message) => message.id === messageID),
+    report: (event) => tracker.interaction(event),
+  })
+  onCleanup(sdk.event.listen((event) => trackSkillUsage(event.details)))
 
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
@@ -1922,6 +2034,7 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (id) => {
     if (id) return
     const pending = pendingNewChatAttachments()
+    console.log("[octo:make] pending-attachments effect", { id, pending: pending?.length ?? null, current: attachments().length })
     if (!pending) return
     setPendingNewChatAttachments(null)
     setAttachments(pending)
@@ -2028,10 +2141,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const isFirst = userMessages()[0]?.id === msg.id
 
     if (isFirst) {
-      const draft = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+      const draft = await executeRevert(msg)
+      if (!draft) return
+      console.log("[octo:make] first-message revert draft", {
+        attachments: draft.attachments.length,
+        parts: ((sync.data.part[msg.id] ?? []) as RevertDraftPart[]).map((p) => `${p.type}${p.synthetic ? "(synthetic)" : ""}`).join(","),
+      })
+      tracker.interaction({ module: "design", name: "revert-session-restart" })
       const ok = await removeSession(sdk.client, sid)
       if (!ok) return
-      tracker.interaction({ module: "design", name: "revert-session-restart" })
       sync.set(
         produce((draftState) => {
           const i = draftState.session.findIndex((s) => s.id === sid)
@@ -2045,6 +2163,24 @@ const sessionMessagesLoaded = createMemo(() => {
       setRevertPanelID(null)
       navigate("/make", { replace: true })
       showOctoToast({ title: "已回退并删除当前会话，消息已恢复到输入框" })
+      // 兜底：rAF 时序上晚于路由切换提交的全部 effect（含 :733 清空附件与上面的 pending effect），
+      // pending effect 因任何时序问题未消费时由此直接应用；两者幂等（都先置 null 再应用，先到先得）
+      requestAnimationFrame(() => {
+        const pending = pendingNewChatAttachments()
+        console.log("[octo:make] rAF fallback", { paramsId: params.id, pending: pending?.length ?? null, current: attachments().length })
+        if (params.id) return
+        if (!pending) return
+        setPendingNewChatAttachments(null)
+        setAttachments(pending)
+      })
+      // 500ms 终态：判定「应用后被清」vs「从未应用」vs「应用了但没渲染」
+      setTimeout(() => {
+        console.log("[octo:make] revert final state", {
+          paramsId: params.id,
+          attachments: attachments().length,
+          pendingLeft: pendingNewChatAttachments()?.length ?? null,
+        })
+      }, 500)
       return
     }
 
@@ -2161,6 +2297,7 @@ const sessionMessagesLoaded = createMemo(() => {
     updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
     setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
     isActiveTab: (id) => tabStore.activeId() === id,
+    isUserActionPending: () => userActionPending,
   })
 
 
@@ -2168,6 +2305,21 @@ const sessionMessagesLoaded = createMemo(() => {
     const lower = toolName.toLowerCase()
     if (!lower.includes("write") && !lower.includes("edit")) return false
     return filePath.replace(/\\/g, "/").includes(`.octo/${sessionID}/outputs/`)
+  }
+
+  /** code 模式 html 产物判定：write/edit 工具 + 项目内 + .html 扩展（排除 .octo 内部目录）。
+   *  agent 在 code 模式按 [Workspace] 提示词直接写项目文件，html 页面是回退恢复的主要对象。
+   *  版本基线经全局 SSE 监听器记录（伪 tab init/agent）；tab 打开推迟到 session.idle（回复完成） */
+  function isCodeHtmlArtifactWrite(toolName: string, filePath: string): boolean {
+    if (!isProjectScope()) return false
+    const lower = toolName.toLowerCase()
+    if (!lower.includes("write") && !lower.includes("edit")) return false
+    const normalized = filePath.replace(/\\/g, "/")
+    if (!/\.html?$/i.test(normalized)) return false
+    if (normalized.includes("/.octo/")) return false
+    const dir = projectDir()?.replace(/\\/g, "/")
+    if (!dir) return false
+    return normalized.startsWith(dir.endsWith("/") ? dir : dir + "/")
   }
 
   function pseudoHistoryTab(filePath: string): ResultTab {
@@ -2255,17 +2407,20 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
   })
 
-  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：补一次 onFileRefresh。
-  // components 页面的 index.components.html 由构建进程在回复内重新产出，SSE 的 tool/step 事件
-  // 时点上可能读不到新文件而漏记「模型编辑」版本；此刻模型已收工、产物已落盘，检查必然命中。
-  // hash 未变时 onFileRefresh 是空操作，与 SSE 路径幂等互斥（先到者记录并推进基线）。
+  // 模型编辑回复完成（html-renderer 的 disabled→false 钩子派发）：用户操作结束。
+  // forceSettle 把 'turn' 模式 pending 的 settle 强制结算，记一条最终态。
+  // 之前 SSE 路径的 coalesce 只更新了预览、没记录版本；此刻模型已收工、产物已落盘，
+  // forceSettle 必然命中最终态（hash 未变时 onFileRefresh 是空操作，幂等）。
+  // session.idle 会先到达并 forceSettle；reply-done 到达时 userActionPending 已 false 则跳过
   createEffect(() => {
     const handler = async (e: Event) => {
       const detail = (e as CustomEvent<{ filePath?: string }>).detail
       if (!detail?.filePath) return
       const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
       if (!target) return
-      await historyController.onFileRefresh([target])
+      if (!userActionPending) return
+      userActionPending = false
+      await historyController.forceSettle([target])
     }
     window.addEventListener("model-edit:reply-done", handler)
     onCleanup(() => window.removeEventListener("model-edit:reply-done", handler))
@@ -3468,8 +3623,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const folderProjDir = projectDir()
     if (!folderProjDir || !sessionId) return ""
     // 代码工作区：注入 [Workspace] 提示词（直接在本工作区内读写项目文件），不走产物目录规则。
-    // 产物目录用声明式映射（= 工作区目录本身）而非条件式——agent 提示词(octo_make.txt)把
-    // .octo/<sessionId>/outputs/ 写成 write 的兜底路径,声明式才能确定性压过该锚点。
+    // 产物目录声明式映射为工作区目录本身,与 octo_make.txt 中按 [Workspace]/[Artifact Folder]
+    // 前缀分流的输出规则一一对应。
     if (kindOf(layout.projects.list().find((x) => x.worktree === folderProjDir)) === "code") {
       return [
         `[Workspace]: ${folderProjDir}`,
@@ -3479,23 +3634,17 @@ const sessionMessagesLoaded = createMemo(() => {
       ].join("\n")
     }
     const sep = folderProjDir.includes("\\") ? "\\" : "/"
-    const projectScope = isProjectScope()
-    const artifactFolder = projectScope ? folderProjDir : [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+    const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
     let existingList = ""
     try {
-      const relPath = projectScope ? "." : `.octo/${sessionId}/outputs`
-      const result = await sdk.client.file.list({ path: relPath })
-      const all = (result.data ?? []).filter((n) => n.type === "file" && !n.name.startsWith("."))
-      const truncated = projectScope && all.length > PROJECT_ARTIFACT_LIST_MAX
-      const files = truncated ? all.slice(0, PROJECT_ARTIFACT_LIST_MAX) : all
+      const result = await sdk.client.file.list({ path: `.octo/${sessionId}/outputs` })
+      const files = (result.data ?? []).filter((n) => n.type === "file" && !n.name.startsWith("."))
       if (files.length > 0) {
-        const lines = files.map((n) => `- ${n.absolute}`)
-        if (truncated) lines.push(`- ...（项目共 ${all.length} 个文件，仅列出前 ${PROJECT_ARTIFACT_LIST_MAX} 个）`)
         existingList = [
           ``,
-          projectScope ? `[Project artifacts]` : `[Existing artifacts in this session]`,
-          ...lines,
-          `用户在${projectScope ? "本项目" : "本会话"}中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
+          `[Existing artifacts in this session]`,
+          ...files.map((n) => `- ${n.absolute}`),
+          `用户在本会话中要求修改此前生成的产物时，请对上面匹配的文件路径使用 edit 工具。若目标文件不在列表中，则改为重新输出完整的 <artifact>，不要编辑此列表之外的文件。`,
         ].join("\n")
       }
     } catch {
@@ -3644,7 +3793,10 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
 
       // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
-      const artifactFolderPrefix = await buildArtifactFolderPrefix(sessionId)
+      // 规划子会话不注入:octo_make_plan 不产文件(write/edit 均 deny),code 工作区的
+      // [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与其 strategy-field/
+      // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
+      const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
@@ -3781,7 +3933,10 @@ const sessionMessagesLoaded = createMemo(() => {
             cmdParts.push({
               type: "text",
               text: seg.args || " ",
-              metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
+              metadata: {
+                displayText: isFirstSkillCommand ? fullDisplayText : "",
+                command: seg.cmd,
+              }
             })
             isFirstSkillCommand = false
           }
@@ -4997,7 +5152,10 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!api?.getAssetsConfig || !api?.writeFileBuffer) return
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+
+    const finalPath = isProjectScope()
+      ? [projectDirValue, ".octo", "resource", "assets_config.json"].join(sep)
+      : [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
 
     try {
       const info = await api.getAssetsConfig() as AssetsConfig
@@ -5067,6 +5225,24 @@ const sessionMessagesLoaded = createMemo(() => {
       return
     }
 
+    // 根部收口:任何带本地 filePath 的卡片,扩展名属于不可预览集合(exe/office/压缩包等)
+    // → 弹下载 dialog,不开 tab。覆盖 artifact 卡片/文件管理入口/未来新增打开入口;
+    // http URL 不在此列(后续 URL 分支处理);link 卡片路径在 content 里(filePath 通常为空),
+    // 由下方 link 校验块的守卫覆盖。
+    if (card.filePath && !/^https?:\/\//i.test(card.filePath) && isBlockedLocalFile(card.filePath)) {
+      const fp = card.filePath
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={fp.split(/[/\\]/).pop() ?? card.title}
+          filePath={fp}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-unavailable", extend: JSON.stringify({ title: card.title }) })
+      return
+    }
+
     // link 类型先校验,打不开直接 toast 返回,不切 tabs 模式(否则右侧停留在无 tab 的 tabs 视图)
     if (card.type === "link") {
       const linkContent = (card.content ?? "").trim()
@@ -5078,6 +5254,26 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!/^([A-Za-z]:[/\\]|\/)/.test(linkContent) && !projectDir()) {
         showOctoToast({ title: "打开失败", description: "未选择项目目录，无法打开相对路径", variant: "error" })
         tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "no-project-dir" }) })
+        return
+      }
+      // 磁盘路径(绝对/相对)指向不可预览扩展名(exe/office/压缩包等)→ 弹下载 dialog,不开 tab。
+      if (!/^https?:\/\//i.test(linkContent) && isBlockedLocalFile(linkContent)) {
+        const normalizedLink = linkContent.replace(/\\/g, "/")
+        const dir = projectDir()
+        const absolutePath = /^([A-Za-z]:[/\\]|\/)/.test(linkContent)
+          ? normalizedLink.replace(/\/+/g, "/")
+          : dir
+            ? dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/" + normalizedLink
+            : normalizedLink
+        dialog.show(() => (
+          <DialogPreviewUnavailable
+            filename={absolutePath.split("/").pop() ?? card.title}
+            filePath={absolutePath}
+            sdkUrl={sdk.url}
+            sdkDirectory={sdk.directory || ""}
+          />
+        ))
+        tracker.interaction({ module: "design", name: "preview-link-failed", extend: JSON.stringify({ reason: "unpreviewable-ext" }) })
         return
       }
     }
@@ -5097,7 +5293,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const fastuiName = parseFastuiPreview(linkContent)
       const legacyFastui =
         fastuiName === null && isLocalPreviewUrl(linkContent) && params.id && projectDir()
-          ? await sessionHasFastuiState(sessionDirOf(projectDir()!, params.id)!)
+          ? await hasFastuiProject(fastuiTargetOf(projectDir()!, params.id)!)
           : false
       if (fastuiName !== null || legacyFastui) {
         const previewUrl = fastuiPreviewUrl(fastuiName ?? "")
@@ -5176,8 +5372,8 @@ const sessionMessagesLoaded = createMemo(() => {
         // ★ 先 activate,后台再比对磁盘内容(镜像 non-link 分支的优化)
         tabStore.activate(existingLocal.id)
         tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
-        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU
-        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type)) {
+        // 媒体类型跳过:二进制文件当文本解码无意义且耗 CPU; 不可预览扩展名也跳过
+        if (!["image", "video", "audio", "pdf"].includes(existingLocal.type) && !isBlockedLocalFile(existingLocal.filePath ?? "")) {
           // ★ createStore 下 tab 是 proxy,需要快照做前后对比(同 non-link 分支)
           const existingBefore = { ...existingLocal } as ResultTab
           // ★ 版本号守卫:读盘期间若再次激活发起更新的比对,或 tab 内容已被外部(用户编辑 /
@@ -5228,7 +5424,8 @@ const sessionMessagesLoaded = createMemo(() => {
       if (inferredType !== "design-plan") {
         const api = getDesktopApi()
         const buf = await api?.readFileBuffer?.(absolutePath)
-        if (buf) {
+        // 超大文件跳过 decode:防止巨型文本撑爆 tab store 与下游渲染器
+        if (buf && buf.byteLength <= MAX_LOCAL_PREVIEW_BYTES) {
           const fileContent = new TextDecoder().decode(buf)
           if (fileContent) {
             tabStore.updateTabContent(tabId, fileContent)
@@ -5250,7 +5447,7 @@ const sessionMessagesLoaded = createMemo(() => {
     let contentLoadedFromFile = false
     
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    // 代码工作区:推断/落盘到项目根 (kind="code");普通工作区:.octo/<sid>/outputs (原行为)
+    // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
@@ -5765,6 +5962,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   hasMessages={menuHasMessages()}
                   groups={groupsCtx?.groups}
                   sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="design"
                   onClose={closeMenu}
                   onRename={handleMenuRename}
                   onTogglePin={handleMenuTogglePin}

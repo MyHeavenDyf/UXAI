@@ -1,4 +1,4 @@
-import { createHistoryStore, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
+import { createHistoryStore, fnv1aHash, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
 import { getSubtypeHandler } from "../utils/subtype-registry"
 import { getSubtypeConfig } from "../utils/subtype-config"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
@@ -7,23 +7,33 @@ import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
 import { tracker } from "@/utils/tracker"
 
-/** FNV-1a hash：同步、纯 JS，对短文本足够精确 */
-function fnv1aHash(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let h = 0x811c9dc5
-  for (let i = 0; i < bytes.length; i++) {
-    h ^= bytes[i]
-    h = (h * 0x01000193) >>> 0
-  }
-  return h.toString(16)
-}
-
 export interface HistoryControllerCallbacks {
   setVersionList: (updater: (prev: VersionEntry[]) => VersionEntry[]) => void
   setCurrentVersionId: (updater: (prev: string | null) => string | null) => void
   updateTabContent: (id: string, content: string) => void
   setFilesRefreshKey: (updater: (prev: number) => number) => void
   isActiveTab: (id: string) => boolean
+  /** 用户操作（资产库/图标/模型编辑保存等）是否进行中——从 sendTextToAgent 调用开始
+   *  到 model-edit:reply-done（或 session.idle 兜底）结束。
+   *  'turn' 模式在此期间只 coalesce 不记录，避免模型轮内多次写文件产生多条中间态版本，
+   *  只在操作结束时记一条最终态 */
+  isUserActionPending?: () => boolean
+}
+
+export function removePersistedCurrentBySession(projectDir: string, sessionId: string): void {
+  if (!projectDir || !sessionId) return
+  const base = [projectDir.replace(/\\/g, "/"), ".octo", sessionId, "outputs"].join("/")
+  const prefix = "octo:history:current:"
+  try {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const p = k.slice(prefix.length).replace(/\\/g, "/")
+      if (p === base || p.startsWith(base + "/")) keys.push(k)
+    }
+    keys.forEach((k) => localStorage.removeItem(k))
+  } catch {}
 }
 
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
@@ -89,6 +99,20 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     return true
   }
 
+  function getPersistedCurrentId(filePath: string): string | null {
+    try {
+      return localStorage.getItem("octo:history:current:" + filePath)
+    } catch {
+      return null
+    }
+  }
+
+  function setPersistedCurrentId(filePath: string, id: string): void {
+    try {
+      localStorage.setItem("octo:history:current:" + filePath, id)
+    } catch {}
+  }
+
   async function trigger(tab: ResultTab, event: HistoryTriggerEvent, actor: HistoryActor): Promise<void> {
     if (!isEligible(tab)) return
     const handler = getSubtypeHandler(tab.subtype)
@@ -101,30 +125,31 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // 有历史则跳过——不补建（有 user/agent 版本但缺 init 时，补建的 init 内容是错的）
       const existing = await historyStore.listVersions(tab)
       if (existing.length > 0) {
-        let newestId = existing[0].id
-        const currentHash = await getTabFileSetHash(tab)
-        if (currentHash) {
-          const versionFiles = await historyStore.getVersionFiles(existing[0].id, tab, files)
-          const hashes: string[] = []
-          for (const vf of versionFiles) {
-            const h = await getFileHash(vf.filePath)
-            if (h) hashes.push(h)
-          }
-          if (hashes.join("|") !== currentHash) {
-            const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
-            if (entry) {
-              newestId = entry.id
-              listGeneration++
-              if (callbacks.isActiveTab(tab.id)) {
-                const list = await historyStore.listVersions(tab)
-                callbacks.setVersionList(() => list)
-              } else {
-                callbacks.setVersionList((prev) => [entry, ...prev])
-              }
-            }
-          }
+        listGeneration++
+        callbacks.setVersionList(() => existing)
+
+        const persistedId = getPersistedCurrentId(tab.filePath!)
+        const persistedEntry = persistedId ? existing.find((e) => e.id === persistedId) : undefined
+        const compareEntry = persistedEntry ?? existing[0]
+        if (await currentMatchesVersion(tab, files, compareEntry.id)) {
+          callbacks.setCurrentVersionId(() => compareEntry.id)
+          setPersistedCurrentId(tab.filePath!, compareEntry.id)
+          return
         }
-        callbacks.setCurrentVersionId(() => newestId)
+        const entry = await historyStore.recordVersion(tab, "agent", files, getSubtypeConfig(tab.subtype).history?.maxVersions)
+        if (entry) {
+          setPersistedCurrentId(tab.filePath!, entry.id)
+          if (callbacks.isActiveTab(tab.id)) {
+            const list = await historyStore.listVersions(tab)
+            callbacks.setVersionList(() => list)
+            callbacks.setCurrentVersionId(() => entry.id)
+          } else {
+            callbacks.setVersionList((prev) => [entry, ...prev])
+            callbacks.setCurrentVersionId(() => entry.id)
+          }
+        } else {
+          callbacks.setCurrentVersionId(() => compareEntry.id)
+        }
         return
       }
     }
@@ -162,6 +187,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       } else {
         callbacks.setVersionList((prev) => [entry, ...prev])
       }
+      setPersistedCurrentId(tab.filePath!, entry.id)
     }
   }
 
@@ -177,6 +203,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
         await handler.applyVersionFiles(ctx, files)
       }
       callbacks.setCurrentVersionId(() => entry.id)
+      setPersistedCurrentId(tab.filePath!, entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
       const hash = await getTabFileSetHash(tab)
       if (hash) {
@@ -329,18 +356,46 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   // 自动补一次 turnEnd 记录。不依赖 turnEnd 事件时序——session.idle 可能赶在
   // 文件写入完成前到达（此时 hash==基线被跳过），之后的 file.edited 已无 turnEnd，
   // 改动会被永久搁置（表现为"停在原始版本/没有模型编辑记录"）。
+  // 用户操作进行中（isUserActionPending）只顺延不结算，避免模型轮内多次写文件
+  // （先替换元素再编译等）被记成多条中间态版本；操作结束时 forceRecord 强制记最终态。
+  // SETTLE_MAX_DEFER_MS 是 reply-done/idle 事件丢失的兜底上限，超时仍强制结算。
   let settleTimer: ReturnType<typeof setTimeout> | undefined
+  let settleArmedAt: number | undefined
   const SETTLE_DELAY_MS = 1500
+  const SETTLE_MAX_DEFER_MS = 300_000
 
   function scheduleSettle(tabs: ResultTab[]): void {
     if (settleTimer) clearTimeout(settleTimer)
+    settleArmedAt = Date.now()
     settleTimer = setTimeout(() => {
       settleTimer = undefined
-      void onFileRefresh(tabs, { turnEnd: true })
+      // 用户操作仍在进行：模型可能在两个工具调用间停顿（思考/编译），此时结算会把中间态记成版本。
+      // 顺延等待操作结束（reply-done/idle 会调 forceSettle 强制结算）；
+      // 超过上限（事件丢失的兜底）仍强制结算
+      if (callbacks.isUserActionPending?.() && settleArmedAt !== undefined && Date.now() - settleArmedAt < SETTLE_MAX_DEFER_MS) {
+        settleTimer = setTimeout(() => {
+          settleTimer = undefined
+          settleArmedAt = undefined
+          void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
+        }, SETTLE_DELAY_MS)
+        return
+      }
+      settleArmedAt = undefined
+      void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
     }, SETTLE_DELAY_MS)
   }
 
-  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean }): Promise<void> {
+  /** 用户操作结束（reply-done/idle）时调用：强制结算 pending 的 settle */
+  function forceSettle(tabs: ResultTab[]): void {
+    if (settleTimer) {
+      clearTimeout(settleTimer)
+      settleTimer = undefined
+    }
+    settleArmedAt = undefined
+    void onFileRefresh(tabs, { turnEnd: true, forceRecord: true })
+  }
+
+  async function onFileRefresh(tabs: ResultTab[], opts?: { turnEnd?: boolean; forceRecord?: boolean }): Promise<void> {
     if (refreshInFlight) {
       refreshQueued = true
       if (opts?.turnEnd) refreshQueuedTurnEnd = true
@@ -350,6 +405,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     try {
       do {
         const turnEnd = !!opts?.turnEnd || refreshQueuedTurnEnd
+        const forceRecord = !!opts?.forceRecord
         refreshQueued = false
         refreshQueuedTurnEnd = false
         for (const tab of tabs) {
@@ -364,7 +420,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
             continue
           }
           if (prevHash === hash) continue
-          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !turnEnd
+          /** 'turn' 模式在用户操作进行中（isUserActionPending）只 coalesce 不记录，
+           *  避免模型轮内多次写文件（先替换元素再编译等）产生多条中间态版本。
+           *  forceRecord=true（操作结束的 forceSettle 调用）绕过 coalesce 记最终态 */
+          const coalesce = getSubtypeConfig(tab.subtype).history?.agentTurnRecord === "turn" && !forceRecord
           const api = getDesktopApi()
           if (coalesce) {
             // agent 轮内：只同步内存内容 + 刷新预览，不推进基线、不记录。
@@ -380,11 +439,12 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
             }
             continue
           }
-          // 记录路径（turnEnd 或 'each' 模式）：推进基线 + 记录
+          // 记录路径（forceRecord 或 'each' 模式）：推进基线 + 记录
           if (settleTimer) {
             clearTimeout(settleTimer)
             settleTimer = undefined
           }
+          settleArmedAt = undefined
           lastFileHash.set(tab.filePath!, hash)
           const buf = await api?.readFileBuffer?.(tab.filePath!)
           if (!buf) continue
@@ -408,33 +468,33 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const list = await historyStore.listVersions(tab)
     if (seq !== listGeneration) return
     callbacks.setVersionList(() => list)
-    const currentHash = await getTabFileSetHash(tab)
-    let currentId = list[0]?.id ?? null
-    if (currentHash && list.length > 0) {
-      const matched = await findVersionByHash(tab, list, currentHash)
-      if (matched) currentId = matched.id
-    }
+
+    const persistedId = getPersistedCurrentId(tab.filePath!)
+    const persistedEntry = persistedId ? list.find((e) => e.id === persistedId) : undefined
+    let currentId = persistedEntry?.id ?? list[0]?.id ?? null
     if (seq !== listGeneration) return
     callbacks.setCurrentVersionId(() => currentId)
-    if (currentHash) {
-      lastFileHash.set(tab.filePath!, currentHash)
+    const hash = await getTabFileSetHash(tab)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
+    }
+    if (currentId) {
+      setPersistedCurrentId(tab.filePath!, currentId)
     }
   }
 
-  /** 对比 tab 当前合并 hash 和各版本同文件集的合并 hash，找匹配的版本 */
-  async function findVersionByHash(tab: ResultTab, list: VersionEntry[], targetHash: string): Promise<VersionEntry | null> {
-    const files = await getTabFiles(tab)
-    for (const entry of list) {
-      const versionFiles = await historyStore.getVersionFiles(entry.id, tab, files)
-      const hashes: string[] = []
-      for (const vf of versionFiles) {
-        const h = await getFileHash(vf.filePath)
-        if (h) hashes.push(h)
-      }
-      const combinedHash = hashes.join("|")
-      if (combinedHash === targetHash) return entry
+  /** 当前磁盘内容是否与版本内容一致：按版本文件夹内实际存在的文件逐个比对 hash。
+   *  版本未包含的文件（记录后才新增的）不参与——switchVersion 本就不会删除它们，
+   *  交集匹配才能在「切到旧版本后文件集有漂移」时仍正确识别当前所在版本 */
+  async function currentMatchesVersion(tab: ResultTab, files: string[], versionId: string): Promise<boolean> {
+    const versionFiles = await historyStore.getVersionFiles(versionId, tab, files)
+    if (versionFiles.length === 0) return false
+    for (const vf of versionFiles) {
+      const hCur = await getFileHash(vf.originalPath)
+      const hVer = await getFileHash(vf.filePath)
+      if (!hCur || !hVer || hCur !== hVer) return false
     }
-    return null
+    return true
   }
 
   async function refreshVersions(tab: ResultTab): Promise<void> {
@@ -455,6 +515,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     syncFileHash,
     onTabOpen,
     onFileRefresh,
+    forceSettle,
     loadVersions,
     refreshVersions,
     listVersions: historyStore.listVersions,

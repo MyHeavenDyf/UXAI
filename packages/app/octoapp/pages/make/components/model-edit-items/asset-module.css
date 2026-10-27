@@ -135,6 +135,14 @@
   transition: transform 150ms ease;
 }
 
+/* 文件夹行尾的文件数 */
+.me-asset-tree-filecount {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 22px;
+  color: #777777;
+}
+
 /* File grid */
 .me-asset-dialog-grid {
   display: flex;
@@ -231,9 +239,9 @@
   color: #fff;
 }
 
-/* Preview popup */
+/* Preview popup*/
 .me-asset-dialog-preview {
-  position: fixed;
+  position: absolute;
   width: 256px;
   height: 330px;
   padding: 8px;
@@ -244,6 +252,7 @@
   z-index: 20;
   display: flex;
   flex-direction: column;
+  pointer-events: none;
 }
 
 .me-asset-dialog-preview-name {

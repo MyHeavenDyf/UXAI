@@ -6,15 +6,14 @@ import { batch, createEffect, createMemo, createResource, createSignal, on, onCl
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
-// useGlobalSync is currently unused; re-enable when sync-specific hooks are needed
-// import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSync } from "@/context/global-sync"
 import { sessionTitle } from "@/utils/session-title"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin } from "@/hooks/use-session-pin"
 // disableIframesDuringDrag is currently unused after recent refactors
 // import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
@@ -155,6 +154,7 @@ function writeSidebarCache(key: string, value: { sessions: Session[]; cursor?: s
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
   const dialog = useDialog()
@@ -315,7 +315,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const { togglePin: togglePinSession } = useSessionPin()
 
-  async function togglePin(id: string) {
+  async function togglePin(id: string, options?: { skipRestore?: boolean }) {
     const idx = sessionList.findIndex(s => s.id === id)
     if (idx < 0) return
     const session = sessionList[idx]
@@ -324,7 +324,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const newVal = !session.pinned
     tracker.interaction({ module: props.trackerModule ?? "session", name: newVal ? "pin-session" : "unpin-session" })
     const previousSortOrder = session.sort_order
-    const restore = peekRecentSortOrderBeforePin(id) ?? 0
+    // Position to restore on unpin: sort_order alone can't pin the slot because
+    // sessions created before any manual reorder share sort_order 0 and are then
+    // ordered by activity time — which pin/unpin itself bumps. So we also
+    // remember the neighbour below it and reinsert before it afterwards.
+    const remembered = peekRecentPositionBeforePin(id)
+    const restore = remembered?.order ?? 0
+    const anchorId = remembered?.nextId
+    const anchorAtEnd = remembered?.atEnd ?? false
+    const recentBeforePin = recentSessions()
+    const pos = recentBeforePin.findIndex(s => s.id === id)
+    const nextId = pos >= 0 ? recentBeforePin[pos + 1]?.id : undefined
+    const atEnd = pos >= 0 && pos === recentBeforePin.length - 1
     if (newVal) {
       batch(() => {
         setSessionList(idx, "sort_order", -1)
@@ -342,7 +353,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         id,
         newVal,
         d,
-        newVal ? { rememberRecentOrder: Number(previousSortOrder) } : { restoreRecentOrder: restore },
+        newVal
+          ? { rememberRecentOrder: Number(previousSortOrder), rememberNextId: nextId, rememberAtEnd: atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       // Revert optimistic update on failure
@@ -351,6 +364,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setSessionList(idx, "sort_order", previousSortOrder)
       })
       throw err
+    }
+    // Reinsert the unpinned session at its previous slot: before the session
+    // that used to sit below it, or at the very bottom if it was last. Skipped
+    // when the caller will reorder anyway (drag-drop). This runs outside the
+    // pin try/catch: it is a cosmetic follow-up, so a failure here must not
+    // revert an unpin that already succeeded server-side.
+    if (!newVal && !options?.skipRestore && resolvedDir() === d) {
+      try {
+        const recent = recentSessions()
+        if (anchorId && recent.some(s => s.id === anchorId)) {
+          await reorderRecent(id, anchorId, "before")
+        } else if (anchorAtEnd) {
+          const last = recent.filter(s => s.id !== id).at(-1)
+          if (last) await reorderRecent(id, last.id, "after")
+        }
+      } catch (err) {
+        console.error("[agent-sidebar] restore unpinned session position failed", { id, anchorId, error: String(err) })
+      }
     }
   }
 
@@ -450,8 +481,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         } else if (section === "recent") {
           // Await the unpin toggle so its sort_order write lands before the drag
           // reorder below; concurrent requests can otherwise persist the wrong
-          // order on the server.
-          if (sourceIsPinned) await togglePin(sourceId)
+          // order on the server. The drag reorder below sets the final position,
+          // so skip the pin toggle's own position restore.
+          if (sourceIsPinned) await togglePin(sourceId, { skipRestore: true })
           if (sourceGroup) props.onRemoveFromGroup?.(source)
           tracker.interaction({ module: mod, name: "reorder-recent-session" })
           void reorderRecent(sourceId, targetId, position)
@@ -761,7 +793,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   function handleMoveToGroup(session: Session, groupId: string) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "move-session-to-group" })
-    if (session.pinned) void togglePin(session.id)
+    if (session.pinned) void togglePin(session.id, { skipRestore: true })
     props.onMoveToGroup?.(session, groupId)
     closeContextMenu()
   }
@@ -774,7 +806,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function handleCreateGroupForSession(session: Session) {
-    if (session.pinned) void togglePin(session.id)
+    if (session.pinned) void togglePin(session.id, { skipRestore: true })
     props.onCreateGroupForSession?.(session)
     closeContextMenu()
   }
@@ -822,6 +854,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
     const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
     if (!ok) return
+    globalSync.child(session.directory, { bootstrap: false })[1]("deleted", session.id, true)
     bustSidebarCache()
 
     closeContextMenu()
@@ -843,7 +876,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const deleted = new Set<string>()
     await Promise.all(sessions.map(async (s) => {
       const ok = await removeSession(globalSDK.createClient({ directory: s.directory }), s.id)
-      if (ok) deleted.add(s.id)
+      if (!ok) return
+      deleted.add(s.id)
+      globalSync.child(s.directory, { bootstrap: false })[1]("deleted", s.id, true)
     }))
     if (deleted.size) {
       bustSidebarCache()
@@ -1039,6 +1074,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         hasMessages={contextMenu.hasMessages}
         groups={props.groups}
         sessionGroupMapping={props.sessionGroupMapping}
+        trackerModule={props.trackerModule}
         onClose={closeContextMenu}
         onRename={(s) => { closeContextMenu(); startRename(s) }}
         onTogglePin={(s) => { closeContextMenu(); togglePin(s.id) }}

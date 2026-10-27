@@ -1,6 +1,7 @@
 import { batch, createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { tracker } from "@/utils/tracker"
 import type { StudioTurnData } from "./turns"
 import emptyPng from "../insight/icons/empty.png"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
@@ -149,7 +150,7 @@ function estimateLongSideFromRatio(aspectRatio: string): number | null {
   return Math.round(1024 * ratio)
 }
 
-type FileManagerMedia = {
+export type FileManagerMedia = {
   id: string
   turnID: string
   generationID: string
@@ -165,12 +166,13 @@ type FileManagerMedia = {
   capability?: string
   duration?: string
   createdAt: number
+  sessionID?: string
 }
 
-type DateGroup = {
+export type DateGroup<T extends FileManagerMedia = FileManagerMedia> = {
   dateLabel: string
   timestamp: number
-  items: FileManagerMedia[]
+  items: T[]
 }
 
 function createCheckboxState(labels: string[]) {
@@ -192,7 +194,7 @@ function formatDateLabel(timestamp: number): string {
   return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`
 }
 
-function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
+export function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
   const media: FileManagerMedia[] = []
 
   for (const turn of turns) {
@@ -239,8 +241,11 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
   return media
 }
 
-function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
-  const groups = new Map<string, DateGroup>()
+export function groupMediaByDate<T extends FileManagerMedia>(
+  media: T[],
+  order: "asc" | "desc" = "desc",
+): DateGroup<T>[] {
+  const groups = new Map<string, DateGroup<T>>()
 
   for (const item of media) {
     const d = new Date(item.createdAt)
@@ -257,11 +262,12 @@ function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
     }
   }
 
+  const direction = order === "asc" ? 1 : -1
   return Array.from(groups.values())
-    .sort((a, b) => b.timestamp - a.timestamp)
+    .sort((a, b) => direction * (a.timestamp - b.timestamp))
     .map((group) => ({
       ...group,
-      items: group.items.sort((a, b) => b.createdAt - a.createdAt),
+      items: group.items.sort((a, b) => direction * (a.createdAt - b.createdAt)),
     }))
 }
 
@@ -388,6 +394,7 @@ export function StudioFileManager(props: {
 
   function switchTab(tab: FileFilterTab) {
     if (tab === activeFilter()) return
+    tracker.interaction({ module: "studio", name: "file-manager-tab", extend: JSON.stringify({ tab }) })
     saveCurrentTabFilters()
     setActiveFilter(tab)
     loadTabFilters(tab)
@@ -420,6 +427,7 @@ export function StudioFileManager(props: {
   }
 
   function handleConfirm() {
+    tracker.interaction({ module: "studio", name: "file-manager-filter-confirm" })
     applyAndCloseFilter()
   }
 
@@ -547,6 +555,7 @@ export function StudioFileManager(props: {
 
   function clearConfirmedFilters(e: MouseEvent) {
     e.stopPropagation()
+    tracker.interaction({ module: "studio", name: "file-manager-filter-clear" })
     batch(() => {
       sourceFilter.reset()
       ratioFilter.reset()
@@ -572,6 +581,7 @@ export function StudioFileManager(props: {
   })
 
   function handleReset() {
+    tracker.interaction({ module: "studio", name: "file-manager-filter-reset" })
     batch(() => {
       sourceFilter.reset()
       ratioFilter.reset()
@@ -647,7 +657,10 @@ export function StudioFileManager(props: {
             class="studio-file-manager-filter"
             classList={{ active: showFilter(), filtered: confirmedFilterLabels().length > 0 }}
             onClick={() => {
-              if (!showFilter()) syncLiveFromConfirmed()
+              if (!showFilter()) {
+                tracker.interaction({ module: "studio", name: "file-manager-filter-open" })
+                syncLiveFromConfirmed()
+              }
               setShowFilter((v) => !v)
             }}
           >
@@ -706,7 +719,10 @@ export function StudioFileManager(props: {
                       {(item) => (
                         <div
                           class="studio-file-manager-media-item"
-                          onClick={() => props.onSelectMedia?.(item)}
+                          onClick={() => {
+                            tracker.interaction({ module: "studio", name: "file-manager-media-select", extend: JSON.stringify({ id: item.id, kind: item.kind }) })
+                            props.onSelectMedia?.(item)
+                          }}
                         >
                           <StudioMediaThumbnail
                             image={{
@@ -735,11 +751,11 @@ export function StudioFileManager(props: {
       </ScrollView>
       <Show when={showFilter()}>
         <Portal>
-          <div class="studio-filter-overlay" style={overlayStyle()} onClick={applyAndCloseFilter}>
+          <div class="studio-filter-overlay" style={overlayStyle()} onClick={() => { tracker.interaction({ module: "studio", name: "file-manager-filter-close" }); applyAndCloseFilter() }}>
             <div class="studio-filter-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="studio-filter-dialog-header">
                 <span class="studio-filter-dialog-title">筛选</span>
-                <button type="button" class="studio-filter-dialog-close" onClick={applyAndCloseFilter}>
+                <button type="button" class="studio-filter-dialog-close" onClick={() => { tracker.interaction({ module: "studio", name: "file-manager-filter-close" }); applyAndCloseFilter() }}>
                   <svg width="12.14" height="12.14" viewBox="0 0 12.14 12.14" fill="none">
                     <path d="M1 1L11.14 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />
                     <path d="M11.14 1L1 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />

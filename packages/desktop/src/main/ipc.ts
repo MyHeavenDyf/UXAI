@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import * as http from "node:http"
-import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
+import { dirname, extname, join, basename, resolve as resolvePath, sep, isAbsolute } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
@@ -34,10 +34,10 @@ import type {
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
-import { effectiveXdgConfigHome, octoConfigDir } from "./storage"
+import { effectiveXdgConfigHome } from "./storage"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
-import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
+import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar, localStorageAuth } from "./windows"
 import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
@@ -46,6 +46,7 @@ import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
 import { toExactArrayBuffer } from "./buffer-slice"
+import { importSharedSession } from "./shared-session"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -231,22 +232,59 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session") => {
+    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
+      throw new Error("请先选择关联本地文件夹，再打开分享对话")
+    }
+    const uploadURL = process.env.OCTO_SHARE_API_URL || import.meta.env.OCTO_SHARE_API_URL
+    if (!uploadURL) throw new Error("分享配置缺失：请配置环境变量 OCTO_SHARE_API_URL")
+    if (!URL.canParse(uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
+    await mkdir(directory, { recursive: true })
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const auth = win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
+      ? await localStorageAuth(win)
+      : null
+    return importSharedSession({
+      uniqueId,
+      directory,
+      scope,
+      uploadURL,
+      server: await deps.awaitInitialization(() => undefined),
+      remoteFetch: (input, init) => {
+        const headers = new Headers(init?.headers)
+        if (auth?.uiplusToken) headers.set("uiplustoken", auth.uiplusToken)
+        if (auth?.uiplusCookie) headers.set("Cookie", auth.uiplusCookie)
+        return net.fetch(input instanceof URL ? input.toString() : input, { ...init, headers, redirect: "error" })
+      },
+    })
+  })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
 
   // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
   // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
-  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.open(sessionDir, projectName),
+  // 目标统一是(工作区, 会话, 产物名),工程在哪由主进程按 SPEC-DES-008 §3.7 查,前端不拼路径。
+  ipcMain.handle("fastui-preview-open", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.open(target),
   )
-  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiDevServer.restart(sessionDir, projectName),
+  ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiDevServer.restart(target),
+  )
+  // 这个(会话, 产物名)有没有 fastui 工程:导出按钮与老卡片转换用,与预览同一个查找函数
+  ipcMain.handle("fastui-resolve", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) => {
+    const r = FastuiDevServer.resolveProject(target)
+    return r.ok ? { ok: true, projectDir: r.projectDir, name: r.name } : { ok: false, error: r.error }
+  })
+  // 文件属于哪个 fastui 工程:模型只给了被改文件的路径卡片时,前端据此按工程打开预览(SPEC-DES-008 §3.8)
+  ipcMain.handle(
+    "fastui-project-of",
+    (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget & { filePath: string }) =>
+      FastuiDevServer.projectOfFile(target),
   )
   // 导出代码包(SPEC-DES-001 §8.6.2):前端自己压缩会跟随工程根的 node_modules 链接
   // 把共享池那 1GB 打进去,而且拿不到 ZIP 的 UTF-8 flag(中文产物名在 Windows 会乱码),
   // 所以交给 skill 的 export-zip.mjs。同样约定「返回结果对象、永不 throw」。
-  // 带产物名时导出该工程(同一对话可以有多个工程);不带时按会话状态文件里的工程导出。
-  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, sessionDir: string, projectName?: string) =>
-    FastuiExport.exportZip(sessionDir, projectName),
+  ipcMain.handle("fastui-export-zip", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiExport.exportZip(target),
   )
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
@@ -955,31 +993,30 @@ export function registerIpcHandlers(deps: Deps) {
     setTitlebarOverlayHidden(win, hidden)
   })
 
-  // 裸 XDG 路径(不感知存储模式),仅限 carve-out 消费方使用(patternDir /
-  // get-design-systems 的 prototype):server 端 proto_tool 硬编码 ~/.config/octo/prototype
-  // (opencode/src/tool/proto_tool/load_components_docs.ts、agent/proto/theme.ts),
-  // deployProtoTools 也硬编码同一路径 —— 这些指向 octoConfigDir() 反而会在
-  // app-data-fallback 覆盖模式下把桌面读取与 server 读取劈开。skill 相关路径
-  // 一律用下面的 storage 感知函数(octoConfigDir()),与 sidecar 扫描目录保持一致。
+  // Use ~/.config/octo/ (xdg-basedir convention) instead of Electron userData
   const getOctoConfigPath = () => {
     const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
     return join(xdgConfig, "octo")
   }
-  const skillsConfigPath = () => join(octoConfigDir(), "skills.json")
-  const skillConfigPath = () => join(octoConfigDir(), "skill_config.json")
-  const assetsConfigPath = () => join(octoConfigDir(), "assets_config.json")
-  const octoSkillDir = () => join(octoConfigDir(), "skill")
+  // 这四个必须是字符串常量,不能改成函数:内网合并代码(jk 标记段内)按裸变量字符串引用,
+  // 函数化后 existsSync/join 收到的是函数,抛 "path must be of type string" → 添加技能报
+  // "string 地址"错误(2026-10 内网事故)。registerIpcHandlers 在模块加载时执行(早于
+  // setActiveStorage),所以这些值固定取主进程 env 的 XDG 路径,不随 app-data-fallback
+  // 覆盖漂移 —— 已知且可接受(2026-10 用户决策)。
+  const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
+  const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
 
-  /** 从 octoConfig/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
   function regenerateSkillConfig() {
     try {
-      const skillRoot = octoSkillDir()
-      if (!existsSync(skillRoot)) return false
+      if (!existsSync(octoSkillDir)) return false
 
-      const skillNames = readdirSync(skillRoot, { withFileTypes: true })
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
-        .filter((name) => existsSync(join(skillRoot, name, "SKILL.md")))
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
         .sort()
 
       const panelSkills = skillNames.map((name, index) => ({
@@ -995,10 +1032,9 @@ export function registerIpcHandlers(deps: Deps) {
         skillMap[name] = { description: name, import: true, type: "octo_make" }
       }
 
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(
-        target,
+        skillConfigPath,
         JSON.stringify(
           {
             skill: skillMap,
@@ -1020,9 +1056,8 @@ export function registerIpcHandlers(deps: Deps) {
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
     try {
-      const source = skillsConfigPath()
-      if (!existsSync(source)) return
-      const raw = JSON.parse(readFileSync(source, "utf-8"))
+      if (!existsSync(skillsConfigPath)) return
+      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
       const skillEntries: Record<string, { description?: string; import?: boolean; type?: string }> = raw.skill ?? {}
 
       const skillMap: Record<string, { description?: string; import?: boolean; type?: string }> = {}
@@ -1041,9 +1076,7 @@ export function registerIpcHandlers(deps: Deps) {
         }
       }
 
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
+      writeFileSync(skillConfigPath, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
     } catch (err) {
       console.error("syncSkillConfig failed", err)
     }
@@ -1054,9 +1087,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skills-config", () => {
     try {
-      const path = skillsConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(skillsConfigPath)) return {}
+      return JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1065,9 +1097,8 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
       // 写入 skill_config.json（新格式）
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1076,9 +1107,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skill-config", () => {
     try {
-      const path = skillConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(skillConfigPath)) return {}
+      return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1086,9 +1116,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      const target = skillConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skill-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1097,9 +1126,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-assets-config", () => {
     try {
-      const path = assetsConfigPath()
-      if (!existsSync(path)) return {}
-      return JSON.parse(readFileSync(path, "utf-8"))
+      if (!existsSync(assetsConfigPath)) return {}
+      return JSON.parse(readFileSync(assetsConfigPath, "utf-8"))
     } catch {
       return {}
     }
@@ -1107,9 +1135,8 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-assets-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      const target = assetsConfigPath()
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, JSON.stringify(config, null, 2), "utf-8")
+      mkdirSync(dirname(assetsConfigPath), { recursive: true })
+      writeFileSync(assetsConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-assets-config failed", err)
       throw new Error(`Failed to save assets config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1121,7 +1148,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
-      const skillDir = join(octoConfigDir(), "skill", skillName)
+      const skillDir = join(getOctoConfigPath(), "skill", skillName)
       const skillMdPath = join(skillDir, "SKILL.md")
 
       if (!existsSync(skillMdPath)) {
@@ -1156,11 +1183,11 @@ export function registerIpcHandlers(deps: Deps) {
   // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
-      const skillRoot = octoSkillDir()
-      mkdirSync(skillRoot, { recursive: true })
+      const octoSkillDir = join(getOctoConfigPath(), "skill")
+      mkdirSync(octoSkillDir, { recursive: true })
 
       const skillName = basename(sourcePath)
-      const destDir = join(skillRoot, skillName)
+      const destDir = join(octoSkillDir, skillName)
 
       if (existsSync(destDir)) {
         return { success: false, error: "同名 skill 已存在" }
@@ -1168,7 +1195,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // 重新生成 skill_config.json（从 octoConfig/skill 目录扫描）
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
       regenerateSkillConfig()
 
       return { success: true, skillName }
@@ -1181,20 +1208,19 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("ensure-skill-config", () => {
     // 仅确保目录存在，不重新生成。如果文件不存在则创建空
-    const target = skillConfigPath()
-    if (!existsSync(target)) {
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, "{}", "utf-8")
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
     }
   })
 
   ipcMain.handle("open-skill-folder", async () => {
-    const skillRoot = octoSkillDir()
-    if (existsSync(skillRoot)) {
-      await shell.openPath(skillRoot)
+    const octoSkillDir = join(getOctoConfigPath(), "skill")
+    if (existsSync(octoSkillDir)) {
+      await shell.openPath(octoSkillDir)
     } else {
-      mkdirSync(skillRoot, { recursive: true })
-      await shell.openPath(skillRoot)
+      mkdirSync(octoSkillDir, { recursive: true })
+      await shell.openPath(octoSkillDir)
     }
   })
 

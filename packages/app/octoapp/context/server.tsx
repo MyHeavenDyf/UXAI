@@ -261,13 +261,22 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       remove,
       projects: {
         list: projectsList,
-        open(directory: string, kind?: WorkspaceKind) {
+        // 新建工作区默认 code;存量无 kind 字段仍视为 normal(kindOf 兜底),已存在的不改分类
+        open(directory: string, kind: WorkspaceKind = "code") {
           const key = origin()
           if (!key) return
           const current = store.projects[key] ?? []
-          // 已存在的工作区分类定死,重复选择不改 kind
           if (current.find((x) => x.worktree === directory)) return
           setStore("projects", key, [{ worktree: directory, expanded: true, kind }, ...current])
+        },
+        // 普通工作区 → 代码工作区单向升级(设置页入口),只翻 kind 标记、不提供反向。
+        // 产物文件与 DB 引用的迁移由服务端 workspace-upgrade 接口负责,本方法在 run 成功后调用。
+        upgradeToCode(directory: string) {
+          const key = origin()
+          if (!key) return
+          const current = store.projects[key] ?? []
+          const index = current.findIndex((x) => x.worktree === directory)
+          if (index !== -1) setStore("projects", key, index, "kind", "code")
         },
         close(directory: string) {
           const key = origin()

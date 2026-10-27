@@ -1,7 +1,11 @@
 import { afterEach, describe, expect } from "bun:test"
+import { NodeHttpServer } from "@effect/platform-node"
+import Http from "node:http"
+import JSZip from "jszip"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
+import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
@@ -156,6 +160,169 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live("restores shared archives into private file lists through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Shared to private" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "index.html"), '<link href="assets/theme.css">'))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "assets", "theme.css"), "body {}"))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "uploads", "brief.txt"), "attachment"))
+      const output = path.join(tmp.path, ".exports", "shared.zip")
+      const exported = yield* requestWithBackend(true, pathFor(SessionPaths.portableExport, { sessionID: session.id }), {
+        method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ path: output, scope: "project" }),
+      })
+      expect(exported.status).toBe(200)
+      for (const experimental of [true, false]) {
+        const directory = path.join(tmp.path, ".imports", `private-${experimental}`)
+        yield* Effect.promise(() => mkdir(directory, { recursive: true }))
+        const headers = { "x-opencode-directory": directory, "content-type": "application/json" }
+        const response = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+          method: "POST", headers, body: JSON.stringify({ path: output, scope: "session" }),
+        })
+        expect(response.status).toBe(200)
+        const imported = Schema.decodeUnknownSync(Schema.Struct({ sessionID: SessionID }))(yield* json(response))
+        for (const category of ["generated", "uploaded"]) {
+          const listed = yield* requestWithBackend(experimental, `/artifact/list?sessionId=${imported.sessionID}&category=${category}&recursive=true`, { headers })
+          expect(listed.status).toBe(200)
+          const body = Schema.decodeUnknownSync(Schema.Struct({ files: Schema.Array(Schema.Struct({ name: Schema.String })) }))(yield* json(listed))
+          expect(body.files.map((file) => file.name)).toEqual(expect.arrayContaining(category === "generated" ? ["index.html", "theme.css"] : ["brief.txt"]))
+        }
+        expect(yield* Effect.promise(() => Bun.file(path.join(directory, "index.html")).exists())).toBe(false)
+      }
+    })),
+  )
+
+  it.live("exposes imported uploads in the shared file list only for project scope through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Uploaded file" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "uploads", "brief.txt"), "uploaded attachment"))
+      const output = path.join(tmp.path, ".exports", "session.zip")
+      const exported = yield* requestWithBackend(true, pathFor(SessionPaths.portableExport, { sessionID: session.id }), {
+        method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ path: output }),
+      })
+      expect(exported.status).toBe(200)
+      for (const experimental of [true, false]) {
+        for (const scope of [undefined, "project"]) {
+          const directory = path.join(tmp.path, ".imports", `${experimental}-${scope ?? "session"}`)
+          yield* Effect.promise(() => mkdir(directory, { recursive: true }))
+          const headers = { "x-opencode-directory": directory, "content-type": "application/json" }
+          const response = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+            method: "POST", headers, body: JSON.stringify({ path: output, scope }),
+          })
+          expect(response.status).toBe(200)
+          const imported = Schema.decodeUnknownSync(Schema.Struct({ sessionID: SessionID }))(yield* json(response))
+          expect(yield* Effect.promise(() => Bun.file(path.join(directory, ".octo", imported.sessionID, "uploads", "brief.txt")).text()))
+            .toBe("uploaded attachment")
+          const listed = yield* requestWithBackend(experimental, "/artifact/list?scope=project&category=generated&recursive=true", { headers })
+          expect(listed.status).toBe(200)
+          const body = Schema.decodeUnknownSync(Schema.Struct({ files: Schema.Array(Schema.Struct({ relativePath: Schema.String })) }))(yield* json(listed))
+          expect(body.files.some((file) => file.relativePath === "brief.txt")).toBe(scope === "project")
+        }
+      }
+    })),
+  )
+
+  it.live("exports shared workspace files only when requested through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Shared files" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "shared.html"), "<h1>shared</h1>"))
+      const endpoint = pathFor(SessionPaths.portableExport, { sessionID: session.id })
+      for (const experimental of [true, false]) {
+        for (const scope of [undefined, "project"]) {
+          const output = path.join(tmp.path, ".exports", `${experimental}-${scope ?? "session"}.zip`)
+          const response = yield* requestWithBackend(experimental, endpoint, {
+            method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+            body: JSON.stringify({ path: output, scope }),
+          })
+          expect(yield* json(response)).toEqual({ output, sessions: 1, files: scope ? 2 : 0 })
+          const zip = yield* Effect.promise(async () => JSZip.loadAsync(await Bun.file(output).arrayBuffer()))
+          const manifest = yield* Effect.promise(async () => JSON.parse(await zip.file("manifest.json")!.async("string")))
+          expect(manifest.files.map((file: { scope: string; path: string }) => ({ scope: file.scope, path: file.path })))
+            .toEqual(scope ? [{ scope: "project", path: "opencode.json" }, { scope: "project", path: "shared.html" }] : [])
+        }
+      }
+    })),
+  )
+
+  it.live("serves bounded share previews with matching pagination and errors through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Share preview" })
+      const first = yield* createTextMessage(tmp.path, session.id, "第一条")
+      const second = yield* createTextMessage(tmp.path, session.id, "第二条")
+      const path = pathFor(SessionPaths.sharePreview, { sessionID: session.id })
+      const before = MessageV2.cursor.encode({ id: second.info.id, time: second.info.time.created })
+      for (const experimental of [true, false]) {
+        const response = yield* requestWithBackend(experimental, `${path}?limit=1`, { headers: { "x-opencode-directory": tmp.path } })
+        expect(yield* json(response)).toEqual({
+          messages: [{ id: second.info.id, role: "user", text: "第二条", truncated: false, files: [] }], before, running: false,
+        })
+        const older = yield* requestWithBackend(experimental, `${path}?limit=1&before=${encodeURIComponent(before)}`, { headers: { "x-opencode-directory": tmp.path } })
+        expect(yield* json(older)).toEqual({ messages: [{ id: first.info.id, role: "user", text: "第一条", truncated: false, files: [] }], running: false })
+        for (const query of ["limit=0", "limit=21", "limit=1.5", "before=bad-cursor"]) {
+          const invalid = yield* requestWithBackend(experimental, `${path}?${query}`, { headers: { "x-opencode-directory": tmp.path } })
+          expect(invalid.status).toBe(400)
+        }
+        const missing = yield* requestWithBackend(experimental, pathFor(SessionPaths.sharePreview, { sessionID: "ses_missing" }), { headers: { "x-opencode-directory": tmp.path } })
+        expect(missing.status).toBe(404)
+      }
+    })),
+  )
+
+  it.live(
+    "forwards current share credentials through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
+      Effect.gen(function* () {
+        const previousUpload = process.env.OCTO_SHARE_API_URL
+        const previousPage = process.env.OCTO_SHARE_PAGE_URL
+        yield* Effect.addFinalizer(() => Effect.sync(() => {
+          if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+          else process.env.OCTO_SHARE_API_URL = previousUpload
+          if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+          else process.env.OCTO_SHARE_PAGE_URL = previousPage
+        }))
+        const received: { token: string; cookie: string | undefined }[] = []
+        const context = yield* Layer.build(NodeHttpServer.layer(Http.createServer, { host: "127.0.0.1", port: 0 }))
+        const upstream = Context.get(context, HttpServer.HttpServer)
+        yield* upstream.serve(HttpServerRequest.HttpServerRequest.use((request) => Effect.sync(() => {
+          expect(request.headers["x-auth-token"]).toBeUndefined()
+          expect(request.headers.authorization).toBeUndefined()
+          expect(request.headers["x-opencode-share-cookie"]).toBeUndefined()
+          if (!request.headers.uiplustoken) {
+            expect(request.headers.cookie).toBeUndefined()
+            return HttpServerResponse.jsonUnsafe({ success: false, errorMessage: "unLogin", content: {} })
+          }
+          received.push({ token: request.headers.uiplustoken, cookie: request.headers.cookie })
+          return HttpServerResponse.jsonUnsafe({ success: true, content: { uniqueId: "AuthenticatedShare" } })
+        })))
+        process.env.OCTO_SHARE_API_URL = `${HttpServer.formatAddress(upstream.address)}/upload`
+        process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+        const session = yield* createSession(tmp.path, { title: "Authenticated share" })
+        const path = pathFor(SessionPaths.portableShare, { sessionID: session.id })
+        for (const experimental of [true, false]) {
+          const response = yield* requestWithBackend(experimental, path, {
+            method: "POST",
+            headers: {
+              "x-opencode-directory": tmp.path,
+              uiplustoken: `token-${experimental}`,
+              "X-OpenCode-Share-Cookie": `sessionID=session-${experimental}`,
+              "X-Auth-Token": "not-forwarded",
+              Cookie: "not-forwarded",
+            },
+          })
+          expect(yield* json(response)).toEqual({ uniqueId: "AuthenticatedShare", url: "https://share.example/session?uniqueId=AuthenticatedShare" })
+          const unLogin = yield* requestWithBackend(experimental, path, { method: "POST", headers: { "x-opencode-directory": tmp.path } })
+          expect(unLogin.status).toBe(400)
+          expect(yield* responseJson(unLogin)).toEqual({ message: "登录已失效或未登录，请重新登录后分享（unLogin）" })
+        }
+        expect(received).toEqual([
+          { token: "token-true", cookie: "sessionID=session-true" },
+          { token: "token-false", cookie: "sessionID=session-false" },
+        ])
+      }),
+    ),
+  )
+
   it.live(
     "returns declared not found errors for read routes",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>

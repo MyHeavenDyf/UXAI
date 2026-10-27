@@ -11,7 +11,7 @@ export type RevertDraftPart = {
   type: string
   text?: string
   synthetic?: boolean
-  metadata?: { displayText?: string }
+  metadata?: { displayText?: string; command?: string }
   mime?: string
   filename?: string
   url?: string
@@ -88,11 +88,16 @@ export function collectRevertedFiles(
   return result
 }
 
-/** 恢复用户可见文本：优先 metadata.displayText（含 ​@name​ chip 标记），否则取第一个 text part 按 \n---\n 截断（与 insight-turn userText 同口径） */
-function extractVisibleText(parts: RevertDraftPart[]): { visible: string; processed: string } {
+/** 恢复用户可见文本：优先 metadata.displayText（含 ​@name​ chip 标记），否则取第一个 text part 按 \n---\n 截断（与 insight-turn userText 同口径）。
+ */
+function extractVisibleText(parts: RevertDraftPart[]): { visible: string; processed: string; metadataCommand?: string } {
   const displayPart = parts.find((p) => p.type === "text" && p.metadata?.displayText)
   if (displayPart) {
-    return { visible: displayPart.metadata!.displayText!, processed: displayPart.text ?? "" }
+    return {
+      visible: displayPart.metadata!.displayText!,
+      processed: displayPart.text ?? "",
+      metadataCommand: displayPart.metadata?.command,
+    }
   }
   const textPart = parts.find((p) => p.type === "text")
   const raw = textPart?.text ?? ""
@@ -109,6 +114,7 @@ function resolveMention(
   usedMatches: Set<number>,
   skills: RevertSkill[],
   processed: string,
+  metadataCommand?: string,
 ): RevertMention | null {
   for (let i = 0; i < fileMatches.length; i++) {
     if (usedMatches.has(i)) continue
@@ -117,6 +123,10 @@ function resolveMention(
       usedMatches.add(i)
       return { id: match.path, name, type: match.type, label: name, path: match.path }
     }
+  }
+  
+  if (metadataCommand && (name === metadataCommand || skills.some((s) => s.name === metadataCommand && s.label === name))) {
+    return { id: metadataCommand, name: metadataCommand, type: "skill", label: name, path: "" }
   }
   if (includesSkillInvocation(processed, name)) {
     return { id: name, name, type: "skill", label: name, path: "" }
@@ -129,7 +139,7 @@ function resolveMention(
 }
 
 /** 把用户可见文本还原为 ProseMirror doc JSON：@token 尽量还原为 mention chip（attrs 由 processedText 顺序配对重建），配不上的保持纯文本 */
-function buildDocJSON(visible: string, processed: string, skills: RevertSkill[]): any {
+function buildDocJSON(visible: string, processed: string, skills: RevertSkill[], metadataCommand?: string): any {
   // 注意 alternation 必须文件夹在前：非贪婪 .+? + 「文件」会先命中「文件夹」的前两个字
   const fileMatches = [...processed.matchAll(/读取(.+?) 这个(文件夹|文件)/g)].map((m) => ({
     path: m[1],
@@ -148,7 +158,7 @@ function buildDocJSON(visible: string, processed: string, skills: RevertSkill[])
     for (const seg of line.split(/(@[^​@]+)/g)) {
       if (!seg) continue
       if (seg.startsWith("@") && seg.length > 1) {
-        const mention = resolveMention(seg.slice(1), fileMatches, usedMatches, skills, processed)
+        const mention = resolveMention(seg.slice(1), fileMatches, usedMatches, skills, processed, metadataCommand)
         if (mention) {
           content.push({ type: "mention", attrs: mention })
           continue
@@ -227,9 +237,9 @@ function buildAttachments(parts: RevertDraftPart[]): Attachment[] {
 
 
 export function buildRevertDraft(parts: RevertDraftPart[], skills: RevertSkill[] = []): RevertDraft {
-  const { visible, processed } = extractVisibleText(parts)
+  const { visible, processed, metadataCommand } = extractVisibleText(parts)
   return {
-    docJSON: buildDocJSON(visible, processed, skills),
+    docJSON: buildDocJSON(visible, processed, skills, metadataCommand),
     attachments: buildAttachments(parts),
   }
 }

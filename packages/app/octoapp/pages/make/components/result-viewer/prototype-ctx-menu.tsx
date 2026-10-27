@@ -7,6 +7,7 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { TaskStore } from "@/context/task"
 import { tracker } from "@/utils/tracker"
 import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, getSession, loadA2uiDocs, findDocByElementId, closePrototypePanels, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
+import patternReadme from "../../docs/pattern/README.md?raw"
 
 const MENU_WIDTH = 160
 const MENU_HEIGHT = 108
@@ -300,6 +301,7 @@ export function PrototypeCtxMenu(): JSX.Element {
 
       const zip = new JSZip()
       zip.file("data.json", JSON.stringify(pattern, null, 2))
+      zip.file("README.md", patternReadme)
       const zipBlob = await zip.generateAsync({ type: "uint8array" })
       const zipName = `${session.ctx.tab.title}-pattern-${Date.now()}.zip`
       downloadBlob(zipBlob, zipName, "application/zip")

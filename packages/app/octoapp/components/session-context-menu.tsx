@@ -2,8 +2,11 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
+import { DialogShareSession } from "@/components/dialog-share-session"
+import { tracker } from "@/utils/tracker"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
 import folderBadgePlusPng from "@/pages/_shell/icons/folder_badge_plus.png"
@@ -11,6 +14,7 @@ import arrowRightFolderCirclePng from "@/pages/_shell/icons/arrow_right_folder_c
 import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 import checkmarkPng from "@/pages/_shell/icons/checkmark.png"
+import sharePng from "@/pages/_shell/icons/share.png"
 
 export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
@@ -29,6 +33,7 @@ export type SessionContextMenuProps = {
   onMoveToGroup?: (session: Session, groupId: string) => void
   onRemoveFromGroup?: (session: Session) => void
   onCreateGroupForSession?: (session: Session) => void
+  trackerModule?: string
   /** Custom backdrop right-click handler. Used by the sidebar to re-target the
    *  menu to another session on right-click. Defaults to closing the menu. */
   onContextMenuBackdrop?: (e: MouseEvent) => void
@@ -44,6 +49,7 @@ export type SessionContextMenuProps = {
  * "移动到分组" submenu are self-contained; all actions delegate to callbacks.
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
+  const dialog = useDialog()
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
     top: "0px",
@@ -57,6 +63,14 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
   const showSubmenuNow = () => { clearTimeout(submenuHideTimer); setShowGroupSubmenu(true) }
   const scheduleHideSubmenu = () => { clearTimeout(submenuHideTimer); submenuHideTimer = setTimeout(() => setShowGroupSubmenu(false), 200) }
+
+  const shareSession = () => {
+    const session = props.session
+    if (!session) return
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "share-session" })
+    props.onClose()
+    dialog.show(() => <DialogShareSession session={session} trackerModule={props.trackerModule} />)
+  }
 
   // Reset submenu state when the menu closes so it doesn't reappear on next open.
   createEffect(() => {
@@ -194,6 +208,15 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
             >
               <img src={pinPng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">{props.session && props.session.pinned ? "取消置顶聊天" : "置顶"}</span>
+            </button>
+            <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "2px 0" }} />
+            <button
+              data-slot="dropdown-menu-item"
+              class="flex items-center gap-2"
+              onClick={shareSession}
+            >
+              <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
+              <span data-slot="dropdown-menu-item-label">分享</span>
             </button>
             <button
               data-slot="dropdown-menu-item"
