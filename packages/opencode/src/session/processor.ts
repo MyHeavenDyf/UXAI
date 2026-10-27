@@ -8,7 +8,6 @@ import { Plugin } from "@/plugin"
 import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
-import { chatError, chatLog } from "./chat-diagnostics"
 import { MessageV2 } from "./message-v2"
 import {
   AUTOMATIC_COMPACTION_ENABLED,
@@ -665,7 +664,6 @@ export const layer: Layer.Layer<
             }
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
             yield* session.updatePart(ctx.currentText)
-            chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id }, "processor:text-saved", { textChars: ctx.currentText.text.length })
             ctx.currentText = undefined
             return
 
@@ -741,13 +739,9 @@ export const layer: Layer.Layer<
         ToolCalls.forget(ctx.assistantMessage.id)
         ctx.assistantMessage.time.completed = Date.now()
         yield* session.updateMessage(ctx.assistantMessage)
-        chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id }, "processor:message-saved", {
-          hasError: Boolean(ctx.assistantMessage.error), inputTokens: ctx.assistantMessage.tokens.input, outputTokens: ctx.assistantMessage.tokens.output,
-        })
       })
 
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
-        chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id }, "processor:failed", chatError(e))
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
@@ -789,7 +783,6 @@ export const layer: Layer.Layer<
       })
 
       const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
-        chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id, providerID: ctx.model.providerID, modelID: ctx.model.id }, "processor:start")
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
@@ -818,9 +811,6 @@ export const layer: Layer.Layer<
                 compactionAttempted: streamInput.compactionAttempted,
               })
 
-        chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id }, "processor:preflight", {
-          decision: preflightResult, estimatedInputTokens: ctx.estimatedInputTokens, usableTokens: available,
-        })
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
             if (preflightResult !== "send") {
@@ -879,7 +869,6 @@ export const layer: Layer.Layer<
                 provider: ctx.model.providerID,
                 parse,
                 set: (info) => {
-                  chatLog({ layer: "processor", sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id }, "processor:retry", { attempt: info.attempt, next: info.next })
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
                   EventV2.run(SessionEvent.Retried.Sync, {
                     sessionID: ctx.sessionID,

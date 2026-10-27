@@ -15,7 +15,6 @@ import * as ServerBackend from "./backend"
 import { isAllowedCorsOrigin, type CorsOptions } from "./cors"
 import { isPtyConnectPath, PTY_CONNECT_TICKET_QUERY } from "./shared/pty-ticket"
 import { isPublicUIPath } from "./shared/public-ui"
-import { configFailure, configTraceFailure, configTraceLog, createConfigTrace } from "./routes/instance/config-diagnostics"
 
 const log = Log.create({ service: "server" })
 
@@ -72,22 +71,7 @@ export function LoggerMiddleware(backendAttributes: ServerBackend.Attributes): M
     }
     log.info("request", attributes)
     const timer = log.time("request", attributes)
-    const configRequest = c.req.method === "GET" && c.req.path === "/config"
-      ? createConfigTrace({ backend: "hono", directory: c.req.query("directory") ?? c.req.header("x-opencode-directory") })
-      : undefined
-    if (configRequest) {
-      c.set("configTrace", configRequest)
-      configTraceLog(configRequest, "request", {
-        platform: process.platform, arch: process.arch,
-        runtime: { node: process.versions.node, electron: process.versions.electron, bun: process.versions.bun },
-      })
-    }
     await next()
-    if (configRequest) {
-      configTraceLog(configRequest, "response", { status: c.res.status })
-      if (c.error || c.res.status >= 400) configTraceFailure(configRequest,
-        [c.error ? configFailure(c.error) : { name: "HTTPResponse", status: c.res.status }])
-    }
     timer.stop()
   }
 }

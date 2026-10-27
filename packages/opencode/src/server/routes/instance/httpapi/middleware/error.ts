@@ -3,9 +3,8 @@ import { Session } from "@/session/session"
 import { NotFoundError } from "@/storage/storage"
 import { NamedError } from "@opencode-ai/core/util/error"
 import * as Log from "@opencode-ai/core/util/log"
-import { Cause, Effect, Option } from "effect"
+import { Cause, Effect } from "effect"
 import { HttpRouter, HttpServerError, HttpServerRespondable, HttpServerResponse } from "effect/unstable/http"
-import { configCause, ConfigTraceContext } from "../../config-diagnostics"
 
 const log = Log.create({ service: "server" })
 
@@ -36,12 +35,6 @@ const responseFor = (error: unknown): HttpServerResponse.HttpServerResponse | un
 // an `error` type still produce a serialized JSON response instead of an empty 400 body.
 export const errorLayer = HttpRouter.middleware<{ handles: unknown }>()((effect) =>
   effect.pipe(
-    // Preserve the domain cause before converting it to a JSON response. The
-    // outer config trace otherwise sees only a 400/500 status with no cause.
-    Effect.tapCause((cause) => Effect.gen(function* () {
-      const trace = yield* Effect.serviceOption(ConfigTraceContext)
-      if (Option.isSome(trace)) trace.value.errors = configCause(cause)
-    })),
     Effect.catchCause((cause) => {
       // Handle typed NamedError / BusyError failures (Effect.fail) — even if endpoint did not declare them.
       const failReason = cause.reasons

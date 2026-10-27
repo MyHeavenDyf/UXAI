@@ -8,24 +8,15 @@ const TAIL_LINES = 1000
 // SPEC-INS-011 阶段3:renderer console 转发到独立文件 insight-debug.log(同 logs 目录),
 // 不污染主进程 main.log;独立 5MB 滚动,沿用 cleanup() 的 7 天清理。
 export const insightDebugLog = log.create({ logId: "insight-debug" })
-const designLog = log.create({ logId: "design" })
 
 export function initLogging() {
   log.transports.file.maxSize = 5 * 1024 * 1024
   insightDebugLog.transports.file.fileName = "insight-debug.log"
   insightDebugLog.transports.file.maxSize = 5 * 1024 * 1024
   insightDebugLog.transports.console.level = false // 不重复打到主进程 stdout
-  designLog.transports.file.resolvePathFn = () => join(dirname(log.transports.file.getFile().path), "design.log")
-  designLog.transports.file.maxSize = 5 * 1024 * 1024
-  designLog.transports.console.level = false
   initConsoleTransport()
   cleanup()
   return log
-}
-
-export function logSidecarOutput(message: string, stream: "stdout" | "stderr") {
-  const target = message.startsWith("[octo:config]") || message.startsWith("[octo:chat]") ? designLog : log
-  target[stream === "stderr" ? "warn" : "info"](`sidecar ${stream}`, { message })
 }
 
 export function tail(): string {

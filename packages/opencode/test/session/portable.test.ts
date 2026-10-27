@@ -72,6 +72,23 @@ describe("portable session", () => {
     } })
   })
 
+  test.each(["idle", "busy"] as const)("rejects sharing a parent with a %s child without blocking ordinary export", async (type) => {
+    await using source = await tmpdir({ git: true })
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Parent session" }))
+      const child = await runSession((svc) => svc.create({ parentID: session.id, title: "Child session" }))
+      await AppRuntime.runPromise(SessionStatus.Service.use((status) => status.set(child.id, { type })))
+      await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+        .rejects.toThrow("该对话包含子对话，暂不支持分享")
+      const exported = await AppRuntime.runPromise(exportPortableSession({
+        sessionID: session.id,
+        output: path.join(source.path, "bundle.zip"),
+      }))
+      expect(exported.sessions).toBe(2)
+      expect(await Bun.file(exported.output).exists()).toBe(true)
+    } })
+  })
+
   test.each(["missing", "unavailable"] as const)("does not exclude files when remote blacklist is %s and uncached", async (mode) => {
     await using source = await tmpdir({ git: true })
     const previous = process.env.OCTO_PORTABLE_BLACKLIST_URL
@@ -774,6 +791,11 @@ describe("portable session", () => {
             .rejects.toThrow("对话正在进行中，请等待结束后再分享")
           expect(uploads).toHaveLength(0)
           await AppRuntime.runPromise(SessionStatus.Service.use((status) => status.set(session.id, { type: "idle" })))
+          const child = await runSession((service) => service.create({ parentID: session.id, title: "Child session" }))
+          await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+            .rejects.toThrow("该对话包含子对话，暂不支持分享")
+          expect(uploads).toHaveLength(0)
+          await runSession((service) => service.remove(child.id))
           await Bun.write(path.join(source.path, "shared.html"), "<h1>Shared</h1>")
           await Bun.write(path.join(source.path, "output/login.html"), '<img src="./outputs/resource/icon/missing.svg">')
           return AppRuntime.runPromise(

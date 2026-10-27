@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { tool, type ModelMessage } from "ai"
 import { Cause, Effect, Exit, Stream } from "effect"
@@ -563,7 +563,6 @@ describe("session.llm.stream", () => {
   })
 
   test("sends responses API payload for OpenAI models", async () => {
-    using diagnostics = spyOn(console, "info").mockImplementation(() => {})
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
@@ -673,17 +672,6 @@ describe("session.llm.stream", () => {
 
         const maxTokens = body.max_output_tokens as number | undefined
         expect(maxTokens).toBe(undefined) // match codex cli behavior
-        const records = diagnostics.mock.calls
-          .filter((call) => call[0] === "[octo:chat]")
-          .map((call) => JSON.parse(String(call[1])))
-        expect(records.find((item) => item.layer === "llm" && item.stage === "end")).toMatchObject({
-          sessionID, modelID: resolved.id, textChars: 5,
-        })
-        expect(records.find((item) => item.layer === "transport" && item.stage === "http:response")).toMatchObject({
-          sessionID, status: 200,
-        })
-        expect(JSON.stringify(records)).not.toContain("Hello")
-        expect(JSON.stringify(records)).not.toContain("test-openai-key")
       },
     })
   })

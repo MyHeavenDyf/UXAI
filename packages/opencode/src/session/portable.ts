@@ -324,9 +324,13 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   scope?: "project"
 }) {
   const status = yield* SessionStatus.Service
+  const sessions = yield* Session.Service
   const assertShareable = Effect.gen(function* () {
     if ((yield* status.get(input.sessionID)).type !== "idle") {
       return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
+    }
+    if ((yield* sessions.children(input.sessionID)).length) {
+      return yield* new PortableValidationError({ message: "该对话包含子对话，暂不支持分享" })
     }
   })
   yield* assertShareable
@@ -337,7 +341,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
     return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
   }
-  const sessions = yield* Session.Service
   const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
