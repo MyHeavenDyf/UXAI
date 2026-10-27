@@ -244,7 +244,7 @@ function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContex
 function waitSessionIdle(
   sync: { data: { session_status?: Record<string, { type?: string } | undefined> } },
   sessionID: string,
-  timeoutMs = 120 * 60 * 1000,
+  timeoutMs = 24 * 60 * 60 * 1000,
 ): Promise<'idle' | 'timeout'> {
   return new Promise<'idle' | 'timeout'>((resolve) => {
     let disposed = false
@@ -313,7 +313,7 @@ const pageHandler = {
         srcDirectory,
         onSessionCreated: (id: string) => {
           childSessionId = id
-          setAgentExecution({ childSessionId: id, title: 'antd→eview 编排 Agent', visible: true })
+          setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: 'antd→eview 编排 Agent', visible: true } }))
         },
       })
 
@@ -401,7 +401,7 @@ const pageHandler = {
       const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
       const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
 
-      setAgentExecution(null)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       dismissOctoToast(loadingId)
       ctx.showOctoToast({
         title: '编排完成',
@@ -409,7 +409,7 @@ const pageHandler = {
       })
       return true
     } catch (e) {
-      setAgentExecution(null)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       dismissOctoToast(loadingId)
       if (e instanceof DownloadCancelledError) throw e
       throw e

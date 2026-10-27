@@ -1,15 +1,18 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
-import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
+import { getDefaultDimensions, isPromptExpansionGeneration, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
+import { promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
 export type StudioTurnData = {
   id: string
   userText: string
+  hideUserBubble?: boolean
   assistantText: string
   editCapability?: StudioCapability
   editorEntryID?: string
+  recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
   toolTitle?: string
   toolError?: string
   toolName?: string
@@ -22,6 +25,7 @@ export type StudioTurnData = {
 }
 
 type StudioTurnFallback = StudioGenerationResult & {
+  hideUserBubble?: boolean
   inputImages?: StudioInputImage[]
 }
 
@@ -456,6 +460,7 @@ function extractUserDemand(text: string) {
 function buildResult(input: {
   messageID: string
   userText: string
+  hideUserBubble?: boolean
   assistantText: string
   tools: Extract<Part, { type: "tool" }>[]
   createdAt: number
@@ -539,6 +544,7 @@ function buildResult(input: {
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: displayPrompt || extractUserDemand(input.userText),
+    hideUserBubble: input.hideUserBubble || isPromptExpansionGeneration(extra),
     assistantText: input.assistantText,
     inputImages,
     mentionImages,
@@ -659,13 +665,16 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     .filter((message) => message.role === "user")
     .map((user) => {
     const index = messages.findIndex((message) => message.id === user.id)
-    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant")
+    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant" && message.parentID === user.id)
     const userText =
       input.parts[user.id]
         ?.filter(isTextPart)
         .map((part) => part.text)
         .join("\n")
         .trim() || ""
+    const userTextParts = (input.parts[user.id] ?? []).filter(isTextPart)
+    const hideUserBubble = !userTextParts.length || userTextParts.some((part) =>
+      isPromptExpansionGeneration({ promptExpansionSource: part.metadata?.studioPromptExpansionSource }))
     const assistantParts = assistant ? input.parts[assistant.id] ?? [] : []
     const assistantText = assistantParts
       .filter(isTextPart)
@@ -673,10 +682,20 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
+    const recommendation = assistantParts.map(promptMetadata).find((metadata) => metadata !== undefined)
+    if (recommendation) {
+      return {
+        id: user.id, userText, hideUserBubble, assistantText, createdAt: user.time.created, isLatest: false,
+        recommendation: { kind: recommendation.kind, status: recommendation.status,
+          tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
+        inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),
+      } satisfies StudioTurnData
+    }
     const entry = editorEntry(tools)
     if (entry) {
       return {
         id: `studio_editor_${entry.entryID}`,
+        hideUserBubble,
         userText,
         assistantText,
         editCapability: entry.capability,
@@ -688,6 +707,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
 
     return buildResult({
       messageID: user.id,
+      hideUserBubble,
       userText,
       assistantText,
       tools,
@@ -710,6 +730,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     {
       id: `studio_${input.fallback.id}`,
       userText: input.fallback.displayPrompt || extractUserDemand(input.fallback.prompt),
+      hideUserBubble: input.fallback.hideUserBubble,
       assistantText: "",
       toolTitle: `${input.fallback.capability === "video.generate" ? "视频生成" : "图片生成"}${
         fallbackGenerating

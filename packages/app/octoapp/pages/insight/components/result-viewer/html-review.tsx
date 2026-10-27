@@ -102,7 +102,7 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
       await store.restore(entry.id)
       const entries = await store.list()
       if (disposed || scope !== key()) return
-      setState({ entries, current: entries[0]?.id ?? null, commenting: false })
+      setState({ entries, current: entry.id, commenting: false })
       props.onRestore()
       showToast({ title: "已恢复历史版本，恢复前的内容已保留" })
     }),
@@ -125,7 +125,7 @@ export function HtmlReviewProvider(props: {
 export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; loadState?: "loading" | "error" | "ready" }) {
   const review = useHtmlReview()
   const [state, setState] = createStore({
-    open: false, anchor: null as DOMRect | null, selected: null as VersionEntry | null,
+    open: false, anchor: null as DOMRect | null,
   })
   let button: HTMLButtonElement | undefined
   const buttonClass = () => props.tab.fromAttachment
@@ -133,7 +133,7 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
   const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
-  createEffect(() => { review?.key(); props.tab.viewMode; setState({ open: false, selected: null }) })
+  createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
     <Tooltip value={disabled() || "标注"} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled()}
@@ -158,22 +158,10 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     <Show when={state.open && state.anchor}>
       <HistoryPanel anchorRect={state.anchor!} entries={review!.state.entries} currentId={review!.state.current}
         onClose={() => setState("open", false)} ignoreRef={() => button}
-        onSwitch={entry => { setState({ open: false, selected: entry }) }} />
-    </Show>
-    <Show when={state.selected}>
-      <div role="alertdialog" aria-label="恢复历史版本" class="fixed inset-0 z-[100000] flex items-center justify-center bg-black/30">
-        <div class="rounded-xl p-5 shadow-xl max-w-sm" style={{ background: "var(--octo-surface-page)", color: "var(--octo-text-primary)" }}>
-          <p>恢复这个版本将覆盖当前 HTML，恢复前的内容会先保存到历史版本。</p>
-          <div class="flex justify-end gap-3 mt-4">
-            <button type="button" onClick={() => setState("selected", null)}>取消</button>
-            <button type="button" disabled={review?.state.busy || props.working} onClick={() => {
-              const entry = state.selected
-              setState("selected", null)
-              if (entry) void review?.restore(entry)
-            }}>恢复版本</button>
-          </div>
-        </div>
-      </div>
+        onSwitch={entry => {
+          setState("open", false)
+          void review?.restore(entry)
+        }} />
     </Show>
   </Show>
 }

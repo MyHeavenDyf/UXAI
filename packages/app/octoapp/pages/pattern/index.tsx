@@ -21,6 +21,7 @@ import { useTabModel } from "@/hooks/use-tab-model"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useSharedSessionImportContext } from "@/components/shared-session-import-context"
 import { type Attachment } from "./modules/chat/attachment-bar"
 import { create_intent_confirm, create_block_match, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
 import modify_json_ai from './workflow/modify-json-ai'
@@ -77,6 +78,7 @@ export default function PatternPage() {
 }
 
 function PatternContent() {
+  useSharedSessionImportContext("pattern")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -1343,4 +1345,3 @@ function PatternContent() {
     </DataProvider>
   )
 }
-

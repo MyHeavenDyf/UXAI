@@ -1329,12 +1329,15 @@ const stateStatus = state.status as string | undefined
 
       autoSavedArtifacts.add(key)
 
+        
       autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
         // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
         // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
+        if (filePath === undefined) autoSavedArtifacts.delete(key)
         if (filePath) props.onArtifactSaved?.(filePath)
         props.onFilesRefresh?.()
       }).catch(err => {
+        autoSavedArtifacts.delete(key)
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
       })
     }

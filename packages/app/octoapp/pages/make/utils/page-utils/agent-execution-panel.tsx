@@ -157,9 +157,10 @@ function UserMessageRow(props: { message: Message; parts: Accessor<Part[]> }): J
   )
 }
 
-export function AgentExecutionPanel(): JSX.Element {
+export function AgentExecutionPanel(props: { tabId: string }): JSX.Element {
   const sync = useSync()
-  const state = agentExecution
+  const state = createMemo(() => agentExecution()[props.tabId])
+  const hide = () => setAgentExecution(prev => prev[props.tabId] ? { ...prev, [props.tabId]: { ...prev[props.tabId], visible: false } } : prev)
 
   const messages = createMemo(() => {
     const s = state()
@@ -191,7 +192,7 @@ export function AgentExecutionPanel(): JSX.Element {
 
   return (
     <Portal mount={document.body}>
-      <div class="agent-exec-overlay" onClick={(e) => { if (e.target === e.currentTarget) setAgentExecution(prev => prev ? { ...prev, visible: false } : null) }}>
+      <div class="agent-exec-overlay" onClick={(e) => { if (e.target === e.currentTarget) hide() }}>
         <div class="agent-exec-panel">
           <div class="agent-exec-header">
             <div class="agent-exec-header-title">
@@ -200,7 +201,6 @@ export function AgentExecutionPanel(): JSX.Element {
               </Show>
               {state()?.title ?? "Agent 执行中"}
             </div>
-            <button class="agent-exec-close" onClick={() => setAgentExecution(prev => prev ? { ...prev, visible: false } : null)}>✕</button>
           </div>
           <div class="agent-exec-body" ref={scrollRef}>
             <For each={messages()}>

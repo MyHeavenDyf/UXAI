@@ -71,6 +71,7 @@ import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAncho
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportContext } from "@/components/shared-session-import-context"
 import { kindOf } from "@/components/workspace-switcher"
 import { useMakeGroupsContext, consumePendingGroup, clearPendingGroup } from "@/context/make-groups"
 import { getMappingStore } from "@/hooks/use-session-groups"
@@ -184,6 +185,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -5446,21 +5448,42 @@ const sessionMessagesLoaded = createMemo(() => {
     // 标记：内容是否从文件加载（用于跳过不必要的持久化）
     let contentLoadedFromFile = false
     
-    // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    // ★ Step -1: 内容型 artifact 卡 → 确保磁盘文件存在 (每次点击复查,缺失即补写)
+    // 背景: card.filePath 赋值后随 outputCards memo 缓存跨点击存活,旧门 (!card.filePath) 会让
+    // 「赋值成功但落盘失败 / 文件事后被删」的卡片永久短路 → local:// 404 不再补写。
     // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
-    if (!isUrl && !card.filePath && projectDir() && params.id) {
+    if (!isUrl && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const kind = workspaceKind()
-        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
-        if (inferred.filePath) {
-          card.filePath = inferred.filePath
+        const api = getDesktopApi()
+        let targetPath = card.filePath
+        let needsWrite = false
+        if (targetPath) {
+          needsWrite = typeof api?.fileExists === "function" ? !(await api.fileExists(targetPath)) : false
+          if (needsWrite) console.log("[MakePage] Artifact file missing on disk, will re-create:", targetPath)
+        } else {
+          const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
+          targetPath = inferred.filePath
+          needsWrite = !inferred.exists
           console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
-
-          // 如果文件不存在，先 autoSave 创建文件
-          if (!inferred.exists) {
-            await autoSaveArtifact(params.id!, card, projectDir()!, kind)
-            console.log("[MakePage] Created new file for artifact:", inferred.filePath)
+        }
+        if (targetPath) {
+          card.filePath = targetPath
+          if (needsWrite) {
+            try {
+              await autoSaveArtifact(params.id!, card, projectDir()!, kind)
+              console.log("[MakePage] Created new file for artifact:", targetPath)
+            } catch (err) {
+              // 典型成因:目录无写权限(EACCES)/Windows 保留名/超长路径。toast 给排障入口;
+              // 下次点击门会复查存在性并自动重试
+              console.error("[MakePage] Re-create artifact file failed:", targetPath, err)
+              showOctoToast({
+                title: "产物写入失败",
+                description: `${targetPath}${err instanceof Error ? ` (${err.message})` : ""}`,
+                variant: "error",
+              })
+            }
           }
         }
       }
