@@ -131,10 +131,7 @@
 
   4. .js 引入 JSX 时自动转 .jsx（match-icons.cjs --apply 已处理）
 
-  5. 仅真运行时数据保留方案A shim 兜底：
-     - 函数参数传入的 icon prop（跨组件边界，如 PanelCard 的 icon prop）
-     - OBJ[runtimeKey] 计算属性访问（运行时键，如 FILE_KIND_ICON[runtimeKey]）
-     这 2 处 shim 保留属预期，不是遗漏。
+  5. untraced/residual 按 skill closed-set 契约：闭合集（含跨边界 props/useMemo/推入函数 + 对象地图 OBJ[runtimeKey].field）→ 转 icon+（按 Icon.md recipe 追源）；仅真 OPEN（后端自由取值）→ shim。运行时键不影响闭合性，值集合闭合即转。跑 check-icon-shim --strict 拦闭集误留。
 
   6. 读 <eview-skill>/references/components/Icon.md 了解 {} 上下文规则、
      图标-prop wrapper 组件改写规则、方案A shim 保留判定标准。
@@ -168,7 +165,7 @@
    - 各阶段状态（PASS/FAIL）
    - 改了哪些文件（按阶段汇总数量）
    - 残留问题（如有 grep 命中，列出文件:行号:内容）
-   - 预期保留项（icon shim 方案A 兜底，非遗漏）
+   - icon shim 仅真OPEN（后端自由取值）；闭合集误留由 check-icon-shim 拦
 
 ══════════════════════════════════════════════════════════════
 编排要点
@@ -192,8 +189,7 @@
 - 阶段3 触发条件看 iconCallSites（预扫）或 <Icon name> grep 站点，
   不看 antdIcons（ict-coder 产物用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
 
-- 阶段3 要预告 2 处 shim 保留属预期（PanelCard 的 icon prop 跨不了组件边界、
-  FILE_KIND_ICON[runtimeKey] 是运行时访问），不是遗漏
+- 阶段3 按 skill 契约转所有闭合集（含跨边界/object-map）；残留 shim 须 check-icon-shim --strict 验证仅真OPEN
 
 - 阶段3 写独立的 .icon-result.json（不复用 .migration-result.json），
   与阶段2 结果分离，主 agent 分别判定
