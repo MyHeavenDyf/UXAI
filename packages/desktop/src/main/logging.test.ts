@@ -16,16 +16,19 @@ test("writes config diagnostics beside main.log without mixing ordinary sidecar 
     logSidecarOutput('[octo:config] {"stage":"request","directory":"D:\\\\中文&CANN"}', "stdout")
     logSidecarOutput('[octo:config] {"stage":"request:failed","kind":"Body"}', "stderr")
     logSidecarOutput("ordinary-sidecar-output", "stdout")
+    logSidecarOutput('[octo:chat] {"stage":"http:response","status":200}', "stdout")
     logSidecarOutput("ordinary-sidecar-error", "stderr")
     const design = await readFile(join(directory, "design.log"), "utf8")
     const main = await readFile(join(directory, "main.log"), "utf8")
     expect(design).toContain("[octo:config]")
+    expect(design).toContain("[octo:chat]")
     expect(design).toContain("request:failed")
     expect(design).toContain("中文&CANN")
     expect(design).not.toContain("ordinary-sidecar")
     expect(main).toContain("ordinary-sidecar-output")
     expect(main).toContain("ordinary-sidecar-error")
     expect(main).not.toContain("[octo:config]")
+    expect(main).not.toContain("[octo:chat]")
   } finally {
     log.transports.file.resolvePathFn = resolvePath
     log.transports.console.level = consoleLevel

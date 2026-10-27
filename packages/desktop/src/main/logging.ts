@@ -24,7 +24,7 @@ export function initLogging() {
 }
 
 export function logSidecarOutput(message: string, stream: "stdout" | "stderr") {
-  const target = message.startsWith("[octo:config]") ? designLog : log
+  const target = message.startsWith("[octo:config]") || message.startsWith("[octo:chat]") ? designLog : log
   target[stream === "stderr" ? "warn" : "info"](`sidecar ${stream}`, { message })
 }
 

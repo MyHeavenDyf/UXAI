@@ -46,6 +46,7 @@ import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
+import { chatLog, createChatTrace } from "./chat-diagnostics"
 import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -1668,6 +1669,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
+        chatLog({ layer: "prompt", sessionID: input.sessionID, userMessageID: message.info.id }, "prompt:user-saved", { noReply: input.noReply === true })
         yield* Effect.sync(() => ArtifactStore.begin({
           messageID: message.info.id, sessionID: input.sessionID, directory: session.directory, extra: input.extra,
         })).pipe(Effect.catchDefect(() => Effect.logWarning("[octo:artifact] turn registration failed")))
@@ -1700,6 +1702,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         if (input.noReply === true) return message
         return yield* loop({ sessionID: input.sessionID })
       },
+      (effect, input) => Effect.acquireUseRelease(
+        Effect.sync(() => createChatTrace({ layer: "prompt", sessionID: input.sessionID })),
+        (trace) => effect.pipe(
+          Effect.tap((message) => Effect.sync(() => trace.mark("prompt:returned", {
+            role: message.info.role,
+            textChars: message.parts.reduce((count, part) => count + (part.type === "text" ? part.text.length : 0), 0),
+          }))),
+          Effect.tapCause((cause) => Effect.sync(() => trace.error(Cause.squash(cause)))),
+        ),
+        (trace, exit) => Effect.sync(() => trace.finish(Exit.isFailure(exit) ? "failed-or-interrupted" : input.noReply ? "no-reply-requested" : undefined)),
+      ),
     )
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1722,6 +1735,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
+          chatLog({ layer: "prompt", sessionID }, "loop:step", { step })
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
@@ -1945,6 +1959,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               })
               estimateAfterAutoCompaction = undefined
             }
+            chatLog({ layer: "prompt", sessionID, messageID: handle.message.id, providerID: model.providerID, modelID: model.id }, "loop:request-prepared", {
+              messageCount: request.modelMsgs.length, toolCount: Object.keys(request.activeTools).length,
+            })
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1968,6 +1985,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ) ?? false,
             })
 
+            chatLog({ layer: "prompt", sessionID, messageID: handle.message.id }, "loop:processed", { result, hasError: Boolean(handle.message.error) })
             if (structured !== undefined) {
               handle.message.structured = structured
               handle.message.finish = handle.message.finish ?? "stop"

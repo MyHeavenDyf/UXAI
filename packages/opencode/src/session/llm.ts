@@ -1,6 +1,6 @@
 import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
-import { Context, Effect, Layer, Record } from "effect"
+import { Cause, Context, Effect, Exit, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
 import { mergeDeep } from "remeda"
@@ -26,6 +26,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { EffectBridge } from "@/effect/bridge"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
+import { createChatTrace } from "./chat-diagnostics"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -77,7 +78,8 @@ const live: Layer.Layer<
     const plugin = yield* Plugin.Service
     const perm = yield* Permission.Service
 
-    const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
+    const run = Effect.fn("LLM.run")(function* (input: StreamRequest, trace: ReturnType<typeof createChatTrace>) {
+      trace.mark("llm:prepare")
       const l = log
         .clone()
         .tag("providerID", input.model.providerID)
@@ -100,6 +102,7 @@ const live: Layer.Layer<
         ],
         { concurrency: "unbounded" },
       )
+      trace.mark("llm:model-ready")
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
@@ -118,6 +121,7 @@ const live: Layer.Layer<
       )
 
       const header = system[0]
+      trace.mark("llm:system-plugin")
       yield* plugin.trigger(
         "experimental.chat.system.transform",
         { sessionID: input.sessionID, model: input.model },
@@ -161,6 +165,7 @@ const live: Layer.Layer<
               ...input.messages,
             ]
 
+      trace.mark("llm:params-plugin")
       const params = yield* plugin.trigger(
         "chat.params",
         {
@@ -181,6 +186,7 @@ const live: Layer.Layer<
         },
       )
 
+      trace.mark("llm:headers-plugin")
       const { headers } = yield* plugin.trigger(
         "chat.headers",
         {
@@ -335,8 +341,10 @@ const live: Layer.Layer<
       const opencodeProjectID = input.model.providerID.startsWith("opencode")
         ? (yield* InstanceState.context).project.id
         : undefined
+      trace.mark("llm:stream-start", { messageCount: messages.length, toolCount: Object.keys(tools).length })
       return streamText({
         onError(error) {
+          trace.error(error.error, "llm:sdk-error")
           l.error("stream error", {
             error,
           })
@@ -431,14 +439,28 @@ const live: Layer.Layer<
       Stream.scoped(
         Stream.unwrap(
           Effect.gen(function* () {
+            const trace = yield* Effect.acquireRelease(
+              Effect.sync(() => createChatTrace({
+                layer: "llm", sessionID: input.sessionID, messageID: input.trackingMessageID,
+                userMessageID: input.user.id, providerID: input.model.providerID, modelID: input.model.id,
+                agent: input.agent.name, small: input.small ?? false,
+              })),
+              (trace, exit) => Effect.sync(() => {
+                if (Exit.isFailure(exit)) trace.error(Cause.squash(exit.cause))
+                trace.finish(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) ? "interrupted" : undefined)
+              }),
+            )
             const ctrl = yield* Effect.acquireRelease(
               Effect.sync(() => new AbortController()),
               (ctrl) => Effect.sync(() => ctrl.abort()),
             )
 
-            const result = yield* run({ ...input, abort: ctrl.signal })
+            const result = yield* run({ ...input, abort: ctrl.signal }, trace)
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
+              Stream.tap((event) => Effect.sync(() => trace.event(event))),
+              Stream.tapError((error) => Effect.sync(() => trace.error(error))),
+            )
           }),
         ),
       )

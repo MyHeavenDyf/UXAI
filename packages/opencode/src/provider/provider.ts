@@ -30,6 +30,7 @@ import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
 import { modelRequestBody, modelsApiCatalog, modelsApiProviderUrl } from "@/plugin/model-headers"
+import { chatTransportMetadata, createChatTrace } from "@/session/chat-diagnostics"
 
 const log = Log.create({ service: "provider" })
 const decodeModelsApiProvider = Schema.decodeUnknownOption(ModelsDev.Provider)
@@ -221,20 +222,26 @@ function attachSourceListener(
   return () => sig.removeEventListener("abort", listener)
 }
 
-function wrapBodyForDebug(res: Response, seq: number, startMs: number): Response {
-  if (!res.body) return res
+function wrapBodyForDebug(res: Response, seq: number, startMs: number, diagnostic?: ReturnType<typeof createChatTrace>): Response {
+  if (!res.body) {
+    diagnostic?.mark("http:no-body")
+    diagnostic?.finish()
+    return res
+  }
   try {
     // 用 tee() 复制流：debug 分支异步消费，passthrough 分支返回给消费者。
     // 比手写 ReadableStream pull 稳定得多：不会改 backpressure、cancel 行为，
     // 也不会因为 pull 抛错破坏消费者读取。
     const [debugBody, passthroughBody] = res.body.tee()
-    void consumeForDebug(debugBody, seq, startMs)
+    void consumeForDebug(debugBody, seq, startMs, diagnostic)
     return new Response(passthroughBody, {
       headers: new Headers(res.headers),
       status: res.status,
       statusText: res.statusText,
     })
   } catch (e) {
+    diagnostic?.error(e, "http:body-observer-failed")
+    diagnostic?.finish("observer-unavailable")
     try {
       fetchDebug.error(`fetch #${seq} wrapBodyForDebug init threw`, {
         seq,
@@ -245,7 +252,7 @@ function wrapBodyForDebug(res: Response, seq: number, startMs: number): Response
   }
 }
 
-async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, startMs: number) {
+async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, startMs: number, diagnostic?: ReturnType<typeof createChatTrace>) {
   const reader = stream.getReader()
   let chunkCount = 0
   let totalBytes = 0
@@ -255,6 +262,7 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
     while (true) {
       const { value, done } = await reader.read()
       if (done) {
+        diagnostic?.mark("http:body-end", { chunks: chunkCount, bytes: totalBytes })
         fetchDebug.info(`fetch #${seq} body done`, {
           seq,
           chunk_count: chunkCount,
@@ -266,6 +274,7 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
         return
       }
       chunkCount++
+      diagnostic?.chunk(value.byteLength)
       totalBytes += value.byteLength
       const now = Date.now() - startMs
       const delta = lastChunkMs !== null ? now - lastChunkMs : null
@@ -295,6 +304,7 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
       }
     }
   } catch (e) {
+    diagnostic?.error(e, "http:body-error")
     try {
       fetchDebug.error(`fetch #${seq} body read threw`, {
         seq,
@@ -304,6 +314,8 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
         error: describeError(e),
       })
     } catch {}
+  } finally {
+    diagnostic?.finish()
   }
 }
 
@@ -2176,6 +2188,16 @@ const layer: Layer.Layer<
               } catch {}
             }
           }
+          const diagnostic = (() => {
+            try {
+              const meta = chatTransportMetadata(input, init)
+              const trace = createChatTrace({ layer: "transport", sessionID: meta.sessionID, providerID: model.providerID })
+              trace.mark("http:request", { origin: meta.origin, operation: meta.operation, method: meta.method, authHeaders: meta.authHeaders })
+              return trace
+            } catch {
+              return undefined
+            }
+          })()
           try {
             res = await fetchFn(input, {
               ...opts,
@@ -2184,6 +2206,8 @@ const layer: Layer.Layer<
               timeout: false,
             })
           } catch (e: any) {
+            diagnostic?.error(e, "http:fetch-error")
+            diagnostic?.finish()
             try {
               const errAtMs = Date.now() - startMs
               fetchDebug.error(`fetch #${seq} fetchFn threw`, {
@@ -2205,6 +2229,10 @@ const layer: Layer.Layer<
             throw e
           }
 
+          diagnostic?.mark("http:response", {
+            status: res.status, ok: res.ok, contentType: res.headers.get("content-type")?.split(";")[0] ?? "missing",
+          })
+          if (!res.ok) diagnostic?.error({ name: "HTTPError", status: res.status }, "http:status-error")
           try {
             const headersMs = Date.now() - startMs
             fetchDebug.info(`fetch #${seq} response headers`, {
@@ -2225,7 +2253,7 @@ const layer: Layer.Layer<
           }
 
           // body 包装用 tee() 实现，不会破坏消费者读取链路
-          const resOrWrapped = wrapBodyForDebug(res, seq, startMs)
+          const resOrWrapped = wrapBodyForDebug(res, seq, startMs, diagnostic)
 
           if (!chunkAbortCtl) {
             try {
