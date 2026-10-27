@@ -303,7 +303,10 @@ export function registerIpcHandlers(deps: Deps) {
       clearTimeout(entry.timer)
     }
     // Directory/file restoration only starts after the renderer has switched to the identified module.
-    return importSharedSession({ ...input, uniqueId, directory, scope, prepared: entry?.prepared })
+    return importSharedSession({
+      ...input, uniqueId, directory, scope, prepared: entry?.prepared,
+      log: (event, details) => log.info(`[octo:share-import] ${event}`, details),
+    })
   })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
 

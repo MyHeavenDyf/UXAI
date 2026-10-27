@@ -32,15 +32,20 @@ export const Path = paths
 
 Flock.setGlobal({ state })
 
-await Promise.all([
-  fs.mkdir(Path.data, { recursive: true }),
-  fs.mkdir(Path.config, { recursive: true }),
-  fs.mkdir(Path.octoConfig, { recursive: true }),
-  fs.mkdir(Path.state, { recursive: true }),
-  fs.mkdir(Path.tmp, { recursive: true }),
-  fs.mkdir(Path.log, { recursive: true }),
-  fs.mkdir(Path.bin, { recursive: true }),
-])
+// 逐目录容错:这里曾是无 catch 的 Promise.all,任一目录建不出来(EACCES 等)会让
+// 模块求值直接失败,桌面端 sidecar(utility process)无错误上报地被打死(exit 1)。
+// config 类目录缺失时 config 加载天然容错(读不到即忽略);data 类目录缺失的后果
+// 由 DB 打开错误兜底(桌面端 shouldRetryWithAppDataFallback 重试链路)。保持原有
+// 顺序与并行度,仅加逐项 catch。
+await Promise.all(
+  [Path.data, Path.config, Path.octoConfig, Path.state, Path.tmp, Path.log, Path.bin].map(async (dir) => {
+    try {
+      await fs.mkdir(dir, { recursive: true })
+    } catch (error) {
+      console.warn(`[global] mkdir failed: ${dir} — ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }),
+)
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Global") {}
 

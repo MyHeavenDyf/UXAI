@@ -114,6 +114,7 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_UXR_MCP_URL": JSON.stringify(env.OCTO_UXR_MCP_URL ?? ""),
         "import.meta.env.OCTO_SHARE_API_URL": JSON.stringify(env.OCTO_SHARE_API_URL ?? ""),
         "import.meta.env.OCTO_SHARE_PAGE_URL": JSON.stringify(env.OCTO_SHARE_PAGE_URL ?? ""),
+        "import.meta.env.OCTO_PORTABLE_BLACKLIST_URL": JSON.stringify(env.OCTO_PORTABLE_BLACKLIST_URL ?? ""),
         // Insight 文件上传服务地址(SPEC-INS-015 按需上传):同 .env 里前端用的 VITE_OCTO_UPLOAD_ENDPOINT
         // 同一地址,经 createSidecarEnv 以 OCTO_UPLOAD_ENDPOINT 注入 sidecar,供 octo-upload-inject
         // 插件在模型调 MCP 时按需上传 S3(VITE_* 只有渲染进程读得到,sidecar 读不到 .env)。

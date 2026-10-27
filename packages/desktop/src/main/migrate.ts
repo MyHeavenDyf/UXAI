@@ -204,8 +204,8 @@ export function deployBuiltinSkills(options?: { configDir?: string; skillsSource
     mkdirSync(octoSkillDir, { recursive: true })
     for (const skillDir of readdirSync(builtinSource, { withFileTypes: true })) {
       if (!skillDir.isDirectory()) continue
-      // spreadsheets 由 extract_document 静态嵌入，不部署到用户维护的 skill 目录。
-      // 同名目录可能是用户自定义技能，必须完整保留。
+      // 兼容旧资源包中残留的 spreadsheets 规则；现已移到工具旁静态打包。
+      // 不将旧规则部署为用户技能，也不触碰用户现有同名目录。
       if (skillDir.name === "spreadsheets") continue
       const dest = join(octoSkillDir, skillDir.name)
       if (!existsSync(dest)) {

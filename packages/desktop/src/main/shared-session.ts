@@ -1,4 +1,5 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, writeFile, rm, stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Schema } from "effect"
@@ -120,9 +121,36 @@ export async function importSharedSession(input: {
   server: { url: string; username: string | null; password: string | null }
   remoteFetch: typeof fetch
   prepared?: Awaited<ReturnType<typeof prepareSharedSession>>
+  log?: (event: string, details: Record<string, unknown>) => void
 }) {
   const prepared = input.prepared ?? (await prepareSharedSession(input))
+  const requestID = randomUUID()
+  const started = Date.now()
+  const report = (event: string, details: Record<string, unknown>) => input.log?.(event, {
+    requestID, directory: input.directory, scope: input.scope ?? "session", module: prepared.module,
+    elapsedMs: Date.now() - started, ...details,
+  })
+  const readResponse = async (response: Response, stage: string) => {
+    const body = await response.text()
+    const payload: unknown = await Promise.resolve().then(() => JSON.parse(body)).catch(() => undefined)
+    // Only extract error messages; never log entire responses, credentials or conversation content.
+    const message = payload && typeof payload === "object"
+      ? "data" in payload && payload.data && typeof payload.data === "object" && "message" in payload.data && typeof payload.data.message === "string"
+        ? payload.data.message
+        : "message" in payload && typeof payload.message === "string" ? payload.message : undefined
+      : undefined
+    const reason = message?.replace(/\b(Bearer|Basic)\s+[^\s"',;]+/gi, "$1 [REDACTED]")
+      .replace(/((?:token|cookie|authorization|password|secret|accesskey)[\w-]*["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[REDACTED]").slice(0, 8192)
+    report("response", {
+      stage, status: response.status, contentType: response.headers.get("content-type"), bodyLength: body.length,
+      ...(!response.ok ? { reason: reason || (payload === undefined ? "非 JSON 响应" : "后端未返回错误详情") } : {}),
+    })
+    if (!response.ok) throw new Error(`${stage}失败：${response.status}${reason ? `，${reason.slice(0, 1000)}` : "（后端未返回可用的错误详情）"}`)
+    if (payload === undefined) throw new Error(`${stage}失败：后端未返回有效 JSON`)
+    return payload
+  }
   try {
+    report("start", { archive: prepared.archive, zipBytes: (await stat(prepared.archive)).size, endpoint: new URL("/session/import", input.server.url).origin })
     const headers = {
       "Content-Type": "application/json",
       "x-opencode-directory": encodeURIComponent(input.directory),
@@ -137,14 +165,21 @@ export async function importSharedSession(input: {
       headers,
       body: JSON.stringify({ path: prepared.archive, scope: input.scope }),
     })
-    if (!imported.ok) throw new Error(`导入分享对话失败：${imported.status}`)
-    const result = Schema.decodeUnknownSync(ImportResult)(await imported.json())
+    const result = Schema.decodeUnknownSync(ImportResult)(await readResponse(imported, "导入分享对话"))
     const session = await fetch(new URL(`/session/${encodeURIComponent(result.sessionID)}`, input.server.url), {
       headers,
     })
-    if (!session.ok) throw new Error(`读取导入对话失败：${session.status}`)
-    return { ...result, directory: input.directory, ...Schema.decodeUnknownSync(ImportedSession)(await session.json()) }
+    const info = Schema.decodeUnknownSync(ImportedSession)(await readResponse(session, "读取导入对话"))
+    report("complete", { sessionID: result.sessionID })
+    return { ...result, directory: input.directory, ...info }
+  } catch (error) {
+    // IPC strips custom Error fields, so include the correlation ID in the visible message.
+    const message = error instanceof Error ? error.message : String(error)
+    report("failed", { message })
+    throw new Error(`${message}（排查编号：${requestID}，请查看 main.log）`)
   } finally {
-    await rm(prepared.temporary, { recursive: true, force: true })
+    await rm(prepared.temporary, { recursive: true, force: true }).catch((error: unknown) => {
+      report("cleanup-failed", { message: error instanceof Error ? error.message : String(error) })
+    })
   }
 }
