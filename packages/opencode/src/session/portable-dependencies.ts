@@ -245,6 +245,7 @@ export async function collectPortableDependencies(input: {
   const found = new Map<string, string>()
   const visited = new Set<string>()
   const missing = new Set<string>()
+  const skipped = new Set<string>()
   const parsedFiles = new Map<string, ReturnType<typeof references>>()
   const key = (file: string, document?: string) => JSON.stringify([file, document])
   const pending = new Map<string, { file: string; source: string; document?: string }>(
@@ -296,6 +297,21 @@ export async function collectPortableDependencies(input: {
           if (!URL.canParse(ref, reference.base)) throw new Error(`页面依赖地址无效：${ref}`)
           const url = new URL(ref, reference.base)
           if (url.protocol !== "file:") continue
+          // A website-root URL has no known server root in a portable archive.
+          // Do not guess a disk root (or read it); keep the original reference intact.
+          if (/^\/(?![/\\]|[a-z]:)/i.test(ref)) {
+            const warning = JSON.stringify([file, reference.base.href, ref])
+            if (!skipped.has(warning)) {
+              skipped.add(warning)
+              console.warn("[octo:share] skipped dependency", JSON.stringify({
+                source: file,
+                reference: raw,
+                base: reference.base.href,
+                reason: "web-root-relative",
+              }))
+            }
+            continue
+          }
           const target = fileURLToPath(url)
           const relative = path.relative(input.root, target)
           if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith("."))) {

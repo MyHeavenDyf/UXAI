@@ -6,6 +6,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
 import { DialogShareSession } from "@/components/dialog-share-session"
+import { useSessionShareBusy } from "@/hooks/use-session-share-busy"
 import { tracker } from "@/utils/tracker"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
@@ -50,6 +51,7 @@ export type SessionContextMenuProps = {
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
   const dialog = useDialog()
+  const shareBusy = useSessionShareBusy(() => props.session)
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
     top: "0px",
@@ -66,7 +68,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
 
   const shareSession = () => {
     const session = props.session
-    if (!session) return
+    if (!session || shareBusy()) return
     tracker.interaction({ module: props.trackerModule ?? "session", name: "share-session" })
     props.onClose()
     dialog.show(() => <DialogShareSession session={session} trackerModule={props.trackerModule} />)
@@ -214,6 +216,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               data-slot="dropdown-menu-item"
               class="flex items-center gap-2"
               onClick={shareSession}
+              disabled={shareBusy()}
+              title={shareBusy() ? "对话正在进行中，请等待结束后再分享" : undefined}
+              style={{ opacity: shareBusy() ? 0.5 : 1, cursor: shareBusy() ? "not-allowed" : undefined }}
             >
               <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">分享</span>

@@ -12,6 +12,7 @@ import { NonNegativeInt } from "@/util/schema"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
+import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
@@ -34,6 +35,11 @@ const ShareUploadResponse = Schema.Struct({
   }),
   success: Schema.Boolean,
 })
+
+export class PortableShareBusyError extends Schema.TaggedErrorClass<PortableShareBusyError>()(
+  "PortableShareBusyError",
+  { message: Schema.String },
+) {}
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
@@ -317,6 +323,13 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   headers?: Record<string, string | undefined>
   scope?: "project"
 }) {
+  const status = yield* SessionStatus.Service
+  const assertShareable = Effect.gen(function* () {
+    if ((yield* status.get(input.sessionID)).type !== "idle") {
+      return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
+    }
+  })
+  yield* assertShareable
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
   const missing = [!uploadURL && "OCTO_SHARE_API_URL", !sharePageURL && "OCTO_SHARE_PAGE_URL"].filter(Boolean)
@@ -330,6 +343,7 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
 
   return yield* Effect.gen(function* () {
     const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
+    yield* assertShareable
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]

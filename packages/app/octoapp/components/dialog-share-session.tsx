@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
 import { createStore } from "solid-js/store"
-import { Show } from "solid-js"
+import { createEffect, Show } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Toast, toaster } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -11,6 +11,7 @@ import { directoryHeader } from "@/utils/headers"
 import { modelsApiToken } from "@/network/models-api"
 import { SessionSharePreview } from "./session-share-preview"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
+import { useSessionShareBusy } from "@/hooks/use-session-share-busy"
 import { tracker } from "@/utils/tracker"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
@@ -21,10 +22,14 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
   const platform = usePlatform()
   const globalSDK = useGlobalSDK()
   const workspaceKind = useWorkspaceKind()
+  const shareBusy = useSessionShareBusy(() => props.session)
   const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
+  createEffect(() => {
+    if (shareBusy()) setState("url", "")
+  })
 
   const copyLink = async () => {
-    if (state.sharing) return
+    if (state.sharing || shareBusy()) return
     setState({ sharing: true, error: "" })
     await (async () => {
       const url = state.url || await (async () => {
@@ -52,6 +57,10 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         setState("url", result.url)
         return result.url
       })()
+      if (shareBusy()) {
+        setState("url", "")
+        throw new Error("对话正在进行中，请等待结束后再分享")
+      }
       const copied = platform.platform === "desktop"
         ? await (async () => {
           if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
@@ -101,9 +110,10 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       </header>
       <SessionSharePreview session={props.session} />
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
+      <Show when={shareBusy()}><p class="session-share-error" role="status">对话正在进行中，请等待结束后再分享</p></Show>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>
       <footer class="session-share-footer">
-        <button type="button" class="session-share-copy" disabled={state.sharing} aria-busy={state.sharing} onClick={() => void copyLink()}>
+        <button type="button" class="session-share-copy" disabled={state.sharing || shareBusy()} aria-busy={state.sharing} onClick={() => void copyLink()}>
           <img src={linkIcon} width="16" height="16" alt="" />
           <span>{state.sharing ? "正在生成…" : "复制链接"}</span>
         </button>
