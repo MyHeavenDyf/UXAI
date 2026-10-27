@@ -1,7 +1,7 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
 import { getDefaultDimensions, isPromptExpansionGeneration, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
-import { promptMetadata } from "./studio-prompt-state"
+import { isExpansionReasoning, promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -10,6 +10,7 @@ export type StudioTurnData = {
   userText: string
   hideUserBubble?: boolean
   assistantText: string
+  reasoningParts?: Extract<Part, { type: "reasoning" }>[]
   editCapability?: StudioCapability
   editorEntryID?: string
   recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
@@ -686,6 +687,8 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     if (recommendation) {
       return {
         id: user.id, userText, hideUserBubble, assistantText, createdAt: user.time.created, isLatest: false,
+        reasoningParts: recommendation.kind === "result" && recommendation.status === "running"
+          ? assistantParts.filter(isExpansionReasoning) : undefined,
         recommendation: { kind: recommendation.kind, status: recommendation.status,
           tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
         inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),

@@ -14,6 +14,10 @@ const providerRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
 const configRuntime = makeRuntime(Config.Service, Config.defaultLayer)
 const llmRuntime = makeRuntime(LLM.Service, LLM.defaultLayer)
 export type ExpansionServices = { provider: Provider.Interface; config: Config.Interface; llm?: LLM.Interface }
+export type ExpansionReasoning = {
+  event: (event: Extract<LLM.Event, { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" }>) => Effect.Effect<void, unknown>
+  end: () => Effect.Effect<void, unknown>
+}
 const outputSchema = z.object({ expandedPrompt: z.string().trim().min(1), tags: z.array(z.string()).min(3).max(5) })
 const segmenter = new Intl.Segmenter("zh", { granularity: "grapheme" })
 const system = [
@@ -96,7 +100,7 @@ export function parseExpansion(text: string) {
   return validateExpansion(JSON.parse(objects[0]))
 }
 
-export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, progress: () => void) {
+export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, progress: () => void, reasoning?: ExpansionReasoning) {
   return Effect.gen(function* () {
     let text = ""
     let textBytes = 0
@@ -115,6 +119,8 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
             }))
           finished = true
         }
+        if (event.type === "reasoning-start" || event.type === "reasoning-end")
+          return reasoning?.event(event) ?? Effect.void
         if (event.type !== "text-delta" && event.type !== "reasoning-delta") return Effect.void
         if (!event.text) return Effect.void
         progressBytes += Buffer.byteLength(event.text)
@@ -125,7 +131,7 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
         if (textBytes > 64 * 1024 || progressBytes > 1024 * 1024)
           return Effect.fail(new RecommendationError("OUTPUT_LIMIT_EXCEEDED"))
         progress()
-        return Effect.void
+        return event.type === "reasoning-delta" ? reasoning?.event(event) ?? Effect.void : Effect.void
       }),
     )
     if (!finished) return yield* Effect.fail(new RecommendationError("MODEL_REQUEST_FAILED"))
@@ -195,6 +201,7 @@ export async function expandPrompt(
   model: Provider.Model,
   signal: AbortSignal,
   services?: ExpansionServices,
+  reasoning?: ExpansionReasoning,
 ) {
   const startedAt = Date.now()
   const context = {
@@ -247,6 +254,7 @@ export async function expandPrompt(
             retries: 0,
           }),
           reset,
+          reasoning,
         )
       const options = { signal: AbortSignal.any([signal, controller.signal]) }
       const exit = services?.llm
@@ -266,6 +274,7 @@ export async function expandPrompt(
       throw failure
     } finally {
       clearTimeout(timer)
+      if (reasoning) await Effect.runPromise(attach(reasoning.end()))
     }
   }
   const first = await call(false)

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { mergePromptPart } from "./studio-prompt-state"
+import { isExpansionReasoning, mergePromptPart } from "./studio-prompt-state"
 import { buildStudioTurns, buildStudioConversationContext } from "./turns"
 
 const guide = {
@@ -87,4 +87,33 @@ test("recommendations retain proper parents, tags and input attachments without 
   expect(turns[1].recommendation?.tags).toEqual(["场景：城市"])
   expect(turns[1].inputImages).toHaveLength(1)
   expect(buildStudioConversationContext(input)).toBe("")
+  const reasoning = {
+    id: "reason", messageID: "a2", sessionID: "session", type: "reasoning", text: "先考虑构图",
+    time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },
+  } satisfies Part
+  const running = { ...result, metadata: { studioPromptExpansion: { ...result.metadata.studioPromptExpansion, status: "running" } } }
+  const active = { ...input, parts: { ...input.parts, a2: [running, reasoning] } }
+  expect(buildStudioTurns(active)[1].reasoningParts).toEqual([reasoning])
+  expect(buildStudioTurns(active)[1].assistantText).toBe("扩写正文")
+  for (const status of ["cancelling", "completed", "failed", "cancelled"]) {
+    expect(buildStudioTurns({ ...active, parts: { ...active.parts, a2: [
+      { ...running, metadata: { studioPromptExpansion: { ...running.metadata.studioPromptExpansion, status } } }, reasoning,
+    ] } })[1].reasoningParts).toBeUndefined()
+  }
+})
+
+test("Studio reasoning uses validated markers and never regresses to an older snapshot", () => {
+  const part = {
+    id: "r", messageID: "m", sessionID: "s", type: "reasoning", text: "构图与光线",
+    time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },
+  } satisfies Part
+  expect(isExpansionReasoning(part)).toBe(true)
+  expect(isExpansionReasoning({ ...part, metadata: { studioPromptExpansionReasoning: true } })).toBe(false)
+  expect(mergePromptPart(part, { ...part, text: "" })).toBe(part)
+  const complete = { ...part, text: "构图与光线都很重要", time: { start: 1, end: 2 } }
+  expect(mergePromptPart(part, complete)).toBe(complete)
+  expect(mergePromptPart(complete, part)).toBe(complete)
+  expect(mergePromptPart(complete, { ...complete, text: "构图" })).toBe(complete)
+  const divergent = { ...part, text: "服务端重建的基线" }
+  expect(mergePromptPart(part, divergent)).toBe(divergent)
 })

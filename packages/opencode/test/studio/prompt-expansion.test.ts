@@ -55,6 +55,47 @@ describe("Studio expansion output", () => {
       ),
     ).rejects.toThrow("OUTPUT_LIMIT_EXCEEDED")
   })
+  test("forwards reasoning after progress and size checks without mixing it into JSON", async () => {
+    const seen: string[] = []
+    let progress = 0
+    const text = await Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
+      { type: "reasoning-start", id: "r" },
+      { type: "reasoning-delta", id: "r", text: "思考画面" },
+      { type: "reasoning-delta", id: "r", text: "" },
+      { type: "reasoning-end", id: "r" },
+      { type: "text-delta", id: "t", text: JSON.stringify(output) },
+      { type: "finish", finishReason: "stop", rawFinishReason: "stop", totalUsage: {
+        inputTokens: 1, outputTokens: 1, totalTokens: 2,
+        inputTokenDetails: { noCacheTokens: undefined, cacheReadTokens: undefined, cacheWriteTokens: undefined },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      } },
+    ]), () => { progress++ }, {
+      event: (event) => Effect.sync(() => {
+        seen.push(event.type)
+        if (event.type === "reasoning-delta") expect(progress).toBe(1)
+      }),
+      end: () => Effect.void,
+    }))
+    expect(parseExpansion(text)).toEqual(output)
+    expect(progress).toBe(2)
+    expect(seen).toEqual(["reasoning-start", "reasoning-delta", "reasoning-end"])
+  })
+  test("does not forward oversized reasoning and propagates observer failures", async () => {
+    let forwarded = false
+    await expect(Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
+      { type: "reasoning-delta", id: "r", text: "x".repeat(1024 * 1024 + 1) },
+    ]), () => {}, {
+      event: () => Effect.sync(() => { forwarded = true }),
+      end: () => Effect.void,
+    }))).rejects.toThrow("OUTPUT_LIMIT_EXCEEDED")
+    expect(forwarded).toBe(false)
+    await expect(Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
+      { type: "reasoning-start", id: "r" },
+    ]), () => {}, {
+      event: () => Effect.fail(new Error("reasoning persistence failed")),
+      end: () => Effect.void,
+    }))).rejects.toThrow("reasoning persistence failed")
+  })
 })
 
 test("process admission is nonblocking and releases each permit only once", () => {

@@ -8,6 +8,8 @@ import { selectExpansionModel } from "@/studio/prompt-expansion"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
+import { Bus } from "@/bus"
+import { MessageV2 } from "@/session/message-v2"
 import {
   initializeRecommendation,
   submitExpansion,
@@ -108,8 +110,8 @@ it.live(
     provideTmpdirServer(
       ({ llm }) =>
         Effect.gen(function* () {
-          yield* llm.text("not valid JSON")
-          yield* llm.text(output)
+          yield* llm.reason("先分析用户画面", { text: "not valid JSON" })
+          yield* llm.reason("重新整理画面", { text: output })
           const instance = yield* InstanceState.context
           yield* Effect.promise(() =>
             Instance.restore(instance, async () => {
@@ -128,6 +130,14 @@ it.live(
                 await Bun.sleep(10)
               }
               expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("completed")
+              const reasoning = Database.use((db) => db.select().from(PartTable)
+                .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
+                .filter((row) => row.data.type === "reasoning")
+              expect(reasoning).toHaveLength(2)
+              expect(reasoning.map((row) => row.data)).toEqual(expect.arrayContaining([
+                expect.objectContaining({ text: "先分析用户画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                expect.objectContaining({ text: "重新整理画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+              ]))
             }),
           )
           expect(yield* llm.calls).toBe(2)
@@ -136,6 +146,45 @@ it.live(
     ),
   30_000,
 )
+
+it.live("persists streamed reasoning on cancellation without requiring the aborted signal", () =>
+  provideTmpdirServer(({ llm }) => Effect.gen(function* () {
+    yield* llm.push({
+      type: "sse",
+      head: [{ id: "test", object: "chat.completion.chunk", choices: [{ delta: { reasoning_content: "正在构思画面" } }] }],
+      tail: [],
+      hang: true,
+    })
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() => Instance.restore(instance, async () => {
+      const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+      const streamed = Promise.withResolvers<void>()
+      const unsubscribe = Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
+        if (event.properties.sessionID === initialized.sessionID && event.properties.delta === "正在构思画面")
+          streamed.resolve()
+      })
+      try {
+        const accepted = await submitExpansion({
+          requestID: crypto.randomUUID(), sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
+          prompt: "城市雨景", availableModels: [{ providerID: "test", modelID: "test-model" }],
+        })
+        await Promise.race([streamed.promise, Bun.sleep(5000).then(() => { throw new Error("No reasoning delta received") })])
+        expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("running")
+        await cancelExpansion(initialized.sessionID, accepted.assistantMessageID!)
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline && (await getRecommendationState(initialized.sessionID)).recommendation?.status !== "cancelled")
+          await Bun.sleep(10)
+        expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("cancelled")
+        const parts = Database.use((db) => db.select().from(PartTable)
+          .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
+        expect(parts.filter((row) => row.data.type === "reasoning").map((row) => row.data)).toEqual([
+          expect.objectContaining({ text: "正在构思画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+        ])
+      } finally {
+        unsubscribe()
+      }
+    }))
+  }), { config }), 30_000)
 
 it.live(
   "accepts once, persists a full LLM result, and leaves the session model unchanged",

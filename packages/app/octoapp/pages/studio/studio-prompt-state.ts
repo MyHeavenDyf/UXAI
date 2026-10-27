@@ -2,6 +2,11 @@ import z from "zod"
 import type { Part } from "@opencode-ai/sdk/v2/client"
 
 const base = { version: z.literal(1), revision: z.number().int().positive() }
+const reasoning = z.object({ version: z.literal(1) })
+
+export function isExpansionReasoning(part?: Part): part is Extract<Part, { type: "reasoning" }> {
+  return part?.type === "reasoning" && reasoning.safeParse(part.metadata?.studioPromptExpansionReasoning).success
+}
 const guide = z.object({ ...base, kind: z.literal("guide"), status: z.enum(["armed", "consumed"]) })
 const result = z.object({
   ...base,
@@ -20,6 +25,13 @@ export function promptMetadata(part?: Part) {
 }
 
 export function mergePromptPart(previous: Part | undefined, next: Part) {
+  if (previous?.id === next.id && isExpansionReasoning(previous) && isExpansionReasoning(next)) {
+    if (previous.time.end !== undefined && next.time.end === undefined) return previous
+    if (next.time.end !== undefined) {
+      return previous.time.end !== undefined && previous.text.startsWith(next.text) ? previous : next
+    }
+    return previous.text.startsWith(next.text) ? previous : next
+  }
   const old = promptMetadata(previous)
   const current = promptMetadata(next)
   return previous && old && (!current || old.revision >= current.revision) ? previous : next
