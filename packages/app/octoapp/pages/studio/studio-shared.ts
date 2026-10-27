@@ -50,9 +50,21 @@ export function studioResultCardStatus(input: {
 }
 
 export type StudioPendingResult = StudioGenerationResult & {
+  hideUserBubble?: boolean
   displayPrompt?: string
   sourceImage?: string
   inputImages?: StudioInputImage[]
+}
+
+export function isPromptExpansionGeneration(extra: unknown) {
+  return Boolean(stringValue(recordValue(extra, "promptExpansionSource"), "assistantMessageID")?.trim())
+}
+
+export function studioRegenerationExtra(extra: Record<string, unknown> | undefined) {
+  return {
+    ...Object.fromEntries(Object.entries(extra ?? {}).filter(([key]) => key !== "promptExpansionSource")),
+    skipPromptRefine: true,
+  }
 }
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"

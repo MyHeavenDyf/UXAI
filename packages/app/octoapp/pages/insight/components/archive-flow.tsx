@@ -21,6 +21,9 @@ import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
 import { archiveFileSizeError } from "../utils/archive-size"
 import { beginInsightOperation } from "../utils/interaction-tracking"
+import { useSDK } from "@/context/sdk"
+import { createHtmlComments } from "../utils/html-comments"
+import type { FileComment } from "../../make/components/result-viewer/comment-popover"
 
 export type ArchiveTarget =
   | {
@@ -31,6 +34,7 @@ export type ArchiveTarget =
       getHtmlContent: () => Promise<string>
       htmlFileName: string
       htmlFilePath: string
+      getComments?: () => Promise<FileComment[]>
       /** 预览 iframe 用于截图;取不到(源码视图 / 文件管理无 live iframe)走 1×1 白图兜底(设计如此,不阻塞归档) */
       getIframe?: () => HTMLIFrameElement | null
     }
@@ -146,14 +150,18 @@ async function runArchiveHtmlTask(
   TaskStore.progress([{ key: taskId, progress: 0, status: "in_progress" }])
   showToast({ title: "该任务已添加到任务列表" })
   try {
+    const htmlContent = await target.getHtmlContent()
+    const comments = await target.getComments?.() ?? []
     // 取不到 iframe(源码视图 / tab 不可见)走 1×1 白图兜底,不阻塞归档。
     const iframe = target.getIframe?.() ?? null
     const screenshotBlob = iframe ? await capturePageScreenshot(iframe) : await placeholderScreenshot()
 
     const zipBlob = await createArchiveZip({
       screenshotBlob,
-      htmlContent: await target.getHtmlContent(),
+      htmlContent,
       htmlFilePath: target.htmlFilePath,
+      comments,
+      projectDir: target.projectDir,
     })
 
     const isLoggedIn = !!localStorage.getItem("uiplusToken")
@@ -345,6 +353,7 @@ export function ArchiveDialogs(props: {
   open: boolean
   onClose: () => void
 }): JSX.Element {
+  const sdk = useSDK()
   const [successOpen, setSuccessOpen] = createSignal(false)
   const [successPath, setSuccessPath] = createSignal("")
   const [successViewUrl, setSuccessViewUrl] = createSignal<string | undefined>(undefined)
@@ -355,8 +364,12 @@ export function ArchiveDialogs(props: {
 
   async function handleConfirm(data: ArchiveConfirmData): Promise<void> {
     if (!props.target) return
+    const target = props.target
+    const comments = target.mode === "html" && target.htmlFilePath
+      ? createHtmlComments({ url: sdk.url, directory: target.projectDir, sessionId: target.sessionId, filePath: target.htmlFilePath })
+      : undefined
     // 弹窗立即关闭;后台归档任务真正入队 TaskStore 后才弹「已添加」toast(见 runArchiveHtmlTask / onInit),避免前置请求失败时文案失真。
-    void runArchive(props.target, data, (result) => {
+    void runArchive(target.mode === "html" ? { ...target, getComments: comments?.load } : target, data, (result) => {
       setSuccessPath(result.path)
       setSuccessViewUrl(result.viewUrl)
       setSuccessOpen(true)

@@ -58,14 +58,9 @@ export const manifestHandler = {
     // blob 文件:/tool/designAgentPreview/.../blobs/<sha256>
     const blobMatch = url.match(/\/blobs\/([a-f0-9]+)$/)
     if (blobMatch) {
-      const sha = blobMatch[1]
-      const buf = MOCK_BLOBS[sha]
+      const buf = MOCK_BLOBS[blobMatch[1]]
       if (buf) {
-        // SVG → image/svg+xml;空文件 → text/plain;其余 → application/octet-stream
-        const ct = sha === "5f2205307dda0be5d3d54a5637d325360d94e27b36d6f5c05c38fe4159cfbc50"
-          ? "image/svg+xml"
-          : "application/octet-stream"
-        setCors(res, ct)
+        setCors(res, "application/octet-stream")
         res.end(buf)
         return
       }

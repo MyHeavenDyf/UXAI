@@ -12,6 +12,41 @@ import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(Session.defaultLayer, SessionStatus.defaultLayer))
 
+it.instance("preserves Insight tool-only messages without changing Design previews", () =>
+  Effect.gen(function* () {
+    const service = yield* Session.Service
+    for (const agent of ["octo_insight", "octo_make"]) {
+      const session = yield* service.create({ title: "工具分享", agent })
+      const message = yield* service.updateMessage({
+        id: MessageID.ascending(), sessionID: session.id, role: "assistant",
+        parentID: MessageID.ascending(), agent, mode: agent,
+        modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+        time: { created: 1, completed: 2 }, path: { cwd: "/tmp", root: "/tmp" },
+        cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+      yield* service.updatePart({
+        id: PartID.ascending(), messageID: message.id, sessionID: session.id,
+        type: "tool", tool: "knowledge_search", callID: "search",
+        state: {
+          status: "completed", input: {}, title: "检索", output: "PRIVATE_OUTPUT".repeat(100000),
+          time: { start: 1, end: 2 },
+          metadata: { sources: [{ n: 1, title: "访谈报告", url: "https://example.com" }] },
+        },
+      })
+      const page = yield* previewSession({ sessionID: session.id })
+      if (agent === "octo_make") {
+        expect(page.messages).toEqual([])
+        continue
+      }
+      expect(page.messages).toHaveLength(1)
+      expect(page.messages[0].text).toContain("访谈报告")
+      expect(page.messages[0].text).toContain("knowledge_search")
+      expect(JSON.stringify(page)).not.toContain("PRIVATE_OUTPUT")
+      expect(JSON.stringify(page).length).toBeLessThan(2000)
+    }
+  }),
+)
+
 it.instance("shows the same user input as Design instead of injected artifact or workspace prompts", () =>
   Effect.gen(function* () {
     const service = yield* Session.Service

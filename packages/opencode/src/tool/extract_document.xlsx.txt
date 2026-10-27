@@ -1,13 +1,6 @@
----
-name: spreadsheets
-description: Read and analyze spreadsheet files in Octo Insight. Use for every XLSX reading request, including simple read or summary requests, so worksheet and record counts remain correct when extracted Markdown contains soft-wrapped lines.
----
+# XLSX reading guidance for Octo Insight
 
-# Spreadsheet analysis for Octo Insight
-
-Use this skill for `.xlsx`, `.csv`, and `.tsv` questions in Insight, including row counts, worksheet comparisons, filtering, aggregation, and summaries.
-
-For `.xlsx`, `extract_document` automatically injects this skill for `octo_insight` and `insight_reader`. Apply these instructions even when the user only asks to read or summarize the workbook and does not explicitly ask for a row count.
+For `.xlsx`, `extract_document` automatically includes this guidance for `octo_insight` and `insight_reader`. Apply these instructions even when the user only asks to read or summarize the workbook and does not explicitly ask for a row count.
 
 ## Reading files
 

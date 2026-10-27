@@ -52,7 +52,13 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         setState("url", result.url)
         return result.url
       })()
-      const copied = await navigator.clipboard?.writeText(url).then(() => true, () => false)
+      const copied = platform.platform === "desktop"
+        ? await (async () => {
+          if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
+          await platform.writeClipboardText(url)
+          return true
+        })()
+        : await navigator.clipboard?.writeText(url).then(() => true, () => false)
       if (!copied) {
         const textarea = document.createElement("textarea")
         textarea.value = url

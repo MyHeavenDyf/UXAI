@@ -1,6 +1,7 @@
 import path from "node:path"
 import { lstat, realpath } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { isExcludedPortableFile } from "./portable-exclusions"
 
 const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg)$/i
 const entryFile = /\.(?:html?|svg|jsx|tsx)$/i
@@ -226,6 +227,7 @@ export async function collectPortableDependencies(input: {
   files: string[]
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
+  blacklist?: readonly string[]
 }) {
   if (!input.files.length) return []
   const root = await realpath(input.root)
@@ -258,11 +260,13 @@ export async function collectPortableDependencies(input: {
       .map((file) => [key(file), { file, source: file }]),
   )
   const resolve = async (file: string) => {
+    if (isExcludedPortableFile(file, input.blacklist)) return
     const actual = await realpath(file).catch((error) => {
       if (error.code === "ENOENT" || error.code === "ENOTDIR") return
       throw error
     })
     if (!actual) return
+    if (isExcludedPortableFile(actual, input.blacklist)) return
     if (!inside(root, actual) && (!resourceFile.test(actual) || !trusted.some((dir) => inside(dir, actual)))) {
       throw new Error(`导出依赖超出允许的资源目录：${path.relative(input.root, file)}`)
     }
@@ -277,9 +281,6 @@ export async function collectPortableDependencies(input: {
     })
     await Promise.all(
       batch.map(async ({ file, source, document }) => {
-        if ((await lstat(source)).size > 4 * 1024 * 1024) {
-          throw new Error(`页面依赖分析文件超过 4 MiB，无法确认完整性：${path.relative(input.root, file)}`)
-        }
         const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(await input.read(source)), file)
         parsedFiles.set(file, parsed)
         const base = new URL(parsed.base ?? "", pathToFileURL(file))
@@ -300,6 +301,7 @@ export async function collectPortableDependencies(input: {
           if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith("."))) {
             throw new Error(`页面依赖无法安全保留相对路径：${ref}`)
           }
+          if (isExcludedPortableFile(target, input.blacklist)) continue
           const candidates = /\.(?:[cm]?js|jsx|tsx?)$/i.test(file)
             ? [target, ...moduleExtensions.flatMap((ext) => [`${target}${ext}`, path.join(target, `index${ext}`)])]
             : [target]

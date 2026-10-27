@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly OCTO_UXR_MCP_URL: string
   readonly OCTO_SHARE_API_URL: string
   readonly OCTO_SHARE_PAGE_URL: string
+  readonly OCTO_PORTABLE_BLACKLIST_URL: string
   readonly OCTO_UPLOAD_ENDPOINT: string
   readonly OCTO_REPORT_BASE_URL: string
   readonly OCTO_ARTIFACT_SUCCESS: string

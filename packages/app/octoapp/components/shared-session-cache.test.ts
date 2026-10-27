@@ -20,10 +20,27 @@ function fixture() {
     },
     isDeleted: (result) => deleted.has(result.sessionID),
   })
-  return { cache, sessions, deleted, reads, imports: () => imports, fail: (value: boolean) => { failure = value } }
+  return {
+    cache,
+    sessions,
+    deleted,
+    reads,
+    imports: () => imports,
+    fail: (value: boolean) => {
+      failure = value
+    },
+  }
 }
 
 describe("shared session cache", () => {
+  test("does not reuse an import from another module in the same server and directory", async () => {
+    const state = fixture()
+    const design = await state.cache.open("local", "share-code", "/workspace", "design")
+    const insight = await state.cache.open("local", "share-code", "/workspace", "insight")
+    expect(insight?.sessionID).not.toBe(design?.sessionID)
+    expect((await state.cache.open("local", "share-code", "/workspace", "design"))?.sessionID).toBe(design?.sessionID)
+    expect(state.imports()).toBe(2)
+  })
   test("imports a fresh session after deletion instead of reopening the old ID", async () => {
     const state = fixture()
     const first = await state.cache.open("local", "share-code", "D:\\code\\UX_INSIDE\\.opencode")

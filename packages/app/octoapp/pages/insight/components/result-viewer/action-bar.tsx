@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ResultTab, TabViewMode } from "./tab-store"
-import { isToggleType } from "./tab-store"
+import { isToggleType, tabLocalPath } from "./tab-store"
 import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder, IconRefresh } from "../../icons"
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON, uxrJsonToOctoWhiteboard } from "../../utils/mindmap-adapter"
@@ -120,7 +120,7 @@ function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, session
       projectDir,
       getHtmlContent: () => Promise.resolve(stripCodeFence(getTab().content ?? "")),
       htmlFileName: tab.fileName || tab.title || "preview.html",
-      htmlFilePath: tab.filePath || "",
+      htmlFilePath: tabLocalPath(tab) || "",
       getIframe: getIframe ?? (() => null),
     }
   }

@@ -8,7 +8,12 @@ import { PermissionID } from "@/permission/schema"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
+import {
+  exportPortableSession,
+  importPortableSession,
+  sharePortableSession,
+  PortableValidationError,
+} from "@/session/portable"
 import { previewSession } from "@/session/share-preview"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
@@ -47,7 +52,7 @@ import {
   UpdatePayload,
 } from "../groups/session"
 import * as SessionError from "./session-errors"
-import { ApiBadRequestError } from "../errors"
+import { ApiBadRequestError, notFound } from "../errors"
 
 const log = Log.create({ service: "session-httpapi" })
 
@@ -96,15 +101,27 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const portableImport = Effect.fn("SessionHttpApi.portableImport")(function* (ctx: {
       payload: typeof PortableImportPayload.Type
     }) {
-      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope)
+      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope).pipe(
+        Effect.catchTag("PortableValidationError", (error) =>
+          Effect.fail(new ApiBadRequestError({ message: error.message })),
+        ),
+      )
     })
 
     const portableExport = Effect.fn("SessionHttpApi.portableExport")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof PortableExportPayload.Type
     }) {
-      return yield* SessionError.mapStorageNotFound(
-        exportPortableSession({ sessionID: ctx.params.sessionID, output: ctx.payload.path, scope: ctx.payload.scope }),
+      return yield* exportPortableSession({
+        sessionID: ctx.params.sessionID,
+        output: ctx.payload.path,
+        scope: ctx.payload.scope,
+      }).pipe(
+        Effect.mapError((error) =>
+          error instanceof PortableValidationError
+            ? new ApiBadRequestError({ message: error.message })
+            : notFound(error.data.message),
+        ),
       )
     })
 

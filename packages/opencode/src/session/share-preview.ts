@@ -53,7 +53,7 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
   limit?: number
   before?: string
 }) {
-  yield* (yield* Session.Service).get(input.sessionID)
+  const session = yield* (yield* Session.Service).get(input.sessionID)
   const before = input.before ? MessageV2.cursor.decode(input.before) : undefined
   const limit = Math.min(20, Math.max(1, input.limit ?? 20))
   // Do not hydrate full messages/parts: tool output and data URLs can be megabytes.
@@ -94,7 +94,22 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
             text:
               row.role === "user"
                 ? userText
-                : sql<string | null>`substr(json_extract(${PartTable.data}, '$.text'), 1, 8193)`,
+                : session.agent === "octo_insight"
+                  ? sql<string | null>`case when json_extract(${PartTable.data}, '$.type') = 'tool' then
+                      '工具：' || substr(coalesce(json_extract(${PartTable.data}, '$.tool'), ''), 1, 128)
+                      || '（分享时状态：' || substr(coalesce(
+                        json_extract(${PartTable.data}, '$.state.metadata.structuredContent.status'),
+                        json_extract(${PartTable.data}, '$.state.metadata.status'),
+                        case when json_valid(json_extract(${PartTable.data}, '$.state.output'))
+                          then json_extract(json_extract(${PartTable.data}, '$.state.output'), '$.structuredContent.status') end,
+                        json_extract(${PartTable.data}, '$.state.status'), 'unknown'), 1, 64) || '）'
+                      || coalesce((select char(10) || '参考资料：' || group_concat(title, '；') from (
+                        select substr(json_extract(value, '$.title'), 1, 256) as title
+                        from json_each(${PartTable.data}, '$.state.metadata.sources')
+                        where type = 'object' limit 8
+                      )), '')
+                    else substr(json_extract(${PartTable.data}, '$.text'), 1, 8193) end`
+                  : sql<string | null>`substr(json_extract(${PartTable.data}, '$.text'), 1, 8193)`,
             name: sql<string | null>`substr(json_extract(${PartTable.data}, '$.filename'), 1, 256)`,
             mime: sql<string | null>`substr(json_extract(${PartTable.data}, '$.mime'), 1, 128)`,
           })
@@ -102,7 +117,9 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
           .where(
             and(
               eq(PartTable.message_id, row.id),
-              sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
+              session.agent === "octo_insight" && row.role === "assistant"
+                ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'tool')`
+                : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.ignored'), 0) != 1`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.synthetic'), 0) != 1`,
             ),
@@ -123,7 +140,7 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
           ? (parts.find((part) => part.type === "text")?.text ?? "").trim()
           : parts
               .slice(0, 16)
-              .filter((part) => part.type === "text")
+              .filter((part) => part.type === "text" || (session.agent === "octo_insight" && part.type === "tool"))
               .map((part) => part.text ?? "")
               .join("\n")
       const files = parts
