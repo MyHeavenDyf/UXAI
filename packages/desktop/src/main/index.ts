@@ -76,6 +76,7 @@ import {
   type SidecarListener,
 } from "./server"
 import {
+  copyLegacyDataIfMissing,
   createAppDataFallbackStorage,
   getActiveStorage,
   octoConfigDir,
@@ -388,6 +389,11 @@ async function initialize(storage: DesktopStorage) {
       persistAppDataFallback()
       const fallbackStorage = createAppDataFallbackStorage(userDataPath, serializeError(error).message)
       setActiveStorage(fallbackStorage)
+      // 数据也搬:此路径只认 sqlite_cantopen 族错误(锁住/权限坏,非损坏),copy 只需
+      // 读权限、新副本默认可写 —— 权限坏的场景 fallback 带着用户数据起;锁住则 copy
+      // 失败仅警告,行为与之前一致。global.ts mkdir 容错后,此重试路径从「mkdir 崩溃
+      // 无上报」变为可达,DB/登录态不搬会留在 legacy 位置不可见
+      copyLegacyDataIfMissing(storage, fallbackStorage)
       logger.warn("retrying sidecar with app data storage", {
         storageMode: fallbackStorage.mode,
         storageReason: fallbackStorage.reason,
