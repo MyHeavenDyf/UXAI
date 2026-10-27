@@ -17,7 +17,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
-import { extOfUri } from "../../utils/output-type"
+import { extOf, extOfUri } from "../../utils/output-type"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
 import { CanvasEditMenu } from "./canvas-edit-menu"
 import { HtmlReviewActions } from "./html-review"
@@ -281,6 +281,12 @@ export function ActionBar(props: {
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
+  const archiveExtension = () => {
+    if (props.tab.fileName) return extOf(props.tab.fileName)
+    if (props.tab.filePath) return extOf(props.tab.filePath)
+    if (props.tab.uri) return extOfUri(props.tab.uri)
+    return extOf(props.tab.title)
+  }
   // 切换可见性:静态 toggle 类型(html/markdown)恒显;json 卡按内容判定——
   // 内容是思维导图 shape(顶层带 children 的树)时才出「预览(markmap)/代码(json)」切换,
   // 普通配置 JSON 无切换单显源。内容随 path/uri 读取后回填,本函数响应式重算。见 output-renderers.md §1。
@@ -441,7 +447,7 @@ export function ActionBar(props: {
             <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
             <DownloadMenu tab={props.tab} disabled={!ready()} />
           </Show>
-          <Show when={extOfUri(props.tab.fileName || props.tab.filePath || props.tab.uri || props.tab.title) !== "exe"}>
+          <Show when={archiveExtension() !== "exe"}>
           <Tooltip
             placement="top"
             value={archiveTitle()}
