@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/solid-query"
+import { createStore } from "solid-js/store"
 import type { QuestionRequest, QuestionAnswer } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
 import { QuestionDockView } from "../../insight/components/question-dock"
@@ -9,6 +10,7 @@ import { useLanguage } from "@/context/language"
 export function MakeQuestionDock(props: { request: QuestionRequest; onSubmitted?: () => void }) {
   const sdk = useSDK()
   const language = useLanguage()
+  const [state, setState] = createStore({ sending: false })
 
   const response = useMutation(() => ({
     mutationFn: async (answers: QuestionAnswer[] | undefined) => {
@@ -27,13 +29,20 @@ export function MakeQuestionDock(props: { request: QuestionRequest; onSubmitted?
         description: err instanceof Error ? err.message : String(err),
       })
     },
+    onSettled: () => setState("sending", false),
   }))
+
+  const respond = (answers: QuestionAnswer[] | undefined) => {
+    if (state.sending) return
+    setState("sending", true)
+    response.mutate(answers)
+  }
 
   return (
     <QuestionDockView
       questions={props.request.questions}
       cacheKey={props.request.id}
-      busy={response.isPending}
+      busy={state.sending}
       labels={{
         dismiss: language.t("ui.common.dismiss"),
         back: language.t("ui.common.back"),
@@ -46,8 +55,8 @@ export function MakeQuestionDock(props: { request: QuestionRequest; onSubmitted?
         questions: language.t("ui.tool.questions"),
         progress: (current, total) => language.t("session.question.progress", { current, total }),
       }}
-      onReply={(answers) => response.mutate(answers)}
-      onReject={() => response.mutate(undefined)}
+      onReply={respond}
+      onReject={() => respond(undefined)}
     />
   )
 }
