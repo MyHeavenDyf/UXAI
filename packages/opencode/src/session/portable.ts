@@ -12,6 +12,7 @@ import { NonNegativeInt } from "@/util/schema"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
+import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
@@ -34,6 +35,11 @@ const ShareUploadResponse = Schema.Struct({
   }),
   success: Schema.Boolean,
 })
+
+export class PortableShareBusyError extends Schema.TaggedErrorClass<PortableShareBusyError>()(
+  "PortableShareBusyError",
+  { message: Schema.String },
+) {}
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
@@ -317,6 +323,17 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   headers?: Record<string, string | undefined>
   scope?: "project"
 }) {
+  const status = yield* SessionStatus.Service
+  const sessions = yield* Session.Service
+  const assertShareable = Effect.gen(function* () {
+    if ((yield* status.get(input.sessionID)).type !== "idle") {
+      return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
+    }
+    if ((yield* sessions.children(input.sessionID)).length) {
+      return yield* new PortableValidationError({ message: "该对话包含子对话，暂不支持分享" })
+    }
+  })
+  yield* assertShareable
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
   const missing = [!uploadURL && "OCTO_SHARE_API_URL", !sharePageURL && "OCTO_SHARE_PAGE_URL"].filter(Boolean)
@@ -324,12 +341,12 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
     return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
   }
-  const sessions = yield* Session.Service
   const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
     const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
+    yield* assertShareable
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]

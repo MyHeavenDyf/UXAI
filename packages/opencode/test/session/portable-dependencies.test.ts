@@ -6,6 +6,62 @@ import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { isExcludedPortableFile } from "@/session/portable-exclusions"
 import { tmpdir } from "../fixture/fixture"
 
+test("skips website-root references without guessing disk paths or changing source files", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const script = path.join(project.path, "runtime.js")
+  const css = path.join(project.path, "theme.css")
+  const html = '<script type="module" src="/src/entry.ts"></script><script src="/src/entry.ts"></script><script src="./runtime.js"></script><link rel="stylesheet" href="./theme.css">'
+  await Bun.write(page, html)
+  await Bun.write(script, 'import "/src/module.ts"; import "./keep.js";')
+  await Bun.write(css, 'body { background: url("/images/background.svg") }')
+  await Bun.write(path.join(project.path, "keep.js"), "window.ready = true")
+  // Even a matching project file does not establish the website's server root.
+  await Bun.write(path.join(project.path, "src/entry.ts"), "must not guess this location")
+  const reads: string[] = []
+  const logging = spyOn(console, "warn")
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => {
+        reads.push(file)
+        return new Uint8Array(await Bun.file(file).arrayBuffer())
+      },
+    })
+    expect(dependencies.map((entry) => path.basename(entry.file)).sort()).toEqual(["keep.js", "runtime.js", "theme.css"])
+    expect(reads.sort()).toEqual([page, script, css, path.join(project.path, "keep.js")].sort())
+    expect(await Bun.file(page).text()).toBe(html)
+    expect(logging).toHaveBeenCalledTimes(3)
+    expect(logging.mock.calls.every((call) => call[0] === "[octo:share] skipped dependency")).toBe(true)
+    expect(JSON.parse(String(logging.mock.calls[0]?.[1]))).toEqual({
+      source: page,
+      reference: "/src/entry.ts",
+      base: pathToFileURL(page).href,
+      reason: "web-root-relative",
+    })
+  } finally {
+    logging.mockRestore()
+  }
+})
+
+test.each(["relative escape", "explicit file URL", "hidden directory"])("still rejects a %s dependency", async (mode) => {
+  await using project = await tmpdir()
+  await using outside = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const ref = mode === "relative escape" ? "../secret.js"
+    : mode === "explicit file URL" ? pathToFileURL(path.join(outside.path, "secret.js")).href
+    : "./.private/secret.js"
+  await Bun.write(page, `<script src="${ref}"></script>`)
+  await expect(collectPortableDependencies({
+    root: project.path,
+    files: [page],
+    trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })).rejects.toThrow("页面依赖无法安全保留相对路径")
+})
+
 test("does not read blacklisted ASAR dependencies or virtual contents, but retains unpacked dependencies", async () => {
   await using project = await tmpdir()
   const page = path.join(project.path, "index.html")
