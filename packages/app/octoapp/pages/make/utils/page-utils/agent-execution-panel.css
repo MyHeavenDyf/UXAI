@@ -1,7 +1,10 @@
 .agent-exec-overlay {
   position: fixed;
-  inset: 0;
-  z-index: 9999;
+  top: 48px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100000;
   background: rgba(0, 0, 0, 0.2);
   display: flex;
   justify-content: flex-end;
@@ -10,7 +13,7 @@
 .agent-exec-panel {
   width: 460px;
   max-width: 90vw;
-  height: 100vh;
+  height: calc(100vh - 48px);
   background: var(--octo-bg-primary, #ffffff);
   border-left: 1px solid var(--octo-border, rgba(0, 0, 0, 0.08));
   display: flex;
@@ -48,21 +51,6 @@
 
 @keyframes agent-exec-spin {
   to { transform: rotate(360deg); }
-}
-
-.agent-exec-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--octo-text-secondary, #666);
-  padding: 4px 8px;
-  border-radius: 6px;
-  line-height: 1;
-}
-
-.agent-exec-close:hover {
-  background: rgba(0, 0, 0, 0.06);
 }
 
 .agent-exec-body {

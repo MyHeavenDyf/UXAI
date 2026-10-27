@@ -1,6 +1,7 @@
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { isAbsolute, join } from "node:path"
+import { dirname, isAbsolute, join } from "node:path"
+import log from "electron-log/main.js"
 import { getStore } from "./store"
 
 declare const OPENCODE_CHANNEL: string | undefined
@@ -69,10 +70,17 @@ export function resolveDesktopStorage(userDataPath: string) {
   const legacy = createLegacyStorage(userDataPath)
   if (legacy.explicitDatabase) return legacy
 
-  const availability = ensureWritableDirectory(legacy.dataDirectory)
-  if (availability.ok) return legacy
+  // 除 data 落点外还必须探测 config:sidecar 加载的 core/global.ts 在模块顶层对
+  // XDG 各目录做无 catch 的批量 mkdir,~/.config 不可写(root 占用、IT 管控机)会
+  // 直接打死 sidecar(exit 1、无错误上报)。config 不可写同样激活 fallback:
+  // XDG_CONFIG_HOME 重定向到 <userData>/xdg-config,legacy 位置的用户数据
+  // copy-if-missing 跟着搬(见 copyLegacyDataIfMissing)。
+  const dataAvailability = ensureWritableDirectory(legacy.dataDirectory)
+  const configAvailability = dataAvailability.ok ? ensureWritableDirectory(octoConfigDir(legacy)) : undefined
+  if (dataAvailability.ok && configAvailability?.ok) return legacy
 
-  const fallback = createAppDataFallbackStorage(userDataPath, availability.reason)
+  const fallback = createAppDataFallbackStorage(userDataPath, configAvailability?.reason ?? dataAvailability.reason)
+  copyLegacyDataIfMissing(legacy, fallback)
   getStore().set(STORAGE_MODE_KEY, fallback.mode)
   return fallback
 }
@@ -148,6 +156,42 @@ function createLegacyStorage(userDataPath: string): DesktopStorage {
     },
     explicitDatabase: Boolean(explicitDatabase),
   }
+}
+
+/**
+ * 激活 fallback 时把 legacy 位置的用户数据 copy-if-missing 搬到 userData:
+ * config 坏但 ~/.local/share 可用的机器(用户此前正常用过)升级后,XDG_DATA_HOME/
+ * OPENCODE_DB 一并指向 userData,不搬的话历史会话与登录态会「凭空消失」(留在
+ * 旧位置不可见)。copy 永不覆盖、原件不动;失败仅警告 —— fallback 本身必须生效,
+ * 否则回到 sidecar 崩溃的局面。storedMode 粘性保证这里只跑一次。
+ *
+ * 目录搬 storage/(json 迁移源)与 snapshot/(会话快照);plans/ 等瞬时数据不搬。
+ */
+export function copyLegacyDataIfMissing(legacy: DesktopStorage, fallback: DesktopStorage) {
+  try {
+    if (legacy.databasePath !== ":memory:" && isAbsolute(legacy.databasePath)) {
+      copyFileIfMissing(legacy.databasePath, fallback.databasePath)
+      copyFileIfMissing(`${legacy.databasePath}-wal`, `${fallback.databasePath}-wal`)
+    }
+    copyFileIfMissing(join(legacy.dataDirectory, "auth.json"), join(fallback.dataDirectory, "auth.json"))
+    for (const name of ["storage", "snapshot"]) {
+      const src = join(legacy.dataDirectory, name)
+      const dest = join(fallback.dataDirectory, name)
+      if (!existsSync(src) || existsSync(dest)) continue
+      mkdirSync(dirname(dest), { recursive: true })
+      cpSync(src, dest, { recursive: true })
+      log.log("storage fallback: copied directory", src, "→", dest)
+    }
+  } catch (error) {
+    log.warn("storage fallback: failed to copy legacy data", error)
+  }
+}
+
+function copyFileIfMissing(src: string, dest: string) {
+  if (!existsSync(src) || existsSync(dest)) return
+  mkdirSync(dirname(dest), { recursive: true })
+  copyFileSync(src, dest)
+  log.log("storage fallback: copied file", src, "→", dest)
 }
 
 function ensureWritableDirectory(directory: string) {

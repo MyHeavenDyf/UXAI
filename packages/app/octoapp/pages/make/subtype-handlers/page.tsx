@@ -313,7 +313,7 @@ const pageHandler = {
         srcDirectory,
         onSessionCreated: (id: string) => {
           childSessionId = id
-          setAgentExecution({ childSessionId: id, title: 'antd→eview 编排 Agent', visible: true })
+          setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: 'antd→eview 编排 Agent', visible: true } }))
         },
       })
 
@@ -401,7 +401,7 @@ const pageHandler = {
       const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
       const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
 
-      setAgentExecution(null)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       dismissOctoToast(loadingId)
       ctx.showOctoToast({
         title: '编排完成',
@@ -409,7 +409,7 @@ const pageHandler = {
       })
       return true
     } catch (e) {
-      setAgentExecution(null)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       dismissOctoToast(loadingId)
       if (e instanceof DownloadCancelledError) throw e
       throw e
