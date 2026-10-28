@@ -41,7 +41,7 @@ function PreviewStream(props: { part: PreviewPart }) {
   return (
     <div data-component={props.part.type === "reasoning" ? "reasoning-part" : "text-part"} data-streaming>
       <div data-slot={props.part.type === "text" ? "text-part-body" : undefined}>
-        <Markdown text={shown.text} cacheKey={props.part.id} streaming />
+        <Markdown text={shown.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")} cacheKey={props.part.id} streaming />
       </div>
     </div>
   )

@@ -415,7 +415,7 @@ for (const repaired of [true, false]) {
     provideTmpdirServer(({ llm }) => Effect.gen(function* () {
       const nested = JSON.stringify({ expandedPrompt: JSON.parse(output) })
       yield* llm.text(nested)
-      yield* llm.text(repaired ? "雨后城市的霓虹街景。\n[[STUDIO_TAGS]]\n场景：城市\n天气：雨后\n光线：霓虹" : nested)
+      yield* llm.text(repaired ? "<expandedPrompt>雨后城市的霓虹街景。</expandedPrompt>\n<tags>场景：城市\n天气：雨后\n光线：霓虹</tags>" : nested)
       const instance = yield* InstanceState.context
       yield* Effect.promise(() => Instance.restore(instance, async () => {
         const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
@@ -430,7 +430,7 @@ for (const repaired of [true, false]) {
       }))
       const inputs = yield* llm.inputs
       expect(inputs).toHaveLength(2)
-      expect(JSON.stringify(inputs[0])).toContain("正文结束后，另起一行输出 [[STUDIO_TAGS]]")
+      expect(JSON.stringify(inputs[0])).toContain("将中文扩写正文放在 <expandedPrompt> 与 </expandedPrompt> 之间")
       expect(JSON.stringify(inputs[1])).toContain("每行一个")
       expect(inputs[1]).toMatchObject({ messages: expect.arrayContaining([
         expect.objectContaining({ role: "assistant", content: nested }),
@@ -442,8 +442,10 @@ for (const repaired of [true, false]) {
 
 for (const sample of [
   { text: "雨后的城市街道。", tags: [] },
-  { text: "雨后的城市街道。\n[[STUDIO_TAGS]]\n无效标签\n风格：科幻:未来", tags: [] },
-  { text: "雨后的城市街道。\n[[STUDIO_TAGS]]\n- 场景 : 城市\n场景：街道\n天气：雨后", tags: ["场景：城市", "天气：雨后"] },
+  { text: "<expandedPrompt>雨后的城市街道。", tags: [] },
+  { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags", tags: [] },
+  { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>无效标签\n风格：科幻:未来", tags: [] },
+  { text: "<expandedPrompt>雨后的城市街道。<tags>- 场景 : 城市\n场景：街道\n天气：雨后</tags>", tags: ["场景：城市", "天气：雨后"] },
 ]) {
   it.live(`persists usable body without repair when normalized tag count is ${sample.tags.length}: ${sample.text}`, () =>
     provideTmpdirServer(({ llm }) => Effect.gen(function* () {

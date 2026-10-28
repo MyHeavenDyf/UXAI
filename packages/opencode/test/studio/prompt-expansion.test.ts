@@ -24,16 +24,28 @@ describe("Studio expansion output", () => {
     expect(() => parseExpansion(JSON.stringify({ expandedPrompt: [output.expandedPrompt], tags: output.tags }))).toThrow()
     expect(parseExpansion(JSON.stringify(output))).toEqual(output)
   })
-  test("parses plain body and line-delimited tags, preserving body paragraphs and braces", () => {
-    expect(parseExpansion(`${output.expandedPrompt}\n\n[[STUDIO_TAGS]]\n${output.tags.join("\n")}`)).toEqual(output)
-    expect(parseExpansion("  城市{雨景}\r\n\r\n远处行人\r\n  [[STUDIO_TAGS]] \r\n- 场景 : 城市\r\n2. 光线：霓虹"))
+  test("parses sibling text tags with case and whitespace tolerance", () => {
+    expect(parseExpansion(`<expandedPrompt>${output.expandedPrompt}</expandedPrompt>\n<tags>${output.tags.join("\n")}</tags>`)).toEqual(output)
+    expect(parseExpansion("说明\n< EXPANDEDPROMPT >城市{雨景}\r\n\r\n远处行人< / EXPANDEDPROMPT >\n<TAGS>\n- 场景 : 城市\n2. 光线：霓虹\n</TAGS>"))
       .toEqual({ expandedPrompt: "城市{雨景}\n\n远处行人", tags: ["场景：城市", "光线：霓虹"] })
-    expect(parseExpansion("招牌上写着 [[STUDIO_TAGS]]，街景写实。"))
-      .toEqual({ expandedPrompt: "招牌上写着 [[STUDIO_TAGS]]，街景写实。", tags: [] })
+    expect(parseExpansion(output.expandedPrompt)).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
   })
-  test("missing, empty or invalid tags never discard a valid body", () => {
-    for (const suffix of ["", "\n[[STUDIO_TAGS]]", "\n[[STUDIO_TAGS]]\n不是标签\n风格：科幻:未来\n场景：\u200b\n标签：内容过长内容过长内容过长\n风格：{科幻}"])
-      expect(parseExpansion(output.expandedPrompt + suffix)).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
+  test("recovers missing body closure only at tags or a clean normal end", () => {
+    expect(parseExpansion("<expandedPrompt>城市雨景<tags>场景：城市</tags>"))
+      .toEqual({ expandedPrompt: "城市雨景", tags: ["场景：城市"] })
+    expect(parseExpansion("<expandedPrompt>城市雨景")).toEqual({ expandedPrompt: "城市雨景", tags: [] })
+    expect(parseExpansion("城市雨景<tags>场景：城市</tags>"))
+      .toEqual({ expandedPrompt: "城市雨景", tags: ["场景：城市"] })
+    expect(parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>城市</expandedPrompt>"))
+      .toEqual({ expandedPrompt: "城市", tags: [] })
+    for (const text of ["<expandedPrompt>城市<tags", "<expandedPrompt>城市<", "<expandedPrompt>城市<unknown>其他", "<expandedPrompt>城市</expandedPrompt><expandedPrompt>雨景</expandedPrompt>"])
+      expect(() => parseExpansion(text)).toThrow()
+  })
+  test("missing, empty or malformed tags never discard a clearly delimited body", () => {
+    for (const suffix of ["", "<tags></tags>", "<tags", "<tagsx>损坏标签", '<tags>"tags": ["风格tags":["风格：科幻"]', "<tags>无效标签\n风格：科幻:未来\n场景：\u200b", "<tags>场景：城市</tags><tags>天气：雨后</tags>"])
+      expect(parseExpansion(`<expandedPrompt>${output.expandedPrompt}</expandedPrompt>${suffix}`)).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
+    expect(parseExpansion(`<expandedPrompt>${output.expandedPrompt}</expandedPrompt><tags>场景：城市`))
+      .toEqual({ expandedPrompt: output.expandedPrompt, tags: ["场景：城市"] })
     for (const tags of [undefined, null, {}, "场景：城市", []])
       expect(validateExpansion({ expandedPrompt: output.expandedPrompt, tags })).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
     expect(parseExpansion(JSON.stringify({ expandedPrompt: output.expandedPrompt }))).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
@@ -47,8 +59,8 @@ describe("Studio expansion output", () => {
     expect(validateExpansion({ ...output, tags: ["风格：科幻", "風格：写实", "ＦＯＯ：城市", "foo：雨景"] }).tags)
       .toEqual(["风格：科幻", "風格：写实", "ＦＯＯ：城市"])
   })
-  test("rejects empty or oversized bodies and repeated standalone markers", () => {
-    for (const text of ["", " \n", "\u200b", "[[STUDIO_TAGS]]\n场景：城市", "城市\n[[STUDIO_TAGS]]\n场景：城市\n[[STUDIO_TAGS]]", "图".repeat(1001)])
+  test("rejects empty or oversized bodies and broken or nested body tags", () => {
+    for (const text of ["", " \n", "\u200b", "<tags>场景：城市</tags>", "<expandedPrompt></expandedPrompt>", "<expandedPrompt>城市<expandedPrompt>雨景</expandedPrompt>", "<expandedPrompt 城市", "城市</expandedPrompt>", "图".repeat(1001)])
       expect(() => parseExpansion(text)).toThrow()
     expect(parseExpansion("😀".repeat(1000)).expandedPrompt).toBe("😀".repeat(1000))
     expect(() => parseExpansion("😀".repeat(1001))).toThrow()
@@ -62,13 +74,13 @@ describe("Studio expansion output", () => {
       '\x60\x60\x60json\n[{"expandedPrompt":"城市"}]\n\x60\x60\x60',
       '{"expandedPrompt":"城市"',
       '{"expandedPrompt":"城市"} {"expandedPrompt":"雨景"}',
-      '{"expandedPrompt":"城市"}\n[[STUDIO_TAGS]]\n场景：城市',
+      '<expandedPrompt>{"expandedPrompt":"城市"}</expandedPrompt>',
       '```json\n{"expandedPrompt":\n```',
     ]) expect(() => parseExpansion(text)).toThrow()
     expect(validateExpansion({ ...output, secret: "ignored" })).toEqual(output)
   })
   test("does not accept valid JSON before a late stream error or truncated finish", async () => {
-    const text: LLM.Event = { type: "text-delta", id: "text", text: JSON.stringify(output) }
+    const text: LLM.Event = { type: "text-delta", id: "text", text: "<expandedPrompt>城市雨景" }
     await expect(
       Effect.runPromise(
         readExpansionStream(

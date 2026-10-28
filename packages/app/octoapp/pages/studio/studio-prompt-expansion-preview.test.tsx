@@ -126,3 +126,23 @@ test("historical previews stay hidden and unmount cancels playback", async () =>
   await Bun.sleep(75)
   expect(view.container.textContent).toBe("")
 })
+
+
+test("protocol tags remain visible as text across chunks in both channels", async () => {
+  const [state, setState] = createStore<{ status: string; parts: Extract<Part, { type: "text" | "reasoning" }>[] }>({
+    status: "running", parts: [{ ...part, text: "<expanded" }, { ...part, id: "reason-tags", type: "reasoning", text: "准备使用 <expandedPrompt> 标签" }],
+  })
+  const view = mount(state)
+  try {
+    await waitFor(() => view.container.textContent?.includes("<expanded") === true)
+    setState("parts", 0, "text", "<expandedPrompt>城市**雨景** & 灯光</expandedPrompt>\n<tags>场景：城市</tags>")
+    await waitFor(() => view.container.textContent?.includes("<tags>场景：城市</tags>") === true)
+    expect(view.container.textContent).toContain("<expandedPrompt>城市雨景 & 灯光</expandedPrompt>")
+    expect(view.container.textContent).toContain("准备使用 <expandedPrompt> 标签")
+    expect(view.container.querySelector("expandedprompt, tags")).toBeNull()
+    expect(view.container.querySelector("strong")?.textContent).toBe("雨景")
+    expect(state.parts[0].text).toContain("城市**雨景**")
+    setState("status", "completed")
+    expect(view.container.textContent).toBe("")
+  } finally { view.dispose() }
+})
