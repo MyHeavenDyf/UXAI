@@ -242,13 +242,24 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 2 },
     )
-    return yield* Effect.forEach(
+    const packed = yield* Effect.forEach(
       files.flat(),
       ({ file, source, location }) =>
-        Effect.promise(async (): Promise<FileEntry> => {
+        Effect.promise(async (): Promise<FileEntry | undefined> => {
           const relative = path.relative(location.root, file)
-          const content = await read(source)
+          const content = await read(source).catch((error) => {
+            console.warn(
+              "[octo:share] skipped file",
+              JSON.stringify({
+                source,
+                path: relative,
+                reason: "unreadable",
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            )
+          })
           contents.delete(source)
+          if (!content) return
           const sha256 = digest(content)
           const blob = `blobs/${sha256}`
           if (!blobs.has(blob)) {
@@ -267,6 +278,7 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 8 },
     )
+    return packed.filter((file): file is FileEntry => !!file)
   })
 }
 
