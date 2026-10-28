@@ -18,6 +18,12 @@ describe("Studio expansion output", () => {
     )
     expect(() => parseExpansion(`${JSON.stringify(output)} ${JSON.stringify(output)}`)).toThrow()
   })
+  test("rejects nested expandedPrompt objects instead of treating them as body text", () => {
+    expect(() => parseExpansion(JSON.stringify({ ...output, expandedPrompt: { expandedPrompt: output.expandedPrompt } }))).toThrow()
+    expect(() => parseExpansion(JSON.stringify({ expandedPrompt: output }))).toThrow()
+    expect(() => parseExpansion(JSON.stringify({ expandedPrompt: [output.expandedPrompt], tags: output.tags }))).toThrow()
+    expect(parseExpansion(JSON.stringify(output))).toEqual(output)
+  })
   test("normalizes tags and validates graphemes, dimensions, separators and invisible values", () => {
     expect(validateExpansion({ ...output, tags: ["场景 : 城市", "角色：👩‍🚀", "光线：霓虹"] }).tags[0]).toBe("场景：城市")
     for (const tags of [

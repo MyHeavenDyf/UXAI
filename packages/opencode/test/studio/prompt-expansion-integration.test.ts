@@ -408,3 +408,33 @@ it.live(
     ),
   30_000,
 )
+
+
+for (const repaired of [true, false]) {
+  it.live(`nested output receives concrete repair context and ${repaired ? "completes" : "fails after one repair"}`, () =>
+    provideTmpdirServer(({ llm }) => Effect.gen(function* () {
+      const nested = JSON.stringify({ expandedPrompt: JSON.parse(output) })
+      yield* llm.text(nested)
+      yield* llm.text(repaired ? output : nested)
+      const instance = yield* InstanceState.context
+      yield* Effect.promise(() => Instance.restore(instance, async () => {
+        const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        await submitExpansion({
+          requestID: crypto.randomUUID(), sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
+          prompt: "雨景", availableModels: [{ providerID: "test", modelID: "test-model" }],
+        })
+        const deadline = Date.now() + 10_000
+        while (Date.now() < deadline && (await getRecommendationState(initialized.sessionID)).recommendation?.status === "running")
+          await Bun.sleep(10)
+        expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe(repaired ? "completed" : "failed")
+      }))
+      const inputs = yield* llm.inputs
+      expect(inputs).toHaveLength(2)
+      expect(JSON.stringify(inputs[0])).toContain("不得在其中再次嵌套 expandedPrompt")
+      expect(JSON.stringify(inputs[1])).toContain("tags 数组与它同级")
+      expect(inputs[1]).toMatchObject({ messages: expect.arrayContaining([
+        expect.objectContaining({ role: "assistant", content: nested }),
+        expect.objectContaining({ role: "user", content: expect.stringContaining("expandedPrompt 必须直接是字符串") }),
+      ]) })
+    }), { config }), 30_000)
+}
