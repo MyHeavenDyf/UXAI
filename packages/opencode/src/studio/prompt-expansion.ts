@@ -7,7 +7,6 @@ import { LLM } from "@/session/llm"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "@/session/message-v2"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { createExpandedPromptReader } from "./prompt-expansion-text"
 import { logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
 import { RecommendationError, type Submission, type ExpansionInput } from "./prompt-recommendation-schema"
 
@@ -17,7 +16,7 @@ const llmRuntime = makeRuntime(LLM.Service, LLM.defaultLayer)
 export type ExpansionServices = { provider: Provider.Interface; config: Config.Interface; llm?: LLM.Interface }
 export type ExpansionPreview = {
   start: (attempt: 1 | 2) => Effect.Effect<void, unknown>
-  append: (delta: string) => Effect.Effect<void, unknown>
+  append: (delta: string, type?: "text" | "reasoning", streamID?: string) => Effect.Effect<void, unknown>
   end: () => Effect.Effect<void, unknown>
 }
 const outputSchema = z.object({ expandedPrompt: z.string().trim().min(1), tags: z.array(z.string()).min(3).max(5) })
@@ -104,7 +103,6 @@ export function parseExpansion(text: string) {
 
 export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, progress: () => void, preview?: ExpansionPreview) {
   return Effect.gen(function* () {
-    const reader = createExpandedPromptReader()
     let text = ""
     let textBytes = 0
     let progressBytes = 0
@@ -132,9 +130,7 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
         if (textBytes > 64 * 1024 || progressBytes > 1024 * 1024)
           return Effect.fail(new RecommendationError("OUTPUT_LIMIT_EXCEEDED"))
         progress()
-        if (event.type !== "text-delta") return Effect.void
-        const delta = reader.push(event.text)
-        return delta ? preview?.append(delta) ?? Effect.void : Effect.void
+        return preview?.append(event.text, event.type === "text-delta" ? "text" : "reasoning", event.id) ?? Effect.void
       }),
     )
     if (!finished) return yield* Effect.fail(new RecommendationError("MODEL_REQUEST_FAILED"))

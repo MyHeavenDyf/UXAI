@@ -1,54 +1,58 @@
-import { createEffect, on, onCleanup, Show } from "solid-js"
+import { createEffect, For, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { Part } from "@opencode-ai/sdk/v2/client"
 import { Markdown } from "@opencode-ai/ui/markdown"
 
-export function StudioPromptExpansionPreview(props: {
-  part?: Extract<Part, { type: "text" }>
-  status: string
-}) {
-  const [shown, setShown] = createStore({ id: "", text: "" })
+type PreviewPart = Extract<Part, { type: "text" | "reasoning" }>
+
+// Match Insight's live Markdown pacing without depending on its message/session UI.
+function PreviewStream(props: { part: PreviewPart }) {
+  const target = () => props.part.text.trim()
+  const [shown, setShown] = createStore({ text: target() })
   let timer: ReturnType<typeof setTimeout> | undefined
-  const target = () => props.part?.text.trim() ?? ""
   const clear = () => {
     clearTimeout(timer)
     timer = undefined
   }
   const advance = () => {
     timer = undefined
-    if (props.status !== "running" || props.part?.id !== shown.id) return
-    const remaining = [...target().slice(shown.text.length)]
+    const text = target()
+    if (!text.startsWith(shown.text) || text.length <= shown.text.length) {
+      setShown("text", text)
+      return
+    }
+    const remaining = [...text.slice(shown.text.length)]
     const size = remaining.length <= 12 ? 2 : remaining.length <= 48 ? 4
       : remaining.length <= 96 ? 8 : Math.min(24, Math.ceil(remaining.length / 8))
-    setShown("text", shown.text + remaining.slice(0, size).join(""))
-    if (shown.text.length < target().length) timer = setTimeout(advance, 24)
+    const snap = remaining.slice(size, size + 8).findIndex((char) => /[\s.,!?;:)\]]/.test(char))
+    setShown("text", shown.text + remaining.slice(0, snap < 0 ? size : size + snap + 1).join(""))
+    if (shown.text.length < text.length) timer = setTimeout(advance, 24)
   }
-  createEffect(on(
-    () => [props.part?.id, props.status, target()] as const,
-    ([id, status, text]) => {
-      if (status !== "running" || !text) {
-        clear()
-        setShown({ id: id ?? "", text: "" })
-        return
-      }
-      if (id !== shown.id || !text.startsWith(shown.text)) {
-        clear()
-        setShown({ id: id ?? "", text: "" })
-      }
-      if (shown.text.length < text.length && timer === undefined) timer = setTimeout(advance, 24)
-    },
-  ))
+  createEffect(on(target, (text) => {
+    if (!text.startsWith(shown.text) || text.length < shown.text.length) {
+      clear()
+      setShown("text", text)
+      return
+    }
+    if (shown.text.length < text.length && timer === undefined) timer = setTimeout(advance, 24)
+  }))
   onCleanup(clear)
 
   return (
-    <Show when={props.status === "running" && props.part?.text.trim()}>
-      <div data-component="reasoning-part" data-streaming>
-        <Markdown
-          text={shown.text}
-          cacheKey={props.part?.id}
-          streaming={shown.text !== target() || props.part?.time?.end === undefined}
-        />
+    <div data-component={props.part.type === "reasoning" ? "reasoning-part" : "text-part"} data-streaming>
+      <div data-slot={props.part.type === "text" ? "text-part-body" : undefined}>
+        <Markdown text={shown.text} cacheKey={props.part.id} streaming />
       </div>
+    </div>
+  )
+}
+
+export function StudioPromptExpansionPreview(props: { parts?: PreviewPart[]; status: string }) {
+  return (
+    <Show when={props.status === "running"}>
+      <For each={props.parts?.filter((part) => part.text.trim())}>
+        {(part) => <PreviewStream part={part} />}
+      </For>
     </Show>
   )
 }

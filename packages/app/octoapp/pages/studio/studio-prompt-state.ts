@@ -6,19 +6,21 @@ const reasoning = z.object({ version: z.literal(1) })
 const preview = z.object({ version: z.literal(1), attempt: z.union([z.literal(1), z.literal(2)]), resultPartID: z.string().min(1) })
 
 export function previewMetadata(part?: Part) {
-  if (part?.type !== "text") return
+  if (part?.type !== "text" && part?.type !== "reasoning") return
   const parsed = preview.safeParse(part.metadata?.studioPromptExpansionPreview)
   return parsed.success ? parsed.data : undefined
 }
 
-export function isExpansionPreview(part?: Part): part is Extract<Part, { type: "text" }> {
-  return part?.type === "text" && previewMetadata(part) !== undefined
+export function isExpansionPreview(part?: Part): part is Extract<Part, { type: "text" | "reasoning" }> {
+  return previewMetadata(part) !== undefined
 }
 
-export function latestExpansionPreview(parts: Part[], resultPartID: string) {
-  return parts.filter(isExpansionPreview)
+export function expansionPreviewParts(parts: Part[], resultPartID: string) {
+  const previews = parts.filter(isExpansionPreview)
     .filter((part) => previewMetadata(part)?.resultPartID === resultPartID)
-    .sort((a, b) => (previewMetadata(b)?.attempt ?? 0) - (previewMetadata(a)?.attempt ?? 0) || b.id.localeCompare(a.id))[0]
+  const attempt = Math.max(0, ...previews.map((part) => previewMetadata(part)!.attempt))
+  return previews.filter((part) => previewMetadata(part)!.attempt === attempt)
+    .sort((a, b) => a.id.localeCompare(b.id))
 }
 
 export function isExpansionReasoning(part?: Part): part is Extract<Part, { type: "reasoning" }> {

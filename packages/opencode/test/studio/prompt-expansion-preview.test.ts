@@ -100,3 +100,37 @@ it.instance("recovers unfinished persisted segments and never recreates deleted 
     expect(value.parts()).toEqual([])
   }))
 }))
+
+
+it.instance("keeps reasoning and raw body segments ordered and closes every segment", () => Effect.gen(function* () {
+  const instance = yield* InstanceState.context
+  yield* Effect.promise(() => Instance.restore(instance, async () => {
+    const value = await fixture()
+    const deltas: { partID: string; delta: string }[] = []
+    const unsubscribe = Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
+      deltas.push({ partID: event.properties.partID, delta: event.properties.delta })
+    })
+    try {
+      await Effect.runPromise(value.preview.start(1))
+      await Effect.runPromise(value.preview.append("先考虑", "reasoning", "r1"))
+      await Effect.runPromise(value.preview.append("构图", "reasoning", "r1"))
+      await Effect.runPromise(value.preview.append('{"expandedPrompt":"城市', "text", "t1"))
+      await Effect.runPromise(value.preview.append("补充光线", "reasoning", "r2"))
+      await Effect.runPromise(value.preview.append('雨景"}', "text", "t2"))
+      await Effect.runPromise(value.preview.end())
+      const parts = Database.use((db) => db.select().from(PartTable)
+        .where(eq(PartTable.message_id, value.assistant.id)).all())
+        .map((row) => row.data as MessageV2.TextPart | MessageV2.ReasoningPart)
+        .filter((part) => part.metadata?.studioPromptExpansionPreview && part.text)
+      expect(parts.map((part) => ({ type: part.type, text: part.text }))).toEqual([
+        { type: "reasoning", text: "先考虑构图" },
+        { type: "text", text: '{"expandedPrompt":"城市' },
+        { type: "reasoning", text: "补充光线" },
+        { type: "text", text: '雨景"}' },
+      ])
+      expect(parts.every((part) => part.time?.end !== undefined)).toBe(true)
+      expect(deltas[0].partID).toBe(deltas[1].partID)
+      expect(new Set(deltas.map((delta) => delta.partID)).size).toBe(4)
+    } finally { unsubscribe() }
+  }))
+}))

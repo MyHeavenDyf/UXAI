@@ -133,14 +133,17 @@ it.live(
               const previews = Database.use((db) => db.select().from(PartTable)
                 .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
                 .filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview)
-              expect(previews).toHaveLength(2)
+              expect(previews.filter((row) => (row.data as MessageV2.TextPart).text)).toHaveLength(2)
               expect(previews.map((row) => row.data)).toEqual(expect.arrayContaining([
-                expect.objectContaining({ text: "首轮未通过校验", time: expect.objectContaining({ end: expect.any(Number) }) }),
-                expect.objectContaining({ text: "雨后城市的霓虹街景。", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                expect.objectContaining({ text: JSON.stringify({ expandedPrompt: "首轮未通过校验", tags: [] }), time: expect.objectContaining({ end: expect.any(Number) }) }),
+                expect.objectContaining({ text: output, time: expect.objectContaining({ end: expect.any(Number) }) }),
               ]))
               expect(Database.use((db) => db.select().from(PartTable)
                 .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
-                .some((row) => row.data.type === "reasoning")).toBe(false)
+                .filter((row) => row.data.type === "reasoning").map((row) => row.data)).toEqual(expect.arrayContaining([
+                  expect.objectContaining({ text: "先分析用户画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                  expect.objectContaining({ text: "重新整理画面", time: expect.objectContaining({ end: expect.any(Number) }) }),
+                ]))
             }),
           )
           expect(yield* llm.calls).toBe(2)
@@ -163,7 +166,7 @@ it.live("previews text without reasoning and persists it on cancellation", () =>
       const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
       const streamed = Promise.withResolvers<void>()
       const unsubscribe = Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
-        if (event.properties.sessionID === initialized.sessionID && event.properties.delta === "正在生成城市")
+        if (event.properties.sessionID === initialized.sessionID && event.properties.delta === '{"expandedPrompt":"正在生成城市')
           streamed.resolve()
       })
       try {
@@ -181,7 +184,7 @@ it.live("previews text without reasoning and persists it on cancellation", () =>
         const parts = Database.use((db) => db.select().from(PartTable)
           .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
         expect(parts.filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview).map((row) => row.data)).toEqual([
-          expect.objectContaining({ text: "正在生成城市", time: expect.objectContaining({ end: expect.any(Number) }) }),
+          expect.objectContaining({ text: '{"expandedPrompt":"正在生成城市', time: expect.objectContaining({ end: expect.any(Number) }) }),
         ])
       } finally {
         unsubscribe()

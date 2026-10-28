@@ -27,62 +27,6 @@ const part = {
   time: { start: 1 }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 1, resultPartID: "result" } },
 } satisfies Extract<Part, { type: "text" }>
 
-test("body preview is temporary: streams while running and disappears for every other state", async () => {
-  const [state, setState] = createStore<{ status: string; part: Extract<Part, { type: "text" }> }>({
-    status: "running", part: structuredClone(part),
-  })
-  const container = document.createElement("div")
-  document.body.append(container)
-  const dispose = render(() => createComponent(MarkedProvider, {
-    get children() {
-      return createComponent(StudioPromptExpansionPreview, {
-        get status() { return state.status },
-        get part() { return state.part },
-      })
-    },
-  }), container)
-  try {
-    expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
-    setState("part", "text", "先考虑**构图**")
-    await waitFor(() => container.textContent?.includes("先考虑构图") === true)
-    expect(container.textContent).toContain("先考虑构图")
-    expect(container.querySelector('[data-component="reasoning-part"][data-streaming]')).not.toBeNull()
-    setState("part", "text", "先考虑**构图**，再补充光线")
-    await waitFor(() => container.textContent?.includes("再补充光线") === true)
-    expect(container.textContent).toContain("再补充光线")
-    setState("part", "time", { start: 1, end: 2 })
-    await waitFor(() => container.textContent?.includes("再补充光线") === true)
-    expect(container.textContent).toContain("再补充光线")
-    setState("part", { ...part, id: "repair", text: "", time: { start: 3, end: undefined }, metadata: { studioPromptExpansionPreview: { version: 1, attempt: 2, resultPartID: "result" } } })
-    expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
-    setState("part", "text", "修复后的正文")
-    await waitFor(() => container.textContent?.includes("修复后的正文") === true)
-    expect(container.textContent).toContain("修复后的正文")
-    expect(container.textContent).not.toContain("再补充光线")
-    for (const status of ["completed", "cancelling", "failed", "cancelled"]) {
-      setState("status", status)
-      expect(container.querySelector('[data-component="reasoning-part"]')).toBeNull()
-      setState("part", "text", `迟到的内容 ${status}`)
-      await Bun.sleep(10)
-      expect(container.textContent).toBe("")
-    }
-    expect(container.querySelector("button")).toBeNull()
-  } finally {
-    dispose()
-    container.remove()
-  }
-})
-
-test("historical preview is hidden immediately and empty streams have no container", () => {
-  const container = document.createElement("div")
-  const dispose = render(() => createComponent(StudioPromptExpansionPreview, {
-    status: "completed", part: { ...part, text: "历史预览" },
-  }), container)
-  expect(container.textContent).toBe("")
-  expect(container.children).toHaveLength(0)
-  dispose()
-})
-
 
 async function waitFor(check: () => boolean) {
   const deadline = Date.now() + 3000
@@ -90,64 +34,95 @@ async function waitFor(check: () => boolean) {
   expect(check()).toBe(true)
 }
 
-test("a prefilled first chunk starts empty and is played across multiple frames, including emoji", async () => {
-  const initial = "城市😀".repeat(80)
-  const [state, setState] = createStore<{ status: string; part: Extract<Part, { type: "text" }> }>({
-    status: "running", part: { ...structuredClone(part), text: initial, time: { start: 1, end: 2 } },
-  })
+function mount(state: { status: string; parts: Extract<Part, { type: "text" | "reasoning" }>[] }) {
   const container = document.createElement("div")
   document.body.append(container)
   const dispose = render(() => createComponent(MarkedProvider, {
     get children() {
       return createComponent(StudioPromptExpansionPreview, {
         get status() { return state.status },
-        get part() { return state.part },
+        get parts() { return state.parts },
       })
     },
   }), container)
-  try {
-    expect(container.textContent).toBe("")
-    await waitFor(() => (container.textContent?.length ?? 0) > 0)
-    const firstFrame = container.textContent?.trim() ?? ""
-    expect(firstFrame.length).toBeLessThan(initial.length)
-    expect(initial.startsWith(firstFrame)).toBe(true)
-    expect(firstFrame).not.toMatch(/[\uD800-\uDBFF]$/)
-    await waitFor(() => (container.textContent?.length ?? 0) > firstFrame.length)
-    const nextFrame = container.textContent?.trim() ?? ""
-    expect(nextFrame.startsWith(firstFrame)).toBe(true)
-    expect(initial.startsWith(nextFrame)).toBe(true)
-    const full = initial + "新增的光线与构图细节"
-    setState("part", "text", full)
-    expect(container.textContent).not.toBe(full)
-    await waitFor(() => container.textContent?.trim() === full)
+  return { container, dispose: () => { dispose(); container.remove() } }
+}
 
-    setState("part", { ...structuredClone(part), id: "repair-chunk", text: "修复正文".repeat(60) })
-    expect(container.textContent).toBe("")
-    await waitFor(() => (container.textContent?.length ?? 0) > 0)
-    expect(container.textContent).not.toContain("城市")
-    expect(container.textContent).not.toContain("新增")
-    expect(container.textContent?.length).toBeLessThan("修复正文".repeat(60).length)
-    setState("status", "completed")
-    expect(container.children).toHaveLength(0)
-    await Bun.sleep(75)
-    expect(container.textContent).toBe("")
-  } finally {
-    dispose()
-    container.remove()
-  }
+test("shows raw JSON and model reasoning separately as soon as either arrives", async () => {
+  const [state, setState] = createStore<{ status: string; parts: Extract<Part, { type: "text" | "reasoning" }>[] }>({
+    status: "running", parts: [{ ...part }],
+  })
+  const view = mount(state)
+  try {
+    expect(view.container.children).toHaveLength(0)
+    setState("parts", [{ ...part, id: "reason", type: "reasoning", text: "先考虑**构图**" }])
+    await waitFor(() => view.container.textContent?.includes("先考虑构图") === true)
+    expect(view.container.querySelector('[data-component="reasoning-part"][data-streaming]')).not.toBeNull()
+    expect(view.container.querySelector('[data-component="text-part"]')).toBeNull()
+    setState("parts", 1, { ...part, text: '{"expandedPrompt":"城市' })
+    await waitFor(() => view.container.textContent?.includes('{"expandedPrompt":"城市') === true)
+    expect(view.container.querySelector('[data-component="text-part"]')).not.toBeNull()
+    expect(view.container.textContent).toContain("先考虑构图")
+    setState("parts", 0, "text", "先考虑**构图**，再考虑光线")
+    setState("parts", 1, "text", '{"expandedPrompt":"城市雨景","tags":[')
+    await waitFor(() => view.container.textContent?.includes('"tags":') === true && view.container.textContent.includes("再考虑光线"))
+    for (const status of ["completed", "cancelling", "failed", "cancelled"]) {
+      setState("status", status)
+      expect(view.container.children).toHaveLength(0)
+      setState("parts", 1, "text", `迟到内容 ${status}`)
+      await Bun.sleep(30)
+      expect(view.container.textContent).toBe("")
+    }
+  } finally { view.dispose() }
 })
 
-test("unmounting cancels a pending playback before another part starts", async () => {
-  const container = document.createElement("div")
-  const dispose = render(() => createComponent(MarkedProvider, {
-    get children() {
-      return createComponent(StudioPromptExpansionPreview, {
-        status: "running", part: { ...structuredClone(part), text: "大段正文".repeat(100) },
-      })
-    },
-  }), container)
-  expect(container.textContent).toBe("")
-  dispose()
+test("body-only output is visible immediately and appended chunks are paced", async () => {
+  const [state, setState] = createStore({ status: "running", parts: [{ ...part, text: "城市😀" }] })
+  const view = mount(state)
+  try {
+    await waitFor(() => view.container.textContent?.trim() === "城市😀")
+    const full = "城市😀".repeat(80)
+    setState("parts", 0, "text", full)
+    await waitFor(() => (view.container.textContent?.trim().length ?? 0) > "城市😀".length)
+    const firstFrame = view.container.textContent?.trim() ?? ""
+    expect(firstFrame.length).toBeLessThan(full.length)
+    expect(full.startsWith(firstFrame)).toBe(true)
+    expect(firstFrame).not.toMatch(/[\uD800-\uDBFF]$/)
+    await waitFor(() => view.container.textContent?.trim() === full)
+    expect(view.container.querySelector('[data-component="reasoning-part"]')).toBeNull()
+  } finally { view.dispose() }
+})
+
+test("repair clears both previous channels and completion cancels unfinished playback", async () => {
+  const [state, setState] = createStore<{ status: string; parts: Extract<Part, { type: "text" | "reasoning" }>[] }>({
+    status: "running", parts: [
+      { ...part, id: "r1", type: "reasoning", text: "首轮思考" },
+      { ...part, id: "t1", text: "首轮正文" },
+    ],
+  })
+  const view = mount(state)
+  try {
+    await waitFor(() => view.container.textContent?.includes("首轮正文") === true)
+    setState("parts", [{ ...part, id: "repair", text: "" }])
+    expect(view.container.textContent).toBe("")
+    setState("parts", 0, "text", "修复正文")
+    await waitFor(() => view.container.textContent?.trim() === "修复正文")
+    setState("parts", 0, "text", "修复正文".repeat(100))
+    setState("status", "completed")
+    expect(view.container.children).toHaveLength(0)
+    await Bun.sleep(75)
+    expect(view.container.textContent).toBe("")
+  } finally { view.dispose() }
+})
+
+test("historical previews stay hidden and unmount cancels playback", async () => {
+  const [state, setState] = createStore({ status: "completed", parts: [{ ...part, text: "历史预览" }] })
+  const view = mount(state)
+  expect(view.container.children).toHaveLength(0)
+  setState("status", "running")
+  await waitFor(() => view.container.textContent?.includes("历史预览") === true)
+  setState("parts", 0, "text", "历史预览".repeat(100))
+  view.dispose()
   await Bun.sleep(75)
-  expect(container.textContent).toBe("")
+  expect(view.container.textContent).toBe("")
 })

@@ -1,4 +1,73 @@
-# Studio AI 推荐扩写：仅展示正文流的实现方案
+# Studio AI 推荐扩写：思考与原始正文分别流式预览
+
+> 2026-10-28 最新实施方案：本节替代下方历史方案中“仅正文、提取 expandedPrompt、单个 previewPart”的设计。下方保留此前方案与实施记录供追溯。
+
+## 当前实现：双通道临时预览
+
+### 展示行为
+
+- 生成过程中，模型返回的 `reasoning-delta` 与 `text-delta` 分别展示，沿用 Insight 的思考/正文样式和 Markdown 流式播放规则。
+- 正文原样转发，可以显示 JSON 字段、标签和不完整 JSON，不再等待 `expandedPrompt` 字符串。
+- 两类内容独立更新；仅思考或仅正文都可以显示。两者均无内容时显示“正在丰富提示词…”。
+- 按接收顺序保留片段；类型切换或同类流 ID 变化时创建新片段，不把正文与思考拼接。
+- 修复重试开始即创建新 attempt 的空预览，前端只展示最新 attempt，旧正文与思考同时移除。
+- 完成后立即隐藏全部预览，只展示原有 JSON 解析、校验后的扩写正文、标签和操作按钮。取消中、取消、失败及已完成历史均不展示过程。
+
+### 数据通路与关键代码
+
+`prompt-expansion.ts` 对每个非空增量先检查大小限制、更新空闲计时，再直接转发：
+
+```ts
+return preview?.append(
+  event.text,
+  event.type === "text-delta" ? "text" : "reasoning",
+  event.id,
+) ?? Effect.void
+```
+
+完整正文仍单独累积，只在流正常结束后交给 `parseExpansion` / `validateExpansion`；思考不进入最终结果解析。
+
+`prompt-expansion-preview.ts` 使用现有 `TextPart` / `ReasoningPart` 和 `PartUpdated` / `PartDelta`。两类 Part 共用关联信息：
+
+```ts
+metadata: {
+  studioPromptExpansionPreview: { version: 1, attempt, resultPartID },
+}
+```
+
+开始保存空正文 Part 作为 attempt 标记；收到思考时创建 reasoning Part。片段切换和本轮结束时保存完整快照与 `time.end`；恢复逻辑同时关闭两类未结束预览。
+
+`studio-prompt-state.ts` 的 `expansionPreviewParts` 按 resultPartID 筛选、选择最新 attempt，再按 PartID 排序。`turns.ts` 向视图传入 `previewParts`；正式 assistantText 始终排除临时正文。
+
+`studio-prompt-expansion-preview.tsx` 分别使用 `reasoning-part`、`text-part` / `text-part-body` 样式。每个片段独立维护显示进度：首次已有文本直接显示，新增文本按约 24ms、每次 2～24 个 Unicode 码点并适当吸附标点平滑展示，与 Insight 的播放规则对齐，并避免拆开代理对。卸载时清理定时器。Markdown 继续使用公共流式能力，因此未闭合 Markdown 标记可能被临时修整；增量本身保持原样。
+
+### 修改文件
+
+| 文件（仓库相对路径） | 修改 |
+| --- | --- |
+| `packages/opencode/src/studio/prompt-expansion.ts` | 原始正文和思考增量分别转发，保留现有最终解析 |
+| `packages/opencode/src/studio/prompt-expansion-preview.ts` | 两类 Part 的分段、结束、恢复和 attempt 关联 |
+| `packages/opencode/src/studio/prompt-expansion-text.ts` | 删除不再使用的 JSON 预览提取器 |
+| `packages/app/octoapp/pages/studio/studio-prompt-state.ts` | 双类型元数据识别、最新 attempt 全部片段选择 |
+| `packages/app/octoapp/pages/studio/turns.ts` | 单个 previewPart 改为 previewParts |
+| `packages/app/octoapp/pages/studio/studio-conversation.tsx` | 任一通道有内容即切换到预览 |
+| `packages/app/octoapp/pages/studio/studio-prompt-expansion-preview.tsx` | 思考与正文分别渲染，各自平滑更新 |
+| 同目录下相关测试 | 覆盖双通道、原始 JSON、不完整字段名、顺序、重试、取消、完成及历史隐藏；删除旧提取器专用测试 |
+
+### 超时与复用范围
+
+沿用现有 Provider 超时与 Studio 空闲保护，连续 120 秒无非空正文或思考增量触发原有空闲超时。输出大小限制、修复次数、取消机制不变。仅修改 Studio 代码、测试与文档；复用公共消息类型、事件通道和 Markdown，不修改公共文件或 Insight/Design。
+
+### 本次验证
+
+- 前端相关测试：50 项通过。
+- 后端扩写、预览适配器及真实 SSE 集成测试：19 项通过。
+- `packages/app` 与 `packages/opencode` 的 `bun typecheck` 均通过。
+- `git diff --check` 通过。
+
+---
+
+## 历史方案与实施记录（以下被上面的双通道方案取代）
 
 > 日期：2026-10-27。本文为实现方案；正文流预览已按方案编码，验证结果见“实施记录”。
 > 基于当前已实现的 reasoning 临时展示，改为所有模型统一展示扩写正文预览，不展示思考内容。

@@ -9,7 +9,9 @@ import { resultSchema } from "./prompt-recommendation-schema"
 import type { ExpansionPreview } from "./prompt-expansion"
 
 export function createExpansionPreview(assistant: MessageV2.Assistant, resultPartID: PartID): ExpansionPreview {
-  let active: MessageV2.TextPart | undefined
+  let active: MessageV2.TextPart | MessageV2.ReasoningPart | undefined
+  let attempt: 1 | 2 = 1
+  let streamID: string | undefined
   const writable = () => {
     const result = Database.use((db) => db.select().from(PartTable).where(eq(PartTable.id, resultPartID)).get())
     const message = Database.use((db) => db.select().from(MessageTable).where(eq(MessageTable.id, assistant.id)).get())
@@ -19,7 +21,7 @@ export function createExpansionPreview(assistant: MessageV2.Assistant, resultPar
       : undefined
     return metadata?.success === true && ["running", "cancelling"].includes(metadata.data.status)
   }
-  const save = (part: MessageV2.TextPart) => Database.transaction(() => {
+  const save = (part: MessageV2.TextPart | MessageV2.ReasoningPart) => Database.transaction(() => {
     if (!writable()) return
     SyncEvent.run(MessageV2.Event.PartUpdated, {
       sessionID: assistant.sessionID,
@@ -34,25 +36,35 @@ export function createExpansionPreview(assistant: MessageV2.Assistant, resultPar
     active = undefined
   })
 
+  const create = (type: "text" | "reasoning") => {
+    const part = {
+      id: PartID.ascending(),
+      sessionID: assistant.sessionID,
+      messageID: assistant.id,
+      type,
+      text: "",
+      time: { start: Date.now() },
+      metadata: { studioPromptExpansionPreview: { version: 1, attempt, resultPartID } },
+    }
+    save(part)
+    active = part
+  }
+
   return {
-    start: (attempt) => Effect.gen(function* () {
+    start: (nextAttempt) => Effect.gen(function* () {
       yield* end()
-      if (!writable()) return
-      const part: MessageV2.TextPart = {
-        id: PartID.ascending(),
-        sessionID: assistant.sessionID,
-        messageID: assistant.id,
-        type: "text",
-        text: "",
-        time: { start: Date.now() },
-        metadata: { studioPromptExpansionPreview: { version: 1, attempt, resultPartID } },
-      }
-      save(part)
-      active = part
+      attempt = nextAttempt
+      streamID = undefined
+      if (writable()) create("text")
     }),
-    append: (delta) => Effect.gen(function* () {
-      const part = active
-      if (!part || !delta || !writable()) return
+    append: (delta, type = "text", id) => Effect.gen(function* () {
+      if (!active || !delta || !writable()) return
+      if (active.type !== type || (streamID !== undefined && streamID !== id)) {
+        yield* end()
+        create(type)
+      }
+      streamID = id
+      const part = active!
       part.text += delta
       yield* Effect.promise(() => Bus.publish(MessageV2.Event.PartDelta, {
         sessionID: part.sessionID,
@@ -71,7 +83,7 @@ export function closeExpansionPreview(assistant: MessageV2.Assistant, resultPart
   Database.use((db) => db.select().from(PartTable).where(eq(PartTable.message_id, assistant.id)).all())
     .forEach((row) => {
       const part = { ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id } as MessageV2.Part
-      if (part.type !== "text" || part.time?.end !== undefined ||
+      if ((part.type !== "text" && part.type !== "reasoning") || part.time?.end !== undefined ||
         part.metadata?.studioPromptExpansionPreview?.version !== 1 ||
         part.metadata.studioPromptExpansionPreview.resultPartID !== resultPartID) return
       SyncEvent.run(MessageV2.Event.PartUpdated, {

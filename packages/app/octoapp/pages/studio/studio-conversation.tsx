@@ -183,12 +183,12 @@ export function StudioConversation(props: {
               </div></Show>
               <Show when={turn.recommendation?.kind === "result"}>
                 <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
-                  <Show when={turn.recommendation?.status === "running" && turn.previewPart?.text.trim()} fallback={
+                  <Show when={turn.recommendation?.status === "running" && turn.previewParts?.some((part) => part.text.trim())} fallback={
                     <div class="studio-prompt-expansion" role="status">
                       {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
                     </div>
                   }>
-                    <StudioPromptExpansionPreview part={turn.previewPart} status={turn.recommendation?.status ?? ""} />
+                    <StudioPromptExpansionPreview parts={turn.previewParts} status={turn.recommendation?.status ?? ""} />
                   </Show>
                 </Show>
                 <Show when={turn.recommendation?.status === "completed"}>

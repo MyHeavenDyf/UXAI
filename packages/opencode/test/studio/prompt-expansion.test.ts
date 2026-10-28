@@ -55,15 +55,16 @@ describe("Studio expansion output", () => {
       ),
     ).rejects.toThrow("OUTPUT_LIMIT_EXCEEDED")
   })
-  test("previews decoded text only while reasoning still updates progress and limits", async () => {
-    const seen: string[] = []
+  test("forwards raw body and reasoning independently before parsing the final result", async () => {
+    const seen: { delta: string; type?: string; id?: string }[] = []
     let progress = 0
     const text = await Effect.runPromise(readExpansionStream(Stream.fromIterable<LLM.Event>([
       { type: "reasoning-start", id: "r" },
       { type: "reasoning-delta", id: "r", text: "思考画面" },
       { type: "reasoning-delta", id: "r", text: "" },
       { type: "reasoning-end", id: "r" },
-      { type: "text-delta", id: "t", text: JSON.stringify(output) },
+      { type: "text-delta", id: "t", text: '{"expanded' },
+      { type: "text-delta", id: "t", text: JSON.stringify(output).slice(10) },
       { type: "finish", finishReason: "stop", rawFinishReason: "stop", totalUsage: {
         inputTokens: 1, outputTokens: 1, totalTokens: 2,
         inputTokenDetails: { noCacheTokens: undefined, cacheReadTokens: undefined, cacheWriteTokens: undefined },
@@ -71,15 +72,19 @@ describe("Studio expansion output", () => {
       } },
     ]), () => { progress++ }, {
       start: () => Effect.void,
-      append: (delta) => Effect.sync(() => {
-        seen.push(delta)
-        expect(progress).toBe(2)
+      append: (delta, type, id) => Effect.sync(() => {
+        seen.push({ delta, type, id })
+        expect(progress).toBe(seen.length)
       }),
       end: () => Effect.void,
     }))
     expect(parseExpansion(text)).toEqual(output)
-    expect(progress).toBe(2)
-    expect(seen).toEqual([output.expandedPrompt])
+    expect(progress).toBe(3)
+    expect(seen).toEqual([
+      { delta: "思考画面", type: "reasoning", id: "r" },
+      { delta: '{"expanded', type: "text", id: "t" },
+      { delta: JSON.stringify(output).slice(10), type: "text", id: "t" },
+    ])
   })
   test("does not preview oversized reasoning and propagates preview persistence failures", async () => {
     let forwarded = false
