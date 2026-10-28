@@ -1,3 +1,4 @@
+import { Log } from "@opencode-ai/core/util/log"
 import { expect } from "bun:test"
 import { Server } from "@/server/server"
 import { Effect, Layer, ManagedRuntime } from "effect"
@@ -410,17 +411,22 @@ it.live(
 )
 
 
-for (const repaired of [true, false]) {
-  it.live(`nested output receives concrete repair context and ${repaired ? "completes" : "fails after one repair"}`, () =>
+for (const scenario of [
+  { name: "nested JSON", text: JSON.stringify({ expandedPrompt: JSON.parse(output) }), feedback: "正文不是字符串，仍使用了对象或数组包装" },
+  { name: "unusable tagged candidates", text: "<expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt>", feedback: "没有可用正文" },
+].flatMap((scenario) => [true, false].map((repaired) => ({ ...scenario, repaired })))) {
+  const repaired = scenario.repaired
+  it.live(`${scenario.name} receives concrete repair context and ${repaired ? "completes" : "fails after one repair"}`, () =>
     provideTmpdirServer(({ llm }) => Effect.gen(function* () {
-      const nested = JSON.stringify({ expandedPrompt: JSON.parse(output) })
+      const requestID = crypto.randomUUID()
+      const nested = scenario.text
       yield* llm.text(nested)
       yield* llm.text(repaired ? "<expandedPrompt>雨后城市的霓虹街景。</expandedPrompt><tags>场景：城市</tags><tags>天气：雨后</tags><tags>光线：霓虹</tags>" : nested)
       const instance = yield* InstanceState.context
       yield* Effect.promise(() => Instance.restore(instance, async () => {
         const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
         await submitExpansion({
-          requestID: crypto.randomUUID(), sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
+          requestID, sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
           prompt: "雨景", availableModels: [{ providerID: "test", modelID: "test-model" }],
         })
         const deadline = Date.now() + 10_000
@@ -428,13 +434,31 @@ for (const repaired of [true, false]) {
           await Bun.sleep(10)
         expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe(repaired ? "completed" : "failed")
       }))
+      const deadline = Date.now() + 2000
+      const outcome = `"outcome":"${repaired ? "accepted" : "rejected"}"`
+      while (Date.now() < deadline && !(yield* Effect.promise(() => Bun.file(Log.file()).text())).split("\n").some((line) => line.includes(requestID) && line.includes(outcome)))
+        yield* Effect.promise(() => Bun.sleep(5))
+      const records = (yield* Effect.promise(() => Bun.file(Log.file()).text())).split("\n").filter((line) => line.includes(requestID) && line.includes("entry="))
+      expect(records).toHaveLength(2)
+      expect(records[0]).toContain('"attempt":1,"outcome":"repairing"')
+      expect(records[0]).toContain(`"rawText":${JSON.stringify(nested)}`)
+      expect(records[0]).toContain('"feedback":')
+      expect(records[1]).toContain(outcome)
+      expect(records[1]).toContain('"attempt":2')
+      if (scenario.name === "unusable tagged candidates") {
+        expect(records[0]).toContain('"candidateCount":2')
+        expect(records[0]).toContain('"reason":"empty"')
+        expect(records[0]).toContain('"reason":"punctuation_only"')
+        expect(records[0]).toContain('"selectionReason":"no_valid_candidate"')
+      }
+      if (repaired) expect(records[1]).toContain('"result":{"expandedPrompt":"雨后城市的霓虹街景。"')
       const inputs = yield* llm.inputs
       expect(inputs).toHaveLength(2)
       expect(JSON.stringify(inputs[0])).toContain("将中文扩写正文放在 <expandedPrompt> 与 </expandedPrompt> 之间")
       expect(JSON.stringify(inputs[1])).toContain("每对同级 <tags>")
       expect(inputs[1]).toMatchObject({ messages: expect.arrayContaining([
         expect.objectContaining({ role: "assistant", content: nested }),
-        expect.objectContaining({ role: "user", content: expect.stringContaining("正文不是字符串，仍使用了对象或数组包装") }),
+        expect.objectContaining({ role: "user", content: expect.stringContaining(scenario.feedback) }),
       ]) })
     }), { config }), 30_000)
 }
@@ -442,6 +466,10 @@ for (const repaired of [true, false]) {
 
 for (const sample of [
   { text: "雨后的城市街道。", tags: [] },
+  { text: "<expandedPrompt>旧版</expandedPrompt><tags>风格：旧版</tags><expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags>", tags: ["天气：雨后"] },
+  { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags><expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt>", tags: ["天气：雨后"] },
+  { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags><expandedPrompt>坏<unknown>结构</expandedPrompt>", tags: ["天气：雨后"] },
+  { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags><expandedPrompt>后面的未闭合正文", tags: ["天气：雨后"] },
   { text: "<expandedPrompt>expandedPrompt>雨后的城市街道。 expandedPrompt></expandedPrompt><tags>场景：城市</tags><tags>场景：街道</tags><tags>主体：少女主体：少女</tags><tags>天气：雨后</tags>", tags: ["场景：城市", "天气：雨后"] },
   { text: "<expandedPrompt><expandedPrompt>雨后的城市街道。</expandedPrompt></expandedPrompt><tags><tags>场景：城市</tags></tags><tags>天气：雨后</tags><tags>坏：未完成", tags: ["天气：雨后"] },
   { text: "<expandedPrompt>expandedPrompt>雨后的城市街道。<expandedPrompt></expandedPrompt>", tags: [] },

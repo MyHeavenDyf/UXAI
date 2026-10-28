@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Stream } from "effect"
-import { parseExpansion, validateExpansion, readExpansionStream } from "@/studio/prompt-expansion"
+import { parseExpansion, validateExpansion, readExpansionStream, type ExpansionParseDiagnostics } from "@/studio/prompt-expansion"
 import type { LLM } from "@/session/llm"
 import { acquireBudget, readRecommendationBody } from "@/studio/prompt-recommendation-budget"
 
@@ -38,7 +38,7 @@ describe("Studio expansion output", () => {
       .toEqual({ expandedPrompt: "城市雨景", tags: ["场景：城市"] })
     expect(parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>城市</expandedPrompt>"))
       .toEqual({ expandedPrompt: "城市", tags: [] })
-    for (const text of ["<expandedPrompt>城市<tags", "<expandedPrompt>城市<", "<expandedPrompt>城市<unknown>其他", "<expandedPrompt>城市</expandedPrompt><expandedPrompt>雨景</expandedPrompt>"])
+    for (const text of ["<expandedPrompt>城市<tags", "<expandedPrompt>城市<", "<expandedPrompt>城市<unknown>其他"])
       expect(() => parseExpansion(text)).toThrow()
   })
   test("missing, empty or malformed tags never discard a clearly delimited body", () => {
@@ -65,7 +65,35 @@ describe("Studio expansion output", () => {
     expect(() => parseExpansion(`<expandedPrompt>expandedPrompt>${"图".repeat(1001)} expandedPrompt></expandedPrompt>`)).toThrow()
     expect(parseExpansion("<expandedPrompt>招牌写着 expandedPrompt>，少女站在树下。</expandedPrompt>").expandedPrompt)
       .toBe("招牌写着 expandedPrompt>，少女站在树下。")
-    expect(() => parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>雨景</expandedPrompt>")).toThrow()
+    expect(parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>雨景</expandedPrompt>").expandedPrompt).toBe("雨景")
+  })
+  test("selects the last complete valid body and binds only its following tags", () => {
+    expect(parseExpansion("<expandedPrompt>旧版城市</expandedPrompt><tags>风格：水彩</tags><expandedPrompt>新版雨景。</expandedPrompt><tags>风格：动漫</tags>"))
+      .toEqual({ expandedPrompt: "新版雨景。", tags: ["风格：动漫"] })
+    expect(parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>城市。</expandedPrompt>").expandedPrompt).toBe("城市。")
+    const prefix = "<expandedPrompt>可用正文</expandedPrompt><tags>风格：动漫</tags>"
+    for (const suffix of ["<expandedPrompt></expandedPrompt>", "<expandedPrompt>。</expandedPrompt>", `<expandedPrompt>${"图".repeat(1001)}</expandedPrompt>`, "<expandedPrompt>坏<unknown>结构</expandedPrompt>"])
+      expect(parseExpansion(prefix + suffix)).toEqual({ expandedPrompt: "可用正文", tags: ["风格：动漫"] })
+  })
+  test("uses a recovered candidate only when no complete valid candidate exists", () => {
+    expect(parseExpansion("<expandedPrompt>完整正文</expandedPrompt><tags>风格：动漫</tags><expandedPrompt>后面的未闭合正文"))
+      .toEqual({ expandedPrompt: "完整正文", tags: ["风格：动漫"] })
+    expect(parseExpansion("<expandedPrompt></expandedPrompt><expandedPrompt>可恢复正文").expandedPrompt).toBe("可恢复正文")
+    expect(parseExpansion("<expandedPrompt>第一次恢复<tags>风格：水彩</tags><expandedPrompt>最后一次恢复<tags>风格：动漫</tags>"))
+      .toEqual({ expandedPrompt: "最后一次恢复", tags: ["风格：动漫"] })
+  })
+  test("diagnostics explain discarded candidates, selection and tag degradation", () => {
+    const traces: ExpansionParseDiagnostics[] = []
+    parseExpansion("<expandedPrompt>城市雨景</expandedPrompt><tags>场景：城市</tags><tags>场景：街道</tags><tags>光线：霓虹", (value) => traces.push(value))
+    expect(traces[0]).toMatchObject({ candidateCount: 1, selectedIndex: 0, selectionReason: "last_complete_valid", tagLineCount: 2, keptTagCount: 1, discardedTagBlocks: 1 })
+    parseExpansion("<expandedPrompt>城市雨景</expandedPrompt><expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt><expandedPrompt>坏<unknown></expandedPrompt>", (value) => traces.push(value))
+    expect(traces[1].candidates.map((body) => ({ selected: body.selected, reason: body.reason }))).toEqual([
+      { selected: true, reason: undefined }, { selected: false, reason: "empty" },
+      { selected: false, reason: "punctuation_only" }, { selected: false, reason: "malformed_structure" },
+    ])
+    expect(() => parseExpansion("<expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt>", (value) => traces.push(value))).toThrow()
+    expect(traces[2]).toMatchObject({ candidateCount: 2, selectionReason: "no_valid_candidate" })
+    expect(traces[2].selectedIndex).toBeUndefined()
   })
   test("extracts sibling tag items without newlines and discards malformed items independently", () => {
     const prefix = "<expandedPrompt>樱花林荫道中的少女。</expandedPrompt>"
@@ -88,7 +116,7 @@ describe("Studio expansion output", () => {
       .toEqual(["风格：科幻", "風格：写实", "ＦＯＯ：城市"])
   })
   test("rejects empty or oversized bodies and broken or nested body tags", () => {
-    for (const text of ["", " \n", "\u200b", "<tags>场景：城市</tags>", "<expandedPrompt></expandedPrompt>", "<expandedPrompt 城市", "城市</expandedPrompt>", "图".repeat(1001)])
+    for (const text of ["", " \n", "\u200b", "。！？", "<tags>场景：城市</tags>", "<expandedPrompt></expandedPrompt>", "<expandedPrompt 城市", "城市</expandedPrompt>", "图".repeat(1001)])
       expect(() => parseExpansion(text)).toThrow()
     expect(parseExpansion("😀".repeat(1000)).expandedPrompt).toBe("😀".repeat(1000))
     expect(() => parseExpansion("😀".repeat(1001))).toThrow()

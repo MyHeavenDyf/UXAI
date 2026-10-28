@@ -1,3 +1,8 @@
+import { Log } from "@opencode-ai/core/util/log"
+import type { ExpansionParseDiagnostics } from "./prompt-expansion"
+
+const log = Log.create({ service: "studio.prompt-expansion" })
+
 const reported = new WeakMap<object, Set<string>>()
 
 export function recommendationLogIDs(input: unknown) {
@@ -41,4 +46,34 @@ export function logRecommendationFailure(
     return
   }
   console.warn("[studio.prompt-expansion] failed", { ...context, error: diagnostic(error) })
+}
+
+
+// Log only the model's completed text output, never SDK request/error payloads or reasoning.
+export function logExpansionOutput(
+  context: Record<string, string | number | boolean | undefined>,
+  output: {
+    attempt: 1 | 2
+    outcome: "accepted" | "repairing" | "rejected"
+    rawText: string
+    elapsedMs: number
+    result?: { expandedPrompt: string; tags: string[] }
+    feedback?: string
+    candidates?: string[]
+    diagnostics?: ExpansionParseDiagnostics
+  },
+) {
+  const entry = JSON.stringify({
+    ...context,
+    ...output,
+    stage: "output",
+    repair: output.attempt === 2,
+    rawBytes: Buffer.byteLength(output.rawText),
+    rawCodePoints: [...output.rawText].length,
+    candidates: output.candidates?.map((text) => ({ text, codePoints: [...text].length })),
+    logFile: Log.file() || undefined,
+  })
+  // A serialized string avoids terminal inspection truncation and preserves exact newlines/escapes.
+  console.log("[studio.prompt-expansion] output", entry)
+  if (Log.file()) log.info("output", { entry })
 }

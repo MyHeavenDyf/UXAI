@@ -7,7 +7,7 @@ import { LLM } from "@/session/llm"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "@/session/message-v2"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
+import { logExpansionOutput, logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
 import { RecommendationError, type Submission, type ExpansionInput } from "./prompt-recommendation-schema"
 
 const providerRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
@@ -22,7 +22,7 @@ export type ExpansionPreview = {
 const outputSchema = z.object({
   expandedPrompt: z.string().trim().min(1, "正文为空，请直接输出扩写正文。")
     .refine((text) => [...text].length <= 1000, "正文超过 1000 Unicode 码点，请缩短正文。")
-    .refine((text) => /[\p{L}\p{N}\p{P}\p{S}]/u.test(text), "正文没有有效内容，请重新生成。"),
+    .refine((text) => /[\p{L}\p{N}\p{S}]/u.test(text), "正文没有有效内容，请重新生成。"),
   tags: z.unknown().optional(),
 })
 const segmenter = new Intl.Segmenter("zh", { granularity: "grapheme" })
@@ -34,8 +34,7 @@ const system = [
   "标签内直接填写文本，不加属性、子标签、JSON、数组、字段名或代码围栏。标签外不要额外解释或推理文字。",
   "输出结构示例：\n<expandedPrompt>雨后的城市街道，霓虹灯映照积水。</expandedPrompt>\n<tags>场景：城市</tags><tags>天气：雨后</tags><tags>光线：霓虹</tags>",
   "示例只说明结构，实际正文和标签必须根据用户本次输入生成，不得照抄示例内容。",
-  "根据正文中重要且相互独立的视觉信息决定标签数量。3 个足够概括时只返回 3 个；仅在新增标签提供独立、重要的信息时增加到 4 个或 5 个。不要为了达到 5 个而拆分相近概念或加入次要信息。",
-  "标签为“维度：内容”，维度 1～6 个字素，内容 1～8 个字素，仅一个冒号，维度和完整标签不重复。标签不得概括提示词之外的信息。",
+  "标签简短，使用一个冒号分隔维度和内容；维度不重复，仅概括正文中的重要画面信息，不必凑足数量。",
 ].join("\n")
 const agent: Agent.Info = {
   name: "octo_studio",
@@ -81,32 +80,40 @@ function invalidOutput(outputIssue: string) {
 
 const structuredOutput = /^[{\[]|^```json\b|["'`]?(?:expandedPrompt|tags)["'`]?\s*:/i
 
-export function parseExpansion(text: string) {
+export type ExpansionParseDiagnostics = {
+  candidateCount: number
+  candidates: { index: number; text: string; codePoints: number; complete: boolean; valid: boolean; selected: boolean; reason?: string }[]
+  selectedIndex?: number
+  selectionReason: "last_complete_valid" | "last_recovered_valid" | "no_valid_candidate"
+  tagLineCount?: number
+  keptTagCount?: number
+  discardedTagBlocks?: number
+}
+
+export function parseExpansion(text: string, onDiagnostics?: (value: ExpansionParseDiagnostics) => void) {
   const raw = text.replace(/\r\n?/g, "\n").trim()
   // Prefer explicit tag boundaries; malformed tags must not redirect a valid body into JSON parsing.
   if (/<\s*\/?\s*(?:expandedPrompt|tags)\b/i.test(raw) && !/^[{\[]|^```json\b/i.test(raw))
-    return parseTaggedExpansion(raw)
+    return parseTaggedExpansion(raw, onDiagnostics)
   // Never promote broken JSON wrappers to a successful natural-language prompt.
   if (structuredOutput.test(raw)) return parseLegacyExpansion(raw)
   if (/STUDIO_TAGS/i.test(raw)) throw invalidOutput("上次使用了错误的分隔标记，请用 <expandedPrompt> 包含正文、每对 <tags> 包含一个标签。")
   return validateExpansion({ expandedPrompt: raw, tags: [] })
 }
 
-function parseTaggedExpansion(text: string) {
+function parseTaggedExpansion(text: string, onDiagnostics?: (value: ExpansionParseDiagnostics) => void) {
   const tokens = [...text.matchAll(/<\s*(\/?)\s*(expandedPrompt|tags)\s*>/gi)]
     .map((match) => ({ name: match[2].toLowerCase(), closing: !!match[1], start: match.index, end: match.index + match[0].length }))
-  const bodies: { text: string; end: number }[] = []
+  const bodies: { text: string; start: number; end: number; complete: boolean }[] = []
   let body: { start: number; depth: number } | undefined
   let tagDepth = 0
-  const finish = (end: number) => {
+  const finish = (end: number, complete = false) => {
     if (!body) return
     // Remove only known wrappers, then trim known fragments at the boundaries.
     const value = text.slice(body.start, end).replace(/<\s*\/?\s*expandedPrompt\s*>/gi, "").trim()
       .replace(/^(?:\/?\s*expandedPrompt\s*>\s*)+/i, "")
       .replace(/(?:\s*\/?\s*expandedPrompt\s*>)+$/i, "").trim()
-    if (/<\s*\/?\s*[a-z]|<\s*$/i.test(value) || structuredOutput.test(value))
-      throw invalidOutput("正文内仍包含无法恢复的结构或未完成标签，请将纯正文放在 <expandedPrompt> 与 </expandedPrompt> 之间。")
-    bodies.push({ text: value, end })
+    bodies.push({ text: value, start: body.start, end, complete })
     body = undefined
   }
   for (const token of tokens) {
@@ -126,23 +133,45 @@ function parseTaggedExpansion(text: string) {
     }
     if (!body) continue
     body.depth--
-    if (body.depth === 0) finish(token.start)
+    if (body.depth === 0) finish(token.start, true)
   }
   finish(text.length)
-  if (new Set(bodies.map((body) => body.text)).size > 1)
-    throw invalidOutput("返回了多份不同的正文，请只保留一份 <expandedPrompt> 正文。")
   const firstTag = tokens.find((token) => token.name === "tags" && !token.closing)
-  if (!bodies.length && /<\s*\/?\s*expandedPrompt\b/i.test(text))
-    throw invalidOutput("正文起始标签缺失或损坏，请将正文放在 <expandedPrompt> 与 </expandedPrompt> 之间。")
-  const value = bodies[0]?.text ?? (firstTag ? text.slice(0, firstTag.start).trim() : "")
-  if (!value || (!bodies.length && /<\s*\/?\s*[a-z]/i.test(value)))
-    throw invalidOutput("无法可靠识别正文，请输出一份非空的 <expandedPrompt> 正文。")
-
+  if (!bodies.length && firstTag && !/<\s*\/?\s*expandedPrompt\b/i.test(text))
+    bodies.push({ text: text.slice(0, firstTag.start).trim(), start: 0, end: firstTag.start, complete: false })
+  const candidates = bodies.map((body, index) => {
+    const result = outputSchema.shape.expandedPrompt.safeParse(body.text)
+    const reason = !body.text ? "empty"
+      : /^[\p{P}\s]+$/u.test(body.text) ? "punctuation_only"
+      : /<\s*\/?\s*[a-z]|<\s*$/i.test(body.text) || structuredOutput.test(body.text) ? "malformed_structure"
+      : !result.success ? result.error.issues.map((issue) => issue.message).join("; ") : undefined
+    return { ...body, index, codePoints: [...body.text].length, valid: reason === undefined, reason }
+  })
+  const selected = candidates.filter((body) => body.complete && body.valid).at(-1)
+    ?? candidates.filter((body) => body.valid).at(-1)
+  const diagnostics: ExpansionParseDiagnostics = {
+    candidateCount: candidates.length,
+    candidates: candidates.map((body) => ({
+      index: body.index, text: body.text, codePoints: body.codePoints, complete: body.complete,
+      valid: body.valid, selected: body === selected,
+      reason: body.reason ?? (body !== selected ? "lower_selection_priority" : undefined),
+    })),
+    selectedIndex: selected?.index,
+    selectionReason: selected ? selected.complete ? "last_complete_valid" : "last_recovered_valid" : "no_valid_candidate",
+  }
+  if (!selected) {
+    onDiagnostics?.(diagnostics)
+    throw invalidOutput("没有可用正文：请用 <expandedPrompt> 输出非空、非纯标点且不超过 1000 Unicode 码点的正文。")
+  }
+  // Associate tags only with the selected candidate, up to the next body region.
+  const boundary = bodies.find((body) => body.start > selected.end)?.start ?? text.length
   const tags: string[] = []
   let tag: { start: number; depth: number; nested: boolean } | undefined
+  let discardedTagBlocks = 0
   for (const token of tokens) {
-    if (token.start < (bodies.at(-1)?.end ?? 0)) continue
+    if (token.start < selected.end || token.start >= boundary) continue
     if (token.name !== "tags") {
+      if (tag) discardedTagBlocks++
       tag = undefined
       continue
     }
@@ -158,11 +187,14 @@ function parseTaggedExpansion(text: string) {
     tag.depth--
     if (tag.depth !== 0) continue
     // Each closed sibling is independent. Retain compatibility with old multiline containers.
-    if (!tag.nested) tags.push(...text.slice(tag.start, token.start).split("\n"))
+    if (!tag.nested) tags.push(...text.slice(tag.start, token.start).split("\n").filter((line) => line.trim()))
+    if (tag.nested) discardedTagBlocks++
     tag = undefined
   }
   // Incomplete/nested tag items are dropped without losing the body or complete siblings.
-  return validateExpansion({ expandedPrompt: value, tags })
+  const result = validateExpansion({ expandedPrompt: selected.text, tags })
+  onDiagnostics?.({ ...diagnostics, tagLineCount: tags.length, keptTagCount: result.tags.length, discardedTagBlocks: discardedTagBlocks + (tag ? 1 : 0) })
+  return result
 }
 
 // Compatibility only: scan top-level JSON objects without unwrapping nested values.
@@ -390,25 +422,34 @@ export async function expandPrompt(
       if (preview) await Effect.runPromise(attach(preview.end()))
     }
   }
+  const parse = (text: string, attempt: 1 | 2) => {
+    let diagnostics: ExpansionParseDiagnostics | undefined
+    try {
+      const result = parseExpansion(text, (value) => { diagnostics = value })
+      logExpansionOutput(context, { attempt, outcome: "accepted", rawText: text, result, diagnostics, elapsedMs: Date.now() - startedAt })
+      return { success: true as const, data: result }
+    } catch (error) {
+      const feedback = expansionRepairFeedback(error)
+      logExpansionOutput(context, {
+        attempt, outcome: attempt === 1 ? "repairing" : "rejected", rawText: text, feedback,
+        elapsedMs: Date.now() - startedAt, diagnostics,
+        candidates: error && typeof error === "object" && "candidates" in error && Array.isArray(error.candidates)
+          ? error.candidates.filter((value): value is string => typeof value === "string") : undefined,
+      })
+      return { success: false as const, error, feedback }
+    }
+  }
   const first = await call()
-  const parsed = z
-    .unknown()
-    .transform((value, ctx) => {
-      try {
-        return parseExpansion(String(value))
-      } catch (error) {
-        ctx.addIssue({ code: "custom", message: expansionRepairFeedback(error) })
-        return z.NEVER
-      }
-    })
-    .safeParse(first)
+  const parsed = parse(first, 1)
   if (parsed.success) return parsed.data
   console.warn("[studio.prompt-expansion] output invalid, repairing", {
     ...context, stage: "output", attempt: 1, code: "INVALID_MODEL_OUTPUT", elapsedMs: Date.now() - startedAt,
   })
-  const second = await call({ text: first, feedback: parsed.error.issues.map((issue) => issue.message).join("\n") })
+  const second = await call({ text: first, feedback: parsed.feedback })
   try {
-    return parseExpansion(second)
+    const repaired = parse(second, 2)
+    if (!repaired.success) throw repaired.error
+    return repaired.data
   } catch (error) {
     const failure = error instanceof RecommendationError ? error
       : Object.assign(new RecommendationError("INVALID_MODEL_OUTPUT"), { cause: error })

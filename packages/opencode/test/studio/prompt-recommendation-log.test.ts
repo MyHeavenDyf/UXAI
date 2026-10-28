@@ -1,5 +1,6 @@
+import { Log } from "@opencode-ai/core/util/log"
 import { expect, spyOn, test } from "bun:test"
-import { logRecommendationFailure, recommendationLogIDs } from "@/studio/prompt-recommendation-log"
+import { logExpansionOutput, logRecommendationFailure, recommendationLogIDs } from "@/studio/prompt-recommendation-log"
 
 test("failure logs retain SDK and network diagnostics without request bodies, headers or provider messages", () => {
   const warn = spyOn(console, "warn").mockImplementation(() => {})
@@ -44,4 +45,39 @@ test("only bounded request identifiers are extracted from request payloads", () 
   })).toEqual({ requestID: "request-123", sessionID: "ses_123", guidePartID: "prt_123" })
   expect(recommendationLogIDs({ requestID: "x".repeat(129), sessionID: "private\ntext" })).toEqual({})
   expect(recommendationLogIDs(null)).toEqual({})
+})
+
+
+test("completed output diagnostics preserve full text, candidates and results in terminal and existing log file", async () => {
+  const terminal = spyOn(console, "log").mockImplementation(() => {})
+  const requestID = crypto.randomUUID()
+  const rawText = `<expandedPrompt>${"樱花林荫道".repeat(2000)}</expandedPrompt>\n<tags>风格：动漫</tags>`
+  try {
+    logExpansionOutput({ requestID, sessionID: "session", providerID: "provider", modelID: "model" }, {
+      attempt: 1, outcome: "repairing", rawText, elapsedMs: 10,
+      feedback: "返回了多份不同的正文", candidates: ["城市", "", "。"],
+    })
+    logExpansionOutput({ requestID, sessionID: "session", providerID: "provider", modelID: "model" }, {
+      attempt: 2, outcome: "accepted", rawText: "<expandedPrompt>城市雨景</expandedPrompt>", elapsedMs: 20,
+      result: { expandedPrompt: "城市雨景", tags: [] },
+      diagnostics: {
+        candidateCount: 1, selectedIndex: 0, selectionReason: "last_complete_valid",
+        candidates: [{ index: 0, text: "城市雨景", codePoints: 4, complete: true, valid: true, selected: true }],
+      },
+    })
+    const first = JSON.parse(String(terminal.mock.calls[0][1]))
+    expect(JSON.parse(String(terminal.mock.calls[1][1])).diagnostics).toMatchObject({ candidateCount: 1, selectedIndex: 0, selectionReason: "last_complete_valid" })
+    expect(first.rawText).toBe(rawText)
+    expect(first.rawBytes).toBe(Buffer.byteLength(rawText))
+    expect(first.candidates).toEqual([{ text: "城市", codePoints: 2 }, { text: "", codePoints: 0 }, { text: "。", codePoints: 1 }])
+    expect(first).toMatchObject({ requestID, attempt: 1, outcome: "repairing", feedback: "返回了多份不同的正文", repair: false })
+    expect(JSON.parse(String(terminal.mock.calls[1][1]))).toMatchObject({ attempt: 2, outcome: "accepted", repair: true, result: { expandedPrompt: "城市雨景", tags: [] } })
+    expect(Log.file()).not.toBe("")
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline && !(await Bun.file(Log.file()).text()).includes(String(terminal.mock.calls[1][1])))
+      await Bun.sleep(5)
+    const file = await Bun.file(Log.file()).text()
+    expect(file).toContain(`entry=${terminal.mock.calls[0][1]}`)
+    expect(file).toContain(`entry=${terminal.mock.calls[1][1]}`)
+  } finally { terminal.mockRestore() }
 })
