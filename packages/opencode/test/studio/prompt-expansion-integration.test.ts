@@ -110,7 +110,7 @@ it.live(
     provideTmpdirServer(
       ({ llm }) =>
         Effect.gen(function* () {
-          yield* llm.reason("先分析用户画面", { text: JSON.stringify({ expandedPrompt: "首轮未通过校验", tags: [] }) })
+          yield* llm.reason("先分析用户画面", { text: JSON.stringify({ expandedPrompt: "", tags: [] }) })
           yield* llm.reason("重新整理画面", { text: output })
           const instance = yield* InstanceState.context
           yield* Effect.promise(() =>
@@ -135,7 +135,7 @@ it.live(
                 .filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview)
               expect(previews.filter((row) => (row.data as MessageV2.TextPart).text)).toHaveLength(2)
               expect(previews.map((row) => row.data)).toEqual(expect.arrayContaining([
-                expect.objectContaining({ text: JSON.stringify({ expandedPrompt: "首轮未通过校验", tags: [] }), time: expect.objectContaining({ end: expect.any(Number) }) }),
+                expect.objectContaining({ text: JSON.stringify({ expandedPrompt: "", tags: [] }), time: expect.objectContaining({ end: expect.any(Number) }) }),
                 expect.objectContaining({ text: output, time: expect.objectContaining({ end: expect.any(Number) }) }),
               ]))
               expect(Database.use((db) => db.select().from(PartTable)
@@ -415,7 +415,7 @@ for (const repaired of [true, false]) {
     provideTmpdirServer(({ llm }) => Effect.gen(function* () {
       const nested = JSON.stringify({ expandedPrompt: JSON.parse(output) })
       yield* llm.text(nested)
-      yield* llm.text(repaired ? output : nested)
+      yield* llm.text(repaired ? "雨后城市的霓虹街景。\n[[STUDIO_TAGS]]\n场景：城市\n天气：雨后\n光线：霓虹" : nested)
       const instance = yield* InstanceState.context
       yield* Effect.promise(() => Instance.restore(instance, async () => {
         const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
@@ -430,11 +430,42 @@ for (const repaired of [true, false]) {
       }))
       const inputs = yield* llm.inputs
       expect(inputs).toHaveLength(2)
-      expect(JSON.stringify(inputs[0])).toContain("不得在其中再次嵌套 expandedPrompt")
-      expect(JSON.stringify(inputs[1])).toContain("tags 数组与它同级")
+      expect(JSON.stringify(inputs[0])).toContain("正文结束后，另起一行输出 [[STUDIO_TAGS]]")
+      expect(JSON.stringify(inputs[1])).toContain("每行一个")
       expect(inputs[1]).toMatchObject({ messages: expect.arrayContaining([
         expect.objectContaining({ role: "assistant", content: nested }),
-        expect.objectContaining({ role: "user", content: expect.stringContaining("expandedPrompt 必须直接是字符串") }),
+        expect.objectContaining({ role: "user", content: expect.stringContaining("正文不是字符串，仍使用了对象或数组包装") }),
       ]) })
+    }), { config }), 30_000)
+}
+
+
+for (const sample of [
+  { text: "雨后的城市街道。", tags: [] },
+  { text: "雨后的城市街道。\n[[STUDIO_TAGS]]\n无效标签\n风格：科幻:未来", tags: [] },
+  { text: "雨后的城市街道。\n[[STUDIO_TAGS]]\n- 场景 : 城市\n场景：街道\n天气：雨后", tags: ["场景：城市", "天气：雨后"] },
+]) {
+  it.live(`persists usable body without repair when normalized tag count is ${sample.tags.length}: ${sample.text}`, () =>
+    provideTmpdirServer(({ llm }) => Effect.gen(function* () {
+      yield* llm.text(sample.text)
+      const instance = yield* InstanceState.context
+      yield* Effect.promise(() => Instance.restore(instance, async () => {
+        const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        await submitExpansion({
+          requestID: crypto.randomUUID(), sessionID: initialized.sessionID, guidePartID: initialized.guidePartID,
+          prompt: "雨景", availableModels: [{ providerID: "test", modelID: "test-model" }],
+        })
+        const deadline = Date.now() + 10_000
+        while (Date.now() < deadline && (await getRecommendationState(initialized.sessionID)).recommendation?.status === "running")
+          await Bun.sleep(10)
+        expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("completed")
+        const result = Database.use((db) => db.select().from(PartTable)
+          .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
+          .map((row) => row.data).find((part) => part.type === "text" && (part as MessageV2.TextPart).metadata?.studioPromptExpansion)
+        expect(result).toMatchObject({ type: "text", text: "雨后的城市街道。", metadata: {
+          studioPromptExpansion: { status: "completed", tags: sample.tags },
+        } })
+      }))
+      expect(yield* llm.calls).toBe(1)
     }), { config }), 30_000)
 }
