@@ -46,7 +46,7 @@ test("skips website-root references without guessing disk paths or changing sour
   }
 })
 
-test.each(["relative escape", "explicit file URL", "hidden directory"])("still rejects a %s dependency", async (mode) => {
+test.each(["relative escape", "explicit file URL", "hidden directory"])("skips a %s dependency without interrupting collection", async (mode) => {
   await using project = await tmpdir()
   await using outside = await tmpdir()
   const page = path.join(project.path, "index.html")
@@ -54,12 +54,43 @@ test.each(["relative escape", "explicit file URL", "hidden directory"])("still r
     : mode === "explicit file URL" ? pathToFileURL(path.join(outside.path, "secret.js")).href
     : "./.private/secret.js"
   await Bun.write(page, `<script src="${ref}"></script>`)
-  await expect(collectPortableDependencies({
-    root: project.path,
-    files: [page],
-    trustedRoots: [],
-    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
-  })).rejects.toThrow("页面依赖无法安全保留相对路径")
+  const logging = spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    await expect(collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+    })).resolves.toEqual([])
+    expect(logging.mock.calls.some((call) => JSON.parse(String(call[1])).reason === "outside-portable-root")).toBe(true)
+  } finally {
+    logging.mockRestore()
+  }
+})
+
+test("skips unreadable referenced resources without interrupting collection", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const image = path.join(project.path, "image.png")
+  await Bun.write(page, '<img src="./image.png"><script src="./keep.js"></script>')
+  await Bun.write(image, "image bytes")
+  await Bun.write(path.join(project.path, "keep.js"), "window.ready = true")
+  const logging = spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => {
+        if (file === image) throw new Error("access denied")
+        return new Uint8Array(await Bun.file(file).arrayBuffer())
+      },
+    })
+    expect(dependencies.map((item) => path.basename(item.file))).toEqual(["keep.js"])
+    expect(logging.mock.calls.some((call) => JSON.parse(String(call[1])).reason === "unreadable")).toBe(true)
+  } finally {
+    logging.mockRestore()
+  }
 })
 
 test("does not read blacklisted ASAR dependencies or virtual contents, but retains unpacked dependencies", async () => {
@@ -375,7 +406,7 @@ test("copies only referenced linked assets while preserving their logical paths 
   expect(dependencies.every((file) => file.source.startsWith(resources.path + path.sep))).toBe(true)
 })
 
-test("allows missing dependencies and external links but still rejects escaping logical paths", async () => {
+test("allows missing dependencies and external links while skipping escaping logical paths", async () => {
   await using project = await tmpdir()
   await using outside = await tmpdir()
   const page = path.join(project.path, "index.html")
@@ -395,7 +426,7 @@ test("allows missing dependencies and external links but still rejects escaping 
     source: path.join(outside.path, "secret.js"),
   }])
   await Bun.write(page, '<script src="../secret.js"></script>')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("无法安全保留相对路径")
+  await expect(collectPortableDependencies(input)).resolves.toEqual([])
 })
 
 test("collects transitive scripts, styles, images and fonts through external directory link chains", async () => {

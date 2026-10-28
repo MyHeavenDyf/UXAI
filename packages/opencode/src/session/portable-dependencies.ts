@@ -238,6 +238,21 @@ export async function collectPortableDependencies(input: {
   const skipped = new Set<string>()
   const parsedFiles = new Map<string, ReturnType<typeof references>>()
   const key = (file: string, document?: string) => JSON.stringify([file, document])
+  const warnSkipped = (file: string, reference: string, base: URL, reason: string, error?: unknown) => {
+    const warning = JSON.stringify([file, base.href, reference, reason])
+    if (skipped.has(warning)) return
+    skipped.add(warning)
+    console.warn(
+      "[octo:share] skipped dependency",
+      JSON.stringify({
+        source: file,
+        reference,
+        base: base.href,
+        reason,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      }),
+    )
+  }
   const pending = new Map<string, { file: string; source: string; document?: string }>(
     input.files
       .filter(
@@ -252,13 +267,13 @@ export async function collectPortableDependencies(input: {
   )
   const resolve = async (file: string) => {
     if (isExcludedPortableFile(file, input.blacklist)) return
-    const actual = await realpath(file).catch((error) => {
-      if (error.code === "ENOENT" || error.code === "ENOTDIR") return
-      throw error
-    })
+    const actual = await realpath(file).catch(() => undefined)
     if (!actual) return
     if (isExcludedPortableFile(actual, input.blacklist)) return
-    return (await lstat(actual)).isFile() ? actual : undefined
+    return lstat(actual).then(
+      (stat) => (stat.isFile() ? actual : undefined),
+      () => undefined,
+    )
   }
   while (pending.size) {
     const batch = Array.from({ length: Math.min(4, pending.size) }, () => {
@@ -269,9 +284,15 @@ export async function collectPortableDependencies(input: {
     })
     await Promise.all(
       batch.map(async ({ file, source, document }) => {
-        const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(await input.read(source)), file)
+        const content = await input.read(source).catch((error) => {
+          found.delete(file)
+          warnSkipped(file, file, pathToFileURL(file), "unreadable", error)
+        })
+        if (!content) return
+        const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(content), file)
         parsedFiles.set(file, parsed)
-        const base = new URL(parsed.base ?? "", pathToFileURL(file))
+        const sourceURL = pathToFileURL(file)
+        const base = URL.canParse(parsed.base ?? "", sourceURL) ? new URL(parsed.base ?? "", sourceURL) : sourceURL
         const page = /\.(?:html?|svg)$/i.test(file) ? base.href : document
         const refs = [
           ...[...new Set(parsed.refs)].map((raw) => ({ raw, base })),
@@ -281,28 +302,30 @@ export async function collectPortableDependencies(input: {
           const raw = reference.raw
           const ref = raw.replaceAll("&amp;", "&").trim()
           if (!ref || ref.startsWith("#") || /\$\{|\{\{|<%/.test(ref)) continue
-          if (!URL.canParse(ref, reference.base)) throw new Error(`页面依赖地址无效：${ref}`)
+          if (!URL.canParse(ref, reference.base)) {
+            warnSkipped(file, raw, reference.base, "invalid-url")
+            continue
+          }
           const url = new URL(ref, reference.base)
           if (url.protocol !== "file:") continue
           // A website-root URL has no known server root in a portable archive.
           // Do not guess a disk root (or read it); keep the original reference intact.
           if (/^\/(?![/\\]|[a-z]:)/i.test(ref)) {
-            const warning = JSON.stringify([file, reference.base.href, ref])
-            if (!skipped.has(warning)) {
-              skipped.add(warning)
-              console.warn("[octo:share] skipped dependency", JSON.stringify({
-                source: file,
-                reference: raw,
-                base: reference.base.href,
-                reason: "web-root-relative",
-              }))
-            }
+            warnSkipped(file, raw, reference.base, "web-root-relative")
             continue
           }
-          const target = fileURLToPath(url)
+          const target = (() => {
+            try {
+              return fileURLToPath(url)
+            } catch (error) {
+              warnSkipped(file, raw, reference.base, "invalid-file-url", error)
+            }
+          })()
+          if (!target) continue
           const relative = path.relative(input.root, target)
           if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith("."))) {
-            throw new Error(`页面依赖无法安全保留相对路径：${ref}`)
+            warnSkipped(file, raw, reference.base, "outside-portable-root")
+            continue
           }
           if (isExcludedPortableFile(target, input.blacklist)) continue
           const candidates = /\.(?:[cm]?js|jsx|tsx?)$/i.test(file)
@@ -310,7 +333,9 @@ export async function collectPortableDependencies(input: {
             : [target]
           const resolved = await (async () => {
             for (const candidate of candidates) {
-              const actual = await resolve(candidate)
+              const actual = await resolve(candidate).catch((error) => {
+                warnSkipped(file, raw, reference.base, "unreadable", error)
+              })
               if (actual) return { file: candidate, source: actual }
             }
           })()
@@ -332,7 +357,19 @@ export async function collectPortableDependencies(input: {
             }
             continue
           }
-          if (!known.has(resolved.file)) found.set(resolved.file, resolved.source)
+          if (!known.has(resolved.file)) {
+            if (!textFile.test(resolved.file)) {
+              const readable = await input.read(resolved.source).then(
+                () => true,
+                (error) => {
+                  warnSkipped(file, raw, reference.base, "unreadable", error)
+                  return false
+                },
+              )
+              if (!readable) continue
+            }
+            found.set(resolved.file, resolved.source)
+          }
           if (textFile.test(resolved.file) && !visited.has(key(resolved.file, page))) {
             pending.set(key(resolved.file, page), { ...resolved, document: page })
           }
