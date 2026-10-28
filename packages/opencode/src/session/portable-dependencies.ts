@@ -221,26 +221,16 @@ function inside(root: string, file: string) {
   return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`)
 }
 
-/** Preserve logical asset paths while copying bytes from explicitly trusted, linked resource roots. */
+/** Preserve logical dependency paths while copying bytes from linked files, wherever their targets live. */
 export async function collectPortableDependencies(input: {
   root: string
   files: string[]
+  /** Kept for caller compatibility; real dependency targets are no longer restricted to these roots. */
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
   blacklist?: readonly string[]
 }) {
   if (!input.files.length) return []
-  const root = await realpath(input.root)
-  const trusted = (
-    await Promise.all(
-      input.trustedRoots.map((dir) =>
-        realpath(dir).catch((error) => {
-          if (error.code === "ENOENT") return
-          throw error
-        }),
-      ),
-    )
-  ).filter((dir): dir is string => !!dir)
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
@@ -268,9 +258,6 @@ export async function collectPortableDependencies(input: {
     })
     if (!actual) return
     if (isExcludedPortableFile(actual, input.blacklist)) return
-    if (!inside(root, actual) && (!resourceFile.test(actual) || !trusted.some((dir) => inside(dir, actual)))) {
-      throw new Error(`导出依赖超出允许的资源目录：${path.relative(input.root, file)}`)
-    }
     return (await lstat(actual)).isFile() ? actual : undefined
   }
   while (pending.size) {

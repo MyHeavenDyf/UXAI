@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { pathToFileURL } from "node:url"
-import { symlink } from "node:fs/promises"
+import { lstat, symlink } from "node:fs/promises"
 import JSZip from "jszip"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
@@ -380,6 +380,34 @@ describe("portable session", () => {
       expect(await Bun.file(path.join(target.path, ".octo", privateSession.sessionID, "outputs/preview/assets/library/babel.min.js")).text()).toBe("window.Babel = {}")
       await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
       expect(await Bun.file(path.join(target.path, "preview/assets/font/Regular.woff2")).text()).toBe("font bytes")
+    } })
+  })
+
+  test("exports external dashboard dependencies without trusted roots and imports them as regular files", async () => {
+    await using source = await tmpdir({ git: true })
+    await using resources = await tmpdir()
+    await using target = await tmpdir({ git: true })
+    const html = '<script type="module" src="./assets/index.js"></script>'
+    await Bun.write(path.join(resources.path, "index.js"), 'import "./chunk.js";')
+    await Bun.write(path.join(resources.path, "chunk.js"), "window.ready = true")
+    await Bun.write(path.join(resources.path, "unused.txt"), "not referenced")
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "External dashboard assets" }))
+      await Bun.write(path.join(source.path, "ecommerce-dashboard/index.html"), html)
+      await symlink(resources.path, path.join(source.path, "ecommerce-dashboard/assets"), process.platform === "win32" ? "junction" : "dir")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, scope: "project", output: path.join(source.path, "bundle.zip") }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    expect(manifest.files.map((file) => file.path).sort()).toEqual([
+      "ecommerce-dashboard/assets/chunk.js", "ecommerce-dashboard/assets/index.js", "ecommerce-dashboard/index.html",
+    ])
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/index.html")).text()).toBe(html)
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/assets/index.js")).text()).toBe('import "./chunk.js";')
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/assets/chunk.js")).text()).toBe("window.ready = true")
+      expect((await lstat(path.join(target.path, "ecommerce-dashboard/assets/index.js"))).isSymbolicLink()).toBe(false)
     } })
   })
 

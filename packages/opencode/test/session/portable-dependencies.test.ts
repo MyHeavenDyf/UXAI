@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test"
 import path from "node:path"
-import { symlink } from "node:fs/promises"
+import { mkdir, symlink } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { isExcludedPortableFile } from "@/session/portable-exclusions"
@@ -375,7 +375,7 @@ test("copies only referenced linked assets while preserving their logical paths 
   expect(dependencies.every((file) => file.source.startsWith(resources.path + path.sep))).toBe(true)
 })
 
-test("allows missing dependencies but still rejects untrusted links and escaping paths", async () => {
+test("allows missing dependencies and external links but still rejects escaping logical paths", async () => {
   await using project = await tmpdir()
   await using outside = await tmpdir()
   const page = path.join(project.path, "index.html")
@@ -390,9 +390,57 @@ test("allows missing dependencies but still rejects untrusted links and escaping
   await Bun.write(path.join(outside.path, "secret.js"), "not a trusted resource")
   await symlink(outside.path, path.join(project.path, "assets"), process.platform === "win32" ? "junction" : "dir")
   await Bun.write(page, '<script src="assets/secret.js"></script>')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("超出允许的资源目录")
+  await expect(collectPortableDependencies(input)).resolves.toEqual([{
+    file: path.join(project.path, "assets/secret.js"),
+    source: path.join(outside.path, "secret.js"),
+  }])
   await Bun.write(page, '<script src="../secret.js"></script>')
   await expect(collectPortableDependencies(input)).rejects.toThrow("无法安全保留相对路径")
+})
+
+test("collects transitive scripts, styles, images and fonts through external directory link chains", async () => {
+  await using project = await tmpdir()
+  await using bridge = await tmpdir()
+  await using resources = await tmpdir()
+  const page = path.join(project.path, "ecommerce-dashboard/index.html")
+  await Bun.write(page, '<script type="module" src="./assets/index.js"></script><link rel="stylesheet" href="./assets/main.css">')
+  await Bun.write(path.join(resources.path, "index.js"), 'import "./chunks/runtime.mjs";')
+  await Bun.write(path.join(resources.path, "chunks/runtime.mjs"), 'import "../data.json";')
+  await Bun.write(path.join(resources.path, "data.json"), '{"ready":true}')
+  await Bun.write(path.join(resources.path, "main.css"), '@import "./theme.css"; .logo { background: url("./logo.svg") }')
+  await Bun.write(path.join(resources.path, "theme.css"), '@font-face { src: url("./font.woff2") }')
+  await Bun.write(path.join(resources.path, "logo.svg"), "<svg/>")
+  await Bun.write(path.join(resources.path, "font.woff2"), "font bytes")
+  await Bun.write(path.join(resources.path, "unused.js"), "not referenced")
+  await symlink(resources.path, path.join(bridge.path, "linked"), process.platform === "win32" ? "junction" : "dir")
+  await symlink(path.join(bridge.path, "linked"), path.join(project.path, "ecommerce-dashboard/assets"), process.platform === "win32" ? "junction" : "dir")
+  const dependencies = await collectPortableDependencies({
+    root: project.path, files: [page], trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })
+  expect(dependencies.map((item) => path.relative(project.path, item.file).split(path.sep).join("/")).sort()).toEqual([
+    "ecommerce-dashboard/assets/chunks/runtime.mjs", "ecommerce-dashboard/assets/data.json",
+    "ecommerce-dashboard/assets/font.woff2", "ecommerce-dashboard/assets/index.js",
+    "ecommerce-dashboard/assets/logo.svg", "ecommerce-dashboard/assets/main.css", "ecommerce-dashboard/assets/theme.css",
+  ])
+  expect(dependencies.every((item) => item.source.startsWith(resources.path + path.sep))).toBe(true)
+})
+
+test.each([".js", ".css", ".html", ".svg", ".png", ".woff2", ".wasm", ".json", ".txt"])("collects a linked %s dependency even when its real target has a different extension", async (extension) => {
+  await using project = await tmpdir()
+  await using resources = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const linked = path.join(project.path, `assets/resource${extension}`)
+  const actual = path.join(resources.path, "payload.data")
+  await Bun.write(page, `<object data="./assets/resource${extension}"></object>`)
+  await Bun.write(actual, "payload")
+  await mkdir(path.dirname(linked), { recursive: true })
+  await symlink(actual, linked, "file")
+  const dependencies = await collectPortableDependencies({
+    root: project.path, files: [page], trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })
+  expect(dependencies).toEqual([{ file: linked, source: actual }])
 })
 
 test("resolves bundled JSX image strings against the HTML document instead of the original component directory", async () => {
