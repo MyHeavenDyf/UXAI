@@ -239,4 +239,6 @@ export type ElectronAPI = {
     curlUrl: string
     error?: string
   }>
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-start
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-end
 }

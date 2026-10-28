@@ -20,6 +20,9 @@ import log from "electron-log/main.js"
 // jk-j60099994-replace-with-ipc-1-start
 // jk-j60099994-replace-with-ipc-1-end
 
+// jk-j60099994-replace-with-yjt-pixso-ipc-0-start
+// jk-j60099994-replace-with-yjt-pixso-ipc-0-end
+
 app.commandLine.appendSwitch("ignore-certificate-errors")
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
@@ -1527,6 +1530,9 @@ export function registerIpcHandlers(deps: Deps) {
       throw err
     }
   })
+
+  // jk-j60099994-replace-with-yjt-pixso-ipc-1-start
+  // jk-j60099994-replace-with-yjt-pixso-ipc-1-end
 
   ipcMain.handle(
     "export-zip",
