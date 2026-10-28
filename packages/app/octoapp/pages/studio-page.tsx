@@ -5481,12 +5481,9 @@ if (!headerTitle.pendingRename) return
                   selectFileManagerMedia({ resultID: turn.result.id, imageID: item.id })
                 }
               }}
-              studioCenterWidth={studioCenterWidth()}
-              showStudioCenter={true}
               hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
-              sessionID={params.id}
               fileManagerGenPending={fileManagerGenPending()}
               canvasView={canvasView()}
               templateCreatorTabOpen={templateCreatorTabOpen()}
