@@ -487,14 +487,10 @@ describe("portable session", () => {
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
-      if (conflict) {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "session"))).rejects.toThrow("私有文件同名且内容不同")
-        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
-        return
-      }
       const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
       expect(imported.files).toBe(1)
-      expect(await Bun.file(path.join(target.path, ".octo", imported.sessionID, "outputs", "index.html")).text()).toBe("shared page")
+      expect(await Bun.file(path.join(target.path, ".octo", imported.sessionID, "outputs", "index.html")).text())
+        .toBe(conflict ? "private page" : "shared page")
     } })
   })
 
@@ -574,15 +570,10 @@ describe("portable session", () => {
       return AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: path.join(source.path, "session.zip") }))
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
-      if (conflict) {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "project"))).rejects.toThrow("共享文件同名且内容不同")
-        expect(await Bun.file(path.join(target.path, "brief.txt")).exists()).toBe(false)
-        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
-        return
-      }
       const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "project"))
       expect(imported.files).toBe(3)
       expect(await Bun.file(path.join(target.path, "brief.txt")).text()).toBe("root attachment")
+      expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(2)
     } })
   })
 

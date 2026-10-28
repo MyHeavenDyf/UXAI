@@ -789,7 +789,13 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     const add = (file: FileEntry) => {
       const key = `${file.scope ?? "session"}/${file.sessionID}/${path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))}`
       const existing = files.get(key)
-      if (existing && existing.sha256 !== file.sha256) throw new Error(`私有文件同名且内容不同，无法导入：${file.path}`)
+      if (existing && existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: file.path, reason: "private-content-conflict" }),
+        )
+        return
+      }
       if (!existing) files.set(key, file)
     }
     manifest.files.filter((file) => file.scope !== "project").forEach(add)
@@ -820,7 +826,12 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     if (!isProjectFile(target)) continue
     const existing = shared.get(target)
     if (existing) {
-      if (existing.sha256 !== file.sha256) throw new Error(`共享文件同名且内容不同，无法导入：${target}`)
+      if (existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: target, reason: "shared-content-conflict" }),
+        )
+      }
       continue
     }
     // Keep the private copy and its chat references; expose an additional shared copy.
