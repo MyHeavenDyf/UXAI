@@ -75,7 +75,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { validateInsightFile, validateFileForExternal, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateInsightFile, validateFileForExternal, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, getExt, EXTERNAL_MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
@@ -94,6 +94,7 @@ import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions, queuedDoc } from "./utils/mention"
 import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
+import { compressImageWithNotice, ImageCompressNotice } from "@/components/image-compress-notice"
 import { resolveOutputType, isPreviewableMedia } from "./utils/output-type"
 import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
@@ -2092,11 +2093,13 @@ function InsightContent() {
   }
 
   function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
-    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;白名单内图片超 2MB 放行走自动压缩,
+    // 非图片与白名单外格式(含 gif/webp)仍按原校验拒绝并 toast 提示
     const isExternal = !!local.model.current()?.isExternal
     const accepted = isExternal
       ? files.filter((file) => {
-          const err = validateFileForExternal(file)
+          const compressible = file.size > EXTERNAL_MAX_UPLOAD_SIZE && ["png", "jpg", "jpeg"].includes(getExt(file.name))
+          const err = compressible ? null : validateFileForExternal(file)
           if (err) {
             showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
             return false
@@ -2125,13 +2128,8 @@ function InsightContent() {
         name: "attachment-add",
         extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
       })
-      // 外网模型已在上方完成校验；内网允许任意格式，保留文件校验和图片上限。
-      const validationErr = isExternal
-        ? null
-        : validateInsightFile(file) ??
-          (isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
-            ? new UploadError("FILE_TOO_LARGE", `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`)
-            : null)
+      // 外网模型已在上方完成校验；内网允许任意格式，保留文件校验。图片 5MB 上限改走自动压缩(对齐 design 页)。
+      const validationErr = isExternal ? null : validateInsightFile(file)
       if (validationErr) {
         // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
         console.warn("[octo:upload] client-validate rejected", {
@@ -2149,6 +2147,17 @@ function InsightContent() {
       //   objectURL 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染)。
       // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
       const image = isImageFile(file.name)
+      // 超限图片静默压缩(对齐 design 页):外网模型上限 2MB(产物限 jpg,webp 不在其白名单),内网 5MB;
+      // 先挂 uploading chip,压缩成功更新元数据再导入;GIF/压不动回退超限报错。previewUrl 用原图,压缩不影响缩略图。
+      const imageMax = isExternal ? EXTERNAL_MAX_UPLOAD_SIZE : INSIGHT_IMAGE_MAX
+      if (image && file.size > imageMax) {
+        setAttachments((prev) => [
+          ...prev,
+          { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl: URL.createObjectURL(rawFile) },
+        ])
+        void compressOversizedImage(id, rawFile, imageMax, !isExternal)
+        continue
+      }
       filesById.set(id, rawFile)
       const previewUrl = image ? URL.createObjectURL(rawFile) : undefined
       setAttachments((prev) => [
@@ -2160,6 +2169,25 @@ function InsightContent() {
       // 都 rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);插件在模型调 MCP 时才按需上传(④)。
       void doImport(id, rawFile, file.name)
     }
+  }
+
+  /** 超限图片压缩导入(对齐 design 页):计数驱动输入框上方提示,压缩产物回写 filesById 供 retryUpload 复用。
+   *  maxSizeBytes 为目标上限(内网 5MB/外网 2MB);webp=false 时产物限 jpg(外网白名单无 webp)。 */
+  async function compressOversizedImage(id: string, rawFile: File, maxSizeBytes: number, webp: boolean) {
+    const compressed = await compressImageWithNotice(rawFile, maxSizeBytes, { webp })
+    if (!compressed) {
+      setAttachments((prev) => prev.map((a) => a.id === id
+        ? { ...a, status: "error", error: `图片超过 ${Math.round(maxSizeBytes / 1024 / 1024)}MB 上限，请压缩后重新上传`, retriable: false }
+        : a))
+      return
+    }
+    // retryUpload 从 filesById 取文件,必须换成压缩产物,重试才不会拿原图再撞限制
+    filesById.set(id, compressed)
+    tracker.interaction({ module: "insight", name: "image-auto-compress", extend: JSON.stringify({ before: rawFile.size, after: compressed.size, format: compressed.type }) })
+    setAttachments((prev) => prev.map((a) => a.id === id
+      ? { ...a, filename: compressed.name, mime: compressed.type, size: compressed.size }
+      : a))
+    void doImport(id, compressed, compressed.name)
   }
 
   // 把源文件(图片与非图片同链路)导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,
@@ -2711,6 +2739,9 @@ function InsightContent() {
                   <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
                   <div style={{ width: "100%", "max-width": "800px" }}>
+                    {/* 超限图片自动压缩提示(输入框上方) */}
+                    <ImageCompressNotice />
+
                     {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
@@ -2967,6 +2998,9 @@ function InsightContent() {
                     </div>
                   </Show>
                 </div>
+
+                {/* 超限图片自动压缩提示(输入框上方) */}
+                <ImageCompressNotice />
 
                 {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                 <div

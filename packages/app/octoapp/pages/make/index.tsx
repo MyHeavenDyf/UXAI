@@ -45,6 +45,7 @@ import {
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
+import { compressImageWithNotice, ImageCompressNotice } from "@/components/image-compress-notice"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -78,7 +79,7 @@ import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, getExt, EXTERNAL_MAX_UPLOAD_SIZE } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isBlockedLocalFile, isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
@@ -4243,11 +4244,13 @@ const sessionMessagesLoaded = createMemo(() => {
   let fileInputRef!: HTMLInputElement
 
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
-    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;白名单内图片超 2MB 放行走自动压缩,
+    // 非图片与白名单外格式(含 gif/webp)仍按原校验拒绝并 toast 提示
     const isExternal = !!local.model.current()?.isExternal
     const accepted = isExternal
       ? files.filter((file) => {
-          const err = validateFileForExternal(file)
+          const compressible = file.size > EXTERNAL_MAX_UPLOAD_SIZE && ["png", "jpg", "jpeg"].includes(getExt(file.name))
+          const err = compressible ? null : validateFileForExternal(file)
           if (err) {
             showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
             return false
@@ -4277,13 +4280,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   async function addImageAttachment(file: File) {
     const id = crypto.randomUUID()
-    const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
 
-    const imageErr = file.size > MAKE_IMAGE_MAX
-      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
-      : null
-    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    // validateFile 把 100MB 绝对上限/格式白名单/空文件挡在压缩之前;10MB 图片限制改走下方自动压缩
+    const validationErr = validateFile(file)
     if (validationErr) {
       setAttachments(prev => [...prev, {
         id, filename: file.name,
@@ -4297,10 +4297,35 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments(prev => [...prev, {
       id, filename: file.name,
       mime: file.type || imageMimeFor(file.name),
-      size: file.size, status: 'uploading', source: 'pending', previewUrl,
+      size: file.size, status: 'uploading', source: 'pending',
+      previewUrl: URL.createObjectURL(file),
     }])
 
-    void doImageImport(id, file, file.name)
+    // 超限图片静默压缩(微信式):先挂 uploading chip 再压缩,期间有可见反馈;
+    // GIF/压不动返回 null 时回退原报错文案。外网模型上限 2MB 且产物限 jpg(webp 不在其白名单)
+    const isExternal = !!local.model.current()?.isExternal
+    const imageMax = isExternal ? EXTERNAL_MAX_UPLOAD_SIZE : MAKE_IMAGE_MAX
+    let uploadFile = file
+    if (file.size > imageMax) {
+      const compressed = await compressImageWithNotice(file, imageMax, { webp: !isExternal })
+      if (!compressed) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id
+            ? { ...a, status: 'error', error: `图片超过 ${Math.round(imageMax / 1024 / 1024)}MB 上限，请压缩后重新上传`, retriable: false }
+            : a
+        ))
+        return
+      }
+      uploadFile = compressed
+      // retryUpload 从 filesById 取文件,必须换成压缩产物,重试才不会拿原图再撞限制
+      filesById.set(id, compressed)
+      tracker.interaction({ module: "design", name: "image-auto-compress", extend: JSON.stringify({ before: file.size, after: compressed.size, format: compressed.type }) })
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, filename: compressed.name, mime: compressed.type, size: compressed.size } : a
+      ))
+    }
+
+    void doImageImport(id, uploadFile, uploadFile.name)
   }
 
   async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
@@ -5670,6 +5695,9 @@ const sessionMessagesLoaded = createMemo(() => {
                       </div>
                     </Show>
 
+                    {/* 超限图片自动压缩提示(输入框上方) */}
+                    <ImageCompressNotice />
+
                     <div
                       class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
@@ -6100,6 +6128,9 @@ onPreview={(url) => {
                     </div>
                   )}
                 </Show>
+
+                {/* 超限图片自动压缩提示(输入框上方) */}
+                <ImageCompressNotice />
 
                 <div
                   class="make-composer rounded-[16px] transition-all duration-300 relative group"
