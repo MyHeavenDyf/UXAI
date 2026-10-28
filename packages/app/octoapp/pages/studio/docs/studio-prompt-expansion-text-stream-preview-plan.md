@@ -256,30 +256,33 @@ previewPart?: Extract<Part, { type: "text" }>
 
 ### 6.3 独立组件
 
-重命名现有组件为 StudioPromptExpansionPreview，保留临时区域的视觉样式。使用 reasoning-part 仅作为复用 CSS 的容器标记，不意味着内容来自 reasoning：
+重命名现有组件为 `StudioPromptExpansionPreview`，保留临时区域的视觉样式。使用 `reasoning-part` 仅作为复用 CSS 的容器标记，不意味着内容来自 reasoning。
+
+2026-10-28 补充：组件内区分“已收到正文”和“已显示正文”，增加仅限 Studio 的平滑播放层。公共 Markdown 的 `streaming` 属性只处理未闭合 Markdown，不会自行逐字播放。
+
+- 使用 `createStore({ id: "", text: "" })` 保存显示游标，初值始终为空。组件首次挂载时即使已经收到大块正文，也从空内容开始播放。
+- 大约每 24ms 推进一次，按待显示长度每次追加 2～24 个 Unicode 码点；积压多时加速追赶，避免越播越慢，不拆开 emoji 的 UTF-16 代理对。
+- 同一预览追加新正文时继续播放，不重置已经显示的前缀；修复轮 PartID 改变、内容被清空或替换为非前缀文本时，取消旧计时器并重新开始。
+- 预览 part 已结束但扩写结果仍为 `running` 时继续播放剩余内容。
+- `completed/cancelling/failed/cancelled` 立即取消播放并隐藏；不为播完积压文字延迟正式结果。组件卸载也清理计时器。
+
+关键渲染代码如下，完整播放实现见 `studio-prompt-expansion-preview.tsx`：
 
 ```tsx
-export function StudioPromptExpansionPreview(props: {
-  part?: Extract<Part, { type: "text" }>
-  status: string
-}) {
-  return (
-    <Show when={props.status === "running" && props.part?.text.trim()}>
-      <div data-component="reasoning-part" data-streaming>
-        <Markdown
-          text={props.part?.text.trim() ?? ""}
-          cacheKey={props.part?.id}
-          streaming={props.part?.time?.end === undefined}
-        />
-      </div>
-    </Show>
-  )
-}
+<Show when={props.status === "running" && props.part?.text.trim()}>
+  <div data-component="reasoning-part" data-streaming>
+    <Markdown
+      text={shown.text}
+      cacheKey={props.part?.id}
+      streaming={shown.text !== target() || props.part?.time?.end === undefined}
+    />
+  </div>
+</Show>
 ```
 
-组件无状态、无折叠、无计时。Markdown 复用已有解析及安全渲染，沿用根级 MarkedProvider。正文含 Markdown 时按公共规则渲染，不使用 innerHTML，不复制公共组件。
+组件只增加播放状态和短间隔计时器，不增加折叠、历史入口或用时统计。Markdown 继续复用公共解析及安全渲染，沿用根级 `MarkedProvider`，不修改公共 UI、不复制整套消息组件。
 
-`studio-conversation.tsx` 中，把原 reasoningParts 判断替换为 previewPart.text 判断；尚无有效正文回退等待文案。completed 分支完全沿用 StudioPromptExpansionReviewView，预览不能通过 assistantText fallback 再次显示。
+`studio-conversation.tsx` 仍依据 `previewPart.text` 是否非空切换原等待文案与预览组件。JSON 字段提取保持原样；尚未收到 `expandedPrompt` 内容时继续等待，不能播放未收到的正文。若正文与完成状态在同一批到达，仍直接显示正式结果，不人为延迟完成来制造预览。
 
 ## 7. 快照、修复与迟到事件
 
@@ -377,3 +380,11 @@ DOM 测试必须加载 Solid 浏览器实现，沿用现有测试的 Solid 编�
 - 前端相关测试：47 项通过；覆盖正文隔离、空修复轮、快照合并、迟到事件及原扩写结果交互。
 - `packages/opencode`、`packages/app` 的 `bun typecheck` 均通过；未修改公共模块，未重启现有应用或服务。
 - 未运行真实页面视觉对照；临时区域继续复用已有样式规则。
+
+
+## 13. 正文播放补充记录（2026-10-28）
+
+- 在 Studio 展示组件内补齐平滑播放，首段不再直接整块渲染；后端提取条件、消息协议和超时策略不变。
+- 新增时序测试：首次已带大块正文时初始为空、后续出现多个递增前缀、追加内容继续播放、emoji 不被拆分、修复轮重置、完成立即隐藏及卸载清理。
+- 原有 DOM 测试改为等待内容实际播放到达，不再假设整段文字会在 10ms 内显示。
+- 本次相关前端测试 49 项通过，`packages/app` 的 `bun typecheck` 通过；未修改后端或公共模块。
