@@ -65,6 +65,7 @@ import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+import { LoginController } from "@/components/dialog-login"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
@@ -121,6 +122,7 @@ declare global {
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
     }
+    openLogin?: () => void
   }
 }
 
@@ -567,6 +569,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
             >
               <QueryProvider>
                 <DialogProvider>
+                  <LoginController />
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
                   {/* jk-j60099994-replace-with-60062650-octo-2-start */}

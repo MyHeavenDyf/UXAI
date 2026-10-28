@@ -167,6 +167,45 @@ const api: ElectronAPI = {
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
+  startLogin: () => ipcRenderer.invoke("auth:start-login"),
+  cancelLogin: () => ipcRenderer.invoke("auth:cancel-login"),
+  onLoginOpened: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:login-opened", handler)
+    return () => ipcRenderer.removeListener("auth:login-opened", handler)
+  },
+  onLoginSuccess: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:login-success", handler)
+    return () => ipcRenderer.removeListener("auth:login-success", handler)
+  },
+  onLoginTimeout: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:login-timeout", handler)
+    return () => ipcRenderer.removeListener("auth:login-timeout", handler)
+  },
+  onLoginPollError: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:login-poll-error", handler)
+    return () => ipcRenderer.removeListener("auth:login-poll-error", handler)
+  },
+  onTokenRefreshed: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:token-refreshed", handler)
+    return () => ipcRenderer.removeListener("auth:token-refreshed", handler)
+  },
+  onTokenExpired: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:token-expired", handler)
+    return () => ipcRenderer.removeListener("auth:token-expired", handler)
+  },
+  onLoginExpiring: (cb) => {
+    const handler = (_: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on("auth:login-expiring", handler)
+    return () => ipcRenderer.removeListener("auth:login-expiring", handler)
+  },
+  stopTokenExpirationCheck: () => ipcRenderer.send("auth:stop-token-check"),
+  checkAuthReady: () => ipcRenderer.invoke("auth:check-ready"),
   // jk-j60099994-replace-with-index-1-end
   getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
   configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) => ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
