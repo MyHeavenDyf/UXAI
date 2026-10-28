@@ -88,19 +88,42 @@
   删除 .ant-* 开头的选择器规则（antd 组件覆盖样式，组件换成 eview-react 后失效；
   eview-react 用 aui3_1.css 自带组件样式，无需业务侧 .ant-* 覆盖）。
   个别需要保留的视觉微调改成 eview-react 类名（.ev_*）。
+  **CSS 色值规则**：原项目 CSS 里有写死色值（#fff 等）是允许的，忠实保留即可——
+  迁移时不要擅自改色值、也不要把写死色值改成 var()，保持与源项目一致。
 
   【明确跳过 §3.0 图标替换】——不要跑 match-icons.cjs、不要动 <Icon name=...> 调用点、
   不要改 icon import 路径。图标由阶段3专门处理。
 
-  跑 check-i18n-keys.cjs 验证：
+  跑步骤 3 全套验证脚本门禁（10 个脚本，对抗 AI 在长任务中遗忘 skill 硬约束）：
   node <eview-skill>/scripts/check-i18n-keys.cjs {SRC}-eview-react
+  node <eview-skill>/scripts/check-imports.cjs {SRC}-eview-react          （硬 FAIL，exit≠0 即 FAIL）
+  node <eview-skill>/scripts/check-chart-options.cjs {SRC}-eview-react    （硬 FAIL + advisory）
+  node <eview-skill>/scripts/check-table-defaults.cjs {SRC}-eview-react   （advisory，待核项写入 tableDefaultReviews）
+  node <eview-skill>/scripts/check-provider.cjs {SRC}-eview-react         （硬 FAIL）
+  node <eview-skill>/scripts/check-css.cjs {SRC}-eview-react              （advisory，色值漂移对照源快照 + ev_ 类名）
+  node <eview-skill>/scripts/check-token-drift.cjs {SRC}-eview-react      （token 值漂移硬 FAIL + advisory）
+  node <eview-skill>/scripts/check-props-preserved.cjs {SRC}-eview-react  （advisory，包壳组件 style/className 保留对照源快照）
+  node <eview-skill>/scripts/check-steps-defaults.cjs {SRC}-eview-react   （advisory，Steps labelPlacement）
+  node <eview-skill>/scripts/check-dark-mode.cjs {SRC}-eview-react        （硬 FAIL，黑白主题双轨切换）
+  硬 FAIL 脚本（imports/chart-options/provider/token-drift值漂移/dark-mode）exit≠0 即 FAIL；
+  advisory 脚本（i18n-keys/table-defaults/css/token-drift引用/props-preserved/steps）exit=0 但有待核项时，
+  须在 .migration-result.json 的对应 reviews 数组逐条回应，未逐条回应视同 FAIL。
+  check-token-drift/check-props-preserved/check-css 依赖 .umd-conversion.json 的
+  sourceCssTokens/inputPropCallSites/sourceCssColors（由阶段0 extract-umd.cjs 生成）。
+  详见 <eview-skill>/references/migration-workflow.md §4.13 验证。
 
   grep 确认业务组件 CSS 无 .ant- 残留：
   grep -rl "\.ant-" {SRC}-eview-react/src/components/ {SRC}-eview-react/src/views/
   输出应为空；非空则回炉清理
 
-  写 .migration-result.json：
-  { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "checks": { "relative-imports": "PASS(skip)", "i18n-keys": "PASS"/"FAIL", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" } }
+  写 .migration-result.json（结构详见 §4.13，至少含以下字段）：
+  { "status": "PASS"/"FAIL", "round": 1, "failures": [...],
+    "checks": { "relative-imports": "PASS(skip)", "i18n-keys": "PASS"/"FAIL", "imports": "PASS"/"FAIL",
+      "chart-options": "PASS"/"FAIL"/"ADVISORY", "table-defaults": "PASS"/"FAIL", "provider": "PASS"/"FAIL",
+      "css": "PASS"/"FAIL", "token-drift": "PASS"/"FAIL", "props-preserved": "PASS"/"FAIL",
+      "steps-defaults": "PASS"/"FAIL", "dark-mode": "PASS"/"FAIL", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" },
+    "tableDefaultReviews": [...], "cssReviews": [...], "tokenDriftReviews": [...],
+    "propsPreservedReviews": [...], "stepsReviews": [...] }
 
 
 如果当前子agent没有完成任务（如超时、上下文不足等），可以再派生一个子 agent 继续处理。
@@ -158,12 +181,20 @@
    grep -rn "assets/shared/ip-input" {SRC}-eview-react/src/  ← IPInput 手写件残留
    grep -rn "\./assets/uploads/" {SRC}-eview-react/src/      ← 旧图片路径残留
 
-3. 结构完整性：
+3. 验证门禁确认（读 .migration-result.json 的 checks，确认硬 FAIL 项全过）：
+   - dark-mode: PASS（黑白主题双轨切换完整——html.dark + body.aui3_1_dark + aui3_1_dark.css import）
+   - imports: PASS（无残留 from 'antd' / RadioGroup 套错包 / 包壳组件错路径）
+   - provider: PASS（IntlProvider 在 main.jsx、locale=zh）
+   - token-drift: PASS（token 定义值与源一致）
+   - chart-options: PASS/ADVISORY（图表 option 含 a2ui+theme）
+   若 dark-mode/token-drift 等硬 FAIL 项不是 PASS，回阶段2 修复后重验
+
+4. 结构完整性：
    - 关键文件存在：src/main.jsx / src/app.jsx / package.json / vite.config.js / index.html
    - CSS 四层：src/styles/{base,light,theme,dark}.css 齐全
    - public/uploads/ 有文件（仅当 .umd-conversion.json 的 uploadsAssets.copiedCount > 0）
 
-4. 向用户汇总：
+5. 向用户汇总：
    - 各阶段状态（PASS/FAIL）
    - 改了哪些文件（按阶段汇总数量）
    - 残留问题（如有 grep 命中，列出文件:行号:内容）
@@ -176,10 +207,16 @@
 - 阶段0 由主 agent 直接跑脚本（init-scaffold/extract-umd/build-migration-plan），
   不派发子 agent——子 agent 不能再派子 agent，把脚本步从子 agent 剥出来减轻其上下文
 
-- 阶段4 终检也由主 agent 直接做（bash grep 扫 antd 痕迹残留 + 读 4 个交接文件状态 + 检查结构完整性），
+- 阶段4 终检也由主 agent 直接做（bash grep 扫 antd 痕迹残留 + 读 .migration-result.json 的 checks 确认硬 FAIL 项全过 + 读 4 个交接文件状态 + 检查结构完整性），
   不派子 agent
 
 - 阶段1 子 agent 只做搬代码+验证（Steps 3-4），不跑脚本(1-2)、不做评估(5)，
+
+- 阶段2 子 agent 跑步骤 3 全套 10 个验证脚本门禁（不是只跑 check-i18n-keys）——
+  硬 FAIL 脚本（imports/chart-options/provider/token-drift/dark-mode）exit≠0 即 FAIL，
+  advisory 脚本待核项须在 .migration-result.json 的对应 reviews 数组逐条回应。
+  dark-mode（黑白主题双轨）是新增硬 FAIL：html.dark + body.aui3_1_dark + aui3_1_dark.css import 三轨缺一即坏。
+  CSS 色值规则：源项目写死色值允许保留，但迁移不能擅自改色值（check-css 对照 sourceCssColors 快照检测漂移）。
 
 - 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
 
