@@ -616,9 +616,9 @@ describe("portable session", () => {
       await AppRuntime.runPromise(importPortableSession(archive.output, scope))
       await Bun.write(path.join(target.path, "资料", "说明.txt"), "existing file")
       const count = (await runSession((svc) => svc.list({ directory: target.path }))).length
-      await expect(AppRuntime.runPromise(importPortableSession(archive.output, scope))).rejects.toThrow("共享文件已存在且内容不同")
+      await expect(AppRuntime.runPromise(importPortableSession(archive.output, scope))).resolves.toMatchObject({ sessions: 1 })
       expect(await Bun.file(path.join(target.path, "资料", "说明.txt")).text()).toBe("existing file")
-      expect((await runSession((svc) => svc.list({ directory: target.path }))).length).toBe(count)
+      expect((await runSession((svc) => svc.list({ directory: target.path }))).length).toBe(count + 1)
     } })
   })
 
@@ -700,7 +700,7 @@ describe("portable session", () => {
     expect(await Bun.file(path.join(target.path, "other-session.html")).text()).toBe("unrelated shared artifact")
   })
 
-  test("rejects conflicting or symlinked shared paths without overwriting existing files", async () => {
+  test("skips conflicting or symlinked shared paths without interrupting import", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
     await using outside = await tmpdir()
@@ -722,9 +722,7 @@ describe("portable session", () => {
     await provideTestInstance({
       directory: target.path,
       fn: async () => {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).rejects.toThrow(
-          "共享文件已存在且内容不同",
-        )
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).resolves.toMatchObject({ sessions: 1 })
         expect(await Bun.file(path.join(target.path, "assets/index.html")).text()).toBe("existing artifact")
       },
     })
@@ -732,7 +730,7 @@ describe("portable session", () => {
     await provideTestInstance({
       directory: outside.path,
       fn: async () => {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).rejects.toThrow("符号链接")
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).resolves.toMatchObject({ sessions: 1 })
         expect(await Bun.file(path.join(outside.path, "index.html")).exists()).toBe(false)
       },
     })
