@@ -415,7 +415,7 @@ for (const repaired of [true, false]) {
     provideTmpdirServer(({ llm }) => Effect.gen(function* () {
       const nested = JSON.stringify({ expandedPrompt: JSON.parse(output) })
       yield* llm.text(nested)
-      yield* llm.text(repaired ? "<expandedPrompt>雨后城市的霓虹街景。</expandedPrompt>\n<tags>场景：城市\n天气：雨后\n光线：霓虹</tags>" : nested)
+      yield* llm.text(repaired ? "<expandedPrompt>雨后城市的霓虹街景。</expandedPrompt><tags>场景：城市</tags><tags>天气：雨后</tags><tags>光线：霓虹</tags>" : nested)
       const instance = yield* InstanceState.context
       yield* Effect.promise(() => Instance.restore(instance, async () => {
         const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
@@ -431,7 +431,7 @@ for (const repaired of [true, false]) {
       const inputs = yield* llm.inputs
       expect(inputs).toHaveLength(2)
       expect(JSON.stringify(inputs[0])).toContain("将中文扩写正文放在 <expandedPrompt> 与 </expandedPrompt> 之间")
-      expect(JSON.stringify(inputs[1])).toContain("每行一个")
+      expect(JSON.stringify(inputs[1])).toContain("每对同级 <tags>")
       expect(inputs[1]).toMatchObject({ messages: expect.arrayContaining([
         expect.objectContaining({ role: "assistant", content: nested }),
         expect.objectContaining({ role: "user", content: expect.stringContaining("正文不是字符串，仍使用了对象或数组包装") }),
@@ -442,6 +442,9 @@ for (const repaired of [true, false]) {
 
 for (const sample of [
   { text: "雨后的城市街道。", tags: [] },
+  { text: "<expandedPrompt>expandedPrompt>雨后的城市街道。 expandedPrompt></expandedPrompt><tags>场景：城市</tags><tags>场景：街道</tags><tags>主体：少女主体：少女</tags><tags>天气：雨后</tags>", tags: ["场景：城市", "天气：雨后"] },
+  { text: "<expandedPrompt><expandedPrompt>雨后的城市街道。</expandedPrompt></expandedPrompt><tags><tags>场景：城市</tags></tags><tags>天气：雨后</tags><tags>坏：未完成", tags: ["天气：雨后"] },
+  { text: "<expandedPrompt>expandedPrompt>雨后的城市街道。<expandedPrompt></expandedPrompt>", tags: [] },
   { text: "<expandedPrompt>雨后的城市街道。", tags: [] },
   { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags", tags: [] },
   { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>无效标签\n风格：科幻:未来", tags: [] },

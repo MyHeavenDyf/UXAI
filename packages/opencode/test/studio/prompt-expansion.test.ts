@@ -42,13 +42,41 @@ describe("Studio expansion output", () => {
       expect(() => parseExpansion(text)).toThrow()
   })
   test("missing, empty or malformed tags never discard a clearly delimited body", () => {
-    for (const suffix of ["", "<tags></tags>", "<tags", "<tagsx>损坏标签", '<tags>"tags": ["风格tags":["风格：科幻"]', "<tags>无效标签\n风格：科幻:未来\n场景：\u200b", "<tags>场景：城市</tags><tags>天气：雨后</tags>"])
+    for (const suffix of ["", "<tags></tags>", "<tags", "<tagsx>损坏标签", '<tags>"tags": ["风格tags":["风格：科幻"]', "<tags>无效标签\n风格：科幻:未来\n场景：\u200b"])
       expect(parseExpansion(`<expandedPrompt>${output.expandedPrompt}</expandedPrompt>${suffix}`)).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
     expect(parseExpansion(`<expandedPrompt>${output.expandedPrompt}</expandedPrompt><tags>场景：城市`))
-      .toEqual({ expandedPrompt: output.expandedPrompt, tags: ["场景：城市"] })
+      .toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
     for (const tags of [undefined, null, {}, "场景：城市", []])
       expect(validateExpansion({ expandedPrompt: output.expandedPrompt, tags })).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
     expect(parseExpansion(JSON.stringify({ expandedPrompt: output.expandedPrompt }))).toEqual({ expandedPrompt: output.expandedPrompt, tags: [] })
+  })
+  test("recovers repeated body wrappers and boundary fragments before validation", () => {
+    const body = "樱花林荫道中的少女，日系动漫风格……"
+    for (const text of [
+      `<expandedPrompt>expandedPrompt>${body} expandedPrompt></expandedPrompt>`,
+      `<expandedPrompt><expandedPrompt>${body}</expandedPrompt></expandedPrompt>`,
+      `<expandedPrompt>expandedPrompt>${body}<expandedPrompt></expandedPrompt>`,
+      `<expandedPrompt>${body}</expandedPrompt></expandedPrompt>`,
+      `<expandedPrompt>${body}</expandedPrompt><expandedPrompt>${body}</expandedPrompt>`,
+      `<expandedPrompt><expandedPrompt>${body}<tags>风格：日系动漫</tags>`,
+    ]) expect(parseExpansion(text).expandedPrompt).toBe(body)
+    expect(parseExpansion(`<expandedPrompt>expandedPrompt>${"图".repeat(1000)} expandedPrompt></expandedPrompt>`).expandedPrompt)
+      .toBe("图".repeat(1000))
+    expect(() => parseExpansion(`<expandedPrompt>expandedPrompt>${"图".repeat(1001)} expandedPrompt></expandedPrompt>`)).toThrow()
+    expect(parseExpansion("<expandedPrompt>招牌写着 expandedPrompt>，少女站在树下。</expandedPrompt>").expandedPrompt)
+      .toBe("招牌写着 expandedPrompt>，少女站在树下。")
+    expect(() => parseExpansion("<expandedPrompt>城市</expandedPrompt><expandedPrompt>雨景</expandedPrompt>")).toThrow()
+  })
+  test("extracts sibling tag items without newlines and discards malformed items independently", () => {
+    const prefix = "<expandedPrompt>樱花林荫道中的少女。</expandedPrompt>"
+    const items = "<tags>风格：日系动漫</tags><tags>：日系动漫</tags><tags>主体：美少女主体：美少女</tags><tags>场景：樱花</tags><tags>场景：樱花林荫道</tags><tags>林荫道</tags>"
+    expect(parseExpansion(prefix + items).tags).toEqual(["风格：日系动漫", "场景：樱花"])
+    expect(parseExpansion(prefix + "<tags>风格：日系动漫</tags><tags><tags>坏：嵌套</tags></tags><tags>主体：美少女</tags><tags>场景：樱花").tags)
+      .toEqual(["风格：日系动漫", "主体：美少女"])
+    expect(parseExpansion(prefix + "<tags>场景：樱花</tags><tags>场景：樱花林荫道</tags><tags>天气：晴天</tags>").tags)
+      .toEqual(["场景：樱花", "天气：晴天"])
+    expect(parseExpansion(prefix + "<tags>场景：樱花<expandedPrompt></expandedPrompt><tags>天气：晴天</tags>").tags)
+      .toEqual(["天气：晴天"])
   })
   test("normalizes, filters and deduplicates tags in source order, keeping at most five", () => {
     expect(validateExpansion({ ...output, tags: ["场景 : 城市", "角色：👩‍🚀", "光线：霓虹"] }).tags[0]).toBe("场景：城市")
@@ -60,7 +88,7 @@ describe("Studio expansion output", () => {
       .toEqual(["风格：科幻", "風格：写实", "ＦＯＯ：城市"])
   })
   test("rejects empty or oversized bodies and broken or nested body tags", () => {
-    for (const text of ["", " \n", "\u200b", "<tags>场景：城市</tags>", "<expandedPrompt></expandedPrompt>", "<expandedPrompt>城市<expandedPrompt>雨景</expandedPrompt>", "<expandedPrompt 城市", "城市</expandedPrompt>", "图".repeat(1001)])
+    for (const text of ["", " \n", "\u200b", "<tags>场景：城市</tags>", "<expandedPrompt></expandedPrompt>", "<expandedPrompt 城市", "城市</expandedPrompt>", "图".repeat(1001)])
       expect(() => parseExpansion(text)).toThrow()
     expect(parseExpansion("😀".repeat(1000)).expandedPrompt).toBe("😀".repeat(1000))
     expect(() => parseExpansion("😀".repeat(1001))).toThrow()
