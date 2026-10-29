@@ -544,7 +544,10 @@ registerIpcHandlers({
     cancelLogin()
     return true
   },
-  stopTokenExpirationCheck,
+  stopTokenExpirationCheck: () => {
+    stopTokenExpirationCheck()
+    stopTokenRefresh()
+  },
   checkAuthReady: () => {
     if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve({ loginRequired: false })
     return checkAuthOnStartup(mainWindow).catch((error) => {
