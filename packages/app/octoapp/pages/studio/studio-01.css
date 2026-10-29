@@ -632,6 +632,19 @@
 
 .studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
 .studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
+.studio-prompt-expansion-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-height: 500px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  padding-right: 8px;
+}
+.studio-prompt-expansion-preview > [data-component] { flex-shrink: 0; }
 .studio-prompt-expansion-review {
   display: flex;
   flex-direction: column;

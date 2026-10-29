@@ -49,10 +49,12 @@ function PreviewStream(props: { part: PreviewPart }) {
 
 export function StudioPromptExpansionPreview(props: { parts?: PreviewPart[]; status: string }) {
   return (
-    <Show when={props.status === "running"}>
-      <For each={props.parts?.filter((part) => part.text.trim())}>
-        {(part) => <PreviewStream part={part} />}
-      </For>
+    <Show when={props.status === "running" && props.parts?.some((part) => part.text.trim())}>
+      <div class="studio-prompt-expansion-preview" role="region" aria-label="提示词扩写过程" tabIndex={0}>
+        <For each={props.parts?.filter((part) => part.text.trim())}>
+          {(part) => <PreviewStream part={part} />}
+        </For>
+      </div>
     </Show>
   )
 }
