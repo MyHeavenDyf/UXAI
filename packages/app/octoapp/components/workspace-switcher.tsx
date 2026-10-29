@@ -35,6 +35,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 
   const GAP = 4
   const BOUNDARY_MARGIN = 8
+  // 对应 CSS .octo-ws-menu { width: 280px; max-height: 300px }，仅在 panelRef 未就绪时兜底
+  const FALLBACK_HEIGHT = 300
+  const FALLBACK_WIDTH = 280
 
   const projects = createMemo(() => layout.projects.list())
 
@@ -77,12 +80,12 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     if (!triggerRef) return
     const rect = triggerRef.getBoundingClientRect()
     const panelRect = panelRef?.getBoundingClientRect()
-    const panelHeight = panelRect?.height ?? 300
-    const panelWidth = panelRect?.width ?? 280
+    const panelHeight = panelRect?.height ?? FALLBACK_HEIGHT
+    const panelWidth = panelRect?.width ?? FALLBACK_WIDTH
     const spaceBelow = window.innerHeight - rect.bottom - BOUNDARY_MARGIN
     const spaceAbove = rect.top - BOUNDARY_MARGIN
     const flipUp = spaceBelow < panelHeight + GAP && spaceAbove >= spaceBelow
-    const top = flipUp ? rect.top - panelHeight - GAP : rect.bottom + GAP
+    const top = flipUp ? Math.max(rect.top - panelHeight - GAP, BOUNDARY_MARGIN) : rect.bottom + GAP
     const maxLeft = window.innerWidth - panelWidth - BOUNDARY_MARGIN
     const left = maxLeft < BOUNDARY_MARGIN ? 0 : Math.min(rect.left, maxLeft)
     setPos({ top, left })
@@ -91,18 +94,22 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   createEffect(() => {
     if (!open()) return
     reposition()
+    const onScroll = (e: Event) => {
+      if (panelRef?.contains(e.target as Node)) return
+      reposition()
+    }
     window.addEventListener("resize", reposition)
-    window.addEventListener("scroll", reposition, true)
+    window.addEventListener("scroll", onScroll, true)
     onCleanup(() => {
       window.removeEventListener("resize", reposition)
-      window.removeEventListener("scroll", reposition, true)
+      window.removeEventListener("scroll", onScroll, true)
     })
   })
 
   createEffect(
     on(projects, () => {
       if (!open()) return
-      requestAnimationFrame(reposition)
+      reposition()
     }),
   )
 
