@@ -13,14 +13,14 @@ const [noticeDismissed, setNoticeDismissed] = createSignal(false)
 const [noticeLimitBytes, setNoticeLimitBytes] = createSignal(1024 * 1024)
 
 /** 压缩并驱动提示条(计数/关闭态/上限文案全自动);成功后的「已自动压缩」浮层提示也统一在此发出。
- *  压不动返回 null 由调用方回退原报错。 */
-export async function compressImageWithNotice(file: File, maxSizeBytes: number, opts?: { webp?: boolean }): Promise<File | null> {
+ *  产物保持原格式(png/jpg/jpeg/webp)。压不动返回 null 由调用方回退原报错。 */
+export async function compressImageWithNotice(file: File, maxSizeBytes: number): Promise<File | null> {
   if (compressingCount() === 0) {
     setNoticeDismissed(false)
     setNoticeLimitBytes(maxSizeBytes)
   }
   setCompressingCount((n) => n + 1)
-  const compressed = await compressImageFile(file, maxSizeBytes, opts)
+  const compressed = await compressImageFile(file, maxSizeBytes)
   setCompressingCount((n) => Math.max(0, n - 1))
   if (compressed) {
     showFloatingNotice("success", `图片已自动压缩：${(file.size / 1024 / 1024).toFixed(1)}MB → ${(compressed.size / 1024 / 1024).toFixed(1)}MB`)

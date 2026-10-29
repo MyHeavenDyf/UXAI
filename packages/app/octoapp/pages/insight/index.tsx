@@ -2146,14 +2146,14 @@ function InsightContent() {
       //   objectURL 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染)。
       // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
       const image = isImageFile(file.name)
-      // 超限图片静默压缩(对齐 design 页):上限统一 1MB(内外网一致);外网产物限 jpg(webp 不在其白名单);
+      // 超限图片静默压缩(对齐 design 页):上限统一 1MB(内外网一致),产物保持原格式;
       // 先挂 uploading chip,压缩成功更新元数据再导入;GIF/压不动回退超限报错。previewUrl 用原图,压缩不影响缩略图。
       if (image && file.size > INSIGHT_IMAGE_MAX) {
         setAttachments((prev) => [
           ...prev,
           { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl: URL.createObjectURL(rawFile) },
         ])
-        void compressOversizedImage(id, rawFile, INSIGHT_IMAGE_MAX, !isExternal)
+        void compressOversizedImage(id, rawFile, INSIGHT_IMAGE_MAX)
         continue
       }
       filesById.set(id, rawFile)
@@ -2170,9 +2170,9 @@ function InsightContent() {
   }
 
   /** 超限图片压缩导入(对齐 design 页):计数驱动输入框上方提示,压缩产物回写 filesById 供 retryUpload 复用。
-   *  maxSizeBytes 为目标上限(当前统一 1MB);webp=false 时产物限 jpg(外网白名单无 webp)。 */
-  async function compressOversizedImage(id: string, rawFile: File, maxSizeBytes: number, webp: boolean) {
-    const compressed = await compressImageWithNotice(rawFile, maxSizeBytes, { webp })
+   *  maxSizeBytes 为目标上限(当前统一 1MB);产物保持原格式,外网白名单(png/jpg/jpeg)天然兼容。 */
+  async function compressOversizedImage(id: string, rawFile: File, maxSizeBytes: number) {
+    const compressed = await compressImageWithNotice(rawFile, maxSizeBytes)
     if (!compressed) {
       setAttachments((prev) => prev.map((a) => a.id === id
         ? { ...a, status: "error", error: `图片超过 ${Math.round(maxSizeBytes / 1024 / 1024)}MB 上限，请压缩后重新上传`, retriable: false }

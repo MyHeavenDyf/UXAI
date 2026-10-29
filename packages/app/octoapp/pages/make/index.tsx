@@ -4303,11 +4303,10 @@ const sessionMessagesLoaded = createMemo(() => {
     }])
 
     // 超限图片静默压缩(微信式):先挂 uploading chip 再压缩,期间有可见反馈;
-    // GIF/压不动返回 null 时回退原报错文案。上限统一 1MB(内外网一致);外网产物限 jpg(webp 不在其白名单)
-    const isExternal = !!local.model.current()?.isExternal
+    // GIF/压不动返回 null 时回退原报错文案。上限统一 1MB(内外网一致),产物保持原格式
     let uploadFile = file
     if (file.size > MAKE_IMAGE_MAX) {
-      const compressed = await compressImageWithNotice(file, MAKE_IMAGE_MAX, { webp: !isExternal })
+      const compressed = await compressImageWithNotice(file, MAKE_IMAGE_MAX)
       if (!compressed) {
         setAttachments(prev => prev.map(a =>
           a.id === id

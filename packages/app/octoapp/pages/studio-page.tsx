@@ -2287,7 +2287,7 @@ export default function StudioPage() {
     // 超限图片自动压缩(对齐 design/insight 上传链路,上限统一 1MB);压不动回退原报错
     let uploadFile = file
     if (file.size > 1024 * 1024) {
-      const compressed = await compressOversizedImage(file, 1024 * 1024, true)
+      const compressed = await compressOversizedImage(file, 1024 * 1024)
       if (!compressed) throw new Error("图片不能超过 1MB。")
       uploadFile = compressed
     }
@@ -2297,9 +2297,9 @@ export default function StudioPage() {
   }
 
   /** 超限图片自动压缩(对齐 design/insight 上传链路):压不动返回 null 由调用方回退原报错。
-   *  jimeng 产物限 jpg(webp 不在其白名单),其余工具 png→webp 保透明。 */
-  async function compressOversizedImage(file: File, maxSizeBytes: number, webp: boolean): Promise<File | null> {
-    const compressed = await compressImageWithNotice(file, maxSizeBytes, { webp })
+   *  产物保持原格式,各工具白名单(png/jpg/jpeg[/webp])天然兼容。 */
+  async function compressOversizedImage(file: File, maxSizeBytes: number): Promise<File | null> {
+    const compressed = await compressImageWithNotice(file, maxSizeBytes)
     if (!compressed) return null
     tracker.interaction({ module: "studio", name: "image-auto-compress", extend: JSON.stringify({ before: file.size, after: compressed.size, format: compressed.type }) })
     return compressed
@@ -2494,7 +2494,7 @@ export default function StudioPage() {
     const maxSize = 1024 * 1024
     const maxSizeLabel = "1MB"
     // 超限图片自动压缩(对齐 design/insight 上传链路);压不动回退原报错(整批拦截,与原语义一致)
-    const prepared = await Promise.all(selectedFiles.map((file) => file.size <= maxSize ? file : compressOversizedImage(file, maxSize, !isJimeng)))
+    const prepared = await Promise.all(selectedFiles.map((file) => file.size <= maxSize ? file : compressOversizedImage(file, maxSize)))
     if (prepared.some((file) => !file)) {
       showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
@@ -2579,7 +2579,7 @@ export default function StudioPage() {
     // 超限图片自动压缩(对齐 design/insight 上传链路);压不动回退原报错
     let uploadFile = file
     if (file.size > maxSize) {
-      const compressed = await compressOversizedImage(file, maxSize, !isJimeng)
+      const compressed = await compressOversizedImage(file, maxSize)
       if (!compressed) {
         showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
         return
