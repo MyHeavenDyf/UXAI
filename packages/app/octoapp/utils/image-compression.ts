@@ -2,9 +2,11 @@
 // 长边按 ≈0.8 步进逐档下探(4096→…→1024,首档不放大、取原图尺寸),每档只降质量到 0.75——清晰度优先,
 // 完整质量阶梯(0.85→0.45)仅在最后一档兜底,避免大图被压到 1024@0.45 的糊状观感。
 // 缩放走逐级减半采样(每步 ≤0.5 + imageSmoothingQuality high),大比例一步缩放会明显丢细节。
-// 产物保持原格式:png→png(无损,quality 被 toBlob 忽略,只靠降尺寸)、jpg/jpeg→jpeg、webp→webp;
-// 白名单外格式(如 bmp)统一 jpeg。扩展名随实际字节同步,避免 mime 错配(见 upload.ts IMAGE_MIME 注)。
-// 返回 null:GIF(canvas 会丢动画)、解码失败、到最后一档且质量 0.45 仍超限——由调用方回退超限报错。
+// 产物保持原格式:png→png、jpg/jpeg→jpeg、webp→webp;白名单外格式(如 bmp)统一 jpeg。
+// 扩展名随实际字节同步,避免 mime 错配(见 upload.ts IMAGE_MIME 注)。
+// PNG 无损:quality 被 toBlob 忽略,靠降尺寸 + 降色深(5→4→3 bit 颜色量化)减少唯一颜色数提升 DEFLATE 压缩率;
+// 额外追加小尺寸档位(960/768/512)兜底高细节小图,全程不改格式。
+// 返回 null:GIF(canvas 会丢动画)、解码失败、所有尺寸档位+色深档位仍超限——由调用方回退超限报错。
 export async function compressImageFile(file: File, maxSizeBytes: number): Promise<File | null> {
   if (file.size <= maxSizeBytes) return file
   const dot = file.name.lastIndexOf(".")
@@ -19,20 +21,37 @@ export async function compressImageFile(file: File, maxSizeBytes: number): Promi
   }
   const format = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg"
   const maxEdge = Math.max(bitmap.width, bitmap.height)
-  // 逐档下探的长边序列:上限不超原图(不放大重采样);小图(<1024)只留原始尺寸一档,靠质量兜底
-  const levels = Array.from(new Set([4096, 3200, 2560, 2048, 1600, 1280, 1024].map((level) => Math.min(level, maxEdge))))
+  // PNG 无损只能靠降尺寸:额外追加小尺寸档位(960/768/512)兜底高细节小图
+  const baseLevels = [4096, 3200, 2560, 2048, 1600, 1280, 1024]
+  const allLevels = format === "image/png" ? [...baseLevels, 960, 768, 512] : baseLevels
+  const levels = Array.from(new Set(allLevels.map((level) => Math.min(level, maxEdge))))
   let compressed: Blob | null = null
 
   for (const [index, level] of levels.entries()) {
     const canvas = drawProgressively(bitmap, level)
-    const qualities = format === "image/png" ? [undefined]
-      : index === levels.length - 1 ? [0.85, 0.75, 0.65, 0.55, 0.45]
-      : [0.85, 0.75]
-    for (const quality of qualities) {
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, format, quality))
+    const isLast = index === levels.length - 1
+    if (format === "image/png") {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"))
       if (blob && blob.size <= maxSizeBytes) {
         compressed = blob
-        break
+      } else if (blob && blob.size <= maxSizeBytes * 3) {
+        for (const bits of [5, 4, 3]) {
+          quantizeColors(canvas, bits)
+          const qBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"))
+          if (qBlob && qBlob.size <= maxSizeBytes) {
+            compressed = qBlob
+            break
+          }
+        }
+      }
+    } else {
+      const qualities = isLast ? [0.85, 0.75, 0.65, 0.55, 0.45] : [0.85, 0.75]
+      for (const quality of qualities) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, format, quality))
+        if (blob && blob.size <= maxSizeBytes) {
+          compressed = blob
+          break
+        }
       }
     }
     if (compressed) break
@@ -70,4 +89,18 @@ function drawProgressively(bitmap: ImageBitmap, longEdge: number): HTMLCanvasEle
   context.imageSmoothingQuality = "high"
   context.drawImage(source, 0, 0, canvas.width, canvas.height)
   return canvas
+}
+
+/** 降低 canvas RGB 色深(按位掩码截断每通道,alpha 不变),减少唯一颜色数以提升 PNG 无损编码压缩率。 */
+function quantizeColors(canvas: HTMLCanvasElement, bits: number): void {
+  const context = canvas.getContext("2d")!
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  const mask = (0xff << (8 - bits)) & 0xff
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] &= mask
+    data[i + 1] &= mask
+    data[i + 2] &= mask
+  }
+  context.putImageData(imageData, 0, 0)
 }
