@@ -2,12 +2,12 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
-import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
+import { type PanelSkill, type SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
@@ -45,6 +45,7 @@ import {
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
+import { compressImageWithNotice, ImageCompressNotice } from "@/components/image-compress-notice"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -78,7 +79,7 @@ import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, getExt } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isBlockedLocalFile, isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
@@ -111,6 +112,7 @@ import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { processMentions } from "./utils/mention-processor"
+import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -138,8 +140,9 @@ import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, 
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
-// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
-const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
+// 2026-10 起图片上限统一 1MB,超过即自动压缩(见 addImageAttachment / utils/image-compression)
+const MAKE_IMAGE_MAX = 1024 * 1024
 
 // 本地文件读入 tab content 的字节上限(与 result-viewer/text-renderer.tsx 的 MAX_PREVIEW_BYTES 同值):
 // 超过此规模的文本不做 decode/渲染,防止巨型文件撑爆 store 与渲染器
@@ -1024,14 +1027,16 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
         const toolName = props?.tool as string | undefined
+        const input = (props?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
         if (callID && toolName) {
-          toolCallMap.set(callID, toolName)
+          toolCallMap.set(callID, { tool: toolName, path: toolPath })
         }
       } else if (e.type === "session.next.tool.success") {
         const callID = props?.callID as string | undefined
         if (callID) {
-          const toolName = toolCallMap.get(callID)
-          if (toolName) {
+          const entry = toolCallMap.get(callID)
+          if (entry) {
             setFilesRefreshKey(k => k + 1)
             void historyController.onFileRefresh(tabStore.tabs())
             toolCallMap.delete(callID)
@@ -1052,9 +1057,82 @@ const sessionMessagesLoaded = createMemo(() => {
         void historyController.onFileRefresh(tabStore.tabs())
       } else if (e.type === "session.compaction.estimated") {
         setCompactedContextEstimate(e.properties)
+      } else if (e.type === "session.error") {
+        // 异步生成阶段错误（如 Model not found）：prompt HTTP 已 resolve、sendMessage 的 catch 不触发，
+        // 不 toast 的话页内零反馈（仅有全局通知中心的系统级通知）
+        const error = props?.error as { data?: { message?: string } } | string | undefined
+        const description = typeof error === "string"
+          ? error
+          : (error?.data?.message ?? "生成失败，请查看控制台")
+        showOctoToast({ title: "生成失败", description, variant: "error" })
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
+      }
+    })
+    onCleanup(unsub)
+  })
+
+  // ── 全局 SSE 监听器：版本基线记录（与当前视图无关）──
+  // 上面的监听器是 session 作用域（params.id 变化即重订阅，非当前 session 的事件被过滤）——
+  // 用户在模型回复中切走 session 会让该轮的伪 tab 基线（init/agent 版本）永久丢失。
+  // 伪 tab 记录（recordArtifactInit / recordToolVersionsAfter）只依赖文件路径、不碰视图状态，
+  // 挪到这里（mount 时订阅一次、不随 session 切换重订阅）即可切走也不丢基线。
+  // code 模式 html 产物的 tab 打开推迟到 session.idle（回复完成）：正在看该 session 才开，
+  // 切走了直接丢弃（基线已记录，用户可从文件面板手动打开）。
+  const globalToolCallMap = new Map<string, { tool: string; path?: string }>()
+  const pendingCodeArtifactTabs = new Map<string, Set<string>>()
+  createEffect(() => {
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = props?.sessionID as string | undefined
+      if (!eventSessionID) return
+
+      if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        const input = (props?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
+        if (callID && toolName) {
+          globalToolCallMap.set(callID, { tool: toolName, path: toolPath })
+        }
+        // 写前基线（outputs 域 + code 模式 html 产物）：编辑场景在写盘前抢记 init = 修改前内容；
+        // 新建文件此时不存在 → recordVersion 落空（success 后由 recordToolVersionsAfter 补 init）
+        if (toolName && toolPath && isOutputsWriteTool(toolName, toolPath, eventSessionID)) {
+          recordArtifactInit(toolPath)
+        }
+        if (toolName && toolPath && isCodeHtmlArtifactWrite(toolName, toolPath)) {
+          recordArtifactInit(toolPath)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (!callID) return
+        const entry = globalToolCallMap.get(callID)
+        globalToolCallMap.delete(callID)
+        if (!entry?.path) return
+        if (isOutputsWriteTool(entry.tool, entry.path, eventSessionID)) {
+          void recordToolVersionsAfter(entry.path)
+        }
+        if (isCodeHtmlArtifactWrite(entry.tool, entry.path)) {
+          void recordToolVersionsAfter(entry.path)
+          // 累积到该 session 的待开列表，idle（回复完成）时统一打开
+          const set = pendingCodeArtifactTabs.get(eventSessionID) ?? new Set<string>()
+          set.add(entry.path)
+          pendingCodeArtifactTabs.set(eventSessionID, set)
+        }
+      } else if (e.type === "session.idle") {
+        const paths = pendingCodeArtifactTabs.get(eventSessionID)
+        pendingCodeArtifactTabs.delete(eventSessionID)
+        if (!paths || paths.size === 0) return
+        // 切走的 session：tab 直接丢弃（基线已记录，不补开）
+        if (params.id !== eventSessionID) return
+        for (const path of paths) {
+          const normalized = path.replace(/\\/g, "/")
+          // 过滤用户中途手动打开的 tab（避免无谓激活）
+          if (tabStore.tabs().some((t) => t.filePath && t.filePath.replace(/\\/g, "/") === normalized)) continue
+          handleOpenLocalFile(path)
+        }
       }
     })
     onCleanup(unsub)
@@ -1064,7 +1142,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planChildSessionIDs, setPlanChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
-  const toolCallMap = new Map<string, string>()
+  const toolCallMap = new Map<string, { tool: string; path?: string }>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -1348,10 +1426,20 @@ const sessionMessagesLoaded = createMemo(() => {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
-    return sortMessages(allMsgs)
+    const sorted = sortMessages(allMsgs)
+    // 回退指针：id >= revert.messageID 的消息（含被回退轮次）不再渲染；发新消息时 server cleanup 会物理删除
+    const revertID = sync.session.get(sid)?.revert?.messageID
+    return revertID ? sorted.filter((m) => m.id < revertID) : sorted
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
+
+  // 最后一条可回退的用户消息（主会话、未被回退过滤）——回退按钮只显示在这一条上
+  const lastMainMessageID = createMemo(() => {
+    const sid = params.id
+    if (!sid) return undefined
+    return userMessages().filter((m) => (m.sessionID ?? sid) === sid).at(-1)?.id
+  })
 
   createEffect(
     on(
@@ -1942,6 +2030,229 @@ const sessionMessagesLoaded = createMemo(() => {
       setPromptDoc(doc)
     }
   }
+
+  // ── 对话回退（回退到本轮对话前）──
+  const [revertPanelID, setRevertPanelID] = createSignal<string | null>(null)
+  const [pendingNewChatAttachments, setPendingNewChatAttachments] = createSignal<Attachment[] | null>(null)
+
+  createEffect(on(() => params.id, (id) => {
+    if (id) return
+    const pending = pendingNewChatAttachments()
+    console.log("[octo:make] pending-attachments effect", { id, pending: pending?.length ?? null, current: attachments().length })
+    if (!pending) return
+    setPendingNewChatAttachments(null)
+    setAttachments(pending)
+  }, { defer: true }))
+
+  // chip 重建用的技能表：name = skillName（斜杠命令名），label = displayName（气泡里显示的 @label）
+  const revertSkills = createMemo(() => revertSkillsFromConfig(skillConfig()))
+
+  /** 回退公共执行段：server revert（消息移除 + .gitignore 外项目文件恢复）→ store 合并 →
+   *  前端文件恢复/.history 清理 → 打开 tab 刷新。返回重建草稿；busy/回退失败返回 null。回退与重新生成共用。 */
+  async function executeRevert(msg: Message): Promise<RevertDraft | null> {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return null
+    const draft = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+
+    const cutoff = (msg as UserMessage).time?.created ?? Date.now()
+    const mainMsgs = (sync.data.message?.[sid] ?? []) as Message[]
+    const currentRevertID = sync.session.get(sid)?.revert?.messageID
+    const liveMsgs = currentRevertID ? mainMsgs.filter((m) => m.id < currentRevertID) : mainMsgs
+    const startIdx = liveMsgs.findIndex((m) => m.id === msg.id)
+    const normalizePath = (p: string) => p.replace(/\\/g, "/")
+    const involved = new Set<string>()
+    for (let i = startIdx; i < liveMsgs.length; i++) {
+      for (const filePath of collectRevertedFiles(
+        (sync.data.part[liveMsgs[i]?.id] ?? []) as RevertDraftPart[],
+        { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
+      )) {
+        involved.add(normalizePath(filePath))
+      }
+    }
+
+    let revertResult: Awaited<ReturnType<typeof sdk.client.session.revert>>
+    try {
+      revertResult = await sdk.client.session.revert({
+        sessionID: sid,
+        messageID: msg.id,
+        directory: sdk.directory,
+      })
+    } catch (err) {
+      showOctoToast({ title: "回退失败", description: sessionErrorMessage(err, "请稍后重试"), variant: "error" })
+      return null
+    }
+    tracker.interaction({ module: "design", name: "revert-message" })
+    if (revertResult.data) {
+      sync.set(
+        produce((draftState) => {
+          const i = draftState.session.findIndex((s) => s.id === sid)
+          if (i !== -1) draftState.session[i] = revertResult.data
+        }),
+      )
+    }
+
+    const api = getDesktopApi()
+    if (api?.readFileBuffer) {
+      try {
+        // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
+        // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
+        for (const filePath of involved) {
+          const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
+          if (realTab) {
+            await historyController.restoreFilesBefore(realTab, cutoff)
+            continue
+          }
+          const buffer = await api.readFileBuffer(filePath)
+          const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+          const pseudoTab: ResultTab = {
+            id: `revert-${filePath}`,
+            title: fileName,
+            type: "html",
+            subtype: extractSubtypeFromFilename(fileName),
+            content: buffer ? new TextDecoder().decode(buffer) : "",
+            filePath,
+            createdAt: new Date(),
+          }
+          await historyController.restoreFilesBefore(pseudoTab, cutoff)
+        }
+        for (const filePath of involved) {
+          await historyController.removeVersionsAfter({ filePath }, cutoff)
+        }
+        for (const tab of [...tabStore.tabs()]) {
+          if (!tab.filePath || !involved.has(normalizePath(tab.filePath))) continue
+          const buffer = await api.readFileBuffer(tab.filePath)
+          if (!buffer) {
+            showOctoToast({ title: "该页面已随回退删除", description: tab.title })
+            handleCloseTab(tab.id)
+            continue
+          }
+          tabStore.updateTabContent(tab.id, new TextDecoder().decode(buffer))
+          await historyController.loadVersions(tab)
+        }
+        setFilesRefreshKey((k) => k + 1)
+      } catch (err) {
+        console.warn("[octo:make] revert file restore failed", err)
+      }
+    }
+
+    return draft
+  }
+
+  async function handleRevertToMessage(msg: Message) {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return
+
+    const isFirst = userMessages()[0]?.id === msg.id
+
+    if (isFirst) {
+      const draft = await executeRevert(msg)
+      if (!draft) return
+      console.log("[octo:make] first-message revert draft", {
+        attachments: draft.attachments.length,
+        parts: ((sync.data.part[msg.id] ?? []) as RevertDraftPart[]).map((p) => `${p.type}${p.synthetic ? "(synthetic)" : ""}`).join(","),
+      })
+      tracker.interaction({ module: "design", name: "revert-session-restart" })
+      const ok = await removeSession(sdk.client, sid)
+      if (!ok) return
+      sync.set(
+        produce((draftState) => {
+          const i = draftState.session.findIndex((s) => s.id === sid)
+          if (i !== -1) draftState.session.splice(i, 1)
+        }),
+      )
+      if (layout.lastSessionPerTab.make(sdk.directory) === sid) layout.lastSessionPerTab.setMake(sdk.directory, "")
+      localStorage.removeItem(PROMPT_KEY_PREFIX + sid)
+      saveDocJSONToStorage(undefined, draft.docJSON)
+      setPendingNewChatAttachments(draft.attachments.length > 0 ? draft.attachments : null)
+      setRevertPanelID(null)
+      navigate("/make", { replace: true })
+      showOctoToast({ title: "已回退并删除当前会话，消息已恢复到输入框" })
+      // 兜底：rAF 时序上晚于路由切换提交的全部 effect（含 :733 清空附件与上面的 pending effect），
+      // pending effect 因任何时序问题未消费时由此直接应用；两者幂等（都先置 null 再应用，先到先得）
+      requestAnimationFrame(() => {
+        const pending = pendingNewChatAttachments()
+        console.log("[octo:make] rAF fallback", { paramsId: params.id, pending: pending?.length ?? null, current: attachments().length })
+        if (params.id) return
+        if (!pending) return
+        setPendingNewChatAttachments(null)
+        setAttachments(pending)
+      })
+      // 500ms 终态：判定「应用后被清」vs「从未应用」vs「应用了但没渲染」
+      setTimeout(() => {
+        console.log("[octo:make] revert final state", {
+          paramsId: params.id,
+          attachments: attachments().length,
+          pendingLeft: pendingNewChatAttachments()?.length ?? null,
+        })
+      }, 500)
+      return
+    }
+
+    const draft = await executeRevert(msg)
+    if (!draft) return
+
+    const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
+    if (ref) ref.replaceDoc(draft.docJSON)
+    else setPromptDoc(draft.docJSON)
+    setAttachments(draft.attachments)
+    setRevertPanelID(null)
+    showOctoToast({ title: "已回退到此消息之前，消息已恢复到输入框" })
+  }
+
+
+  async function handleRegenerateMessage(msg: Message) {
+    const sid = params.id
+    if (!sid || effectiveBusy()) return
+
+    // 预构建草稿（纯函数）用于校验：附件-only 无文本的消息无法经 sendMessage 重发
+    const draft0 = buildRevertDraft((sync.data.part[msg.id] ?? []) as RevertDraftPart[], revertSkills())
+    const text = getDocTextWithMentions(docFromJSON(draft0.docJSON))
+    if (!text.trim()) {
+      showOctoToast({ title: "该消息没有文本内容，无法重新生成", variant: "warn" })
+      return
+    }
+
+    const original = (msg as UserMessage).model
+    const originalAvailable = !!original?.providerID && !!original?.modelID
+      && providers.all().some((p) => p.id === original!.providerID && !!p.models?.[original!.modelID])
+    if (!originalAvailable) {
+      showOctoToast({
+        title: "原消息的模型已不可用",
+        description: `将使用当前选择的模型重新生成`,
+      })
+      // 回退当前选择：图片附件需多模态模型，与手动发送一致自动切换
+      if (draft0.attachments.some((a) => a.mime?.startsWith("image/")) && !ensureMultimodalModel()) {
+        showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型后重试", variant: "error" })
+        return
+      }
+    }
+    const modelKey = originalAvailable && original
+      ? { providerID: original.providerID, modelID: original.modelID }
+      : activeModelKey()
+    if (!modelKey) {
+      showOctoToast({ title: "请先选择模型", variant: "warn" })
+      return
+    }
+
+    const draft = await executeRevert(msg)
+    if (!draft) return
+    tracker.interaction({ module: "design", name: "regenerate-message" })
+
+    const mentions = extractMentionsFromDoc(docFromJSON(draft.docJSON))
+    setAttachments(draft.attachments)
+    const ok = await sendMessage(sid, text, modelKey, mentions)
+    if (!ok) {
+      const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
+      if (ref) ref.replaceDoc(draft.docJSON)
+      else setPromptDoc(draft.docJSON)
+      setAttachments(draft.attachments)
+      return
+    }
+    proseMirrorRef1?.clear?.()
+    proseMirrorRef2?.clear?.()
+    setPrompt("")
+  }
+
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -1992,6 +2303,56 @@ const sessionMessagesLoaded = createMemo(() => {
     isActiveTab: (id) => tabStore.activeId() === id,
     isUserActionPending: () => userActionPending,
   })
+
+
+  function isOutputsWriteTool(toolName: string, filePath: string, sessionID: string): boolean {
+    const lower = toolName.toLowerCase()
+    if (!lower.includes("write") && !lower.includes("edit")) return false
+    return filePath.replace(/\\/g, "/").includes(`.octo/${sessionID}/outputs/`)
+  }
+
+  /** code 模式 html 产物判定：write/edit 工具 + 项目内 + .html 扩展（排除 .octo 内部目录）。
+   *  agent 在 code 模式按 [Workspace] 提示词直接写项目文件，html 页面是回退恢复的主要对象。
+   *  版本基线经全局 SSE 监听器记录（伪 tab init/agent）；tab 打开推迟到 session.idle（回复完成） */
+  function isCodeHtmlArtifactWrite(toolName: string, filePath: string): boolean {
+    if (!isProjectScope()) return false
+    const lower = toolName.toLowerCase()
+    if (!lower.includes("write") && !lower.includes("edit")) return false
+    const normalized = filePath.replace(/\\/g, "/")
+    if (!/\.html?$/i.test(normalized)) return false
+    if (normalized.includes("/.octo/")) return false
+    const dir = projectDir()?.replace(/\\/g, "/")
+    if (!dir) return false
+    return normalized.startsWith(dir.endsWith("/") ? dir : dir + "/")
+  }
+
+  function pseudoHistoryTab(filePath: string): ResultTab {
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    return {
+      id: `history-${filePath}`,
+      title: fileName,
+      type: "html",
+      subtype: extractSubtypeFromFilename(fileName),
+      content: "",
+      filePath,
+      createdAt: new Date(),
+    }
+  }
+
+  /** artifact 落盘 / 工具写前基线 → init（原始版本；已有历史则 controller 内部跳过） */
+  function recordArtifactInit(filePath: string) {
+    void historyController.recordInitIfNeeded(pseudoHistoryTab(filePath))
+  }
+
+  /** write-edit 工具落盘后（该文件无真实 tab 持有时）→ write 新建补 init + 记 agent（模型编辑）。
+   *  有真实 tab 时走既有 onFileRefresh 路径，避免同一次编辑记两份。 */
+  async function recordToolVersionsAfter(filePath: string) {
+    const normalized = filePath.replace(/\\/g, "/")
+    if (tabStore.tabs().some((t) => t.filePath && t.filePath.replace(/\\/g, "/") === normalized)) return
+    const tab = pseudoHistoryTab(filePath)
+    await historyController.recordInitIfNeeded(tab)
+    await historyController.recordAgentIfNeeded(tab)
+  }
 
   // 后台读盘比对的竞态守卫:激活已有 tab 后异步读盘期间,防止乱序完成 / 外部编辑导致旧内容覆盖新内容。
   const bgCompareGuard = createBgCompareGuard()
@@ -3576,7 +3937,10 @@ const sessionMessagesLoaded = createMemo(() => {
             cmdParts.push({
               type: "text",
               text: seg.args || " ",
-              metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
+              metadata: {
+                displayText: isFirstSkillCommand ? fullDisplayText : "",
+                command: seg.cmd,
+              }
             })
             isFirstSkillCommand = false
           }
@@ -4243,11 +4607,13 @@ const sessionMessagesLoaded = createMemo(() => {
   let fileInputRef!: HTMLInputElement
 
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
-    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;白名单内图片超 1MB 放行走自动压缩,
+    // 非图片与白名单外格式(含 gif/webp)仍按原校验拒绝并 toast 提示
     const isExternal = !!local.model.current()?.isExternal
     const accepted = isExternal
       ? files.filter((file) => {
-          const err = validateFileForExternal(file)
+          const compressible = file.size > MAKE_IMAGE_MAX && ["png", "jpg", "jpeg"].includes(getExt(file.name))
+          const err = compressible ? null : validateFileForExternal(file)
           if (err) {
             showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
             return false
@@ -4277,13 +4643,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   async function addImageAttachment(file: File) {
     const id = crypto.randomUUID()
-    const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
 
-    const imageErr = file.size > MAKE_IMAGE_MAX
-      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
-      : null
-    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    // validateFile 把 100MB 绝对上限/格式白名单/空文件挡在压缩之前;10MB 图片限制改走下方自动压缩
+    const validationErr = validateFile(file)
     if (validationErr) {
       setAttachments(prev => [...prev, {
         id, filename: file.name,
@@ -4297,10 +4660,33 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments(prev => [...prev, {
       id, filename: file.name,
       mime: file.type || imageMimeFor(file.name),
-      size: file.size, status: 'uploading', source: 'pending', previewUrl,
+      size: file.size, status: 'uploading', source: 'pending',
+      previewUrl: URL.createObjectURL(file),
     }])
 
-    void doImageImport(id, file, file.name)
+    // 超限图片静默压缩(微信式):先挂 uploading chip 再压缩,期间有可见反馈;
+    // GIF/压不动返回 null 时回退原报错文案。上限统一 1MB(内外网一致),产物保持原格式
+    let uploadFile = file
+    if (file.size > MAKE_IMAGE_MAX) {
+      const compressed = await compressImageWithNotice(file, MAKE_IMAGE_MAX)
+      if (!compressed) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id
+            ? { ...a, status: 'error', error: `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`, retriable: false }
+            : a
+        ))
+        return
+      }
+      uploadFile = compressed
+      // retryUpload 从 filesById 取文件,必须换成压缩产物,重试才不会拿原图再撞限制
+      filesById.set(id, compressed)
+      tracker.interaction({ module: "design", name: "image-auto-compress", extend: JSON.stringify({ before: file.size, after: compressed.size, format: compressed.type }) })
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, filename: compressed.name, mime: compressed.type, size: compressed.size } : a
+      ))
+    }
+
+    void doImageImport(id, uploadFile, uploadFile.name)
   }
 
   async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
@@ -5086,21 +5472,42 @@ const sessionMessagesLoaded = createMemo(() => {
     // 标记：内容是否从文件加载（用于跳过不必要的持久化）
     let contentLoadedFromFile = false
     
-    // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    // ★ Step -1: 内容型 artifact 卡 → 确保磁盘文件存在 (每次点击复查,缺失即补写)
+    // 背景: card.filePath 赋值后随 outputCards memo 缓存跨点击存活,旧门 (!card.filePath) 会让
+    // 「赋值成功但落盘失败 / 文件事后被删」的卡片永久短路 → local:// 404 不再补写。
     // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
-    if (!isUrl && !card.filePath && projectDir() && params.id) {
+    if (!isUrl && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const kind = workspaceKind()
-        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
-        if (inferred.filePath) {
-          card.filePath = inferred.filePath
+        const api = getDesktopApi()
+        let targetPath = card.filePath
+        let needsWrite = false
+        if (targetPath) {
+          needsWrite = typeof api?.fileExists === "function" ? !(await api.fileExists(targetPath)) : false
+          if (needsWrite) console.log("[MakePage] Artifact file missing on disk, will re-create:", targetPath)
+        } else {
+          const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
+          targetPath = inferred.filePath
+          needsWrite = !inferred.exists
           console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
-
-          // 如果文件不存在，先 autoSave 创建文件
-          if (!inferred.exists) {
-            await autoSaveArtifact(params.id!, card, projectDir()!, kind)
-            console.log("[MakePage] Created new file for artifact:", inferred.filePath)
+        }
+        if (targetPath) {
+          card.filePath = targetPath
+          if (needsWrite) {
+            try {
+              await autoSaveArtifact(params.id!, card, projectDir()!, kind)
+              console.log("[MakePage] Created new file for artifact:", targetPath)
+            } catch (err) {
+              // 典型成因:目录无写权限(EACCES)/Windows 保留名/超长路径。toast 给排障入口;
+              // 下次点击门会复查存在性并自动重试
+              console.error("[MakePage] Re-create artifact file failed:", targetPath, err)
+              showOctoToast({
+                title: "产物写入失败",
+                description: `${targetPath}${err instanceof Error ? ` (${err.message})` : ""}`,
+                variant: "error",
+              })
+            }
           }
         }
       }
@@ -5459,11 +5866,11 @@ const sessionMessagesLoaded = createMemo(() => {
           <div
             classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
+              "z-index": 11,
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
               flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
               "min-width": `${MAKE_CENTER_MIN}px`,
-              "z-index": 11
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -5669,6 +6076,9 @@ const sessionMessagesLoaded = createMemo(() => {
                         />
                       </div>
                     </Show>
+
+                    {/* 超限图片自动压缩提示(输入框上方) */}
+                    <ImageCompressNotice />
 
                     <div
                       class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
@@ -5980,6 +6390,14 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
+                        canRevert={!effectiveBusy() && (userMessages()[0].sessionID ?? params.id) === params.id}
+                        showRevert={userMessages()[0].id === lastMainMessageID()}
+                        showRegenerate={userMessages()[0].id === lastMainMessageID()}
+                        revertPanelOpen={revertPanelID() === userMessages()[0].id}
+                        onRevertPanelOpenChange={(open) => setRevertPanelID(open ? userMessages()[0].id : (revertPanelID() === userMessages()[0].id ? null : revertPanelID()))}
+                        onRevertToMessage={() => handleRevertToMessage(userMessages()[0])}
+                        onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
+                        onArtifactSaved={recordArtifactInit}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6012,6 +6430,14 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
+                            canRevert={!effectiveBusy() && (msg.sessionID ?? params.id) === params.id}
+                            showRevert={msg.id === lastMainMessageID()}
+                            showRegenerate={msg.id === lastMainMessageID()}
+                            revertPanelOpen={revertPanelID() === msg.id}
+                            onRevertPanelOpenChange={(open) => setRevertPanelID(open ? msg.id : (revertPanelID() === msg.id ? null : revertPanelID()))}
+                            onRevertToMessage={() => handleRevertToMessage(msg)}
+                            onRegenerateMessage={() => handleRegenerateMessage(msg)}
+                            onArtifactSaved={recordArtifactInit}
                           />
                         )
                       }}
@@ -6100,6 +6526,9 @@ onPreview={(url) => {
                     </div>
                   )}
                 </Show>
+
+                {/* 超限图片自动压缩提示(输入框上方) */}
+                <ImageCompressNotice />
 
                 <div
                   class="make-composer rounded-[16px] transition-all duration-300 relative group"
@@ -6309,7 +6738,7 @@ onPreview={(url) => {
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
-          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0" }} onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0", "z-index": 20 }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}

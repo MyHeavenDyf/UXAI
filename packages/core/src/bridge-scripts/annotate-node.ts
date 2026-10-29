@@ -29,7 +29,10 @@ export function annotateElementsWithIds(doc: string): string {
   }
 
   walk(parsedDoc.body)
-  return parsedDoc.documentElement.outerHTML
+
+  return parsedDoc.doctype
+    ? `<!DOCTYPE ${parsedDoc.doctype.name}>\n${parsedDoc.documentElement.outerHTML}`
+    : parsedDoc.documentElement.outerHTML
 }
 
 export * as BridgeAnnotateNode from "./annotate-node"

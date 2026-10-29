@@ -2,12 +2,24 @@
   position: relative;
 }
 
+.octo-reply-copy-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding-left: 16px;
+}
+
+.octo-reply-copy-row [data-component="tooltip-trigger"] {
+  display: inline-flex;
+}
+
 .octo-make-turn-meta-wrapper {
   position: absolute;
-  bottom: 0;
+  bottom: 100%;
   left: 0;
   right: 0;
-  transform: translateY(100%);
   display: flex;
   align-items: center;
   justify-content: flex-start;
