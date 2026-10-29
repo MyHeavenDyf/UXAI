@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, on, For, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -31,6 +31,13 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const [selecting, setSelecting] = createSignal(false)
   const [pos, setPos] = createSignal({ top: 0, left: 0 })
   let triggerRef: HTMLButtonElement | undefined
+  let panelRef: HTMLDivElement | undefined
+
+  const GAP = 4
+  const BOUNDARY_MARGIN = 8
+  // 对应 CSS .octo-ws-menu { width: 280px; max-height: 300px }，仅在 panelRef 未就绪时兜底
+  const FALLBACK_HEIGHT = 300
+  const FALLBACK_WIDTH = 280
 
   const projects = createMemo(() => layout.projects.list())
 
@@ -69,21 +76,42 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     }
   }
 
+  function reposition() {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    const panelRect = panelRef?.getBoundingClientRect()
+    const panelHeight = panelRect?.height ?? FALLBACK_HEIGHT
+    const panelWidth = panelRect?.width ?? FALLBACK_WIDTH
+    const spaceBelow = window.innerHeight - rect.bottom - BOUNDARY_MARGIN
+    const spaceAbove = rect.top - BOUNDARY_MARGIN
+    const flipUp = spaceBelow < panelHeight + GAP && spaceAbove >= spaceBelow
+    const top = flipUp ? Math.max(rect.top - panelHeight - GAP, BOUNDARY_MARGIN) : rect.bottom + GAP
+    const maxLeft = window.innerWidth - panelWidth - BOUNDARY_MARGIN
+    const left = maxLeft < BOUNDARY_MARGIN ? 0 : Math.min(rect.left, maxLeft)
+    setPos({ top, left })
+  }
+
   createEffect(() => {
     if (!open()) return
-    const update = () => {
-      if (!triggerRef) return
-      const rect = triggerRef.getBoundingClientRect()
-      setPos({ top: rect.bottom + 4, left: rect.left })
+    reposition()
+    const onScroll = (e: Event) => {
+      if (panelRef?.contains(e.target as Node)) return
+      reposition()
     }
-    update()
-    window.addEventListener("resize", update)
-    window.addEventListener("scroll", update, true)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", onScroll, true)
     onCleanup(() => {
-      window.removeEventListener("resize", update)
-      window.removeEventListener("scroll", update, true)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", onScroll, true)
     })
   })
+
+  createEffect(
+    on(projects, () => {
+      if (!open()) return
+      reposition()
+    }),
+  )
 
   createEffect(() => {
     if (!open()) return
@@ -100,7 +128,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         .octo-ws-menu {
           position: fixed; z-index: 99999;
           display: flex; flex-direction: column; gap: 2px;
-          width: 280px; max-height: 340px; overflow: hidden;
+          width: 280px; max-height: 300px; overflow: hidden;
           padding: 4px; background: #ffffff;
           border: 1px solid #E5E7EB; border-radius: 8px;
           box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
@@ -182,7 +210,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       <Show when={open()}>
         <Portal>
           <div class="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
-          <div class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
+          <div ref={panelRef} class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
             <div class="octo-ws-list">
               <For each={projects()}>
                 {(project) => (
