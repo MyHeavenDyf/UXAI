@@ -1158,7 +1158,7 @@ export function StudioComposer(props: {
                     <Show when={!props.recommendationEnabled && !isVideoGeneration() && !props.prompt}>
                       <div class="studio-composer-input-placeholder">
                         <Show when={!isEditingCapability() && props.capability === "image.generate" && !props.selectedStyleTemplate} fallback={isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}>
-                          上传参考图、输入文字或@主体，描述你想生成的图片。
+                          上传参考图、输入文字或@主体，描述你想生成的图片，或使用<button type="button" class="studio-prompt-recommendation-button" disabled={props.busy} onClick={(event) => { event.stopPropagation(); props.onRecommend?.() }}>AI推荐</button>描述内容。
                         </Show>
                       </div>
                     </Show>
