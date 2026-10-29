@@ -111,6 +111,8 @@ export type DesktopApi = {
   getPreviewDistDir?: () => Promise<string>
   /** 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>，iframe 经 local:// 解析） */
   savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
+  // jk-j60099994-replace-with-yjt-pixso-electron-api-1-start
+  // jk-j60099994-replace-with-yjt-pixso-electron-api-1-end
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
