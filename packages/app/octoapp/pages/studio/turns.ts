@@ -1,7 +1,7 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
 import { getDefaultDimensions, isPromptExpansionGeneration, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
-import { promptMetadata } from "./studio-prompt-state"
+import { expansionPreviewParts, previewMetadata, promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -10,6 +10,7 @@ export type StudioTurnData = {
   userText: string
   hideUserBubble?: boolean
   assistantText: string
+  previewParts?: Extract<Part, { type: "text" | "reasoning" }>[]
   editCapability?: StudioCapability
   editorEntryID?: string
   recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
@@ -660,7 +661,14 @@ function buildResult(input: {
 }
 
 export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioTurnFallback; currentSessionID?: string }): StudioTurnData[] {
-  const messages = sortMessages(input.messages)
+  const messages = sortMessages(input.messages).filter((message) => {
+    if (message.role !== "user") return true
+    const assistant = input.messages.find((item) => item.role === "assistant" && item.parentID === message.id)
+    return !(assistant && (input.parts[assistant.id] ?? []).some((part) => {
+      const metadata = promptMetadata(part)
+      return metadata?.kind === "guide" && metadata.visible === false
+    }))
+  })
   const turns = messages
     .filter((message) => message.role === "user")
     .map((user) => {
@@ -678,14 +686,18 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
     const assistantParts = assistant ? input.parts[assistant.id] ?? [] : []
     const assistantText = assistantParts
       .filter(isTextPart)
+      .filter((part) => !previewMetadata(part))
       .map((part) => part.text)
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
-    const recommendation = assistantParts.map(promptMetadata).find((metadata) => metadata !== undefined)
+    const recommendationPart = assistantParts.find((part) => promptMetadata(part) !== undefined)
+    const recommendation = promptMetadata(recommendationPart)
     if (recommendation) {
       return {
         id: user.id, userText, hideUserBubble, assistantText, createdAt: user.time.created, isLatest: false,
+        previewParts: recommendation.kind === "result" && recommendation.status === "running" && recommendationPart
+          ? expansionPreviewParts(assistantParts, recommendationPart.id) : undefined,
         recommendation: { kind: recommendation.kind, status: recommendation.status,
           tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
         inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),
