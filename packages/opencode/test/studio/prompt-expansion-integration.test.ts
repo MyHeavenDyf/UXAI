@@ -560,6 +560,7 @@ it.live(
 
 for (const scenario of [
   { name: "nested JSON", text: JSON.stringify({ expandedPrompt: JSON.parse(output) }), feedback: "正文不是字符串，仍使用了对象或数组包装" },
+  { name: "nested JSON with inline reasoning", text: `<think>private expansion reasoning</think>\n${JSON.stringify({ expandedPrompt: JSON.parse(output) })}`, feedback: "正文不是字符串，仍使用了对象或数组包装" },
   { name: "unusable tagged candidates", text: "<expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt>", feedback: "没有可用正文" },
 ].flatMap((scenario) => [true, false].map((repaired) => ({ ...scenario, repaired })))) {
   const repaired = scenario.repaired
@@ -588,8 +589,12 @@ for (const scenario of [
       const records = (yield* Effect.promise(() => Bun.file(Log.file()).text())).split("\n").filter((line) => line.includes(requestID) && line.includes("entry="))
       expect(records).toHaveLength(2)
       expect(records[0]).toContain('"attempt":1,"outcome":"repairing"')
-      expect(records[0]).toContain(`"rawText":${JSON.stringify(nested)}`)
-      expect(records[0]).toContain('"feedback":')
+      expect(records[0]).toContain(`"rawBytes":${Buffer.byteLength(nested)}`)
+      expect(records[0]).toContain(`"rawCodePoints":${[...nested].length}`)
+      expect(records[0]).toContain('"code":"INVALID_MODEL_OUTPUT"')
+      expect(records.join("\n")).not.toMatch(/"(?:rawText|text|expandedPrompt|tags|feedback|result)":/)
+      expect(records.join("\n")).not.toContain("private expansion reasoning")
+      expect(records.join("\n")).not.toContain("雨后城市的霓虹街景。")
       expect(records[1]).toContain(outcome)
       expect(records[1]).toContain('"attempt":2')
       if (scenario.name === "unusable tagged candidates") {
@@ -598,7 +603,10 @@ for (const scenario of [
         expect(records[0]).toContain('"reason":"punctuation_only"')
         expect(records[0]).toContain('"selectionReason":"no_valid_candidate"')
       }
-      if (repaired) expect(records[1]).toContain('"result":{"expandedPrompt":"雨后城市的霓虹街景。"')
+      if (repaired) {
+        expect(records[1]).toContain(`"expandedCodePoints":${[..."雨后城市的霓虹街景。"].length}`)
+        expect(records[1]).toContain('"tagCount":3')
+      }
       const inputs = yield* llm.inputs
       expect(inputs).toHaveLength(2)
       expect(JSON.stringify(inputs[0])).toContain("将中文扩写正文放在 <expandedPrompt> 与 </expandedPrompt> 之间")

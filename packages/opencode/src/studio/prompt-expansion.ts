@@ -9,7 +9,7 @@ import type { MessageV2 } from "@/session/message-v2"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { modelsApiCatalog } from "@/plugin/model-headers"
 import { expansionOutputContext } from "./prompt-expansion-context"
-import { logExpansionOutput, logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
+import { logExpansionOutput, logRecommendationFailure, recommendationLogIDs, type ExpansionOutputDiagnostics } from "./prompt-recommendation-log"
 import { RecommendationError, type Submission, type ExpansionInput } from "./prompt-recommendation-schema"
 
 const providerRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
@@ -503,18 +503,33 @@ export async function expandPrompt(
     }
   }
   const parse = (text: string, attempt: 1 | 2) => {
-    let diagnostics: ExpansionParseDiagnostics | undefined
+    const metadata = { attempt, rawBytes: Buffer.byteLength(text), rawCodePoints: [...text].length }
+    let diagnostics: ExpansionOutputDiagnostics | undefined
     try {
-      const result = parseExpansion(text, (value) => { diagnostics = value })
-      logExpansionOutput(context, { attempt, outcome: "accepted", rawText: text, result, diagnostics, elapsedMs: Date.now() - startedAt })
+      const result = parseExpansion(text, (value) => {
+        diagnostics = {
+          candidateCount: value.candidateCount,
+          selectedIndex: value.selectedIndex,
+          selectionReason: value.selectionReason,
+          tagLineCount: value.tagLineCount,
+          keptTagCount: value.keptTagCount,
+          discardedTagBlocks: value.discardedTagBlocks,
+          candidates: value.candidates.map((candidate) => ({
+            index: candidate.index, codePoints: candidate.codePoints, complete: candidate.complete,
+            valid: candidate.valid, selected: candidate.selected, reason: candidate.reason,
+          })),
+        }
+      })
+      logExpansionOutput(context, {
+        ...metadata, outcome: "accepted", expandedCodePoints: [...result.expandedPrompt].length,
+        tagCount: result.tags.length, diagnostics, elapsedMs: Date.now() - startedAt,
+      })
       return { success: true as const, data: result }
     } catch (error) {
       const feedback = expansionRepairFeedback(error)
       logExpansionOutput(context, {
-        attempt, outcome: attempt === 1 ? "repairing" : "rejected", rawText: text, feedback,
+        ...metadata, outcome: attempt === 1 ? "repairing" : "rejected", code: "INVALID_MODEL_OUTPUT",
         elapsedMs: Date.now() - startedAt, diagnostics,
-        candidates: error && typeof error === "object" && "candidates" in error && Array.isArray(error.candidates)
-          ? error.candidates.filter((value): value is string => typeof value === "string") : undefined,
       })
       return { success: false as const, error, feedback }
     }
