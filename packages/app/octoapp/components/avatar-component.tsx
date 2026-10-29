@@ -25,13 +25,20 @@ export function AvatarComponent(props: { class?: string }) {
   const confirmLogout = () => {
     setMenuOpen(false)
     dialog.show(() => (
-      <Dialog class="logout-dialog" title="确认退出登录？" transition>
-        <p class="logout-dialog-message">退出登录不会丢失任何数据，你仍可以登录此账号。</p>
-        <div class="logout-dialog-actions">
-          <Button onClick={() => dialog.close()}>取消</Button>
-          <Button variant="primary" onClick={logout}>确定</Button>
-        </div>
-      </Dialog>
+      <div class="logout-dialog">
+        <Dialog transition>
+          <div class="header">
+            <span class="info" aria-hidden="true">!</span>
+            <span>确认退出登录？</span>
+            <button type="button" class="close" aria-label="关闭" onClick={() => dialog.close()}>×</button>
+          </div>
+          <div class="content">退出登录不会丢失任何数据，你仍可以登录此账号。</div>
+          <div class="btn_group">
+            <Button class="secondary" onClick={() => dialog.close()}>取消</Button>
+            <Button class="primary" variant="primary" onClick={logout}>确定</Button>
+          </div>
+        </Dialog>
+      </div>
     ))
   }
 

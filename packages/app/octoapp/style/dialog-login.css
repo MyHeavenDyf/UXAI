@@ -169,24 +169,103 @@ body:has(.login-dialog) [data-component="dialog-overlay"] {
   background: rgba(10, 89, 247, 0.12);
 }
 
-.logout-dialog[data-slot="dialog-content"] {
+.logout-dialog,
+.logout-dialog [data-slot="dialog-container"],
+.logout-dialog [data-slot="dialog-content"] {
   width: min(calc(100vw - 32px), 436px);
-  min-height: 162px;
+  height: 162px;
 }
 
-.logout-dialog-message {
-  margin: 0;
-  color: #191919;
+.logout-dialog [data-slot="dialog-content"] {
+  min-height: 0;
+}
+
+.logout-dialog [data-slot="dialog-body"] {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 20px 32px 24px;
+}
+
+.logout-dialog .header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 17px;
+}
+
+.logout-dialog .header .info {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #0a59f7;
+  color: #fff;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
   font-size: 14px;
+  font-weight: 600;
 }
 
-.logout-dialog-actions {
+.logout-dialog .header > span:not(.info) {
+  color: rgba(0, 0, 0, 0.9);
+  font-family: "HarmonyHeiTi", var(--font-family-sans);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.logout-dialog .header .close {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #6e737a;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.logout-dialog .content {
+  color: #191919;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.logout-dialog .btn_group {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 24px;
+  margin-top: auto;
 }
 
-.logout-dialog-actions [data-component="button"] {
+.logout-dialog .btn_group [data-component="button"] {
+  display: flex;
   width: 88px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.logout-dialog .btn_group .secondary[data-component="button"] {
+  border: 1px solid #c9c9c9;
+  background: #fff;
+  color: #191919;
+}
+
+.logout-dialog .btn_group .primary[data-component="button"] {
+  border-color: #0a59f7;
+  background: #0a59f7;
+  color: #fff;
 }
