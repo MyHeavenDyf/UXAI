@@ -2,6 +2,7 @@ import { createEffect, For, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { Part } from "@opencode-ai/sdk/v2/client"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { createAutoScroll } from "@opencode-ai/ui/hooks"
 
 type PreviewPart = Extract<Part, { type: "text" | "reasoning" }>
 
@@ -47,14 +48,39 @@ function PreviewStream(props: { part: PreviewPart }) {
   )
 }
 
-export function StudioPromptExpansionPreview(props: { parts?: PreviewPart[]; status: string }) {
+function PreviewRegion(props: { parts?: PreviewPart[] }) {
+  const autoScroll = createAutoScroll({ working: () => true, bottomThreshold: 32 })
+  const contentRef = (element: HTMLDivElement) => {
+    autoScroll.contentRef(element)
+    // Markdown updates asynchronously and playback continues between model deltas.
+    const observer = new MutationObserver(() => autoScroll.scrollToBottom())
+    observer.observe(element, { childList: true, subtree: true, characterData: true })
+    onCleanup(() => observer.disconnect())
+  }
   return (
-    <Show when={props.status === "running" && props.parts?.some((part) => part.text.trim())}>
-      <div class="studio-prompt-expansion-preview" role="region" aria-label="提示词扩写过程" tabIndex={0}>
+    <div
+      class="studio-prompt-expansion-preview"
+      role="region"
+      aria-label="提示词扩写过程"
+      tabIndex={0}
+      data-scrollable
+      ref={autoScroll.scrollRef}
+      onScroll={autoScroll.handleScroll}
+      onPointerUp={autoScroll.handleInteraction}
+    >
+      <div class="studio-prompt-expansion-preview-content" ref={contentRef}>
         <For each={props.parts?.filter((part) => part.text.trim())}>
           {(part) => <PreviewStream part={part} />}
         </For>
       </div>
+    </div>
+  )
+}
+
+export function StudioPromptExpansionPreview(props: { parts?: PreviewPart[]; status: string }) {
+  return (
+    <Show when={props.status === "running" && props.parts?.some((part) => part.text.trim())}>
+      <PreviewRegion parts={props.parts} />
     </Show>
   )
 }

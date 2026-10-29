@@ -146,3 +146,43 @@ test("protocol tags remain visible as text across chunks in both channels", asyn
     expect(view.container.textContent).toBe("")
   } finally { view.dispose() }
 })
+
+
+test("streaming follows the bottom, pauses on user scroll and resumes at the bottom", async () => {
+  const [state, setState] = createStore({ status: "running", parts: [{ ...part, text: "初始正文" }] })
+  const view = mount(state)
+  try {
+    const region = view.container.querySelector<HTMLDivElement>(".studio-prompt-expansion-preview")!
+    // Happy DOM does not lay out content; provide viewport geometry while testing real DOM updates/events.
+    let height = 900
+    let top = 0
+    Object.defineProperties(region, {
+      scrollHeight: { get: () => height },
+      clientHeight: { get: () => 500 },
+      scrollTop: { get: () => top, set: (value: number) => { top = Math.max(0, Math.min(value, height - 500)) } },
+    })
+    await waitFor(() => view.container.textContent?.includes("初始正文") === true && top === 400)
+    height = 1100
+    setState("parts", 0, "text", "初始正文，新增的流式内容")
+    await waitFor(() => view.container.textContent?.includes("新增的流式内容") === true && top === 600)
+
+    region.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }))
+    region.scrollTop = 100
+    region.dispatchEvent(new Event("scroll"))
+    height = 1400
+    setState("parts", 0, "text", "初始正文，新增的流式内容，查看历史时继续输出")
+    await waitFor(() => view.container.textContent?.includes("查看历史时继续输出") === true)
+    await Bun.sleep(40)
+    expect(top).toBe(100)
+
+    region.scrollTop = height - 500
+    region.dispatchEvent(new Event("scroll"))
+    height = 1700
+    setState("parts", 0, "text", "初始正文，新增的流式内容，查看历史时继续输出，回到底部后恢复跟随")
+    await waitFor(() => view.container.textContent?.includes("恢复跟随") === true && top === 1200)
+    setState("status", "completed")
+    expect(view.container.children).toHaveLength(0)
+    await Bun.sleep(40)
+    expect(top).toBe(1200)
+  } finally { view.dispose() }
+})

@@ -633,18 +633,31 @@
 .studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
 .studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
 .studio-prompt-expansion-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  box-sizing: border-box;
   min-width: 0;
   max-height: 500px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   overflow-wrap: anywhere;
-  padding-right: 8px;
+  scrollbar-gutter: stable;
+  padding: 16px;
+  border: 1px solid var(--studio-line, rgba(15, 23, 42, 0.1));
+  border-radius: 12px;
+  background: var(--studio-panel, #fff);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
-.studio-prompt-expansion-preview > [data-component] { flex-shrink: 0; }
+.studio-prompt-expansion-preview:focus-visible {
+  outline: 2px solid rgba(116, 87, 255, 0.3);
+  outline-offset: 2px;
+}
+.studio-prompt-expansion-preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.studio-prompt-expansion-preview-content > [data-component] { flex-shrink: 0; }
 .studio-prompt-expansion-review {
   display: flex;
   flex-direction: column;
