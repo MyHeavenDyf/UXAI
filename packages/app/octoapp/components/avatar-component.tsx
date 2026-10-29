@@ -42,14 +42,14 @@ export function AvatarComponent(props: { class?: string }) {
     ))
   }
 
-  const image = (source = "/AvatarUser.svg") => (
+  const image = (source: string, fallback: string) => (
     <img
       class="avatar-component-image"
       src={source}
       alt="用户头像"
       onError={(event) => {
-        if (event.currentTarget.src.endsWith("/AvatarUser.svg")) return
-        event.currentTarget.src = "/AvatarUser.svg"
+        if (event.currentTarget.src.endsWith(fallback)) return
+        event.currentTarget.src = fallback
       }}
     />
   )
@@ -60,12 +60,12 @@ export function AvatarComponent(props: { class?: string }) {
       data-login-required={loginRequired}
       title={loginRequired ? getUser()?.account ?? "用户" : "用户"}
     >
-      <Show when={loginRequired} fallback={image()}>
-        <Show when={isLoggedIn()} fallback={image()}>
+      <Show when={loginRequired} fallback={image("/AvatarUser.svg", "/AvatarUser.svg")}>
+        <Show when={isLoggedIn()} fallback={image("/DefaultAvatar.svg", "/DefaultAvatar.svg")}>
           <Popover
             open={menuOpen()}
             onOpenChange={setMenuOpen}
-            trigger={image(avatar() ?? undefined)}
+            trigger={image(avatar() ?? "/DefaultAvatar.svg", "/DefaultAvatar.svg")}
             class="avatar-component-popover"
             placement="bottom-end"
           >
