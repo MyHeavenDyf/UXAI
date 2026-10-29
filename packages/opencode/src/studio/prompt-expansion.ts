@@ -7,12 +7,30 @@ import { LLM } from "@/session/llm"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "@/session/message-v2"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { modelsApiCatalog } from "@/plugin/model-headers"
+import { expansionOutputContext } from "./prompt-expansion-context"
 import { logExpansionOutput, logRecommendationFailure, recommendationLogIDs } from "./prompt-recommendation-log"
 import { RecommendationError, type Submission, type ExpansionInput } from "./prompt-recommendation-schema"
 
 const providerRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
 const configRuntime = makeRuntime(Config.Service, Config.defaultLayer)
 const llmRuntime = makeRuntime(LLM.Service, LLM.defaultLayer)
+const expansionCatalogProvider = z.object({
+  models: z.record(
+    z.string(),
+    z.object({
+      modalities: z
+        .object({ input: z.array(z.string()).optional(), output: z.array(z.string()).optional() })
+        .optional(),
+      capabilities: z
+        .object({
+          input: z.object({ text: z.boolean().optional(), image: z.boolean().optional() }).optional(),
+          output: z.object({ text: z.boolean().optional() }).optional(),
+        })
+        .optional(),
+    }),
+  ),
+})
 export type ExpansionServices = { provider: Provider.Interface; config: Config.Interface; llm?: LLM.Interface }
 export type ExpansionPreview = {
   start: (attempt: 1 | 2) => Effect.Effect<void, unknown>
@@ -91,29 +109,47 @@ export type ExpansionParseDiagnostics = {
 }
 
 export function parseExpansion(text: string, onDiagnostics?: (value: ExpansionParseDiagnostics) => void) {
-  const raw = text.replace(/\r\n?/g, "\n").trim()
-  // Prefer explicit tag boundaries; malformed tags must not redirect a valid body into JSON parsing.
-  if (/<\s*\/?\s*(?:expandedPrompt|tags)\b/i.test(raw) && !/^[{\[]|^```json\b/i.test(raw))
-    return parseTaggedExpansion(raw, onDiagnostics)
-  // Never promote broken JSON wrappers to a successful natural-language prompt.
+  const context = expansionOutputContext(text.replace(/\r\n?/g, "\n").trim())
+  const raw = context.content.trim()
+  // References in reasoning/code must never select a protocol or mutate parser state.
+  if (/<\s*\/?\s*(?:expandedPrompt|tags)\b/i.test(context.syntax) && !/^[{\[]/.test(raw))
+    return parseTaggedExpansion(context.content, context.syntax, onDiagnostics)
   if (structuredOutput.test(raw)) return parseLegacyExpansion(raw)
+  if (/<\s*\/?\s*(?:expandedPrompt|tags)\b/i.test(raw))
+    throw invalidOutput("仅找到示例或引用中的协议标签，请在引用和代码围栏外输出实际的 <expandedPrompt> 正文。")
   if (/STUDIO_TAGS/i.test(raw)) throw invalidOutput("上次使用了错误的分隔标记，请用 <expandedPrompt> 包含正文、每对 <tags> 包含一个标签。")
   return validateExpansion({ expandedPrompt: raw, tags: [] })
 }
 
-function parseTaggedExpansion(text: string, onDiagnostics?: (value: ExpansionParseDiagnostics) => void) {
-  const tokens = [...text.matchAll(/<\s*(\/?)\s*(expandedPrompt|tags)\s*>/gi)]
+function parseTaggedExpansion(text: string, syntax: string, onDiagnostics?: (value: ExpansionParseDiagnostics) => void) {
+  const tokens = [...syntax.matchAll(/<\s*(\/?)\s*(expandedPrompt|tags)\s*>/gi)]
     .map((match) => ({ name: match[2].toLowerCase(), closing: !!match[1], start: match.index, end: match.index + match[0].length }))
-  const bodies: { text: string; start: number; end: number; complete: boolean }[] = []
+  const bodyTokens = new Set(tokens.filter((token) => token.name === "expandedprompt").map((token) => token.start))
+  const closedTags: [number, number][] = []
+  const tagStack: number[] = []
+  const bodyStack: number[] = []
+  const closedBodies = new Map<number, number>()
+  for (const token of tokens) {
+    const stack = token.name === "tags" ? tagStack : bodyStack
+    if (!token.closing) {
+      stack.push(token.start)
+      continue
+    }
+    const start = stack.pop()
+    if (start === undefined) continue
+    if (token.name === "tags") closedTags.push([start, token.end])
+    if (token.name === "expandedprompt") closedBodies.set(start, token.start)
+  }
+  const clean = (value: string, start: number) => value
+    .replace(/<\s*\/?\s*expandedPrompt\s*>/gi, (match, offset: number) => bodyTokens.has(start + offset) ? "" : match).trim()
+    .replace(/^(?:\/?\s*expandedPrompt\s*>\s*)+/i, "")
+    .replace(/(?:\s*\/?\s*expandedPrompt\s*>)+$/i, "").trim()
+  const bodies: { text: string; syntax: string; start: number; end: number; complete: boolean }[] = []
   let body: { start: number; depth: number } | undefined
   let tagDepth = 0
   const finish = (end: number, complete = false) => {
     if (!body) return
-    // Remove only known wrappers, then trim known fragments at the boundaries.
-    const value = text.slice(body.start, end).replace(/<\s*\/?\s*expandedPrompt\s*>/gi, "").trim()
-      .replace(/^(?:\/?\s*expandedPrompt\s*>\s*)+/i, "")
-      .replace(/(?:\s*\/?\s*expandedPrompt\s*>)+$/i, "").trim()
-    bodies.push({ text: value, start: body.start, end, complete })
+    bodies.push({ text: clean(text.slice(body.start, end), body.start), syntax: clean(syntax.slice(body.start, end), body.start), start: body.start, end, complete })
     body = undefined
   }
   for (const token of tokens) {
@@ -125,7 +161,14 @@ function parseTaggedExpansion(text: string, onDiagnostics?: (value: ExpansionPar
       if (token.closing) tagDepth = Math.max(0, tagDepth - 1)
       continue
     }
-    if (tagDepth || token.name !== "expandedprompt") continue
+    if (token.name !== "expandedprompt") continue
+    if (tagDepth && !token.closing && closedBodies.has(token.start)
+      && !closedTags.some(([start, end]) => token.start > start && token.start < end)
+      && outputSchema.shape.expandedPrompt.safeParse(clean(text.slice(token.end, closedBodies.get(token.start)), token.end)).success) {
+      // An earlier unclosed tag must not hide a later independent, complete answer.
+      tagDepth = 0
+    }
+    if (tagDepth) continue
     if (!token.closing) {
       if (body) body.depth++
       if (!body) body = { start: token.end, depth: 1 }
@@ -137,13 +180,13 @@ function parseTaggedExpansion(text: string, onDiagnostics?: (value: ExpansionPar
   }
   finish(text.length)
   const firstTag = tokens.find((token) => token.name === "tags" && !token.closing)
-  if (!bodies.length && firstTag && !/<\s*\/?\s*expandedPrompt\b/i.test(text))
-    bodies.push({ text: text.slice(0, firstTag.start).trim(), start: 0, end: firstTag.start, complete: false })
+  if (!bodies.length && firstTag && !/<\s*\/?\s*expandedPrompt\b/i.test(syntax))
+    bodies.push({ text: text.slice(0, firstTag.start).trim(), syntax: syntax.slice(0, firstTag.start).trim(), start: 0, end: firstTag.start, complete: false })
   const candidates = bodies.map((body, index) => {
     const result = outputSchema.shape.expandedPrompt.safeParse(body.text)
     const reason = !body.text ? "empty"
       : /^[\p{P}\s]+$/u.test(body.text) ? "punctuation_only"
-      : /<\s*\/?\s*[a-z]|<\s*$/i.test(body.text) || structuredOutput.test(body.text) ? "malformed_structure"
+      : /<\s*\/?\s*[a-z]|<\s*$/i.test(body.syntax) || structuredOutput.test(body.syntax) ? "malformed_structure"
       : !result.success ? result.error.issues.map((issue) => issue.message).join("; ") : undefined
     return { ...body, index, codePoints: [...body.text].length, valid: reason === undefined, reason }
   })
@@ -267,7 +310,8 @@ export function readExpansionStream(stream: Stream.Stream<LLM.Event, unknown>, p
 }
 
 export async function selectExpansionModel(
-  input: Pick<Submission, "images" | "availableModels"> & Partial<Pick<Submission, "sessionID" | "requestID" | "guidePartID">>,
+  input: Pick<Submission, "images" | "availableModels"> &
+    Partial<Pick<Submission, "sessionID" | "requestID" | "guidePartID">>,
   current?: { providerID: string; id: string },
   signal?: AbortSignal,
   services?: ExpansionServices,
@@ -280,6 +324,33 @@ export async function selectExpansionModel(
   const select = (provider: Provider.Interface) =>
     Effect.gen(function* () {
       const connected = yield* provider.list()
+      const catalog = Object.values(connected).some((item) => item.source === "remote")
+        ? yield* Effect.promise(modelsApiCatalog)
+        : undefined
+      // Remote catalog conversion loses the distinction between absent and explicitly false capabilities.
+      // Apply the same text defaults as the frontend only to this expansion's model copy.
+      const expansionModel = (model: Provider.Model) => {
+        if (connected[model.providerID]?.source !== "remote") return model
+        const parsed = expansionCatalogProvider.safeParse(catalog?.[model.providerID])
+        const declaration = parsed.success ? parsed.data.models[model.id] : undefined
+        if (!declaration) return model
+        return {
+          ...model,
+          capabilities: {
+            ...model.capabilities,
+            input: {
+              ...model.capabilities.input,
+              text: declaration.modalities?.input?.includes("text") ?? declaration.capabilities?.input?.text ?? true,
+              image:
+                declaration.modalities?.input?.includes("image") ?? declaration.capabilities?.input?.image ?? false,
+            },
+            output: {
+              ...model.capabilities.output,
+              text: declaration.modalities?.output?.includes("text") ?? declaration.capabilities?.output?.text ?? true,
+            },
+          },
+        }
+      }
       const candidates = input.availableModels.filter(
         (candidate, index, all) =>
           all.findIndex((item) => item.providerID === candidate.providerID && item.modelID === candidate.modelID) ===
@@ -289,31 +360,31 @@ export async function selectExpansionModel(
         (item) => item.providerID === current?.providerID && item.modelID === current?.id,
       )
       const ordered = preferred ? [preferred, ...candidates.filter((item) => item !== preferred)] : candidates
-      const eligible = ordered.filter((candidate) => {
+      const eligible = ordered.flatMap((candidate) => {
         const model = connected[ProviderID.make(candidate.providerID)]?.models[ModelID.make(candidate.modelID)]
-        return (
-          !disabled.has(candidate.providerID) &&
-          model?.capabilities.input.text &&
-          model.capabilities.output.text &&
-          (input.images.length === 0 || model.capabilities.input.image)
-        )
+        if (!model || disabled.has(candidate.providerID)) return []
+        const normalized = expansionModel(model)
+        if (!normalized.capabilities.input.text || !normalized.capabilities.output.text) return []
+        if (input.images.length > 0 && !normalized.capabilities.input.image) return []
+        return [{ candidate, model: normalized }]
       })
       // Input requirements take precedence over the session's model preference.
       const selected =
         input.images.length > 0
           ? eligible[0]
-          : (eligible.find(
-              (candidate) =>
-                !connected[ProviderID.make(candidate.providerID)]?.models[ModelID.make(candidate.modelID)]?.capabilities
-                  .input.image,
-            ) ?? eligible[0])
+          : (eligible.find((item) => !item.model.capabilities.input.image) ?? eligible[0])
       if (!selected) return yield* Effect.fail(new RecommendationError("NO_ELIGIBLE_MODEL", 503))
-      const model = yield* provider.getModel(ProviderID.make(selected.providerID), ModelID.make(selected.modelID))
+      const model = expansionModel(
+        yield* provider.getModel(
+          ProviderID.make(selected.candidate.providerID),
+          ModelID.make(selected.candidate.modelID),
+        ),
+      )
       console.log("[studio.prompt-expansion] model", {
         ...recommendationLogIDs(input),
-        selectionSource: selected === preferred ? "session" : "candidate-list",
-        selectedProviderID: selected.providerID,
-        selectedModelID: selected.modelID,
+        selectionSource: selected.candidate === preferred ? "session" : "candidate-list",
+        selectedProviderID: selected.candidate.providerID,
+        selectedModelID: selected.candidate.modelID,
         resolvedProviderID: model.providerID,
         resolvedModelID: model.id,
         apiID: model.api.id,

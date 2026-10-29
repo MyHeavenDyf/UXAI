@@ -65,7 +65,7 @@ test("terminal prints only raw model text while file logs retain results and dia
         candidates: [{ index: 0, text: "城市雨景", codePoints: 4, complete: true, valid: true, selected: true }],
       },
     })
-    expect(terminal.mock.calls).toEqual([[rawText], ["<expandedPrompt>城市雨景</expandedPrompt>"]])
+    expect(terminal.mock.calls).toEqual([["[studio.prompt-expansion] output", rawText], ["[studio.prompt-expansion] output", "<expandedPrompt>城市雨景</expandedPrompt>"]])
     expect(Log.file()).not.toBe("")
     const deadline = Date.now() + 2000
     while (Date.now() < deadline && !(await Bun.file(Log.file()).text()).split("\n").some((line) => line.includes(requestID) && line.includes('"outcome":"accepted"')))

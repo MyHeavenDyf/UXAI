@@ -95,6 +95,38 @@ describe("Studio expansion output", () => {
     expect(traces[2]).toMatchObject({ candidateCount: 2, selectionReason: "no_valid_candidate" })
     expect(traces[2].selectedIndex).toBeUndefined()
   })
+  test("isolates reasoning even when the provider omits its opening think tag", () => {
+    const final = `<expandedPrompt>${output.expandedPrompt}</expandedPrompt>${output.tags.map((tag) => `<tags>${tag}</tags>`).join("")}`
+    const analysis = 'Analysis: use `<expandedPrompt>` tags followed by `<tags>`. Draft: <expandedPrompt>错误草稿</expandedPrompt><tags>风格：草稿</tags>'
+    for (const prefix of [analysis + "\n</think>\n", "<think>" + analysis + "</think>\n", "<THINK>分析<think>继续分析</think></THINK>\n"])
+      expect(parseExpansion(prefix + final)).toEqual(output)
+    expect(() => parseExpansion("<think>" + final)).toThrow()
+  })
+  test("ignores quoted and fenced protocol examples without requiring any think marker", () => {
+    const final = `<expandedPrompt>${output.expandedPrompt}</expandedPrompt>${output.tags.map((tag) => `<tags>${tag}</tags>`).join("")}`
+    const references = [
+      'Use `<expandedPrompt>` and `<tags>`, then produce the answer.\n',
+      'Use ``<expandedPrompt>`` and ``<tags>``; literal `</think>` is documentation.\n',
+      'Example:\n```xml\n<tags>unfinished example\n<expandedPrompt>错误示例</expandedPrompt>\n```\n',
+      'Example:\n~~~xml\n<tags>unfinished example\n<expandedPrompt>错误示例</expandedPrompt>\n~~~\n',
+    ]
+    for (const prefix of references) expect(parseExpansion(prefix + final)).toEqual(output)
+    expect(parseExpansion(final + '\n```xml\n</think>\n<expandedPrompt>错误示例</expandedPrompt>\n```')).toEqual(output)
+    expect(() => parseExpansion('Only a reference: `<expandedPrompt>错误示例</expandedPrompt>`')).toThrow()
+    expect(() => parseExpansion('```xml\n<expandedPrompt>错误示例</expandedPrompt>\n```')).toThrow()
+    expect(() => parseExpansion('```xml\n' + final)).toThrow()
+  })
+  test("an earlier unclosed tag cannot hide an independent complete answer", () => {
+    const final = `<expandedPrompt>${output.expandedPrompt}</expandedPrompt>${output.tags.map((tag) => `<tags>${tag}</tags>`).join("")}`
+    for (const prefix of ["说明：<tags>未闭合的标签\n", "说明：<expandedPrompt>旧草稿<tags>未闭合的标签\n"])
+      expect(parseExpansion(prefix + final)).toEqual(output)
+    expect(parseExpansion(final + "<tags>坏标签<expandedPrompt>错误正文</expandedPrompt></tags>")).toEqual(output)
+  })
+  test("Markdown masking preserves original body text and offsets after emoji", () => {
+    const body = '少女😀，招牌写着 `OPEN`，旁边有字样 `<expandedPrompt>`。'
+    expect(parseExpansion('说明😀：`<tags>`\n<expandedPrompt>' + body + '</expandedPrompt><tags>主体：少女</tags>'))
+      .toEqual({ expandedPrompt: body, tags: ["主体：少女"] })
+  })
   test("extracts sibling tag items without newlines and discards malformed items independently", () => {
     const prefix = "<expandedPrompt>樱花林荫道中的少女。</expandedPrompt>"
     const items = "<tags>风格：日系动漫</tags><tags>：日系动漫</tags><tags>主体：美少女主体：美少女</tags><tags>场景：樱花</tags><tags>场景：樱花林荫道</tags><tags>林荫道</tags>"

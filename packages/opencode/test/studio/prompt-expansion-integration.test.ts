@@ -6,6 +6,8 @@ import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { attach } from "@/effect/run-service"
 import { selectExpansionModel } from "@/studio/prompt-expansion"
+import { configureModelsApi } from "@/plugin/model-headers"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
@@ -57,6 +59,96 @@ const output = JSON.stringify({
   expandedPrompt: "雨后城市的霓虹街景。",
   tags: ["场景：城市", "天气：雨后", "光线：霓虹"],
 })
+
+it.live("expansion handles missing remote text declarations without changing the shared model catalog", () =>
+  provideTmpdirServer(({ llm }) =>
+    Effect.gen(function* () {
+      yield* llm.reason("整理画面", { text: output })
+      const instance = yield* InstanceState.context
+      yield* Effect.promise(() =>
+        Instance.restore(instance, async () => {
+          const server = Bun.serve({
+            port: 0,
+            fetch: () =>
+              Response.json({
+                gateway: {
+                  id: "gateway",
+                  name: "Gateway",
+                  api: llm.url,
+                  npm: "@ai-sdk/openai-compatible",
+                  models: {
+                    text: { name: "Text" },
+                    vision: { capabilities: { input: { text: true, image: true }, output: { text: true } } },
+                    excludedInput: { modalities: { input: ["image"], output: ["text"] } },
+                    excludedOutput: { modalities: { input: ["text"], output: ["image"] } },
+                    explicitFalse: { capabilities: { input: { text: false }, output: { text: true } } },
+                    explicitFalseOutput: { capabilities: { output: { text: false } } },
+                  },
+                },
+              }),
+          })
+          configureModelsApi({ url: server.url.toString() })
+          const active = ManagedRuntime.make(Layer.mergeAll(Provider.defaultLayer, Config.defaultLayer))
+          try {
+            const services = await active.runPromise(
+              attach(
+                Effect.gen(function* () {
+                  return { provider: yield* Provider.Service, config: yield* Config.Service }
+                }),
+              ),
+            )
+            const select = (ids: string[], images: { path: string }[] = []) =>
+              selectExpansionModel(
+                {
+                  availableModels: ids.map((modelID) => ({ providerID: "gateway", modelID })),
+                  images,
+                },
+                undefined,
+                undefined,
+                services,
+              )
+            const selected = await select(["vision", "text"])
+            expect(String(selected.id)).toBe("text")
+            expect(selected.capabilities.input.text).toBe(true)
+            expect(selected.capabilities.output.text).toBe(true)
+            expect(selected.capabilities.input.image).toBe(false)
+            expect(String((await select(["text", "vision"], [{ path: "reference.png" }])).id)).toBe("vision")
+            await expect(select(["text"], [{ path: "reference.png" }])).rejects.toThrow("NO_ELIGIBLE_MODEL")
+            await expect(
+              select(["excludedInput", "excludedOutput", "explicitFalse", "explicitFalseOutput"]),
+            ).rejects.toThrow("NO_ELIGIBLE_MODEL")
+            const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+            await submitExpansion(
+              {
+                requestID: crypto.randomUUID(),
+                sessionID: initialized.sessionID,
+                guidePartID: initialized.guidePartID,
+                prompt: "雨后的城市",
+                availableModels: [{ providerID: "gateway", modelID: "text" }],
+              },
+              services,
+            )
+            const deadline = Date.now() + 10_000
+            while (Date.now() < deadline) {
+              if ((await getRecommendationState(initialized.sessionID)).recommendation?.status !== "running") break
+              await Bun.sleep(10)
+            }
+            expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("completed")
+            const shared = await active.runPromise(
+              attach(services.provider.getModel(ProviderID.make("gateway"), ModelID.make("text"))),
+            )
+            expect(shared.capabilities.input.text).toBe(false)
+            expect(shared.capabilities.output.text).toBe(false)
+          } finally {
+            await active.dispose()
+            configureModelsApi({ source: "local" })
+            await server.stop(true)
+          }
+        }),
+      )
+    }),
+  ),
+)
 
 it.live("selects expansion models by input before session preference", () =>
   provideTmpdirServer(
@@ -521,6 +613,9 @@ for (const scenario of [
 
 for (const sample of [
   { text: "雨后的城市街道。", tags: [] },
+  { text: 'Analysis: use `<expandedPrompt>` followed by `<tags>`. Draft: <expandedPrompt>错误草稿</expandedPrompt>\n</think>\n<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags>', tags: ["天气：雨后"] },
+  { text: '说明：`<tags>`\n```xml\n<tags>未闭合示例\n```\n<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags>', tags: ["天气：雨后"] },
+  { text: '说明：<tags>未闭合示例\n<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags>', tags: ["天气：雨后"] },
   { text: "<expandedPrompt>旧版</expandedPrompt><tags>风格：旧版</tags><expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags>", tags: ["天气：雨后"] },
   { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags><expandedPrompt></expandedPrompt><expandedPrompt>。</expandedPrompt>", tags: ["天气：雨后"] },
   { text: "<expandedPrompt>雨后的城市街道。</expandedPrompt><tags>天气：雨后</tags><expandedPrompt>坏<unknown>结构</expandedPrompt>", tags: ["天气：雨后"] },
