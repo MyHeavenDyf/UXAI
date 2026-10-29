@@ -31,6 +31,12 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const [selecting, setSelecting] = createSignal(false)
   const [pos, setPos] = createSignal({ top: 0, left: 0 })
   let triggerRef: HTMLButtonElement | undefined
+  let panelRef: HTMLDivElement | undefined
+
+  const PANEL_WIDTH = 280
+  const PANEL_MAX_HEIGHT = 300
+  const GAP = 4
+  const BOUNDARY_MARGIN = 8
 
   const projects = createMemo(() => layout.projects.list())
 
@@ -74,9 +80,15 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     const update = () => {
       if (!triggerRef) return
       const rect = triggerRef.getBoundingClientRect()
-      setPos({ top: rect.bottom + 4, left: rect.left })
+      const panelHeight = panelRef?.getBoundingClientRect().height ?? PANEL_MAX_HEIGHT
+      const spaceBelow = window.innerHeight - rect.bottom - BOUNDARY_MARGIN
+      const spaceAbove = rect.top - BOUNDARY_MARGIN
+      const flipUp = spaceBelow < panelHeight + GAP && spaceAbove >= spaceBelow
+      const top = flipUp ? rect.top - panelHeight - GAP : rect.bottom + GAP
+      const left = Math.min(Math.max(rect.left, BOUNDARY_MARGIN), window.innerWidth - PANEL_WIDTH - BOUNDARY_MARGIN)
+      setPos({ top, left })
     }
-    update()
+    requestAnimationFrame(update)
     window.addEventListener("resize", update)
     window.addEventListener("scroll", update, true)
     onCleanup(() => {
@@ -100,7 +112,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         .octo-ws-menu {
           position: fixed; z-index: 99999;
           display: flex; flex-direction: column; gap: 2px;
-          width: 280px; max-height: 340px; overflow: hidden;
+          width: 280px; max-height: 300px; overflow: hidden;
           padding: 4px; background: #ffffff;
           border: 1px solid #E5E7EB; border-radius: 8px;
           box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
@@ -182,7 +194,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       <Show when={open()}>
         <Portal>
           <div class="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
-          <div class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
+          <div ref={panelRef} class="octo-ws-menu" style={{ top: `${pos().top}px`, left: `${pos().left}px` }}>
             <div class="octo-ws-list">
               <For each={projects()}>
                 {(project) => (
