@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, on, For, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -33,8 +33,6 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   let triggerRef: HTMLButtonElement | undefined
   let panelRef: HTMLDivElement | undefined
 
-  const PANEL_WIDTH = 280
-  const PANEL_MAX_HEIGHT = 300
   const GAP = 4
   const BOUNDARY_MARGIN = 8
 
@@ -75,27 +73,38 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     }
   }
 
+  function reposition() {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    const panelRect = panelRef?.getBoundingClientRect()
+    const panelHeight = panelRect?.height ?? 300
+    const panelWidth = panelRect?.width ?? 280
+    const spaceBelow = window.innerHeight - rect.bottom - BOUNDARY_MARGIN
+    const spaceAbove = rect.top - BOUNDARY_MARGIN
+    const flipUp = spaceBelow < panelHeight + GAP && spaceAbove >= spaceBelow
+    const top = flipUp ? rect.top - panelHeight - GAP : rect.bottom + GAP
+    const maxLeft = window.innerWidth - panelWidth - BOUNDARY_MARGIN
+    const left = maxLeft < BOUNDARY_MARGIN ? 0 : Math.min(rect.left, maxLeft)
+    setPos({ top, left })
+  }
+
   createEffect(() => {
     if (!open()) return
-    const update = () => {
-      if (!triggerRef) return
-      const rect = triggerRef.getBoundingClientRect()
-      const panelHeight = panelRef?.getBoundingClientRect().height ?? PANEL_MAX_HEIGHT
-      const spaceBelow = window.innerHeight - rect.bottom - BOUNDARY_MARGIN
-      const spaceAbove = rect.top - BOUNDARY_MARGIN
-      const flipUp = spaceBelow < panelHeight + GAP && spaceAbove >= spaceBelow
-      const top = flipUp ? rect.top - panelHeight - GAP : rect.bottom + GAP
-      const left = Math.min(Math.max(rect.left, BOUNDARY_MARGIN), window.innerWidth - PANEL_WIDTH - BOUNDARY_MARGIN)
-      setPos({ top, left })
-    }
-    requestAnimationFrame(update)
-    window.addEventListener("resize", update)
-    window.addEventListener("scroll", update, true)
+    reposition()
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
     onCleanup(() => {
-      window.removeEventListener("resize", update)
-      window.removeEventListener("scroll", update, true)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
     })
   })
+
+  createEffect(
+    on(projects, () => {
+      if (!open()) return
+      requestAnimationFrame(reposition)
+    }),
+  )
 
   createEffect(() => {
     if (!open()) return
