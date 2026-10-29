@@ -998,6 +998,11 @@ function InsightContent() {
     },
   )
 
+  // 与 design 一样在 effect 中读取 resource，避免回合结束刷新文件时触发整页 Suspense。
+  // JSX 只读取镜像；加载状态仍由 mentionFiles.loading 提供。
+  const [mentionFilesMirror, setMentionFilesMirror] = createStore<{ value: ReturnType<typeof mentionFiles> }>({ value: null })
+  createEffect(on(mentionFiles, (value) => setMentionFilesMirror("value", value ?? null)))
+
   // 打点:面板首次唤起 / 选中一项(编辑器内部触发回调,transition 判据在编辑器里)
   function trackMentionOpen() {
     tracker.interaction({ module: "insight", name: "mention-open" })
@@ -2604,7 +2609,7 @@ function InsightContent() {
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
-        files={mentionFiles() ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
+        files={mentionFilesMirror.value ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
         maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
         onPending={pending => setAddonState("pending", pending)}
         mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
@@ -2741,7 +2746,7 @@ function InsightContent() {
                         autofocus
                         platformSkills={insightSkills().platform}
                         customSkills={insightSkills().custom}
-                        files={mentionFiles() ?? null}
+                        files={mentionFilesMirror.value ?? null}
                         skillsLoading={skillsLoading()}
                         filesLoading={mentionFiles.loading}
                         mentionSelections={mentionSelections()}
@@ -2999,7 +3004,7 @@ function InsightContent() {
                     autofocus
                     platformSkills={insightSkills().platform}
                     customSkills={insightSkills().custom}
-                    files={mentionFiles() ?? null}
+                    files={mentionFilesMirror.value ?? null}
                     skillsLoading={skillsLoading()}
                     filesLoading={mentionFiles.loading}
                     mentionSelections={mentionSelections()}
