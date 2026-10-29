@@ -635,19 +635,21 @@
 .studio-prompt-expansion-preview {
   box-sizing: border-box;
   min-width: 0;
-  max-height: 500px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
   overflow-wrap: anywhere;
-  scrollbar-gutter: stable;
-  padding: 16px;
   border: 1px solid var(--studio-line, rgba(15, 23, 42, 0.1));
   border-radius: 12px;
   background: var(--studio-panel, #fff);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
-.studio-prompt-expansion-preview:focus-visible {
+.studio-prompt-expansion-preview .scroll-view__viewport {
+  box-sizing: border-box;
+  height: auto;
+  max-height: 498px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+.studio-prompt-expansion-preview:has(.scroll-view__viewport:focus-visible) {
   outline: 2px solid rgba(116, 87, 255, 0.3);
   outline-offset: 2px;
 }

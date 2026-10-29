@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 import type { Part } from "@opencode-ai/sdk/v2/client"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 
 type PreviewPart = Extract<Part, { type: "text" | "reasoning" }>
 
@@ -58,14 +59,19 @@ function PreviewRegion(props: { parts?: PreviewPart[] }) {
     onCleanup(() => observer.disconnect())
   }
   return (
-    <div
+    <ScrollView
       class="studio-prompt-expansion-preview"
-      role="region"
-      aria-label="提示词扩写过程"
-      tabIndex={0}
-      data-scrollable
-      ref={autoScroll.scrollRef}
-      onScroll={autoScroll.handleScroll}
+      viewportRef={(element) => {
+        element.setAttribute("aria-label", "提示词扩写过程")
+        element.setAttribute("data-scrollable", "")
+        autoScroll.scrollRef(element)
+      }}
+      onScroll={() => autoScroll.handleScroll()}
+      onWheel={(event) => {
+        if (event.deltaY >= 0) return
+        if (event.target instanceof Element && event.target.closest("[data-scrollable]") !== event.currentTarget) return
+        autoScroll.pause()
+      }}
       onPointerUp={autoScroll.handleInteraction}
     >
       <div class="studio-prompt-expansion-preview-content" ref={contentRef}>
@@ -73,7 +79,7 @@ function PreviewRegion(props: { parts?: PreviewPart[] }) {
           {(part) => <PreviewStream part={part} />}
         </For>
       </div>
-    </div>
+    </ScrollView>
   )
 }
 

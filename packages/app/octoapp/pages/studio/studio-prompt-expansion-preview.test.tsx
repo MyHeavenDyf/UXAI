@@ -11,7 +11,7 @@ if (typeof transform !== "function") throw new Error("Solid transform is unavail
 plugin({
   name: "studio-preview-dom-test",
   setup(build) {
-    build.onLoad({ filter: /(?:studio-prompt-expansion-preview|markdown|helper|marked)\.tsx$/ }, async (args) => {
+    build.onLoad({ filter: /(?:studio-prompt-expansion-preview|scroll-view|i18n|markdown|helper|marked)\.tsx$/ }, async (args) => {
       const result: unknown = await Reflect.apply(transform, undefined, [await Bun.file(args.path).text(), args.path])
       if (!result || typeof result !== "object" || !("code" in result) || typeof result.code !== "string")
         throw new Error("Solid view could not be compiled")
@@ -152,7 +152,7 @@ test("streaming follows the bottom, pauses on user scroll and resumes at the bot
   const [state, setState] = createStore({ status: "running", parts: [{ ...part, text: "初始正文" }] })
   const view = mount(state)
   try {
-    const region = view.container.querySelector<HTMLDivElement>(".studio-prompt-expansion-preview")!
+    const region = view.container.querySelector<HTMLDivElement>(".studio-prompt-expansion-preview .scroll-view__viewport")!
     // Happy DOM does not lay out content; provide viewport geometry while testing real DOM updates/events.
     let height = 900
     let top = 0
