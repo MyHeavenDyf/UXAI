@@ -1,7 +1,7 @@
 你是编排 agent。把用户指定的源目录按四阶段流水线处理，串行依赖（前阶段 SUCCESS 才进下一阶段）。
 
 源项目目录：{SRC}（用户运行时给定，即当前工作目录）
-目标工程根：download-eview-react（在源目录同级新建）
+目标工程根：{SRC}-eview-react（在源目录同级新建）
 
 ═══════════════════════════════════════════════════════════════
 阶段0 — orchestrator 直接跑脚本（不派发子 agent）
@@ -10,17 +10,19 @@
 用 skill 工具加载 umd-to-antd-vite 获取脚本路径，依次执行：
 
 1. 搭骨架：
-   node <umd-skill>/scripts/init-scaffold.cjs download-eview-react [项目名] [标题]
+   node <umd-skill>/scripts/init-scaffold.cjs {SRC}-eview-react <源项目名> <源项目标题>
+   （源项目名/源项目标题 见用户消息的"源项目名"、"源项目标题"字段，取自源目录名；
+    必须透传给第 2、3 参数，不要省略；两者相同时各传一次）
 
 2. 提取 UMD 内容（base/light/theme/dark 四层 CSS 从 assets/style/ 拷贝 + antd 清单 + icon 调用点预扫 + IPInput 调用点预扫 + uploads 图片资源拷贝 + i18n + 交接文件）：
-   node <umd-skill>/scripts/extract-umd.cjs {SRC}/index.page.html download-eview-react
+   node <umd-skill>/scripts/extract-umd.cjs {SRC}/index.page.html {SRC}-eview-react
    （无 src/ 时加 --scripts）
 
 3. 生成 enriched migrationPlan + globalRef：
-   node <umd-skill>/scripts/build-migration-plan.cjs download-eview-react --skill-dir <eview-skill>
+   node <umd-skill>/scripts/build-migration-plan.cjs {SRC}-eview-react --skill-dir <eview-skill>
    （自动分类 A/B/C + importPath + shellComponent + 完整 keyDiffs + 拼写/回调速查表 + IPInput 迁移行注入）
 
-完成后检查 download-eview-react/.umd-conversion.json 存在且 migrationPlan 非 null。
+完成后检查 {SRC}-eview-react/.umd-conversion.json 存在且 migrationPlan 非 null。
 
 ═══════════════════════════════════════════════════════════════
 阶段1 — 搬代码 + 验证（派发 general 子 agent，只做 Steps 3-4）
@@ -28,14 +30,14 @@
 
 用 skill 工具加载 umd-to-antd-vite 获取 SKILL.md + references。派发 general 子 agent，任务：
 
-  把源项目代码搬入 download-eview-react/src/ 并修正路径 + i18n 静态接线 + 验证。
+  把源项目代码搬入 {SRC}-eview-react/src/ 并修正路径 + i18n 静态接线 + 验证。
   骨架已搭好、base/light/theme/dark 四层 CSS 已从 assets/style/ 拷贝、migrationPlan 已生成（不要跑脚本、不要做评估）。
 
   源项目路径：{SRC}
-  目标工程根：download-eview-react
+  目标工程根：{SRC}-eview-react
 
   操作（对应 skill 的 Steps 3-4）：
-  1. 把源项目 src/ 下的独立文件（或 _extracted/ 下的提取文件）搬入 download-eview-react/src/
+  1. 把源项目 src/ 下的独立文件（或 _extracted/ 下的提取文件）搬入 {SRC}-eview-react/src/
      - 保持目录结构（src/views/、src/components/ 等）
      - 搬入源项目 icon.jsx 内容到 src/shared/Icon/Icon.jsx
        （export function Icon → export default function Icon；scaffold 的 index.jsx 桶已就位）
@@ -52,7 +54,7 @@
      - scenario B：搬业务语言包，改 main.jsx 合并 componentsLocales + 业务包
      - scenario C：不合并业务包，留下游决策；但仍删 antd locale
   4. 跑 check-relative-imports.cjs 验证：
-     node <umd-skill>/scripts/check-relative-imports.cjs download-eview-react
+     node <umd-skill>/scripts/check-relative-imports.cjs {SRC}-eview-react
      验证通过后更新 .umd-conversion.json 的 verification 字段为 { "relativeImports": "PASS" }
   5. 写 .conversion-result.json：
      { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "checks": { "relative-imports": "PASS"/"FAIL" } }
@@ -60,7 +62,7 @@
   读 <umd-skill>/references/umd-structure.md 了解 UMD 源项目结构。
   读 <eview-skill>/references/i18n-migration.md §4/§5 了解 scenario B 接线结构。
 
-完成后主 agent 读 download-eview-react/.conversion-result.json 判定。PASS 才进阶段2。
+完成后主 agent 读 {SRC}-eview-react/.conversion-result.json 判定。PASS 才进阶段2。
 
 ═══════════════════════════════════════════════════════════════
 阶段2 — antd→eview-react 组件替换（派发 general 子 agent，跳过图标）
@@ -68,7 +70,7 @@
 
 用 skill 工具加载 antd-to-eview-react 获取 SKILL.md + references + scripts。派发 general 子 agent，任务：
 
-  读 download-eview-react/.umd-conversion.json 的 migrationPlan（enriched）+ globalRef + iconCallSites。
+  读 {SRC}-eview-react/.umd-conversion.json 的 migrationPlan（enriched）+ globalRef + iconCallSites。
   migrationPlan 每项已含 antd/category(A/B/C)/eview/importPath/shellComponent/keyDiffs(完整原文)/ref/files。
   globalRef 已含 spellingAnomalies + callbackSignatures 速查表。
 
@@ -91,14 +93,17 @@
   不要改 icon import 路径。图标由阶段3专门处理。
 
   跑 check-i18n-keys.cjs 验证：
-  node <eview-skill>/scripts/check-i18n-keys.cjs download-eview-react
+  node <eview-skill>/scripts/check-i18n-keys.cjs {SRC}-eview-react
 
   grep 确认业务组件 CSS 无 .ant- 残留：
-  grep -rl "\.ant-" download-eview-react/src/components/ download-eview-react/src/views/
+  grep -rl "\.ant-" {SRC}-eview-react/src/components/ {SRC}-eview-react/src/views/
   输出应为空；非空则回炉清理
 
   写 .migration-result.json：
   { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "checks": { "relative-imports": "PASS(skip)", "i18n-keys": "PASS"/"FAIL", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" } }
+
+
+如果当前子agent没有完成任务（如超时、上下文不足等），可以再派生一个子 agent 继续处理。
 
 完成后主 agent 读 .migration-result.json 判定。PASS 才进阶段3。
 
@@ -110,15 +115,15 @@
 
   做图标替换（§3.0）。只处理 <Icon> 调用点和 icon import，不碰其他组件代码。
 
-  1. 读 download-eview-react/.umd-conversion.json 的 iconCallSites（预扫结果，跳过 grep），
+  1. 读 {SRC}-eview-react/.umd-conversion.json 的 iconCallSites（预扫结果，跳过 grep），
      确认调用点数量和分布。从 iconCallSites 的 file 字段得知哪些文件有 <Icon> 调用——
      **只读这些文件**（通常 3-8 个，不是全部源文件），控制上下文。
      如 iconCallSites 为空或不存在，grep 确认：
-     grep -rl "<Icon\b" download-eview-react/src/
+     grep -rl "<Icon\b" {SRC}-eview-react/src/
      输出非空即有图标站点，必须跑 match-icons.cjs。
 
   2. 跑 match-icons.cjs --apply 自动改写 confirmed：
-     node <eview-skill>/scripts/match-icons.cjs download-eview-react --apply
+     node <eview-skill>/scripts/match-icons.cjs {SRC}-eview-react --apply
 
   3. 读 .icon-match.json 报告的 residual 部分（fuzzy/UNMATCHED/三元/数据数组），
      按语义+token 重叠从 residual 的 top-K 候选中选取替换。
@@ -128,10 +133,7 @@
 
   4. .js 引入 JSX 时自动转 .jsx（match-icons.cjs --apply 已处理）
 
-  5. 仅真运行时数据保留方案A shim 兜底：
-     - 函数参数传入的 icon prop（跨组件边界，如 PanelCard 的 icon prop）
-     - OBJ[runtimeKey] 计算属性访问（运行时键，如 FILE_KIND_ICON[runtimeKey]）
-     这 2 处 shim 保留属预期，不是遗漏。
+  5. untraced/residual 按 skill closed-set 契约：闭合集（含跨边界 props/useMemo/推入函数 + 对象地图 OBJ[runtimeKey].field）→ 转 icon+（按 Icon.md recipe 追源）；仅真 OPEN（后端自由取值）→ shim。运行时键不影响闭合性，值集合闭合即转。跑 check-icon-shim --strict 拦闭集误留。
 
   6. 读 <eview-skill>/references/components/Icon.md 了解 {} 上下文规则、
      图标-prop wrapper 组件改写规则、方案A shim 保留判定标准。
@@ -143,18 +145,18 @@
 阶段4 — 终检（orchestrator 直接做，不派子 agent）
 ══════════════════════════════════════════════════════════════
 
-阶段3 完成后，主 agent 对 download-eview-react 做整体终检，确认转换质量。
+主 agent 对 {SRC}-eview-react 做整体终检，确认转换质量。
 
 1. 交接文件状态（4 个）：
    读 .umd-conversion.json（migrationPlan 非 null + verification.relativeImports=PASS）
    读 .conversion-result.json / .migration-result.json / .icon-result.json 的 status 全部 PASS
 
 2. antd 痕迹残留 grep（输出应为空）：
-   grep -rn "from ['\"]antd" download-eview-react/src/          ← antd 组件导入残留
-   grep -rn "\.ant-" download-eview-react/src/                  ← antd CSS 选择器残留
-   grep -rn "assets/shared/icon" download-eview-react/src/      ← 旧 icon 路径残留
-   grep -rn "assets/shared/ip-input" download-eview-react/src/  ← IPInput 手写件残留
-   grep -rn "\./assets/uploads/" download-eview-react/src/      ← 旧图片路径残留
+   grep -rn "from ['\"]antd" {SRC}-eview-react/src/          ← antd 组件导入残留
+   grep -rn "\.ant-" {SRC}-eview-react/src/                  ← antd CSS 选择器残留
+   grep -rn "assets/shared/icon" {SRC}-eview-react/src/      ← 旧 icon 路径残留
+   grep -rn "assets/shared/ip-input" {SRC}-eview-react/src/  ← IPInput 手写件残留
+   grep -rn "\./assets/uploads/" {SRC}-eview-react/src/      ← 旧图片路径残留
 
 3. 结构完整性：
    - 关键文件存在：src/main.jsx / src/app.jsx / package.json / vite.config.js / index.html
@@ -165,7 +167,7 @@
    - 各阶段状态（PASS/FAIL）
    - 改了哪些文件（按阶段汇总数量）
    - 残留问题（如有 grep 命中，列出文件:行号:内容）
-   - 预期保留项（icon shim 方案A 兜底，非遗漏）
+   - icon shim 仅真OPEN（后端自由取值）；闭合集误留由 check-icon-shim 拦
 
 ══════════════════════════════════════════════════════════════
 编排要点
@@ -178,20 +180,18 @@
   不派子 agent
 
 - 阶段1 子 agent 只做搬代码+验证（Steps 3-4），不跑脚本(1-2)、不做评估(5)，
-  上下文从 80-120k 降到 60-90k
 
 - 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
 
 - **阶段3 是独立新 agent（不 resume 阶段2）**——内网上下文有限，resume 会把阶段2
   的 100-150k 上下文带过来再加图标增量，撑爆限制。新起 agent 上下文从 0 开始，
   只读 iconCallSites 指向的文件（3-8 个，不是全部源文件）+ match-icons 报告 +
-  residual 候选短名单，控制在 40-60k
+  residual 候选短名单
 
 - 阶段3 触发条件看 iconCallSites（预扫）或 <Icon name> grep 站点，
   不看 antdIcons（ict-coder 产物用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
 
-- 阶段3 要预告 2 处 shim 保留属预期（PanelCard 的 icon prop 跨不了组件边界、
-  FILE_KIND_ICON[runtimeKey] 是运行时访问），不是遗漏
+- 阶段3 按 skill 契约转所有闭合集（含跨边界/object-map）；残留 shim 须 check-icon-shim --strict 验证仅真OPEN
 
 - 阶段3 写独立的 .icon-result.json（不复用 .migration-result.json），
   与阶段2 结果分离，主 agent 分别判定

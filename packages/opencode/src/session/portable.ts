@@ -12,12 +12,22 @@ import { NonNegativeInt } from "@/util/schema"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
+import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
+import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
+import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
 const sessionDirectory = ".octo"
+
+export class PortableValidationError extends Schema.TaggedErrorClass<PortableValidationError>()(
+  "PortableValidationError",
+  {
+    message: Schema.String,
+  },
+) {}
 
 const ShareUploadResponse = Schema.Struct({
   content: Schema.Struct({
@@ -25,6 +35,11 @@ const ShareUploadResponse = Schema.Struct({
   }),
   success: Schema.Boolean,
 })
+
+export class PortableShareBusyError extends Schema.TaggedErrorClass<PortableShareBusyError>()(
+  "PortableShareBusyError",
+  { message: Schema.String },
+) {}
 
 const FileEntry = Schema.Struct({
   sessionID: SessionID,
@@ -48,6 +63,17 @@ const Manifest = Schema.Struct({
   exportedAt: NonNegativeInt,
   rootSessionID: SessionID,
   sourceDirectory: Schema.String,
+  sourcePlatform: Schema.optional(Schema.Literals(["posix", "win32"])),
+  pathMappings: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        sessionID: Schema.String,
+        scope: Schema.String,
+        from: Schema.String,
+        to: Schema.String,
+      }),
+    ),
+  ),
   exclusions: Schema.Array(Schema.String),
   sessions: Schema.Array(SessionEntry),
   files: Schema.Array(FileEntry),
@@ -75,6 +101,8 @@ type Manifest = {
   exportedAt: number
   rootSessionID: SessionID
   sourceDirectory: string
+  sourcePlatform?: "posix" | "win32"
+  pathMappings?: { sessionID: string; scope: string; from: string; to: string }[]
   exclusions: string[]
   sessions: SessionEntry[]
   files: FileEntry[]
@@ -103,6 +131,7 @@ function isPortablePath(value: string) {
     value.includes("\0") ||
     path.posix.isAbsolute(value) ||
     path.win32.isAbsolute(value) ||
+    /^[a-z]:/i.test(value) ||
     value.includes(":")
   )
     return false
@@ -114,18 +143,21 @@ function digest(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex")
 }
 
-function isProjectFile(value: string) {
-  return value.replaceAll("\\", "/").split("/")
-    .every((part) => part && !/[\0:]/.test(part) && !part.startsWith(".") && part !== "node_modules")
+function isProjectFile(value: string, legacy = false) {
+  return value
+    .replaceAll("\\", "/")
+    .split("/")
+    .every((part) => part && !(legacy ? /\0/ : /[\0:]/).test(part) && !part.startsWith(".") && part !== "node_modules")
 }
 
-async function listFiles(root: string, project = false) {
+async function listFiles(root: string, project = false, blacklist: readonly string[] = []) {
   const found: string[] = []
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
-      if (project && !isProjectFile(entry.name)) continue
+      if (project && !isProjectFile(entry.name, true)) continue
       const target = path.join(directory, entry.name)
+      if (isExcludedPortableFile(target, blacklist)) continue
       if (entry.isDirectory()) await visit(target)
       if (entry.isFile()) found.push(target)
     }
@@ -161,7 +193,7 @@ function collectSessions(rootSessionID: SessionID) {
   })
 }
 
-function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project") {
+function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project", blacklist: readonly string[] = []) {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
     const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
@@ -193,25 +225,41 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project")).filter((file) => path.resolve(file) !== output)
+          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
           const dependencies = await collectPortableDependencies({
-            root: location.root, files, read,
+            root: location.root, files, read, blacklist,
             trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
           })
           return [
             ...files.map((file) => ({ file, source: file })),
-            ...dependencies.filter(({ file }) => path.resolve(file) !== output && (location.scope !== "project" || isProjectFile(path.relative(location.root, file)))),
+            ...dependencies.filter(
+              ({ file }) =>
+                path.resolve(file) !== output &&
+                !isExcludedPortableFile(file, blacklist) &&
+                (location.scope !== "project" || isProjectFile(path.relative(location.root, file), true)),
+            ),
           ].map((file) => ({ ...file, location }))
         }),
       { concurrency: 2 },
     )
-    return yield* Effect.forEach(
+    const packed = yield* Effect.forEach(
       files.flat(),
       ({ file, source, location }) =>
-        Effect.promise(async (): Promise<FileEntry> => {
-          const relative = path.relative(location.root, file).replaceAll("\\", "/")
-          const content = await read(source)
+        Effect.promise(async (): Promise<FileEntry | undefined> => {
+          const relative = path.relative(location.root, file)
+          const content = await read(source).catch((error) => {
+            console.warn(
+              "[octo:share] skipped file",
+              JSON.stringify({
+                source,
+                path: relative,
+                reason: "unreadable",
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            )
+          })
           contents.delete(source)
+          if (!content) return
           const sha256 = digest(content)
           const blob = `blobs/${sha256}`
           if (!blobs.has(blob)) {
@@ -230,6 +278,7 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 8 },
     )
+    return packed.filter((file): file is FileEntry => !!file)
   })
 }
 
@@ -244,19 +293,33 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   const output = path.resolve(
     input.output.toLowerCase().endsWith(".zip") ? input.output : `${input.output.replace(/\.octosession$/i, "")}.zip`,
   )
+  // Snapshot once per export: scanning, dependency collection and the manifest use the same rules.
+  const blacklist = yield* Effect.promise(() => loadPortableFileBlacklist())
   const manifest: Manifest = {
     format: "octo-session",
     version: bundleVersion,
     exportedAt: Date.now(),
     rootSessionID: input.sessionID,
     sourceDirectory: context.directory,
+    sourcePlatform: process.platform === "win32" ? "win32" : "posix",
     exclusions: [
-      "credentials", "permissions", "share links", "active processes", "workspace binding",
-      ...(input.scope === "project" ? ["hidden workspace files", "node_modules", "symbolic links", "export target"] : []),
+      "credentials",
+      "permissions",
+      "share links",
+      "active processes",
+      "workspace binding",
+      ...blacklist.map((extension) => `*${extension} files and archive contents`),
+      ...(input.scope === "project"
+        ? ["hidden workspace files", "node_modules", "symbolic links", "export target"]
+        : []),
     ],
     sessions: entries,
-    files: yield* collectFiles(entries, context.directory, zip, output, input.scope),
+    files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist),
   }
+  yield* Effect.tryPromise({
+    try: () => normalizeBundlePaths(manifest, zip),
+    catch: (error) => new PortableValidationError({ message: error instanceof Error ? error.message : String(error) }),
+  })
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
   const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
   yield* Effect.promise(() => Filesystem.write(output, archive))
@@ -272,6 +335,17 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   headers?: Record<string, string | undefined>
   scope?: "project"
 }) {
+  const status = yield* SessionStatus.Service
+  const sessions = yield* Session.Service
+  const assertShareable = Effect.gen(function* () {
+    if ((yield* status.get(input.sessionID)).type !== "idle") {
+      return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
+    }
+    if ((yield* sessions.children(input.sessionID)).length) {
+      return yield* new PortableValidationError({ message: "该对话包含子对话，暂不支持分享" })
+    }
+  })
+  yield* assertShareable
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
   const missing = [!uploadURL && "OCTO_SHARE_API_URL", !sharePageURL && "OCTO_SHARE_PAGE_URL"].filter(Boolean)
@@ -279,12 +353,12 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
     return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
   }
-  const sessions = yield* Session.Service
   const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
     const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
+    yield* assertShareable
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
@@ -498,7 +572,7 @@ export function remapPart(
   return rewritePartReferences(base, paths)
 }
 
-function validateManifest(manifest: Manifest, zip: JSZip) {
+function validateManifest(manifest: Manifest, zip: JSZip, legacy = false) {
   const ids = new Set(manifest.sessions.map((entry) => entry.info.id))
   if (!ids.has(manifest.rootSessionID)) throw new Error("Portable session root is missing")
   if (ids.size !== manifest.sessions.length) throw new Error("Portable session contains duplicate session IDs")
@@ -506,11 +580,17 @@ function validateManifest(manifest: Manifest, zip: JSZip) {
     if (entry.info.parentID && !ids.has(entry.info.parentID))
       throw new Error("Portable session contains an unknown parent")
   }
-  for (const file of manifest.files) {
+  for (const [index, file] of manifest.files.entries()) {
     if (!ids.has(file.sessionID)) throw new Error("Portable session file references an unknown session")
-    if (!isPortablePath(file.directory) || !isPortablePath(file.path) || !isPortablePath(file.blob))
-      throw new Error("Portable session contains an unsafe path")
+    for (const field of ["directory", "path", "blob"] as const) {
+      if (legacy && field !== "blob") continue
+      if (!isPortablePath(file[field]) || (field === "blob" && !/^blobs\/[a-f0-9]{64}$/.test(file.blob)))
+        throw new Error(
+          `分享包路径不兼容：files[${index}].${field}=${JSON.stringify(file[field])}，unsafe path（空值、绝对路径、越界或异常 blob）`,
+        )
+    }
     if (
+      !legacy &&
       file.scope === "project" &&
       !isProjectFile(
         `${file.directory}/${file.path}`
@@ -525,23 +605,92 @@ function validateManifest(manifest: Manifest, zip: JSZip) {
   }
 }
 
-function readBundle(file: string) {
-  return Effect.promise(async () => {
-    const zip = await JSZip.loadAsync(await readFile(file))
-    const manifestFile = zip.file(manifestName)
-    if (!manifestFile) throw new Error("Portable session manifest is missing")
-    const manifest = decodeManifest(JSON.parse(await manifestFile.async("string")))
-    validateManifest(manifest, zip)
-    const blobs = new Map<string, Uint8Array>()
-    for (const entry of manifest.files) {
-      if (blobs.has(entry.blob)) continue
-      const content = await zip.file(entry.blob)!.async("uint8array")
-      if (content.byteLength !== entry.size || digest(content) !== entry.sha256) {
-        throw new Error(`Portable session file failed validation: ${entry.path}`)
-      }
-      blobs.set(entry.blob, content)
+async function normalizeBundlePaths(manifest: Manifest, zip: JSZip, maxLength?: number) {
+  // Blob keys are always validated before accessing ZIP data; local path rules are never applied to blobs.
+  validateManifest(manifest, zip, true)
+  const plan = planPortablePaths({
+    files: manifest.files,
+    sourceDirectory: manifest.sourceDirectory,
+    sourcePlatform: manifest.sourcePlatform,
+    maxLength,
+  })
+  const files = plan.entries.map((entry) => ({ ...entry.file, directory: ".", path: entry.path }))
+  if (maxLength !== undefined && files.some((file) => file.path.length > maxLength)) {
+    throw new Error("目标目录过长，无法安全恢复分享文件，请选择更短的关联本地文件夹")
+  }
+  const rewrite = plan.rewriteText
+  const references = (value: unknown): unknown => {
+    if (typeof value === "string") return rewrite(value)
+    if (Array.isArray(value)) return value.map(references)
+    if (!value || typeof value !== "object") return value
+    const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, references(entry)]))
+    if ("url" in value && typeof value.url === "string" && typeof result.url === "string" && result.url !== value.url && typeof result.filename === "string") {
+      const filename = result.url.startsWith("file://") ? decodeURIComponent(new URL(result.url).pathname) : result.url
+      return { ...result, filename: path.posix.basename(filename.replaceAll("\\", "/")) }
     }
-    return { manifest, blobs }
+    return result
+  }
+  // A shared blob may be used by several files. Preserve original blobs and update only changed text entries.
+  for (const [index, file] of files.entries()) {
+    if (!plan.changed) break
+    if (!/\.(?:html?|css|[cm]?js|jsx|tsx?|json|svg|md|txt)$/i.test(file.path)) continue
+    const original = await zip.file(file.blob)!.async("uint8array")
+    if (original.byteLength !== file.size || digest(original) !== file.sha256)
+      throw new Error(`Portable session file failed validation: ${file.path}`)
+    const text = Buffer.from(original).toString("utf8")
+    const rewritten = rewritePortableDocument(text, plan.entries[index].original, (value, base) =>
+      plan.reference(value, index, true, base),
+    )
+    if (text === rewritten) continue
+    const content = new TextEncoder().encode(rewritten)
+    file.size = content.byteLength
+    file.sha256 = digest(content)
+    file.blob = `blobs/${file.sha256}`
+    zip.file(file.blob, content)
+  }
+  manifest.files = files
+  const mappings = plan.entries
+    .filter((entry) => entry.path !== entry.original)
+    .map((entry) => ({
+      sessionID: entry.file.sessionID,
+      scope: entry.file.scope ?? "session",
+      from: entry.original,
+      to: entry.path,
+    }))
+  if (mappings.length) manifest.pathMappings = [...(manifest.pathMappings ?? []), ...mappings]
+  if (plan.changed)
+    manifest.sessions = manifest.sessions.map((entry) => ({
+      ...entry,
+      messages: references(entry.messages) as MessageV2.WithParts[],
+    }))
+  validateManifest(manifest, zip)
+}
+
+function readBundle(file: string, maxLength?: number) {
+  return Effect.gen(function* () {
+    // Keep I/O failures distinct from invalid bundle errors; only parsing/validation is a 400.
+    const archive = yield* Effect.promise(() => readFile(file))
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const zip = await JSZip.loadAsync(archive)
+        const manifestFile = zip.file(manifestName)
+        if (!manifestFile) throw new Error("Portable session manifest is missing")
+        const manifest = decodeManifest(JSON.parse(await manifestFile.async("string")))
+        await normalizeBundlePaths(manifest, zip, maxLength)
+        const blobs = new Map<string, Uint8Array>()
+        for (const entry of manifest.files) {
+          const cached = blobs.get(entry.blob)
+          const content = cached ?? await zip.file(entry.blob)!.async("uint8array")
+          if (content.byteLength !== entry.size || (!cached && digest(content) !== entry.sha256) || entry.blob !== `blobs/${entry.sha256}`) {
+            throw new Error(`Portable session file failed validation: ${entry.path}`)
+          }
+          if (!cached) blobs.set(entry.blob, content)
+        }
+        return { manifest, blobs }
+      },
+      catch: (error) =>
+        new PortableValidationError({ message: error instanceof Error ? error.message : String(error) }),
+    })
   })
 }
 
@@ -562,21 +711,51 @@ function orderedEntries(manifest: Manifest) {
 }
 
 async function sharedFileTarget(directory: string, file: FileEntry) {
+  const skip = (reason: string, error?: unknown) => {
+    console.warn(
+      "[octo:import] skipped file",
+      JSON.stringify({
+        path: file.path,
+        reason,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      }),
+    )
+  }
   const segments = `${file.directory}/${file.path}`
     .replaceAll("\\", "/")
     .split("/")
     .filter((part) => part !== ".")
   for (const [index] of segments.entries()) {
     const target = path.join(directory, ...segments.slice(0, index + 1))
-    const stat = await lstat(target).catch((error) => {
-      if (error.code === "ENOENT") return
-      throw error
+    const result = await lstat(target).then(
+      (stat) => ({ stat }),
+      (error) => ({ error }),
+    )
+    if ("error" in result) {
+      if (result.error.code === "ENOENT") continue
+      skip("unreadable-target", result.error)
+      return
+    }
+    if (result.stat.isSymbolicLink()) {
+      skip("symbolic-link")
+      return
+    }
+    if (index < segments.length - 1 && !result.stat.isDirectory()) {
+      skip("directory-conflict")
+      return
+    }
+    if (index !== segments.length - 1) continue
+    if (!result.stat.isFile()) {
+      skip("file-conflict")
+      return
+    }
+    const content = await readFile(target).catch((error) => {
+      skip("unreadable-target", error)
     })
-    if (!stat) continue
-    if (stat.isSymbolicLink()) throw new Error(`共享文件路径包含符号链接，无法导入：${file.path}`)
-    if (index < segments.length - 1 && !stat.isDirectory()) throw new Error(`共享文件目录冲突：${file.path}`)
-    if (index === segments.length - 1 && (!stat.isFile() || digest(await readFile(target)) !== file.sha256)) {
-      throw new Error(`共享文件已存在且内容不同，请更换导入目录：${file.path}`)
+    if (!content) return
+    if (digest(content) !== file.sha256) {
+      skip("content-conflict")
+      return
     }
   }
   return path.join(directory, ...segments)
@@ -610,7 +789,13 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     const add = (file: FileEntry) => {
       const key = `${file.scope ?? "session"}/${file.sessionID}/${path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))}`
       const existing = files.get(key)
-      if (existing && existing.sha256 !== file.sha256) throw new Error(`私有文件同名且内容不同，无法导入：${file.path}`)
+      if (existing && existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: file.path, reason: "private-content-conflict" }),
+        )
+        return
+      }
       if (!existing) files.set(key, file)
     }
     manifest.files.filter((file) => file.scope !== "project").forEach(add)
@@ -641,7 +826,12 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     if (!isProjectFile(target)) continue
     const existing = shared.get(target)
     if (existing) {
-      if (existing.sha256 !== file.sha256) throw new Error(`共享文件同名且内容不同，无法导入：${target}`)
+      if (existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: target, reason: "shared-content-conflict" }),
+        )
+      }
       continue
     }
     // Keep the private copy and its chat references; expose an additional shared copy.
@@ -652,11 +842,17 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
   return { files, paths: new Map<string, FileEntry>() }
 }
 
-export const importPortableSession = Effect.fn("SessionPortable.import")(function* (file: string, scope?: "project" | "session") {
+export const importPortableSession = Effect.fn("SessionPortable.import")(function* (
+  file: string,
+  scope?: "project" | "session",
+) {
   const context = yield* InstanceState.context
   const sessions = yield* Session.Service
   const todos = yield* Todo.Service
-  const bundle = yield* readBundle(path.resolve(file))
+  const bundle = yield* readBundle(
+    path.resolve(file),
+    process.platform === "win32" ? 240 - context.directory.length - 65 : undefined,
+  )
   const plan = importFiles(bundle.manifest, scope)
   const files = plan.files
   const sessionIDs = new Map<string, SessionID>()
@@ -664,12 +860,6 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
   const sharedFiles: string[] = []
 
   const importEffect = Effect.gen(function* () {
-    // Fail before creating sessions or writing files when a shared path conflicts.
-    yield* Effect.forEach(
-      files.filter((file) => file.scope === "project"),
-      (file) => Effect.promise(() => sharedFileTarget(context.directory, file)),
-      { concurrency: 8 },
-    )
     for (const entry of orderedEntries(bundle.manifest)) {
       const parentID = entry.info.parentID ? sessionIDs.get(entry.info.parentID) : undefined
       const session = yield* sessions.create({
@@ -755,14 +945,36 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       if (fileEntry.scope === "project") {
         yield* Effect.promise(async () => {
           const target = await sharedFileTarget(context.directory, fileEntry)
-          await mkdir(path.dirname(target), { recursive: true })
+          if (!target) return
+          const directory = await mkdir(path.dirname(target), { recursive: true }).then(
+            () => true,
+            (error) => {
+              console.warn(
+                "[octo:import] skipped file",
+                JSON.stringify({
+                  path: fileEntry.path,
+                  reason: "create-directory-failed",
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              )
+              return false
+            },
+          )
+          if (!directory) return
           await writeFile(target, bundle.blobs.get(fileEntry.blob)!, { flag: "wx" }).then(
             () => {
               sharedFiles.push(target)
             },
             async (error) => {
-              if (error.code !== "EEXIST") throw error
-              await sharedFileTarget(context.directory, fileEntry)
+              if (error.code === "EEXIST") return sharedFileTarget(context.directory, fileEntry)
+              console.warn(
+                "[octo:import] skipped file",
+                JSON.stringify({
+                  path: fileEntry.path,
+                  reason: "write-failed",
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              )
             },
           )
         })
@@ -781,7 +993,18 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
               fileEntry.path,
             )
           : path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
-      yield* Effect.promise(() => Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!))
+      yield* Effect.promise(() =>
+        Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!).catch((error) => {
+          console.warn(
+            "[octo:import] skipped file",
+            JSON.stringify({
+              path: fileEntry.path,
+              reason: "write-failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          )
+        }),
+      )
     }
 
     return {

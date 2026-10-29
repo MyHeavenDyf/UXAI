@@ -25,6 +25,8 @@ import otherIconUrl from "../../icons/other.svg"
 export interface AssetFolder {
   name: string
   id: number
+  /** 当前文件夹自身的文件数(不含子文件夹;树节点显示值为自身+所有子孙之和) */
+  fileCount?: number
   children?: AssetFolder[]
 }
 
@@ -108,13 +110,15 @@ const MOCK_TEAM_TREE: AssetFolder[] = [
   {
     name: "页面资产",
     id: 311100,
+    fileCount: 1,
     children: [
       {
         name: "test1",
         id: 312220,
-        children: [{ name: "test2", id: 312220 }],
+        fileCount: 2,
+        children: [{ name: "test2", id: 312220, fileCount: 2 }],
       },
-      { name: "test2", id: 323220 },
+      { name: "test2", id: 323220, fileCount: 5 },
     ],
   },
 ]

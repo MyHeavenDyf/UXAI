@@ -301,7 +301,7 @@ const pageHandler = {
     const outputDir = `${srcDirectory}-vite`
     let childSessionId: string | undefined
 
-    const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
+    // const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
     downloadingTabs.add(tab.id)
     try {
       const startTime = Date.now()
@@ -313,7 +313,7 @@ const pageHandler = {
         srcDirectory,
         onSessionCreated: (id: string) => {
           childSessionId = id
-          setAgentExecution({ childSessionId: id, title: 'antd→eview 编排 Agent', visible: true })
+          // setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: 'antd→eview 编排 Agent', visible: true } }))
         },
       })
 
@@ -401,16 +401,16 @@ const pageHandler = {
       const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
       const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
 
-      setAgentExecution(null)
-      dismissOctoToast(loadingId)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
+      // dismissOctoToast(loadingId)
       ctx.showOctoToast({
         title: '编排完成',
         description: `耗时 ${duration} · 上下文 ${tokensStr} tokens${costStr}`,
       })
       return true
     } catch (e) {
-      setAgentExecution(null)
-      dismissOctoToast(loadingId)
+      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
+      // dismissOctoToast(loadingId)
       if (e instanceof DownloadCancelledError) throw e
       throw e
     } finally {
@@ -442,7 +442,7 @@ const pageHandler = {
       if (!api?.listDirectory || !api?.readFileBuffer) return null
       const filePath = ctx.tab.filePath || ctx.tab.absoluteFilePath
       if (!filePath) return null
-      const codeDir = `${filePath.replace(/[/\\][^/\\]+$/, '').replace(/[/\\][^/\\]+$/, '')}/download-eview-react`
+      const codeDir = `${filePath.replace(/[/\\][^/\\]+$/, '')}-eview-react`
 
       const listFiles = async () =>
         ((await api.listDirectory!(codeDir)) ?? []).filter(e => e.type === 'file')

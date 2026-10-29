@@ -1,6 +1,7 @@
 import path from "node:path"
 import { lstat, realpath } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { isExcludedPortableFile } from "./portable-exclusions"
 
 const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg)$/i
 const entryFile = /\.(?:html?|svg|jsx|tsx)$/i
@@ -220,31 +221,38 @@ function inside(root: string, file: string) {
   return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`)
 }
 
-/** Preserve logical asset paths while copying bytes from explicitly trusted, linked resource roots. */
+/** Preserve logical dependency paths while copying bytes from linked files, wherever their targets live. */
 export async function collectPortableDependencies(input: {
   root: string
   files: string[]
+  /** Kept for caller compatibility; real dependency targets are no longer restricted to these roots. */
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
+  blacklist?: readonly string[]
 }) {
   if (!input.files.length) return []
-  const root = await realpath(input.root)
-  const trusted = (
-    await Promise.all(
-      input.trustedRoots.map((dir) =>
-        realpath(dir).catch((error) => {
-          if (error.code === "ENOENT") return
-          throw error
-        }),
-      ),
-    )
-  ).filter((dir): dir is string => !!dir)
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
   const missing = new Set<string>()
+  const skipped = new Set<string>()
   const parsedFiles = new Map<string, ReturnType<typeof references>>()
   const key = (file: string, document?: string) => JSON.stringify([file, document])
+  const warnSkipped = (file: string, reference: string, base: URL, reason: string, error?: unknown) => {
+    const warning = JSON.stringify([file, base.href, reference, reason])
+    if (skipped.has(warning)) return
+    skipped.add(warning)
+    console.warn(
+      "[octo:share] skipped dependency",
+      JSON.stringify({
+        source: file,
+        reference,
+        base: base.href,
+        reason,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      }),
+    )
+  }
   const pending = new Map<string, { file: string; source: string; document?: string }>(
     input.files
       .filter(
@@ -258,15 +266,14 @@ export async function collectPortableDependencies(input: {
       .map((file) => [key(file), { file, source: file }]),
   )
   const resolve = async (file: string) => {
-    const actual = await realpath(file).catch((error) => {
-      if (error.code === "ENOENT" || error.code === "ENOTDIR") return
-      throw error
-    })
+    if (isExcludedPortableFile(file, input.blacklist)) return
+    const actual = await realpath(file).catch(() => undefined)
     if (!actual) return
-    if (!inside(root, actual) && (!resourceFile.test(actual) || !trusted.some((dir) => inside(dir, actual)))) {
-      throw new Error(`导出依赖超出允许的资源目录：${path.relative(input.root, file)}`)
-    }
-    return (await lstat(actual)).isFile() ? actual : undefined
+    if (isExcludedPortableFile(actual, input.blacklist)) return
+    return lstat(actual).then(
+      (stat) => (stat.isFile() ? actual : undefined),
+      () => undefined,
+    )
   }
   while (pending.size) {
     const batch = Array.from({ length: Math.min(4, pending.size) }, () => {
@@ -277,9 +284,15 @@ export async function collectPortableDependencies(input: {
     })
     await Promise.all(
       batch.map(async ({ file, source, document }) => {
-        const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(await input.read(source)), file)
+        const content = await input.read(source).catch((error) => {
+          found.delete(file)
+          warnSkipped(file, file, pathToFileURL(file), "unreadable", error)
+        })
+        if (!content) return
+        const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(content), file)
         parsedFiles.set(file, parsed)
-        const base = new URL(parsed.base ?? "", pathToFileURL(file))
+        const sourceURL = pathToFileURL(file)
+        const base = URL.canParse(parsed.base ?? "", sourceURL) ? new URL(parsed.base ?? "", sourceURL) : sourceURL
         const page = /\.(?:html?|svg)$/i.test(file) ? base.href : document
         const refs = [
           ...[...new Set(parsed.refs)].map((raw) => ({ raw, base })),
@@ -289,20 +302,40 @@ export async function collectPortableDependencies(input: {
           const raw = reference.raw
           const ref = raw.replaceAll("&amp;", "&").trim()
           if (!ref || ref.startsWith("#") || /\$\{|\{\{|<%/.test(ref)) continue
-          if (!URL.canParse(ref, reference.base)) throw new Error(`页面依赖地址无效：${ref}`)
+          if (!URL.canParse(ref, reference.base)) {
+            warnSkipped(file, raw, reference.base, "invalid-url")
+            continue
+          }
           const url = new URL(ref, reference.base)
           if (url.protocol !== "file:") continue
-          const target = fileURLToPath(url)
+          // A website-root URL has no known server root in a portable archive.
+          // Do not guess a disk root (or read it); keep the original reference intact.
+          if (/^\/(?![/\\]|[a-z]:)/i.test(ref)) {
+            warnSkipped(file, raw, reference.base, "web-root-relative")
+            continue
+          }
+          const target = (() => {
+            try {
+              return fileURLToPath(url)
+            } catch (error) {
+              warnSkipped(file, raw, reference.base, "invalid-file-url", error)
+            }
+          })()
+          if (!target) continue
           const relative = path.relative(input.root, target)
           if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith("."))) {
-            throw new Error(`页面依赖无法安全保留相对路径：${ref}`)
+            warnSkipped(file, raw, reference.base, "outside-portable-root")
+            continue
           }
+          if (isExcludedPortableFile(target, input.blacklist)) continue
           const candidates = /\.(?:[cm]?js|jsx|tsx?)$/i.test(file)
             ? [target, ...moduleExtensions.flatMap((ext) => [`${target}${ext}`, path.join(target, `index${ext}`)])]
             : [target]
           const resolved = await (async () => {
             for (const candidate of candidates) {
-              const actual = await resolve(candidate)
+              const actual = await resolve(candidate).catch((error) => {
+                warnSkipped(file, raw, reference.base, "unreadable", error)
+              })
               if (actual) return { file: candidate, source: actual }
             }
           })()
@@ -324,7 +357,19 @@ export async function collectPortableDependencies(input: {
             }
             continue
           }
-          if (!known.has(resolved.file)) found.set(resolved.file, resolved.source)
+          if (!known.has(resolved.file)) {
+            if (!textFile.test(resolved.file)) {
+              const readable = await input.read(resolved.source).then(
+                () => true,
+                (error) => {
+                  warnSkipped(file, raw, reference.base, "unreadable", error)
+                  return false
+                },
+              )
+              if (!readable) continue
+            }
+            found.set(resolved.file, resolved.source)
+          }
           if (textFile.test(resolved.file) && !visited.has(key(resolved.file, page))) {
             pending.set(key(resolved.file, page), { ...resolved, document: page })
           }

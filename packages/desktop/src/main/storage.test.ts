@@ -8,9 +8,14 @@
  * 路径助手要钉住的是 `||` 语义(空串 = 未设,与 server 侧 xdg-basedir 一致)
  * 和三级优先级(activeStorage > 主进程 env > 家目录)。跨平台模拟「不可写」
  * 用「普通文件占位」:recursive mkdir 遇到已存在的文件路径必抛。
+ *
+ * resolveDesktopStorage 的 config 探测(2026-10 sidecar 崩溃修复):core/global.ts
+ * 在模块顶层无 catch 地批量 mkdir,~/.config 不可写会直接打死 sidecar —— legacy
+ * 分支现在同时探测 config 目录,不可写则激活 fallback 并 copy-if-missing 搬迁
+ * legacy 用户数据(绝不覆盖、原件不动)。
  */
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -23,6 +28,7 @@ const electronMock = { app: { getPath: () => join(root, "user-data"), isPackaged
 mock.module("electron", () => ({ ...electronMock, default: electronMock }))
 
 const Storage = await import("./storage")
+const StoreMod = await import("./store")
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
@@ -107,6 +113,152 @@ describe("路径助手", () => {
     expect(Storage.getActiveStorage()).toBe(storage)
     Storage.setActiveStorage(null)
     expect(Storage.getActiveStorage()).toBe(null)
+  })
+})
+
+describe("resolveDesktopStorage 探测决策(config 探测 + 数据搬迁)", () => {
+  const savedData = process.env.XDG_DATA_HOME
+  const savedConfig = process.env.XDG_CONFIG_HOME
+  const savedChannel = process.env.OPENCODE_CHANNEL
+  // 测试进程没有 electron-vite 注入的 OPENCODE_CHANNEL 编译常量;钉住 env 侧也不带,
+  // databaseFileName() 稳定落到 opencode-local.db
+  const DB_NAME = "opencode-local.db"
+  const mode = () => StoreMod.getStore().get("desktopStorageMode")
+
+  beforeEach(() => {
+    StoreMod.getStore().delete("desktopStorageMode")
+    delete process.env.OPENCODE_CHANNEL
+  })
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries({
+      XDG_DATA_HOME: savedData,
+      XDG_CONFIG_HOME: savedConfig,
+      OPENCODE_CHANNEL: savedChannel,
+    })) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
+  function setupEnv(dataHome: string, configHome: string) {
+    process.env.XDG_DATA_HOME = dataHome
+    process.env.XDG_CONFIG_HOME = configHome
+  }
+
+  /** <dataHome>/opencode 下预置 legacy 用户数据(DB/WAL/auth/storage/snapshot) */
+  function seedLegacyData(dataHome: string) {
+    const data = join(dataHome, "opencode")
+    mkdirSync(data, { recursive: true })
+    writeFileSync(join(data, DB_NAME), "legacy-db")
+    writeFileSync(join(data, `${DB_NAME}-wal`), "legacy-wal")
+    writeFileSync(join(data, "auth.json"), "legacy-auth")
+    mkdirSync(join(data, "storage"), { recursive: true })
+    writeFileSync(join(data, "storage", "sessionA.json"), "legacy-storage")
+    mkdirSync(join(data, "snapshot", "projA"), { recursive: true })
+    writeFileSync(join(data, "snapshot", "projA", "obj.txt"), "legacy-snap")
+    return data
+  }
+
+  test("data 与 config 都可写 → legacy 模式,不落 storedMode", () => {
+    const dataHome = freshDir("legacy-data")
+    const configHome = freshDir("legacy-xdg")
+    setupEnv(dataHome, configHome)
+
+    const storage = Storage.resolveDesktopStorage(freshDir("legacy-user"))
+
+    expect(storage.mode).toBe("legacy")
+    expect("XDG_CONFIG_HOME" in storage.env).toBe(false)
+    expect(storage.databasePath).toBe(join(dataHome, "opencode", DB_NAME))
+    expect(mode()).toBeUndefined()
+    // 探测真的发生过(目录被建出来)
+    expect(existsSync(join(configHome, "octo"))).toBe(true)
+  })
+
+  test("config 不可写 → 激活 fallback 并重定向 XDG_CONFIG_HOME(用户 ~/.config 被占用的崩溃场景)", () => {
+    const dataHome = freshDir("cfg-broken-data")
+    const configHome = join(root, "cfg-broken-xdg")
+    blockOcto(configHome)
+    setupEnv(dataHome, configHome)
+    const userData = freshDir("cfg-broken-user")
+
+    const storage = Storage.resolveDesktopStorage(userData)
+
+    expect(storage.mode).toBe("app-data-fallback")
+    expect(storage.env.XDG_CONFIG_HOME).toBe(join(userData, "xdg-config"))
+    expect(storage.databasePath).toBe(join(userData, "opencode", DB_NAME))
+    expect(mode()).toBe("app-data-fallback")
+  })
+
+  test("激活时 legacy 的 DB/WAL/auth/storage/snapshot copy-if-missing 跟着搬,原件保留", () => {
+    const dataHome = freshDir("copy-data")
+    const configHome = join(root, "copy-xdg")
+    blockOcto(configHome)
+    setupEnv(dataHome, configHome)
+    const legacyData = seedLegacyData(dataHome)
+    const userData = freshDir("copy-user")
+
+    const storage = Storage.resolveDesktopStorage(userData)
+    const target = join(userData, "opencode")
+
+    expect(storage.mode).toBe("app-data-fallback")
+    expect(readFileSync(join(target, DB_NAME), "utf-8")).toBe("legacy-db")
+    expect(readFileSync(join(target, `${DB_NAME}-wal`), "utf-8")).toBe("legacy-wal")
+    expect(readFileSync(join(target, "auth.json"), "utf-8")).toBe("legacy-auth")
+    expect(readFileSync(join(target, "storage", "sessionA.json"), "utf-8")).toBe("legacy-storage")
+    expect(readFileSync(join(target, "snapshot", "projA", "obj.txt"), "utf-8")).toBe("legacy-snap")
+    // 原件不动
+    expect(readFileSync(join(legacyData, DB_NAME), "utf-8")).toBe("legacy-db")
+    expect(existsSync(join(legacyData, "auth.json"))).toBe(true)
+  })
+
+  test("目标已存在时绝不覆盖(用户定制优先)", () => {
+    const dataHome = freshDir("keep-data")
+    const configHome = join(root, "keep-xdg")
+    blockOcto(configHome)
+    setupEnv(dataHome, configHome)
+    seedLegacyData(dataHome)
+    const userData = freshDir("keep-user")
+    // 预置用户自己的 DB 与 auth(如坏窗口期新建的内容)
+    const target = join(userData, "opencode")
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, DB_NAME), "custom-db")
+    writeFileSync(join(target, "auth.json"), "custom-auth")
+
+    const storage = Storage.resolveDesktopStorage(userData)
+
+    expect(storage.mode).toBe("app-data-fallback")
+    expect(readFileSync(join(target, DB_NAME), "utf-8")).toBe("custom-db")
+    expect(readFileSync(join(target, "auth.json"), "utf-8")).toBe("custom-auth")
+  })
+
+  test("data 不可写 → 仍激活 fallback(原行为保持)", () => {
+    const dataHome = join(root, "data-broken-home")
+    mkdirSync(dataHome, { recursive: true })
+    writeFileSync(join(dataHome, "opencode"), "not a directory")
+    const configHome = freshDir("data-broken-xdg")
+    setupEnv(dataHome, configHome)
+
+    const storage = Storage.resolveDesktopStorage(freshDir("data-broken-user"))
+
+    expect(storage.mode).toBe("app-data-fallback")
+    expect(mode()).toBe("app-data-fallback")
+  })
+
+  test("storedMode 粘性:再次解析走 stored-fallback;config 恢复可写时自愈回标准目录(数据仍在 userData)", () => {
+    StoreMod.getStore().set("desktopStorageMode", "app-data-fallback")
+    const configHome = freshDir("sticky-xdg")
+    const dataHome = freshDir("sticky-data")
+    setupEnv(dataHome, configHome)
+    const userData = freshDir("sticky-user")
+
+    const storage = Storage.resolveDesktopStorage(userData)
+
+    expect(storage.mode).toBe("app-data-fallback")
+    expect(storage.reason).toBe("stored-fallback")
+    // config 已可写 → 不再覆盖 XDG_CONFIG_HOME(自愈),但 DB 留在 userData(粘性)
+    expect("XDG_CONFIG_HOME" in storage.env).toBe(false)
+    expect(storage.databasePath).toBe(join(userData, "opencode", DB_NAME))
   })
 })
 

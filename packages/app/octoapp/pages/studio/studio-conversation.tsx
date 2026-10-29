@@ -342,12 +342,9 @@ export function StudioResultCanvas(props: {
   fileManagerDetailView?: boolean
   onFileManagerBack?: () => void
   onFileManagerSelectMedia?: (item: { id: string; turnID: string; width?: number; height?: number; aspectRatio?: string }) => void
-  studioCenterWidth?: number
-  showStudioCenter?: boolean
   hideFileManagerFilter?: boolean
   turns?: StudioTurnData[]
   canGenerateVideo?: boolean
-  sessionID?: string
   fileManagerGenPending?: boolean
   canvasView: StudioCanvasView
   templateCreatorTabOpen: boolean
@@ -603,13 +600,10 @@ export function StudioResultCanvas(props: {
                 <>
               <div style={{ display: props.showFileManager && !props.fileManagerDetailView ? "contents" : "none" }}>
                 <StudioFileManager
-                  studioCenterWidth={props.studioCenterWidth}
-                  showStudioCenter={props.showStudioCenter}
                   hideFilter={props.hideFileManagerFilter}
                   turns={props.turns}
                   canGenerateVideo={props.canGenerateVideo}
                   onSelectMedia={props.onFileManagerSelectMedia}
-                  sessionID={props.sessionID}
                 />
               </div>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>

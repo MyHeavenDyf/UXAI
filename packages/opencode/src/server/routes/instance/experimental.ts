@@ -371,6 +371,13 @@ export const ExperimentalRoutes = lazy(() =>
           agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
           pinned: QueryBoolean.optional().meta({ description: "Only return pinned sessions" }),
           grouped: QueryBoolean.optional().meta({ description: "Only return sessions that belong to a group" }),
+          order: z
+            .enum(["updated", "sort_order"])
+            .optional()
+            .meta({
+              description:
+                "Page ordering. Default (updated): most recently updated first. sort_order: the sidebar's recent-list display order (manual sort_order first, then most recently updated) — required for clients that display sort_order-first, so later pages never rank above already-shown sessions.",
+            }),
         }),
       ),
       async (c) => {
@@ -382,6 +389,7 @@ export const ExperimentalRoutes = lazy(() =>
           roots: queryBoolean(query.roots),
           start: query.start,
           cursor: query.cursor,
+          order: query.order === "sort_order" ? "sort_order" : undefined,
           search: query.search,
           limit: limit + 1,
           archived: queryBoolean(query.archived),
@@ -395,7 +403,12 @@ export const ExperimentalRoutes = lazy(() =>
         const list = hasMore ? sessions.slice(0, limit) : sessions
         if (hasMore && list.length > 0) {
           const last = list[list.length - 1]
-          c.header("x-next-cursor", `${last.time.updated}:${last.id}`)
+          c.header(
+            "x-next-cursor",
+            query.order === "sort_order"
+              ? `${last.sort_order}:${last.time.updated}:${last.id}`
+              : `${last.time.updated}:${last.id}`,
+          )
         }
         return c.json(list)
       },

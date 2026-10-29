@@ -1058,7 +1058,7 @@ export type ProviderConfig = {
         output: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
       experimental?: boolean
-      status?: "alpha" | "beta" | "deprecated"
+      status?: "alpha" | "beta" | "deprecated" | "active"
       provider?: {
         npm?: string
         api?: string
@@ -4614,6 +4614,7 @@ export type ExperimentalSessionListData = {
     grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
+    order?: "updated" | "sort_order"
   }
   url: "/experimental/session"
 }
@@ -6031,7 +6032,7 @@ export type SessionPortableImportData = {
 
 export type SessionPortableImportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
 }
@@ -6068,7 +6069,7 @@ export type SessionPortableExportData = {
 
 export type SessionPortableExportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
   /**
