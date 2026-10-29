@@ -7,7 +7,7 @@ import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
-import { type PanelSkill, type SkillConfig } from "./components/skill-config-types"
+import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
@@ -1875,11 +1875,20 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
   
-  // 组件挂载时预加载 skill 配置
+  // 组件挂载时预加载 skill 配置（含新建 session 视图 — autoInject 需要）
   createEffect(() => {
-    if (params.id && !skillsLoaded()) {
+    if (!skillsLoaded()) {
       loadSkillConfig()
     }
+  })
+
+  // 自动注入技能 chip（panel.octo_make 中 autoInject: true 的技能）
+  // 仅用于新建 session 对话框（编辑器为空时注入，每次编辑器挂载注入一次）
+  const autoInjectMentions = createMemo(() => {
+    const cfg = skillConfig()
+    return (cfg.panel?.octo_make ?? [])
+      .filter(s => s.autoInject === true && s.enable !== false)
+      .map(s => ({ type: 'skill' as const, name: s.label, label: lookupDisplayName(cfg.skill, s.label) ?? s.label }))
   })
 
   // ── Slash Command List ──
@@ -2038,7 +2047,6 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (id) => {
     if (id) return
     const pending = pendingNewChatAttachments()
-    console.log("[octo:make] pending-attachments effect", { id, pending: pending?.length ?? null, current: attachments().length })
     if (!pending) return
     setPendingNewChatAttachments(null)
     setAttachments(pending)
@@ -2147,10 +2155,6 @@ const sessionMessagesLoaded = createMemo(() => {
     if (isFirst) {
       const draft = await executeRevert(msg)
       if (!draft) return
-      console.log("[octo:make] first-message revert draft", {
-        attachments: draft.attachments.length,
-        parts: ((sync.data.part[msg.id] ?? []) as RevertDraftPart[]).map((p) => `${p.type}${p.synthetic ? "(synthetic)" : ""}`).join(","),
-      })
       tracker.interaction({ module: "design", name: "revert-session-restart" })
       const ok = await removeSession(sdk.client, sid)
       if (!ok) return
@@ -2171,20 +2175,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // pending effect 因任何时序问题未消费时由此直接应用；两者幂等（都先置 null 再应用，先到先得）
       requestAnimationFrame(() => {
         const pending = pendingNewChatAttachments()
-        console.log("[octo:make] rAF fallback", { paramsId: params.id, pending: pending?.length ?? null, current: attachments().length })
         if (params.id) return
         if (!pending) return
         setPendingNewChatAttachments(null)
         setAttachments(pending)
       })
-      // 500ms 终态：判定「应用后被清」vs「从未应用」vs「应用了但没渲染」
-      setTimeout(() => {
-        console.log("[octo:make] revert final state", {
-          paramsId: params.id,
-          attachments: attachments().length,
-          pendingLeft: pendingNewChatAttachments()?.length ?? null,
-        })
-      }, 500)
       return
     }
 
@@ -2242,6 +2237,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments(draft.attachments)
     const ok = await sendMessage(sid, text, modelKey, mentions)
     if (!ok) {
+      // 真实发送失败（sendMessage 内部已 toast；slash 命令路径已返回 true 不落此处）：草稿落回输入框，不丢消息
       const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
       if (ref) ref.replaceDoc(draft.docJSON)
       else setPromptDoc(draft.docJSON)
@@ -3968,7 +3964,10 @@ const sessionMessagesLoaded = createMemo(() => {
         if (failedCmds.length > 0) {
           restoreComposerText(failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : ""))
         }
-        return  // Commands are self-contained, skip prompt
+        // 命令已自包含执行（含技能命令流式跑回复）= 发送成功；失败命令已由上方
+        // restoreComposerText + executeSessionCommand 内部 toast 处理。返回 true——
+        // 否则 handleRegenerateMessage 的 !ok 会把草稿误回填输入框（命令明明执行了）
+        return true  // Commands are self-contained, skip prompt
       }
       // ── End command detection ──
 
@@ -6180,6 +6179,7 @@ onPreview={(url) => {
                           proseMirrorRef2?.clear()
                         }}
                         ref={(el) => { proseMirrorRef1 = el }}
+                        autoInjectMentions={autoInjectMentions()}
                         productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
