@@ -195,6 +195,11 @@ export const StudioRoutes = lazy(() =>
       requestBody: recommendationBody(initializeSchema),
       responses: recommendationResponses(200, false),
     }), (c) => recommendationRequest(c.req.raw, "initialize"))
+    .post("/sessions/:sessionID/prompt-recommendations/:guidePartID/dismiss", describeRoute({
+      operationId: "studio.prompt-recommendations.dismiss", summary: "Dismiss unused Studio prompt recommendation",
+      parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }, { in: "path", name: "guidePartID", required: true, schema: { type: "string" } }],
+      responses: recommendationResponses(200, false),
+    }), (c) => recommendationRequest(c.req.raw, "dismiss", { sessionID: c.req.param("sessionID"), guidePartID: c.req.param("guidePartID") }))
     .post("/prompt-expansions", describeRoute({
       operationId: "studio.prompt-expansions.create", summary: "Submit Studio prompt expansion",
       requestBody: recommendationBody(submissionSchema),
@@ -204,12 +209,12 @@ export const StudioRoutes = lazy(() =>
       operationId: "studio.prompt-recommendations.get", summary: "Read Studio prompt recommendation",
       parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }, { in: "query", name: "guidePartID", required: false, schema: { type: "string" } }],
       responses: recommendationResponses(200, true),
-    }), (c) => recommendationRequest(c.req.raw, "state", c.req.param("sessionID")))
+    }), (c) => recommendationRequest(c.req.raw, "state", { sessionID: c.req.param("sessionID") }))
     .post("/sessions/:sessionID/prompt-expansions/:assistantMessageID/cancel", describeRoute({
       operationId: "studio.prompt-expansions.cancel", summary: "Cancel Studio prompt expansion",
       parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }, { in: "path", name: "assistantMessageID", required: true, schema: { type: "string" } }],
       responses: recommendationResponses(200, false),
-    }), (c) => recommendationRequest(c.req.raw, "cancel", c.req.param("sessionID"), c.req.param("assistantMessageID")))
+    }), (c) => recommendationRequest(c.req.raw, "cancel", { sessionID: c.req.param("sessionID"), assistantMessageID: c.req.param("assistantMessageID") }))
     .get(
       "/prompt-tags",
       describeRoute({

@@ -73,7 +73,7 @@ export function logExpansionOutput(
     candidates: output.candidates?.map((text) => ({ text, codePoints: [...text].length })),
     logFile: Log.file() || undefined,
   })
-  // A serialized string avoids terminal inspection truncation and preserves exact newlines/escapes.
-  console.log("[studio.prompt-expansion] output", entry)
+  // Print the original text verbatim; keep parsed results and diagnostics in the file log.
+  console.log("[studio.prompt-expansion] output", output.rawText)
   if (Log.file()) log.info("output", { entry })
 }

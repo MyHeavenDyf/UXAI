@@ -26,7 +26,7 @@ export function expansionPreviewParts(parts: Part[], resultPartID: string) {
 export function isExpansionReasoning(part?: Part): part is Extract<Part, { type: "reasoning" }> {
   return part?.type === "reasoning" && reasoning.safeParse(part.metadata?.studioPromptExpansionReasoning).success
 }
-const guide = z.object({ ...base, kind: z.literal("guide"), status: z.enum(["armed", "consumed"]) })
+const guide = z.object({ ...base, kind: z.literal("guide"), status: z.enum(["armed", "consumed", "dismissed"]), visible: z.boolean().optional() })
 const result = z.object({
   ...base,
   kind: z.literal("result"),

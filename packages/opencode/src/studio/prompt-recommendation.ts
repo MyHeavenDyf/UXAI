@@ -133,9 +133,11 @@ function summarize(found: ReturnType<typeof guide>) {
     status:
       found.metadata.status === "armed"
         ? ("armed" as const)
-        : result?.success
-          ? result.data.status
-          : ("failed" as const),
+        : found.metadata.status === "dismissed"
+          ? ("dismissed" as const)
+          : result?.success
+            ? result.data.status
+            : ("failed" as const),
     ...(submission
       ? {
           submission: { requestID: submission.requestID },
@@ -194,7 +196,7 @@ function finish(
             ? result!.expandedPrompt
             : finalStatus === "cancelled"
               ? "扩写已取消。"
-              : "扩写失败，请重新点击 AI推荐后提交。",
+              : "扩写失败，请重试。",
         metadata: {
           ...value.metadata,
           studioPromptExpansion: {
@@ -322,13 +324,13 @@ export async function initializeRecommendation(value: unknown, preparationBudget
           )
           if (!count) SyncEvent.run(Session.Event.Updated, { sessionID: id, info: { title: "丰富提示词" } })
         }
-        const pair = messages(id, "点击AI推荐", true)
+        const pair = messages(id, input.showGuide === false ? "" : "点击AI推荐", true)
         writePart({
           id: stableID,
           sessionID: id,
           messageID: pair.assistant.id,
           type: "text",
-          text: GUIDE_TEXT,
+          text: input.showGuide === false ? "" : GUIDE_TEXT,
           metadata: {
             studioPromptRecommendation: {
               version: 1,
@@ -337,6 +339,7 @@ export async function initializeRecommendation(value: unknown, preparationBudget
               initializeRequestID: input.requestID,
               initializeDigest: digest(input),
               status: "armed",
+              visible: input.showGuide !== false,
             } satisfies Guide,
           },
         })
@@ -519,26 +522,39 @@ export async function submitExpansion(
       const work = acceptedResult.work
       const startedAt = Date.now()
       const context = {
-        sessionID: row.id, requestID: input.requestID, guidePartID: input.guidePartID,
-        assistantMessageID: work.assistant.id, providerID: model.providerID, modelID: model.id,
+        sessionID: row.id,
+        requestID: input.requestID,
+        guidePartID: input.guidePartID,
+        assistantMessageID: work.assistant.id,
+        providerID: model.providerID,
+        modelID: model.id,
       }
       const done = Instance.bind(async () => {
         try {
           if (controller.signal.aborted) {
             logRecommendationFailure(controller.signal.reason, {
-              ...context, stage: "execution", cancelled: true, elapsedMs: Date.now() - startedAt,
+              ...context,
+              stage: "execution",
+              cancelled: true,
+              elapsedMs: Date.now() - startedAt,
             })
             finish(row.id, work.resultPartID, "cancelled")
             return
           }
           const result = await expandPrompt(
-            expandedInput, work.user, model, controller.signal, services,
+            expandedInput,
+            work.user,
+            model,
+            controller.signal,
+            services,
             createExpansionPreview(work.assistant, work.resultPartID),
           )
           finish(row.id, work.resultPartID, "completed", result)
         } catch (error) {
           logRecommendationFailure(error, {
-            ...context, stage: "execution", elapsedMs: Date.now() - startedAt,
+            ...context,
+            stage: "execution",
+            elapsedMs: Date.now() - startedAt,
             cancelled: controller.signal.aborted,
             code: error instanceof RecommendationError ? error.code : "INVALID_MODEL_OUTPUT",
           })
@@ -561,7 +577,9 @@ export async function submitExpansion(
         .then(done)
         .catch((error) => {
           logRecommendationFailure(error, {
-            ...context, stage: "terminal-persistence", code: "EXECUTION_INTERRUPTED",
+            ...context,
+            stage: "terminal-persistence",
+            code: "EXECUTION_INTERRUPTED",
             elapsedMs: Date.now() - startedAt,
           })
         })
@@ -609,4 +627,28 @@ export async function cancelExpansion(sessionID: string, assistantMessageID: str
   if (run?.assistantMessageID === assistantMessageID) run.controller.abort()
   if (!run) await getRecommendationState(sessionID, found.part.id)
   return accepted(sessionID, found.part.id)
+}
+
+// Release only an unused guide. A consumed guide belongs to an accepted task.
+export function dismissRecommendation(sessionID: string, guidePartID: string) {
+  session(sessionID)
+  return Database.transaction(
+    () => {
+      const found = guide(guidePartID, sessionID)
+      if (found.metadata.status !== "armed") return accepted(sessionID, guidePartID)
+      writePart({
+        ...found.part,
+        metadata: {
+          ...found.part.metadata,
+          studioPromptRecommendation: {
+            ...found.metadata,
+            revision: found.metadata.revision + 1,
+            status: "dismissed",
+          } satisfies Guide,
+        },
+      })
+      return accepted(sessionID, guidePartID)
+    },
+    { behavior: "immediate" },
+  )
 }

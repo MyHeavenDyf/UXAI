@@ -16,7 +16,9 @@ import {
   submitExpansion,
   getRecommendationState,
   cancelExpansion,
+  dismissRecommendation,
 } from "@/studio/prompt-recommendation"
+import { assertCanGenerate } from "@/studio/prompt-recommendation-state"
 import { Database, eq } from "@/storage/db"
 import { PartTable, SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
@@ -55,6 +57,57 @@ const output = JSON.stringify({
   expandedPrompt: "雨后城市的霓虹街景。",
   tags: ["场景：城市", "天气：雨后", "光线：霓虹"],
 })
+
+it.live("selects expansion models by input before session preference", () =>
+  provideTmpdirServer(
+    () =>
+      Effect.gen(function* () {
+        const instance = yield* InstanceState.context
+        yield* Effect.promise(() =>
+          Instance.restore(instance, async () => {
+            const text = { providerID: "test", modelID: "text" }
+            const other = { providerID: "test", modelID: "other" }
+            const vision = { providerID: "test", modelID: "test-model" }
+            const missing = { providerID: "test", modelID: "missing" }
+            const unsupported = { providerID: "test", modelID: "unsupported" }
+            const selected = (
+              availableModels: (typeof text)[],
+              images: { path: string }[] = [],
+              current?: typeof text,
+            ) =>
+              selectExpansionModel(
+                { availableModels, images },
+                current && { providerID: current.providerID, id: current.modelID },
+              )
+            expect(String((await selected([vision, text], [], vision)).id)).toBe("text")
+            expect(String((await selected([vision, text, other], [], other)).id)).toBe("other")
+            expect(String((await selected([vision])).id)).toBe("test-model")
+            expect(String((await selected([text])).id)).toBe("text")
+            expect(String((await selected([text, vision], [{ path: "reference.png" }], text)).id)).toBe("test-model")
+            await expect(selected([text], [{ path: "reference.png" }])).rejects.toThrow("NO_ELIGIBLE_MODEL")
+            await expect(selected([missing, unsupported])).rejects.toThrow("NO_ELIGIBLE_MODEL")
+            await expect(selected([])).rejects.toThrow("NO_ELIGIBLE_MODEL")
+            await expect(selected([], [{ path: "reference.png" }])).rejects.toThrow("NO_ELIGIBLE_MODEL")
+          }),
+        )
+      }),
+    {
+      config: (url) => ({
+        provider: {
+          test: {
+            ...config(url).provider.test,
+            models: {
+              ...config(url).provider.test.models,
+              text: { name: "Text", modalities: { input: ["text"], output: ["text"] } },
+              other: { name: "Other", modalities: { input: ["text"], output: ["text"] } },
+              unsupported: { name: "Unsupported", modalities: { input: ["text"], output: ["image"] } },
+            },
+          },
+        },
+      }),
+    },
+  ),
+)
 
 it.live(
   "selects with the HTTP services when an older standalone runtime has stale model capabilities",
@@ -177,6 +230,8 @@ it.live("previews text without reasoning and persists it on cancellation", () =>
         })
         await Promise.race([streamed.promise, Bun.sleep(5000).then(() => { throw new Error("No preview delta received") })])
         expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("running")
+        expect(dismissRecommendation(initialized.sessionID, initialized.guidePartID).status).toBe("running")
+        expect(() => assertCanGenerate(initialized.sessionID)).toThrow("SESSION_BUSY")
         await cancelExpansion(initialized.sessionID, accepted.assistantMessageID!)
         const deadline = Date.now() + 5000
         while (Date.now() < deadline && (await getRecommendationState(initialized.sessionID)).recommendation?.status !== "cancelled")

@@ -661,7 +661,14 @@ function buildResult(input: {
 }
 
 export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioTurnFallback; currentSessionID?: string }): StudioTurnData[] {
-  const messages = sortMessages(input.messages)
+  const messages = sortMessages(input.messages).filter((message) => {
+    if (message.role !== "user") return true
+    const assistant = input.messages.find((item) => item.role === "assistant" && item.parentID === message.id)
+    return !(assistant && (input.parts[assistant.id] ?? []).some((part) => {
+      const metadata = promptMetadata(part)
+      return metadata?.kind === "guide" && metadata.visible === false
+    }))
+  })
   const turns = messages
     .filter((message) => message.role === "user")
     .map((user) => {

@@ -5,6 +5,7 @@ export const InitializePayload = Schema.Struct({
   requestID: Schema.String,
   sessionID: Schema.optional(Schema.String),
   expectedStateToken: Schema.optional(Schema.String),
+  showGuide: Schema.optional(Schema.Boolean),
 })
 export const ExpansionPayload = Schema.Struct({
   requestID: Schema.String,
@@ -26,7 +27,7 @@ export const RecommendationSummary = Schema.Struct({
   guideMessageID: Schema.String,
   guidePartID: Schema.String,
   guideRevision: Schema.Number,
-  status: Schema.Literals(["armed", "running", "cancelling", "completed", "failed", "cancelled"]),
+  status: Schema.Literals(["armed", "running", "cancelling", "completed", "failed", "cancelled", "dismissed"]),
   resultRevision: Schema.optional(Schema.Number),
   userMessageID: Schema.optional(Schema.String),
   assistantMessageID: Schema.optional(Schema.String),
@@ -56,7 +57,8 @@ export const guideSchema = z.object({
   revision: z.number().int().positive(),
   initializeRequestID: z.string().uuid(),
   initializeDigest: z.string(),
-  status: z.enum(["armed", "consumed"]),
+  status: z.enum(["armed", "consumed", "dismissed"]),
+  visible: z.boolean().optional(),
   submission: z
     .object({
       requestID: z.string().uuid(),
@@ -80,6 +82,7 @@ export const initializeSchema = z.object({
   requestID: z.string().uuid(),
   sessionID: z.string().optional(),
   expectedStateToken: z.string().optional(),
+  showGuide: z.boolean().optional(),
 })
 export const submissionSchema = z.object({
   sessionID: z.string(),
@@ -95,7 +98,6 @@ export const submissionSchema = z.object({
     .default([]),
   availableModels: z
     .array(z.object({ providerID: z.string().trim().min(1).max(256), modelID: z.string().trim().min(1).max(256) }))
-    .min(1)
     .max(100),
   prompt: z
     .string()

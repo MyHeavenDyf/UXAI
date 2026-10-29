@@ -87,6 +87,10 @@ test("recommendations retain proper parents, tags and input attachments without 
   expect(turns[1].recommendation?.tags).toEqual(["场景：城市"])
   expect(turns[1].inputImages).toHaveLength(1)
   expect(buildStudioConversationContext(input)).toBe("")
+  const hidden = { ...guide, metadata: { studioPromptRecommendation: { ...guide.metadata.studioPromptRecommendation, visible: false } } }
+  expect(buildStudioTurns({ ...input, parts: { ...input.parts, a1: [hidden] } }).map((turn) => turn.id)).toEqual(["u2"])
+  const dismissed = { ...guide, metadata: { studioPromptRecommendation: { ...guide.metadata.studioPromptRecommendation, status: "dismissed", revision: 2 } } }
+  expect(mergePromptPart(dismissed, guide)).toBe(dismissed)
   const reasoning = {
     id: "reason", messageID: "a2", sessionID: "session", type: "reasoning", text: "先考虑构图",
     time: { start: 1 }, metadata: { studioPromptExpansionReasoning: { version: 1 } },

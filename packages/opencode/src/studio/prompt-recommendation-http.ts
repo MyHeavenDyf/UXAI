@@ -5,6 +5,7 @@ import {
   submitExpansion,
   getRecommendationState,
   cancelExpansion,
+  dismissRecommendation,
 } from "./prompt-recommendation"
 import { acquireBudget, createPreparation, MAX_BODY, readRecommendationBody } from "./prompt-recommendation-budget"
 import { RecommendationError, safeError } from "./prompt-recommendation-schema"
@@ -13,21 +14,28 @@ import type { ExpansionServices } from "./prompt-expansion"
 // Both HTTP stacks use this adapter before their automatic JSON decoders.
 export async function recommendationRequest(
   request: Request,
-  action: "initialize" | "submit" | "state" | "cancel",
-  sessionID?: string,
-  assistantMessageID?: string,
+  action: "initialize" | "submit" | "state" | "cancel" | "dismiss",
+  target?: { sessionID: string; assistantMessageID?: string; guidePartID?: string },
   services?: ExpansionServices,
 ) {
   const startedAt = Date.now()
   const context: Record<string, string | number | boolean | undefined> = {
-    action, sessionID, assistantMessageID, stage: action === "state" || action === "cancel" ? action : "read-request",
+    action,
+    sessionID: target?.sessionID,
+    assistantMessageID: target?.assistantMessageID,
+    guidePartID: target?.guidePartID,
+    stage: action === "state" || action === "cancel" ? action : "read-request",
   }
   try {
     if (action === "state")
       return Response.json(
-        await getRecommendationState(sessionID!, new URL(request.url).searchParams.get("guidePartID") ?? undefined),
+        await getRecommendationState(
+          target!.sessionID,
+          new URL(request.url).searchParams.get("guidePartID") ?? undefined,
+        ),
       )
-    if (action === "cancel") return Response.json(await cancelExpansion(sessionID!, assistantMessageID!))
+    if (action === "dismiss") return Response.json(dismissRecommendation(target!.sessionID, target!.guidePartID!))
+    if (action === "cancel") return Response.json(await cancelExpansion(target!.sessionID, target!.assistantMessageID!))
     const release = acquireBudget("request")
     const preparation = createPreparation(request.signal)
     try {
@@ -67,8 +75,11 @@ export async function recommendationRequest(
   } catch (error) {
     const safe = error instanceof SyntaxError ? new RecommendationError("INVALID_INPUT") : safeError(error)
     logRecommendationFailure(error, {
-      ...context, code: safe.code, status: safe.status,
-      elapsedMs: Date.now() - startedAt, cancelled: request.signal.aborted,
+      ...context,
+      code: safe.code,
+      status: safe.status,
+      elapsedMs: Date.now() - startedAt,
+      cancelled: request.signal.aborted,
     })
     return Response.json(safe.body(), { status: safe.status })
   }

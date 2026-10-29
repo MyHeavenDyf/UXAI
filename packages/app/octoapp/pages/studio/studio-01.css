@@ -930,3 +930,41 @@
     padding: 0;
   }
 }
+
+
+.studio-composer-recommendation-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 4px 8px 4px 12px;
+  border-radius: 999px;
+  background: #f3f3f3;
+  color: #191919;
+  font-size: 12px;
+  line-height: 22px;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-right: 6px;
+  user-select: none;
+}
+
+.studio-composer-recommendation-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.studio-composer-recommendation-close:hover { background: #dfdfdf; }
+.studio-composer-recommendation-close:focus-visible { outline: 2px solid #858585; outline-offset: 2px; }
+.studio-composer-recommendation-close img { width: 12px; height: 12px; }
+.studio-composer-recommendation-placeholder { color: #999; cursor: text; }
+.studio-recommendation-recover { font-size: 12px; color: #777; cursor: pointer; }

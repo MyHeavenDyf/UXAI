@@ -289,7 +289,7 @@ export async function selectExpansionModel(
         (item) => item.providerID === current?.providerID && item.modelID === current?.id,
       )
       const ordered = preferred ? [preferred, ...candidates.filter((item) => item !== preferred)] : candidates
-      const selected = ordered.find((candidate) => {
+      const eligible = ordered.filter((candidate) => {
         const model = connected[ProviderID.make(candidate.providerID)]?.models[ModelID.make(candidate.modelID)]
         return (
           !disabled.has(candidate.providerID) &&
@@ -298,6 +298,15 @@ export async function selectExpansionModel(
           (input.images.length === 0 || model.capabilities.input.image)
         )
       })
+      // Input requirements take precedence over the session's model preference.
+      const selected =
+        input.images.length > 0
+          ? eligible[0]
+          : (eligible.find(
+              (candidate) =>
+                !connected[ProviderID.make(candidate.providerID)]?.models[ModelID.make(candidate.modelID)]?.capabilities
+                  .input.image,
+            ) ?? eligible[0])
       if (!selected) return yield* Effect.fail(new RecommendationError("NO_ELIGIBLE_MODEL", 503))
       const model = yield* provider.getModel(ProviderID.make(selected.providerID), ModelID.make(selected.modelID))
       console.log("[studio.prompt-expansion] model", {

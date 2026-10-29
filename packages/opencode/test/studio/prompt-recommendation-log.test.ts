@@ -48,7 +48,7 @@ test("only bounded request identifiers are extracted from request payloads", () 
 })
 
 
-test("completed output diagnostics preserve full text, candidates and results in terminal and existing log file", async () => {
+test("terminal prints only raw model text while file logs retain results and diagnostics", async () => {
   const terminal = spyOn(console, "log").mockImplementation(() => {})
   const requestID = crypto.randomUUID()
   const rawText = `<expandedPrompt>${"樱花林荫道".repeat(2000)}</expandedPrompt>\n<tags>风格：动漫</tags>`
@@ -65,19 +65,20 @@ test("completed output diagnostics preserve full text, candidates and results in
         candidates: [{ index: 0, text: "城市雨景", codePoints: 4, complete: true, valid: true, selected: true }],
       },
     })
-    const first = JSON.parse(String(terminal.mock.calls[0][1]))
-    expect(JSON.parse(String(terminal.mock.calls[1][1])).diagnostics).toMatchObject({ candidateCount: 1, selectedIndex: 0, selectionReason: "last_complete_valid" })
-    expect(first.rawText).toBe(rawText)
-    expect(first.rawBytes).toBe(Buffer.byteLength(rawText))
-    expect(first.candidates).toEqual([{ text: "城市", codePoints: 2 }, { text: "", codePoints: 0 }, { text: "。", codePoints: 1 }])
-    expect(first).toMatchObject({ requestID, attempt: 1, outcome: "repairing", feedback: "返回了多份不同的正文", repair: false })
-    expect(JSON.parse(String(terminal.mock.calls[1][1]))).toMatchObject({ attempt: 2, outcome: "accepted", repair: true, result: { expandedPrompt: "城市雨景", tags: [] } })
+    expect(terminal.mock.calls).toEqual([[rawText], ["<expandedPrompt>城市雨景</expandedPrompt>"]])
     expect(Log.file()).not.toBe("")
     const deadline = Date.now() + 2000
-    while (Date.now() < deadline && !(await Bun.file(Log.file()).text()).includes(String(terminal.mock.calls[1][1])))
+    while (Date.now() < deadline && !(await Bun.file(Log.file()).text()).split("\n").some((line) => line.includes(requestID) && line.includes('"outcome":"accepted"')))
       await Bun.sleep(5)
-    const file = await Bun.file(Log.file()).text()
-    expect(file).toContain(`entry=${terminal.mock.calls[0][1]}`)
-    expect(file).toContain(`entry=${terminal.mock.calls[1][1]}`)
+    const records = (await Bun.file(Log.file()).text()).split("\n")
+      .filter((line) => line.includes(requestID) && line.includes("entry="))
+      .map((line) => JSON.parse(line.slice(line.indexOf("entry=") + 6).replace(/ output$/, "")))
+    expect(records).toHaveLength(2)
+    expect(records[0].rawText).toBe(rawText)
+    expect(records[0].rawBytes).toBe(Buffer.byteLength(rawText))
+    expect(records[0].candidates).toEqual([{ text: "城市", codePoints: 2 }, { text: "", codePoints: 0 }, { text: "。", codePoints: 1 }])
+    expect(records[0]).toMatchObject({ requestID, attempt: 1, outcome: "repairing", feedback: "返回了多份不同的正文", repair: false })
+    expect(records[1]).toMatchObject({ attempt: 2, outcome: "accepted", repair: true, result: { expandedPrompt: "城市雨景", tags: [] } })
+    expect(records[1].diagnostics).toMatchObject({ candidateCount: 1, selectedIndex: 0, selectionReason: "last_complete_valid" })
   } finally { terminal.mockRestore() }
 })
