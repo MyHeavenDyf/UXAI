@@ -1,7 +1,7 @@
 import { BrowserWindow, net, shell } from "electron"
 
 export type LoginUserInfo = {
-  uid: string
+  uid: string | number
   [key: string]: unknown
 }
 
@@ -96,9 +96,14 @@ async function checkLoginStatus(loginCode: string) {
   })
   if (!response.ok) throw new Error(`查询登录状态失败（${response.status}）`)
   const result = await response.json() as unknown
-  if (responseCode(result) !== 200 || !isRecord(result) || !isRecord(result.content) || typeof result.content.uid !== "string") return
+  if (responseCode(result) !== 200) return
+  if (!isRecord(result) || !isRecord(result.content) || !["string", "number"].includes(typeof result.content.uid)) {
+    throw new Error("登录成功响应未返回有效用户信息")
+  }
+  const uiplusToken = response.headers.get("uiplustoken") ?? ""
+  if (!uiplusToken) throw new Error("登录成功响应未返回 uiplustoken")
   return {
-    uiplusToken: response.headers.get("uiplustoken") ?? "",
+    uiplusToken,
     cookie: cookieValue(response.headers.get("set-cookie")),
     userInfo: result.content as LoginUserInfo,
   }

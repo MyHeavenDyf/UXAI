@@ -17,7 +17,7 @@ export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { 
 export type WslConfig = { enabled: boolean }
 // jk-j60099994-replace-with-types-1-start
 export type LoginUserInfo = {
-  uid: string
+  uid: string | number
   [key: string]: unknown
 }
 

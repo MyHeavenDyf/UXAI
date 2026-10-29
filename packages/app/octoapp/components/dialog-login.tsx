@@ -26,7 +26,7 @@ function loginApi() {
   return (window as unknown as { api?: Partial<LoginApi> }).api
 }
 
-export function DialogLogin(props: { initialError?: string }) {
+export function DialogLogin(props: { initialError?: string; allowClose: () => void }) {
   const dialog = useDialog()
   const [status, setStatus] = createSignal<"idle" | "logging-in" | "success" | "error">(
     props.initialError ? "error" : "idle",
@@ -45,13 +45,16 @@ export function DialogLogin(props: { initialError?: string }) {
         setMessage("登录成功")
         notifyStudioLoginSuccess()
         void refreshRemoteModels().catch((error) => console.error("[AuthLogin] remote model refresh failed", error))
-        closeTimer = setTimeout(() => dialog.close(), 1_000)
+        closeTimer = setTimeout(() => {
+          props.allowClose()
+          dialog.close()
+        }, 1_000)
       }),
       api?.onLoginTimeout?.((data) => {
         setStatus("error")
         setMessage(data.message)
       }),
-      api?.onLoginPollError?.(() => setMessage("登录状态检查失败，正在重试…")),
+      api?.onLoginPollError?.((data) => setMessage(`登录状态检查失败：${data.message}，正在重试…`)),
     ].filter((cleanup): cleanup is () => void => !!cleanup)
 
     onCleanup(() => {
@@ -100,9 +103,6 @@ export function DialogLogin(props: { initialError?: string }) {
               {status() === "logging-in" ? "登录中…" : "登录"}
             </Button>
           </Show>
-          <Show when={status() === "error" || status() === "success"}>
-            <Button class="login-dialog-secondary" onClick={() => dialog.close()}>关闭</Button>
-          </Show>
         </div>
       </div>
     </Dialog>
@@ -115,8 +115,43 @@ export function LoginController() {
   onMount(() => {
     const api = loginApi()
     const previous = window.openLogin
+    let removeDismissBlocker: (() => void) | undefined
     const open = (message?: string) => {
-      dialog.show(() => <DialogLogin initialError={message} />, () => void api?.cancelLogin?.())
+      removeDismissBlocker?.()
+      let canClose = false
+      const blockEscape = (event: KeyboardEvent) => {
+        if (canClose || event.key !== "Escape") return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }
+      const blockOutsideClick = (event: Event) => {
+        if (canClose) return
+        const target = event.target
+        if (!(target instanceof Element) || !target.closest('[data-component="dialog-overlay"]')) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }
+      const cleanup = () => {
+        window.removeEventListener("keydown", blockEscape, true)
+        window.removeEventListener("pointerdown", blockOutsideClick, true)
+        window.removeEventListener("click", blockOutsideClick, true)
+        if (removeDismissBlocker === cleanup) removeDismissBlocker = undefined
+      }
+      window.addEventListener("keydown", blockEscape, true)
+      window.addEventListener("pointerdown", blockOutsideClick, true)
+      window.addEventListener("click", blockOutsideClick, true)
+      removeDismissBlocker = cleanup
+      const allowClose = () => {
+        canClose = true
+        cleanup()
+      }
+      dialog.show(
+        () => <DialogLogin initialError={message} allowClose={allowClose} />,
+        () => {
+          cleanup()
+          void api?.cancelLogin?.()
+        },
+      )
     }
     const launcher = () => open()
     window.openLogin = launcher
@@ -138,6 +173,7 @@ export function LoginController() {
       open(state.message)
     }).catch((error) => console.error("[AuthLogin] startup auth check failed", error))
     onCleanup(() => {
+      removeDismissBlocker?.()
       cleanups.forEach((cleanup) => cleanup())
       if (window.openLogin === launcher) window.openLogin = previous
     })
