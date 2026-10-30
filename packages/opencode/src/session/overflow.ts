@@ -5,8 +5,7 @@ import type { MessageV2 } from "./message-v2"
 const COMPACTION_THRESHOLD = 0.85
 const DESIGN_AGENTS = new Set(["octo_make", "octo_make_plan", "ict_pattern", "octo_design", "octo_code"])
 
-// Keep automatic compaction available for a future rollout, but leave it disabled for now.
-export const AUTOMATIC_COMPACTION_ENABLED = false
+export const AUTOMATIC_COMPACTION_ENABLED = true
 export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
 
 export function exceedsContext(input: { model: Provider.Model; input: number; agent?: string; parentAgent?: string }) {
