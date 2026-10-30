@@ -6,7 +6,7 @@ import { getDesktopApi } from '../lib/electron-api'
 import { serializeEffects, type EffectEntry } from '../edit-mode/source-patches'
 import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
-import JSZip from 'jszip'
+import { saveCanvasDownload } from './c2d-save'
 
 function formatHexWithAlpha(v: string): string {
   const m = v.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/)
@@ -663,7 +663,7 @@ const defaultHandler: SubtypeHandler = {
   },
   
   async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
-    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter, onFilesRefresh } = ctx
+    const { tab, showOctoToast, sessionId, observedUrlsGetter } = ctx
     
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
@@ -686,65 +686,7 @@ const defaultHandler: SubtypeHandler = {
             observedUrls: observedUrlsGetter?.() || [],
           })
         },
-        downloadHtml: async (data) => {
-          const api = getDesktopApi()
-          const baseDir = sdkDirectory
-          const sid = sessionId
-
-          if (!baseDir || !sid || !api?.writeFileBuffer) {
-            showOctoToast({ title: "无法保存文件", variant: "error" })
-            return
-          }
-
-          const uploadsDir = ctx.workspaceKind === "code"
-            ? `${baseDir}`
-            : `${baseDir}/.octo/${sid}/uploads`
-          const lastDotIndex = data.filename.lastIndexOf('.')
-          const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
-          const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
-          
-          // ZIP file: extract to folder
-          if (ext.toLowerCase() === '.zip' && api.listDirectory) {
-            let folderName = baseName
-            let folderPath = `${uploadsDir}/${folderName}`
-            
-            let counter = 0
-            while (await folderExists(folderPath, api)) {
-              counter++
-              folderName = `${baseName} (${counter})`
-              folderPath = `${uploadsDir}/${folderName}`
-            }
-            
-            const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-            const zip = await JSZip.loadAsync(buffer)
-            
-            for (const [relativePath, file] of Object.entries(zip.files)) {
-              if (!file.dir) {
-                const content = await file.async('uint8array')
-                await api.writeFileBuffer(`${folderPath}/${relativePath}`, content.buffer as ArrayBuffer)
-              }
-            }
-            
-            showOctoToast({ title: "已解压", description: folderName })
-            onFilesRefresh?.()
-            return
-          }
-          
-          // Non-ZIP file: save directly
-          let finalFilename = data.filename
-          
-          if (api.fileExists) {
-            let counter = 0
-            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
-              counter++
-              finalFilename = `${baseName} (${counter})${ext}`
-            }
-          }
-          
-          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
-          showOctoToast({ title: "已保存", description: finalFilename })
-        },
+        downloadHtml: (data) => saveCanvasDownload(data, ctx),
         config: {
           designName: tab.title,
           sessionId: sessionId || "",
@@ -918,11 +860,3 @@ const defaultHandler: SubtypeHandler = {
 }
 
 export default defaultHandler satisfies SubtypeHandler
-
-async function folderExists(path: string, api: ReturnType<typeof getDesktopApi>): Promise<boolean> {
-  if (!api?.listDirectory) return false
-  const parent = path.replace(/[/\\][^/\\]+$/, '')
-  const items = await api.listDirectory(parent)
-  if (!items) return false
-  return items.some(item => item.path === path && item.type === 'directory')
-}
