@@ -31,18 +31,15 @@ export function DialogLogin(props: { initialError?: string; allowClose: () => vo
   const [status, setStatus] = createSignal<"idle" | "logging-in" | "success" | "error">(
     props.initialError ? "error" : "idle",
   )
-  const [message, setMessage] = createSignal(props.initialError ?? "")
   let closeTimer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
     if (!loginRequired) return
     const api = loginApi()
     const cleanups = [
-      api?.onLoginOpened?.(() => setMessage("请在新窗口完成登录操作")),
       api?.onLoginSuccess?.((data) => {
         syncAuthFromLoginSuccess(data.uiplusToken, data.cookie, data.userInfo)
         setStatus("success")
-        setMessage("登录成功")
         notifyStudioLoginSuccess()
         void refreshRemoteModels().catch((error) => console.error("[AuthLogin] remote model refresh failed", error))
         closeTimer = setTimeout(() => {
@@ -51,10 +48,10 @@ export function DialogLogin(props: { initialError?: string; allowClose: () => vo
         }, 1_000)
       }),
       api?.onLoginTimeout?.((data) => {
+        console.warn("[AuthLogin] login timed out", data.message)
         setStatus("error")
-        setMessage(data.message)
       }),
-      api?.onLoginPollError?.((data) => setMessage(`登录状态检查失败：${data.message}，正在重试…`)),
+      api?.onLoginPollError?.((data) => console.warn("[AuthLogin] login poll failed", data.message)),
     ].filter((cleanup): cleanup is () => void => !!cleanup)
 
     onCleanup(() => {
@@ -66,16 +63,14 @@ export function DialogLogin(props: { initialError?: string; allowClose: () => vo
   const handleLogin = () => {
     const api = loginApi()
     if (!api?.startLogin) {
+      console.error("[AuthLogin] login service is unavailable")
       setStatus("error")
-      setMessage("当前环境未接入登录服务")
       return
     }
     setStatus("logging-in")
-    setMessage("正在打开登录页面…")
     void api.startLogin().catch((error) => {
       console.error("[AuthLogin] failed to start login", error)
       setStatus("error")
-      setMessage("登录失败，请重试")
     })
   }
 
@@ -87,10 +82,6 @@ export function DialogLogin(props: { initialError?: string; allowClose: () => vo
           <h2 class="login-dialog-title">Octo Agent</h2>
           <p class="login-dialog-subtitle">您的全能设计与调研专家</p>
         </div>
-
-        <Show when={message()}>
-          <p class="login-dialog-message" data-status={status()} aria-live="polite">{message()}</p>
-        </Show>
 
         <div class="login-dialog-actions">
           <Show when={status() !== "success"}>

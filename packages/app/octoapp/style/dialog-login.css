@@ -68,22 +68,6 @@ body:has(.login-dialog) [data-component="dialog-overlay"] {
   letter-spacing: 2px;
 }
 
-.login-dialog-message {
-  margin: 24px 0 0;
-  color: var(--text-base);
-  font-size: 14px;
-  line-height: 22px;
-  text-align: center;
-}
-
-.login-dialog-message[data-status="success"] {
-  color: #16833b;
-}
-
-.login-dialog-message[data-status="error"] {
-  color: #d92d20;
-}
-
 .login-dialog-actions {
   position: absolute;
   right: 32px;
