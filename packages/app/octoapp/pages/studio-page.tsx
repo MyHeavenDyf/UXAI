@@ -24,7 +24,6 @@ import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
 import { showFloatingNotice } from "@/components/floating-notice"
-import { compressImageWithNotice, ImageCompressNotice } from "@/components/image-compress-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
@@ -452,10 +451,11 @@ export default function StudioPage() {
     createStore<{ entries: Record<string, RecommendationImageSettings> }>({ entries: {} }),
   )
   const imageSettingsReady = () => imageSettingStoreReady() && imageSessionStoreReady() && lastImageSettingsReady()
-  const [recommendationModes, setRecommendationModes] = persisted(
+  const [recommendationModes, setRecommendationModes, , recommendationModesReady] = persisted(
     Persist.sessionGlobal("studio.recommendation.modes"),
-    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings> }>({ entries: {}, settings: {} }),
+    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings>; enabled?: Record<string, boolean> }>({ entries: {}, settings: {}, enabled: {} }),
   )
+  const recommendationEnabled = () => recommendationModes.enabled?.[recommendationKey()] === true
   const capability = () => recommendationMode.capability()
   const setCapability = (v: StudioCapability) => recommendationMode.select(v)
   const aspectRatio = () => recommendationSettings.current().aspectRatio
@@ -652,6 +652,7 @@ export default function StudioPage() {
     sessionID: () => params.id,
     globalSDK,
   })
+  let pendingRecommendationSessionID: string | undefined
   const recommendation = createPromptRecommendation({
     sessionID: () => params.id,
     scope: recommendationScope,
@@ -682,12 +683,22 @@ export default function StudioPage() {
       return persistStudioImage({ sessionID, role: "prompt-expansion", dataUrl: `data:${mime};base64,${image.base64}` })
     },
     reload: loadSessionMessages,
-    navigate: (id) => { if (params.id !== id) navigate(`/${routeSlug()}/studio/${id}`) },
+    navigate: (id, preserveDraft) => {
+      if (params.id === id) return
+      if (preserveDraft) pendingRecommendationSessionID = id
+      navigate(`/${routeSlug()}/studio/${id}`)
+    },
     notice: (message) => showFloatingNotice("info", message),
+    mode: {
+      ready: recommendationModesReady,
+      enabled: (key) => recommendationModes.enabled?.[key],
+      save: (key, enabled) => setRecommendationModes("enabled", (entries) => ({ ...entries, [key]: enabled })),
+    },
   })
   const recommendationMode = createRecommendationMode({
     key: recommendationKey,
-    active: () => recommendation.armed() || recommendation.busy() || Boolean(recommendation.state()?.unknown),
+    enabled: recommendationEnabled,
+    active: () => recommendation.armed() || recommendation.busy() || recommendation.exiting() || Boolean(recommendation.state()?.unknown),
     ready: recommendation.ready,
     entries: () => recommendationModes.entries,
     save: (key, value) => {
@@ -1784,6 +1795,8 @@ export default function StudioPage() {
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
         setPendingDeleteTemplate(undefined)
+        const preserveRecommendationDraft = Boolean(id && id === pendingRecommendationSessionID)
+        pendingRecommendationSessionID = undefined
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -1852,9 +1865,11 @@ export default function StudioPage() {
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
         seedreamAtSnapshot = undefined
-        setAssets([])
+        if (!preserveRecommendationDraft) {
+          setAssets([])
+          setPrompt("")
+        }
         clearVideoFrames()
-        setPrompt("")
       },
       { defer: true },
     ),
@@ -1872,7 +1887,7 @@ export default function StudioPage() {
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const effectiveMaxReferenceImages = createMemo(() => {
-    if (recommendation.armed()) return 3
+    if (recommendationEnabled()) return 3
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
     if (template.reference_image_setting === "not_supported") return 0
@@ -1908,7 +1923,7 @@ export default function StudioPage() {
       [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
     }))
   }
-  const canSubmit = createMemo(() => recommendation.ready() && (recommendation.armed()
+  const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationEnabled()
     ? !recommendation.busy() && prompt().trim().length > 0 && [...prompt().trim()].length <= 2000 && assets().length <= 3
     : !recommendation.state()?.unknown && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -2284,25 +2299,10 @@ export default function StudioPage() {
 
   async function validateVideoFrame(file: File) {
     if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
-    // 超限图片自动压缩(对齐 design/insight 上传链路,上限统一 1MB);压不动回退原报错
-    let uploadFile = file
-    if (file.size > 1024 * 1024) {
-      const compressed = await compressOversizedImage(file, 1024 * 1024)
-      if (!compressed) throw new Error("图片不能超过 1MB。")
-      uploadFile = compressed
-    }
-    const asset = await readStudioAsset(uploadFile)
+    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
+    const asset = await readStudioAsset(file)
     await validateVideoFrameAsset(asset)
     return asset
-  }
-
-  /** 超限图片自动压缩(对齐 design/insight 上传链路):压不动返回 null 由调用方回退原报错。
-   *  产物保持原格式,各工具白名单(png/jpg/jpeg[/webp])天然兼容。 */
-  async function compressOversizedImage(file: File, maxSizeBytes: number): Promise<File | null> {
-    const compressed = await compressImageWithNotice(file, maxSizeBytes)
-    if (!compressed) return null
-    tracker.interaction({ module: "studio", name: "image-auto-compress", extend: JSON.stringify({ before: file.size, after: compressed.size, format: compressed.type }) })
-    return compressed
   }
 
   const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
@@ -2317,7 +2317,7 @@ export default function StudioPage() {
   }
 
   function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskLocked()) return
     const currentTemplate = selectedStyleTemplate()
     const nextStyleModelID = styleModelId(value)
     const shouldClearStyleTemplate = Boolean(
@@ -2343,6 +2343,10 @@ export default function StudioPage() {
         setCustomWidth(Math.min(customWidth(), 1664))
         setCustomHeight(Math.min(customHeight(), 1664))
       }
+    }
+    if (recommendationEnabled()) {
+      setStyleModel(value)
+      return
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
     if (currentTemplate && prevIsSeedream && !nextIsSeedream) seedreamInputApi.stripMentions()
@@ -2470,7 +2474,7 @@ export default function StudioPage() {
       })
   }
 
-  async function addAssets(files: File[]) {
+  function addAssets(files: File[]) {
     if (templateReferenceUploadDisabled()) {
       showUnsupportedTemplateReferenceNotice()
       return
@@ -2490,18 +2494,14 @@ export default function StudioPage() {
       showFloatingNotice("info", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
-    // 图片上限统一 1MB(2026-10 起对齐 design/insight,超限自动压缩);jimeng 产物仍限 jpg
-    const maxSize = 1024 * 1024
-    const maxSizeLabel = "1MB"
-    // 超限图片自动压缩(对齐 design/insight 上传链路);压不动回退原报错(整批拦截,与原语义一致)
-    const prepared = await Promise.all(selectedFiles.map((file) => file.size <= maxSize ? file : compressOversizedImage(file, maxSize)))
-    if (prepared.some((file) => !file)) {
+    const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+    const maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    if (selectedFiles.some((file) => file.size > maxSize)) {
       showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
-    const readyFiles = prepared.filter((file): file is File => Boolean(file))
-    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: readyFiles.length }) })
-    Promise.all(readyFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
+    Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
       .then((items) => {
         if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
           showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
@@ -2561,11 +2561,12 @@ export default function StudioPage() {
       })
   }
 
-  async function uploadWorkspaceImage(files: File[]) {
+  function uploadWorkspaceImage(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
     tracker.interaction({ module: "studio", name: "workspace-upload", extend: JSON.stringify({ capability: capability() }) })
     const isJimeng = imageTool() === "jimeng"
+    const isGenerate = capability() === "image.generate"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const ext = file.name.split(".").pop()?.toLowerCase()
     if (!ext || !allowedExts.includes(ext)) {
@@ -2573,20 +2574,23 @@ export default function StudioPage() {
       return
     }
     const isStrictEdit = capability() === "image.outpaint" || capability() === "image.inpaint" || capability() === "image.cutout"
-    // 图片上限统一 1MB(2026-10 起对齐 design/insight,超限自动压缩);jimeng 产物仍限 jpg
-    const maxSize = 1024 * 1024
-    const maxSizeLabel = "1MB"
-    // 超限图片自动压缩(对齐 design/insight 上传链路);压不动回退原报错
-    let uploadFile = file
-    if (file.size > maxSize) {
-      const compressed = await compressOversizedImage(file, maxSize)
-      if (!compressed) {
-        showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
-        return
-      }
-      uploadFile = compressed
+    let maxSize: number
+    let maxSizeLabel: string
+    if (isStrictEdit) {
+      maxSize = 8 * 1024 * 1024
+      maxSizeLabel = "8MB"
+    } else if (isGenerate) {
+      maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+      maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    } else {
+      maxSize = 20 * 1024 * 1024
+      maxSizeLabel = "20MB"
     }
-    readWorkspaceImage(uploadFile)
+    if (file.size > maxSize) {
+      showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
+      return
+    }
+    readWorkspaceImage(file)
       .then((image) => {
         if (image.width != null && image.height != null) {
           if (image.width > 7500 || image.height > 7500) {
@@ -2854,6 +2858,7 @@ export default function StudioPage() {
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
+    pendingRecommendationSessionID = undefined
     generationToken++
     setPendingScrollRequest(undefined)
     setVideoRiskDialogOpen(false)
@@ -4503,8 +4508,9 @@ export default function StudioPage() {
   }
 
   function handleSubmit() {
-    if (!recommendation.ready() || recommendation.busy()) return
-    if (recommendation.armed()) {
+    if (recommendation.state()?.unknown && !recommendationEnabled()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
+    if (!canSubmit()) return
+    if (recommendationEnabled()) {
       const submittedPrompt = prompt()
       const submittedAssets = [...assets()]
       const submittedSession = params.id
@@ -4515,13 +4521,15 @@ export default function StudioPage() {
       if (submittedAssets.some((asset) => dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024)) { showFloatingNotice("info", "单张参考图不能超过 10MiB。"); return }
       if (submittedAssets.reduce((size, asset) => size + dataUrlByteSize(asset.dataUrl), 0) > 20 * 1024 * 1024) { showFloatingNotice("info", "参考图总大小不能超过 20MiB。"); return }
       if (images.some((image) => !image)) { showFloatingNotice("info", "参考图需要是本地 PNG、JPEG 或 WebP 图片。"); return }
-      void recommendation.submit({
+      expansionReview.dismiss()
+      setOpenMenu(null)
+      void recommendation.expand({
         prompt: submittedPrompt,
         images: images.filter((image): image is { mime: string; base64: string } => Boolean(image)),
         availableModels: models.list().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.id })).slice(0, 100)
           .map((model) => ({ providerID: model.provider.id, modelID: model.id })),
-      }, () => {
-        if (params.id !== submittedSession || prompt() !== submittedPrompt ||
+      }, (acceptedSession) => {
+        if (params.id !== (submittedSession ?? acceptedSession) || prompt() !== submittedPrompt ||
           assets().map((asset) => asset.id).join() !== submittedAssets.map((asset) => asset.id).join()) return
         setStudioPrompt("")
         setAssets([])
@@ -4871,7 +4879,7 @@ export default function StudioPage() {
   })
   const canGenerateExpansion = () =>
     recommendation.ready() && !recommendation.state()?.unknown &&
-    !recommendationMode.locked() && !isActionBusy() && imageSettingsReady() &&
+    !recommendationMode.taskLocked() && !isActionBusy() && imageSettingsReady() &&
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
@@ -4897,6 +4905,7 @@ export default function StudioPage() {
       void recommendation.recover()
       return
     }
+    if (recommendationEnabled()) return
     expansionReview.dismiss()
     void recommendation.initialize()
   }
@@ -5045,10 +5054,6 @@ export default function StudioPage() {
               <StudioIntro />
               <div class="relative size-full">
 
-                <div class="studio-composer-wrap shrink-0">
-                  <ImageCompressNotice />
-                </div>
-
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
@@ -5072,7 +5077,11 @@ export default function StudioPage() {
                   status={effectiveStatus()}
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
-                  recommendationArmed={recommendation.armed()}
+                  recommendationEnabled={recommendationEnabled()}
+                  recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+                  onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+                  onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+                  recommendationTaskLocked={recommendationMode.taskLocked()}
                   recommendationLocked={recommendationMode.locked()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
@@ -5313,10 +5322,6 @@ if (!headerTitle.pendingRename) return
             </div>
           </ScrollView>
 
-          <div class="studio-composer-wrap shrink-0">
-            <ImageCompressNotice />
-          </div>
-
           <StudioComposer
             prompt={prompt()}
             capability={capability()}
@@ -5340,7 +5345,11 @@ if (!headerTitle.pendingRename) return
             status={effectiveStatus()}
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
-            recommendationArmed={recommendation.armed()}
+            recommendationEnabled={recommendationEnabled()}
+            recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+            onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+            onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+            recommendationTaskLocked={recommendationMode.taskLocked()}
             recommendationLocked={recommendationMode.locked()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}

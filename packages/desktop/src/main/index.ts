@@ -52,6 +52,13 @@ import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } fr
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-index-1-start
+import {
+  cancelLogin,
+  checkAuthOnStartup,
+  startLogin,
+  stopTokenExpirationCheck,
+  stopTokenRefresh,
+} from "./auth-login"
 // jk-j60099994-replace-with-index-1-end
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-start
 // jk-j60099994-replace-with-60062650-desktop-main-index-3-end
@@ -215,6 +222,9 @@ function setupApp() {
 
   app.on("before-quit", () => {
   // jk-j60099994-replace-with-index-3-start
+    cancelLogin()
+    stopTokenExpirationCheck()
+    stopTokenRefresh()
   // jk-j60099994-replace-with-index-3-end
     void killSidecar()
   })
@@ -526,6 +536,25 @@ registerIpcHandlers({
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
+  startLogin: async () => {
+    if (!mainWindow) throw new Error("主窗口不存在")
+    return startLogin(mainWindow)
+  },
+  cancelLogin: async () => {
+    cancelLogin()
+    return true
+  },
+  stopTokenExpirationCheck: () => {
+    stopTokenExpirationCheck()
+    stopTokenRefresh()
+  },
+  checkAuthReady: () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve({ loginRequired: false })
+    return checkAuthOnStartup(mainWindow).catch((error) => {
+      logger.error("auth startup check failed", error)
+      return { loginRequired: false }
+    })
+  },
   // jk-j60099994-replace-with-index-2-end
   // jk-j60099994-replace-with-60062650-desktop-main-index-1-start
   // jk-j60099994-replace-with-60062650-desktop-main-index-1-end

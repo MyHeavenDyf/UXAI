@@ -341,9 +341,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
     if ((yield* status.get(input.sessionID)).type !== "idle") {
       return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
     }
-    if ((yield* sessions.children(input.sessionID)).length) {
-      return yield* new PortableValidationError({ message: "该对话包含子对话，暂不支持分享" })
-    }
   })
   yield* assertShareable
   const uploadURL = process.env.OCTO_SHARE_API_URL?.trim()
