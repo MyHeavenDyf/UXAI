@@ -22,10 +22,6 @@
   }
 
   .header-user-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    flex-shrink: 0;
     margin-left: 16px;
   }
 }

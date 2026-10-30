@@ -16,6 +16,20 @@ export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { 
 
 export type WslConfig = { enabled: boolean }
 // jk-j60099994-replace-with-types-1-start
+export type LoginUserInfo = {
+  uid: string | number
+  [key: string]: unknown
+}
+
+export type StartLoginResult = {
+  loginCode: string
+  loginUrl: string
+}
+
+export type AuthStartupState = {
+  loginRequired: boolean
+  message?: string
+}
 // jk-j60099994-replace-with-types-1-end
 export type LinuxDisplayBackend = "wayland" | "auto"
 export type TitlebarTheme = {
@@ -175,6 +189,17 @@ export type ElectronAPI = {
   onResume: (callback: () => void) => () => void
   onReopen: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
+  startLogin: () => Promise<StartLoginResult>
+  cancelLogin: () => Promise<boolean>
+  onLoginOpened: (cb: (data: StartLoginResult) => void) => () => void
+  onLoginSuccess: (cb: (data: { uiplusToken: string; cookie: string; userInfo: LoginUserInfo }) => void) => () => void
+  onLoginTimeout: (cb: (data: { message: string }) => void) => () => void
+  onLoginPollError: (cb: (data: { message: string }) => void) => () => void
+  onTokenExpired: (cb: (data: { message: string }) => void) => () => void
+  onTokenRefreshed: (cb: (data: { uiplusToken: string }) => void) => () => void
+  onLoginExpiring: (cb: (data: { message: string }) => void) => () => void
+  stopTokenExpirationCheck: () => void
+  checkAuthReady: () => Promise<AuthStartupState>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
