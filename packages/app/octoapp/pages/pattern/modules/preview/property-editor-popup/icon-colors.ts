@@ -2,6 +2,7 @@
 export const iconColors: Record<string, { label: string; color: string; twoColor: string; threeColor: string }> = {
   default: { label: 'Default', color: "#191919", twoColor: "#191919, #AEAEAE", threeColor: "#191919, #AEAEAE, #FFFFFF" },
   brand: { label: 'Brand', color: "#0067D1", twoColor: "#0067D1, #5CA2E9", threeColor: "#0067D1, #5CA2E9, #E6F2FD" },
+  gray: { label: 'Gray', color: "#DFDFDF", twoColor: "#DFDFDF, #777777", threeColor: "#DFDFDF, #777777, #FFFFFF" },
   info: { label: 'Info', color: "#2070F3", twoColor: "#2070F3, #8CA3FA", threeColor: "#2070F3, #8CA3FA, #EEF3FE" },
   error: { label: 'Error', color: "#E02128", twoColor: "#E02128, #EE696F", threeColor: "#E02128, #EE696F, #FEE7E8" },
   alert: { label: 'Alert', color: "#F4840C", twoColor: "#F4840C, #F9B766", threeColor: "#F4840C, #F9B766, #FEF5E8" },

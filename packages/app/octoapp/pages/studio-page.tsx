@@ -451,10 +451,11 @@ export default function StudioPage() {
     createStore<{ entries: Record<string, RecommendationImageSettings> }>({ entries: {} }),
   )
   const imageSettingsReady = () => imageSettingStoreReady() && imageSessionStoreReady() && lastImageSettingsReady()
-  const [recommendationModes, setRecommendationModes] = persisted(
+  const [recommendationModes, setRecommendationModes, , recommendationModesReady] = persisted(
     Persist.sessionGlobal("studio.recommendation.modes"),
-    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings> }>({ entries: {}, settings: {} }),
+    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings>; enabled?: Record<string, boolean> }>({ entries: {}, settings: {}, enabled: {} }),
   )
+  const recommendationEnabled = () => recommendationModes.enabled?.[recommendationKey()] === true
   const capability = () => recommendationMode.capability()
   const setCapability = (v: StudioCapability) => recommendationMode.select(v)
   const aspectRatio = () => recommendationSettings.current().aspectRatio
@@ -651,6 +652,7 @@ export default function StudioPage() {
     sessionID: () => params.id,
     globalSDK,
   })
+  let pendingRecommendationSessionID: string | undefined
   const recommendation = createPromptRecommendation({
     sessionID: () => params.id,
     scope: recommendationScope,
@@ -681,12 +683,22 @@ export default function StudioPage() {
       return persistStudioImage({ sessionID, role: "prompt-expansion", dataUrl: `data:${mime};base64,${image.base64}` })
     },
     reload: loadSessionMessages,
-    navigate: (id) => { if (params.id !== id) navigate(`/${routeSlug()}/studio/${id}`) },
+    navigate: (id, preserveDraft) => {
+      if (params.id === id) return
+      if (preserveDraft) pendingRecommendationSessionID = id
+      navigate(`/${routeSlug()}/studio/${id}`)
+    },
     notice: (message) => showFloatingNotice("info", message),
+    mode: {
+      ready: recommendationModesReady,
+      enabled: (key) => recommendationModes.enabled?.[key],
+      save: (key, enabled) => setRecommendationModes("enabled", (entries) => ({ ...entries, [key]: enabled })),
+    },
   })
   const recommendationMode = createRecommendationMode({
     key: recommendationKey,
-    active: () => recommendation.armed() || recommendation.busy() || Boolean(recommendation.state()?.unknown),
+    enabled: recommendationEnabled,
+    active: () => recommendation.armed() || recommendation.busy() || recommendation.exiting() || Boolean(recommendation.state()?.unknown),
     ready: recommendation.ready,
     entries: () => recommendationModes.entries,
     save: (key, value) => {
@@ -1783,6 +1795,8 @@ export default function StudioPage() {
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
         setPendingDeleteTemplate(undefined)
+        const preserveRecommendationDraft = Boolean(id && id === pendingRecommendationSessionID)
+        pendingRecommendationSessionID = undefined
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -1851,9 +1865,11 @@ export default function StudioPage() {
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
         seedreamAtSnapshot = undefined
-        setAssets([])
+        if (!preserveRecommendationDraft) {
+          setAssets([])
+          setPrompt("")
+        }
         clearVideoFrames()
-        setPrompt("")
       },
       { defer: true },
     ),
@@ -1871,7 +1887,7 @@ export default function StudioPage() {
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const effectiveMaxReferenceImages = createMemo(() => {
-    if (recommendation.armed()) return 3
+    if (recommendationEnabled()) return 3
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
     if (template.reference_image_setting === "not_supported") return 0
@@ -1907,7 +1923,7 @@ export default function StudioPage() {
       [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
     }))
   }
-  const canSubmit = createMemo(() => recommendation.ready() && (recommendation.armed()
+  const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationEnabled()
     ? !recommendation.busy() && prompt().trim().length > 0 && [...prompt().trim()].length <= 2000 && assets().length <= 3
     : !recommendation.state()?.unknown && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -2301,7 +2317,7 @@ export default function StudioPage() {
   }
 
   function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskLocked()) return
     const currentTemplate = selectedStyleTemplate()
     const nextStyleModelID = styleModelId(value)
     const shouldClearStyleTemplate = Boolean(
@@ -2327,6 +2343,10 @@ export default function StudioPage() {
         setCustomWidth(Math.min(customWidth(), 1664))
         setCustomHeight(Math.min(customHeight(), 1664))
       }
+    }
+    if (recommendationEnabled()) {
+      setStyleModel(value)
+      return
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
     if (currentTemplate && prevIsSeedream && !nextIsSeedream) seedreamInputApi.stripMentions()
@@ -2838,6 +2858,7 @@ export default function StudioPage() {
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
+    pendingRecommendationSessionID = undefined
     generationToken++
     setPendingScrollRequest(undefined)
     setVideoRiskDialogOpen(false)
@@ -4487,8 +4508,9 @@ export default function StudioPage() {
   }
 
   function handleSubmit() {
-    if (!recommendation.ready() || recommendation.busy()) return
-    if (recommendation.armed()) {
+    if (recommendation.state()?.unknown && !recommendationEnabled()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
+    if (!canSubmit()) return
+    if (recommendationEnabled()) {
       const submittedPrompt = prompt()
       const submittedAssets = [...assets()]
       const submittedSession = params.id
@@ -4499,13 +4521,15 @@ export default function StudioPage() {
       if (submittedAssets.some((asset) => dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024)) { showFloatingNotice("info", "单张参考图不能超过 10MiB。"); return }
       if (submittedAssets.reduce((size, asset) => size + dataUrlByteSize(asset.dataUrl), 0) > 20 * 1024 * 1024) { showFloatingNotice("info", "参考图总大小不能超过 20MiB。"); return }
       if (images.some((image) => !image)) { showFloatingNotice("info", "参考图需要是本地 PNG、JPEG 或 WebP 图片。"); return }
-      void recommendation.submit({
+      expansionReview.dismiss()
+      setOpenMenu(null)
+      void recommendation.expand({
         prompt: submittedPrompt,
         images: images.filter((image): image is { mime: string; base64: string } => Boolean(image)),
         availableModels: models.list().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.id })).slice(0, 100)
           .map((model) => ({ providerID: model.provider.id, modelID: model.id })),
-      }, () => {
-        if (params.id !== submittedSession || prompt() !== submittedPrompt ||
+      }, (acceptedSession) => {
+        if (params.id !== (submittedSession ?? acceptedSession) || prompt() !== submittedPrompt ||
           assets().map((asset) => asset.id).join() !== submittedAssets.map((asset) => asset.id).join()) return
         setStudioPrompt("")
         setAssets([])
@@ -4855,7 +4879,7 @@ export default function StudioPage() {
   })
   const canGenerateExpansion = () =>
     recommendation.ready() && !recommendation.state()?.unknown &&
-    !recommendationMode.locked() && !isActionBusy() && imageSettingsReady() &&
+    !recommendationMode.taskLocked() && !isActionBusy() && imageSettingsReady() &&
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
@@ -4881,6 +4905,7 @@ export default function StudioPage() {
       void recommendation.recover()
       return
     }
+    if (recommendationEnabled()) return
     expansionReview.dismiss()
     void recommendation.initialize()
   }
@@ -5052,7 +5077,11 @@ export default function StudioPage() {
                   status={effectiveStatus()}
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
-                  recommendationArmed={recommendation.armed()}
+                  recommendationEnabled={recommendationEnabled()}
+                  recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+                  onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+                  onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+                  recommendationTaskLocked={recommendationMode.taskLocked()}
                   recommendationLocked={recommendationMode.locked()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
@@ -5316,7 +5345,11 @@ if (!headerTitle.pendingRename) return
             status={effectiveStatus()}
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
-            recommendationArmed={recommendation.armed()}
+            recommendationEnabled={recommendationEnabled()}
+            recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+            onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+            onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+            recommendationTaskLocked={recommendationMode.taskLocked()}
             recommendationLocked={recommendationMode.locked()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}

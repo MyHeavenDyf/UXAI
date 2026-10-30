@@ -242,13 +242,24 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 2 },
     )
-    return yield* Effect.forEach(
+    const packed = yield* Effect.forEach(
       files.flat(),
       ({ file, source, location }) =>
-        Effect.promise(async (): Promise<FileEntry> => {
+        Effect.promise(async (): Promise<FileEntry | undefined> => {
           const relative = path.relative(location.root, file)
-          const content = await read(source)
+          const content = await read(source).catch((error) => {
+            console.warn(
+              "[octo:share] skipped file",
+              JSON.stringify({
+                source,
+                path: relative,
+                reason: "unreadable",
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            )
+          })
           contents.delete(source)
+          if (!content) return
           const sha256 = digest(content)
           const blob = `blobs/${sha256}`
           if (!blobs.has(blob)) {
@@ -267,6 +278,7 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 8 },
     )
+    return packed.filter((file): file is FileEntry => !!file)
   })
 }
 
@@ -328,9 +340,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   const assertShareable = Effect.gen(function* () {
     if ((yield* status.get(input.sessionID)).type !== "idle") {
       return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
-    }
-    if ((yield* sessions.children(input.sessionID)).length) {
-      return yield* new PortableValidationError({ message: "该对话包含子对话，暂不支持分享" })
     }
   })
   yield* assertShareable
@@ -699,21 +708,51 @@ function orderedEntries(manifest: Manifest) {
 }
 
 async function sharedFileTarget(directory: string, file: FileEntry) {
+  const skip = (reason: string, error?: unknown) => {
+    console.warn(
+      "[octo:import] skipped file",
+      JSON.stringify({
+        path: file.path,
+        reason,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      }),
+    )
+  }
   const segments = `${file.directory}/${file.path}`
     .replaceAll("\\", "/")
     .split("/")
     .filter((part) => part !== ".")
   for (const [index] of segments.entries()) {
     const target = path.join(directory, ...segments.slice(0, index + 1))
-    const stat = await lstat(target).catch((error) => {
-      if (error.code === "ENOENT") return
-      throw error
+    const result = await lstat(target).then(
+      (stat) => ({ stat }),
+      (error) => ({ error }),
+    )
+    if ("error" in result) {
+      if (result.error.code === "ENOENT") continue
+      skip("unreadable-target", result.error)
+      return
+    }
+    if (result.stat.isSymbolicLink()) {
+      skip("symbolic-link")
+      return
+    }
+    if (index < segments.length - 1 && !result.stat.isDirectory()) {
+      skip("directory-conflict")
+      return
+    }
+    if (index !== segments.length - 1) continue
+    if (!result.stat.isFile()) {
+      skip("file-conflict")
+      return
+    }
+    const content = await readFile(target).catch((error) => {
+      skip("unreadable-target", error)
     })
-    if (!stat) continue
-    if (stat.isSymbolicLink()) throw new Error(`共享文件路径包含符号链接，无法导入：${file.path}`)
-    if (index < segments.length - 1 && !stat.isDirectory()) throw new Error(`共享文件目录冲突：${file.path}`)
-    if (index === segments.length - 1 && (!stat.isFile() || digest(await readFile(target)) !== file.sha256)) {
-      throw new Error(`共享文件已存在且内容不同，请更换导入目录：${file.path}`)
+    if (!content) return
+    if (digest(content) !== file.sha256) {
+      skip("content-conflict")
+      return
     }
   }
   return path.join(directory, ...segments)
@@ -747,7 +786,13 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     const add = (file: FileEntry) => {
       const key = `${file.scope ?? "session"}/${file.sessionID}/${path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/"))}`
       const existing = files.get(key)
-      if (existing && existing.sha256 !== file.sha256) throw new Error(`私有文件同名且内容不同，无法导入：${file.path}`)
+      if (existing && existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: file.path, reason: "private-content-conflict" }),
+        )
+        return
+      }
       if (!existing) files.set(key, file)
     }
     manifest.files.filter((file) => file.scope !== "project").forEach(add)
@@ -778,7 +823,12 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     if (!isProjectFile(target)) continue
     const existing = shared.get(target)
     if (existing) {
-      if (existing.sha256 !== file.sha256) throw new Error(`共享文件同名且内容不同，无法导入：${target}`)
+      if (existing.sha256 !== file.sha256) {
+        console.warn(
+          "[octo:import] skipped file",
+          JSON.stringify({ path: target, reason: "shared-content-conflict" }),
+        )
+      }
       continue
     }
     // Keep the private copy and its chat references; expose an additional shared copy.
@@ -807,12 +857,6 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
   const sharedFiles: string[] = []
 
   const importEffect = Effect.gen(function* () {
-    // Fail before creating sessions or writing files when a shared path conflicts.
-    yield* Effect.forEach(
-      files.filter((file) => file.scope === "project"),
-      (file) => Effect.promise(() => sharedFileTarget(context.directory, file)),
-      { concurrency: 8 },
-    )
     for (const entry of orderedEntries(bundle.manifest)) {
       const parentID = entry.info.parentID ? sessionIDs.get(entry.info.parentID) : undefined
       const session = yield* sessions.create({
@@ -898,14 +942,36 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       if (fileEntry.scope === "project") {
         yield* Effect.promise(async () => {
           const target = await sharedFileTarget(context.directory, fileEntry)
-          await mkdir(path.dirname(target), { recursive: true })
+          if (!target) return
+          const directory = await mkdir(path.dirname(target), { recursive: true }).then(
+            () => true,
+            (error) => {
+              console.warn(
+                "[octo:import] skipped file",
+                JSON.stringify({
+                  path: fileEntry.path,
+                  reason: "create-directory-failed",
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              )
+              return false
+            },
+          )
+          if (!directory) return
           await writeFile(target, bundle.blobs.get(fileEntry.blob)!, { flag: "wx" }).then(
             () => {
               sharedFiles.push(target)
             },
             async (error) => {
-              if (error.code !== "EEXIST") throw error
-              await sharedFileTarget(context.directory, fileEntry)
+              if (error.code === "EEXIST") return sharedFileTarget(context.directory, fileEntry)
+              console.warn(
+                "[octo:import] skipped file",
+                JSON.stringify({
+                  path: fileEntry.path,
+                  reason: "write-failed",
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              )
             },
           )
         })
@@ -924,7 +990,18 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
               fileEntry.path,
             )
           : path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
-      yield* Effect.promise(() => Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!))
+      yield* Effect.promise(() =>
+        Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!).catch((error) => {
+          console.warn(
+            "[octo:import] skipped file",
+            JSON.stringify({
+              path: fileEntry.path,
+              reason: "write-failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          )
+        }),
+      )
     }
 
     return {

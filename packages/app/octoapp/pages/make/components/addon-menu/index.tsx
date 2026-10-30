@@ -1,4 +1,5 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -656,16 +657,19 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           <Icon name="plus" class="size-5" />
         </Button>
         <Show when={triggerTip()}>
-          <span
-            class="addon-menu-trigger-tip"
-            style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
-          >
-            添加附件
-          </span>
+          <Portal>
+            <span
+              class="addon-menu-trigger-tip"
+              style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
+            >
+              添加附件
+            </span>
+          </Portal>
         </Show>
       </span>
 
       <Show when={open() && menuPosition()}>
+        <Portal>
           <div class="addon-menu-container" ref={menuRef} style={menuStyle()}>
             {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
                 缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
@@ -908,10 +912,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </Show>
           </div>
+        </Portal>
       </Show>
 
       {/* URL Dialog */}
       <Show when={urlDialogOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay" onClick={closeUrlDialog}>
             <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -942,10 +948,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* URL Dialog B — loading + progress + step text */}
       <Show when={urlDialogBOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -972,10 +980,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -997,6 +1007,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}

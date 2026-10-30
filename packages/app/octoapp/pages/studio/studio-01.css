@@ -632,6 +632,34 @@
 
 .studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
 .studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
+.studio-prompt-expansion-preview {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--studio-line, rgba(15, 23, 42, 0.1));
+  border-radius: 12px;
+  background: var(--studio-panel, #fff);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.studio-prompt-expansion-preview .scroll-view__viewport {
+  box-sizing: border-box;
+  height: auto;
+  max-height: 498px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+.studio-prompt-expansion-preview:has(.scroll-view__viewport:focus-visible) {
+  outline: 2px solid rgba(116, 87, 255, 0.3);
+  outline-offset: 2px;
+}
+.studio-prompt-expansion-preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.studio-prompt-expansion-preview-content > [data-component] { flex-shrink: 0; }
 .studio-prompt-expansion-review {
   display: flex;
   flex-direction: column;
@@ -930,3 +958,41 @@
     padding: 0;
   }
 }
+
+
+.studio-composer-recommendation-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 4px 8px 4px 12px;
+  border-radius: 999px;
+  background: #f3f3f3;
+  color: #191919;
+  font-size: 12px;
+  line-height: 22px;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-right: 6px;
+  user-select: none;
+}
+
+.studio-composer-recommendation-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.studio-composer-recommendation-close:hover { background: #dfdfdf; }
+.studio-composer-recommendation-close:focus-visible { outline: 2px solid #858585; outline-offset: 2px; }
+.studio-composer-recommendation-close img { width: 12px; height: 12px; }
+.studio-composer-recommendation-placeholder { color: #999; cursor: text; }
+.studio-recommendation-recover { font-size: 12px; color: #777; cursor: pointer; }

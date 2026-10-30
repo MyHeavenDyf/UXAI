@@ -4,7 +4,12 @@ import { Database, eq, sql } from "@/storage/db"
 import { SessionTable, MessageTable, PartTable } from "@/session/session.sql"
 import { SessionID, PartID } from "@/session/schema"
 import type { MessageV2 } from "@/session/message-v2"
-import { initializeRecommendation, getRecommendationState, submitExpansion } from "@/studio/prompt-recommendation"
+import {
+  initializeRecommendation,
+  getRecommendationState,
+  submitExpansion,
+  dismissRecommendation,
+} from "@/studio/prompt-recommendation"
 import { assertCanGenerate } from "@/studio/prompt-recommendation-state"
 import { createPreparation, readRecommendationBody } from "@/studio/prompt-recommendation-budget"
 import { InstanceState } from "@/effect/instance-state"
@@ -224,6 +229,29 @@ it.instance("atomically initializes a real session and replays the original blan
   }),
 )
 
+it.instance("rejects empty model pools without consuming the armed guide", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const first = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        await expect(
+          submitExpansion({
+            requestID: crypto.randomUUID(),
+            sessionID: first.sessionID,
+            guidePartID: first.guidePartID,
+            prompt: "雨后的城市",
+            availableModels: [],
+          }),
+        ).rejects.toThrow("NO_ELIGIBLE_MODEL")
+        const state = await getRecommendationState(first.sessionID, first.guidePartID)
+        expect(state.recommendation?.status).toBe("armed")
+        expect(state.stateToken).toBe(first.stateToken)
+      }),
+    )
+  }),
+)
+
 it.instance("rejects invalid input without consuming the armed guide", () =>
   Effect.gen(function* () {
     const instance = yield* InstanceState.context
@@ -242,6 +270,67 @@ it.instance("rejects invalid input without consuming the armed guide", () =>
         const state = await getRecommendationState(first.sessionID, first.guidePartID)
         expect(state.recommendation?.status).toBe("armed")
         expect(state.stateToken).toBe(first.stateToken)
+      }),
+    )
+  }),
+)
+
+it.instance("dismissing an unused guide releases generation and is idempotent", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        expect(() => assertCanGenerate(initialized.sessionID)).toThrow("SESSION_BUSY")
+        const dismissed = dismissRecommendation(initialized.sessionID, initialized.guidePartID)
+        expect(dismissed.status).toBe("dismissed")
+        expect(dismissed.guideRevision).toBe(initialized.guideRevision + 1)
+        expect(() => assertCanGenerate(initialized.sessionID)).not.toThrow()
+        expect(dismissRecommendation(initialized.sessionID, initialized.guidePartID)).toEqual(dismissed)
+        await expect(
+          submitExpansion({
+            requestID: crypto.randomUUID(),
+            sessionID: initialized.sessionID,
+            guidePartID: initialized.guidePartID,
+            prompt: "城市",
+            images: [],
+            availableModels: [{ providerID: "test", modelID: "test" }],
+          }),
+        ).rejects.toThrow("INVALID_RECOMMENDATION_STATE")
+      }),
+    )
+  }),
+)
+
+it.instance("silent preparation has a separate guide and preserves initialization replay", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const payload = { requestID: crypto.randomUUID() }
+        const first = await initializeRecommendation(payload)
+        const dismissed = dismissRecommendation(first.sessionID, first.guidePartID)
+        const next = await initializeRecommendation({
+          requestID: crypto.randomUUID(),
+          sessionID: first.sessionID,
+          expectedStateToken: dismissed.stateToken,
+          showGuide: false,
+        })
+        expect(next.guidePartID).not.toBe(first.guidePartID)
+        const row = Database.use((db) =>
+          db
+            .select()
+            .from(PartTable)
+            .where(eq(PartTable.id, PartID.make(next.guidePartID)))
+            .get(),
+        )!
+        expect(row.data).toMatchObject({
+          text: "",
+          metadata: { studioPromptRecommendation: { visible: false, status: "armed" } },
+        })
+        expect((await initializeRecommendation(payload)).guidePartID).toBe(first.guidePartID)
+        expect(() => dismissRecommendation(first.sessionID, "prt_missing")).toThrow("RECOMMENDATION_NOT_FOUND")
+        dismissRecommendation(next.sessionID, next.guidePartID)
       }),
     )
   }),

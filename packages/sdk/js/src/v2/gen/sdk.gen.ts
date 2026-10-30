@@ -263,6 +263,8 @@ import type {
   StudioPromptExpansionsCreateResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
+  StudioPromptRecommendationsDismissErrors,
+  StudioPromptRecommendationsDismissResponses,
   StudioPromptRecommendationsGetErrors,
   StudioPromptRecommendationsGetResponses,
   StudioPromptRecommendationsInitializeErrors,
@@ -6195,6 +6197,7 @@ export class PromptRecommendations extends HeyApiClient {
       requestID?: string
       sessionID?: string
       expectedStateToken?: string
+      showGuide?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6208,6 +6211,7 @@ export class PromptRecommendations extends HeyApiClient {
             { in: "body", key: "requestID" },
             { in: "body", key: "sessionID" },
             { in: "body", key: "expectedStateToken" },
+            { in: "body", key: "showGuide" },
           ],
         },
       ],
@@ -6225,6 +6229,42 @@ export class PromptRecommendations extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Dismiss unused Studio prompt recommendation
+   */
+  public dismiss<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      guidePartID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "guidePartID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptRecommendationsDismissResponses,
+      StudioPromptRecommendationsDismissErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss",
+      ...options,
+      ...params,
     })
   }
 

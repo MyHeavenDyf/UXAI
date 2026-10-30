@@ -209,6 +209,8 @@ const api: ElectronAPI = {
   // jk-j60099994-replace-with-index-1-end
   getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
   configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) => ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
+  // jk-j60099994-replace-with-yjt-pixso-preload-index-1-start
+  // jk-j60099994-replace-with-yjt-pixso-preload-index-1-end
 }
 
 contextBridge.exposeInMainWorld("api", api)

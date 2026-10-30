@@ -60,6 +60,7 @@ interface Props {
   placeholder?: string
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (filename: string, path: string) => void
+  autoInjectMentions?: MentionSelection[]
 }
 
 export const ProseMirrorEditor = (props: Props) => {
@@ -474,6 +475,34 @@ export const ProseMirrorEditor = (props: Props) => {
     setTriggerState(null)
   }
 
+  // 自动注入技能 chip（autoInject）：
+  // 仅当编辑器为空时一次性注入。注入延迟到下一帧并重检 isEmpty ——
+  // 切换 session 时父组件的 rAF replaceDoc 会先清空文档，注入 rAF 排在其后执行，
+  // 避免 chips 被替换文档清除。每次编辑器挂载注入一次（remount 后 flag 重置）。
+  let autoInjected = false
+  createEffect(() => {
+    const injects = props.autoInjectMentions
+    if (!injects?.length) return
+    const v = view()
+    if (!v || !v.dom?.isConnected) return
+    if (autoInjected) return
+    autoInjected = true
+    requestAnimationFrame(() => {
+      if (!v.dom?.isConnected) return
+      if (!isEmpty()) return
+      for (const sel of injects) {
+        const attrs = sel.type === "skill"
+          ? { id: sel.name, name: sel.name, type: "skill" as const, label: sel.label, path: "" }
+          : { id: (sel as any).path || (sel as any).filename, name: (sel as any).filename, type: "file" as const, label: (sel as any).filename, path: (sel as any).path }
+        const node = editorSchema.nodes.mention.create(attrs)
+        const { from, to } = v.state.selection
+        const tr = v.state.tr.replaceWith(from, to, node)
+        tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+        v.dispatch(tr)
+      }
+    })
+  })
+
   // Boundary detection: vertical flip + horizontal clamp for the popover container.
   // Runs after the popover renders (popoverPosition is set), re-measures on container
   // size changes (ResizeObserver) and window resize, so it adapts to tab switches /
@@ -685,4 +714,4 @@ export const ProseMirrorEditor = (props: Props) => {
   )
 }
 
-export { getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs }
+export { getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs }
