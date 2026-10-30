@@ -27,6 +27,7 @@ import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
 import { StudioDownloadIcon } from "./studio-download-icon"
 import { StudioPromptExpansionReviewView } from "./studio-prompt-expansion-review-view"
+import { StudioPromptExpansionPreview } from "./studio-prompt-expansion-preview"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -182,9 +183,13 @@ export function StudioConversation(props: {
               </div></Show>
               <Show when={turn.recommendation?.kind === "result"}>
                 <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
-                  <div class="studio-prompt-expansion" role="status">
-                    {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
-                  </div>
+                  <Show when={turn.recommendation?.status === "running" && turn.previewParts?.some((part) => part.text.trim())} fallback={
+                    <div class="studio-prompt-expansion" role="status">
+                      {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
+                    </div>
+                  }>
+                    <StudioPromptExpansionPreview parts={turn.previewParts} status={turn.recommendation?.status ?? ""} />
+                  </Show>
                 </Show>
                 <Show when={turn.recommendation?.status === "completed"}>
                   <StudioPromptExpansionReviewView
