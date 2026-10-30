@@ -44,6 +44,7 @@ export type IconColorOption = {
 /** getConfig 返回（弹窗 size/style 直传 API 值；color 需经 mapColorToId 解析为 config id） */
 export type IconPlusConfig = {
   colors?: IconColorOption[]
+  dark_colors?: IconColorOption[]
   [key: string]: unknown
 }
 
@@ -222,18 +223,19 @@ export async function fetchIconContent(params: IconContentParams): Promise<Resul
 
 // ============ 映射函数 ============
 
-/** iconColor → config.colors 的 id；按当前 style 过滤，命中 value 任一色，否则取该 style 首个 id
- *  注：弹窗色板为 icon-colors.ts 的语义色 hex，通常不命中 config 的 hex，故实际回退到该 style 首个 id（仍为有效 id） */
+/** iconColor → config id：按当前 style 过滤，命中 value 任一色返回 id，否则取该 style 首个 id
+ *  gray（#DFDFDF）是深色模式色板，仅在 config.dark_colors 中存在，需从 dark_colors 查 */
 export function mapColorToId(
   iconColor: string,
   config: IconPlusConfig | null | undefined,
   shapeLabel?: string,
 ): string | undefined {
-  const colors = config?.colors
-  if (!colors?.length) return undefined
   const lc = (iconColor ?? "").toLowerCase()
-  const pool = shapeLabel ? colors.filter(c => c.style === shapeLabel) : colors
-  const list = pool.length ? pool : colors
+  const isDarkColor = lc === "#dfdfdf"
+  const source = isDarkColor ? config?.dark_colors : config?.colors
+  if (!source?.length) return undefined
+  const pool = shapeLabel ? source.filter(c => c.style === shapeLabel) : source
+  const list = pool.length ? pool : source
   const found = list.find(c => (c.value ?? "").toLowerCase().split(",").includes(lc))
   return found?.id ?? list[0]?.id
 }
