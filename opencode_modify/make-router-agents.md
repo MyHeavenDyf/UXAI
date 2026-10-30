@@ -107,6 +107,16 @@ dev 侧 `ce30caa70a` 放开 octo_make 的 question（skill 明确要求时向用
 - 合并后 typecheck 12 packages 全过；test/agent 三文件 121 pass，compaction.test.ts 的 4-5 个超时失败经合并前后对照确认为 Windows 环境性 flaky（失败用例漂移），与合并无关
 - 遗留待验证：fastui 类 skill 在子代理执行路径下的 question 交互（子代理 deny question，若 skill 流程在子会话内需要提问会降级——skill 主会话执行时无此问题）
 
+## 二次合并 origin/dev（2026-10-30，merge fe8e46941）
+
+dev 侧自 f180b575ef 起 60+ 提交（Design DMG 评审/恢复面板/产物版本体系/studio 上传优化/登录重构等）。后端 agent.ts/三提示词/skill 零触碰，冲突仅 insight-turn.tsx 三处，全部双侧语义并集：
+
+- props 接口：本分支 `mainSessionID`/`hideUserBubble` 与 dev 的 revert 系列 8 props 并存
+- autoSaveArtifact 调用：保留本分支的主会话归属（`mainSessionID ?? sessionID`）+ dev 新增的 filePath 返回值链路（onArtifactSaved 回调 / 伪 tab 补 init 基线）——子会话产物经主会话路径落盘并进版本体系
+- 用户气泡：dev 的 `octo-revert-zone` 新结构 + 本分支的 `!hideUserBubble` 条件（子会话 turn 无气泡，revert 图标随之隐藏，语义正确）
+
+index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessionID === params.id` 门控——子会话 turn 天然 false，与路由设计一致。验证：packages/app typecheck 过；childTurnActive/双 pill 修复、hideUserBubble/mainSessionID、VISIBLE_CHILD_AGENTS、显示名映射全部存活；test/agent 58 pass，2 个超时用例经合并前后对照 + 隔离重跑双向通过，确认为全量并发负载下的 Windows 环境性 flaky（skill 测试同批超时在合并前提交同样复现），非合并回归。
+
 ## 前端回归修复：双「生成中」指示（2026-10-23）
 
 演示彩排发现：task 派发生成期间出现**两块「生成中…」状态框**。根因：路由化后子会话 turn 内联渲染（自带 WaitingPill/流式卡片），而主会话（路由）turn 的 WaitingPill 在整个 task 运行期也在显示——单体时代主会话 pill 的 accumulatedText 会聚合子会话内容做预览（子会话不渲染时的补偿设计），内联渲染后成为重复。CDP 实证两块 pill 分属两个 turn（主会话 pill 的预览文本即聚合的子会话 `<artifact>` 内容）。
