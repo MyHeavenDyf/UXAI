@@ -9,10 +9,12 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { tracker } from "@/utils/tracker"
+import { directoryHeader } from "@/utils/headers"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
 import { openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
 import { sharedSessionImportContext } from "./shared-session-import-context"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
@@ -26,7 +28,7 @@ export function SharedSessionHandler() {
   onCleanup(() => lifetime.abort())
   const inFlight = new Set<string>()
   const cache = createSharedSessionCache({
-    importSession: async (uniqueId, directory, token) =>
+    importSession: async (uniqueId, directory, token, operationID) =>
       platform.importSharedSession?.(
         uniqueId,
         directory,
@@ -34,6 +36,7 @@ export function SharedSessionHandler() {
           ? "project"
           : "session",
         token,
+        operationID,
       ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
@@ -124,8 +127,27 @@ export function SharedSessionHandler() {
   const open = async (uniqueId: string) => {
     if (!platform.prepareSharedSession || !platform.releaseSharedSession) throw new Error("请升级 App 后再打开分享对话")
     const connection = server.current?.http.url ?? globalSDK.url
+    const operationID = crypto.randomUUID()
+    const progress = showSessionTransferProgress("正在导入 Session")
+    const watcher = new AbortController()
+    const unsubscribe = platform.onSessionTransferProgress?.((event) => {
+      if (event.operationID === operationID) progress.update(event)
+    })
+    void watchSessionTransferProgress({
+      url: globalSDK.url,
+      operationID,
+      fetch: platform.fetch ?? fetch,
+      headers: directoryHeader(server.projects.last()),
+      signal: watcher.signal,
+      update: (value) => progress.update({ ...value, percent: 25 + value.percent * 0.75 }),
+    })
+    progress.update({ type: "import", stage: "正在下载分享文件", percent: 2 })
     await openPreparedSharedSession({
-      prepare: () => platform.prepareSharedSession!(uniqueId),
+      prepare: async () => {
+        const prepared = await platform.prepareSharedSession!(uniqueId, operationID)
+        progress.update({ type: "import", stage: "正在切换目标模块", percent: 5 })
+        return prepared
+      },
       select: (module) => {
         if (lifetime.signal.aborted) throw new Error("分享打开已取消")
         const page = module === "design" ? "make" : module
@@ -136,10 +158,14 @@ export function SharedSessionHandler() {
       importSession: (prepared, directory) => {
         if (lifetime.signal.aborted || connection !== (server.current?.http.url ?? globalSDK.url))
           throw new Error("连接已变更，请重新打开分享链接")
-        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token)
+        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token, operationID)
       },
       open: showImported,
       release: (token) => platform.releaseSharedSession!(token),
+    }).finally(() => {
+      watcher.abort()
+      unsubscribe?.()
+      progress.dismiss()
     })
   }
 

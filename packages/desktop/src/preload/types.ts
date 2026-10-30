@@ -11,6 +11,14 @@ export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: str
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
 export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" }
+export type SessionTransferProgress = {
+  operationID: string
+  type: "import"
+  stage: string
+  percent: number
+  processedBytes?: number
+  totalBytes?: number
+}
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
@@ -73,9 +81,15 @@ export type ElectronAPI = {
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
-  prepareSharedSession: (uniqueId: string) => Promise<PreparedSharedSession>
+  prepareSharedSession: (uniqueId: string, operationID?: string) => Promise<PreparedSharedSession>
   releaseSharedSession: (token: string) => Promise<void>
-  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => Promise<SharedSessionResult | null>
+  importSharedSession: (
+    uniqueId: string,
+    directory: string,
+    scope?: "project" | "session",
+    token?: string,
+    operationID?: string,
+  ) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
@@ -95,6 +109,7 @@ export type ElectronAPI = {
 
   getWindowCount: () => Promise<number>
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
+  onSessionTransferProgress: (cb: (progress: SessionTransferProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
@@ -128,7 +143,9 @@ export type ElectronAPI = {
     target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
-  fastuiResolve: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
+  fastuiResolve: (
+    target: FastuiTarget,
+  ) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
   /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区)—— 指向工程内文件的卡片据此按工程打开预览,SPEC-DES-008 §3.8 */
   fastuiProjectOf: (
     target: FastuiTarget & { filePath: string },
@@ -242,24 +259,66 @@ export type ElectronAPI = {
   getPatternIndex: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
   getPatternFile: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
-  getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
+  getPatternAssets: (
+    category: string,
+    folderName: string,
+    theme?: string,
+  ) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: { tree: { label: string; value: string; nodes?: string[]; children?: unknown[] }[]; content: Record<string, string> } }>
+  downloadHuiCode: (
+    input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[],
+    options?: { targetLib?: string },
+  ) => Promise<{
+    files: { path: string; content: string }[]
+    manifest: {
+      tree: { label: string; value: string; nodes?: string[]; children?: unknown[] }[]
+      content: Record<string, string>
+    }
+  }>
   runPixsoBuild: (input: string) => Promise<string>
   getTopixsoDir: () => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
+  exportZip: (opts: {
+    defaultName: string
+    files?: { path: string; content: string }[]
+    sourceDir?: string
+    destFolder?: string
+    sourceDirs?: { dir: string; destFolder: string }[]
+    comment?: string
+  }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
-  codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
-  listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
+  codeToHtml: (opts: {
+    url: string
+    theme?: "light" | "dark"
+    waitForMs?: number
+  }) => Promise<{ html: string; resourceCount: number }>
+  listDirectory: (path: string) => Promise<Array<{ path: string; type: "file" | "directory"; size?: number }>>
   // Pipeline API IPC bridge 类型定义
-  pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
+  pipelineRequest: (
+    url: string,
+    method: string,
+    uiplusToken: string,
+    body?: any,
+    headers?: Record<string, string>,
+  ) => Promise<any>
   getAssetsConfig: () => Promise<Record<string, unknown>>
 
   /** 读取已保存的 W3 代理账号、密码和代理节点 */
-  getProxyConfig: () => Promise<{ account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null>
+  getProxyConfig: () => Promise<{
+    account: string
+    password: string
+    proxyHost?: string
+    proxyOptionId?: string
+    noProxy?: string
+  } | null>
 
   /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/proxy_config.json */
-  configureProxy: (account: string, password: string, noProxy?: string, proxyHost?: string, proxyOptionId?: string) => Promise<{
+  configureProxy: (
+    account: string,
+    password: string,
+    noProxy?: string,
+    proxyHost?: string,
+    proxyOptionId?: string,
+  ) => Promise<{
     success: boolean
     curlUrl: string
     error?: string

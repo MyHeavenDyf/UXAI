@@ -44,10 +44,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
       return integrations.filter(
         (i) =>
           i.name !== "Breadcrumbs" &&
-          !(
-            import.meta.env.OCTO_CHANNEL === "prod" &&
-            (i.name === "GlobalHandlers" || i.name === "BrowserApiErrors")
-          ),
+          !(import.meta.env.OCTO_CHANNEL === "prod" && (i.name === "GlobalHandlers" || i.name === "BrowserApiErrors")),
       )
     },
   })
@@ -129,9 +126,11 @@ const createPlatform = (): Platform => {
 
   return {
     platform: "desktop",
-    prepareSharedSession: (uniqueId) => window.api.prepareSharedSession(uniqueId),
+    prepareSharedSession: (uniqueId, operationID) => window.api.prepareSharedSession(uniqueId, operationID),
+    onSessionTransferProgress: (callback) => window.api.onSessionTransferProgress(callback),
     releaseSharedSession: (token) => window.api.releaseSharedSession(token),
-    importSharedSession: (uniqueId, directory, scope, token) => window.api.importSharedSession(uniqueId, directory, scope, token),
+    importSharedSession: (uniqueId, directory, scope, token, operationID) =>
+      window.api.importSharedSession(uniqueId, directory, scope, token, operationID),
     os,
     version: pkg.version,
 

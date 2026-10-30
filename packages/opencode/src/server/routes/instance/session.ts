@@ -5,7 +5,12 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
+import {
+  exportPortableSession,
+  getPortableProgress,
+  importPortableSession,
+  sharePortableSession,
+} from "@/session/portable"
 import { previewSession, PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -78,7 +83,10 @@ export const SessionRoutes = lazy(() =>
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          category: z.string().optional().meta({ description: "Filter sessions by category (dev/design/prototype/analysis/creative/planning)" }),
+          category: z
+            .string()
+            .optional()
+            .meta({ description: "Filter sessions by category (dev/design/prototype/analysis/creative/planning)" }),
         }),
       ),
       async (c) => {
@@ -150,10 +158,21 @@ export const SessionRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", z.object({ path: z.string().min(1), scope: z.enum(["project", "session"]).optional() })),
+      validator(
+        "json",
+        z.object({
+          path: z.string().min(1),
+          scope: z.enum(["project", "session"]).optional(),
+          operationID: z.string().optional(),
+        }),
+      ),
       async (c) =>
         jsonRequest("SessionRoutes.portableImport", c, function* () {
-          return yield* importPortableSession(c.req.valid("json").path, c.req.valid("json").scope)
+          return yield* importPortableSession(
+            c.req.valid("json").path,
+            c.req.valid("json").scope,
+            c.req.valid("json").operationID,
+          )
         }),
     )
     .post(
@@ -181,13 +200,21 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("json", z.object({ path: z.string().min(1), scope: z.literal("project").optional() })),
+      validator(
+        "json",
+        z.object({
+          path: z.string().min(1),
+          scope: z.literal("project").optional(),
+          operationID: z.string().optional(),
+        }),
+      ),
       async (c) =>
         jsonRequest("SessionRoutes.portableExport", c, function* () {
           return yield* exportPortableSession({
             sessionID: c.req.valid("param").sessionID,
             output: c.req.valid("json").path,
             scope: c.req.valid("json").scope,
+            operationID: c.req.valid("json").operationID,
           })
         }),
     )
@@ -210,38 +237,64 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("query", z.object({ scope: z.literal("project").optional() })),
+      validator("query", z.object({ scope: z.literal("project").optional(), operationID: z.string().optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableShare", c, function* () {
           return yield* sharePortableSession({
             sessionID: c.req.valid("param").sessionID,
             headers: Object.fromEntries(c.req.raw.headers.entries()),
             scope: c.req.valid("query").scope,
+            operationID: c.req.valid("query").operationID,
           }).pipe(
-            Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
+            Effect.mapError(
+              (error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) }),
+            ),
           )
         }),
+    )
+    .get("/portable-progress/:operationID", validator("param", z.object({ operationID: z.string().min(1) })), (c) =>
+      c.json(getPortableProgress(c.req.valid("param").operationID) ?? null),
     )
     .get(
       "/:sessionID/share-preview",
       describeRoute({
         summary: "Preview shared conversation",
-        description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+        description:
+          "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
         operationId: "session.sharePreview",
         responses: {
-          200: { description: "Read-only share preview", content: { "application/json": { schema: resolver(zod(PreviewPage)) } } },
+          200: {
+            description: "Read-only share preview",
+            content: { "application/json": { schema: resolver(zod(PreviewPage)) } },
+          },
           ...errors(400, 404),
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("query", z.object({ limit: z.coerce.number().int().min(1).max(20).optional(), before: z.string().optional() })),
-      async (c) => c.json(await runRequest("SessionRoutes.sharePreview", c, Effect.gen(function* () {
-        const query = c.req.valid("query")
-        if (query.before) {
-          yield* Effect.try({ try: () => MessageV2.cursor.decode(query.before!), catch: () => new HTTPException(400, { res: Response.json({ message: "Invalid preview cursor" }, { status: 400 }) }) })
-        }
-        return yield* previewSession({ ...c.req.valid("param"), ...query })
-      }))),
+      validator(
+        "query",
+        z.object({ limit: z.coerce.number().int().min(1).max(20).optional(), before: z.string().optional() }),
+      ),
+      async (c) =>
+        c.json(
+          await runRequest(
+            "SessionRoutes.sharePreview",
+            c,
+            Effect.gen(function* () {
+              const query = c.req.valid("query")
+              if (query.before) {
+                yield* Effect.try({
+                  try: () => MessageV2.cursor.decode(query.before!),
+                  catch: () =>
+                    new HTTPException(400, {
+                      res: Response.json({ message: "Invalid preview cursor" }, { status: 400 }),
+                    }),
+                })
+              }
+              return yield* previewSession({ ...c.req.valid("param"), ...query })
+            }),
+          ),
+        ),
     )
     .get(
       "/:sessionID",

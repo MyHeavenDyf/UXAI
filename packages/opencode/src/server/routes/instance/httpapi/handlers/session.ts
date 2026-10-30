@@ -12,6 +12,7 @@ import {
   exportPortableSession,
   importPortableSession,
   sharePortableSession,
+  getPortableProgress,
   PortableValidationError,
 } from "@/session/portable"
 import { previewSession } from "@/session/share-preview"
@@ -101,7 +102,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const portableImport = Effect.fn("SessionHttpApi.portableImport")(function* (ctx: {
       payload: typeof PortableImportPayload.Type
     }) {
-      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope).pipe(
+      return yield* importPortableSession(ctx.payload.path, ctx.payload.scope, ctx.payload.operationID).pipe(
         Effect.catchTag("PortableValidationError", (error) =>
           Effect.fail(new ApiBadRequestError({ message: error.message })),
         ),
@@ -116,6 +117,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         sessionID: ctx.params.sessionID,
         output: ctx.payload.path,
         scope: ctx.payload.scope,
+        operationID: ctx.payload.operationID,
       }).pipe(
         Effect.mapError((error) =>
           error instanceof PortableValidationError
@@ -134,9 +136,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         sessionID: ctx.params.sessionID,
         headers: (yield* HttpServerRequest.HttpServerRequest).headers,
         scope: ctx.query.scope,
-      }).pipe(
-        Effect.mapError((error) => new ApiBadRequestError({ message: error.message })),
-      )
+        operationID: ctx.query.operationID,
+      }).pipe(Effect.mapError((error) => new ApiBadRequestError({ message: error.message })))
+    })
+
+    const portableProgress = Effect.fn("SessionHttpApi.portableProgress")(function* (ctx: {
+      params: { operationID: string }
+    }) {
+      return getPortableProgress(ctx.params.operationID) ?? null
     })
 
     const sharePreview = Effect.fn("SessionHttpApi.sharePreview")(function* (ctx: {
@@ -144,7 +151,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       query: typeof PreviewQuery.Type
     }) {
       if (ctx.query.before) {
-        yield* Effect.try({ try: () => MessageV2.cursor.decode(ctx.query.before!), catch: () => new ApiBadRequestError({ message: "Invalid preview cursor" }) })
+        yield* Effect.try({
+          try: () => MessageV2.cursor.decode(ctx.query.before!),
+          catch: () => new ApiBadRequestError({ message: "Invalid preview cursor" }),
+        })
       }
       return yield* SessionError.mapStorageNotFound(previewSession({ ...ctx.params, ...ctx.query }))
     })
@@ -269,9 +279,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
     })
 
-    const reorder = Effect.fn("SessionHttpApi.reorder")(function* (ctx: {
-      payload: typeof ReorderPayload.Type
-    }) {
+    const reorder = Effect.fn("SessionHttpApi.reorder")(function* (ctx: { payload: typeof ReorderPayload.Type }) {
       for (let i = 0; i < ctx.payload.ids.length; i++) {
         yield* session.setSortOrder({ sessionID: ctx.payload.ids[i], sortOrder: i })
       }
@@ -452,6 +460,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("portableImport", portableImport)
       .handle("portableExport", portableExport)
       .handle("portableShare", portableShare)
+      .handle("portableProgress", portableProgress)
       .handle("sharePreview", sharePreview)
       .handle("get", get)
       .handle("children", children)

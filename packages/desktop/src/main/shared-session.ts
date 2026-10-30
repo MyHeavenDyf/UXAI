@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm, stat } from "node:fs/promises"
+import { mkdtemp, open, writeFile, rm, stat } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -80,7 +80,18 @@ export function parseSharedSessionLink(input: string) {
   return uniqueId && /^[a-zA-Z0-9_-]{1,128}$/.test(uniqueId) ? uniqueId : undefined
 }
 
-export async function prepareSharedSession(input: { uniqueId: string; uploadURL: string; remoteFetch: typeof fetch }) {
+export async function prepareSharedSession(input: {
+  uniqueId: string
+  uploadURL: string
+  remoteFetch: typeof fetch
+  progress?: (progress: {
+    type: "import"
+    stage: string
+    percent: number
+    processedBytes?: number
+    totalBytes?: number
+  }) => void
+}) {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(input.uniqueId)) throw new Error("分享码格式错误")
   if (!URL.canParse(input.uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
   const infoURL = new URL(input.uploadURL)
@@ -105,7 +116,40 @@ export async function prepareSharedSession(input: { uniqueId: string; uploadURL:
   const temporary = await mkdtemp(join(tmpdir(), "octo-shared-session-"))
   try {
     const archive = join(temporary, "session.zip")
-    await writeFile(archive, new Uint8Array(await download.arrayBuffer()))
+    const totalBytes = Number(download.headers.get("content-length")) || undefined
+    const reader = download.body?.getReader()
+    let processedBytes = 0
+    if (reader) {
+      const target = await open(archive, "w")
+      try {
+        while (true) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          await target.write(chunk.value)
+          processedBytes += chunk.value.byteLength
+          input.progress?.({
+            type: "import",
+            stage: "正在下载分享文件",
+            percent: totalBytes ? Math.min(24, (processedBytes / totalBytes) * 24) : 4,
+            processedBytes,
+            totalBytes,
+          })
+        }
+      } finally {
+        await target.close()
+      }
+    } else {
+      const content = new Uint8Array(await download.arrayBuffer())
+      await writeFile(archive, content)
+      processedBytes = content.byteLength
+    }
+    input.progress?.({
+      type: "import",
+      stage: "分享文件下载完成",
+      percent: 25,
+      processedBytes,
+      totalBytes: totalBytes ?? processedBytes,
+    })
     return { archive, temporary, ...(await inspectSharedSession(archive)) }
   } catch (error) {
     await rm(temporary, { recursive: true, force: true })
@@ -121,36 +165,66 @@ export async function importSharedSession(input: {
   server: { url: string; username: string | null; password: string | null }
   remoteFetch: typeof fetch
   prepared?: Awaited<ReturnType<typeof prepareSharedSession>>
+  operationID?: string
   log?: (event: string, details: Record<string, unknown>) => void
 }) {
   const prepared = input.prepared ?? (await prepareSharedSession(input))
   const requestID = randomUUID()
   const started = Date.now()
-  const report = (event: string, details: Record<string, unknown>) => input.log?.(event, {
-    requestID, directory: input.directory, scope: input.scope ?? "session", module: prepared.module,
-    elapsedMs: Date.now() - started, ...details,
-  })
+  const report = (event: string, details: Record<string, unknown>) =>
+    input.log?.(event, {
+      requestID,
+      directory: input.directory,
+      scope: input.scope ?? "session",
+      module: prepared.module,
+      elapsedMs: Date.now() - started,
+      ...details,
+    })
   const readResponse = async (response: Response, stage: string) => {
     const body = await response.text()
-    const payload: unknown = await Promise.resolve().then(() => JSON.parse(body)).catch(() => undefined)
+    const payload: unknown = await Promise.resolve()
+      .then(() => JSON.parse(body))
+      .catch(() => undefined)
     // Only extract error messages; never log entire responses, credentials or conversation content.
-    const message = payload && typeof payload === "object"
-      ? "data" in payload && payload.data && typeof payload.data === "object" && "message" in payload.data && typeof payload.data.message === "string"
-        ? payload.data.message
-        : "message" in payload && typeof payload.message === "string" ? payload.message : undefined
-      : undefined
-    const reason = message?.replace(/\b(Bearer|Basic)\s+[^\s"',;]+/gi, "$1 [REDACTED]")
-      .replace(/((?:token|cookie|authorization|password|secret|accesskey)[\w-]*["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[REDACTED]").slice(0, 8192)
+    const message =
+      payload && typeof payload === "object"
+        ? "data" in payload &&
+          payload.data &&
+          typeof payload.data === "object" &&
+          "message" in payload.data &&
+          typeof payload.data.message === "string"
+          ? payload.data.message
+          : "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : undefined
+        : undefined
+    const reason = message
+      ?.replace(/\b(Bearer|Basic)\s+[^\s"',;]+/gi, "$1 [REDACTED]")
+      .replace(
+        /((?:token|cookie|authorization|password|secret|accesskey)[\w-]*["']?\s*[:=]\s*)[^\r\n]+/gi,
+        "$1[REDACTED]",
+      )
+      .slice(0, 8192)
     report("response", {
-      stage, status: response.status, contentType: response.headers.get("content-type"), bodyLength: body.length,
+      stage,
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      bodyLength: body.length,
       ...(!response.ok ? { reason: reason || (payload === undefined ? "非 JSON 响应" : "后端未返回错误详情") } : {}),
     })
-    if (!response.ok) throw new Error(`${stage}失败：${response.status}${reason ? `，${reason.slice(0, 1000)}` : "（后端未返回可用的错误详情）"}`)
+    if (!response.ok)
+      throw new Error(
+        `${stage}失败：${response.status}${reason ? `，${reason.slice(0, 1000)}` : "（后端未返回可用的错误详情）"}`,
+      )
     if (payload === undefined) throw new Error(`${stage}失败：后端未返回有效 JSON`)
     return payload
   }
   try {
-    report("start", { archive: prepared.archive, zipBytes: (await stat(prepared.archive)).size, endpoint: new URL("/session/import", input.server.url).origin })
+    report("start", {
+      archive: prepared.archive,
+      zipBytes: (await stat(prepared.archive)).size,
+      endpoint: new URL("/session/import", input.server.url).origin,
+    })
     const headers = {
       "Content-Type": "application/json",
       "x-opencode-directory": encodeURIComponent(input.directory),
@@ -163,7 +237,7 @@ export async function importSharedSession(input: {
     const imported = await fetch(new URL("/session/import", input.server.url), {
       method: "POST",
       headers,
-      body: JSON.stringify({ path: prepared.archive, scope: input.scope }),
+      body: JSON.stringify({ path: prepared.archive, scope: input.scope, operationID: input.operationID }),
     })
     const result = Schema.decodeUnknownSync(ImportResult)(await readResponse(imported, "导入分享对话"))
     const session = await fetch(new URL(`/session/${encodeURIComponent(result.sessionID)}`, input.server.url), {

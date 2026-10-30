@@ -10,9 +10,28 @@ type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: string }
 
 export type Platform = {
-  prepareSharedSession?(uniqueId: string): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" }>
+  prepareSharedSession?(
+    uniqueId: string,
+    operationID?: string,
+  ): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" }>
+  onSessionTransferProgress?(
+    callback: (progress: {
+      operationID: string
+      type: "import"
+      stage: string
+      percent: number
+      processedBytes?: number
+      totalBytes?: number
+    }) => void,
+  ): () => void
   releaseSharedSession?(token: string): Promise<void>
-  importSharedSession?(uniqueId: string, directory: string, scope?: "project" | "session", token?: string): Promise<{ sessionID: string; directory: string; agent?: string } | null>
+  importSharedSession?(
+    uniqueId: string,
+    directory: string,
+    scope?: "project" | "session",
+    token?: string,
+    operationID?: string,
+  ): Promise<{ sessionID: string; directory: string; agent?: string } | null>
   /** Platform discriminator */
   platform: "web" | "desktop"
 

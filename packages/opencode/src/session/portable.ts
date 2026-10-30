@@ -108,6 +108,39 @@ type Manifest = {
   files: FileEntry[]
 }
 
+export type PortableProgress = {
+  type: "export" | "import" | "share"
+  stage: string
+  percent: number
+  completed?: number
+  total?: number
+  processedBytes?: number
+  totalBytes?: number
+}
+
+const portableProgress = new Map<string, PortableProgress>()
+const portableProgressTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export function getPortableProgress(operationID: string) {
+  return portableProgress.get(operationID)
+}
+
+function reportPortableProgress(operationID: string | undefined, progress: PortableProgress) {
+  if (!operationID) return
+  const value = { ...progress, percent: Math.max(0, Math.min(100, Math.round(progress.percent))) }
+  const current = portableProgress.get(operationID)
+  if (current && current.stage === value.stage && current.percent === value.percent) return
+  portableProgress.set(operationID, value)
+  const timer = portableProgressTimers.get(operationID)
+  if (timer) clearTimeout(timer)
+  const next = setTimeout(() => {
+    portableProgress.delete(operationID)
+    portableProgressTimers.delete(operationID)
+  }, 10 * 60_000)
+  next.unref()
+  portableProgressTimers.set(operationID, next)
+}
+
 const decodeManifest = (input: unknown) => Schema.decodeUnknownSync(Manifest)(input) as unknown as Manifest
 
 function portableInfo(info: Session.Info): Session.Info {
@@ -193,7 +226,15 @@ function collectSessions(rootSessionID: SessionID) {
   })
 }
 
-function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZip, output: string, scope?: "project", blacklist: readonly string[] = []) {
+function collectFiles(
+  entries: SessionEntry[],
+  sourceDirectory: string,
+  zip: JSZip,
+  output: string,
+  scope?: "project",
+  blacklist: readonly string[] = [],
+  progress?: (value: PortableProgress) => void,
+) {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
     const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
@@ -225,10 +266,17 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
+          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter(
+            (file) => path.resolve(file) !== output,
+          )
           const dependencies = await collectPortableDependencies({
-            root: location.root, files, read, blacklist,
-            trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
+            root: location.root,
+            files,
+            read,
+            blacklist,
+            trustedRoots: ["skill", "skills"].map((dir) =>
+              path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets"),
+            ),
           })
           return [
             ...files.map((file) => ({ file, source: file })),
@@ -242,9 +290,10 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
         }),
       { concurrency: 2 },
     )
+    const packedProgress = { completed: 0 }
     const packed = yield* Effect.forEach(
-      files.flat(),
-      ({ file, source, location }) =>
+      files.flat().map((file, _index, all) => ({ ...file, total: all.length })),
+      ({ file, source, location, total }) =>
         Effect.promise(async (): Promise<FileEntry | undefined> => {
           const relative = path.relative(location.root, file)
           const content = await read(source).catch((error) => {
@@ -259,6 +308,14 @@ function collectFiles(entries: SessionEntry[], sourceDirectory: string, zip: JSZ
             )
           })
           contents.delete(source)
+          packedProgress.completed += 1
+          progress?.({
+            type: "export",
+            stage: "正在读取文件",
+            percent: 20 + (packedProgress.completed / Math.max(total, 1)) * 35,
+            completed: packedProgress.completed,
+            total,
+          })
           if (!content) return
           const sha256 = digest(content)
           const blob = `blobs/${sha256}`
@@ -286,9 +343,21 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   sessionID: SessionID
   output: string
   scope?: "project"
+  operationID?: string
+  progressRange?: readonly [number, number]
+  progressType?: PortableProgress["type"]
 }) {
+  const range = input.progressRange ?? [0, 100]
+  const update = (progress: PortableProgress) =>
+    reportPortableProgress(input.operationID, {
+      ...progress,
+      type: input.progressType ?? "export",
+      percent: range[0] + (progress.percent / 100) * (range[1] - range[0]),
+    })
   const context = yield* InstanceState.context
+  update({ type: "export", stage: "正在整理聊天记录", percent: 1 })
   const entries = yield* collectSessions(input.sessionID)
+  update({ type: "export", stage: "正在扫描文件", percent: 8, completed: 0 })
   const zip = new JSZip()
   const output = path.resolve(
     input.output.toLowerCase().endsWith(".zip") ? input.output : `${input.output.replace(/\.octosession$/i, "")}.zip`,
@@ -314,15 +383,28 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
         : []),
     ],
     sessions: entries,
-    files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist),
+    files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist, update),
   }
+  update({ type: "export", stage: "正在整理文件路径", percent: 56 })
   yield* Effect.tryPromise({
     try: () => normalizeBundlePaths(manifest, zip),
     catch: (error) => new PortableValidationError({ message: error instanceof Error ? error.message : String(error) }),
   })
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
-  const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
+  const archive = yield* Effect.promise(() =>
+    zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }, (metadata) =>
+      update({ type: "export", stage: "正在压缩文件", percent: 58 + metadata.percent * 0.34 }),
+    ),
+  )
+  update({ type: "export", stage: "正在保存压缩包", percent: 94, processedBytes: 0, totalBytes: archive.byteLength })
   yield* Effect.promise(() => Filesystem.write(output, archive))
+  update({
+    type: "export",
+    stage: "导出完成",
+    percent: 100,
+    processedBytes: archive.byteLength,
+    totalBytes: archive.byteLength,
+  })
   return {
     output,
     sessions: entries.length,
@@ -334,6 +416,7 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   sessionID: SessionID
   headers?: Record<string, string | undefined>
   scope?: "project"
+  operationID?: string
 }) {
   const status = yield* SessionStatus.Service
   const sessions = yield* Session.Service
@@ -347,19 +430,35 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   const sharePageURL = process.env.OCTO_SHARE_PAGE_URL?.trim()
   const missing = [!uploadURL && "OCTO_SHARE_API_URL", !sharePageURL && "OCTO_SHARE_PAGE_URL"].filter(Boolean)
   if (missing.length) return yield* Effect.fail(new Error(`分享配置缺失：请配置环境变量 ${missing.join("、")}`))
-  if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
-    return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
+  if (
+    ![uploadURL, sharePageURL].every(
+      (value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol),
+    )
+  ) {
+    return yield* Effect.fail(
+      new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"),
+    )
   }
   const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
-    const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
+    const exported = yield* exportPortableSession({
+      sessionID: input.sessionID,
+      output,
+      scope: input.scope,
+      operationID: input.operationID,
+      progressRange: [0, 72],
+      progressType: "share",
+    })
     yield* assertShareable
+    reportPortableProgress(input.operationID, { type: "share", stage: "正在上传压缩包", percent: 75 })
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
-        const cookie = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "x-opencode-share-cookie")?.[1]
+        const cookie = Object.entries(input.headers ?? {}).find(
+          ([name]) => name.toLowerCase() === "x-opencode-share-cookie",
+        )?.[1]
         const headers = { ...(token ? { uiplustoken: token } : {}), ...(cookie ? { Cookie: cookie } : {}) }
         const form = new FormData()
         form.append(
@@ -368,46 +467,66 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
           `${(info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim() || "session"}.zip`,
         )
         form.append("description", info.title || "")
-        console.info("[octo:share] upload request", JSON.stringify({
-          sessionID: input.sessionID,
-          uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
-          method: "POST",
-          fields: ["file", "description"],
-          authHeaders: Object.keys(headers ?? {}),
-          tokenSuffix: token ? token.slice(-6) : null,
-        }))
+        console.info(
+          "[octo:share] upload request",
+          JSON.stringify({
+            sessionID: input.sessionID,
+            uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
+            method: "POST",
+            fields: ["file", "description"],
+            authHeaders: Object.keys(headers ?? {}),
+            tokenSuffix: token ? token.slice(-6) : null,
+          }),
+        )
         const response = await fetch(uploadURL!, {
           method: "POST",
           headers,
           body: form,
         })
         const body = await response.text()
-        const payload: unknown = await Promise.resolve().then(() => JSON.parse(body)).catch(() => undefined)
-        console.info("[octo:share] upload response", JSON.stringify({
-          sessionID: input.sessionID,
-          status: response.status,
-          redirected: response.redirected,
-          contentType: response.headers.get("content-type"),
-          bodyLength: body.length,
-          body: payload === undefined ? "[非 JSON 响应]" : JSON.stringify(payload, (key, value) =>
-            /token|cookie|authorization|password|secret|accesskey/i.test(key) ? "[REDACTED]" : value,
-          ).slice(0, 8192),
-        }))
+        const payload: unknown = await Promise.resolve()
+          .then(() => JSON.parse(body))
+          .catch(() => undefined)
+        console.info(
+          "[octo:share] upload response",
+          JSON.stringify({
+            sessionID: input.sessionID,
+            status: response.status,
+            redirected: response.redirected,
+            contentType: response.headers.get("content-type"),
+            bodyLength: body.length,
+            body:
+              payload === undefined
+                ? "[非 JSON 响应]"
+                : JSON.stringify(payload, (key, value) =>
+                    /token|cookie|authorization|password|secret|accesskey/i.test(key) ? "[REDACTED]" : value,
+                  ).slice(0, 8192),
+          }),
+        )
         if (!response.ok) throw new Error(`Share upload failed: ${response.status}`)
         if (payload === undefined) throw new Error("分享上传接口未返回有效 JSON，请检查接口地址及登录状态")
         if (payload && typeof payload === "object" && "success" in payload && payload.success === false) {
-          const message = "errorMessage" in payload && typeof payload.errorMessage === "string" ? payload.errorMessage : "未知错误"
-          throw new Error(message.toLowerCase() === "unlogin" ? "登录已失效或未登录，请重新登录后分享（unLogin）" : `分享上传失败：${message}`)
+          const message =
+            "errorMessage" in payload && typeof payload.errorMessage === "string" ? payload.errorMessage : "未知错误"
+          throw new Error(
+            message.toLowerCase() === "unlogin"
+              ? "登录已失效或未登录，请重新登录后分享（unLogin）"
+              : `分享上传失败：${message}`,
+          )
         }
         return Schema.decodeUnknownSync(ShareUploadResponse)(payload)
       },
       catch: (cause) => {
         const error = cause instanceof Error ? cause : new Error(String(cause))
-        console.error("[octo:share] upload failed", JSON.stringify({ sessionID: input.sessionID, message: error.message }))
+        console.error(
+          "[octo:share] upload failed",
+          JSON.stringify({ sessionID: input.sessionID, message: error.message }),
+        )
         return error
       },
     })
     if (!result.success || !result.content.uniqueId) throw new Error("Share upload did not return a uniqueId")
+    reportPortableProgress(input.operationID, { type: "share", stage: "分享链接已生成", percent: 100 })
     return {
       uniqueId: result.content.uniqueId,
       url: (() => {
@@ -426,10 +545,7 @@ type ReferencePaths = {
   relocate?: (value: string, rewrite: (value: string) => string) => string
 }
 
-function rewritePath(
-  value: string,
-  input: ReferencePaths,
-) {
+function rewritePath(value: string, input: ReferencePaths) {
   const fileUrl = value.startsWith("file://")
   const normalize = (input: string) => {
     const normalized = input.replaceAll("\\", "/")
@@ -469,30 +585,26 @@ function rewritePath(
   return fileUrl ? pathToFileURL(rewritten).href : rewritten
 }
 
-function rewriteFilePart(
-  part: MessageV2.FilePart,
-  input: ReferencePaths,
-) {
+function rewriteFilePart(part: MessageV2.FilePart, input: ReferencePaths) {
   return {
     ...part,
     url: input.relocate ? input.relocate(part.url, (value) => rewritePath(value, input)) : rewritePath(part.url, input),
     source:
       part.source?.type === "file" || part.source?.type === "symbol"
-        ? { ...part.source, path: input.relocate ? input.relocate(part.source.path, (value) => rewritePath(value, input)) : rewritePath(part.source.path, input) }
+        ? {
+            ...part.source,
+            path: input.relocate
+              ? input.relocate(part.source.path, (value) => rewritePath(value, input))
+              : rewritePath(part.source.path, input),
+          }
         : part.source,
   }
 }
 
-function rewriteReferences(
-  value: unknown,
-  input: ReferencePaths,
-): unknown {
+function rewriteReferences(value: unknown, input: ReferencePaths): unknown {
   if (typeof value === "string") {
     const rewrite = (value: string) => {
-      const sessions = [...input.sessionIDs].reduce(
-        (result, [oldID, newID]) => result.replaceAll(oldID, newID),
-        value,
-      )
+      const sessions = [...input.sessionIDs].reduce((result, [oldID, newID]) => result.replaceAll(oldID, newID), value)
       const sources = [
         input.sourceDirectory,
         input.sourceDirectory.replaceAll("\\", "/"),
@@ -508,10 +620,7 @@ function rewriteReferences(
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rewriteReferences(entry, input)]))
 }
 
-function rewritePartReferences(
-  part: MessageV2.Part,
-  input: ReferencePaths,
-) {
+function rewritePartReferences(part: MessageV2.Part, input: ReferencePaths) {
   return rewriteReferences(part, input) as MessageV2.Part
 }
 
@@ -621,7 +730,13 @@ async function normalizeBundlePaths(manifest: Manifest, zip: JSZip, maxLength?: 
     if (Array.isArray(value)) return value.map(references)
     if (!value || typeof value !== "object") return value
     const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, references(entry)]))
-    if ("url" in value && typeof value.url === "string" && typeof result.url === "string" && result.url !== value.url && typeof result.filename === "string") {
+    if (
+      "url" in value &&
+      typeof value.url === "string" &&
+      typeof result.url === "string" &&
+      result.url !== value.url &&
+      typeof result.filename === "string"
+    ) {
       const filename = result.url.startsWith("file://") ? decodeURIComponent(new URL(result.url).pathname) : result.url
       return { ...result, filename: path.posix.basename(filename.replaceAll("\\", "/")) }
     }
@@ -663,25 +778,44 @@ async function normalizeBundlePaths(manifest: Manifest, zip: JSZip, maxLength?: 
   validateManifest(manifest, zip)
 }
 
-function readBundle(file: string, maxLength?: number) {
+function readBundle(file: string, maxLength?: number, progress?: (value: PortableProgress) => void) {
   return Effect.gen(function* () {
     // Keep I/O failures distinct from invalid bundle errors; only parsing/validation is a 400.
+    progress?.({ type: "import", stage: "正在读取压缩包", percent: 2 })
     const archive = yield* Effect.promise(() => readFile(file))
     return yield* Effect.tryPromise({
       try: async () => {
+        progress?.({
+          type: "import",
+          stage: "正在解析压缩包",
+          percent: 8,
+          processedBytes: archive.byteLength,
+          totalBytes: archive.byteLength,
+        })
         const zip = await JSZip.loadAsync(archive)
         const manifestFile = zip.file(manifestName)
         if (!manifestFile) throw new Error("Portable session manifest is missing")
         const manifest = decodeManifest(JSON.parse(await manifestFile.async("string")))
         await normalizeBundlePaths(manifest, zip, maxLength)
         const blobs = new Map<string, Uint8Array>()
-        for (const entry of manifest.files) {
+        for (const [index, entry] of manifest.files.entries()) {
           const cached = blobs.get(entry.blob)
-          const content = cached ?? await zip.file(entry.blob)!.async("uint8array")
-          if (content.byteLength !== entry.size || (!cached && digest(content) !== entry.sha256) || entry.blob !== `blobs/${entry.sha256}`) {
+          const content = cached ?? (await zip.file(entry.blob)!.async("uint8array"))
+          if (
+            content.byteLength !== entry.size ||
+            (!cached && digest(content) !== entry.sha256) ||
+            entry.blob !== `blobs/${entry.sha256}`
+          ) {
             throw new Error(`Portable session file failed validation: ${entry.path}`)
           }
           if (!cached) blobs.set(entry.blob, content)
+          progress?.({
+            type: "import",
+            stage: "正在校验文件",
+            percent: 12 + ((index + 1) / Math.max(manifest.files.length, 1)) * 25,
+            completed: index + 1,
+            total: manifest.files.length,
+          })
         }
         return { manifest, blobs }
       },
@@ -760,27 +894,35 @@ async function sharedFileTarget(directory: string, file: FileEntry) {
 
 function importFiles(manifest: Manifest, scope?: "project" | "session") {
   if (scope === "session" && manifest.files.some((file) => file.scope === "project")) {
-    const attachments = new Set(manifest.sessions.flatMap((session) => session.messages.filter((message) => message.info.role === "user").flatMap((message) =>
-      message.parts.flatMap((part) => {
-        // Non-image uploads are recorded as a synthetic manifest, not FileParts.
-        if (part.type === "text" && part.synthetic && /^\[附件\]\r?\n/.test(part.text)) {
-          return part.text.split(/\r?\n/).flatMap((line) => {
-            const match = /^- .+?: (.+)$/.exec(line)
-            return match ? [match[1]] : []
-          })
-        }
-        const files = part.type === "file" ? [part] : []
-        return files.flatMap((file) => [
-          file.url,
-          ...(file.source?.type === "file" || file.source?.type === "symbol" ? [file.source.path] : []),
-        ])
-      }),
-    )).map((value) => {
-      if (!value.startsWith("file://")) return value.replaceAll("\\", "/")
-      const url = new URL(value)
-      const decoded = decodeURIComponent(url.pathname)
-      return url.hostname ? `//${url.hostname}${decoded}` : decoded.replace(/^\/([A-Za-z]:\/)/, "$1")
-    }))
+    const attachments = new Set(
+      manifest.sessions
+        .flatMap((session) =>
+          session.messages
+            .filter((message) => message.info.role === "user")
+            .flatMap((message) =>
+              message.parts.flatMap((part) => {
+                // Non-image uploads are recorded as a synthetic manifest, not FileParts.
+                if (part.type === "text" && part.synthetic && /^\[附件\]\r?\n/.test(part.text)) {
+                  return part.text.split(/\r?\n/).flatMap((line) => {
+                    const match = /^- .+?: (.+)$/.exec(line)
+                    return match ? [match[1]] : []
+                  })
+                }
+                const files = part.type === "file" ? [part] : []
+                return files.flatMap((file) => [
+                  file.url,
+                  ...(file.source?.type === "file" || file.source?.type === "symbol" ? [file.source.path] : []),
+                ])
+              }),
+            ),
+        )
+        .map((value) => {
+          if (!value.startsWith("file://")) return value.replaceAll("\\", "/")
+          const url = new URL(value)
+          const decoded = decodeURIComponent(url.pathname)
+          return url.hostname ? `//${url.hostname}${decoded}` : decoded.replace(/^\/([A-Za-z]:\/)/, "$1")
+        }),
+    )
     const files = new Map<string, FileEntry>()
     const paths = new Map<string, FileEntry>()
     const add = (file: FileEntry) => {
@@ -811,7 +953,8 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
   }
   if (scope !== "project") return { files: manifest.files, paths: new Map<string, FileEntry>() }
   const shared = new Map(
-    manifest.files.filter((file) => file.scope === "project")
+    manifest.files
+      .filter((file) => file.scope === "project")
       .map((file) => [path.posix.normalize(`${file.directory}/${file.path}`.replaceAll("\\", "/")), file]),
   )
   const files = [...manifest.files]
@@ -824,10 +967,7 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
     const existing = shared.get(target)
     if (existing) {
       if (existing.sha256 !== file.sha256) {
-        console.warn(
-          "[octo:import] skipped file",
-          JSON.stringify({ path: target, reason: "shared-content-conflict" }),
-        )
+        console.warn("[octo:import] skipped file", JSON.stringify({ path: target, reason: "shared-content-conflict" }))
       }
       continue
     }
@@ -842,13 +982,16 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
 export const importPortableSession = Effect.fn("SessionPortable.import")(function* (
   file: string,
   scope?: "project" | "session",
+  operationID?: string,
 ) {
+  const update = (progress: PortableProgress) => reportPortableProgress(operationID, progress)
   const context = yield* InstanceState.context
   const sessions = yield* Session.Service
   const todos = yield* Todo.Service
   const bundle = yield* readBundle(
     path.resolve(file),
     process.platform === "win32" ? 240 - context.directory.length - 65 : undefined,
+    update,
   )
   const plan = importFiles(bundle.manifest, scope)
   const files = plan.files
@@ -857,7 +1000,8 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
   const sharedFiles: string[] = []
 
   const importEffect = Effect.gen(function* () {
-    for (const entry of orderedEntries(bundle.manifest)) {
+    const ordered = orderedEntries(bundle.manifest)
+    for (const [index, entry] of ordered.entries()) {
       const parentID = entry.info.parentID ? sessionIDs.get(entry.info.parentID) : undefined
       const session = yield* sessions.create({
         parentID,
@@ -867,32 +1011,64 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
       })
       sessionIDs.set(entry.info.id, session.id)
       created.push(session.id)
+      update({
+        type: "import",
+        stage: "正在创建对话",
+        percent: 38 + ((index + 1) / Math.max(ordered.length, 1)) * 10,
+        completed: index + 1,
+        total: ordered.length,
+      })
     }
 
     // Protect relocated references from generic prefix rewriting, including same-directory imports.
-    const paths = new Map([...plan.paths].flatMap(([relative, entry]) => {
-      const source = `${bundle.manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")}/${relative}`
-      const url = new URL(source.startsWith("//") ? `file://${source.slice(2).split("/")[0]}/` : "file:///")
-      url.pathname = source.startsWith("//") ? source.slice(source.indexOf("/", 2)) : source.startsWith("/") ? source : `/${source}`
-      const target = path.join(context.directory, sessionDirectory, sessionIDs.get(entry.sessionID)!, entry.directory, entry.path)
-      return [
-        [source.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
-        [source.replaceAll("/", "\\"), target.replaceAll("\\", "/")] as const,
-        [url.href, pathToFileURL(target).href] as const,
-        [target, target] as const,
-        [target.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
-        [pathToFileURL(target).href, pathToFileURL(target).href] as const,
-      ]
-    }))
+    const paths = new Map(
+      [...plan.paths].flatMap(([relative, entry]) => {
+        const source = `${bundle.manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")}/${relative}`
+        const url = new URL(source.startsWith("//") ? `file://${source.slice(2).split("/")[0]}/` : "file:///")
+        url.pathname = source.startsWith("//")
+          ? source.slice(source.indexOf("/", 2))
+          : source.startsWith("/")
+            ? source
+            : `/${source}`
+        const target = path.join(
+          context.directory,
+          sessionDirectory,
+          sessionIDs.get(entry.sessionID)!,
+          entry.directory,
+          entry.path,
+        )
+        return [
+          [source.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
+          [source.replaceAll("/", "\\"), target.replaceAll("\\", "/")] as const,
+          [url.href, pathToFileURL(target).href] as const,
+          [target, target] as const,
+          [target.replaceAll("\\", "/"), target.replaceAll("\\", "/")] as const,
+          [pathToFileURL(target).href, pathToFileURL(target).href] as const,
+        ]
+      }),
+    )
     const pattern = paths.size
-      ? new RegExp("(" + [...paths.keys()].sort((a, b) => b.length - a.length)
-        .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?=$|[\\s\"'`<>\\[\\](){}?,;:!#，。；：！？]|\\.(?=\\s|$))", "g")
+      ? new RegExp(
+          "(" +
+            [...paths.keys()]
+              .sort((a, b) => b.length - a.length)
+              .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join("|") +
+            ")(?=$|[\\s\"'`<>\\[\\](){}?,;:!#，。；：！？]|\\.(?=\\s|$))",
+          "g",
+        )
       : undefined
     const relocate: ReferencePaths["relocate"] = pattern
-      ? (value, rewrite) => value.split(pattern).map((part, index) => index % 2 ? paths.get(part)! : rewrite(part)).join("")
+      ? (value, rewrite) =>
+          value
+            .split(pattern)
+            .map((part, index) => (index % 2 ? paths.get(part)! : rewrite(part)))
+            .join("")
       : undefined
 
-    for (const entry of orderedEntries(bundle.manifest)) {
+    const totalMessages = ordered.reduce((total, entry) => total + entry.messages.length, 0)
+    let completedMessages = 0
+    for (const entry of ordered) {
       const sessionID = sessionIDs.get(entry.info.id)!
       if (entry.info.summary) {
         yield* sessions.setSummary({
@@ -935,10 +1111,20 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             }),
           )
         }
+        completedMessages += 1
+        update({
+          type: "import",
+          stage: "正在恢复聊天记录",
+          percent: 48 + (completedMessages / Math.max(totalMessages, 1)) * 22,
+          completed: completedMessages,
+          total: totalMessages,
+        })
       }
     }
 
-    for (const fileEntry of files) {
+    let completedBytes = 0
+    const totalBytes = files.reduce((total, file) => total + file.size, 0)
+    for (const [index, fileEntry] of files.entries()) {
       if (fileEntry.scope === "project") {
         yield* Effect.promise(async () => {
           const target = await sharedFileTarget(context.directory, fileEntry)
@@ -975,6 +1161,16 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             },
           )
         })
+        completedBytes += fileEntry.size
+        update({
+          type: "import",
+          stage: "正在恢复文件",
+          percent: 70 + (completedBytes / Math.max(totalBytes, 1)) * 28,
+          completed: index + 1,
+          total: files.length,
+          processedBytes: completedBytes,
+          totalBytes,
+        })
         continue
       }
       const sessionID = sessionIDs.get(fileEntry.sessionID)!
@@ -1002,7 +1198,27 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
           )
         }),
       )
+      completedBytes += fileEntry.size
+      update({
+        type: "import",
+        stage: "正在恢复文件",
+        percent: 70 + (completedBytes / Math.max(totalBytes, 1)) * 28,
+        completed: index + 1,
+        total: files.length,
+        processedBytes: completedBytes,
+        totalBytes,
+      })
     }
+
+    update({
+      type: "import",
+      stage: "导入完成",
+      percent: 100,
+      completed: files.length,
+      total: files.length,
+      processedBytes: totalBytes,
+      totalBytes,
+    })
 
     return {
       sessionID: sessionIDs.get(bundle.manifest.rootSessionID)!,

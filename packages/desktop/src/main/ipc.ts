@@ -1,6 +1,16 @@
 import { execFile, execFileSync, execSync } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  cpSync,
+  readdirSync,
+  statSync,
+  globSync,
+  createWriteStream,
+} from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
@@ -25,7 +35,6 @@ import log from "electron-log/main.js"
 
 app.commandLine.appendSwitch("ignore-certificate-errors")
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
-
 
 import type {
   AuthStartupState,
@@ -60,15 +69,37 @@ const pickerFilters = (ext?: string[]) => {
 
 const topixsoDir = app.isPackaged
   ? join(process.resourcesPath, "topixso")
-  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
+  : join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "app",
+      "octoapp",
+      "pages",
+      "make",
+      "utils",
+      "prototype-utils",
+      "topixso",
+    )
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "png"
-  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "jpg"
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "png"
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpg"
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "gif"
-  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "webp"
-  if (buf[0] === 0x42 && buf[1] === 0x4D) return "bmp"
+  if (
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50
+  )
+    return "webp"
+  if (buf[0] === 0x42 && buf[1] === 0x4d) return "bmp"
   const head = buf.slice(0, 5).toString("utf-8").toLowerCase()
   if (head.startsWith("<svg") || head.startsWith("<?xml")) return "svg"
   return "png"
@@ -170,7 +201,9 @@ type MaterializedEntry = { file: string; fetchedAt: number }
 function readMaterializedManifest(outputsDir: string): Record<string, MaterializedEntry> {
   try {
     const parsed = JSON.parse(readFileSync(join(outputsDir, MATERIALIZED_MANIFEST), "utf-8"))
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, MaterializedEntry>) : {}
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, MaterializedEntry>)
+      : {}
   } catch {
     return {}
   }
@@ -241,11 +274,16 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
-  const preparedShares = new Map<string, {
-    owner: number; uniqueId: string; server: string;
-    prepared: Awaited<ReturnType<typeof prepareSharedSession>>;
-    timer: ReturnType<typeof setTimeout>;
-  }>()
+  const preparedShares = new Map<
+    string,
+    {
+      owner: number
+      uniqueId: string
+      server: string
+      prepared: Awaited<ReturnType<typeof prepareSharedSession>>
+      timer: ReturnType<typeof setTimeout>
+    }
+  >()
   const owners = new Set<number>()
   const releaseShare = async (token: string, owner: number) => {
     const entry = preparedShares.get(token)
@@ -259,9 +297,10 @@ export function registerIpcHandlers(deps: Deps) {
     if (!uploadURL) throw new Error("分享配置缺失：请配置环境变量 OCTO_SHARE_API_URL")
     if (!URL.canParse(uploadURL)) throw new Error("请配置有效的 OCTO_SHARE_API_URL")
     const win = BrowserWindow.fromWebContents(event.sender)
-    const auth = win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
-      ? await localStorageAuth(win)
-      : null
+    const auth =
+      win && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(uploadURL).hostname)
+        ? await localStorageAuth(win)
+        : null
     return {
       uploadURL,
       server: await deps.awaitInitialization(() => undefined),
@@ -273,50 +312,81 @@ export function registerIpcHandlers(deps: Deps) {
       }) as typeof fetch,
     }
   }
-  ipcMain.handle("prepare-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string) => {
-    const input = await shareInput(event)
-    const prepared = await prepareSharedSession({ ...input, uniqueId })
-    if (event.sender.isDestroyed()) {
-      await rm(prepared.temporary, { recursive: true, force: true })
-      throw new Error("分享窗口已关闭")
-    }
-    const token = randomUUID()
-    const owner = event.sender.id
-    const timer = setTimeout(() => { void releaseShare(token, owner).catch(log.warn) }, 10 * 60_000)
-    timer.unref()
-    preparedShares.set(token, { owner, uniqueId, server: input.server.url, prepared, timer })
-    if (!owners.has(owner)) {
-      owners.add(owner)
-      event.sender.once("destroyed", () => {
-        owners.delete(owner)
-        for (const [key, entry] of preparedShares) {
-          if (entry.owner === owner) void releaseShare(key, owner).catch(log.warn)
-        }
+  ipcMain.handle(
+    "prepare-shared-session",
+    async (event: IpcMainInvokeEvent, uniqueId: string, operationID?: string) => {
+      const input = await shareInput(event)
+      const prepared = await prepareSharedSession({
+        ...input,
+        uniqueId,
+        progress: operationID
+          ? (progress) => event.sender.send("session-transfer-progress", { operationID, ...progress })
+          : undefined,
       })
-    }
-    return { token, agent: prepared.agent, module: prepared.module }
-  })
-  ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) => releaseShare(token, event.sender.id))
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => {
-    if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
-      throw new Error("请先选择关联本地文件夹，再打开分享对话")
-    }
-    const input = await shareInput(event)
-    const entry = token ? preparedShares.get(token) : undefined
-    if (token && (!entry || entry.owner !== event.sender.id || entry.uniqueId !== uniqueId || entry.server !== input.server.url)) {
-      throw new Error("分享准备已失效，请重新打开链接")
-    }
-    await mkdir(directory, { recursive: true })
-    if (entry && token) {
-      preparedShares.delete(token)
-      clearTimeout(entry.timer)
-    }
-    // Directory/file restoration only starts after the renderer has switched to the identified module.
-    return importSharedSession({
-      ...input, uniqueId, directory, scope, prepared: entry?.prepared,
-      log: (event, details) => log.info(`[octo:share-import] ${event}`, details),
-    })
-  })
+      if (event.sender.isDestroyed()) {
+        await rm(prepared.temporary, { recursive: true, force: true })
+        throw new Error("分享窗口已关闭")
+      }
+      const token = randomUUID()
+      const owner = event.sender.id
+      const timer = setTimeout(() => {
+        void releaseShare(token, owner).catch(log.warn)
+      }, 10 * 60_000)
+      timer.unref()
+      preparedShares.set(token, { owner, uniqueId, server: input.server.url, prepared, timer })
+      if (!owners.has(owner)) {
+        owners.add(owner)
+        event.sender.once("destroyed", () => {
+          owners.delete(owner)
+          for (const [key, entry] of preparedShares) {
+            if (entry.owner === owner) void releaseShare(key, owner).catch(log.warn)
+          }
+        })
+      }
+      return { token, agent: prepared.agent, module: prepared.module }
+    },
+  )
+  ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) =>
+    releaseShare(token, event.sender.id),
+  )
+  ipcMain.handle(
+    "import-shared-session",
+    async (
+      event: IpcMainInvokeEvent,
+      uniqueId: string,
+      directory: string,
+      scope?: "project" | "session",
+      token?: string,
+      operationID?: string,
+    ) => {
+      if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
+        throw new Error("请先选择关联本地文件夹，再打开分享对话")
+      }
+      const input = await shareInput(event)
+      const entry = token ? preparedShares.get(token) : undefined
+      if (
+        token &&
+        (!entry || entry.owner !== event.sender.id || entry.uniqueId !== uniqueId || entry.server !== input.server.url)
+      ) {
+        throw new Error("分享准备已失效，请重新打开链接")
+      }
+      await mkdir(directory, { recursive: true })
+      if (entry && token) {
+        preparedShares.delete(token)
+        clearTimeout(entry.timer)
+      }
+      // Directory/file restoration only starts after the renderer has switched to the identified module.
+      return importSharedSession({
+        ...input,
+        uniqueId,
+        directory,
+        scope,
+        operationID,
+        prepared: entry?.prepared,
+        log: (event, details) => log.info(`[octo:share-import] ${event}`, details),
+      })
+    },
+  )
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("auth:start-login", () => deps.startLogin())
   ipcMain.handle("auth:cancel-login", () => deps.cancelLogin())
@@ -408,7 +478,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
   // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
-  
+
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -685,13 +755,7 @@ export function registerIpcHandlers(deps: Deps) {
   // 同一套 landingName/collisionFreePath 规则;relDir 含 .. / ~ 时响亮报错(SPEC-INS-026 §4.1)。
   ipcMain.handle(
     "copy-file-to-project-dir",
-    async (
-      _event: IpcMainInvokeEvent,
-      srcPath: string,
-      baseDir: string,
-      relDir: string,
-      filename: string,
-    ) => {
+    async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, relDir: string, filename: string) => {
       const cleanDir = sanitizeProjectRelDir(relDir)
       if (cleanDir === null) {
         const reason = `LANDING_DIR_REJECTED: ${relDir}`
@@ -812,7 +876,12 @@ export function registerIpcHandlers(deps: Deps) {
           const abs = join(dir, entry.file)
           if (existsSync(abs)) {
             materializedByNamespace.set(cacheKey, abs)
-            console.log("[octo:worktree] result-materialize", { filename: safeName, path: abs, sessionId, reused: true })
+            console.log("[octo:worktree] result-materialize", {
+              filename: safeName,
+              path: abs,
+              sessionId,
+              reused: true,
+            })
             return abs
           }
         }
@@ -841,7 +910,12 @@ export function registerIpcHandlers(deps: Deps) {
       await writeFile(destPath, buf)
       materializedByNamespace.set(cacheKey, destPath)
       if (persistent) recordMaterialized(dir, namespace, basename(destPath))
-      console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })
+      console.log("[octo:worktree] result-materialize", {
+        filename: safeName,
+        path: destPath,
+        sessionId,
+        reused: false,
+      })
       return destPath
     },
   )
@@ -885,8 +959,8 @@ export function registerIpcHandlers(deps: Deps) {
     if (!existsSync(filePath)) await writeFile(filePath, buf)
     return `uploads/${filename}`
   })
-  
-// insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
+
+  // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
   // 两类合法目标:
   //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/.octo/<sessionId>/outputs/ 或 OS 临时目录(octo/);
@@ -938,7 +1012,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
-    const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
+    const results: Array<{ path: string; type: "file" | "directory"; size?: number }> = []
 
     if (!existsSync(dirPath)) return results
 
@@ -946,7 +1020,7 @@ export function registerIpcHandlers(deps: Deps) {
       const entries = readdirSync(currentPath, { withFileTypes: true })
       for (const entry of entries) {
         const fullPath = join(currentPath, entry.name)
-        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
+        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, "")
 
         if (entry.isDirectory()) {
           walk(fullPath, basePath)
@@ -954,8 +1028,8 @@ export function registerIpcHandlers(deps: Deps) {
           const stat = statSync(fullPath)
           results.push({
             path: relativePath,
-            type: 'file',
-            size: stat.size
+            type: "file",
+            size: stat.size,
           })
         }
       }
@@ -1222,12 +1296,12 @@ export function registerIpcHandlers(deps: Deps) {
 
       const allFiles = globSync("**/*", { cwd: skillDir })
       const files = allFiles
-        .filter(f => {
+        .filter((f) => {
           const fullPath = join(skillDir, f)
           return existsSync(fullPath) && statSync(fullPath).isFile() && f !== "SKILL.md"
         })
         .slice(0, 10)
-        .map(f => `<file>${join(skillDir, f)}</file>`)
+        .map((f) => `<file>${join(skillDir, f)}</file>`)
         .join("\n")
 
       return {
@@ -1311,10 +1385,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "mcp-config-write",
-    (
-      _event: IpcMainInvokeEvent,
-      arg: { op: "set" | "remove"; name: string; value?: Record<string, unknown> },
-    ) => {
+    (_event: IpcMainInvokeEvent, arg: { op: "set" | "remove"; name: string; value?: Record<string, unknown> }) => {
       try {
         if (!/^[a-zA-Z0-9_-]+$/.test(arg.name)) {
           throw new Error(`Invalid MCP server name: ${arg.name}`)
@@ -1396,7 +1467,12 @@ export function registerIpcHandlers(deps: Deps) {
         try {
           await new Promise<void>((resolve) => {
             let done = false
-            const finish = () => { if (!done) { done = true; resolve() } }
+            const finish = () => {
+              if (!done) {
+                done = true
+                resolve()
+              }
+            }
             win.webContents.once("did-finish-load", finish)
             win.webContents.once("did-fail-load", finish)
             win.webContents.loadURL("http://127.0.0.1:51856").then(finish).catch(finish)
@@ -1428,7 +1504,8 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // pattern 资源目录: ~/.config/octo/prototype/{theme}/pattern/{category}/
-  const patternDir = (category: string, theme: string) => join(getOctoConfigPath(), "prototype", theme, "pattern", category)
+  const patternDir = (category: string, theme: string) =>
+    join(getOctoConfigPath(), "prototype", theme, "pattern", category)
 
   // 读取 pattern 资源目录下的 index.json 目录 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-pattern-index", (_event: IpcMainInvokeEvent, category: string, theme: string = "ICT3.1") => {
@@ -1494,7 +1571,8 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       return readdirSync(root, { withFileTypes: true })
         .filter((d) => d.isDirectory() && existsSync(join(root, d.name, "components")))
-        .map((d) => d.name).sort()
+        .map((d) => d.name)
+        .sort()
     } catch {
       return [] as string[]
     }
@@ -1507,9 +1585,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "download-hui-code",
     (_event: IpcMainInvokeEvent, input: HuiCodeInput[], options?: { targetLib?: string }) => {
-      const ipcOptions = app.isPackaged
-        ? { templateDir: join(process.resourcesPath, "hui-templates") }
-        : {}
+      const ipcOptions = app.isPackaged ? { templateDir: join(process.resourcesPath, "hui-templates") } : {}
       return downloadHuiCode(input, { ...ipcOptions, ...options })
     },
   )
@@ -1523,9 +1599,7 @@ export function registerIpcHandlers(deps: Deps) {
     const { existsSync } = await import("node:fs")
     const { join } = await import("node:path")
 
-    const buildJsPath = app.isPackaged
-      ? join(process.resourcesPath, "toPixso", "build.js")
-      : "D:/Code/toPixso/build.js"
+    const buildJsPath = app.isPackaged ? join(process.resourcesPath, "toPixso", "build.js") : "D:/Code/toPixso/build.js"
 
     if (!existsSync(buildJsPath)) {
       throw new Error(`build.js not found at ${buildJsPath}`)
@@ -1571,9 +1645,7 @@ export function registerIpcHandlers(deps: Deps) {
         defaultPath: opts.defaultName,
         filters: [{ name: "ZIP", extensions: ["zip"] }],
       }
-      const result = win
-        ? await dialog.showSaveDialog(win, dialogOpts)
-        : await dialog.showSaveDialog(dialogOpts)
+      const result = win ? await dialog.showSaveDialog(win, dialogOpts) : await dialog.showSaveDialog(dialogOpts)
       if (result.canceled || !result.filePath) return null
 
       const destZip = result.filePath
@@ -1641,9 +1713,7 @@ export function registerIpcHandlers(deps: Deps) {
             (err) => (err ? reject(err) : resolve()),
           )
         } else {
-          execFile("unzip", ["-o", zipPath, "-d", extractDir], (err) =>
-            err ? reject(err) : resolve(),
-          )
+          execFile("unzip", ["-o", zipPath, "-d", extractDir], (err) => (err ? reject(err) : resolve()))
         }
       })
 
@@ -1651,23 +1721,29 @@ export function registerIpcHandlers(deps: Deps) {
         .filter((f) => f.endsWith(".json"))
         .map((name) => ({ name, content: readFileSync(join(extractDir, name), "utf-8") }))
     } finally {
-      await rm(extractDir, { recursive: true, force: true }).catch(() => { })
+      await rm(extractDir, { recursive: true, force: true }).catch(() => {})
     }
   })
   // 页面资源捕获(CDP):创建隐藏窗口加载指定 URL,拦截全部网络响应,将所有资源(CSS/JS/图片/字体)内联为 data URI,生成单个自包含 HTML 文件。
   ipcMain.handle(
     "capture-page",
-    async (
-      _event: IpcMainInvokeEvent,
-      opts: { url: string; theme?: "light" | "dark"; waitForMs?: number },
-    ) => {
+    async (_event: IpcMainInvokeEvent, opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => {
       return codeToHtml(opts)
     },
   )
 
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
-  ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
-    pipelineRequest(url, method, uiplusToken, body, headers))
+  ipcMain.handle(
+    "pipeline-request",
+    (
+      _event: IpcMainInvokeEvent,
+      url: string,
+      method: string,
+      uiplusToken: string,
+      body?: any,
+      headers?: Record<string, string>,
+    ) => pipelineRequest(url, method, uiplusToken, body, headers),
+  )
 
   ipcMain.handle("get-proxy-config", () => {
     const configFile = proxyConfigFile()
@@ -1685,7 +1761,8 @@ export function registerIpcHandlers(deps: Deps) {
         account: decodeURIComponent(proxyUrl.username),
         password: decodeURIComponent(proxyUrl.password),
         proxyHost: proxyUrl.host,
-        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        proxyOptionId:
+          "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
         noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
       }
     } catch (error) {
@@ -1699,7 +1776,28 @@ export function registerIpcHandlers(deps: Deps) {
 
   // Proxy 配置: 验证代理连通性后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
   const PROXY_HOSTS = new Set([
-    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+    "proxy",
+    "proxycn2",
+    "proxyn",
+    "proxyhk",
+    "proxvuk",
+    "proxyus",
+    "proxyus-nrd",
+    "proxyru",
+    "proxybr",
+    "proxybh",
+    "proxyblr",
+    "openproxy",
+    "proxyza",
+    "proxytr",
+    "proxyca",
+    "proxyde",
+    "proxyjp",
+    "proxvse-rd",
+    "proxyde-rd",
+    "proxytr-rd",
+    "proxvus-rd",
+    "proxyru-rd",
   ])
 
   // 配置失败时的 curl 对照诊断：区分「代理本身不通」「Node 证书校验失败(代理 MITM)」「NO_PROXY 把目标绕过代理直连」。
@@ -1715,7 +1813,12 @@ export function registerIpcHandlers(deps: Deps) {
         return { ok: true, output: out.trim().slice(0, 120) }
       } catch (e) {
         const err = e as Error & { stderr?: string }
-        const firstLine = (err.stderr ?? err.message).toString().trim().split("\n").find((l) => l.trim()) ?? "unknown error"
+        const firstLine =
+          (err.stderr ?? err.message)
+            .toString()
+            .trim()
+            .split("\n")
+            .find((l) => l.trim()) ?? "unknown error"
         return { ok: false, output: redact(firstLine.trim()).slice(0, 160) }
       }
     }
@@ -1727,11 +1830,13 @@ export function registerIpcHandlers(deps: Deps) {
 
     let hint = ""
     if (!strict.ok && insecure.ok) {
-      hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+      hint =
+        "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
     } else if (!explicit.ok && /Could not resolve|ENOTFOUND/.test(explicit.output)) {
       // 代理域名(*.huawei.com)仅华为内网 DNS 可解析，公网 DNS(阿里/腾讯/谷歌)一律 NXDOMAIN(已实测)，
       // DNS 失败与账号密码/节点选择无关，只说明机器不在内网环境
-      hint = "；提示: 代理域名 DNS 解析失败 — 代理域名仅华为内网 DNS 可解析，请连接公司 VPN 或确认在办公网内(与账号密码无关)"
+      hint =
+        "；提示: 代理域名 DNS 解析失败 — 代理域名仅华为内网 DNS 可解析，请连接公司 VPN 或确认在办公网内(与账号密码无关)"
     } else if (!explicit.ok) {
       hint = "；提示: 直接指定代理仍失败 — 代理节点不可达或认证失败，请检查账号密码及是否在华为内网(VPN)"
     } else if (explicit.ok && !strict.ok && !insecure.ok) {
@@ -1747,106 +1852,136 @@ export function registerIpcHandlers(deps: Deps) {
     let current: unknown = err
     for (let depth = 0; current instanceof Error && depth < 5; depth++) {
       const code = (current as NodeJS.ErrnoException).code
-      parts.push(code ? `${current.name} [${code}] ${current.message}` : parts.length ? `${current.name}: ${current.message}` : current.message)
+      parts.push(
+        code
+          ? `${current.name} [${code}] ${current.message}`
+          : parts.length
+            ? `${current.name}: ${current.message}`
+            : current.message,
+      )
       current = (current as { cause?: unknown }).cause
     }
     return parts.join(" <- ")
   }
 
-  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
-    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
-    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
-    const encodedAccount = encodeURIComponent(account)
-    const encodedPwd = encodeURIComponent(password)
-      .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
-    // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
-    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
-    const noProxy = noProxyInput?.trim() || defaultNoProxy
-    const curlTarget = "https://ifconfig.me/ip"
+  ipcMain.handle(
+    "configure-proxy",
+    async (
+      _event: IpcMainInvokeEvent,
+      account: string,
+      password: string,
+      noProxyInput?: string,
+      proxyHostInput?: string,
+      proxyOptionIdInput?: string,
+    ) => {
+      const proxyHostName = proxyHostInput?.trim().replace(/^:/, "") || "proxyhk"
+      const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+      const encodedAccount = encodeURIComponent(account)
+      const encodedPwd = encodeURIComponent(password).replace(
+        /['()!*]/g,
+        (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
+      )
+      const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
+      // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
+      const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+      const noProxy = noProxyInput?.trim() || defaultNoProxy
+      const curlTarget = "https://ifconfig.me/ip"
 
-    log.info("[configure-proxy] 开始配置代理", { proxyHost, proxy: maskProxyUrl(proxyUrl), noProxy })
+      log.info("[configure-proxy] 开始配置代理", { proxyHost, proxy: maskProxyUrl(proxyUrl), noProxy })
 
-    // 先注入环境变量
-    const prevEnv: Record<string, string | undefined> = {}
-    for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
-      prevEnv[key] = process.env[key]
-    }
-    process.env["http_proxy"] = proxyUrl
-    process.env["https_proxy"] = proxyUrl
-    process.env["no_proxy"] = noProxy
-    process.env["HTTP_PROXY"] = proxyUrl
-    process.env["HTTPS_PROXY"] = proxyUrl
-    process.env["NO_PROXY"] = noProxy
+      // 先注入环境变量
+      const prevEnv: Record<string, string | undefined> = {}
+      for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+        prevEnv[key] = process.env[key]
+      }
+      process.env["http_proxy"] = proxyUrl
+      process.env["https_proxy"] = proxyUrl
+      process.env["no_proxy"] = noProxy
+      process.env["HTTP_PROXY"] = proxyUrl
+      process.env["HTTPS_PROXY"] = proxyUrl
+      process.env["NO_PROXY"] = noProxy
 
-    log.info("[configure-proxy] 环境变量已注入")
+      log.info("[configure-proxy] 环境变量已注入")
 
-    // setGlobalProxyFromEnv 返回 restore 函数，验证失败时用于还原全局 dispatcher
-    let restoreDispatcher: unknown
-    try {
-      // 与 webfetch 同栈验证：主进程 Node fetch(undici 全局 dispatcher) + setGlobalProxyFromEnv，
-      // 证书正常校验。旧实现用 curl -k 会跳过证书校验——代理对 HTTPS 做证书替换(MITM)时
-      // 验证通过但 sidecar 里 webfetch 实际失败。
+      // setGlobalProxyFromEnv 返回 restore 函数，验证失败时用于还原全局 dispatcher
+      let restoreDispatcher: unknown
       try {
-        restoreDispatcher = (http as any).setGlobalProxyFromEnv()
-      } catch (e) {
-        throw new Error(`setGlobalProxyFromEnv 调用失败: ${e instanceof Error ? e.message : String(e)}`)
-      }
+        // 与 webfetch 同栈验证：主进程 Node fetch(undici 全局 dispatcher) + setGlobalProxyFromEnv，
+        // 证书正常校验。旧实现用 curl -k 会跳过证书校验——代理对 HTTPS 做证书替换(MITM)时
+        // 验证通过但 sidecar 里 webfetch 实际失败。
+        try {
+          restoreDispatcher = (http as any).setGlobalProxyFromEnv()
+        } catch (e) {
+          throw new Error(`setGlobalProxyFromEnv 调用失败: ${e instanceof Error ? e.message : String(e)}`)
+        }
 
-      log.info("[configure-proxy] 执行 Node fetch 验证(与 webfetch 同栈)", { curlTarget, timeout: 20000 })
+        log.info("[configure-proxy] 执行 Node fetch 验证(与 webfetch 同栈)", { curlTarget, timeout: 20000 })
 
-      const res = await fetch(curlTarget, { signal: AbortSignal.timeout(20000) })
-      const verifyOutput = (await res.text()).trim()
+        const res = await fetch(curlTarget, { signal: AbortSignal.timeout(20000) })
+        const verifyOutput = (await res.text()).trim()
 
-      if (!verifyOutput.startsWith("119.")) {
-        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${verifyOutput.slice(0, 100)}`)
-      }
+        if (!verifyOutput.startsWith("119.")) {
+          throw new Error(`代理返回的 IP 不是 119.x.x.x: ${verifyOutput.slice(0, 100)}`)
+        }
 
-      log.info("[configure-proxy] 代理验证通过", { ip: verifyOutput })
+        log.info("[configure-proxy] 代理验证通过", { ip: verifyOutput })
 
-      log.info("[configure-proxy] 验证通过, 写入配置文件")
+        log.info("[configure-proxy] 验证通过, 写入配置文件")
 
-      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验；
-      // 路径必须与 proxy-config.ts 统一，不跟随 XDG_CONFIG_HOME）
-      const configFile = proxyConfigFile()
-      mkdirSync(dirname(configFile), { recursive: true })
+        // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验；
+        // 路径必须与 proxy-config.ts 统一，不跟随 XDG_CONFIG_HOME）
+        const configFile = proxyConfigFile()
+        mkdirSync(dirname(configFile), { recursive: true })
 
-      writeFileSync(configFile, JSON.stringify({
-        http_proxy: proxyUrl,
-        https_proxy: proxyUrl,
-        no_proxy: noProxy,
-        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
-      }, null, 2), "utf-8")
-      log.info("[configure-proxy] 配置写入成功", { configFile })
+        writeFileSync(
+          configFile,
+          JSON.stringify(
+            {
+              http_proxy: proxyUrl,
+              https_proxy: proxyUrl,
+              no_proxy: noProxy,
+              proxyOptionId: proxyOptionIdInput?.trim() || undefined,
+            },
+            null,
+            2,
+          ),
+          "utf-8",
+        )
+        log.info("[configure-proxy] 配置写入成功", { configFile })
 
-      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效（dispatcher 已在验证前设置）
+        // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效（dispatcher 已在验证前设置）
 
-      return { success: true, curlUrl: curlTarget }
-    } catch (err) {
-      // fetch failed 本身无信息，展开 cause 链给出真实原因(连接被拒/超时/证书/隧道错误)
-      const errorMessage = describeFetchError(err) || (err instanceof Error ? err.message : String(err))
+        return { success: true, curlUrl: curlTarget }
+      } catch (err) {
+        // fetch failed 本身无信息，展开 cause 链给出真实原因(连接被拒/超时/证书/隧道错误)
+        const errorMessage = describeFetchError(err) || (err instanceof Error ? err.message : String(err))
 
-      // curl 对照诊断要趁 env 还指向新代理时执行
-      const diagnostics = collectProxyDiagnostics(curlTarget, proxyUrl)
+        // curl 对照诊断要趁 env 还指向新代理时执行
+        const diagnostics = collectProxyDiagnostics(curlTarget, proxyUrl)
 
-      // 失败时恢复之前的环境变量
-      for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
-        const val = prevEnv[key]
-        if (val === undefined) {
-          delete process.env[key]
-        } else {
-          process.env[key] = val
+        // 失败时恢复之前的环境变量
+        for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
+          const val = prevEnv[key]
+          if (val === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = val
+          }
+        }
+        if (typeof restoreDispatcher === "function") {
+          try {
+            ;(restoreDispatcher as () => void)()
+          } catch {}
+        }
+        log.error("[configure-proxy] 配置失败", { error: errorMessage, diagnostics })
+        return {
+          success: false,
+          curlUrl: curlTarget,
+          error: diagnostics ? `${errorMessage}\n${diagnostics}` : errorMessage,
         }
       }
-      if (typeof restoreDispatcher === "function") {
-        try {
-          ;(restoreDispatcher as () => void)()
-        } catch {}
-      }
-      log.error("[configure-proxy] 配置失败", { error: errorMessage, diagnostics })
-      return { success: false, curlUrl: curlTarget, error: diagnostics ? `${errorMessage}\n${diagnostics}` : errorMessage }
-    }
-  })
+    },
+  )
 
   // 查找topixso文件夹
   ipcMain.handle("get-topixso-dir", () => topixsoDir)

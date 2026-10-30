@@ -6021,6 +6021,7 @@ export type SessionPortableImportData = {
   body?: {
     path: string
     scope?: "project" | "session"
+    operationID?: string
   }
   path?: never
   query?: {
@@ -6056,6 +6057,7 @@ export type SessionPortableExportData = {
   body?: {
     path: string
     scope?: "project"
+    operationID?: string
   }
   path: {
     sessionID: string
@@ -6102,6 +6104,7 @@ export type SessionPortableShareData = {
     directory?: string
     workspace?: string
     scope?: "project"
+    operationID?: string
   }
   url: "/session/{sessionID}/portable-share"
 }
@@ -7118,6 +7121,35 @@ export type PartUpdateResponses = {
 }
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
+
+export type SessionPortableProgressData = {
+  body?: never
+  path: {
+    operationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/portable-progress/{operationID}"
+}
+
+export type SessionPortableProgressResponses = {
+  /**
+   * Portable session transfer progress
+   */
+  200: {
+    type: "export" | "import" | "share"
+    stage: string
+    percent: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    total?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    processedBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    totalBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableProgressResponse = SessionPortableProgressResponses[keyof SessionPortableProgressResponses]
 
 export type SessionGroupListData = {
   body?: never

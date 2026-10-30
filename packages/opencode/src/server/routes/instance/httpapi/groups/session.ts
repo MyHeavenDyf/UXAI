@@ -42,7 +42,9 @@ export const MessagesQuery = Schema.Struct({
   before: Schema.optional(Schema.String),
 })
 export const PreviewQuery = Schema.Struct({
-  limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(20))),
+  limit: Schema.optional(
+    Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(20)),
+  ),
   before: Schema.optional(Schema.String),
 })
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
@@ -83,6 +85,7 @@ export const PortablePathPayload = Schema.Struct({
 })
 export const PortableScopeQuery = Schema.Struct({
   scope: Schema.optional(Schema.Literal("project")),
+  operationID: Schema.optional(Schema.String),
 })
 export const PortableExportPayload = Schema.Struct({
   ...PortablePathPayload.fields,
@@ -91,6 +94,7 @@ export const PortableExportPayload = Schema.Struct({
 export const PortableImportPayload = Schema.Struct({
   ...PortablePathPayload.fields,
   scope: Schema.optional(Schema.Literals(["project", "session"])),
+  operationID: Schema.optional(Schema.String),
 })
 export const PortableImportResult = Schema.Struct({
   sessionID: SessionID,
@@ -106,6 +110,17 @@ export const PortableShareResult = Schema.Struct({
   uniqueId: Schema.String,
   url: Schema.String,
 })
+export const PortableProgressResult = Schema.NullOr(
+  Schema.Struct({
+    type: Schema.Literals(["export", "import", "share"]),
+    stage: Schema.String,
+    percent: Schema.Number,
+    completed: Schema.optional(Schema.Number),
+    total: Schema.optional(Schema.Number),
+    processedBytes: Schema.optional(Schema.Number),
+    totalBytes: Schema.optional(Schema.Number),
+  }),
+)
 
 export const SessionPaths = {
   list: root,
@@ -113,6 +128,7 @@ export const SessionPaths = {
   portableImport: `${root}/import`,
   portableExport: `${root}/:sessionID/export`,
   portableShare: `${root}/:sessionID/portable-share`,
+  portableProgress: `${root}/portable-progress/:operationID`,
   sharePreview: `${root}/:sessionID/share-preview`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
@@ -206,11 +222,14 @@ export const SessionApi = HttpApi.make("session")
           query: PreviewQuery,
           success: described(PreviewPage, "Read-only share preview"),
           error: [ApiBadRequestError, ApiNotFoundError],
-        }).annotateMerge(OpenApi.annotations({
-          identifier: "session.sharePreview",
-          summary: "Preview shared conversation",
-          description: "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
-        })),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.sharePreview",
+            summary: "Preview shared conversation",
+            description:
+              "Read bounded, paginated conversation text and file names without exporting files or loading tool output.",
+          }),
+        ),
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Get session"),
@@ -511,6 +530,16 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.get("portableProgress", SessionPaths.portableProgress, {
+          params: { operationID: Schema.String },
+          success: described(PortableProgressResult, "Portable session transfer progress"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.portableProgress",
+            summary: "Get portable session progress",
+            description: "Get current progress for an import, export, or share operation.",
           }),
         ),
       )
