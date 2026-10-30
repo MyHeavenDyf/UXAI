@@ -431,21 +431,26 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }
 
   const presetSkills = createMemo(() => props.skillConfig?.presetSkills ?? [])
 
-  const handleSkillClick = async (skill: PanelSkill) => {
-    close()
+  /** 以 @ 技能方式发送评估请求（二级 presetSkills 项与一级 DMG预审 共用） */
+  const sendAssessment = async (skillName: string) => {
     const filePath = props.tab.filePath?.replace(/\\/g, "/")
     if (!filePath) {
       showOctoToast({ title: "当前页面没有关联文件" })
       return
     }
-    tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skill.label }) })
-    const displayName = lookupDisplayName(props.skillConfig?.skill, skill.label) ?? skill.label
-    const result = await sendTextToAgent(`\u200b@${skill.label}\u200b 对页面进行评估、评估结果保存到当前目录: ${filePath}`, {
+    tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skillName }) })
+    const displayName = lookupDisplayName(props.skillConfig?.skill, skillName) ?? skillName
+    const result = await sendTextToAgent(`\u200b@${skillName}\u200b 对页面进行评估、评估结果保存到当前目录: ${filePath}`, {
       source: "assessment",
       timeoutMs: 1200000,
-      mentions: [{ id: skill.label, name: skill.label, type: "skill" as const, label: displayName, path: "" }],
+      mentions: [{ id: skillName, name: skillName, type: "skill" as const, label: displayName, path: "" }],
     })
     if (!result.ok) showOctoToast({ title: "评估发送失败", description: result.message })
+  }
+
+  const handleSkillClick = (skill: PanelSkill) => {
+    close()
+    void sendAssessment(skill.label)
   }
 
   return (
@@ -482,11 +487,18 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }
                 >
                   <span class="octo-assessment-item-text">规范遵从性评估</span>
                 </button>
-                <button type="button" class="octo-assessment-item" disabled>
-                  <span class="octo-assessment-item-text">美学评估</span>
+                <button
+                  type="button"
+                  class="octo-assessment-item"
+                  onClick={() => {
+                    close()
+                    void sendAssessment("DMG预审")
+                  }}
+                >
+                  <span class="octo-assessment-item-text">DMG预审</span>
                 </button>
                 <button type="button" class="octo-assessment-item" disabled>
-                  <span class="octo-assessment-item-text">DMG预审</span>
+                  <span class="octo-assessment-item-text">美学评估</span>
                 </button>
                 <Show when={expanded()}>
                   <div class="octo-assessment-secondary">
