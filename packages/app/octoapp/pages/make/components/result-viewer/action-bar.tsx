@@ -402,7 +402,7 @@ function CanvasEditDropdown(props: {
   )
 }
 
-function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }): JSX.Element {
+function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; disabled?: boolean }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
   let btnRef: HTMLButtonElement | undefined
@@ -428,6 +428,11 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }
     setOpen(false)
     setExpanded(false)
   }
+
+  // 模型回复中(effectiveBusy):按钮禁用,已展开的下拉自动收起
+  createEffect(() => {
+    if (props.disabled) close()
+  })
 
   const presetSkills = createMemo(() => props.skillConfig?.presetSkills ?? [])
 
@@ -460,7 +465,8 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig }
           ref={btnRef}
           type="button"
           class="octo-action-btn"
-          classList={{ "octo-viewport-btn-active": open() }}
+          classList={{ "octo-viewport-btn-active": open(), "octo-action-btn-disabled": !!props.disabled }}
+          disabled={!!props.disabled}
           onClick={() => (open() ? close() : setOpen(true))}
         >
           <IconAssessment size={16} />
@@ -975,7 +981,7 @@ export function ActionBar(props: {
             />
           )}
           {showAssessment() && (
-            <AssessmentDropdown tab={props.tab} skillConfig={props.skillConfig} />
+            <AssessmentDropdown tab={props.tab} skillConfig={props.skillConfig} disabled={props.disabled} />
           )}
           <Show when={shouldShowCopy()}>
             <Tooltip placement="top" value="复制">
