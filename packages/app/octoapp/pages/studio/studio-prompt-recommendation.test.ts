@@ -367,12 +367,13 @@ function modeSetup(
     waitUpload?: Promise<void>
     waitSubmit?: Promise<void>
     loseSubmitResponse?: boolean
+    loseUnacceptedSubmitResponse?: boolean
     loseDismissResponse?: boolean
   } = {},
 ) {
   const scope = crypto.randomUUID()
   const calls: { path: string; body: unknown }[] = []
-  const [mode, setMode] = createStore({ enabled: options.enabled ?? true })
+  const [mode, setMode] = createStore({ enabled: "enabled" in options ? options.enabled : true })
   let server: typeof guide & { submission?: { requestID: string } } = {
     ...guide,
     status: options.status ?? "completed",
@@ -394,6 +395,10 @@ function modeSetup(
         }
         if (path === "/studio/prompt-expansions") {
           await options.waitSubmit
+          if (options.loseUnacceptedSubmitResponse) {
+            options.loseUnacceptedSubmitResponse = false
+            throw new Error("request lost before acceptance")
+          }
           server = {
             ...server,
             status: "completed",
@@ -434,6 +439,84 @@ const expansionInput = {
   images: [],
   availableModels: [{ providerID: "test", modelID: "test" }],
 }
+
+test.each([true, false, undefined])("shortcut expansion preserves effective recommendation mode enabled=%s", async (enabled) => {
+  const value = modeSetup({ enabled })
+  try {
+    await Bun.sleep(0)
+    expect(value.mode.enabled).toBe(enabled)
+    await value.api.expandShortcut(expansionInput)
+    await value.api.expandShortcut({ ...expansionInput, prompt: "另一条固定提示词" })
+    expect(value.mode.enabled).toBe(enabled === true)
+    expect(value.calls.filter((call) => call.path === "/studio/prompt-expansions").map((call) => call.body)).toEqual([
+      expect.objectContaining({ ...expansionInput, guidePartID: "guide-1" }),
+      expect.objectContaining({ ...expansionInput, prompt: "另一条固定提示词", guidePartID: "guide-2" }),
+    ])
+    expect(value.calls.some((call) => call.path.endsWith("/dismiss"))).toBe(false)
+    expect(value.calls.filter((call) => call.path === "/studio/prompt-recommendations").map((call) => call.body))
+      .toEqual([expect.objectContaining({ showGuide: false }), expect.objectContaining({ showGuide: false })])
+  } finally { value.dispose() }
+})
+
+test.each(["running", "cancelling"])("shortcut expansion is blocked while an expansion is %s", async (status) => {
+  const value = modeSetup({ enabled: false, status })
+  try {
+    await Bun.sleep(0)
+    await value.api.expandShortcut(expansionInput)
+    expect(value.calls.every((call) => call.body === undefined)).toBe(true)
+    expect(value.mode.enabled).toBe(false)
+  } finally { value.dispose() }
+})
+
+test("shortcut preparation ignores mode exit and rejects duplicate clicks", async () => {
+  const gate = Promise.withResolvers<void>()
+  const value = modeSetup({ waitInitialize: gate.promise })
+  try {
+    await Bun.sleep(0)
+    const expanding = value.api.expandShortcut(expansionInput)
+    await Bun.sleep(0)
+    expect(value.api.busy()).toBe(true)
+    await value.api.exit()
+    await value.api.expandShortcut({ ...expansionInput, prompt: "重复点击" })
+    gate.resolve()
+    await expanding
+    expect(value.mode.enabled).toBe(false)
+    expect(value.calls.filter((call) => call.path === "/studio/prompt-expansions").map((call) => call.body))
+      .toEqual([expect.objectContaining({ prompt: expansionInput.prompt })])
+  } finally { gate.resolve(); value.dispose() }
+})
+
+test("shortcut preparation can still be cancelled while recommendation mode is off", async () => {
+  const gate = Promise.withResolvers<void>()
+  const value = modeSetup({ enabled: false, waitInitialize: gate.promise })
+  try {
+    await Bun.sleep(0)
+    const expanding = value.api.expandShortcut(expansionInput)
+    await Bun.sleep(0)
+    await value.api.cancel()
+    gate.resolve()
+    await expanding
+    await Bun.sleep(0)
+    expect(value.calls.some((call) => call.path === "/studio/prompt-expansions")).toBe(false)
+    expect(value.api.armed()).toBe(false)
+    expect(value.mode.enabled).toBe(false)
+  } finally { gate.resolve(); value.dispose() }
+})
+
+test.each([true, false])("shortcut response recovery preserves mode off (accepted=%s)", async (accepted) => {
+  const value = modeSetup({ enabled: false, loseSubmitResponse: accepted, loseUnacceptedSubmitResponse: !accepted })
+  try {
+    await Bun.sleep(0)
+    await value.api.expandShortcut(expansionInput)
+    expect(value.api.state()?.unknown).toBe(true)
+    await value.api.expandShortcut({ ...expansionInput, prompt: "另一个按钮" })
+    const submissions = value.calls.filter((call) => call.path === "/studio/prompt-expansions")
+    expect(submissions).toHaveLength(accepted ? 1 : 2)
+    if (!accepted) expect(submissions[1]?.body).toEqual(submissions[0]?.body)
+    expect(value.mode.enabled).toBe(false)
+    expect(value.api.state()?.unknown).toBe(false)
+  } finally { value.dispose() }
+})
 
 test("persistent mode prepares a distinct silent guide for every subsequent expansion", async () => {
   const value = modeSetup()

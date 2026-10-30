@@ -23,7 +23,13 @@ const pendingSchema = z.discriminatedUnion("kind", [
     showGuide: z.boolean().optional(),
   }),
   z.object({ kind: z.literal("dismiss"), sessionID: z.string(), guidePartID: z.string() }),
-  z.object({ kind: z.literal("submit"), requestID: z.string(), sessionID: z.string(), guidePartID: z.string() }),
+  z.object({
+    kind: z.literal("submit"),
+    requestID: z.string(),
+    sessionID: z.string(),
+    guidePartID: z.string(),
+    independent: z.boolean().optional(),
+  }),
 ])
 type Pending = z.infer<typeof pendingSchema>
 type Submission = {
@@ -60,6 +66,7 @@ export function createPromptRecommendation(input: {
         pending: boolean
         unknown: boolean
         preparing?: boolean
+        independent?: boolean
         exiting?: boolean
         cancelRequested?: boolean
         cancelGuidePartID?: string
@@ -150,7 +157,7 @@ export function createPromptRecommendation(input: {
   async function initialize(
     resume?: Extract<Pending, { kind: "initialize" }>,
     showGuide = true,
-    continuation?: { target: string; visit: ReturnType<typeof visit>; version: number | undefined },
+    continuation?: { target: string; visit: ReturnType<typeof visit>; version: number | undefined; independent: boolean },
   ) {
     const target = key()
     if (store[target]?.pending) return
@@ -162,7 +169,7 @@ export function createPromptRecommendation(input: {
       const id = input.sessionID()
       if (!resume && id) await refresh()
       if (disposed || operationScope !== input.scope() || operationVisit !== visit()) return
-      if (!resume && input.mode?.enabled(target) === false) return
+      if (!resume && !continuation?.independent && input.mode?.enabled(target) === false) return
       const request = resume ?? {
         kind: "initialize" as const,
         requestID: crypto.randomUUID(),
@@ -193,6 +200,7 @@ export function createPromptRecommendation(input: {
       setStore(destination, {
         ...store[destination],
         preparing: continuing || store[destination]?.preparing,
+        independent: continuing ? continuation?.independent : store[destination]?.independent,
         ready: true,
         pending: destination === target,
         unknown: false,
@@ -238,6 +246,7 @@ export function createPromptRecommendation(input: {
   async function submit(
     value: Omit<Submission, "requestID" | "sessionID" | "guidePartID">,
     clear: (sessionID?: string) => void,
+    independent = false,
   ) {
     const target = key()
     const id = input.sessionID()
@@ -278,10 +287,13 @@ export function createPromptRecommendation(input: {
         target !== key() ||
         operationVisit !== visit() ||
         version !== versions.get(target) ||
-        input.mode?.enabled(target) === false
+        (!independent && input.mode?.enabled(target) === false)
       )
         return
-      save({ kind: "submit", requestID: request.requestID, sessionID: id, guidePartID: request.guidePartID }, target)
+      save({
+        kind: "submit", requestID: request.requestID, sessionID: id, guidePartID: request.guidePartID,
+        ...(independent ? { independent: true } : {}),
+      }, target)
       replay = request
       clearReplay = clearAccepted
       submitted = true
@@ -357,7 +369,7 @@ export function createPromptRecommendation(input: {
         replay = undefined
         clearReplay = undefined
         setStore(target, "unknown", false)
-      } else if (input.mode?.enabled(target) === false || store[target]?.cancelRequested) {
+      } else if ((!operation.independent && input.mode?.enabled(target) === false) || store[target]?.cancelRequested) {
         save(undefined, target)
         replay = undefined
         clearReplay = undefined
@@ -405,16 +417,21 @@ export function createPromptRecommendation(input: {
   async function expand(
     value: Omit<Submission, "requestID" | "sessionID" | "guidePartID">,
     clear: (sessionID?: string) => void,
+    independent = false,
   ) {
     const target = key()
-    if (store[target]?.pending || store[target]?.preparing) return
+    if (store[target]?.pending || store[target]?.preparing ||
+      ["running", "cancelling"].includes(current()?.state?.recommendation?.status ?? "")) return
+    // Keep independent guides from enabling recommendation mode through legacy state restoration.
+    if (independent && input.mode?.enabled(target) === undefined) input.mode?.save(target, false)
     if (current()?.unknown) {
       await recover()
       if (target !== key()) return
       if (!current()?.unknown || pending()?.kind !== "submit" || current()?.state?.recommendation?.status !== "armed")
         return
     }
-    const operation = { target, visit: visit(), version: versions.get(target) }
+    const operation = { target, visit: visit(), version: versions.get(target), independent }
+    setStore(target, "independent", independent)
     setStore(target, "preparing", true)
     try {
       const guide = current()?.state?.recommendation
@@ -423,16 +440,20 @@ export function createPromptRecommendation(input: {
         if (!result) return
       }
       if (
-        input.mode?.enabled(operation.target) === false ||
+        (!independent && input.mode?.enabled(operation.target) === false) ||
         operation.target !== key() ||
         operation.visit !== visit() ||
         operation.version !== versions.get(operation.target)
       )
         return
-      await submit(value, clear)
+      await submit(value, clear, independent)
     } finally {
       setStore(target, "preparing", false)
-      if (operation.target !== target) setStore(operation.target, "preparing", false)
+      setStore(target, "independent", false)
+      if (operation.target !== target) {
+        setStore(operation.target, "preparing", false)
+        setStore(operation.target, "independent", false)
+      }
     }
   }
   async function applyCancellation() {
@@ -501,8 +522,9 @@ export function createPromptRecommendation(input: {
     })
   })
   async function exit() {
-    versions.set(key(), (versions.get(key()) ?? 0) + 1)
     input.mode?.save(key(), false)
+    if (current()?.independent) return
+    versions.set(key(), (versions.get(key()) ?? 0) + 1)
     if (current()?.pending || current()?.preparing) return
     if (pending() || current()?.unknown) return recover()
     const guide = current()?.state?.recommendation
@@ -590,6 +612,7 @@ export function createPromptRecommendation(input: {
     ready: () => Boolean(current()?.ready) && (input.mode?.ready() ?? true),
     exiting: () => Boolean(current()?.exiting),
     expand,
+    expandShortcut: (value: Omit<Submission, "requestID" | "sessionID" | "guidePartID">) => expand(value, () => {}, true),
     exit,
     initialize: () => {
       versions.set(key(), (versions.get(key()) ?? 0) + 1)

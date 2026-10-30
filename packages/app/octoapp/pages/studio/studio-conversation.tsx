@@ -32,6 +32,21 @@ import { StudioPromptExpansionPreview } from "./studio-prompt-expansion-preview"
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
 
+const RECOMMENDATION_SHORTCUTS = [
+  {
+    label: "未来科技，英雄战斗，电影质感",
+    prompt: "赛博朋克都市废墟中的近身激战：身穿流线型外骨骼装甲的英雄，装甲缝隙透出幽蓝能量光，手持高频粒子刃与巨型机械敌人对峙，火花四溅，碎片飞散；背景是高耸的全息广告牌与倾泻的霓虹雨幕，远处无人机群掠过；低角度仰拍，广角镜头，浅景深，强烈的冷暖光对比，青橙色调，体积光穿透烟雾，动态模糊，超精细细节，8K，电影级构图，史诗感战斗瞬间",
+  },
+  {
+    label: "中式建筑，水彩",
+    prompt: "烟雨江南的徽派古村落：白墙黛瓦马头墙错落层叠，飞檐翘角隐于薄雾之中，青石板巷蜿蜒入深，小桥流水倒映斑驳墙影；水彩晕染技法，湿画法营造朦胧雾气，颜料自然流淌形成柔和边缘，留白表现天光与水面反光，淡墨勾勒建筑轮廓，赭石与花青色调淡雅交融，纸纹质感清晰可见，光影通透，意境悠远，清新雅致，高级灰调，细节丰富，艺术感强",
+  },
+  {
+    label: "人物，油画质感的少女",
+    prompt: "古典写实风格：一位十七八岁的少女侧身而坐，微微回眸，眼神清澈含羞；长发松松挽起，几缕碎发垂落颈侧，身着素色棉麻长裙，衣褶自然垂坠；柔和侧光从左侧窗棂透入，照亮面部轮廓与发丝边缘，背景为深褐色调的暗部空间，虚实过渡自然；厚涂笔触塑造肌肤与布料的体积感，面部细腻罩染呈现温润光泽，颜料堆叠可见肌理，画布纹理清晰，伦勃朗式明暗对比，暖棕与米白主色调，古典油画质感，笔触生动，细节精致，氛围静谧温柔",
+  },
+]
+
 function StudioUserBubbleText(props: { text: string; mentionImages: Record<string, string> }) {
   const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
   const segments = createMemo(() => {
@@ -109,6 +124,8 @@ export function StudioConversation(props: {
   expansionText: (turn: StudioTurnData) => string
   expansionEditable: (turn: StudioTurnData) => boolean
   expansionCanGenerate: boolean
+  recommendationCanExpand: boolean
+  onRecommendationShortcut: (prompt: string) => void
   onExpansionInput: (turn: StudioTurnData, text: string) => void
   onExpansionChoose: (turn: StudioTurnData, choice: "confirmed" | "ignored") => void
   onEditGeneration: (result: StudioGenerationResult) => void
@@ -225,6 +242,25 @@ export function StudioConversation(props: {
                     <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
                   </button>
                 )}
+              </Show>
+              <Show when={turn.recommendation?.kind === "guide"}>
+                <div class="studio-recommendation-shortcuts">
+                  <For each={RECOMMENDATION_SHORTCUTS}>
+                    {(shortcut) => (
+                      <button
+                        type="button"
+                        class="studio-recommendation-shortcut"
+                        disabled={!props.recommendationCanExpand}
+                        onClick={() => props.onRecommendationShortcut(shortcut.prompt)}
+                      >
+                        <span>{shortcut.label}</span>
+                        <svg viewBox="0 0 6 11" width="14" height="14" aria-hidden="true">
+                          <path d="M0.5 0.5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1" />
+                        </svg>
+                      </button>
+                    )}
+                  </For>
+                </div>
               </Show>
               <Show when={!turn.editCapability && !turn.recommendation}>
                 <StudioResultCard

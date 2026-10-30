@@ -4523,6 +4523,20 @@ export default function StudioPage() {
     setSending(false)
   }
 
+  const canExpandRecommendationShortcut = () => recommendation.ready() && !recommendation.exiting() && !isActionBusy()
+
+  function handleRecommendationShortcut(prompt: string) {
+    if (!canExpandRecommendationShortcut()) return
+    expansionReview.dismiss()
+    setOpenMenu(null)
+    void recommendation.expandShortcut({
+      prompt,
+      images: [],
+      availableModels: models.list().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.id })).slice(0, 100)
+        .map((model) => ({ providerID: model.provider.id, modelID: model.id })),
+    })
+  }
+
   function handleSubmit() {
     if (recommendation.state()?.unknown && !recommendationEnabled()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
     if (!canSubmit()) return
@@ -5324,6 +5338,8 @@ if (!headerTitle.pendingRename) return
                 expansionText={expansionReview.text}
                 expansionEditable={expansionReview.editable}
                 expansionCanGenerate={canGenerateExpansion()}
+                recommendationCanExpand={canExpandRecommendationShortcut()}
+                onRecommendationShortcut={handleRecommendationShortcut}
                 onExpansionInput={expansionReview.update}
                 onExpansionChoose={(turn, choice) => void generateFromExpansion(turn, choice)}
                 actionBusy={isActionBusy()}
