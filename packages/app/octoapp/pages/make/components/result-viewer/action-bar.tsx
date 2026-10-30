@@ -271,6 +271,7 @@ function CanvasEditDropdown(props: {
   tab: ResultTab
   sessionId?: string
   sdkDirectory?: string
+  workspaceKind?: import("@/context/server").WorkspaceKind
   observedUrlsGetter?: () => string[]
     onFilesRefresh?: () => void
     disabled?: boolean
@@ -319,6 +320,7 @@ function CanvasEditDropdown(props: {
         observedUrlsGetter: props.observedUrlsGetter,
         usePixsoTransport,
         sdkDirectory: props.sdkDirectory,
+        workspaceKind: props.workspaceKind,
         onFilesRefresh: props.onFilesRefresh,
       }
       
@@ -648,6 +650,7 @@ export function ActionBar(props: {
     onHistorySwitch?: (entry: VersionEntry) => void
     sessionId?: string
     sdkDirectory?: string
+    workspaceKind?: import("@/context/server").WorkspaceKind
     skillConfig?: SkillConfig
     postMessageToIframe?: (data: unknown) => void
     onFilesRefresh?: () => void
@@ -976,6 +979,7 @@ export function ActionBar(props: {
               tab={props.tab}
               sessionId={props.sessionId}
               sdkDirectory={props.sdkDirectory}
+              workspaceKind={props.workspaceKind}
               observedUrlsGetter={props.observedResourceUrls}
               onFilesRefresh={props.onFilesRefresh}
             />
