@@ -30,6 +30,21 @@ afterEach(async () => {
 })
 
 describe("config HttpApi", () => {
+  test.each(["hono", "httpapi"] as const)("serves active models without a config reload error through %s", async (backend) => {
+    await using tmp = await tmpdir({ config: {
+      formatter: false,
+      lsp: false,
+      provider: { cannbot: { models: { "cannbot-error": { status: "active" } } } },
+    } })
+    Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = backend === "httpapi"
+    const response = await (backend === "hono" ? Server.Legacy().app : app())
+      .request(`/config?directory=${encodeURIComponent(tmp.path)}`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      provider: { cannbot: { models: { "cannbot-error": { status: "active" } } } },
+    })
+  })
+
   test("serves config update through Hono bridge", async () => {
     await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
     const disposed = waitDisposed(tmp.path)

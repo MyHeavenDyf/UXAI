@@ -169,7 +169,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("portableImport", SessionPaths.portableImport, {
           payload: PortableImportPayload,
           success: described(PortableImportResult, "Imported portable session"),
-          error: HttpApiError.BadRequest,
+          error: ApiBadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.portableImport",
@@ -181,7 +181,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: PortableExportPayload,
           success: described(PortableExportResult, "Exported portable session"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
+          error: [ApiBadRequestError, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.portableExport",

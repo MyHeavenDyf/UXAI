@@ -22,8 +22,12 @@ export default async function antdToEviewOrchestrator(
 ): Promise<AntdToEviewOrchestratorResult> {
   const { sdk, sync, modelKey, rootSession, srcDirectory, onSessionCreated } = input
 
+  const projectName = srcDirectory.split(/[/\\]/).pop() ?? "download-eview-react"
+
   const humanMessage = [
     `当前工作目录（SRC）：${srcDirectory}`,
+    `源项目名：${projectName}`,
+    `源项目标题：${projectName}`,
     '请开始执行三阶段流水线。',
   ].join('\n')
 

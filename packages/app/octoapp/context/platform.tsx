@@ -96,6 +96,9 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Write text using the native clipboard (desktop only) */
+  writeClipboardText?(text: string): Promise<void>
 }
 
 export type DisplayBackend = "auto" | "wayland"

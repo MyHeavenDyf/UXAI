@@ -311,6 +311,8 @@
 }
 
 .asset-dialog-left {
+  /* 右侧留出浮动滚动条的间隙,避免遮挡文件夹行尾的文件数 */
+  padding-right: 8px;
   /* scroll handled by ScrollView (native scrollbar hidden, floating thumb on hover) */
 }
 
@@ -367,6 +369,14 @@
 
 .asset-tree-arrow {
   transition: transform 150ms ease;
+}
+
+/* 文件夹行尾的文件数(spec line 44) */
+.asset-tree-filecount {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 22px;
+  color: #777777;
 }
 
 /* 右侧文件网格 */

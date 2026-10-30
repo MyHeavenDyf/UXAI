@@ -99,6 +99,8 @@ import {
   isVideoMedia,
   isStudioGenerationFailure,
   isStudioGenerationStatusRegression,
+  isPromptExpansionGeneration,
+  studioRegenerationExtra,
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
@@ -123,6 +125,11 @@ import {
   STUDIO_VIDEO_MODE,
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
+import { promptMetadata } from "./studio/studio-prompt-state"
+import { createRecommendationSettings, type RecommendationImageSettings } from "./studio/studio-recommendation-settings"
+import { createRecommendationMode } from "./studio/studio-recommendation-mode"
+import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
+import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
@@ -427,7 +434,7 @@ export default function StudioPage() {
     }),
   )
   const [imageSettingStoreSanitized, setImageSettingStoreSanitized] = createSignal(false)
-  const [imageSessionStore, setImageSessionStore] = persisted(
+  const [imageSessionStore, setImageSessionStore, , imageSessionStoreReady] = persisted(
     Persist.sessionGlobal("studio.image.session"),
     createStore({
       aspectRatio: "3:4" as StudioAspectRatio,
@@ -437,12 +444,24 @@ export default function StudioPage() {
       isCustom: false,
     }),
   )
-  const capability = () => imageSettingStore.capability
-  const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
-  const aspectRatio = () => imageSessionStore.aspectRatio
-  const setAspectRatio = (v: StudioAspectRatio) => setImageSessionStore("aspectRatio", v)
-  const count = () => imageSessionStore.count
-  const setCount = (v: 1 | 2 | 3 | 4) => setImageSessionStore("count", v)
+  const recommendationScope = () => JSON.stringify([server.current?.http.url, projectDir(), uiplusUserAccount()])
+  const recommendationKey = () => JSON.stringify([recommendationScope(), params.id ?? "blank"])
+  const [lastImageSettings, setLastImageSettings, , lastImageSettingsReady] = persisted(
+    Persist.global("studio.image.last-settings.v1"),
+    createStore<{ entries: Record<string, RecommendationImageSettings> }>({ entries: {} }),
+  )
+  const imageSettingsReady = () => imageSettingStoreReady() && imageSessionStoreReady() && lastImageSettingsReady()
+  const [recommendationModes, setRecommendationModes, , recommendationModesReady] = persisted(
+    Persist.sessionGlobal("studio.recommendation.modes"),
+    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings>; enabled?: Record<string, boolean> }>({ entries: {}, settings: {}, enabled: {} }),
+  )
+  const recommendationEnabled = () => recommendationModes.enabled?.[recommendationKey()] === true
+  const capability = () => recommendationMode.capability()
+  const setCapability = (v: StudioCapability) => recommendationMode.select(v)
+  const aspectRatio = () => recommendationSettings.current().aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => recommendationSettings.set("aspectRatio", v)
+  const count = () => recommendationSettings.current().count
+  const setCount = (v: 1 | 2 | 3 | 4) => recommendationSettings.set("count", v)
   const styleModel = () => {
     if (
       (!imageSettingStoreSanitized() || studioPermissionStatus() === "loading") &&
@@ -462,12 +481,12 @@ export default function StudioPage() {
       setImageSettingStoreSanitized(true)
     })
   }))
-  const customWidth = () => imageSessionStore.customWidth
-  const setCustomWidth = (v: number) => setImageSessionStore("customWidth", v)
-  const customHeight = () => imageSessionStore.customHeight
-  const setCustomHeight = (v: number) => setImageSessionStore("customHeight", v)
-  const isCustomStore = () => imageSessionStore.isCustom
-  const setIsCustomStore = (v: boolean) => setImageSessionStore("isCustom", v)
+  const customWidth = () => recommendationSettings.current().customWidth
+  const setCustomWidth = (v: number) => recommendationSettings.set("customWidth", v)
+  const customHeight = () => recommendationSettings.current().customHeight
+  const setCustomHeight = (v: number) => recommendationSettings.set("customHeight", v)
+  const isCustomStore = () => recommendationSettings.current().isCustom
+  const setIsCustomStore = (v: boolean) => recommendationSettings.set("isCustom", v)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -531,7 +550,13 @@ export default function StudioPage() {
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<StudioComposerMenu>(null)
-  const [selectedStyleTemplate, setSelectedStyleTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [storedStyleTemplate, setStoredStyleTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [styleTemplateOwner, setStyleTemplateOwner] = createSignal<string>()
+  const selectedStyleTemplate = () => recommendationMode.hideTemplate(styleTemplateOwner()) ? undefined : storedStyleTemplate()
+  const setSelectedStyleTemplate = (value: StudioStyleTemplateListItem | undefined) => batch(() => {
+    setStyleTemplateOwner(recommendationKey())
+    setStoredStyleTemplate(value)
+  })
   const [styleTemplateEditorOpen, setStyleTemplateEditorOpen] = createSignal(false)
   const [styleTemplateDescriptionDraft, setStyleTemplateDescriptionDraft] = createSignal<StudioTemplateStyleDescription>()
   const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
@@ -600,8 +625,6 @@ export default function StudioPage() {
   let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
   let seedreamAtSnapshot: { assets: StudioAsset[]; html: string } | undefined
-  let savedImageAspectRatio: StudioAspectRatio | undefined
-  let savedImageCount: 1 | 2 | 3 | 4 | undefined
   let savedVideoAspectRatio: StudioAspectRatio | undefined
   let savedVideoCount: 1 | 2 | 3 | 4 | undefined
   const seedreamInputApi: StudioComposerInputApi = { serialize: () => "", serializeText: () => "", serializeMentionImages: () => ({}), restore: () => {}, stripMentions: () => {} }
@@ -625,9 +648,87 @@ export default function StudioPage() {
     createStore({ width: 468 }),
   )
   const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
-  const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
+  const { dataStore, loadSessionMessages, sessionStatus, snapshotReady } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
+  })
+  let pendingRecommendationSessionID: string | undefined
+  const recommendation = createPromptRecommendation({
+    sessionID: () => params.id,
+    scope: recommendationScope,
+    revision: () => (params.id ? dataStore.message[params.id] ?? [] : []).flatMap((message) =>
+      (dataStore.part[message.id] ?? []).flatMap((part) => part.type === "text" &&
+        (part.metadata?.studioPromptRecommendation || part.metadata?.studioPromptExpansion)
+        ? [`${part.id}:${promptMetadata(part)?.revision ?? 0}`] : [])).join("|"),
+    request: async (path, body, timeoutMs) => {
+      const current = server.current
+      if (!current) throw new Error("No active server")
+      return fetch(new URL(path, current.http.url), {
+        method: body === undefined ? "GET" : "POST",
+        headers: { "content-type": "application/json", ...directoryHeader(projectDir()), ...modelsApiHeaders(),
+          ...(current.http.password ? { Authorization: `Basic ${authTokenFromCredentials({ username: current.http.username, password: current.http.password })}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs ?? 35_000),
+      })
+    },
+    uploadImage: async (sessionID, image) => {
+      const header = atob(image.base64.slice(0, 24))
+      const mime = header.startsWith("\x89PNG\r\n\x1a\n")
+        ? "image/png"
+        : header.startsWith("\xff\xd8\xff")
+          ? "image/jpeg"
+          : header.startsWith("RIFF") && header.slice(8, 12) === "WEBP"
+            ? "image/webp"
+            : image.mime
+      return persistStudioImage({ sessionID, role: "prompt-expansion", dataUrl: `data:${mime};base64,${image.base64}` })
+    },
+    reload: loadSessionMessages,
+    navigate: (id, preserveDraft) => {
+      if (params.id === id) return
+      if (preserveDraft) pendingRecommendationSessionID = id
+      navigate(`/${routeSlug()}/studio/${id}`)
+    },
+    notice: (message) => showFloatingNotice("info", message),
+    mode: {
+      ready: recommendationModesReady,
+      enabled: (key) => recommendationModes.enabled?.[key],
+      save: (key, enabled) => setRecommendationModes("enabled", (entries) => ({ ...entries, [key]: enabled })),
+    },
+  })
+  const recommendationMode = createRecommendationMode({
+    key: recommendationKey,
+    enabled: recommendationEnabled,
+    active: () => recommendation.armed() || recommendation.busy() || recommendation.exiting() || Boolean(recommendation.state()?.unknown),
+    ready: recommendation.ready,
+    entries: () => recommendationModes.entries,
+    save: (key, value) => {
+      if (params.id) setRecommendationModes("entries", key, value)
+    },
+    global: () => imageSettingStore.capability,
+    setGlobal: (value) => setImageSettingStore("capability", value),
+  })
+  const recommendationSettings = createRecommendationSettings({
+    key: recommendationKey,
+    enabled: () => Boolean(params.id && capability() === "image.generate" &&
+      (recommendationModes.entries[recommendationKey()] || recommendationMode.locked())),
+    entries: () => recommendationModes.settings,
+    ready: imageSettingsReady,
+    imageActive: () => capability() === "image.generate",
+    lastImage: () => lastImageSettings.entries[recommendationScope()],
+    saveImage: (value) => setLastImageSettings("entries", recommendationScope(), value),
+    global: () => imageSessionStore,
+    setGlobal: (value) => setImageSessionStore(value),
+    fallback: () => imageSettingStore.capability === "video.generate"
+      ? { aspectRatio: "3:4", count: 4, customWidth: 0, customHeight: 0, isCustom: false }
+      : { ...imageSessionStore },
+    save: (key, value) => setRecommendationModes("settings", key, value),
+  })
+  createEffect(() => {
+    if (!recommendationMode.locked()) return
+    setOpenMenu(null)
+    setStyleTemplateEditorOpen(false)
+    setStyleTemplateOwner(undefined)
+    cancelVideoRiskDialog()
   })
   createEffect(() => {
     const directory = projectDir()
@@ -1088,7 +1189,7 @@ export default function StudioPage() {
     pendingResult()?.status === "running"
   )
   const isActionBusy = createMemo(() =>
-    isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
+    recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
   const turns = createMemo(() =>
     buildStudioTurns({
@@ -1114,6 +1215,7 @@ export default function StudioPage() {
         return {
           ...normalized,
           userText: pending.displayPrompt || normalized.userText,
+          hideUserBubble: pending.hideUserBubble ?? normalized.hideUserBubble,
           assistantText: pending.displayPrompt ? assistantText : normalized.assistantText || assistantText,
           toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
@@ -1150,6 +1252,7 @@ export default function StudioPage() {
             {
               ...latest,
               userText: pendingUserText,
+              hideUserBubble: pending.hideUserBubble ?? latest.hideUserBubble,
               assistantText: pendingAssistantText,
               toolError: undefined,
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
@@ -1166,6 +1269,7 @@ export default function StudioPage() {
           {
             ...latest,
             userText: pendingUserText,
+            hideUserBubble: pending.hideUserBubble ?? latest.hideUserBubble,
             assistantText: pending.displayPrompt ? pendingAssistantText : latest.assistantText || pendingAssistantText,
             toolError: undefined,
             toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
@@ -1183,6 +1287,7 @@ export default function StudioPage() {
         {
           id: pending.id,
           userText: pendingUserText,
+          hideUserBubble: pending.hideUserBubble,
           assistantText: pendingAssistantText,
           toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) || pending.status === "abnormal" ? pending.status : "running"),
@@ -1690,6 +1795,8 @@ export default function StudioPage() {
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
         setPendingDeleteTemplate(undefined)
+        const preserveRecommendationDraft = Boolean(id && id === pendingRecommendationSessionID)
+        pendingRecommendationSessionID = undefined
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -1758,9 +1865,11 @@ export default function StudioPage() {
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
         seedreamAtSnapshot = undefined
-        setAssets([])
+        if (!preserveRecommendationDraft) {
+          setAssets([])
+          setPrompt("")
+        }
         clearVideoFrames()
-        setPrompt("")
       },
       { defer: true },
     ),
@@ -1778,6 +1887,7 @@ export default function StudioPage() {
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const effectiveMaxReferenceImages = createMemo(() => {
+    if (recommendationEnabled()) return 3
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
     if (template.reference_image_setting === "not_supported") return 0
@@ -1813,8 +1923,9 @@ export default function StudioPage() {
       [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
     }))
   }
-  const canSubmit = createMemo(() =>
-    SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
+  const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationEnabled()
+    ? !recommendation.busy() && prompt().trim().length > 0 && [...prompt().trim()].length <= 2000 && assets().length <= 3
+    : !recommendation.state()?.unknown && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
     !selectedCapabilityNeedsImage() &&
     (studioPermissionStatus() !== "loading" || (capability() === "image.generate" && !styleModelRequiresSeedreamPermission(styleModel()))) &&
@@ -1826,7 +1937,7 @@ export default function StudioPage() {
         : selectedStyleTemplate() && capability() === "image.generate"
           ? !styleTemplateSubmitError()
           : prompt().trim().length > 0
-    ),
+    )),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
@@ -2206,6 +2317,7 @@ export default function StudioPage() {
   }
 
   function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
+    if (recommendationMode.taskLocked()) return
     const currentTemplate = selectedStyleTemplate()
     const nextStyleModelID = styleModelId(value)
     const shouldClearStyleTemplate = Boolean(
@@ -2231,6 +2343,10 @@ export default function StudioPage() {
         setCustomWidth(Math.min(customWidth(), 1664))
         setCustomHeight(Math.min(customHeight(), 1664))
       }
+    }
+    if (recommendationEnabled()) {
+      setStyleModel(value)
+      return
     }
     if (currentTemplate) seedreamAtSnapshot = undefined
     if (currentTemplate && prevIsSeedream && !nextIsSeedream) seedreamInputApi.stripMentions()
@@ -2263,6 +2379,8 @@ export default function StudioPage() {
   }
 
   function applyStyleTemplate(template: StudioStyleTemplateListItem) {
+    if (recommendationMode.locked()) return
+    expansionReview.dismiss()
     const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
     seedreamAtSnapshot = undefined
     batch(() => {
@@ -2516,8 +2634,10 @@ export default function StudioPage() {
   }
 
   function openEditorEntry(value: StudioCapability) {
+    if (recommendationMode.locked()) return
     const nextMode = workspaceModeForCapability(value)
     if (!nextMode) return
+    expansionReview.dismiss()
     batch(() => {
       setCapability(value)
       setPrompt("")
@@ -2558,8 +2678,10 @@ export default function StudioPage() {
   }
 
   function createEditorEntry(value: StudioCapability) {
+    if (recommendationMode.locked()) return
     const nextMode = workspaceModeForCapability(value)
     if (!nextMode) return
+    expansionReview.dismiss()
     const capability = value as StudioEditorCapability
     const label = capabilityLabel(value)
     const entryID = crypto.randomUUID()
@@ -2600,62 +2722,65 @@ export default function StudioPage() {
   }
 
   function applyStudioCapability(value: StudioCapability) {
-    const prevCapability = capability()
-    const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
-    const currentStyleTemplate = selectedStyleTemplate()
-    if (currentStyleTemplate) seedreamAtSnapshot = undefined
-    if (value !== "image.generate" && currentStyleTemplate) clearStyleTemplate()
-    if (prevSeedreamImage && !nextSeedreamImage && !currentStyleTemplate) {
-      seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
-    }
-    if (value === "video.generate" && prevCapability !== "video.generate") {
-      savedImageAspectRatio = aspectRatio()
-      savedImageCount = count()
-    }
-    if (prevCapability === "video.generate" && value !== "video.generate") {
-      savedVideoAspectRatio = aspectRatio()
-      savedVideoCount = count()
-    }
-    setCapability(value)
-    if (value === "video.generate") {
-      setAspectRatio(savedVideoAspectRatio ?? "1:1")
-      setCount(savedVideoCount ?? 1)
-    }
-    if (prevCapability === "video.generate" && value === "image.generate") {
-      setAspectRatio(savedImageAspectRatio ?? "3:4")
-      setCount(savedImageCount ?? 4)
-      savedImageAspectRatio = undefined
-      savedImageCount = undefined
-    }
-    if (value !== "video.generate") clearVideoFrames()
-    if (value !== "image.generate") {
-      setAssets([])
-      setPrompt("")
-      // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
-      setIsCustomStore(false)
-      setCustomWidth(0)
-      setCustomHeight(0)
-    }
-    if (workspaceModeForCapability(value)) {
-      createEditorEntry(value)
-      return
-    }
-    if (nextSeedreamImage && seedreamAtSnapshot && prevCapability !== "image.generate") {
-      const snap = seedreamAtSnapshot
-      seedreamAtSnapshot = undefined
-      setAssets(snap.assets.slice(0, referenceImageLimit(styleModel())))
-      seedreamInputApi.restore(snap.html)
-    }
-    batch(() => {
-      setWorkspaceImage(undefined)
-      setWorkspaceUploadRequested(false)
-      setMode("preview")
+    if (recommendationMode.locked()) return
+    const imageSettings = { ...recommendationSettings.image() }
+    return batch(() => {
+      const prevCapability = capability()
+      const prevSeedreamImage = prevCapability === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
+      const nextSeedreamImage = value === "image.generate" && styleModelRequiresSeedreamPermission(styleModel())
+      const currentStyleTemplate = selectedStyleTemplate()
+      if (currentStyleTemplate) seedreamAtSnapshot = undefined
+      if (value !== "image.generate" && currentStyleTemplate) clearStyleTemplate()
+      if (prevSeedreamImage && !nextSeedreamImage && !currentStyleTemplate) {
+        seedreamAtSnapshot = { assets: assets(), html: seedreamInputApi.serialize() }
+      }
+      if (prevCapability === "video.generate" && value !== "video.generate") {
+        savedVideoAspectRatio = aspectRatio()
+        savedVideoCount = count()
+      }
+      setCapability(value)
+      if (value === "video.generate") {
+        setAspectRatio(savedVideoAspectRatio ?? "1:1")
+        setCount(savedVideoCount ?? 1)
+      }
+      if (prevCapability !== "image.generate" && value === "image.generate") {
+        setAspectRatio(imageSettings.aspectRatio)
+        setCount(imageSettings.count)
+        setCustomWidth(imageSettings.customWidth)
+        setCustomHeight(imageSettings.customHeight)
+        setIsCustomStore(imageSettings.isCustom)
+      }
+      if (value !== "video.generate") clearVideoFrames()
+      if (value !== "image.generate") {
+        setAssets([])
+        setPrompt("")
+        // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
+        setIsCustomStore(false)
+        setCustomWidth(0)
+        setCustomHeight(0)
+      }
+      if (workspaceModeForCapability(value)) {
+        createEditorEntry(value)
+        return
+      }
+      if (nextSeedreamImage && seedreamAtSnapshot && prevCapability !== "image.generate") {
+        const snap = seedreamAtSnapshot
+        seedreamAtSnapshot = undefined
+        setAssets(snap.assets.slice(0, referenceImageLimit(styleModel())))
+        seedreamInputApi.restore(snap.html)
+      }
+      batch(() => {
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+      })
     })
   }
 
   function selectStudioCapability(value: StudioCapability) {
+    if (recommendationMode.locked()) { showFloatingNotice("info", "请先完成本次提示词扩写。"); return }
     if (value !== "video.generate") {
+      if (value !== capability()) expansionReview.dismiss()
       pendingVideoFirstFrame = undefined
       applyStudioCapability(value)
       return
@@ -2663,6 +2788,7 @@ export default function StudioPage() {
     if (!canGenerateVideo()) return
     pendingVideoFirstFrame = undefined
     if (params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed()) {
+      if (value !== capability()) expansionReview.dismiss()
       applyStudioCapability(value)
       return
     }
@@ -2675,6 +2801,8 @@ export default function StudioPage() {
   }
 
   function confirmVideoRiskDialog() {
+    if (recommendationMode.locked() || !videoRiskDialogOpen()) return
+    expansionReview.dismiss()
     if (params.id) setVideoRiskConfirmedSessionID(params.id)
     if (!params.id) setDraftVideoRiskConfirmed(true)
     setVideoRiskDialogOpen(false)
@@ -2685,7 +2813,9 @@ export default function StudioPage() {
 
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
-    if (!image || isVideoMedia(image) || !canGenerateVideo()) return
+    if (!image || isVideoMedia(image) || !canGenerateVideo() || recommendationMode.locked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreReview = expansionReview.capture()
     tracker.interaction({
       module: "studio",
       name: "video-generate",
@@ -2698,6 +2828,7 @@ export default function StudioPage() {
     })
     void resolveImageDataUrl(image)
       .then((dataUrl) => {
+        if (!canRestore() || !canRestoreReview()) return
         pendingVideoFirstFrame = {
           id: crypto.randomUUID(),
           name: currentImageLabel(),
@@ -2708,22 +2839,26 @@ export default function StudioPage() {
           setVideoRiskDialogOpen(true)
           return
         }
+        expansionReview.dismiss()
         applyStudioCapability("video.generate")
         setVideoFrames("first", pendingVideoFirstFrame)
         pendingVideoFirstFrame = undefined
       })
       .catch((error) => {
+        if (!canRestore() || !canRestoreReview()) return
         pendingVideoFirstFrame = undefined
         showFloatingNotice("error", `图片处理失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
   function startNewStudioConversation() {
+    expansionReview.dismiss()
     tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
+    pendingRecommendationSessionID = undefined
     generationToken++
     setPendingScrollRequest(undefined)
     setVideoRiskDialogOpen(false)
@@ -2734,7 +2869,7 @@ export default function StudioPage() {
     setSending(false)
     setPendingEditorEntries([])
     setMode("preview")
-    setCapability("image.generate")
+    setImageSettingStore("capability", "image.generate")
     setSelectedStyleTemplate(undefined)
     setStyleTemplateEditorOpen(false)
     setStyleTemplateDescriptionDraft(undefined)
@@ -2919,7 +3054,7 @@ export default function StudioPage() {
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
-        extra: { ...(extra ?? {}), skipPromptRefine: true },
+        extra: studioRegenerationExtra(extra),
         videoFrames: restoredVideoFrames(result),
         aspectRatio: nextAspectRatio,
         count: nextCount,
@@ -2944,7 +3079,7 @@ export default function StudioPage() {
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
-        extra: { ...(extra ?? {}), skipPromptRefine: true },
+        extra: studioRegenerationExtra(extra),
         styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
         count: nextCount,
@@ -2965,7 +3100,7 @@ export default function StudioPage() {
       refinedPrompt,
       effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
-      extra: { ...(extra ?? {}), skipPromptRefine: true },
+      extra: studioRegenerationExtra(extra),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
@@ -3083,12 +3218,15 @@ export default function StudioPage() {
     draft: ReturnType<typeof restoreGenerationEditDraft>,
     templateID: string,
   ) {
+    if (recommendationMode.locked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreReview = expansionReview.capture()
     const template = await getStudioStyleTemplate(templateID).catch((error) => {
       console.warn("[StudioPage] restore template generation draft failed", error)
       showFloatingNotice("info", "模板不存在或已不可用，无法重新编辑该模板任务。")
       return undefined
     })
-    if (!template) return
+    if (!template || !canRestore() || !canRestoreReview()) return
 
     const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
     const templatePrompt = templateUsagePromptRecord(result)
@@ -3098,7 +3236,10 @@ export default function StudioPage() {
       restorableReferences.names,
       templateReferenceRestoreLimit(template, targetModel),
     )
+    if (!canRestore() || !canRestoreReview()) return
 
+    expansionReview.dismiss()
+    const canRestoreMentions = expansionReview.capture()
     batch(() => {
       setOpenMenu(null)
       setMode("preview")
@@ -3131,6 +3272,7 @@ export default function StudioPage() {
     })
     if (template.prompt_setting !== "not_supported" && Object.keys(draft.mentionImages).length) {
       queueMicrotask(() => {
+        if (!canRestore() || !canRestoreMentions()) return
         if (template.template_type === "preset_recipe") {
           seedreamInputApi.restore(
             buildMentionHtml(stringValue(templatePrompt, "mainPrompt") ?? "", draft.mentionImages),
@@ -3163,7 +3305,8 @@ export default function StudioPage() {
   }
 
   async function editGenerationDraft(result: StudioGenerationResult) {
-    if (isActionBusy()) return
+    if (isActionBusy() || recommendationMode.locked()) return
+    const canRestore = recommendationMode.capture()
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
     const draft = restoreGenerationEditDraft(result)
     if (!canEditGenerationDraft(draft)) return
@@ -3172,6 +3315,8 @@ export default function StudioPage() {
       await editTemplateGenerationDraft(result, draft, templateID)
       return
     }
+    expansionReview.dismiss()
+    const canRestoreReview = expansionReview.capture()
     batch(() => {
       setOpenMenu(null)
       setMode("preview")
@@ -3197,7 +3342,9 @@ export default function StudioPage() {
     if (draft.capability === "image.generate") {
       if (draft.styleModel) setStyleModel(draft.styleModel)
       clearVideoFrames()
-      setAssets(await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel())))
+      const restoredAssets = await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel()))
+      if (!canRestore() || !canRestoreReview()) return
+      setAssets(restoredAssets)
       if (Object.keys(draft.mentionImages).length) seedreamInputApi.restore(buildMentionHtml(draft.prompt, draft.mentionImages))
       showEditDraftSyncedToast()
       return
@@ -3205,7 +3352,9 @@ export default function StudioPage() {
     setAssets([])
     if (draft.videoDuration) setVideoDuration(draft.videoDuration)
     if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
-    replaceVideoFrames(await restoredVideoFrameAssets(draft.videoFrames))
+    const restoredFrames = await restoredVideoFrameAssets(draft.videoFrames)
+    if (!canRestore() || !canRestoreReview()) return
+    replaceVideoFrames(restoredFrames)
     showEditDraftSyncedToast()
   }
 
@@ -3770,6 +3919,7 @@ export default function StudioPage() {
       showFloatingNotice("error", "重新生成失败：No active server.")
       return
     }
+    expansionReview.dismiss()
     setRebootingGenerationIDs((ids) => new Set([...ids, id]))
     setStudioWorkspaceOverlayOpen(false)
     try {
@@ -3928,6 +4078,7 @@ export default function StudioPage() {
             : ""
     )
     if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
+    expansionReview.dismiss()
     const detailPrompt = overrides?.detailPrompt ?? (
       nextCapability === "image.generate" || nextCapability === "video.generate"
         ? actualUserPrompt
@@ -4025,6 +4176,7 @@ export default function StudioPage() {
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
       inputImages: pendingInputImages,
+      hideUserBubble: isPromptExpansionGeneration(generationExtra),
       ...(nextCapability === "video.generate"
         ? {
             videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
@@ -4112,6 +4264,7 @@ export default function StudioPage() {
         styleModel: generation.styleModel ?? current?.styleModel,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
+        hideUserBubble: current?.hideUserBubble,
         // Preserve custom size fields from current state — API response may not include them
         ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
         ...(current?.width ? { width: current.width } : {}),
@@ -4355,6 +4508,35 @@ export default function StudioPage() {
   }
 
   function handleSubmit() {
+    if (recommendation.state()?.unknown && !recommendationEnabled()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
+    if (!canSubmit()) return
+    if (recommendationEnabled()) {
+      const submittedPrompt = prompt()
+      const submittedAssets = [...assets()]
+      const submittedSession = params.id
+      const images = submittedAssets.map((image) => {
+        const matched = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(image.dataUrl)
+        return matched ? { mime: matched[1], base64: matched[2] } : undefined
+      })
+      if (submittedAssets.some((asset) => dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024)) { showFloatingNotice("info", "单张参考图不能超过 10MiB。"); return }
+      if (submittedAssets.reduce((size, asset) => size + dataUrlByteSize(asset.dataUrl), 0) > 20 * 1024 * 1024) { showFloatingNotice("info", "参考图总大小不能超过 20MiB。"); return }
+      if (images.some((image) => !image)) { showFloatingNotice("info", "参考图需要是本地 PNG、JPEG 或 WebP 图片。"); return }
+      expansionReview.dismiss()
+      setOpenMenu(null)
+      void recommendation.expand({
+        prompt: submittedPrompt,
+        images: images.filter((image): image is { mime: string; base64: string } => Boolean(image)),
+        availableModels: models.list().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.id })).slice(0, 100)
+          .map((model) => ({ providerID: model.provider.id, modelID: model.id })),
+      }, (acceptedSession) => {
+        if (params.id !== (submittedSession ?? acceptedSession) || prompt() !== submittedPrompt ||
+          assets().map((asset) => asset.id).join() !== submittedAssets.map((asset) => asset.id).join()) return
+        setStudioPrompt("")
+        setAssets([])
+      })
+      return
+    }
+    if (recommendation.state()?.unknown) { void recommendation.recover(); return }
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
     const template = selectedStyleTemplate()
     if (template && capability() === "image.generate") {
@@ -4394,6 +4576,8 @@ export default function StudioPage() {
 
   function openOutpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage())) return
+    if (recommendationMode.locked()) return
+    expansionReview.dismiss()
     batch(() => {
       setCapability("image.outpaint")
       setWorkspaceImage(undefined)
@@ -4404,6 +4588,8 @@ export default function StudioPage() {
 
   function openHD() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
+    if (recommendationMode.locked()) return
+    expansionReview.dismiss()
     batch(() => {
       setCapability("image.upscale")
       setWorkspaceImage(undefined)
@@ -4414,6 +4600,8 @@ export default function StudioPage() {
 
   function openCutout() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
+    if (recommendationMode.locked()) return
+    expansionReview.dismiss()
     batch(() => {
       setCapability("image.cutout")
       setWorkspaceImage(undefined)
@@ -4424,6 +4612,8 @@ export default function StudioPage() {
 
   function openInpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
+    if (recommendationMode.locked()) return
+    expansionReview.dismiss()
     batch(() => {
       setCapability("image.inpaint")
       setWorkspaceImage(undefined)
@@ -4670,6 +4860,56 @@ export default function StudioPage() {
     return dataStore.message[params.id] !== undefined
   })
 
+  const reviewPersistence = persisted(
+    Persist.sessionGlobal("studio.prompt-expansion.reviews.v1"),
+    createStore<{ entries: ExpansionReviews }>({ entries: {} }),
+  )
+  const expansionReview = createExpansionReview({
+    key: recommendationKey,
+    ready: () => reviewPersistence[3]() && sessionDataLoaded() && snapshotReady() &&
+      recommendation.ready() && !recommendation.state()?.unknown,
+    turns: () => buildStudioTurns({
+      messages: params.id ? dataStore.message[params.id] ?? [] : [],
+      parts: dataStore.part,
+      currentSessionID: params.id,
+    }),
+    resultID: () => recommendation.state()?.state?.recommendation?.assistantMessageID,
+    entries: () => reviewPersistence[0].entries,
+    save: (key, id, value) => reviewPersistence[1]("entries", key, (entries) => ({ ...entries, [id]: value })),
+  })
+  const canGenerateExpansion = () =>
+    recommendation.ready() && !recommendation.state()?.unknown &&
+    !recommendationMode.taskLocked() && !isActionBusy() && imageSettingsReady() &&
+    (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
+    (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
+
+  async function generateFromExpansion(turn: StudioTurnData, choice: "confirmed" | "ignored") {
+    if (!canGenerateExpansion() || !expansionReview.editable(turn)) return
+    const text = (choice === "confirmed" ? expansionReview.text(turn) : turn.userText).trim()
+    if (!text) return
+    if ((turn.inputImages?.length ?? 0) > referenceImageLimit(styleModel())) {
+      showFloatingNotice("info", "参考图数量超过当前模型上限，请调整模型后重试。")
+      return
+    }
+    if (!expansionReview.choose(turn, choice)) return
+    await runGeneration({
+      ...expansionGenerationInput(turn, text, recommendationSettings.image()),
+      styleModel: styleModel(),
+      detailTitle: buildStudioDisplayPrompt(text),
+    })
+  }
+
+  function initializeRecommendation() {
+    if (!recommendation.ready() || recommendation.busy()) return
+    if (recommendation.state()?.unknown) {
+      void recommendation.recover()
+      return
+    }
+    if (recommendationEnabled()) return
+    expansionReview.dismiss()
+    void recommendation.initialize()
+  }
+
   const hasStudioConversation = createMemo(() => {
     // 切换 session 数据未加载时保持对话布局，避免闪现空状态
     if (params.id && !sessionDataLoaded()) return true
@@ -4835,7 +5075,14 @@ export default function StudioPage() {
                   videoQualityMode={videoQualityMode()}
                   videoMode={videoMode()}
                   status={effectiveStatus()}
-                  busy={isBusy()}
+                  busy={isBusy() || recommendation.busy()}
+                  onRecommend={initializeRecommendation}
+                  recommendationEnabled={recommendationEnabled()}
+                  recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+                  onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+                  onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+                  recommendationTaskLocked={recommendationMode.taskLocked()}
+                  recommendationLocked={recommendationMode.locked()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   selectedStyleTemplate={selectedStyleTemplate()}
@@ -4871,7 +5118,7 @@ export default function StudioPage() {
                   onRecipeMainPrompt={setRecipeMainPrompt}
                   onRecipeExtraPrompt={setRecipeExtraPrompt}
                   onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
-                  onCancel={handleCancelGeneration}
+                  onCancel={() => recommendation.busy() ? void recommendation.cancel().catch(() => showFloatingNotice("error", "取消失败，请重试。")) : handleCancelGeneration()}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
                   onPickFile={pickReferenceFile}
@@ -5054,6 +5301,11 @@ if (!headerTitle.pendingRename) return
                 sdkUrl={globalSDK.url}
                 directory={projectDir()}
                 busy={effectiveStatus() === "creating" || effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                expansionText={expansionReview.text}
+                expansionEditable={expansionReview.editable}
+                expansionCanGenerate={canGenerateExpansion()}
+                onExpansionInput={expansionReview.update}
+                onExpansionChoose={(turn, choice) => void generateFromExpansion(turn, choice)}
                 actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 rebootingGenerationIDs={rebootingGenerationIDs()}
@@ -5091,7 +5343,14 @@ if (!headerTitle.pendingRename) return
             videoQualityMode={videoQualityMode()}
             videoMode={videoMode()}
             status={effectiveStatus()}
-            busy={isBusy()}
+            busy={isBusy() || recommendation.busy()}
+            onRecommend={initializeRecommendation}
+            recommendationEnabled={recommendationEnabled()}
+            recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+            onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+            onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+            recommendationTaskLocked={recommendationMode.taskLocked()}
+            recommendationLocked={recommendationMode.locked()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             selectedStyleTemplate={selectedStyleTemplate()}
@@ -5127,7 +5386,7 @@ if (!headerTitle.pendingRename) return
             onRecipeMainPrompt={setRecipeMainPrompt}
             onRecipeExtraPrompt={setRecipeExtraPrompt}
             onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
-            onCancel={handleCancelGeneration}
+            onCancel={() => recommendation.busy() ? void recommendation.cancel().catch(() => showFloatingNotice("error", "取消失败，请重试。")) : handleCancelGeneration()}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={pickReferenceFile}
@@ -5216,7 +5475,7 @@ if (!headerTitle.pendingRename) return
               onOutpaint={openOutpaint}
               onRegenerate={regenerateCurrentResult}
               onGenerateVideo={generateVideoFromSelectedImage}
-              showVideoGeneration={canGenerateVideo()}
+              showVideoGeneration={canGenerateVideo() && !recommendationMode.locked()}
               regenerateDisabled={resultRegenerateDisabled(result())}
               actionDisabled={isActionBusy()}
               showFileManagerTab={true}
@@ -5255,12 +5514,9 @@ if (!headerTitle.pendingRename) return
                   selectFileManagerMedia({ resultID: turn.result.id, imageID: item.id })
                 }
               }}
-              studioCenterWidth={studioCenterWidth()}
-              showStudioCenter={true}
               hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
-              sessionID={params.id}
               fileManagerGenPending={fileManagerGenPending()}
               canvasView={canvasView()}
               templateCreatorTabOpen={templateCreatorTabOpen()}
@@ -5288,7 +5544,7 @@ if (!headerTitle.pendingRename) return
                         selectedImageId={selectedImageId()}
                         imageLabel={currentImageLabel()}
                         regenerateDisabled={resultRegenerateDisabled(result())}
-                        showVideoGeneration={canGenerateVideo()}
+                        showVideoGeneration={canGenerateVideo() && !recommendationMode.locked()}
                         onSelectImage={(id) => {
                           const r = result()
                           batch(() => {

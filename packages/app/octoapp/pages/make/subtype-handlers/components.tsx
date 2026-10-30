@@ -9,6 +9,7 @@ import JSZip from 'jszip'
 import { showPromiseToast } from '../components/octo-toast'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { relativePathToId, resolveRelativePath, getExt, type VersionFile } from '../utils/history-store'
+import { saveCanvasDownload } from './c2d-save'
 
 registerCustomBridge('components-theme', {
   script: `
@@ -181,22 +182,7 @@ export default {
           tabTitle: tab.title,
           observedUrls: observedUrlsGetter?.() ?? [],
         }),
-        downloadHtml: async (data) => {
-          const api = ctx.getDesktopApi()
-          // 代码工作区:落项目根 (统一文件树的一部分);普通工作区:session uploads (原行为)
-          const dir = ctx.sdkDirectory && ctx.sessionId
-            ? (ctx.workspaceKind === "code"
-                ? `${ctx.sdkDirectory}`
-                : `${ctx.sdkDirectory}/.octo/${ctx.sessionId}/uploads`)
-            : null
-          if (!dir || !api?.writeFileBuffer) {
-            showOctoToast({ title: '无法保存', variant: 'error' })
-            return
-          }
-          const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-          await api.writeFileBuffer(`${dir}/${data.filename}`, buf.buffer)
-          showOctoToast({ title: '已保存', description: data.filename })
-        },
+        downloadHtml: (data) => saveCanvasDownload(data, ctx),
         config: { designName: tab.title, sessionId: sessionId ?? '' },
       },
     }

@@ -146,6 +146,9 @@ export function ResultViewer(props: {
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
+  const activeAgentExec = createMemo(() =>
+    props.activeId ? agentExecution()[props.activeId] : undefined
+  )
 
   /**
    * 取设计规划的实际内容（优先 tabStore 中该 plan tab 的最新编辑，
@@ -715,9 +718,10 @@ archiving={featureMutex.state.archiving}
                       currentVersionId={props.currentVersionId}
                       onHistorySwitch={props.onHistorySwitch}
                       onHistoryToggle={props.onHistoryToggle}
-                      sessionId={props.sessionId}
-                      sdkDirectory={props.sdkDirectory}
-                       skillConfig={props.skillConfig}
+                       sessionId={props.sessionId}
+                       sdkDirectory={props.sdkDirectory}
+                        workspaceKind={workspaceKind()}
+                        skillConfig={props.skillConfig}
                         postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
                        onFilesRefresh={props.onFilesRefresh}
                        disabled={props.disabled}
@@ -869,19 +873,19 @@ archiving={featureMutex.state.archiving}
       onUpdateMentionPath={props.onUpdateMentionPath}
       onAssetConfirm={getSubtypeHandler(activeTab()?.subtype)?.onAssetConfirm ?? props.onAssetConfirm}
     />
-    <Show when={agentExecution()?.visible}>
-      <AgentExecutionPanel />
+    <Show when={activeAgentExec()?.visible}>
+      <AgentExecutionPanel tabId={props.activeId!} />
     </Show>
-    <Show when={agentExecution() && !agentExecution()!.visible}>
+    <Show when={activeAgentExec() && !activeAgentExec()!.visible}>
       <button
         type="button"
-        onClick={() => setAgentExecution(prev => prev ? { ...prev, visible: true } : null)}
+        onClick={() => setAgentExecution(prev => props.activeId && prev[props.activeId] ? { ...prev, [props.activeId]: { ...prev[props.activeId], visible: true } } : prev)}
         style={{
           position: "fixed",
           right: "16px",
           top: "50%",
           transform: "translateY(-50%)",
-          "z-index": "9998",
+          "z-index": "100000",
           display: "flex",
           "align-items": "center",
           gap: "6px",

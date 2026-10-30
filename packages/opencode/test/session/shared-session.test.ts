@@ -20,6 +20,44 @@ test("only accepts supported app share links with valid codes", () => {
 })
 
 test.each([
+  ["import", 500, JSON.stringify({ name: "UnknownError", data: { message: "EACCES: permission denied", token: "hidden-credential" } }), "EACCES: permission denied"],
+  ["session", 404, JSON.stringify({ message: "Session not found" }), "Session not found"],
+  ["import", 500, "<html>hidden-credential</html>", "后端未返回可用的错误详情"],
+  ["import", 200, "invalid json", "后端未返回有效 JSON"],
+  ["import", 500, JSON.stringify({ message: "Authorization: Bearer hidden-credential" }), "[REDACTED]"],
+] as const)("reports %s %s errors with correlation IDs and cleans the ZIP", async (stage, status, body, reason) => {
+  await using target = await tmpdir()
+  const temporary = path.join(target.path, "download")
+  await mkdir(temporary)
+  const archive = path.join(temporary, "session.zip")
+  await Bun.write(archive, "test archive")
+  const events: { event: string; details: Record<string, unknown> }[] = []
+  const server = Bun.serve({ port: 0, fetch(request) {
+    if (stage === "session" && new URL(request.url).pathname === "/session/import") {
+      return Response.json({ sessionID: "imported-session" })
+    }
+    return new Response(body, { status, headers: { "Content-Type": "application/json" } })
+  } })
+  try {
+    await expect(importSharedSession({
+      uniqueId: "TestCode", directory: target.path, scope: "project",
+      uploadURL: "http://localhost/share", remoteFetch: fetch,
+      server: { url: `http://127.0.0.1:${server.port}`, username: null, password: null },
+      prepared: { temporary, archive, agent: "octo_make", module: "design" },
+      log: (event, details) => events.push({ event, details }),
+    })).rejects.toThrow(reason)
+    expect(events[0].event).toBe("start")
+    expect(events[0].details.zipBytes).toBe(12)
+    expect(events.at(-1)?.event).toBe("failed")
+    expect(events.every((entry) => entry.details.requestID === events[0].details.requestID)).toBe(true)
+    expect(JSON.stringify(events)).not.toContain("hidden-credential")
+    expect(await Bun.file(archive).exists()).toBe(false)
+  } finally {
+    server.stop(true)
+  }
+})
+
+test.each([
   ["octo_make", "design"], ["octo_insight", "insight"], ["proto_triage", "pattern"],
 ])("identifies legacy ZIP module from root agent %s without restoring sessions", async (agent, module) => {
   await using source = await tmpdir()

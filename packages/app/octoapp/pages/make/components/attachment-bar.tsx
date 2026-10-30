@@ -239,3 +239,30 @@ export function kindFromMime(mime: string): ArtifactFileKind {
   if (mime.includes("powerpoint") || mime.includes("presentation")) return "document"
   return "binary"
 }
+
+// 从文件名扩展名推断 mime,仅用于 local 附件清单渲染
+export function mimeFromFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    html: "text/html",
+    htm: "text/html",
+    md: "text/markdown",
+    txt: "text/plain",
+    json: "application/json",
+    js: "application/javascript",
+    ts: "application/typescript",
+    css: "text/css",
+    pdf: "application/pdf",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+  }
+  return map[ext] ?? "application/octet-stream"
+}

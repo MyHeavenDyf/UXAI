@@ -257,8 +257,18 @@ import type {
   StudioHistoryRevisionResponses,
   StudioHistorySnapshotErrors,
   StudioHistorySnapshotResponses,
+  StudioPromptExpansionsCancelErrors,
+  StudioPromptExpansionsCancelResponses,
+  StudioPromptExpansionsCreateErrors,
+  StudioPromptExpansionsCreateResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
+  StudioPromptRecommendationsDismissErrors,
+  StudioPromptRecommendationsDismissResponses,
+  StudioPromptRecommendationsGetErrors,
+  StudioPromptRecommendationsGetResponses,
+  StudioPromptRecommendationsInitializeErrors,
+  StudioPromptRecommendationsInitializeResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
   StudioStyleDescriptionGenCreateErrors,
@@ -1619,6 +1629,7 @@ export class Session extends HeyApiClient {
       grouped?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
       agent?: string
+      order?: "updated" | "sort_order"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1638,6 +1649,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "grouped" },
             { in: "query", key: "archived" },
             { in: "query", key: "agent" },
+            { in: "query", key: "order" },
           ],
         },
       ],
@@ -6174,6 +6186,217 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class PromptRecommendations extends HeyApiClient {
+  /**
+   * Initialize Studio prompt recommendation
+   */
+  public initialize<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      requestID?: string
+      sessionID?: string
+      expectedStateToken?: string
+      showGuide?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "requestID" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "expectedStateToken" },
+            { in: "body", key: "showGuide" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptRecommendationsInitializeResponses,
+      StudioPromptRecommendationsInitializeErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-recommendations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Dismiss unused Studio prompt recommendation
+   */
+  public dismiss<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      guidePartID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "guidePartID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptRecommendationsDismissResponses,
+      StudioPromptRecommendationsDismissErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read Studio prompt recommendation
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      guidePartID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "guidePartID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioPromptRecommendationsGetResponses,
+      StudioPromptRecommendationsGetErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/prompt-recommendation",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class PromptExpansions extends HeyApiClient {
+  /**
+   * Submit Studio prompt expansion
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      requestID?: string
+      sessionID?: string
+      guidePartID?: string
+      prompt?: string
+      images?: Array<{
+        path: string
+      }>
+      availableModels?: Array<{
+        providerID: string
+        modelID: string
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "requestID" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "guidePartID" },
+            { in: "body", key: "prompt" },
+            { in: "body", key: "images" },
+            { in: "body", key: "availableModels" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptExpansionsCreateResponses,
+      StudioPromptExpansionsCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-expansions",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel Studio prompt expansion
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      assistantMessageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "assistantMessageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptExpansionsCancelResponses,
+      StudioPromptExpansionsCancelErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/prompt-expansions/{assistantMessageID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class PromptTags extends HeyApiClient {
   /**
    * Get prompt tags
@@ -7152,6 +7375,16 @@ export class History2 extends HeyApiClient {
 }
 
 export class Studio2 extends HeyApiClient {
+  private _promptRecommendations?: PromptRecommendations
+  get promptRecommendations(): PromptRecommendations {
+    return (this._promptRecommendations ??= new PromptRecommendations({ client: this.client }))
+  }
+
+  private _promptExpansions?: PromptExpansions
+  get promptExpansions(): PromptExpansions {
+    return (this._promptExpansions ??= new PromptExpansions({ client: this.client }))
+  }
+
   private _promptTags?: PromptTags
   get promptTags(): PromptTags {
     return (this._promptTags ??= new PromptTags({ client: this.client }))

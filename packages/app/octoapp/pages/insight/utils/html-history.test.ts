@@ -50,9 +50,29 @@ test("恢复前备份未记录的当前文件，刷新后仍能找到所有版�
   await sample.history.restore(initial.id)
   expect(await readFile(sample.file, "utf8")).toBe("<h1>原始</h1>\n")
   const list = await createHtmlHistory(sample.file, sample.api).list()
-  expect(list).toHaveLength(3)
-  expect(await readFile(list[1].folderPath, "utf8")).toBe("外部修改")
-  await sample.history.record()
+  expect(list).toHaveLength(2)
+  expect(await readFile(list[0].folderPath, "utf8")).toBe("外部修改")
+  expect((await sample.history.record()).id).toBe(initial.id)
+  expect(await sample.history.list()).toHaveLength(2)
+})
+
+test("反复切换及重新打开不新增版本，切换后的实际修改仍记录", async () => {
+  const sample = await setup()
+  const initial = await sample.history.record()
+  await writeFile(sample.file, "修改后的内容")
+  const edited = await sample.history.record("agent")
+  for (const entry of [initial, edited, initial]) {
+    await sample.history.restore(entry.id)
+    expect(await readFile(sample.file, "utf8")).toBe(await readFile(entry.folderPath, "utf8"))
+    const reopened = createHtmlHistory(sample.file, sample.api)
+    expect((await reopened.record()).id).toBe(entry.id)
+    expect(await reopened.list()).toHaveLength(2)
+  }
+  await writeFile(sample.file, "切换后继续编辑")
+  const changed = await sample.history.record()
+  expect(changed.id).not.toBe(initial.id)
+  expect(changed.id).not.toBe(edited.id)
+  expect(changed.actor).toBe("user")
   expect(await sample.history.list()).toHaveLength(3)
 })
 test("备份失败不覆盖当前文件，半成品不出现在版本列表", async () => {

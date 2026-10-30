@@ -5,6 +5,13 @@ export type ClientOptions = {
 }
 
 export type Event =
+  | EventSkillUsed
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -17,7 +24,6 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
-  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -26,10 +32,6 @@ export type Event =
   | EventSessionIdle
   | EventSessionCompacted
   | EventSessionCompactionEstimated
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -77,8 +79,6 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
-  | EventServerConnected
-  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -104,6 +104,61 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type PermissionRequest = {
   id: string
@@ -286,61 +341,6 @@ export type SessionStatus =
   | {
       type: "busy"
     }
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type Project = {
   id: string
@@ -793,6 +793,13 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
+    | EventSkillUsed
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -805,7 +812,6 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
-    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -814,10 +820,6 @@ export type GlobalEvent = {
     | EventSessionIdle
     | EventSessionCompacted
     | EventSessionCompactionEstimated
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -865,8 +867,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
-    | EventServerConnected
-    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1058,7 +1058,7 @@ export type ProviderConfig = {
         output: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
       experimental?: boolean
-      status?: "alpha" | "beta" | "deprecated"
+      status?: "alpha" | "beta" | "deprecated" | "active"
       provider?: {
         npm?: string
         api?: string
@@ -2462,6 +2462,30 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2571,14 +2595,6 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
-  }
-}
-
-export type EventSkillUsed = {
-  id: string
-  type: "skill.used"
-  properties: {
-    skillName: string
   }
 }
 
@@ -3195,22 +3211,6 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
   }
 }
 
@@ -4614,6 +4614,7 @@ export type ExperimentalSessionListData = {
     grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
+    order?: "updated" | "sort_order"
   }
   url: "/experimental/session"
 }
@@ -6031,7 +6032,7 @@ export type SessionPortableImportData = {
 
 export type SessionPortableImportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
 }
@@ -6068,7 +6069,7 @@ export type SessionPortableExportData = {
 
 export type SessionPortableExportErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
   /**
@@ -8166,6 +8167,589 @@ export type ExperimentalWorkspaceWarpResponses = {
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
 
+export type StudioPromptRecommendationsInitializeData = {
+  body?: {
+    requestID: string
+    sessionID?: string
+    expectedStateToken?: string
+    showGuide?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-recommendations"
+}
+
+export type StudioPromptRecommendationsInitializeErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsInitializeError =
+  StudioPromptRecommendationsInitializeErrors[keyof StudioPromptRecommendationsInitializeErrors]
+
+export type StudioPromptRecommendationsInitializeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptRecommendationsInitializeResponse =
+  StudioPromptRecommendationsInitializeResponses[keyof StudioPromptRecommendationsInitializeResponses]
+
+export type StudioPromptRecommendationsDismissData = {
+  body?: never
+  path: {
+    sessionID: string
+    guidePartID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss"
+}
+
+export type StudioPromptRecommendationsDismissErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsDismissError =
+  StudioPromptRecommendationsDismissErrors[keyof StudioPromptRecommendationsDismissErrors]
+
+export type StudioPromptRecommendationsDismissResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptRecommendationsDismissResponse =
+  StudioPromptRecommendationsDismissResponses[keyof StudioPromptRecommendationsDismissResponses]
+
+export type StudioPromptExpansionsCreateData = {
+  body?: {
+    requestID: string
+    sessionID: string
+    guidePartID: string
+    prompt: string
+    images?: Array<{
+      path: string
+    }>
+    availableModels: Array<{
+      providerID: string
+      modelID: string
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-expansions"
+}
+
+export type StudioPromptExpansionsCreateErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptExpansionsCreateError =
+  StudioPromptExpansionsCreateErrors[keyof StudioPromptExpansionsCreateErrors]
+
+export type StudioPromptExpansionsCreateResponses = {
+  /**
+   * Success
+   */
+  202: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptExpansionsCreateResponse =
+  StudioPromptExpansionsCreateResponses[keyof StudioPromptExpansionsCreateResponses]
+
+export type StudioPromptRecommendationsGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    guidePartID?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-recommendation"
+}
+
+export type StudioPromptRecommendationsGetErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsGetError =
+  StudioPromptRecommendationsGetErrors[keyof StudioPromptRecommendationsGetErrors]
+
+export type StudioPromptRecommendationsGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    stateToken: string
+    recommendation: {
+      sessionID: string
+      guideMessageID: string
+      guidePartID: string
+      guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+      resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      userMessageID?: string
+      assistantMessageID?: string
+      submission?: {
+        requestID: string
+      }
+    }
+  }
+}
+
+export type StudioPromptRecommendationsGetResponse =
+  StudioPromptRecommendationsGetResponses[keyof StudioPromptRecommendationsGetResponses]
+
+export type StudioPromptExpansionsCancelData = {
+  body?: never
+  path: {
+    sessionID: string
+    assistantMessageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-expansions/{assistantMessageID}/cancel"
+}
+
+export type StudioPromptExpansionsCancelErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptExpansionsCancelError =
+  StudioPromptExpansionsCancelErrors[keyof StudioPromptExpansionsCancelErrors]
+
+export type StudioPromptExpansionsCancelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptExpansionsCancelResponse =
+  StudioPromptExpansionsCancelResponses[keyof StudioPromptExpansionsCancelResponses]
+
 export type StudioPromptTagsListData = {
   body?: never
   path?: never
@@ -8587,6 +9171,18 @@ export type StudioGenerationsCreateErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioGenerationsCreateError = StudioGenerationsCreateErrors[keyof StudioGenerationsCreateErrors]
@@ -8668,6 +9264,18 @@ export type StudioEditorEntriesCreateErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioEditorEntriesCreateError = StudioEditorEntriesCreateErrors[keyof StudioEditorEntriesCreateErrors]
@@ -8782,6 +9390,18 @@ export type StudioGenerationsRebootErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioGenerationsRebootError = StudioGenerationsRebootErrors[keyof StudioGenerationsRebootErrors]
@@ -8940,6 +9560,18 @@ export type StudioGenerationsRefreshErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioGenerationsRefreshError = StudioGenerationsRefreshErrors[keyof StudioGenerationsRefreshErrors]

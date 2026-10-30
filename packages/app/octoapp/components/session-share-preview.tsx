@@ -229,7 +229,9 @@ export function SessionSharePreview(props: { session: Session }) {
           </div>
         </div>
       </div>
-      <p class="share-preview-muted">仅预览正文和附件名称，不执行产物；工具详情及完整产物仍包含在分享文件中。</p>
+      <p class="share-preview-muted">{props.session.agent === "octo_insight"
+        ? "预览正文、附件名称及工具摘要；分享网页可查看引用和任务结果。任务状态为分享时的快照。"
+        : "仅预览正文和附件名称，不执行产物；工具详情及完整产物仍包含在分享文件中。"}</p>
     </div>
   )
 }

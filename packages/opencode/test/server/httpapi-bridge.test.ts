@@ -213,6 +213,56 @@ afterEach(async () => {
 })
 
 describe("HttpApi server", () => {
+  test("Studio prompt recommendation contracts match both HTTP stacks", async () => {
+    const hono = await Server.openapiHono()
+    const effect = effectOpenApi()
+    const routes = openApiRouteKeys(hono).filter((route) => route.includes("/studio/") && (route.includes("prompt-recommend") || route.includes("prompt-expansion")))
+    expect(routes).toHaveLength(5)
+    expect(routes.every((route) => openApiRouteKeys(effect).includes(route))).toBe(true)
+    const honoParams = openApiParameters(hono)
+    const effectParams = openApiParameters(effect)
+    const honoBodies = openApiRequestBodies(hono)
+    const effectBodies = openApiRequestBodies(effect)
+    routes.forEach((route) => {
+      expect(honoParams[route]).toEqual(effectParams[route])
+      expect(honoBodies[route]).toEqual(effectBodies[route])
+    })
+  })
+
+  test("Studio recommendation initializes, replays and validates through either HTTP stack", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const effect = app()
+    const hono = Server.Legacy().app
+    const headers = { "x-opencode-directory": tmp.path, "content-type": "application/json" }
+    for (const client of [hono, effect]) {
+      const body = JSON.stringify({ requestID: crypto.randomUUID() })
+      const initialized = await client.request("http://localhost/studio/prompt-recommendations", { method: "POST", headers, body })
+      expect(initialized.status).toBe(200)
+      const first = await initialized.json() as { sessionID: string; guidePartID: string }
+      const repeated = await client.request("http://localhost/studio/prompt-recommendations", { method: "POST", headers, body })
+      expect(await repeated.json()).toMatchObject(first)
+      const state = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation?guidePartID=${first.guidePartID}`, { headers })
+      expect(state.status).toBe(200)
+      expect(await state.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
+      const invalid = await client.request("http://localhost/studio/prompt-expansions", { method: "POST", headers, body: "{broken" })
+      expect(invalid.status).toBe(400)
+      expect(await invalid.json()).toMatchObject({ name: "StudioPromptRecommendationError", data: { code: "INVALID_INPUT" } })
+      const path = `http://localhost/studio/sessions/${first.sessionID}/prompt-recommendations/${first.guidePartID}/dismiss`
+      const dismissed = await client.request(path, { method: "POST", headers })
+      expect(dismissed.status).toBe(200)
+      expect(await dismissed.json()).toMatchObject({ status: "dismissed", guidePartID: first.guidePartID })
+      expect((await client.request(path, { method: "POST", headers })).status).toBe(200)
+      const nextState = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      const next = await nextState.json() as { stateToken: string }
+      const silent = await client.request("http://localhost/studio/prompt-recommendations", {
+        method: "POST", headers,
+        body: JSON.stringify({ requestID: crypto.randomUUID(), sessionID: first.sessionID, expectedStateToken: next.stateToken, showGuide: false }),
+      })
+      expect(silent.status).toBe(200)
+      expect(await silent.json()).toMatchObject({ status: "armed", sessionID: first.sessionID })
+    }
+  })
+
   test("keeps Effect HttpApi behind the feature flag", () => {
     Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = false
     expect(Server.backend()).toEqual({ backend: "hono", reason: "stable" })

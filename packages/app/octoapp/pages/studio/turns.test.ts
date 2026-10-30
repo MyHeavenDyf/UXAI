@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus, isPromptExpansionGeneration, studioRegenerationExtra } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns, parseToolMedia } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -1218,5 +1218,78 @@ describe("buildStudioTurns", () => {
     expect(turns[0].toolRunning).toBe(true)
     expect(turns[0].toolTitle).toBe("图片生成中")
     expect(turns[0].isLatest).toBe(true)
+  })
+})
+
+
+describe("Studio expansion button user bubbles", () => {
+  test("hides a persisted button-generated user message before assistant parts arrive", () => {
+    const user = userMessage("msg_0")
+    const parts: Part[] = [{
+      id: "text", messageID: user.id, sessionID: "ses_1", type: "text", text: "采用扩写内容生成",
+      metadata: { studioPromptExpansionSource: { assistantMessageID: "expansion-assistant" } },
+    }]
+    const turns = buildStudioTurns({ messages: [user], parts: { [user.id]: parts } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.userText).toBe("采用扩写内容生成")
+  })
+
+  test("waits for the user text part instead of flashing a placeholder bubble", () => {
+    const user = userMessage("msg_0")
+    expect(buildStudioTurns({ messages: [user], parts: {} })[0]?.hideUserBubble).toBe(true)
+    expect(buildStudioTurns({ messages: [user], parts: {
+      [user.id]: [textPart("text", user.id, "普通生成")],
+    } })[0]?.hideUserBubble).toBe(false)
+  })
+
+  test("restores button origin from a persisted generation request while retaining results", () => {
+    const user = userMessage("msg_0")
+    const assistant = assistantMessage("msg_1", 2)
+    const turns = buildStudioTurns({ messages: [user, assistant], parts: {
+      [user.id]: [textPart("text", user.id, "扩写正文")],
+      [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/generated.png"] }),
+        "internel_image_generate", {
+          capability: "image.generate", prompt: "扩写正文",
+          referenceImages: ["https://example.com/reference.png"],
+          extra: { skipPromptRefine: true, promptExpansionSource: { assistantMessageID: "expansion-assistant" } },
+        })],
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.result?.images).toHaveLength(1)
+    expect(turns[0]?.result?.prompt).toBe("扩写正文")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
+  })
+
+  test("regeneration removes only button origin and preserves its existing user bubble", () => {
+    const original = {
+      promptExpansionSource: { assistantMessageID: "expansion-assistant" },
+      referenceImageNames: ["reference.webp"], userIdx: "account",
+    }
+    const extra = studioRegenerationExtra(original)
+    expect(isPromptExpansionGeneration(original)).toBe(true)
+    expect(isPromptExpansionGeneration(extra)).toBe(false)
+    expect(extra).toMatchObject({ skipPromptRefine: true, referenceImageNames: ["reference.webp"], userIdx: "account" })
+    expect(original.promptExpansionSource.assistantMessageID).toBe("expansion-assistant")
+    const user = userMessage("msg_0")
+    const assistant = assistantMessage("msg_1", 2)
+    const turns = buildStudioTurns({ messages: [user, assistant], parts: {
+      [user.id]: [textPart("text", user.id, "再次生成")],
+      [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/regenerated.png"] }),
+        "internel_image_generate", {
+          capability: "image.generate", prompt: "扩写正文", displayPrompt: "再次生成", extra,
+          referenceImages: ["https://example.com/reference.png"],
+        })],
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(false)
+    expect(turns[0]?.userText).toBe("再次生成")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
+  })
+
+  test.each(["creating", "create_failed", "failed", "succeeded"] as const)("%s optimistic button tasks retain their hidden user bubble", (status) => {
+    const turns = buildStudioTurns({ messages: [], parts: {}, fallback: {
+      ...pendingResult(status), hideUserBubble: true,
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.result?.status).toBe(status)
   })
 })

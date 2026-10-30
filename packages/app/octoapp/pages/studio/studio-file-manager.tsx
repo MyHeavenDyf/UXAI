@@ -1,7 +1,9 @@
-import { batch, createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
-import { Portal } from "solid-js/web"
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { tracker } from "@/utils/tracker"
+import { useLanguage } from "@/context/language"
 import type { StudioTurnData } from "./turns"
 import emptyPng from "../insight/icons/empty.png"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
@@ -9,53 +11,38 @@ import type { StudioImage } from "./types"
 
 type FileFilterTab = "all" | "image" | "video"
 
-const FILE_FILTER_TABS: { key: FileFilterTab; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "image", label: "图片" },
-  { key: "video", label: "视频" },
+const FILE_FILTER_TABS: {
+  key: FileFilterTab
+  label: "studio.history.tab.all" | "studio.history.tab.image" | "studio.history.tab.video"
+}[] = [
+  { key: "all", label: "studio.history.tab.all" },
+  { key: "image", label: "studio.history.tab.image" },
+  { key: "video", label: "studio.history.tab.video" },
 ]
 
-const SOURCE_OPTIONS = ["图片生成", "视频生成", "变清晰", "抠图", "智能重绘", "扩图"]
-const RATIO_OPTIONS = ["横版", "竖版", "正方形"]
-const SIZE_OPTIONS = [
-  { label: "1K", desc: "(长边<2000)" },
-  { label: "2K", desc: "(2000≤长边<4000)" },
-  { label: "4K", desc: "(长边≥4000)" },
+const RESOLUTION_OPTIONS = ["480P", "720P", "1080P", "4K"]
+// 图片/视频各自不支持的比例：视频没有 2:3/3:2，图片没有 21:9。
+// 选项仍然展示（不做禁用），只是在筛选时把不适用于目标类型的比例排除掉。
+const VIDEO_HIDDEN_RATIOS = new Set(["2:3", "3:2"])
+const IMAGE_HIDDEN_RATIOS = new Set(["21:9"])
+const RATIO_OPTIONS: { label: string; value: number }[] = [
+  { label: "21:9", value: 21 / 9 },
+  { label: "16:9", value: 16 / 9 },
+  { label: "4:3", value: 4 / 3 },
+  { label: "3:2", value: 3 / 2 },
+  { label: "1:1", value: 1 },
+  { label: "2:3", value: 2 / 3 },
+  { label: "3:4", value: 3 / 4 },
+  { label: "9:16", value: 9 / 16 },
 ]
+const RATIO_LABELS = new Set(RATIO_OPTIONS.map((option) => option.label))
+// 与「我的资产」服务端 mediaRatio 相同的容差：比例值差 ≤0.02 视为命中该档。
+const RATIO_TOLERANCE = 0.02
 
+// 旧版筛选状态持久化键前缀：已不再写入，保留导出供 studio-page 离开页面时清理遗留数据。
 export const STUDIO_FILTER_STATE_KEY_PREFIX = "octo:studio:file-manager:filter-state:v2:"
 
-type PersistedFilterSnapshot = { source: string[]; ratio: string[]; size: string[] }
-
-function readFilterState(sessionID: string): { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> } | null {
-  try {
-    const raw = localStorage.getItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
-    const obj = parsed as Record<string, unknown>
-    if (typeof obj.activeTab !== "string" || !obj.tabs || typeof obj.tabs !== "object") return null
-    return { activeTab: obj.activeTab as FileFilterTab, tabs: obj.tabs as Record<string, PersistedFilterSnapshot> }
-  } catch {
-    return null
-  }
-}
-
-function writeFilterState(sessionID: string, state: { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> }) {
-  try {
-    localStorage.setItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID, JSON.stringify(state))
-  } catch { /* noop */ }
-}
-
-const SOURCE_TO_CAPABILITY: Record<string, string> = {
-  "图片生成": "image.generate",
-  "视频生成": "video.generate",
-  "变清晰": "image.upscale",
-  "抠图": "image.cutout",
-  "智能重绘": "image.inpaint",
-  "扩图": "image.outpaint",
-}
-
+// 编辑类能力的结果可能缺像素尺寸，需探测真实图片宽高兜底比例判定。
 const EDIT_CAPABILITIES = new Set(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"])
 
 const dimensionCache = new Map<string, { w: number; h: number }>()
@@ -75,79 +62,28 @@ function probeImageDimensions(url: string, onReady: () => void) {
   el.src = url
 }
 
-function getRatioCategory(item: FileManagerMedia): string | null {
+// 比例判定与「我的资产」服务端 mediaRatio 一致：aspectRatio 命中已知档位直接采用；
+// 否则用像素宽高就近匹配（±0.02 容差）；无法归档时为「自定义」，无任何尺寸信息时
+// 返回 undefined（比例筛选生效时不可见）。
+function getMediaRatio(item: FileManagerMedia): string | undefined {
+  if (item.aspectRatio && RATIO_LABELS.has(item.aspectRatio)) return item.aspectRatio
   const real = dimensionCache.get(item.url)
-  if (real) {
-    const maxDim = Math.max(real.w, real.h)
-    if (Math.abs(real.w - real.h) / maxDim <= 0.01) return "正方形"
-    if (real.w > real.h) return "横版"
-    if (real.h > real.w) return "竖版"
-  }
-  // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
-  if (item.isCustom) {
-    const w = item.width
-    const h = item.height
-    if (w && h) {
-      const maxDim = Math.max(w, h)
-      if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
-      if (w > h) return "横版"
-      if (h > w) return "竖版"
-    }
-    return null
-  }
-  // 非自定义优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
-  const ratio = item.aspectRatio
-  if (ratio) {
-    if (ratio === "1:1") return "正方形"
-    if (["16:9", "3:2", "4:3"].includes(ratio)) return "横版"
-    if (["2:3", "3:4", "9:16"].includes(ratio)) return "竖版"
-  }
-  const w = item.width
-  const h = item.height
-  if (w && h) {
-    const maxDim = Math.max(w, h)
-    if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
-    if (w > h) return "横版"
-    if (h > w) return "竖版"
-  }
-  return null
+  const w = real?.w ?? item.width ?? 0
+  const h = real?.h ?? item.height ?? 0
+  if (!w || !h) return undefined
+  const ratio = w / h
+  const closest = RATIO_OPTIONS.reduce((best, option) =>
+    Math.abs(ratio - option.value) < Math.abs(ratio - best.value) ? option : best,
+  )
+  if (Math.abs(ratio - closest.value) <= RATIO_TOLERANCE) return closest.label
+  return "自定义"
 }
 
-function getSizeCategory(item: FileManagerMedia): string | null {
-  const real = dimensionCache.get(item.url)
-  if (real) {
-    const longSide = Math.max(real.w, real.h)
-    if (longSide < 2000) return "1K"
-    if (longSide < 4000) return "2K"
-    return "4K"
-  }
-  const w = item.width
-  const h = item.height
-  if (w && h) {
-    const longSide = Math.max(w, h)
-    if (longSide < 2000) return "1K"
-    if (longSide < 4000) return "2K"
-    return "4K"
-  }
-  // 无直接尺寸时，用比例反推估算长边
-  if (item.aspectRatio && item.kind === "image") {
-    const estimated = estimateLongSideFromRatio(item.aspectRatio)
-    if (estimated) {
-      if (estimated < 2000) return "1K"
-      if (estimated < 4000) return "2K"
-      return "4K"
-    }
-  }
-  return null
-}
-
-function estimateLongSideFromRatio(aspectRatio: string): number | null {
-  const parts = aspectRatio.split(":").map(Number)
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null
-  const [w, h] = parts
-  // 以短边 1024 为基准估算长边
-  const ratio = Math.max(w, h) / Math.min(w, h)
-  return Math.round(1024 * ratio)
+// 视频分辨率档位：与「我的资产」服务端一致（4k→4K，其余→480P/720P/1080P）。
+function videoResolutionLabel(mode?: string): string | undefined {
+  if (mode === "4k") return "4K"
+  if (mode === "480" || mode === "720" || mode === "1080") return `${mode}P`
+  return undefined
 }
 
 export type FileManagerMedia = {
@@ -162,7 +98,7 @@ export type FileManagerMedia = {
   width?: number
   height?: number
   aspectRatio?: string
-  isCustom?: boolean
+  resolution?: string
   capability?: string
   duration?: string
   createdAt: number
@@ -173,20 +109,6 @@ export type DateGroup<T extends FileManagerMedia = FileManagerMedia> = {
   dateLabel: string
   timestamp: number
   items: T[]
-}
-
-function createCheckboxState(labels: string[]) {
-  const [state, setState] = createSignal<Set<string>>(new Set<string>())
-  const toggle = (label: string) => {
-    setState((prev) => {
-      const next = new Set(prev)
-      if (next.has(label)) next.delete(label)
-      else next.add(label)
-      return next
-    })
-  }
-  const reset = () => setState(new Set<string>())
-  return { state, toggle, reset }
 }
 
 function formatDateLabel(timestamp: number): string {
@@ -205,16 +127,7 @@ export function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia
       const url = image.remoteUrl ?? image.url
       if (!url) continue
 
-      // For edit results (inpaint/outpaint/cutout/upscale), the result-level
-      // aspectRatio may not reflect the actual output image dimensions. Prefer
-      // image-level width/height for ratio detection by marking as isCustom.
-      const isEditResult = turn.result?.capability
-        ? ["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"].includes(turn.result.capability)
-        : false
-      const itemWidth = image.width ?? turn.result?.width
-      const itemHeight = image.height ?? turn.result?.height
-      const hasExplicitDimensions = itemWidth && itemHeight && isEditResult
-
+      const kind = image.kind === "video" ? "video" : "image"
       media.push({
         id: image.id,
         turnID: turn.id,
@@ -223,14 +136,14 @@ export function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia
         url,
         thumbnailUrl: image.thumbnailUrl,
         thumbnailStatus: image.thumbnailStatus,
-        kind: image.kind === "video" ? "video" : "image",
-        width: itemWidth,
-        height: itemHeight,
+        kind,
+        width: image.width ?? turn.result?.width,
+        height: image.height ?? turn.result?.height,
         // 保留 result 级别的 aspectRatio（如智能重绘探测到的源图比例），
-        // getRatioCategory 中 aspectRatio 优先于像素尺寸判断，避免被 API
+        // getMediaRatio 中 aspectRatio 优先于像素尺寸判断，避免被 API
         // 返回的默认输出尺寸（可能非 1:1）误判为竖版。
         aspectRatio: turn.result?.aspectRatio,
-        isCustom: hasExplicitDimensions || turn.result?.isCustom,
+        resolution: kind === "video" ? videoResolutionLabel(turn.result?.videoQualityMode) : undefined,
         capability: turn.result?.capability ?? turn.editCapability,
         duration: turn.result?.duration,
         createdAt: turn.createdAt,
@@ -271,165 +184,26 @@ export function groupMediaByDate<T extends FileManagerMedia>(
     }))
 }
 
+type FileManagerState = {
+  activeTab: FileFilterTab
+  showFilter: boolean
+  resolutionFilter: ReadonlySet<string>
+  ratioFilter: ReadonlySet<string>
+}
+
 export function StudioFileManager(props: {
-  onClose?: () => void
-  studioCenterWidth?: number
-  showStudioCenter?: boolean
   hideFilter?: boolean
   turns?: StudioTurnData[]
   canGenerateVideo?: boolean
   onSelectMedia?: (item: FileManagerMedia) => void
-  sessionID?: string
 }): JSX.Element {
-  const [activeFilter, setActiveFilter] = createSignal<FileFilterTab>("all")
-  const [showFilter, setShowFilter] = createSignal(false)
-  const [overlayStyle, setOverlayStyle] = createSignal<JSX.CSSProperties>({})
-  let containerRef!: HTMLDivElement
-
-  const sourceFilter = createCheckboxState(SOURCE_OPTIONS)
-  const ratioFilter = createCheckboxState(RATIO_OPTIONS)
-  const sizeFilter = createCheckboxState(SIZE_OPTIONS.map((s) => s.label))
-
-  // Confirmed filter state — only updated when user clicks "确定"
-  const [confirmedSource, setConfirmedSource] = createSignal<Set<string>>(new Set<string>())
-  const [confirmedRatio, setConfirmedRatio] = createSignal<Set<string>>(new Set<string>())
-  const [confirmedSize, setConfirmedSize] = createSignal<Set<string>>(new Set<string>())
-
-  // 每个 tab 保留独立的筛选记录（同一 session 内有效，且持久化到 localStorage）
-  type SavedFilterSnapshot = { source: Set<string>; ratio: Set<string>; size: Set<string> }
-  const savedTabFilters = new Map<FileFilterTab, SavedFilterSnapshot>()
-  let lastSessionID: string | undefined
-
-  // 初始化：从 localStorage 恢复当前 session 的筛选状态
-  {
-    const sid = props.sessionID
-    if (sid) {
-      lastSessionID = sid
-      const saved = readFilterState(sid)
-      if (saved) {
-        setActiveFilter(saved.activeTab)
-        for (const [tabKey, snap] of Object.entries(saved.tabs)) {
-          savedTabFilters.set(tabKey as FileFilterTab, {
-            source: new Set<string>(snap.source),
-            ratio: new Set<string>(snap.ratio),
-            size: new Set<string>(snap.size),
-          })
-        }
-        const active = savedTabFilters.get(saved.activeTab)
-        if (active) {
-          batch(() => {
-            setConfirmedSource(new Set(active.source))
-            setConfirmedRatio(new Set(active.ratio))
-            setConfirmedSize(new Set(active.size))
-            for (const v of active.source) sourceFilter.toggle(v)
-            for (const v of active.ratio) ratioFilter.toggle(v)
-            for (const v of active.size) sizeFilter.toggle(v)
-          })
-        }
-      }
-    }
-  }
-
-  function persistCurrentState() {
-    const sid = props.sessionID
-    if (!sid) return
-    const tabs: Record<string, PersistedFilterSnapshot> = {}
-    for (const [tabKey, snap] of savedTabFilters) {
-      tabs[tabKey] = {
-        source: Array.from(snap.source),
-        ratio: Array.from(snap.ratio),
-        size: Array.from(snap.size),
-      }
-    }
-    writeFilterState(sid, { activeTab: activeFilter(), tabs })
-  }
-
-  createEffect(() => {
-    const sid = props.sessionID
-    if (sid !== lastSessionID) {
-      // 清理旧 session 的持久化筛选记录
-      if (lastSessionID) {
-        try { localStorage.removeItem(STUDIO_FILTER_STATE_KEY_PREFIX + lastSessionID) } catch { /* noop */ }
-      }
-      lastSessionID = sid
-      // 切换 session → 清空所有 tab 的筛选记录（新 session 从头开始）
-      savedTabFilters.clear()
-      setActiveFilter("all")
-      batch(() => {
-        sourceFilter.reset()
-        ratioFilter.reset()
-        sizeFilter.reset()
-        setConfirmedSource(new Set<string>())
-        setConfirmedRatio(new Set<string>())
-        setConfirmedSize(new Set<string>())
-      })
-    }
+  const language = useLanguage()
+  const [state, setState] = createStore<FileManagerState>({
+    activeTab: "all",
+    showFilter: false,
+    resolutionFilter: new Set<string>(),
+    ratioFilter: new Set<string>(),
   })
-
-  function saveCurrentTabFilters() {
-    savedTabFilters.set(activeFilter(), {
-      source: new Set<string>(confirmedSource()),
-      ratio: new Set<string>(confirmedRatio()),
-      size: new Set<string>(confirmedSize()),
-    })
-  }
-
-  function loadTabFilters(tab: FileFilterTab) {
-    const saved = savedTabFilters.get(tab)
-    const source = saved?.source ?? new Set<string>()
-    const ratio = saved?.ratio ?? new Set<string>()
-    const size = saved?.size ?? new Set<string>()
-    batch(() => {
-      setConfirmedSource(source)
-      setConfirmedRatio(ratio)
-      setConfirmedSize(size)
-      sourceFilter.reset()
-      ratioFilter.reset()
-      sizeFilter.reset()
-      for (const v of source) sourceFilter.toggle(v)
-      for (const v of ratio) ratioFilter.toggle(v)
-      for (const v of size) sizeFilter.toggle(v)
-    })
-  }
-
-  function switchTab(tab: FileFilterTab) {
-    if (tab === activeFilter()) return
-    tracker.interaction({ module: "studio", name: "file-manager-tab", extend: JSON.stringify({ tab }) })
-    saveCurrentTabFilters()
-    setActiveFilter(tab)
-    loadTabFilters(tab)
-    persistCurrentState()
-  }
-
-  function syncLiveFromConfirmed() {
-    batch(() => {
-      sourceFilter.reset()
-      ratioFilter.reset()
-      sizeFilter.reset()
-      for (const v of confirmedSource()) sourceFilter.toggle(v)
-      for (const v of confirmedRatio()) ratioFilter.toggle(v)
-      for (const v of confirmedSize()) sizeFilter.toggle(v)
-    })
-  }
-
-  function applyAndCloseFilter() {
-    const source = new Set<string>(sourceFilter.state())
-    const ratio = new Set<string>(ratioFilter.state())
-    const size = new Set<string>(sizeFilter.state())
-    batch(() => {
-      setConfirmedSource(source)
-      setConfirmedRatio(ratio)
-      setConfirmedSize(size)
-    })
-    savedTabFilters.set(activeFilter(), { source, ratio, size })
-    persistCurrentState()
-    setShowFilter(false)
-  }
-
-  function handleConfirm() {
-    tracker.interaction({ module: "studio", name: "file-manager-filter-confirm" })
-    applyAndCloseFilter()
-  }
 
   // Extract media directly from turns prop (same reactive signal as center column)
   const mediaByDate = createMemo(() => {
@@ -455,17 +229,29 @@ export function StudioFileManager(props: {
 
   const globalEmpty = createMemo(() => mediaByDate().length === 0)
 
+  // 筛选时真正生效的比例：分辨率为视频专属，一旦选中结果只可能是视频，
+  // 此时图片专属比例（2:3/3:2）不作为筛选条件；图片 tab 下同理排除 21:9。
+  // 全选当前上下文适用的全部比例等价于不筛选：比例无法判定的项只在无比例条件时可见。
+  function effectiveRatios() {
+    const hidden = state.resolutionFilter.size > 0 || state.activeTab === "video"
+      ? VIDEO_HIDDEN_RATIOS
+      : state.activeTab === "image"
+        ? IMAGE_HIDDEN_RATIOS
+        : undefined
+    const applicable = RATIO_OPTIONS.filter((option) => !hidden?.has(option.label))
+    const selected = applicable.filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label)
+    return selected.length === applicable.length ? [] : selected
+  }
+
   // Filter media groups by all active filters
   const filteredGroups = createMemo(() => {
     dimsTick()
     const groups = mediaByDate()
-
-    const sourceSelected = confirmedSource()
-    const ratioSelected = confirmedRatio()
-    const sizeSelected = confirmedSize()
-    const hasSourceFilter = sourceSelected.size > 0
-    const hasRatioFilter = ratioSelected.size > 0
-    const hasSizeFilter = sizeSelected.size > 0
+    const resolutionSelected = state.resolutionFilter
+    const ratioSelected = effectiveRatios()
+    // 勾了分辨率（即使 4 档全选）结果就只可能是视频；全选档位等价于不筛分辨率，
+    // 让无法识别档位的老视频也能命中。
+    const allResolutionsSelected = RESOLUTION_OPTIONS.every((option) => resolutionSelected.has(option))
 
     return groups
       .map((group) => ({
@@ -473,27 +259,20 @@ export function StudioFileManager(props: {
         items: group.items.filter((item) => {
           // Tab filter: all / image / video
           if (props.canGenerateVideo) {
-            const filter = activeFilter()
+            const filter = state.activeTab
             if (filter === "image" && item.kind !== "image") return false
             if (filter === "video" && item.kind !== "video") return false
           }
-          // Source filter
-          if (hasSourceFilter) {
-            const cap = item.capability ?? ""
-            // 直接匹配中文标签，或通过 SOURCE_TO_CAPABILITY 反查
-            const matched = sourceSelected.has(cap) ||
-              SOURCE_OPTIONS.some((opt) => SOURCE_TO_CAPABILITY[opt] === cap && sourceSelected.has(opt))
-            if (!matched) return false
+          // 分辨率为视频专属：选中任一档位即只保留视频，未全选时还要命中具体档位
+          if (resolutionSelected.size > 0) {
+            if (item.kind !== "video") return false
+            if (!allResolutionsSelected && (!item.resolution || !resolutionSelected.has(item.resolution))) return false
           }
-          // Ratio filter
-          if (hasRatioFilter) {
-            const cat = getRatioCategory(item)
-            if (!cat || !ratioSelected.has(cat)) return false
-          }
-          // Size filter（仅对图片生效，视频直接放行）
-          if (hasSizeFilter && item.kind === "image") {
-            const cat = getSizeCategory(item)
-            if (!cat || !sizeSelected.has(cat)) return false
+          // 比例无法判定（无 aspectRatio 也无尺寸）的项只在无比例条件时可见；
+          // 「自定义」档不命中任何具体比例选项。
+          if (ratioSelected.length > 0) {
+            const label = getMediaRatio(item)
+            if (!label || !ratioSelected.includes(label)) return false
           }
           return true
         }),
@@ -503,138 +282,54 @@ export function StudioFileManager(props: {
 
   const tabEmpty = createMemo(() => filteredGroups().length === 0)
 
-  const confirmedFilterLabels = createMemo(() => {
-    const labels: string[] = []
-    for (const v of confirmedSource()) labels.push(v)
-    for (const v of confirmedRatio()) labels.push(v)
-    for (const v of confirmedSize()) {
-      const opt = SIZE_OPTIONS.find((s) => s.label === v)
-      labels.push(opt ? `${v}${opt.desc}` : v)
-    }
-    return labels
+  const visibleRatioOptions = createMemo(() => {
+    if (state.activeTab === "image") return RATIO_OPTIONS.filter((option) => !IMAGE_HIDDEN_RATIOS.has(option.label))
+    if (state.activeTab === "video") return RATIO_OPTIONS.filter((option) => !VIDEO_HIDDEN_RATIOS.has(option.label))
+    return RATIO_OPTIONS
   })
 
-  const [isFilterTextTruncated, setIsFilterTextTruncated] = createSignal(false)
-  let filterLabelRef!: HTMLSpanElement
-  let filterResizeObserver: ResizeObserver | undefined
-  const checkFilterTextTruncation = () => {
-    if (filterLabelRef) setIsFilterTextTruncated(filterLabelRef.scrollWidth > filterLabelRef.clientWidth)
-  }
-  createEffect(() => {
-    void confirmedFilterLabels().join("、")
-    queueMicrotask(() => checkFilterTextTruncation())
-  })
-  onCleanup(() => filterResizeObserver?.disconnect())
-  const [showFilterTooltip, setShowFilterTooltip] = createSignal(false)
-  let filterTooltipTimeout: ReturnType<typeof setTimeout> | undefined
-  let filterTooltipRef!: HTMLDivElement
-  const [filterTooltipStyle, setFilterTooltipStyle] = createSignal<JSX.CSSProperties>({})
-  const updateFilterTooltipPos = () => {
-    if (!filterLabelRef) return
-    const rect = filterLabelRef.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const style: JSX.CSSProperties = { left: `${rect.left}px` }
-    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
-      style.top = `${rect.bottom + 4}px`
-    } else {
-      style.bottom = `${window.innerHeight - rect.top + 4}px`
-    }
-    setFilterTooltipStyle(style)
-  }
-  const enterFilterTrigger = () => {
-    if (!isFilterTextTruncated()) return
-    clearTimeout(filterTooltipTimeout)
-    updateFilterTooltipPos()
-    setShowFilterTooltip(true)
-  }
-  const leaveFilterTrigger = () => {
-    filterTooltipTimeout = setTimeout(() => setShowFilterTooltip(false), 150)
-  }
-  const enterFilterTooltip = () => clearTimeout(filterTooltipTimeout)
-  const leaveFilterTooltip = () => setShowFilterTooltip(false)
+  // 已选筛选值的展示文案：分辨率在前、比例在后，用「、」连成一行，筛选按钮据此切换为「已筛选：…」。
+  const activeFilterLabels = createMemo(() => [
+    ...RESOLUTION_OPTIONS.filter((option) => state.resolutionFilter.has(option)),
+    ...visibleRatioOptions().filter((option) => state.ratioFilter.has(option.label)).map((option) => option.label),
+  ])
 
-  function clearConfirmedFilters(e: MouseEvent) {
-    e.stopPropagation()
+  const toggleFilterValue = (key: "resolutionFilter" | "ratioFilter", value: string) => {
+    tracker.interaction({ module: "studio", name: "file-manager-filter", extend: JSON.stringify({ filter: key, value }) })
+    setState(key, (prev) => {
+      const next = new Set(prev)
+      if (next.has(value)) next.delete(value)
+      else next.add(value)
+      return next
+    })
+  }
+
+  function clearFilters(event: MouseEvent) {
+    event.stopPropagation()
     tracker.interaction({ module: "studio", name: "file-manager-filter-clear" })
-    batch(() => {
-      sourceFilter.reset()
-      ratioFilter.reset()
-      sizeFilter.reset()
-      setConfirmedSource(new Set<string>())
-      setConfirmedRatio(new Set<string>())
-      setConfirmedSize(new Set<string>())
-    })
-    savedTabFilters.set(activeFilter(), {
-      source: new Set<string>(),
-      ratio: new Set<string>(),
-      size: new Set<string>(),
-    })
-    persistCurrentState()
+    setState({ resolutionFilter: new Set<string>(), ratioFilter: new Set<string>() })
+  }
+
+  // 切换 tab：清空上一次的筛选，因为分辨率与比例的可见范围随 tab 变化，保留会造成不可见条件。
+  function selectTab(tab: FileFilterTab) {
+    if (state.activeTab === tab) return
+    tracker.interaction({ module: "studio", name: "file-manager-tab", extend: JSON.stringify({ tab }) })
+    setState({ activeTab: tab, resolutionFilter: new Set<string>(), ratioFilter: new Set<string>() })
   }
 
   const emptyText = createMemo(() => {
-    if (globalEmpty()) return "暂无相关文件"
-    const filter = activeFilter()
-    if (filter === "image") return "暂无相关图片"
-    if (filter === "video") return "暂无相关视频"
-    return "暂无相关文件"
-  })
-
-  function handleReset() {
-    tracker.interaction({ module: "studio", name: "file-manager-filter-reset" })
-    batch(() => {
-      sourceFilter.reset()
-      ratioFilter.reset()
-      sizeFilter.reset()
-    })
-  }
-
-  function updateOverlayStyle() {
-    if (!containerRef || !showFilter()) return
-    const rect = containerRef.getBoundingClientRect()
-    if (props.showStudioCenter) {
-      const centerWidth = props.studioCenterWidth ?? 468
-      const left = Math.max(0, rect.left - centerWidth)
-      const width = Math.min(rect.width + centerWidth, window.innerWidth - left)
-      setOverlayStyle({
-        position: "fixed",
-        top: `${rect.top}px`,
-        left: `${left}px`,
-        width: `${width}px`,
-        height: `${rect.height}px`,
-      })
-    } else {
-      setOverlayStyle({
-        position: "fixed",
-        top: `${rect.top}px`,
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-      })
-    }
-  }
-
-  createEffect(() => {
-    if (props.hideFilter && showFilter()) setShowFilter(false)
+    const tab = state.activeTab
+    if (tab === "image") return language.t("studio.history.empty.image")
+    if (tab === "video") return language.t("studio.history.empty.video")
+    return language.t("studio.history.empty.file")
   })
 
   createEffect(() => {
-    if (!showFilter() || !containerRef) return
-    updateOverlayStyle()
-    const ro = new ResizeObserver(() => updateOverlayStyle())
-    ro.observe(containerRef)
-    window.addEventListener("resize", updateOverlayStyle)
-    onCleanup(() => {
-      ro.disconnect()
-      window.removeEventListener("resize", updateOverlayStyle)
-    })
+    if (props.hideFilter && state.showFilter) setState("showFilter", false)
   })
 
   return (
-    <div
-      ref={containerRef}
-      class="studio-file-manager"
-    >
+    <div class="studio-file-manager">
       <div class="studio-file-manager-header">
         <Show when={props.canGenerateVideo && !globalEmpty()} fallback={<span />}>
           <div class="studio-file-manager-tabs">
@@ -643,63 +338,100 @@ export function StudioFileManager(props: {
                 <button
                   type="button"
                   class="studio-file-manager-tab"
-                  classList={{ active: activeFilter() === tab.key }}
-                  onClick={() => switchTab(tab.key)}
+                  classList={{ active: state.activeTab === tab.key }}
+                  onClick={() => selectTab(tab.key)}
                 >
-                  {tab.label}
+                  {language.t(tab.label)}
                 </button>
               )}
             </For>
           </div>
         </Show>
         <Show when={!globalEmpty()}>
-          <div
-            class="studio-file-manager-filter"
-            classList={{ active: showFilter(), filtered: confirmedFilterLabels().length > 0 }}
-            onClick={() => {
-              if (!showFilter()) {
-                tracker.interaction({ module: "studio", name: "file-manager-filter-open" })
-                syncLiveFromConfirmed()
-              }
-              setShowFilter((v) => !v)
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "margin-right": "4px", "flex-shrink": "0" }}>
-              <path d="M3.5 2.5H12.5A1 1 0 0 1 13.5 3.5L9.5 7V10L7 13.5A1 1 0 0 1 6.5 12.5V7L2.5 3.5A1 1 0 0 1 3.5 2.5Z" stroke="currentColor" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <Show
-              when={confirmedFilterLabels().length > 0}
-              fallback={<span class="studio-file-manager-filter-text">筛选</span>}
+          <DropdownMenu gutter={4} placement="bottom" open={state.showFilter} onOpenChange={(open) => setState("showFilter", open)}>
+            <DropdownMenu.Trigger
+              class="studio-history-filter-trigger"
+              classList={{
+                "studio-history-filter-trigger--open": state.showFilter,
+                "studio-history-filter-trigger--filtered": activeFilterLabels().length > 0,
+              }}
             >
-              <span
-                ref={(el) => { filterLabelRef = el; filterResizeObserver?.disconnect(); filterResizeObserver = new ResizeObserver(() => checkFilterTextTruncation()); filterResizeObserver.observe(el); queueMicrotask(() => checkFilterTextTruncation()) }}
-                class="studio-file-manager-filter-text"
-                onMouseEnter={enterFilterTrigger}
-                onMouseLeave={leaveFilterTrigger}
+              <Show
+                when={activeFilterLabels().length > 0}
+                fallback={<span>{language.t("studio.history.filter")}</span>}
               >
-                {confirmedFilterLabels().join("、")}
-              </span>
-              <Show when={showFilterTooltip()}>
-                <Portal>
-                  <div
-                    ref={filterTooltipRef!}
-                    style={{ ...filterTooltipStyle(), "max-width": "300px" }}
-                    onMouseEnter={enterFilterTooltip}
-                    onMouseLeave={leaveFilterTooltip}
-                    class="studio-custom-tooltip fixed z-[1000]"
-                  >
-                    {confirmedFilterLabels().join("、")}
-                  </div>
-                </Portal>
+                <span class="studio-history-filter-active">
+                  <span class="studio-history-filter-active-prefix">{language.t("studio.history.filter.active")}</span>{activeFilterLabels().join("、")}
+                </span>
+                <span
+                  class="studio-history-filter-clear"
+                  role="button"
+                  aria-label={language.t("studio.history.filter.clear")}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={clearFilters}
+                />
               </Show>
-              <span
-                class="studio-file-manager-filter-clear"
-                role="button"
-                aria-label="清除筛选"
-                onClick={clearConfirmedFilters}
-              />
-            </Show>
-          </div>
+              <Show when={activeFilterLabels().length === 0}>
+                <svg
+                  width="10"
+                  height="6"
+                  viewBox="0 0 10 6"
+                  fill="none"
+                  style={{
+                    "margin-left": "4px",
+                    transform: state.showFilter ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.15s ease",
+                  }}
+                >
+                  <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </Show>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="studio-history-filter-menu studio-history-filter-menu--scrollable">
+                <Show when={state.activeTab !== "image" && props.canGenerateVideo}>
+                  <DropdownMenu.Group>
+                    <DropdownMenu.GroupLabel>{language.t("studio.history.filter.resolution")}</DropdownMenu.GroupLabel>
+                    <For each={RESOLUTION_OPTIONS}>
+                      {(option) => (
+                        <DropdownMenu.CheckboxItem
+                          checked={state.resolutionFilter.has(option)}
+                          onChange={() => toggleFilterValue("resolutionFilter", option)}
+                          closeOnSelect={false}
+                        >
+                          <DropdownMenu.ItemLabel>{option}</DropdownMenu.ItemLabel>
+                          <DropdownMenu.ItemIndicator>
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                          </DropdownMenu.ItemIndicator>
+                        </DropdownMenu.CheckboxItem>
+                      )}
+                    </For>
+                  </DropdownMenu.Group>
+                </Show>
+                <DropdownMenu.Group>
+                  <DropdownMenu.GroupLabel>{language.t("studio.history.filter.ratio")}</DropdownMenu.GroupLabel>
+                  <For each={visibleRatioOptions()}>
+                    {(option) => (
+                      <DropdownMenu.CheckboxItem
+                        checked={state.ratioFilter.has(option.label)}
+                        onChange={() => toggleFilterValue("ratioFilter", option.label)}
+                        closeOnSelect={false}
+                      >
+                        <DropdownMenu.ItemLabel>{option.label}</DropdownMenu.ItemLabel>
+                        <DropdownMenu.ItemIndicator>
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                          </svg>
+                        </DropdownMenu.ItemIndicator>
+                      </DropdownMenu.CheckboxItem>
+                    )}
+                  </For>
+                </DropdownMenu.Group>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
         </Show>
       </div>
       <ScrollView class="studio-file-manager-body">
@@ -749,80 +481,6 @@ export function StudioFileManager(props: {
           </div>
         </Show>
       </ScrollView>
-      <Show when={showFilter()}>
-        <Portal>
-          <div class="studio-filter-overlay" style={overlayStyle()} onClick={() => { tracker.interaction({ module: "studio", name: "file-manager-filter-close" }); applyAndCloseFilter() }}>
-            <div class="studio-filter-dialog" onClick={(e) => e.stopPropagation()}>
-              <div class="studio-filter-dialog-header">
-                <span class="studio-filter-dialog-title">筛选</span>
-                <button type="button" class="studio-filter-dialog-close" onClick={() => { tracker.interaction({ module: "studio", name: "file-manager-filter-close" }); applyAndCloseFilter() }}>
-                  <svg width="12.14" height="12.14" viewBox="0 0 12.14 12.14" fill="none">
-                    <path d="M1 1L11.14 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />
-                    <path d="M11.14 1L1 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />
-                  </svg>
-                </button>
-              </div>
-              <div class="studio-filter-dialog-body">
-                <Show when={activeFilter() !== "video"}>
-                  <div class="studio-filter-section">
-                    <div class="studio-filter-section-title">来源</div>
-                    <div class="studio-filter-section-options">
-                      <For each={SOURCE_OPTIONS}>
-                        {(label) => {
-                          const isVideoSource = label === "视频生成"
-                          const shouldHide =
-                            (!props.canGenerateVideo && isVideoSource) ||
-                            (activeFilter() === "image" && isVideoSource)
-                          if (shouldHide) return null
-                          return (
-                          <label class="studio-filter-checkbox">
-                            <input type="checkbox" checked={sourceFilter.state().has(label)} onChange={() => sourceFilter.toggle(label)} />
-                            <span class="studio-filter-checkbox-label">{label}</span>
-                          </label>
-                          )
-                        }}
-                      </For>
-                    </div>
-                  </div>
-                </Show>
-                <div class="studio-filter-section">
-                  <div class="studio-filter-section-title">比例</div>
-                  <div class="studio-filter-section-options">
-                    <For each={RATIO_OPTIONS}>
-                      {(label) => (
-                        <label class="studio-filter-checkbox">
-                          <input type="checkbox" checked={ratioFilter.state().has(label)} onChange={() => ratioFilter.toggle(label)} />
-                          <span class="studio-filter-checkbox-label">{label}</span>
-                        </label>
-                      )}
-                    </For>
-                  </div>
-                </div>
-                <Show when={activeFilter() !== "video"}>
-                  <div class="studio-filter-section">
-                    <div class="studio-filter-section-title">尺寸</div>
-                    <div class="studio-filter-section-options">
-                      <For each={SIZE_OPTIONS}>
-                        {(item) => (
-                        <label class="studio-filter-checkbox">
-                          <input type="checkbox" checked={sizeFilter.state().has(item.label)} onChange={() => sizeFilter.toggle(item.label)} />
-                          <span class="studio-filter-checkbox-label">{item.label}</span>
-                          <span class="studio-filter-checkbox-desc">{item.desc}</span>
-                        </label>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </Show>
-              </div>
-              <div class="studio-filter-dialog-footer">
-                <button type="button" class="studio-filter-btn studio-filter-btn-reset" onClick={handleReset}>重置</button>
-                <button type="button" class="studio-filter-btn studio-filter-btn-confirm" onClick={handleConfirm}>确定</button>
-              </div>
-            </div>
-          </div>
-        </Portal>
-      </Show>
     </div>
   )
 }

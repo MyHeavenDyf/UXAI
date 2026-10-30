@@ -4,6 +4,9 @@ import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
 import { described } from "./metadata"
+import { InitializePayload, ExpansionPayload, RecommendationState, RecommendationResponse, RecommendationErrorBody } from "@/studio/prompt-recommendation-schema"
+
+const recommendationErrors = [400, 404, 409, 413, 429, 503].map((httpApiStatus) => RecommendationErrorBody.annotate({ httpApiStatus }))
 
 const root = "/studio"
 
@@ -350,6 +353,23 @@ export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
+        HttpApiEndpoint.post("initializeRecommendation", "/studio/prompt-recommendations", {
+          payload: InitializePayload, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation" })),
+        HttpApiEndpoint.post("dismissRecommendation", "/studio/sessions/:sessionID/prompt-recommendations/:guidePartID/dismiss", {
+          params: { sessionID: Schema.String, guidePartID: Schema.String }, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.dismiss", summary: "Dismiss unused Studio prompt recommendation" })),
+        HttpApiEndpoint.post("submitExpansion", "/studio/prompt-expansions", {
+          payload: ExpansionPayload, success: RecommendationResponse.annotate({ httpApiStatus: 202 }), error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-expansions.create", summary: "Submit Studio prompt expansion" })),
+        HttpApiEndpoint.get("getRecommendationState", "/studio/sessions/:sessionID/prompt-recommendation", {
+          params: { sessionID: Schema.String }, query: { guidePartID: Schema.optional(Schema.String) }, success: RecommendationState, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.get", summary: "Read Studio prompt recommendation" })),
+        HttpApiEndpoint.post("cancelExpansion", "/studio/sessions/:sessionID/prompt-expansions/:assistantMessageID/cancel", {
+          params: { sessionID: Schema.String, assistantMessageID: Schema.String }, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-expansions.cancel", summary: "Cancel Studio prompt expansion" })),
+      )
+      .add(
         HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
           success: described(Schema.Unknown, "Prompt tags list"),
           error: ApiStudioGenerationError,
@@ -455,7 +475,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.create",
@@ -466,7 +486,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("createEditorEntry", StudioPaths.editorEntries, {
           payload: StudioEditorEntryPayload,
           success: described(StudioEditorEntryResult, "Studio editor entry result"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.editor-entries.create",
@@ -490,7 +510,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("rebootGeneration", StudioPaths.generationReboot, {
           params: { generationID: Schema.String },
           success: described(StudioGenerationResult, "Rebooted Studio generation"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.reboot",
@@ -576,7 +596,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("refreshGeneration", StudioPaths.generationRefresh, {
           params: { generationID: Schema.String },
           success: described(StudioGenerationResult, "Refreshed Studio generation"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.refresh",

@@ -25,15 +25,35 @@ import {
 } from "@/studio/studio-history-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance, type InstanceContext } from "@/project/instance"
+import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
-import { Effect, Queue, Schema } from "effect"
+import { Effect, Layer, Queue, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioHistoryDeletePayload, StudioHistoryListQuery, StudioHistorySnapshotPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateDetailQuery, StudioTemplateListQuery, StudioTemplatePublishPayload, StudioTemplateUpdatePayload, StudioTemplateUserSearchPayload } from "../groups/studio"
+import {
+  ApiStudioGenerationError,
+  StudioEditorEntryPayload,
+  StudioGenerationPayload,
+  StudioHistoryDeletePayload,
+  StudioHistoryListQuery,
+  StudioHistorySnapshotPayload,
+  StudioPromptGenPayload,
+  StudioStyleDescriptionGenPayload,
+  StudioTemplateDetailQuery,
+  StudioTemplateListQuery,
+  StudioTemplatePublishPayload,
+  StudioTemplateUpdatePayload,
+  StudioTemplateUserSearchPayload,
+} from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
+import { RecommendationError } from "@/studio/prompt-recommendation-schema"
+import { recommendationRequest } from "@/studio/prompt-recommendation-http"
+import { Provider } from "@/provider/provider"
+import { Config } from "@/config/config"
+import { LLM } from "@/session/llm"
 import {
   ensureStudioSessionThumbnails,
   invalidateStudioMediaThumbnail,
@@ -42,6 +62,11 @@ import {
   saveStudioMediaThumbnail,
   saveStudioVideoPoster,
 } from "@/studio/studio-media-thumbnail"
+
+function recommendationFailure(error: unknown) {
+  if (error instanceof RecommendationError) return HttpServerResponse.jsonUnsafe(error.body(), { status: error.status })
+  throw error
+}
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
   return {
@@ -59,26 +84,26 @@ function styleDescriptionStreamError(error: unknown): StudioStyleDescriptionGenS
   }
 }
 
-function styleDescriptionResponse(
-  payload: typeof StudioStyleDescriptionGenPayload.Type,
-  instance: InstanceContext,
-) {
+function styleDescriptionResponse(payload: typeof StudioStyleDescriptionGenPayload.Type, instance: InstanceContext) {
   return HttpServerResponse.stream(
     Stream.callback<StudioStyleDescriptionGenStreamEvent>((queue) =>
       Effect.acquireRelease(
         Effect.sync(() => {
           const controller = new AbortController()
           void Instance.restore(instance, () =>
-            createStyleDescriptionGenStream({
-              style_keywords: payload.style_keywords,
-              style_images: payload.style_images.map((image) => ({ url: image.url })),
-              style_dimensions: [...payload.style_dimensions],
-            }, {
-              signal: controller.signal,
-              onEvent: (event) => {
-                Queue.offerUnsafe(queue, event)
+            createStyleDescriptionGenStream(
+              {
+                style_keywords: payload.style_keywords,
+                style_images: payload.style_images.map((image) => ({ url: image.url })),
+                style_dimensions: [...payload.style_dimensions],
               },
-            }),
+              {
+                signal: controller.signal,
+                onEvent: (event) => {
+                  Queue.offerUnsafe(queue, event)
+                },
+              },
+            ),
           )
             .catch((error) => {
               if (!controller.signal.aborted) Queue.offerUnsafe(queue, styleDescriptionStreamError(error))
@@ -90,11 +115,7 @@ function styleDescriptionResponse(
         }),
         (controller) => Effect.sync(() => controller.abort()),
       ),
-    ).pipe(
-      Stream.map(styleDescriptionEventData),
-      Stream.pipeThroughChannel(Sse.encode()),
-      Stream.encodeText,
-    ),
+    ).pipe(Stream.map(styleDescriptionEventData), Stream.pipeThroughChannel(Sse.encode()), Stream.encodeText),
     {
       contentType: "text/event-stream",
       headers: {
@@ -108,6 +129,33 @@ function styleDescriptionResponse(
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
+    const provider = yield* Provider.Service
+    const config = yield* Config.Service
+    const llm = yield* LLM.Service
+    const recommendation = (
+      action: "initialize" | "submit" | "state" | "cancel" | "dismiss",
+      params?: { sessionID: string; assistantMessageID?: string; guidePartID?: string },
+    ) =>
+      Effect.gen(function* () {
+        const instance = yield* InstanceState.context
+        const workspace = yield* InstanceState.workspaceID
+        const request = yield* HttpServerRequest.toWeb(yield* HttpServerRequest.HttpServerRequest).pipe(Effect.orDie)
+        const response = yield* Effect.promise(
+          async () =>
+            await Instance.restore(instance, () =>
+              WorkspaceContext.provide({
+                workspaceID: workspace,
+                fn: () =>
+                  recommendationRequest(request, action, params, {
+                    provider,
+                    config,
+                    llm,
+                  }),
+              }),
+            ),
+        )
+        return HttpServerResponse.fromWeb(response)
+      })
     const create = Effect.fn("StudioHttpApi.createGeneration")(function* (ctx: {
       payload: typeof StudioGenerationPayload.Type
     }) {
@@ -147,7 +195,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               sourceImage: ctx.payload.sourceImage,
               extra: ctx.payload.extra ? { ...ctx.payload.extra } : undefined,
             }),
-          ),
+          ).catch(recommendationFailure),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -158,9 +206,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
-    const get = Effect.fn("StudioHttpApi.getGeneration")(function* (ctx: {
-      params: { generationID: string }
-    }) {
+    const get = Effect.fn("StudioHttpApi.getGeneration")(function* (ctx: { params: { generationID: string } }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => getGeneration(ctx.params.generationID)),
@@ -174,9 +220,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
-    const cancel = Effect.fn("StudioHttpApi.cancelGeneration")(function* (ctx: {
-      params: { generationID: string }
-    }) {
+    const cancel = Effect.fn("StudioHttpApi.cancelGeneration")(function* (ctx: { params: { generationID: string } }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => cancelGeneration(ctx.params.generationID)),
@@ -190,12 +234,11 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
-    const reboot = Effect.fn("StudioHttpApi.rebootGeneration")(function* (ctx: {
-      params: { generationID: string }
-    }) {
+    const reboot = Effect.fn("StudioHttpApi.rebootGeneration")(function* (ctx: { params: { generationID: string } }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => rebootGeneration(ctx.params.generationID)),
+        try: () =>
+          Instance.restore(instance, () => rebootGeneration(ctx.params.generationID)).catch(recommendationFailure),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -206,12 +249,11 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
-    const refresh = Effect.fn("StudioHttpApi.refreshGeneration")(function* (ctx: {
-      params: { generationID: string }
-    }) {
+    const refresh = Effect.fn("StudioHttpApi.refreshGeneration")(function* (ctx: { params: { generationID: string } }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => refreshGeneration(ctx.params.generationID)),
+        try: () =>
+          Instance.restore(instance, () => refreshGeneration(ctx.params.generationID)).catch(recommendationFailure),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -227,7 +269,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => createEditorEntry(ctx.payload)),
+        try: () => Instance.restore(instance, () => createEditorEntry(ctx.payload)).catch(recommendationFailure),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -243,7 +285,8 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => Promise.resolve(ensureStudioSessionThumbnails(ctx.params.sessionID))),
+        try: () =>
+          Instance.restore(instance, () => Promise.resolve(ensureStudioSessionThumbnails(ctx.params.sessionID))),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -260,11 +303,14 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => saveStudioVideoPoster({
-          generationID: ctx.params.generationID,
-          mediaIndex: ctx.payload.mediaIndex,
-          content: ctx.payload.content,
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            saveStudioVideoPoster({
+              generationID: ctx.params.generationID,
+              mediaIndex: ctx.payload.mediaIndex,
+              content: ctx.payload.content,
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -278,10 +324,13 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       const source = yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => loadStudioThumbnailSource({
-          generationID: ctx.params.generationID,
-          mediaIndex: Number(ctx.params.mediaIndex),
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            loadStudioThumbnailSource({
+              generationID: ctx.params.generationID,
+              mediaIndex: Number(ctx.params.mediaIndex),
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -307,11 +356,14 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => saveStudioMediaThumbnail({
-          generationID: ctx.params.generationID,
-          mediaIndex: Number(ctx.params.mediaIndex),
-          content: ctx.payload.content,
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            saveStudioMediaThumbnail({
+              generationID: ctx.params.generationID,
+              mediaIndex: Number(ctx.params.mediaIndex),
+              content: ctx.payload.content,
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -328,10 +380,13 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => invalidateStudioMediaThumbnail({
-          generationID: ctx.params.generationID,
-          mediaIndex: Number(ctx.params.mediaIndex),
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            invalidateStudioMediaThumbnail({
+              generationID: ctx.params.generationID,
+              mediaIndex: Number(ctx.params.mediaIndex),
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -395,10 +450,13 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       if (Number(ctx.params.templateID) !== ctx.payload.idx) return yield* new HttpApiError.BadRequest({})
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => updateTemplate({
-          user_id: ctx.query.user_id,
-          template: ctx.payload,
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            updateTemplate({
+              user_id: ctx.query.user_id,
+              template: ctx.payload,
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -417,10 +475,13 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       if (!Number.isFinite(templateID)) return yield* new HttpApiError.BadRequest({})
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
-        try: () => Instance.restore(instance, () => deleteTemplate({
-          template_id: templateID,
-          user_id: ctx.query.user_id,
-        })),
+        try: () =>
+          Instance.restore(instance, () =>
+            deleteTemplate({
+              template_id: templateID,
+              user_id: ctx.query.user_id,
+            }),
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -578,6 +639,11 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     })
 
     return handlers
+      .handleRaw("initializeRecommendation", () => recommendation("initialize"))
+      .handleRaw("submitExpansion", () => recommendation("submit"))
+      .handleRaw("getRecommendationState", (ctx) => recommendation("state", ctx.params))
+      .handleRaw("dismissRecommendation", (ctx) => recommendation("dismiss", ctx.params))
+      .handleRaw("cancelExpansion", (ctx) => recommendation("cancel", ctx.params))
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
       .handle("ensureSessionThumbnails", ensureThumbnails)
@@ -610,7 +676,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               name: "StudioGenerationError",
               data: { message: error instanceof Error ? error.message : String(error) },
             }),
-        })
+        }),
       )
   }),
-)
+).pipe(Layer.provide(LLM.layer))

@@ -160,6 +160,43 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.live(
+    "returns path validation details as 400 but preserves I/O failures as 500 through both backends",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
+      Effect.gen(function* () {
+        const session = yield* createSession(tmp.path, { title: "Invalid archive" })
+        yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "outputs", "page.html"), "page"))
+        const output = path.join(tmp.path, ".exports", "invalid.zip")
+        const exported = yield* requestWithBackend(true, pathFor(SessionPaths.portableExport, { sessionID: session.id }), {
+        method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ path: output }),
+      })
+        expect(exported.status).toBe(200)
+        yield* Effect.promise(async () => {
+          const zip = await JSZip.loadAsync(await Bun.file(output).arrayBuffer())
+          const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+          manifest.files[0].path = "../escape.html"
+          zip.file("manifest.json", JSON.stringify(manifest))
+          await Bun.write(output, await zip.generateAsync({ type: "uint8array" }))
+        })
+        for (const experimental of [true, false]) {
+          const invalid = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+            method: "POST",
+            headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+            body: JSON.stringify({ path: output }),
+          })
+          expect(invalid.status).toBe(400)
+          expect(yield* Effect.promise(() => invalid.text())).toContain("files[0]")
+          const missing = yield* requestWithBackend(experimental, SessionPaths.portableImport, {
+            method: "POST",
+            headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+            body: JSON.stringify({ path: path.join(tmp.path, "missing.zip") }),
+          })
+          expect(missing.status).toBe(500)
+        }
+      }),
+    ),
+  )
   it.live("restores shared archives into private file lists through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Shared to private" })

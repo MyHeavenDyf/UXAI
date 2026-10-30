@@ -20,12 +20,17 @@ import log from "electron-log/main.js"
 // jk-j60099994-replace-with-ipc-1-start
 // jk-j60099994-replace-with-ipc-1-end
 
+// jk-j60099994-replace-with-yjt-pixso-ipc-0-start
+// jk-j60099994-replace-with-yjt-pixso-ipc-0-end
+
 app.commandLine.appendSwitch("ignore-certificate-errors")
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
 
 import type {
+  AuthStartupState,
   InitStep,
+  StartLoginResult,
   ServerReadyData,
   SqliteMigrationProgress,
   TitlebarTheme,
@@ -203,6 +208,10 @@ type Deps = {
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
+  startLogin: () => Promise<StartLoginResult>
+  cancelLogin: () => Promise<boolean>
+  stopTokenExpirationCheck: () => void
+  checkAuthReady: () => Promise<AuthStartupState>
   // jk-j60099994-replace-with-ipc-2-end
   // jk-j60099994-replace-with-60062650-main-skills-ipc-6-start
   // jk-j60099994-replace-with-60062650-main-skills-ipc-6-end
@@ -303,9 +312,16 @@ export function registerIpcHandlers(deps: Deps) {
       clearTimeout(entry.timer)
     }
     // Directory/file restoration only starts after the renderer has switched to the identified module.
-    return importSharedSession({ ...input, uniqueId, directory, scope, prepared: entry?.prepared })
+    return importSharedSession({
+      ...input, uniqueId, directory, scope, prepared: entry?.prepared,
+      log: (event, details) => log.info(`[octo:share-import] ${event}`, details),
+    })
   })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
+  ipcMain.handle("auth:start-login", () => deps.startLogin())
+  ipcMain.handle("auth:cancel-login", () => deps.cancelLogin())
+  ipcMain.on("auth:stop-token-check", () => deps.stopTokenExpirationCheck())
+  ipcMain.handle("auth:check-ready", () => deps.checkAuthReady())
 
   // fastui 预览(SPEC-DES-004):卡片只记产物,点击时由主进程当场给地址 ——
   // 服务活着且应答就复用,否则当场挑端口起服务。约定为「返回结果对象、永不 throw」。
@@ -1524,6 +1540,9 @@ export function registerIpcHandlers(deps: Deps) {
       throw err
     }
   })
+
+  // jk-j60099994-replace-with-yjt-pixso-ipc-1-start
+  // jk-j60099994-replace-with-yjt-pixso-ipc-1-end
 
   ipcMain.handle(
     "export-zip",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveOutputType, extOf, extOfUri, attachmentMediaKind, type OutputCardType } from "./output-type"
+import { resolveOutputType, extOf, extOfUri, attachmentMediaKind, isBlockedLocalFile, type OutputCardType } from "./output-type"
 
 // SPEC-INS-026 §11.1 V4 / V5。
 
@@ -191,5 +191,42 @@ describe("attachmentMediaKind", () => {
   })
   test("大写扩展名归一为小写", () => {
     expect(attachmentMediaKind({ fileName: "CLIP.MP4" })).toBe("video")
+  })
+})
+
+// Make 页 link 卡片守卫用的谓词:FILE_EXT 非媒体 → 禁止开 tab。
+describe("isBlockedLocalFile", () => {
+  test("可执行/库/压缩/office → true(禁止开 tab)", () => {
+    for (const f of [
+      "setup.exe", "tool.EXE", "lib.dll", "lib.so", "lib.dylib", "run.bin",
+      "pack.zip", "pack.7z", "disk.iso", "app.dmg",
+      "report.docx", "sheet.xlsx", "slides.pptx",
+      "src.psd", "art.ai", "design.sketch", "board.fig", "data.csv",
+      "font.woff2", "font.ttf",
+    ]) {
+      expect(isBlockedLocalFile(f)).toBe(true)
+    }
+  })
+  test("可预览类型 → false", () => {
+    for (const f of [
+      "page.html", "icon.svg", "shot.png", "img.webp",
+      "clip.mp4", "track.mp3", "doc.pdf",
+      "report.md", "data.json", "script.py", "mod.ts", "notes.txt",
+    ]) {
+      expect(isBlockedLocalFile(f)).toBe(false)
+    }
+  })
+  test("未知扩展名 → false(按文本打开,由 TextRenderer 规模防护兜底)", () => {
+    expect(isBlockedLocalFile("x.unknownext")).toBe(false)
+  })
+  test("无扩展名 → false(Makefile/Dockerfile 等维持按文本打开)", () => {
+    expect(isBlockedLocalFile("Makefile")).toBe(false)
+    expect(isBlockedLocalFile("a/b/README")).toBe(false)
+    expect(isBlockedLocalFile("")).toBe(false)
+  })
+  test("完整磁盘路径取 basename 判定(与卡片显示标题无关)", () => {
+    expect(isBlockedLocalFile("C:\\out\\工具\\setup.exe")).toBe(true)
+    expect(isBlockedLocalFile("/proj/.octo/ses_1/outputs/page.html")).toBe(false)
+    expect(isBlockedLocalFile("tools/setup.exe")).toBe(true)
   })
 })
