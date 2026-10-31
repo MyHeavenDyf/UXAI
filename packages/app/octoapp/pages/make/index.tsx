@@ -1348,6 +1348,17 @@ const sessionMessagesLoaded = createMemo(() => {
     const ownerSessionID = params.id
     if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
 
+    // plan 子代理会再派只读调研孙会话(explore/general)。这类孙会话不进消息流:agent 已知且
+    // 不在可见清单(如 explore)时跳过 sync——消息流保持「路由转述 → 计划文本」,调研进度由
+    // plan turn 内的子任务卡片展示(未 sync 的子会话卡片走完整内容形态,可展开调研摘要)。
+    // store.session 由 session.created 事件自动填充,无需先 sync;agent 未知(事件竞态)则照旧
+    // 加载,罕见情况下降级为内联渲染,功能无损。
+    const knownAgent = sync.session.get(subSessionID)?.agent
+    if (knownAgent && !["octo_make_plan", "ict_pattern", "octo_design", "octo_code", "plan"].includes(knownAgent)) {
+      loadedChildSessions.add(subSessionID)
+      return
+    }
+
     loadedChildSessions.add(subSessionID)
     try {
       await sync.session.sync(subSessionID)
@@ -1370,9 +1381,9 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern / octo_design / octo_code），
-      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
-      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern", "octo_design", "octo_code"])
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern / octo_design /
+      // octo_code / plan），跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern", "octo_design", "octo_code", "plan"])
       const children = (res.data ?? []).filter((s: any) =>
         s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
       )
@@ -6370,7 +6381,7 @@ onPreview={(url) => {
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
                         active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
                         mainSessionID={params.id}
-                        hideUserBubble={!!userMessages()[0].sessionID && userMessages()[0].sessionID !== params.id && (userMessages()[0].agent === "octo_design" || userMessages()[0].agent === "octo_code")}
+                        hideUserBubble={!!userMessages()[0].sessionID && userMessages()[0].sessionID !== params.id && (userMessages()[0].agent === "octo_design" || userMessages()[0].agent === "octo_code" || userMessages()[0].agent === "plan")}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -6412,7 +6423,7 @@ onPreview={(url) => {
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
                             active={sync.data.session_status[messageSessionID]?.type === "busy"}
                             mainSessionID={params.id}
-                            hideUserBubble={messageSessionID !== params.id && (msg.agent === "octo_design" || msg.agent === "octo_code")}
+                            hideUserBubble={messageSessionID !== params.id && (msg.agent === "octo_design" || msg.agent === "octo_code" || msg.agent === "plan")}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}

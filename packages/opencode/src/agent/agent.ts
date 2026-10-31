@@ -133,7 +133,9 @@ export const layer = Layer.effect(
           // task 候选清单里(registry.describeTask 按 evaluate("task", <agent 名>) 过滤)。
           // 注意这里**必须**用 pattern 形态而不是整体 deny —— Permission.disabled 只在
           // 「最后匹配规则 pattern === "*" 且 deny」时隐藏工具,故本条不会关掉其他 agent 的 task 本身。
-          task: { insight_reader: "deny" },
+          // plan 同理:上游 plan agent 是 CLI 主会话模式,mode 改 "all" 接入 octo_make 路由后,
+          // 只允许路由显式 allow,不进其他 agent 的候选清单。
+          task: { insight_reader: "deny", plan: "deny" },
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
@@ -187,6 +189,12 @@ export const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
+                // 只读规划者只许派只读 explore 调研;防模型选 general 间接拿到写能力
+                // (findLast 语义,allow 必须排在 "*": "deny" 之后)
+                task: {
+                  "*": "deny",
+                  explore: "allow",
+                },
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
@@ -202,7 +210,9 @@ export const layer = Layer.effect(
               }),
               user,
             ),
-            mode: "primary",
+            // "all":保留 CLI 主会话身份,同时能被 octo_make 路由经 task 派发(describeTask 按
+            // mode !== "primary" 过滤候选清单)。hidden 不变:不进 switch_agent/autocomplete 列表
+            mode: "all",
             native: true,
             hidden: true,
           },
@@ -371,6 +381,7 @@ export const layer = Layer.effect(
                   "*": "deny",
                   octo_design: "allow",
                   octo_code: "allow",
+                  plan: "allow",
                 },
                 todowrite: "deny",
                 websearch: "deny",

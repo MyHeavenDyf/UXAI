@@ -122,3 +122,65 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 演示彩排发现：task 派发生成期间出现**两块「生成中…」状态框**。根因：路由化后子会话 turn 内联渲染（自带 WaitingPill/流式卡片），而主会话（路由）turn 的 WaitingPill 在整个 task 运行期也在显示——单体时代主会话 pill 的 accumulatedText 会聚合子会话内容做预览（子会话不渲染时的补偿设计），内联渲染后成为重复。CDP 实证两块 pill 分属两个 turn（主会话 pill 的预览文本即聚合的子会话 `<artifact>` 内容）。
 
 修复（insight-turn.tsx）：新增 `childTurnActive` memo——存在 running subtask 且 `msgStore[subSessionID]` 已有消息（子会话 turn 已渲染）时，隐藏本 turn 的 WaitingPill。边界：纯聊天无 task 主 pill 照常；子会话 sync 未完成/失败时 msgStore 为空、主 pill 保留兜底，任何时刻都有状态指示；plan/pattern 子代理场景同样受益。E2E 验证：修复前 [Workspace] todo 复现 2 块，修复后记账工具场景（同为 octo_code 多文件）生成全程 4 次采样恒 1 块、完成干净消失、三文件落盘正常。
+
+## 原生 plan agent 接入路由（2026-10-30）
+
+把上游原生 plan agent（只读规划、question 提问、派 explore 只读调研）接入 octo_make 路由，作为第四类派发目标 **D. 方案规划**——用户对话式提出「先做计划/规划，先别动手」时路由派发 plan，与策略模式（octo_make_plan 前端建子会话）两套规划入口并存。
+
+架构决策（用户确认）：
+- **explore 调研孙会话不进消息流**（用户选定）：plan 派发的 explore/general 孙会话不 sync 不渲染，调研进度以 plan turn 内子任务卡片展示（描述+状态+可展开 task_result 摘要）；消息流保持「路由转述 → 计划 Markdown」
+- 接入方式 = plan agent `mode: "primary"` → `"all"`（task.ts 本就不校验 mode，改 mode 只为 describeTask 候选清单自洽；hidden 不变，不进 switch_agent/autocomplete 用户列表）
+
+### `src/agent/agent.ts`
+
+- plan agent：mode 改 "all"；permission 增 `task: { "*": "deny", explore: "allow" }`——只读规划者只许派只读 explore，防模型选 general 间接获得写能力（findLast 顺序）
+- defaults：`task: { insight_reader: "deny", plan: "deny" }`——pattern 形态守卫（照 SPEC-INS-032 §5.2 先例，只挡候选清单不挡 task 工具），防 plan 泄漏进 general 等其他 agent 的候选
+- octo_make：task 块加 `plan: "allow"`
+
+### `src/agent/prompt/octo_make.txt`
+
+- 新增 D 分类：明确「先规划再动手」/ [Workspace] 重构方案 / 要计划文档而非产物 → 派 plan；模糊判定补 A/D/B-C 划界（纯讨论→A；明确先规划→D；按已有计划执行→B/C 并附计划全文）
+- 派发规范 subagent_type 增 plan；五段模板对 plan 适用（【交付要求】= 结构化 Markdown 计划文本、不写文件；【方案内容】含上一轮 plan 的 task_result 全文——task.ts:175 回传完整未截断）
+- 派发后行为：plan 子代理 question 提问由用户在界面作答，路由**不代答**；计划文本同禁止复述
+- 迭代 task_id 复用覆盖 plan（「把计划里的 X 改成 Y」→ resume 同一 plan 子会话）
+
+### 前端 packages/app（make 页三处 + 显示名）
+
+- index.tsx：VISIBLE_CHILD_AGENTS 加 `"plan"`；hideUserBubble 两处条件加 plan；**ensureChildSession 加 agent 门**——sync 前用 `sync.session.get(id)?.agent`（session.created 事件已填充 store.session，无需先 sync），agent 已知且不在可见清单（explore/general 等）→ 不 sync 不进 childSessionIDs（子任务卡片走完整内容形态，即原 sync 失败降级路径的复用）；agent 未知（事件竞态）→ 照旧 sync 降级内联
+- insight-turn.tsx：显示名映射加 `plan` → 'Octo_Plan'；其余零改动（childInline/onChildSession/childTurnActive/autoSave 全沿用）
+- plan 子会话不进 planChildSessionIDs/discoveredPlans（策略模式 banner 状态机专用）
+
+### 不改动（有意）
+
+- 策略模式全链路（octo_make_plan / plan banner / [confirm-plan]）不动
+- plan.txt / build-switch.txt（CLI 共用）；桌面端 `OPENCODE_EXPERIMENTAL_PLAN_MODE` 默认 false → prompt.ts:335-345 简单注入路径对 plan 子会话生效、无 plan 文件工作流、plan_exit 不注册（registry.ts:266 双旗标门控）→ plan 纯文本产出
+- session-request-tree 树感知 BFS + question dock 零改动（plan 子会话 question: allow 天然可见可答，requestID 应答与 sessionID 无关）
+
+### 测试与验证
+
+- agent.test.ts：路由候选用例加 plan allow + 更名 octo_design/octo_code/plan；新增 plan agent 权限面用例（mode "all"、hidden、task explore allow/general deny、question allow、edit deny、general 候选不含 plan、task 工具不隐藏）；octo-make-prompt.test.ts：新增 D 分类契约用例（四类分类/三目标派发/计划只读交付/不代答/按计划执行回附）
+- bun test test/agent 两文件 61 pass；全仓 typecheck 12 packages 过
+
+### 桌面端 E2E 验证（2026-10-30 ~ 10-31，dev + CDP + bun:sqlite 直查 opencode-local.db）
+
+测试主会话 ses_e73e95c69ffe5yeYKE7pDolzqc（工作区 D:\octoAI\test\test_project2），4 个子会话：plan×2（品牌网站规划+双语修订、多人协作编辑规划）、octo_code×2。9 项验证 8 过 1 项按用户指示跳过：
+
+| # | 场景 | 结果 | 关键证据 |
+|---|---|---|---|
+| 1 | D 派发 + 内联渲染 | ✓×2 | 路由判 D → task(plan) → 子会话 turn 内联渲染完整计划 Markdown（Octo_Plan 标签、无 task prompt 气泡）；路由仅 206 字转述不复述计划；含 [Workspace] 语境判 D |
+| 2 | plan question dock 应答 | ✓×2 | plan 各提 3 问，dock 渲染（树感知 BFS 收集子会话 pending question）、作答回传（question part completed，输出含三题答案）、plan 拿答案后继续产出 8207 字完整计划 |
+| 3 | 「按计划执行」回附 | ✓ | 「就按这个计划开始执行」→ 判 C 派 octo_code，task prompt 五段式【方案内容】含 6389 字符完整方案（「以下为已确认的完整规划方案全文」） |
+| 4 | task_id resume 迭代 | ✓ | 「改成中英双语」→ resume 同一 plan 子会话（children 不变），修订计划内联渲染 |
+| 5 | [Workspace] 规划 | ✓ | plan 直读工作区文件（read/glob，全程只读零写入）后产出方案 |
+| 6 | 刷新恢复 | ✓×4 | 2→4→5→8 turns 递增恢复：Octo_Plan 标签、无 task prompt 气泡、无重复、pill 清空；生成中+完成后各覆盖 |
+| 7 | 生成中停止 | ✓ | 停止按钮 → pill 清空 →「已中断」×4 → DB 双会话带 error 完成（主会话 aborted + 子会话 aborted） |
+| 8 | 纯聊天 A 类回归 | ✓ | 路由直答零派发（后端验证 children 不变） |
+| 9 | explore 孙会话过滤 | 代码就位未实跑 | 两轮规划模型均选择直读（8 文件小项目直读是合理模型行为）；ensureChildSession agent 门与「sync 失败降级」共用路径（未 sync 子会话卡片走完整内容形态），无新增风险面 |
+| 10 | 策略模式回归 | 未测 | 用户指示跳过（ensureChildSession 白名单含 octo_make_plan，代码级确认不拦截） |
+
+**两个非回归观察（dev 应用层/模型既有问题，非本次改动引入）：**
+
+1. **SSE 事件流长跑/机器挂起后断连**：后端 REST/POST 与 DB 完整（路由转述与计划全文均已落盘），UI 事件滞后 pill 卡「生成中」；页面刷新走 REST 恢复路径正常（终态全量恢复）。与 10-22 E2E 记录的断连同类。
+2. **glm-5.3 reasoning 膨胀**：octo_code 首次派发 5 分钟纯 reasoning 无 tool call 空产出，路由按 prompt 规则自动重试（新子会话）。与 make-router 主 E2E 的 reasoning 爆炸同源。
+
+**验证方法**：CDP Runtime.evaluate（ProseMirror insertText + Enter 发消息、DOM 断言）+ bun:sqlite 直查 opencode-local.db（注意 part 表 session_id 直查、数据 JSON 字段在顶层无 part 包装层）+ 文件系统核对。

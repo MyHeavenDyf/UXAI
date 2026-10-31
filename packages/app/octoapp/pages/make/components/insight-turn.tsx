@@ -775,6 +775,7 @@ export function InsightTurn(props: {
     let agent = lastMsg.agent
     if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan' || agent === 'octo_design') agent = 'Octo_Design'
     if (agent === 'octo_code') agent = 'Octo_Code'
+    if (agent === 'plan') agent = 'Octo_Plan'
     const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
     const modelLabel = (() => {
       const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)

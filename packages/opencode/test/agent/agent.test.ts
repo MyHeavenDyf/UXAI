@@ -927,10 +927,10 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
 
 // ── octo_make 路由化(feat/make-router)──────────────────────────────────────
 
-// 路由的 task 候选收敛:只允许 octo_design / octo_code 两个专职子代理,general/explore/
+// 路由的 task 候选收敛:只允许 octo_design / octo_code / plan 三个派发目标,general/explore/
 // make_component 挡在候选外;但 task 工具本身保持可用(Permission.disabled 只认最后一条
 // 匹配规则,allow 必须排在 "*": "deny" 之后 —— 与 SPEC-INS-032 §5.2 同款语义)。
-test("octo_make router: task candidates converge to octo_design/octo_code", async () => {
+test("octo_make router: task candidates converge to octo_design/octo_code/plan", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
     directory: tmp.path,
@@ -940,6 +940,7 @@ test("octo_make router: task candidates converge to octo_design/octo_code", asyn
       expect(make?.mode).toBe("primary")
       expect(evalPermPattern(make, "task", "octo_design")).toBe("allow")
       expect(evalPermPattern(make, "task", "octo_code")).toBe("allow")
+      expect(evalPermPattern(make, "task", "plan")).toBe("allow")
       expect(evalPermPattern(make, "task", "general")).toBe("deny")
       expect(evalPermPattern(make, "task", "explore")).toBe("deny")
       expect(evalPermPattern(make, "task", "make_component")).toBe("deny")
@@ -985,6 +986,37 @@ test("octo_design/octo_code subagents carry design/code toolset", async () => {
       // pixso MCP 绑定随设计职责移交 design
       expect(design?.mcp).toEqual(["pixso"])
       expect(code?.mcp).toBeUndefined()
+    },
+  })
+})
+
+// 原生 plan agent 接入 octo_make 路由:mode 改 "all" 让 describeTask 候选清单可见(hidden 不变,
+// 不进用户 agent 列表);只读规划者只许派只读 explore,question 保持 allow(树感知应答由前端处理)。
+// defaults 的 task: { plan: "deny" } 防 plan 泄漏进其他 agent(general)的候选清单。
+test("plan agent is task-dispatchable by octo_make and explores read-only", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const plan = await load(tmp.path, (svc) => svc.get("plan"))
+      const general = await load(tmp.path, (svc) => svc.get("general"))
+      expect(plan).toBeDefined()
+      // "all":既是 CLI 主会话身份,又进 describeTask 候选(describeTask 按 mode !== "primary" 过滤)
+      expect(plan?.mode).toBe("all")
+      // hidden 不变:不进 switch_agent/autocomplete 用户列表,也不能当 defaultAgent(另有用例)
+      expect(plan?.hidden).toBe(true)
+      // 只读规划:只许派 explore,general(有写能力)挡在外面
+      expect(evalPermPattern(plan, "task", "explore")).toBe("allow")
+      expect(evalPermPattern(plan, "task", "general")).toBe("deny")
+      // task 工具本身可用(pattern 级 deny 不等于整体 deny)
+      expect(Permission.disabled(["task"], plan!.permission).has("task")).toBe(false)
+      // question allow:子会话提问走前端树感知 dock,路由不代答
+      expect(evalPerm(plan, "question")).toBe("allow")
+      // edit 仍只读(例外 plans 路径不变)
+      expect(evalPerm(plan, "edit")).toBe("deny")
+      // defaults 守卫:plan 不出现在 general 的 task 候选清单里(SPEC-INS-032 §5.2 同款 pattern 形态)
+      expect(evalPermPattern(general, "task", "plan")).toBe("deny")
+      expect(Permission.disabled(["task"], general!.permission).has("task")).toBe(false)
     },
   })
 })
