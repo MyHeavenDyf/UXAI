@@ -45,7 +45,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: false,
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     rendering: {
       designSystem: 'shadcn',
@@ -106,7 +106,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['./data.js'],
@@ -127,7 +127,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -151,7 +151,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -178,7 +178,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -200,7 +200,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -222,7 +222,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -244,7 +244,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
@@ -265,7 +265,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-      assessment: true,
+      assessment: { enabled: true, editOnly: true },
     },
     history: {
       files: ['.'],
