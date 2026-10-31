@@ -1,12 +1,17 @@
+export type RefreshQueueOpts = {
+  /** SSE 重连后的补拉:bootstrap 时 session_status 信任服务端快照 */
+  trustStatusSnapshot?: boolean
+}
+
 type QueueInput = {
   paused: () => boolean
   bootstrap: () => Promise<void>
-  bootstrapInstance: (directory: string) => Promise<void> | void
+  bootstrapInstance: (directory: string, opts?: RefreshQueueOpts) => Promise<void> | void
   key?: (directory: string) => string
 }
 
 export function createRefreshQueue(input: QueueInput) {
-  const queued = new Map<string, string>()
+  const queued = new Map<string, { directory: string; opts?: RefreshQueueOpts }>()
   let root = false
   let running = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -16,11 +21,11 @@ export function createRefreshQueue(input: QueueInput) {
   const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
   const take = (count: number) => {
-    if (queued.size === 0) return [] as string[]
-    const items: string[] = []
-    for (const [id, directory] of queued) {
+    if (queued.size === 0) return [] as { directory: string; opts?: RefreshQueueOpts }[]
+    const items: { directory: string; opts?: RefreshQueueOpts }[] = []
+    for (const [id, entry] of queued) {
       queued.delete(id)
-      items.push(directory)
+      items.push(entry)
       if (items.length >= count) break
     }
     return items
@@ -34,9 +39,9 @@ export function createRefreshQueue(input: QueueInput) {
     }, 0)
   }
 
-  const push = (directory: string) => {
+  const push = (directory: string, opts?: RefreshQueueOpts) => {
     if (!directory) return
-    queued.set(key(directory), directory)
+    queued.set(key(directory), { directory, opts })
     if (input.paused()) return
     schedule()
   }
@@ -61,7 +66,7 @@ export function createRefreshQueue(input: QueueInput) {
         }
         const dirs = take(2)
         if (dirs.length === 0) return
-        await Promise.all(dirs.map((dir) => input.bootstrapInstance(dir)))
+        await Promise.all(dirs.map((item) => input.bootstrapInstance(item.directory, item.opts)))
         await tick()
       }
     } finally {

@@ -32,7 +32,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
-import { createRefreshQueue } from "./global-sync/queue"
+import { createRefreshQueue, type RefreshQueueOpts } from "./global-sync/queue"
 import { directoryKey, replaceProviderList } from "./global-sync/utils"
 
 // jk-j60099994-replace-with-60062650-global-sync-2-start
@@ -305,7 +305,7 @@ function createGlobalSync() {
     return promise
   }
 
-  async function bootstrapInstance(directory: string) {
+  async function bootstrapInstance(directory: string, opts?: RefreshQueueOpts) {
     const key = directoryKey(directory)
     if (!key) return
     const pending = booting.get(key)
@@ -332,6 +332,7 @@ function createGlobalSync() {
         loadSessions,
         translate: language.t,
         queryClient,
+        trustStatusSnapshot: opts?.trustStatusSnapshot,
       })
     })
 
@@ -364,8 +365,13 @@ function createGlobalSync() {
       })
       if (event.type === "server.connected" || event.type === "global.disposed") {
         if (recent) return
+        // server.connected = SSE 重连成功:断连窗口内的事件(session.status idle、
+        // message.part 等)不会重放,本地状态可能过期。补拉时信任服务端快照,
+        // 清掉已实际结束但本地仍 busy 的会话(否则「生成中」永久卡死,只能手动刷新)。
+        const opts: RefreshQueueOpts | undefined =
+          event.type === "server.connected" ? { trustStatusSnapshot: true } : undefined
         for (const directory of Object.keys(children.children)) {
-          queue.push(directory)
+          queue.push(directory, opts)
         }
       }
       return

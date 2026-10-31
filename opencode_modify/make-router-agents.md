@@ -180,7 +180,7 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 
 **两个非回归观察（dev 应用层/模型既有问题，非本次改动引入）：**
 
-1. **SSE 事件流长跑/机器挂起后断连**：后端 REST/POST 与 DB 完整（路由转述与计划全文均已落盘），UI 事件滞后 pill 卡「生成中」；页面刷新走 REST 恢复路径正常（终态全量恢复）。与 10-22 E2E 记录的断连同类。
+1. **SSE 事件流长跑/机器挂起后断连**：后端 REST/POST 与 DB 完整（路由转述与计划全文均已落盘），UI 事件滞后 pill 卡「生成中」；页面刷新走 REST 恢复路径正常（终态全量恢复）。与 10-22 E2E 记录的断连同类。**已于同日修复**（根因=重连后仅恢复全局列表态、会话级事件无重放，上游 #13973 继承缺口）：`server.connected` 时 global-sync 补拉带 `trustStatusSnapshot`（清陈旧 busy）+ sync 层强制重拉已跟踪会话（补全文），断连窗口内丢事件不再需要手动刷新，E2E 已验证（冻结页面模拟断连 → 解冻重连 → 13s 内自动恢复，不刷新页面）。
 2. **glm-5.3 reasoning 膨胀**：octo_code 首次派发 5 分钟纯 reasoning 无 tool call 空产出，路由按 prompt 规则自动重试（新子会话）。与 make-router 主 E2E 的 reasoning 爆炸同源。
 
 **验证方法**：CDP Runtime.evaluate（ProseMirror insertText + Enter 发消息、DOM 断言）+ bun:sqlite 直查 opencode-local.db（注意 part 表 session_id 直查、数据 JSON 字段在顶层无 part 包装层）+ 文件系统核对。

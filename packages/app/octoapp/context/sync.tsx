@@ -1,4 +1,4 @@
-import { batch, createMemo } from "solid-js"
+import { batch, createMemo, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { retry } from "@opencode-ai/core/util/retry"
@@ -10,6 +10,7 @@ import {
   setSessionPrefetch,
 } from "./global-sync/session-prefetch"
 import { useGlobalSync } from "./global-sync"
+import { useGlobalSDK } from "./global-sdk"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
@@ -187,6 +188,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
   init: () => {
     const globalSync = useGlobalSync()
+    const globalSDK = useGlobalSDK()
     const sdk = useSDK()
 
     type Child = ReturnType<(typeof globalSync)["child"]>
@@ -423,6 +425,98 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         })
     }
 
+    async function syncSession(sessionID: string, opts?: { force?: boolean }) {
+      const directory = sdk.directory
+      const client = sdk.client
+      const [store, setStore] = globalSync.child(directory)
+      // 删除/归档是终态:session 已从 store 移除且缓存被清理,重取会 404。
+      // 设计页等处的 missing 重试 effect 可能在 session.deleted 事件之后触发,
+      // 这里直接短路,避免 GET /session/:id 与 /session/:id/message 404。
+      if (store.deleted?.[sessionID]) return
+      const key = keyFor(directory, sessionID)
+
+      touch(directory, setStore, sessionID)
+
+      const seeded = getSessionPrefetch(directory, sessionID)
+      if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
+        batch(() => {
+          setMeta("limit", key, seeded.limit)
+          setMeta("cursor", key, seeded.cursor)
+          setMeta("complete", key, seeded.complete)
+          setMeta("loading", key, false)
+        })
+      }
+
+      return runInflight(inflight, key, async () => {
+        const pending = getSessionPrefetchPromise(directory, sessionID)
+        if (pending) {
+          await pending
+          const seeded = getSessionPrefetch(directory, sessionID)
+          if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
+            batch(() => {
+              setMeta("limit", key, seeded.limit)
+              setMeta("cursor", key, seeded.cursor)
+              setMeta("complete", key, seeded.complete)
+              setMeta("loading", key, false)
+            })
+          }
+        }
+
+        const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
+        const cached = store.message[sessionID] !== undefined && meta.limit[key] !== undefined
+        if (cached && hasSession && !opts?.force) return
+
+        // meta.limit 是上次 loadMessages 的快照,SSE 增长不更新它;
+        const limit = Math.max(meta.limit[key] ?? 0, initialMessagePageSize)
+        const sessionReq =
+          hasSession && !opts?.force
+            ? Promise.resolve()
+            : retry(() => client.session.get({ sessionID })).then((session) => {
+                if (!tracked(directory, sessionID)) return
+                const data = session.data
+                if (!data) return
+                setStore(
+                  "session",
+                  produce((draft) => {
+                    const match = Binary.search(draft, sessionID, (s) => s.id)
+                    if (match.found) {
+                      draft[match.index] = data
+                      return
+                    }
+                    draft.splice(match.index, 0, data)
+                  }),
+                )
+              })
+
+        const messagesReq =
+          cached && !opts?.force
+            ? Promise.resolve()
+            : loadMessages({
+                directory,
+                client,
+                setStore,
+                sessionID,
+                limit,
+              })
+
+        await Promise.all([sessionReq, messagesReq])
+      })
+    }
+
+    // SSE 重连(server.connected)后补拉已加载会话:断连窗口内的事件不会重放,
+    // 消息与生成状态可能落后于服务端(路由转述缺失、「生成中」卡死)。此处对
+    // 当前目录已跟踪的会话强制重同步——与手动刷新页面的恢复路径等价
+    // (busy 会话有 merge 保护,streaming 内容不会被服务端快照覆盖)。
+    // 首次连接时 seen 为空,天然空跑;与初始 sync 并发时由 runInflight 去重。
+    const unsubReconnect = globalSDK.event.listen((evt) => {
+      if (evt.details.type !== "server.connected") return
+      const directory = sdk.directory
+      for (const sessionID of [...(seen.get(directory) ?? [])]) {
+        void syncSession(sessionID, { force: true })
+      }
+    })
+    onCleanup(unsubReconnect)
+
     return {
       get data() {
         return current()[0]
@@ -482,83 +576,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             parts: input.parts,
           })
         },
-        async sync(sessionID: string, opts?: { force?: boolean }) {
-          const directory = sdk.directory
-          const client = sdk.client
-          const [store, setStore] = globalSync.child(directory)
-          // 删除/归档是终态:session 已从 store 移除且缓存被清理,重取会 404。
-          // 设计页等处的 missing 重试 effect 可能在 session.deleted 事件之后触发,
-          // 这里直接短路,避免 GET /session/:id 与 /session/:id/message 404。
-          if (store.deleted?.[sessionID]) return
-          const key = keyFor(directory, sessionID)
-
-          touch(directory, setStore, sessionID)
-
-          const seeded = getSessionPrefetch(directory, sessionID)
-          if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
-            batch(() => {
-              setMeta("limit", key, seeded.limit)
-              setMeta("cursor", key, seeded.cursor)
-              setMeta("complete", key, seeded.complete)
-              setMeta("loading", key, false)
-            })
-          }
-
-          return runInflight(inflight, key, async () => {
-            const pending = getSessionPrefetchPromise(directory, sessionID)
-            if (pending) {
-              await pending
-              const seeded = getSessionPrefetch(directory, sessionID)
-              if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
-                batch(() => {
-                  setMeta("limit", key, seeded.limit)
-                  setMeta("cursor", key, seeded.cursor)
-                  setMeta("complete", key, seeded.complete)
-                  setMeta("loading", key, false)
-                })
-              }
-            }
-
-            const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
-            const cached = store.message[sessionID] !== undefined && meta.limit[key] !== undefined
-            if (cached && hasSession && !opts?.force) return
-
-            // meta.limit 是上次 loadMessages 的快照,SSE 增长不更新它;
-            const limit = Math.max(meta.limit[key] ?? 0, initialMessagePageSize)
-            const sessionReq =
-              hasSession && !opts?.force
-                ? Promise.resolve()
-                : retry(() => client.session.get({ sessionID })).then((session) => {
-                    if (!tracked(directory, sessionID)) return
-                    const data = session.data
-                    if (!data) return
-                    setStore(
-                      "session",
-                      produce((draft) => {
-                        const match = Binary.search(draft, sessionID, (s) => s.id)
-                        if (match.found) {
-                          draft[match.index] = data
-                          return
-                        }
-                        draft.splice(match.index, 0, data)
-                      }),
-                    )
-                  })
-
-            const messagesReq =
-              cached && !opts?.force
-                ? Promise.resolve()
-                : loadMessages({
-                    directory,
-                    client,
-                    setStore,
-                    sessionID,
-                    limit,
-                  })
-
-            await Promise.all([sessionReq, messagesReq])
-          })
-        },
+        sync: syncSession,
         async diff(sessionID: string, opts?: { force?: boolean }) {
           const directory = sdk.directory
           const client = sdk.client

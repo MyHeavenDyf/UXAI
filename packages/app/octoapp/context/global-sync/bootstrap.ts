@@ -67,12 +67,21 @@ export function mergeSessionStatusSnapshot(input: {
   before: Record<string, string | undefined>
   current: State["session_status"]
   incoming: State["session_status"]
+  /**
+   * 信任服务端快照覆盖本地 busy:SSE 重连后触发(server.connected)。
+   * 断连窗口内的事件不会重放,本地 busy 可能早已过期(会话实际已结束),
+   * 此时服务端快照是权威;只有请求在途期间被事件更新过的条目(changed)才保留本地。
+   * 常规 bootstrap 不传:保守保留 busy,防止比快照新的 start 事件被旧快照覆盖。
+   */
+  trustIncoming?: boolean
 }) {
   return Object.entries(input.current).reduce<State["session_status"]>(
     (result, [sessionID, status]) => {
       const incoming = input.incoming[sessionID]
       const changed = JSON.stringify(status) !== input.before[sessionID]
-      if (!changed && (status.type !== "busy" || incoming?.type === "busy")) return result
+      if (input.trustIncoming) {
+        if (!changed) return result
+      } else if (!changed && (status.type !== "busy" || incoming?.type === "busy")) return result
       result[sessionID] = status
       return result
     },
@@ -247,6 +256,8 @@ export async function bootstrapDirectory(input: {
     provider: ProviderListResponse
   }
   queryClient: QueryClient
+  /** SSE 重连后的补拉:session_status 信任服务端快照,清掉断连期间过期的本地 busy */
+  trustStatusSnapshot?: boolean
 }) {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
@@ -281,6 +292,7 @@ export async function bootstrapDirectory(input: {
                 before: sessionStatusBefore,
                 current: input.store.session_status,
                 incoming: x.data!,
+                trustIncoming: input.trustStatusSnapshot,
               }),
               { merge: false },
             ),

@@ -36,6 +36,40 @@ describe("global sync bootstrap", () => {
     ).toEqual({ ses_new: { type: "busy" } })
   })
 
+  test("trustIncoming drops a stale local busy when the server snapshot says idle (SSE 重连恢复)", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        before: { ses_stale: JSON.stringify({ type: "busy" }) },
+        current: { ses_stale: { type: "busy" } },
+        incoming: {},
+        trustIncoming: true,
+      }),
+    ).toEqual({})
+  })
+
+  test("trustIncoming drops a stale local busy against an explicit idle snapshot", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        before: { ses_stale: JSON.stringify({ type: "busy" }) },
+        current: { ses_stale: { type: "busy" } },
+        incoming: { ses_stale: { type: "idle" } },
+        trustIncoming: true,
+      }),
+    ).toEqual({ ses_stale: { type: "idle" } })
+  })
+
+  test("trustIncoming keeps locally-changed statuses and server-side busy sessions", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        // ses_event: 请求在途期间收到事件(busy) — 本地比快照新,保留
+        before: {},
+        current: { ses_event: { type: "busy" } },
+        incoming: { ses_event: { type: "idle" }, ses_live: { type: "busy" } },
+        trustIncoming: true,
+      }),
+    ).toEqual({ ses_live: { type: "busy" }, ses_event: { type: "busy" } })
+  })
+
   test("waits for directory requests before completing", async () => {
     const directory = "/tmp/octo-bootstrap-test"
     const provider = { all: [], connected: [], default: {} } as ProviderListResponse
