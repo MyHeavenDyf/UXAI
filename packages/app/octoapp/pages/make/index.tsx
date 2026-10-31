@@ -6373,7 +6373,7 @@ onPreview={(url) => {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleConversationCardOpen}
-                        onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                        onOpenLocalFile={handleOpenLocalFile}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
@@ -6413,7 +6413,7 @@ onPreview={(url) => {
                             blockTime={blockTime()}
                             onAbort={halt}
                             onOpenResult={handleConversationCardOpen}
-                            onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                            onOpenLocalFile={handleOpenLocalFile}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
