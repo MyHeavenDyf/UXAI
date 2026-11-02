@@ -7,6 +7,7 @@ import { UpdateButton } from "@/components/update-button"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
+  IconPractice, IconPractice1,
   IconSettings, IconSettings1,
 } from "@/pages/_shell/icons"
 
@@ -73,10 +74,11 @@ export function SidebarSectionHeader(props: {
 const DEFAULT_NAV_ITEMS = [
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
+  { key: "best_practice", label: "优秀实践", Icon: IconPractice, IconActive: IconPractice1 },
 ] as const
 
 export type SidebarShellProps = ParentProps & {
-  onNavigation?: (target: "project" | "skills" | "assets" | "settings" | "update") => void
+  onNavigation?: (target: "project" | "skills" | "assets" | "best_practices" | "settings" | "update") => void
   /** Show ProjectInfo at top. Default true. */
   showProjectInfo?: boolean
   /** Show bottom nav (技能库 etc). Default true. */
@@ -236,7 +238,7 @@ export function SidebarShell(props: SidebarShellProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    if (item.key === "skill_market" || item.key === "knowledge_base") props.onNavigation?.(item.key === "skill_market" ? "skills" : "assets")
+                    if (item.key === "skill_market" || item.key === "knowledge_base" || item.key === "best_practice") props.onNavigation?.(item.key === "skill_market" ? "skills" : item.key === "knowledge_base" ? "assets" : "best_practices")
                     props.onNavClick?.(item.key)
                   }}
                   title={item.label}
