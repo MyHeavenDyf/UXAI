@@ -84,3 +84,17 @@ describe("收起「最近」后展开恢复滚动位置", () => {
     expect(SRC).not.toMatch(/onToggleCollapse=\{\(\) => \{.*setCollapsed/)
   })
 })
+
+describe("导入会话后定位侧栏项目", () => {
+  test("导入完成事件会按目录补齐目标会话并滚动到可视区域", () => {
+    expect(SRC).toMatch(/window\.addEventListener\("octo:session-imported", handleSessionImported\)/)
+    expect(SRC).toMatch(/detail\.directory !== resolvedDir\(\)/)
+    expect(SRC).toMatch(/detail\.agent !== props\.agentFilter/)
+    expect(SRC).toMatch(/await backfillActiveSession\(detail\.sessionID\)/)
+    expect(SRC).toMatch(/scrollToSession\(detail\.sessionID\)/)
+  })
+
+  test("目标会话已在可视区域时不改变滚动位置", () => {
+    expect(SRC).toMatch(/itemRect\.top >= containerRect\.top \+ 46 && itemRect\.bottom <= containerRect\.bottom/)
+  })
+})

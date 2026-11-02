@@ -529,9 +529,12 @@ function MakeContent() {
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
 
-  const menuSession = () => sessionInfoMirror()
+  // The first reply can update the generated title after sessionInfo's one-time
+  // request has completed. Use the live sync record so sharing immediately after
+  // the reply sees the same title as the page header; keep the request as fallback.
+  const menuSession = () => info() ?? sessionInfoMirror()
   const menuHasMessages = () => {
-    const s = sessionInfoMirror()
+    const s = menuSession()
     return !!s && s.time.updated > s.time.created
   }
 
@@ -1753,6 +1756,13 @@ const sessionMessagesLoaded = createMemo(() => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
+  // onboarding 版本选择支持「不选择」后 product 可为 undefined:禁用产品资产库入口并给 hover 提示(与 Insight 同一套)
+  const productAssetsDisabledReason = () =>
+    !projectSelection()?.product?.id
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -6245,6 +6255,7 @@ onPreview={(url) => {
                           onSkillsOpen={loadSkillConfig}
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
+                          productAssetsDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6373,7 +6384,7 @@ onPreview={(url) => {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleConversationCardOpen}
-                        onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                        onOpenLocalFile={handleOpenLocalFile}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
@@ -6413,7 +6424,7 @@ onPreview={(url) => {
                             blockTime={blockTime()}
                             onAbort={halt}
                             onOpenResult={handleConversationCardOpen}
-                            onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                            onOpenLocalFile={handleOpenLocalFile}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
@@ -6684,6 +6695,7 @@ onPreview={(url) => {
                         onSkillsOpen={loadSkillConfig}
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
+                        productAssetsDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}

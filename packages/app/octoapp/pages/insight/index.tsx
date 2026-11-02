@@ -54,6 +54,7 @@ import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard, type UserAttachment } from "./components/insight-turn"
 import { useSharedSessionImportContext } from "@/components/shared-session-import-context"
 import { DialogPreviewUnavailable } from "../make/components/dialog-preview-unavailable"
+import { TurnAnchorNav } from "../make/components/turn-anchor-nav"
 import { InsightPermissionDock } from "./components/permission-dock"
 import { InsightQuestionDock } from "./components/question-dock"
 import { InsightAddonMenu } from "./components/insight-addon-menu"
@@ -1287,6 +1288,10 @@ function InsightContent() {
   // 不会再补滚(它只在 active() 时跟随)。所以这里自己盯一个 settle 窗口:每帧强制贴底,
   // 直到 scrollHeight 连续两帧不再变化(高度稳定),或超时兜底。切换/卸载时取消上一轮。
   let scrollContainerEl: HTMLElement | undefined
+  const [chatElements, setChatElements] = createStore({
+    viewport: undefined as HTMLElement | undefined,
+    content: undefined as HTMLElement | undefined,
+  })
   let settleScrollRAF: number | undefined
   const cancelSettleScroll = () => {
     if (settleScrollRAF !== undefined) {
@@ -2891,13 +2896,17 @@ function InsightContent() {
                   style={{ background: "var(--octo-surface-page)", padding: "0 12px" }}
                   viewportRef={(el) => {
                     scrollContainerEl = el
+                    setChatElements("viewport", el)
                     autoScroll.scrollRef(el)
                   }}
                   onScroll={autoScroll.handleScroll}
                   onMouseUp={autoScroll.handleInteraction}
                 >
                   <div
-                    ref={autoScroll.contentRef}
+                    ref={(el) => {
+                      setChatElements("content", el)
+                      autoScroll.contentRef(el)
+                    }}
                     class="py-3 flex flex-col gap-0 w-full mx-auto"
                     style={{ "max-width": "800px" }}
                   >
@@ -2922,6 +2931,12 @@ function InsightContent() {
                     </For>
                   </div>
                 </ScrollView>
+                <TurnAnchorNav
+                  messages={userMessages()}
+                  sessionID={params.id}
+                  viewport={() => chatElements.viewport}
+                  content={() => chatElements.content}
+                />
                 <div
                   class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
                   style={{

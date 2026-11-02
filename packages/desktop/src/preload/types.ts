@@ -11,6 +11,14 @@ export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: str
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
 export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" }
+export type SessionTransferProgress = {
+  operationID: string
+  type: "import"
+  stage: string
+  percent: number
+  processedBytes?: number
+  totalBytes?: number
+}
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
@@ -73,9 +81,9 @@ export type ElectronAPI = {
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
-  prepareSharedSession: (uniqueId: string) => Promise<PreparedSharedSession>
+  prepareSharedSession: (uniqueId: string, operationID?: string) => Promise<PreparedSharedSession>
   releaseSharedSession: (token: string) => Promise<void>
-  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => Promise<SharedSessionResult | null>
+  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string, operationID?: string) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
@@ -97,6 +105,7 @@ export type ElectronAPI = {
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
+  onSessionTransferProgress: (cb: (progress: SessionTransferProgress) => void) => () => void
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
   onDownloadSavePath: (cb: (info: DownloadSavePathInfo) => void) => () => void
 

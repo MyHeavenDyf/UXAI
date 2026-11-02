@@ -1,6 +1,10 @@
 export type SharedSessionModule = "design" | "insight" | "pattern"
 export type PreparedSharedSession = { token: string; agent?: string; module: SharedSessionModule }
 
+export function consumePendingDeepLinks(target: { deepLinks?: string[] }) {
+  return target.deepLinks?.splice(0) ?? []
+}
+
 /** Do not restore any session/files until its owning module has finished switching context. */
 export async function openPreparedSharedSession<T>(input: {
   prepare: () => Promise<PreparedSharedSession>

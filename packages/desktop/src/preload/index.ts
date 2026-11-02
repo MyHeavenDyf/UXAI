@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
-import type { DownloadSavePathInfo, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
+import type { DownloadSavePathInfo, ElectronAPI, InitStep, SessionTransferProgress, SqliteMigrationProgress } from "./types"
 
 const api: ElectronAPI = {
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
@@ -13,9 +13,10 @@ const api: ElectronAPI = {
   },
   getWindowConfig: () => ipcRenderer.invoke("get-window-config"),
   consumeInitialDeepLinks: () => ipcRenderer.invoke("consume-initial-deep-links"),
-  prepareSharedSession: (uniqueId) => ipcRenderer.invoke("prepare-shared-session", uniqueId),
+  prepareSharedSession: (uniqueId, operationID) => ipcRenderer.invoke("prepare-shared-session", uniqueId, operationID),
   releaseSharedSession: (token) => ipcRenderer.invoke("release-shared-session", token),
-  importSharedSession: (uniqueId, directory, scope, token) => ipcRenderer.invoke("import-shared-session", uniqueId, directory, scope, token),
+  importSharedSession: (uniqueId, directory, scope, token, operationID) =>
+    ipcRenderer.invoke("import-shared-session", uniqueId, directory, scope, token, operationID),
   getDefaultServerUrl: () => ipcRenderer.invoke("get-default-server-url"),
   setDefaultServerUrl: (url) => ipcRenderer.invoke("set-default-server-url", url),
   getWslConfig: () => ipcRenderer.invoke("get-wsl-config"),
@@ -48,6 +49,11 @@ const api: ElectronAPI = {
     const handler = (_: unknown, urls: string[]) => cb(urls)
     ipcRenderer.on("deep-link", handler)
     return () => ipcRenderer.removeListener("deep-link", handler)
+  },
+  onSessionTransferProgress: (cb) => {
+    const handler = (_: unknown, progress: SessionTransferProgress) => cb(progress)
+    ipcRenderer.on("session-transfer-progress", handler)
+    return () => ipcRenderer.removeListener("session-transfer-progress", handler)
   },
   onDownloadSavePath: (cb) => {
     const handler = (_: unknown, info: DownloadSavePathInfo) => cb(info)

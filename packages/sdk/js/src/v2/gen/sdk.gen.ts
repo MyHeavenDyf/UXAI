@@ -207,6 +207,7 @@ import type {
   SessionPortableExportResponses,
   SessionPortableImportErrors,
   SessionPortableImportResponses,
+  SessionPortableProgressResponses,
   SessionPortableShareErrors,
   SessionPortableShareResponses,
   SessionPromptAsyncErrors,
@@ -3936,6 +3937,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project" | "session"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3948,6 +3950,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -3980,6 +3983,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3993,6 +3997,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -4024,6 +4029,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4036,6 +4042,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "scope" },
+            { in: "query", key: "operationID" },
           ],
         },
       ],
@@ -4969,6 +4976,38 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<SessionUnrevertResponses, SessionUnrevertErrors, ThrowOnError>({
       url: "/session/{sessionID}/unrevert",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get portable session progress
+   *
+   * Get current progress for an import, export, or share operation.
+   */
+  public portableProgress<ThrowOnError extends boolean = false>(
+    parameters: {
+      operationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "operationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionPortableProgressResponses, unknown, ThrowOnError>({
+      url: "/session/portable-progress/{operationID}",
       ...options,
       ...params,
     })

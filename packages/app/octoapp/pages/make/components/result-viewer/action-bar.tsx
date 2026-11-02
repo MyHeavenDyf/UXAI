@@ -389,6 +389,7 @@ function CanvasEditDropdown(props: {
                     <button
                       type="button"
                       class="octo-dropdown-item"
+                      style={{ "justify-content": "flex-start", "text-align": "left" }}
                       onClick={() => handleAction(action)}
                     >
                       <span>{action.label}</span>
