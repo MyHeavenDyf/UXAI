@@ -1756,6 +1756,13 @@ const sessionMessagesLoaded = createMemo(() => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
+  // onboarding 版本选择支持「不选择」后 product 可为 undefined:禁用产品资产库入口并给 hover 提示(与 Insight 同一套)
+  const productAssetsDisabledReason = () =>
+    !projectSelection()?.product?.id
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -6248,6 +6255,7 @@ onPreview={(url) => {
                           onSkillsOpen={loadSkillConfig}
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
+                          productAssetsDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6687,6 +6695,7 @@ onPreview={(url) => {
                         onSkillsOpen={loadSkillConfig}
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
+                        productAssetsDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
