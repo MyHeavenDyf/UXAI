@@ -53,8 +53,8 @@ function ErrorContent(props: { onRetry: () => void }) {
           margin: "12px auto 0",
           padding: "6px 16px",
           "font-size": "12px",
-          color: "#2563EB",
-          background: "rgba(37, 99, 235, 0.08)",
+          color: "#0a59f7",
+          background: "rgba(10, 89, 247, 0.08)",
           border: "none",
           "border-radius": "4px",
           cursor: "pointer",
@@ -87,13 +87,19 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   createEffect(() => {
     const list = domains()
     if (!list?.length) return
-    if (!selectedDomainId()) setSelectedDomainId(list[0].id)
+    if (!selectedDomainId()) {
+      setSelectedDomain(list[0])
+      setSelectedDomainId(list[0].id)
+    }
   })
 
   createEffect(() => {
     const list = productLines()
     if (!list?.length) return
-    if (!list.some(item => item.id === selectedProductLineId())) setSelectedProductLineId(list[0].id)
+    if (!list.some(item => item.id === selectedProductLineId())) {
+      setSelectedProductLine(list[0])
+      setSelectedProductLineId(list[0].id)
+    }
   })
 
   const clearProductSelection = () => {

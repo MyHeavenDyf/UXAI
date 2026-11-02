@@ -1307,3 +1307,27 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - `handleConfirm()` 新增条件：`const product = selections.product`，`domain` / `productLine` 改为 `product ? selections.domain : undefined` / `product ? selections.productLine : undefined`
 - 影响三处：tracker 埋点（`extend` JSON）、`server.projects.saveSelection`（持久化）、`props.onSelect`（回调）— 未选产品时 domain/productLine 均传 `undefined`
 - version 保持原值不变（`selections.version`），仅清空领域/产品线
+
+---
+
+## 第三十九轮改动（评审修复：配色漏改 + 暂存对象同步 + version 显式清空 + 文件末尾换行）
+
+### 146. `project-product-select-panel.tsx` — ErrorContent 重新加载按钮配色统一
+
+- ErrorContent 组件"重新加载"按钮 `color` 从 `#2563EB` 改为 `#0a59f7`，`background` 从 `rgba(37, 99, 235, 0.08)` 改为 `rgba(10, 89, 247, 0.08)` — 补齐 #144 遗漏的配色统一
+
+### 147. `project-product-select-panel.tsx` — 自动选中 effect 同步设置暂存对象
+
+- 领域 `createEffect`：`setSelectedDomainId(list[0].id)` 改为先 `setSelectedDomain(list[0])` 再 `setSelectedDomainId(list[0].id)` — ID 与对象同步
+- 产品线 `createEffect`：`setSelectedProductLineId(list[0].id)` 改为先 `setSelectedProductLine(list[0])` 再 `setSelectedProductLineId(list[0].id)` — ID 与对象同步
+- 原因：effect 只设 ID 不设对象时，UI 高亮了某项但 `selectedDomain()` / `selectedProductLine()` 返回 undefined，点"确认"传 undefined，中间状态不一致
+
+### 148. `dialog-project-onboarding.tsx` — `handleConfirm` 显式清空 version
+
+- 新增 `const version = product ? selections.version : undefined` — 未选产品时 version 也传 undefined
+- 三处引用（tracker `productVersion` / `saveSelection` / `onSelect`）从 `selections.version` 改为 `version`
+- 原因：version 依附于 product，无产品时 version 应同步清空；虽然 `safeVersionOptions` 守卫已保证此时 version 必为 undefined，但显式一致更健壮
+
+### 149. `project-product-select-panel.tsx` — 文件末尾补换行符
+
+- 文件末尾新增空行（`\ No newline at end of file` 修复）

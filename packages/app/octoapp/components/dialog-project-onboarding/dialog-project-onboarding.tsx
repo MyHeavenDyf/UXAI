@@ -65,6 +65,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     const product = selections.product
     const domain = product ? selections.domain : undefined
     const productLine = product ? selections.productLine : undefined
+    const version = product ? selections.version : undefined
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
@@ -73,7 +74,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         domain,
         productLine,
         product,
-        productVersion: selections.version,
+        productVersion: version,
         dir
       }),
     })
@@ -84,14 +85,14 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       domain,
       productLine,
       product,
-      version: selections.version,
+      version,
     })
     props.onSelect({
       directory: dir,
       domain,
       productLine,
       product,
-      version: selections.version,
+      version,
     })
   }
 
