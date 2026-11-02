@@ -13,6 +13,7 @@ import { SessionSharePreview } from "./session-share-preview"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { tracker } from "@/utils/tracker"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -33,29 +34,46 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
     setState({ sharing: true, error: "" })
     await (async () => {
       const url = state.url || await (async () => {
+        const operationID = crypto.randomUUID()
+        const progress = showSessionTransferProgress("正在导出 Session")
+        const controller = new AbortController()
         const token = modelsApiToken()
         const cookie = localStorage.getItem("uiplusCookie")?.trim()
-        const response = await (platform.fetch ?? fetch)(
-          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share${workspaceKind() === "code" ? "?scope=project" : ""}`,
-          {
-            method: "POST",
-            headers: {
-              ...directoryHeader(props.session.directory),
-              ...(token ? { uiplustoken: token } : {}),
-              ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
-            },
-          },
-        )
-        const result: unknown = await response.json().catch(() => null)
-        if (!response.ok) {
-          throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
-            ? result.message : `分享失败：${response.status}`)
+        const headers = {
+          ...directoryHeader(props.session.directory),
+          ...(token ? { uiplustoken: token } : {}),
+          ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
         }
-        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
-          throw new Error("分享接口未返回链接")
+        void watchSessionTransferProgress({
+          url: globalSDK.url,
+          operationID,
+          fetch: platform.fetch ?? fetch,
+          headers: directoryHeader(props.session.directory),
+          signal: controller.signal,
+          update: progress.update,
+        })
+        try {
+          const endpoint = new URL(
+            `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+          )
+          if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+          endpoint.searchParams.set("operationID", operationID)
+          const response = await (platform.fetch ?? fetch)(endpoint, { method: "POST", headers })
+          const result: unknown = await response.json().catch(() => null)
+          if (!response.ok) {
+            throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
+              ? result.message : `分享失败：${response.status}`)
+          }
+          if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
+            throw new Error("分享接口未返回链接")
+          }
+          progress.update({ type: "share", stage: "分享链接已生成", percent: 100 })
+          setState("url", result.url)
+          return result.url
+        } finally {
+          controller.abort()
+          progress.dismiss()
         }
-        setState("url", result.url)
-        return result.url
       })()
       if (shareBlockReason()) {
         setState("url", "")
