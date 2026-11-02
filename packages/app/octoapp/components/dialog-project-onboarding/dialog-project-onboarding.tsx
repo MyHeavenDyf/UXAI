@@ -39,8 +39,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const lastSelection = server.projects.lastSelection()
 
-  const shouldAutoSelect = !lastSelection?.domain && !lastSelection?.productLine && !lastSelection?.product && !lastSelection?.version
-
   const [selections, setSelections] = createStore({
     domain: lastSelection?.domain,
     productLine: lastSelection?.productLine,
@@ -64,15 +62,19 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       setTriedSubmit(true)
       return
     }
+    const product = selections.product
+    const domain = product ? selections.domain : undefined
+    const productLine = product ? selections.productLine : undefined
+    const version = product ? selections.version : undefined
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
       subType: "click",
       extend: JSON.stringify({
-        domain: selections.domain,
-        productLine: selections.productLine,
-        product: selections.product,
-        productVersion: selections.version,
+        domain,
+        productLine,
+        product,
+        productVersion: version,
         dir
       }),
     })
@@ -80,17 +82,17 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
     server.projects.saveSelection({
-      domain: selections.domain,
-      productLine: selections.productLine,
-      product: selections.product,
-      version: selections.version,
+      domain,
+      productLine,
+      product,
+      version,
     })
     props.onSelect({
       directory: dir,
-      domain: selections.domain,
-      productLine: selections.productLine,
-      product: selections.product,
-      version: selections.version,
+      domain,
+      productLine,
+      product,
+      version,
     })
   }
 
@@ -107,7 +109,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         class="flex flex-col items-center"
         style={{
           width: "400px",
-          background: "white",
+          background: "linear-gradient(166deg, rgb(255, 255, 255) 0%, rgb(253, 254, 255) 48%, rgb(233, 245, 255) 99%)",
           "border-radius": "8px",
           padding: "40px 32px 32px 32px",
           "box-shadow": "0 4px 24px rgba(0, 0, 0, 0.15)",
@@ -124,7 +126,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
-            shouldAutoSelect={shouldAutoSelect}
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)

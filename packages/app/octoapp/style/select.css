@@ -55,14 +55,14 @@
 }
 
 .version-select-content [data-slot="select-select-item"][data-selected] {
-  background: rgba(37, 99, 235, 0.08) !important;
-  color: #2563EB !important;
+  background: rgba(10, 89, 247, 0.08) !important;
+  color: #0a59f7 !important;
 }
 
 .version-select-content [data-slot="select-select-item"][data-selected][data-highlighted],
 .version-select-content [data-slot="select-select-item"][data-selected]:hover {
-  background: rgba(37, 99, 235, 0.08) !important;
-  color: #2563EB !important;
+  background: rgba(10, 89, 247, 0.08) !important;
+  color: #0a59f7 !important;
 }
 
 .version-select-content [data-slot="select-select-item"] [data-slot="select-select-item-indicator"] {
