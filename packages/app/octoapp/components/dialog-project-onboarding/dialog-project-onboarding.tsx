@@ -62,14 +62,17 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       setTriedSubmit(true)
       return
     }
+    const product = selections.product
+    const domain = product ? selections.domain : undefined
+    const productLine = product ? selections.productLine : undefined
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
       subType: "click",
       extend: JSON.stringify({
-        domain: selections.domain,
-        productLine: selections.productLine,
-        product: selections.product,
+        domain,
+        productLine,
+        product,
         productVersion: selections.version,
         dir
       }),
@@ -78,16 +81,16 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
     server.projects.saveSelection({
-      domain: selections.domain,
-      productLine: selections.productLine,
-      product: selections.product,
+      domain,
+      productLine,
+      product,
       version: selections.version,
     })
     props.onSelect({
       directory: dir,
-      domain: selections.domain,
-      productLine: selections.productLine,
-      product: selections.product,
+      domain,
+      productLine,
+      product,
       version: selections.version,
     })
   }
