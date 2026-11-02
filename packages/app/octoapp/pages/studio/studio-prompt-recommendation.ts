@@ -531,6 +531,17 @@ export function createPromptRecommendation(input: {
     if (guide?.status === "armed")
       await dismiss({ kind: "dismiss", sessionID: guide.sessionID, guidePartID: guide.guidePartID })
   }
+  async function exitForDraftRestore() {
+    const target = visit()
+    if (current()?.pending || current()?.preparing || current()?.recovering ||
+      ["running", "cancelling"].includes(current()?.state?.recommendation?.status ?? ""))
+      throw new Error("请先完成或停止当前任务。")
+    await exit()
+    if (disposed || target !== visit()) throw new Error("当前会话已切换。")
+    if (input.mode?.enabled(key()) || pending() || current()?.unknown || current()?.exiting ||
+      current()?.pending || current()?.preparing || current()?.state?.recommendation?.status === "armed")
+      throw new Error("退出推荐尚未确认，请重新同步后重试。")
+  }
   createEffect(() => {
     if (!input.mode?.ready() || !current()?.ready) return
     const target = key()
@@ -614,6 +625,7 @@ export function createPromptRecommendation(input: {
     expand,
     expandShortcut: (value: Omit<Submission, "requestID" | "sessionID" | "guidePartID">) => expand(value, () => {}, true),
     exit,
+    exitForDraftRestore,
     initialize: () => {
       versions.set(key(), (versions.get(key()) ?? 0) + 1)
       input.mode?.save(key(), true)

@@ -560,6 +560,30 @@ test("exit releases armed but does not cancel an accepted expansion", async () =
   }
 })
 
+test("image draft restoration waits for confirmed exit and rejects an unknown dismiss result", async () => {
+  const value = modeSetup({ status: "armed", loseDismissResponse: true })
+  try {
+    await Bun.sleep(0)
+    await expect(value.api.exitForDraftRestore()).rejects.toThrow("退出推荐尚未确认")
+    expect(value.mode.enabled).toBe(false)
+    expect(value.api.state()?.unknown).toBe(true)
+    await value.api.recover()
+    await value.api.exitForDraftRestore()
+    expect(value.api.armed()).toBe(false)
+    expect(value.api.state()?.unknown).toBe(false)
+  } finally { value.dispose() }
+})
+
+test.each(["running", "cancelling"])("image draft restoration cannot cancel an accepted %s task", async (status) => {
+  const value = modeSetup({ status })
+  try {
+    await Bun.sleep(0)
+    await expect(value.api.exitForDraftRestore()).rejects.toThrow("请先完成或停止当前任务")
+    expect(value.mode.enabled).toBe(true)
+    expect(value.calls.some((call) => call.path.endsWith("/cancel") || call.path.endsWith("/dismiss"))).toBe(false)
+  } finally { value.dispose() }
+})
+
 test("exit during silent preparation releases its late guide without submitting or clearing", async () => {
   const gate = Promise.withResolvers<void>()
   const value = modeSetup({ waitInitialize: gate.promise })

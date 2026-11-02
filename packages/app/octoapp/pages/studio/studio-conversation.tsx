@@ -28,6 +28,7 @@ import { originalMediaSrc } from "./studio-media"
 import { StudioDownloadIcon } from "./studio-download-icon"
 import { StudioPromptExpansionReviewView } from "./studio-prompt-expansion-review-view"
 import { StudioPromptExpansionPreview } from "./studio-prompt-expansion-preview"
+import { studioTurnAnchorID } from "./studio-turn-anchor"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
@@ -146,7 +147,7 @@ export function StudioConversation(props: {
       <div class="studio-conversation">
         <For each={props.turns}>
           {(turn, index) => (
-            <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
+            <div class="studio-conversation-turn" data-studio-turn-id={studioTurnAnchorID(turn)} classList={{ separated: index() > 0 }}>
               <Show when={!turn.hideUserBubble && turn.inputImages?.length}>
                 <div class="studio-user-input-images">
                   <For each={turn.inputImages}>
