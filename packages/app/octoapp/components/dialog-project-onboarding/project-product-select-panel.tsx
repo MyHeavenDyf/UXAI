@@ -102,6 +102,15 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
     }
   })
 
+  createEffect(() => {
+    const list = allProducts()
+    if (!list?.length) return
+    if (!list.some(item => item.id === selectedProductId())) {
+      setSelectedProduct(list[0])
+      setSelectedProductId(list[0].id)
+    }
+  })
+
   const clearProductSelection = () => {
     setSelectedProduct(undefined)
     setSelectedProductId(undefined)
