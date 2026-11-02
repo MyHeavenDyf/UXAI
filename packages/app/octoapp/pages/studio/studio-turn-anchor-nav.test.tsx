@@ -32,7 +32,7 @@ async function waitFor(check: () => boolean) {
   expect(check()).toBe(true)
 }
 
-function mount(turns = [turn("one"), turn("two"), turn("three")]) {
+function mount(turns = [turn("one"), turn("two"), turn("three")], layout?: { scrollHeight: number; lastTurnHeight: number }) {
   const [state, setState] = createStore({ turns, sessionID: "session-one", navigations: 0, following: false })
   const container = document.createElement("div")
   const viewport = document.createElement("div")
@@ -44,7 +44,7 @@ function mount(turns = [turn("one"), turn("two"), turn("three")]) {
   // Happy DOM has no layout or smooth scrolling; supply viewport geometry only.
   Object.defineProperties(viewport, {
     clientHeight: { value: 400 },
-    scrollHeight: { value: 2400 },
+    scrollHeight: { value: layout?.scrollHeight ?? 2400 },
     scrollTo: { value: (options: ScrollToOptions) => {
       scrolls.push(options)
       viewport.scrollTop = options.top ?? 0
@@ -55,7 +55,8 @@ function mount(turns = [turn("one"), turn("two"), turn("three")]) {
   turns.forEach((item, index) => {
     const el = document.createElement("div")
     el.dataset.studioTurnId = studioTurnAnchorID(item)
-    el.getBoundingClientRect = () => new DOMRect(0, offsets[index] - viewport.scrollTop, 300, 500)
+    el.getBoundingClientRect = () => new DOMRect(0, offsets[index] - viewport.scrollTop, 300,
+      index === turns.length - 1 ? layout?.lastTurnHeight ?? 500 : 500)
     content.append(el)
   })
   const dispose = render(() => createComponent(StudioTurnAnchorNav, {
@@ -151,5 +152,36 @@ test("resuming latest-content following releases the previous navigation target"
     view.viewport.scrollTop = 1000
     view.viewport.dispatchEvent(new Event("scroll"))
     await waitFor(() => view.container.querySelector('[data-active="true"]')?.getAttribute("aria-label")?.includes("需求 two") === true)
+  } finally { view.dispose() }
+})
+
+test("a short final turn is active at the bottom, including fractional scroll positions", async () => {
+  const view = mount(undefined, { scrollHeight: 1422, lastTurnHeight: 200 })
+  try {
+    view.viewport.scrollTop = view.viewport.scrollHeight - view.viewport.clientHeight
+    view.viewport.dispatchEvent(new Event("scroll"))
+    await waitFor(() => view.container.querySelector('[data-active="true"]')?.getAttribute("aria-label")?.includes("需求 three") === true)
+    expect(view.content.lastElementChild?.getBoundingClientRect().top).toBe(178)
+    view.viewport.scrollTop -= 1.5
+    view.viewport.dispatchEvent(new Event("scroll"))
+    await Bun.sleep(30)
+    expect(view.container.querySelector('[data-active="true"]')?.getAttribute("aria-label")).toContain("需求 three")
+    view.viewport.scrollTop -= 4
+    view.viewport.dispatchEvent(new Event("scroll"))
+    await waitFor(() => view.container.querySelector('[data-active="true"]')?.getAttribute("aria-label")?.includes("需求 two") === true)
+  } finally { view.dispose() }
+})
+
+test("releasing a clicked final anchor at the bottom does not select the penultimate turn", async () => {
+  const view = mount(undefined, { scrollHeight: 1422, lastTurnHeight: 200 })
+  try {
+    view.container.querySelectorAll<HTMLButtonElement>("button")[2].click()
+    await Bun.sleep(30)
+    view.viewport.dispatchEvent(new WheelEvent("wheel"))
+    view.setState("following", true)
+    view.viewport.dispatchEvent(new Event("scroll"))
+    await Bun.sleep(30)
+    expect(view.viewport.scrollTop).toBe(view.viewport.scrollHeight - view.viewport.clientHeight)
+    expect(view.container.querySelector('[data-active="true"]')?.getAttribute("aria-label")).toContain("需求 three")
   } finally { view.dispose() }
 })

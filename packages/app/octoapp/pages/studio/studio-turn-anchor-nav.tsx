@@ -103,8 +103,11 @@ export function StudioTurnAnchorNav(props: {
       return
     }
     const vpTop = vp.getBoundingClientRect().top
-    const current = (els.filter((el) => el.getBoundingClientRect().top - vpTop <= SPY_TOP_THRESHOLD).at(-1)
-      ?? els[0]).dataset.studioTurnId ?? ""
+    // A short final turn cannot reach the viewport top, even at maximum scroll.
+    const current = (vp.scrollHeight > vp.clientHeight && vp.scrollHeight - vp.clientHeight - vp.scrollTop <= SETTLE_EPSILON
+      ? els[els.length - 1]
+      : els.filter((el) => el.getBoundingClientRect().top - vpTop <= SPY_TOP_THRESHOLD).at(-1)
+        ?? els[0]).dataset.studioTurnId ?? ""
     if (current && current !== state.activeId) {
       setState("activeId", current)
       scrollRailToActive()
