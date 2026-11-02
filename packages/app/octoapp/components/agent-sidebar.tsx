@@ -540,6 +540,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const stable = createMemo(() => fetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  let importScrollTimer: ReturnType<typeof setTimeout> | undefined
   let pendingScrollId: string | null = null
   let userScrolled = false
   let programmaticScroll = false
@@ -565,13 +566,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function scrollToSession(id: string) {
+    const recentIndex = recentSessions().findIndex((session) => session.id === id)
+    if (!useServerPagination() && recentIndex >= visibleCount()) setVisibleCount(recentIndex + 1)
     programmaticScroll = true
     clearTimeout(programmaticScrollTimer)
     setTimeout(() => {
       if (!scrollContainer) { programmaticScroll = false; return }
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
       if (!el) { programmaticScroll = false; return }
-      const elTop = el.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top + scrollContainer.scrollTop
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const itemRect = el.getBoundingClientRect()
+      if (itemRect.top >= containerRect.top + 46 && itemRect.bottom <= containerRect.bottom) {
+        programmaticScroll = false
+        return
+      }
+      const elTop = itemRect.top - containerRect.top + scrollContainer.scrollTop
       scrollContainer.scrollTo({ top: Math.max(0, elTop - 46), behavior: "smooth" })
       armProgrammaticScrollReset()
     }, 50)
@@ -656,9 +665,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     refetchTimer = setTimeout(action, delay)
   }
 
-  async function backfillActiveSession() {
+  async function backfillActiveSession(sessionID = props.activeSessionId()) {
     if (!useServerPagination()) return
-    const id = props.activeSessionId()
+    const id = sessionID
     if (!id) return
     if (sessionList.some(s => s.id === id)) return
     const d = resolvedDir()
@@ -740,6 +749,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => resizeObserver.disconnect())
   })
   onCleanup(() => { clearTimeout(refetchTimer) })
+  onCleanup(() => clearTimeout(importScrollTimer))
   onCleanup(() => clearTimeout(programmaticScrollTimer))
 
   // Listen for rename events from chat area to scroll to active session.
@@ -768,6 +778,27 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
   window.addEventListener("octo:session-renamed", handleSessionRenamed)
   onCleanup(() => window.removeEventListener("octo:session-renamed", handleSessionRenamed))
+
+  const handleSessionImported = (event: Event) => {
+    const detail = (event as CustomEvent<{ sessionID: string; directory: string; agent: string }>).detail
+    if (!detail || detail.directory !== resolvedDir() || detail.agent !== props.agentFilter) return
+    userScrolled = false
+    clearTimeout(importScrollTimer)
+    importScrollTimer = setTimeout(async () => {
+      if (sessionList.some((session) => session.id === detail.sessionID)) {
+        scrollToSession(detail.sessionID)
+        return
+      }
+      if (useServerPagination()) {
+        await backfillActiveSession(detail.sessionID)
+        return
+      }
+      await refetch()
+      scrollToSession(detail.sessionID)
+    }, 100)
+  }
+  window.addEventListener("octo:session-imported", handleSessionImported)
+  onCleanup(() => window.removeEventListener("octo:session-imported", handleSessionImported))
 
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
   const [creating, setCreating] = createSignal(false)

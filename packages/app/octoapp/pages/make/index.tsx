@@ -529,9 +529,12 @@ function MakeContent() {
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
 
-  const menuSession = () => sessionInfoMirror()
+  // The first reply can update the generated title after sessionInfo's one-time
+  // request has completed. Use the live sync record so sharing immediately after
+  // the reply sees the same title as the page header; keep the request as fallback.
+  const menuSession = () => info() ?? sessionInfoMirror()
   const menuHasMessages = () => {
-    const s = sessionInfoMirror()
+    const s = menuSession()
     return !!s && s.time.updated > s.time.created
   }
 

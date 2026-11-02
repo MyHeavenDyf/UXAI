@@ -12,7 +12,7 @@ import { tracker } from "@/utils/tracker"
 import { directoryHeader } from "@/utils/headers"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
-import { openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
+import { consumePendingDeepLinks, openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
 import { sharedSessionImportContext } from "./shared-session-import-context"
 import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 
@@ -117,6 +117,11 @@ export function SharedSessionHandler() {
       server.projects.touch(result.directory)
       navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
     })
+    window.dispatchEvent(
+      new CustomEvent("octo:session-imported", {
+        detail: { sessionID: result.sessionID, directory: result.directory, agent: result.session.agent },
+      }),
+    )
     tracker.interaction({
       module: page === "make" ? "design" : page === "pattern" ? "prototype" : page,
       name: "share-import-success",
@@ -207,11 +212,15 @@ export function SharedSessionHandler() {
       cache.invalidate(event.details.properties.info.directory, event.details.properties.info.id)
     })
     onCleanup(unsubscribe)
-    const listener = (event: Event) => handle((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
+    const target = window as Window & { __OCTO__?: { deepLinks?: string[] } }
+    const consume = (fallback: string[] = []) => {
+      const cached = consumePendingDeepLinks((target.__OCTO__ ??= {}))
+      handle(cached.length ? cached : fallback)
+    }
+    const listener = (event: Event) => consume((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
     window.addEventListener("opencode:deep-link", listener)
     // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
-    const target = window as Window & { __OCTO__?: { deepLinks?: string[] } }
-    handle(target.__OCTO__?.deepLinks ?? [])
+    consume()
     onCleanup(() => window.removeEventListener("opencode:deep-link", listener))
   })
   return null
