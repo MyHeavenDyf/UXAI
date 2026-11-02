@@ -1297,3 +1297,13 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 
 - `project-product-select-panel.tsx` — `.panel-item-selected` 背景从 `rgba(37, 99, 235, 0.08)` 改为 `rgba(10, 89, 247, 0.08)`，文字从 `#2563EB` 改为 `#0a59f7`
 - `style/select.css` — 版本下拉 `[data-selected]` 和 `[data-selected][data-highlighted]` / `[data-selected]:hover` 的背景/文字同步修改
+
+---
+
+## 第三十八轮改动（确认时未选产品则清空领域/产品线）
+
+### 145. `dialog-project-onboarding.tsx` — `handleConfirm` 未选产品时清空领域/产品线
+
+- `handleConfirm()` 新增条件：`const product = selections.product`，`domain` / `productLine` 改为 `product ? selections.domain : undefined` / `product ? selections.productLine : undefined`
+- 影响三处：tracker 埋点（`extend` JSON）、`server.projects.saveSelection`（持久化）、`props.onSelect`（回调）— 未选产品时 domain/productLine 均传 `undefined`
+- version 保持原值不变（`selections.version`），仅清空领域/产品线
