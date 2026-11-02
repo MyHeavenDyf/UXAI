@@ -273,9 +273,15 @@ export function registerIpcHandlers(deps: Deps) {
       }) as typeof fetch,
     }
   }
-  ipcMain.handle("prepare-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string) => {
+  ipcMain.handle("prepare-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, operationID?: string) => {
     const input = await shareInput(event)
-    const prepared = await prepareSharedSession({ ...input, uniqueId })
+    const prepared = await prepareSharedSession({
+      ...input,
+      uniqueId,
+      progress: operationID
+        ? (progress) => event.sender.send("session-transfer-progress", { operationID, ...progress })
+        : undefined,
+    })
     if (event.sender.isDestroyed()) {
       await rm(prepared.temporary, { recursive: true, force: true })
       throw new Error("分享窗口已关闭")
@@ -297,7 +303,14 @@ export function registerIpcHandlers(deps: Deps) {
     return { token, agent: prepared.agent, module: prepared.module }
   })
   ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) => releaseShare(token, event.sender.id))
-  ipcMain.handle("import-shared-session", async (event: IpcMainInvokeEvent, uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => {
+  ipcMain.handle("import-shared-session", async (
+    event: IpcMainInvokeEvent,
+    uniqueId: string,
+    directory: string,
+    scope?: "project" | "session",
+    token?: string,
+    operationID?: string,
+  ) => {
     if (typeof directory !== "string" || !directory.trim() || !isAbsolute(directory)) {
       throw new Error("请先选择关联本地文件夹，再打开分享对话")
     }
@@ -313,7 +326,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
     // Directory/file restoration only starts after the renderer has switched to the identified module.
     return importSharedSession({
-      ...input, uniqueId, directory, scope, prepared: entry?.prepared,
+      ...input, uniqueId, directory, scope, operationID, prepared: entry?.prepared,
       log: (event, details) => log.info(`[octo:share-import] ${event}`, details),
     })
   })
