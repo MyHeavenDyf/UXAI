@@ -11,7 +11,7 @@ import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { tracker } from "@/utils/tracker"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
-import { openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
+import { consumePendingDeepLinks, openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
 import { sharedSessionImportContext } from "./shared-session-import-context"
 
 export function SharedSessionHandler() {
@@ -185,11 +185,15 @@ export function SharedSessionHandler() {
       cache.invalidate(event.details.properties.info.directory, event.details.properties.info.id)
     })
     onCleanup(unsubscribe)
-    const listener = (event: Event) => handle((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
+    const target = window as Window & { __OCTO__?: { deepLinks?: string[] } }
+    const consume = (fallback: string[] = []) => {
+      const cached = consumePendingDeepLinks((target.__OCTO__ ??= {}))
+      handle(cached.length ? cached : fallback)
+    }
+    const listener = (event: Event) => consume((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
     window.addEventListener("opencode:deep-link", listener)
     // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
-    const target = window as Window & { __OCTO__?: { deepLinks?: string[] } }
-    handle(target.__OCTO__?.deepLinks ?? [])
+    consume()
     onCleanup(() => window.removeEventListener("opencode:deep-link", listener))
   })
   return null
