@@ -1331,3 +1331,13 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 ### 149. `project-product-select-panel.tsx` — 文件末尾补换行符
 
 - 文件末尾新增空行（`\ No newline at end of file` 修复）
+
+---
+
+## 第四十轮改动（选中产品线后自动选中产品第一项）
+
+### 150. `project-product-select-panel.tsx` — 新增产品自动选中 `createEffect`
+
+- 新增 `createEffect`：监听 `allProducts()` resource，产品列表加载后若当前 `selectedProductId` 不在列表中，自动选中第一项（`setSelectedProduct(list[0])` + `setSelectedProductId(list[0].id)`）
+- 与领域/产品线 effect 模式一致：条件 `!list.some(item => item.id === selectedProductId())` 确保仅在当前选中产品不在新列表时触发（切换产品线 → 旧产品不在新列表 → 自动选中第一项；手动选中的产品在列表中 → 保持选中）
+- 同步设置 `selectedProduct` 对象与 `selectedProductId`，保持 ID 与对象一致（与 #147 修复一致）
