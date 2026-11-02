@@ -23,6 +23,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
+import { useAvailableUpdate } from "@/components/update-checker"
 import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
@@ -309,6 +310,7 @@ export default function StudioPage() {
   const server = useServer()
   const models = useModels()
   const dialog = useDialog()
+  const availableUpdate = useAvailableUpdate()
   const removeSession = useSessionDelete()
   const [settingsActive, setSettingsActive] = createSignal(false)
   let studioPageRef!: HTMLDivElement
@@ -5131,6 +5133,13 @@ export default function StudioPage() {
               >
                 <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
                   <IconSettings1 size={20} />
+                </Show>
+                <Show when={availableUpdate.update()}>
+                  <span
+                    aria-hidden="true"
+                    class="absolute rounded-full pointer-events-none"
+                    style={{ top: "5px", right: "5px", width: "6px", height: "6px", background: "#2070F3", "box-shadow": "0 0 0 1px #FFFFFF" }}
+                  />
                 </Show>
                 <Show when={settingsActive()}>
                   <span

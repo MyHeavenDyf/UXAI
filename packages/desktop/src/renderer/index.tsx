@@ -129,9 +129,11 @@ const createPlatform = (): Platform => {
 
   return {
     platform: "desktop",
-    prepareSharedSession: (uniqueId) => window.api.prepareSharedSession(uniqueId),
+    prepareSharedSession: (uniqueId, operationID) => window.api.prepareSharedSession(uniqueId, operationID),
     releaseSharedSession: (token) => window.api.releaseSharedSession(token),
-    importSharedSession: (uniqueId, directory, scope, token) => window.api.importSharedSession(uniqueId, directory, scope, token),
+    onSessionTransferProgress: (callback) => window.api.onSessionTransferProgress(callback),
+    importSharedSession: (uniqueId, directory, scope, token, operationID) =>
+      window.api.importSharedSession(uniqueId, directory, scope, token, operationID),
     os,
     version: pkg.version,
 

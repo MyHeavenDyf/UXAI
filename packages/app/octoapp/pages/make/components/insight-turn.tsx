@@ -1162,10 +1162,12 @@ const stateStatus = state.status as string | undefined
     for (let i = idx + 1; i < live.length; i++) {
       parts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
     }
-    return collectRevertedFiles(parts, opts).map((path) => ({
-      path,
-      created: !existedBefore.has(path.replace(/\\/g, "/")),
-    }))
+    return collectRevertedFiles(parts, opts)
+      .filter((path) => /\.html?$/i.test(path.replace(/\\/g, "/")))
+      .map((path) => ({
+        path,
+        created: !existedBefore.has(path.replace(/\\/g, "/")),
+      }))
   })
 
   const [revertPending, setRevertPending] = createSignal(false)

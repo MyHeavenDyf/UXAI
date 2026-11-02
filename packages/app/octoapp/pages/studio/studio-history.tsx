@@ -13,6 +13,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
+import { UpdateButton } from "@/components/update-button"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
@@ -520,39 +521,42 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         </Show>
       </div>
 
-      <button
-        type="button"
-        title="设置"
-        class="relative flex items-center gap-[12px] w-full rounded-[4px] text-left transition-colors"
-        style={{
-          height: "36px",
-          padding: "0 12px",
-          "font-size": "12px",
-          "line-height": "20px",
-          background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
-          color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
-          "font-weight": settingsActive() ? "500" : "400",
-        }}
-        onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
-        onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
-        onClick={() => { tracker.interaction({ module: "studio", name: "settings-open" }); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
-      >
-        <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
-          <IconSettings1 size={20} />
-        </Show>
-        <span class="truncate">{language.t("sidebar.settings")}</span>
-        <Show when={settingsActive()}>
-          <span
-            class="absolute right-0 top-1/2 rounded-l-[3px]"
-            style={{
-              height: "20px",
-              width: "3px",
-              background: "var(--text-interactive-base)",
-              transform: "translateY(-50%)",
-            }}
-          />
-        </Show>
-      </button>
+      <div class="relative shrink-0">
+        <button
+          type="button"
+          title="设置"
+          class="relative flex items-center gap-[12px] w-full rounded-[4px] text-left transition-colors"
+          style={{
+            height: "36px",
+            padding: "0 12px",
+            "font-size": "12px",
+            "line-height": "20px",
+            background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": settingsActive() ? "500" : "400",
+          }}
+          onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+          onClick={() => { tracker.interaction({ module: "studio", name: "settings-open" }); setSettingsActive(true); dialog.show(() => <DialogSettings />, () => setSettingsActive(false)) }}
+        >
+          <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+            <IconSettings1 size={20} />
+          </Show>
+          <span class="truncate">{language.t("sidebar.settings")}</span>
+          <Show when={settingsActive()}>
+            <span
+              class="absolute right-0 top-1/2 rounded-l-[3px]"
+              style={{
+                height: "20px",
+                width: "3px",
+                background: "var(--text-interactive-base)",
+                transform: "translateY(-50%)",
+              }}
+            />
+          </Show>
+        </button>
+        <UpdateButton />
+      </div>
     </div>
   )
 }
