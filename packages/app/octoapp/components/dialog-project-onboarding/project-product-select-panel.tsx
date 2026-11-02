@@ -76,6 +76,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [selectedProduct, setSelectedProduct] = createSignal<Product | undefined>(props.product)
   const [hideClosed, setHideClosed] = createSignal(false)
   const [search, setSearch] = createSignal("")
+  let userClearedProduct = false
 
   const [searchResults, { refetch: refetchSearchResults }] = createResource(() => search() || undefined, searchProducts)
   const isSearching = () => !!search()
@@ -105,13 +106,18 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   createEffect(() => {
     const list = allProducts()
     if (!list?.length) return
+    if (userClearedProduct) return
     if (!list.some(item => item.id === selectedProductId())) {
-      setSelectedProduct(list[0])
-      setSelectedProductId(list[0].id)
+      const firstAvailable = list.find(p => !(p.isSecret && !p.isProductMember) && (!hideClosed() || !p.isEnd))
+      if (firstAvailable) {
+        setSelectedProduct(firstAvailable)
+        setSelectedProductId(firstAvailable.id)
+      }
     }
   })
 
   const clearProductSelection = () => {
+    userClearedProduct = true
     setSelectedProduct(undefined)
     setSelectedProductId(undefined)
   }
@@ -239,6 +245,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                         onClick={(e) => {
                           e.stopPropagation()
                           if (isSecretDisabled) return
+                          userClearedProduct = false
                           fetchDomainInfoByProduct(result.productId).then((info) => {
                             if (!info?.domain || !info?.subDomain || !info?.product) return
                             setSelectedDomain(info.domain)
@@ -295,6 +302,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                             onClick={(e) => {
                               e.stopPropagation()
                               if (item.id === selectedDomainId()) return
+                              userClearedProduct = false
                               setSelectedDomain(item)
                               setSelectedDomainId(item.id)
                               setSelectedProductLine(undefined)
@@ -319,12 +327,13 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                           {(item) => (
                             <div
                               classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductLineId() }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (item.id === selectedProductLineId()) return
-                                setSelectedProductLine(item)
-                                setSelectedProductLineId(item.id)
-                              }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (item.id === selectedProductLineId()) return
+                              userClearedProduct = false
+                              setSelectedProductLine(item)
+                              setSelectedProductLineId(item.id)
+                            }}
                             >
                               <span class="panel-label">{item.name}</span>
                             </div>
@@ -355,6 +364,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   if (isSecretDisabled) return
+                                  userClearedProduct = false
                                   const domainItem = safeDomains().find((d) => d.id === selectedDomainId())
                                   const productLineItem = safeProductLines().find((pl) => pl.id === selectedProductLineId())
                                   setSelectedDomain(domainItem)

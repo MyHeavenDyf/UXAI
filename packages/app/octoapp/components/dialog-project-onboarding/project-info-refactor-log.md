@@ -1341,3 +1341,20 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - 新增 `createEffect`：监听 `allProducts()` resource，产品列表加载后若当前 `selectedProductId` 不在列表中，自动选中第一项（`setSelectedProduct(list[0])` + `setSelectedProductId(list[0].id)`）
 - 与领域/产品线 effect 模式一致：条件 `!list.some(item => item.id === selectedProductId())` 确保仅在当前选中产品不在新列表时触发（切换产品线 → 旧产品不在新列表 → 自动选中第一项；手动选中的产品在列表中 → 保持选中）
 - 同步设置 `selectedProduct` 对象与 `selectedProductId`，保持 ID 与对象一致（与 #147 修复一致）
+
+---
+
+## 第四十一轮改动（评审修复：产品自动选中 effect 安全性 + 不选择冲突）
+
+### 151. `project-product-select-panel.tsx` — 产品自动选中 effect 跳过无权限/已结项产品
+
+- effect 中 `list[0]` 改为 `list.find(p => !(p.isSecret && !p.isProductMember) && (!hideClosed() || !p.isEnd))` — 跳过保密产品（用户非成员）和被 hideClosed 隐藏的已结项产品
+- 原因：原 effect 直接取 `list[0]`，可能选中无权限的 secret 产品（UI 不高亮但 confirmSelection 会提交）或被 hideClosed 过滤掉的已结项产品（用户看不到但会被提交）
+
+### 152. `project-product-select-panel.tsx` — `userClearedProduct` 标志防止"不选择"后自动重选
+
+- 新增 `let userClearedProduct = false` 标志
+- `clearProductSelection()` 中设置 `userClearedProduct = true` — 标记用户已主动清除产品选中
+- 产品自动选中 effect 新增 `if (userClearedProduct) return` — 用户清除后不再自动选中
+- 领域/产品线/产品/搜索结果 onClick 中设置 `userClearedProduct = false` — 用户重新开始选择时恢复自动选中
+- 原因：点"不选择"后 `selectedProductId` 为 undefined，effect 条件 `!list.some(item => item.id === selectedProductId())` 恒为 true，会立即把 list[0] 重新暂存回来，与"不选择"的意图矛盾
