@@ -1245,3 +1245,55 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - **影响范围**：135 条预取改造让这一行为在「product 有缓存、version 为空」时于弹窗挂载即触发，同样符合设计，不需回退为延迟请求。
 - **不存在静默落库**：`onSelectionChange` 只写 `dialog-project-onboarding.tsx` 的本地 `selections` store；真正落库在 `handleConfirm()`（`server.projects.saveSelection` + `props.onSelect` + 埋点），仅用户点「确认」时触发，且该按钮 `disabled={!hasDirectory()}` 要求先选本地目录。故自动选中只是**预填默认值**，用户在确认前始终可改。
 - **为什么单独记一条**：132 的表述（「`store.version` 为 undefined → 不做任何操作」）与设计口径相反，已两次把评审引向「这是行为回退」的误判（一次是 132 自身，一次是 PR #439 评审）。此处订正并在 132 条顶部加推翻标记，避免第三次。
+
+---
+
+## 第三十七轮改动（不选择/确认按钮 + 移除新用户自动级联选中 + 选中色统一）
+
+### 138. `project-product-select-panel.tsx` — 新增"不选择"/"确认"按钮 + 选择确认机制
+
+- 面板底部新增按钮容器（`display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px`）
+- **"不选择"按钮**：88×32px、`border-radius: 16px`、背景/边框 `rgba(0,0,0,0.05)`、文字 `rgba(0,0,0,0.65)`
+  - 点击清空产品选中状态（`selectedProduct`/`selectedProductId`），保留领域/产品线选中状态
+  - 调用 `onProductConfirm({ domain, productLine })` 不传 product → 父组件清空 product 和 version 值
+- **"确认"按钮**：88×32px、`border-radius: 16px`、背景/边框 `#0a59f7`、文字 `#fff`
+  - 点击调用 `onProductConfirm` 传入当前暂存的领域/产品线/产品对象
+- 新增 `selectedDomain`/`selectedProductLine`/`selectedProduct` 三个 signal — 暂存选中对象，点击选项时写入，确认按钮读取
+- 新增 `clearProductSelection()` — 仅清空产品选中状态（不清空领域/产品线）
+- 新增 `confirmSelection()` — 调用 `onProductConfirm` 传入暂存对象
+- **产品 onClick（三列模式）**：从立即调用 `onProductConfirm` 改为仅设置 `selectedProductId` + 暂存对象（不触发确认）
+- **搜索结果 onClick**：从立即调用 `onProductConfirm` 改为仅设置 IDs + 暂存对象（不触发确认）
+- **领域 onClick**：新增 `setSelectedDomain(item)` + `setSelectedProductLine(undefined)`（产品线 ID 清空时同步清空对象）
+- **产品线 onClick**：新增 `setSelectedProductLine(item)`
+
+### 139. `project-info-dialog-content.tsx` — 移除新用户自动级联选中逻辑
+
+- 移除 `shouldAutoSelect` prop
+- 移除 `autoSelectFirstAvailable` 异步函数（原逻辑：新用户无历史选择时自动级联选中第一个领域/产品线/产品）
+- 移除触发 `autoSelectFirstAvailable` 的 `createEffect`
+- 移除 `userInteracted` / `autoSelectStarted` 变量及 `onProductConfirm` / `onSelect` 中的 `userInteracted = true` 赋值
+- 清理 import：移除不再使用的 `fetchDomains` / `fetchProductLines` / `fetchProducts`
+
+### 140. `dialog-project-onboarding.tsx` — 移除 shouldAutoSelect
+
+- 移除 `shouldAutoSelect` 计算（`!lastSelection?.domain && ...`）
+- 移除 `<ProjectInfoDialogContent>` 的 `shouldAutoSelect={shouldAutoSelect}` prop
+
+### 141. `project-info-dialog-content.tsx` — `safeVersionOptions` 增加 product 守卫
+
+- `safeVersionOptions()` 新增 `if (!store.product) return []` — 无产品时直接返回空数组
+- 原因：点击"不选择"后 `store.product` 被清空，但 SolidJS `createResource` 在 source 变为 falsy 时不清空旧数据（保留上次返回值），版本自动选中 effect（`store.version` 为空 → 选 `options[0]`）会从 stale 版本列表中重新选中第一项，导致版本值未清空。增加 product 守卫后 effect 提前返回，版本值保持 `undefined`
+
+### 142. `project-product-select.tsx` — `selectedLabel` 未选产品时显示"选择产品"
+
+- `selectedLabel()` 改为：`if (!props.product) return "选择产品"` — 未选中产品时直接返回占位文本，不再拼接领域/产品线名称
+- 原行为：仅当 domain/productLine/product 全部为空时才显示"选择产品"；选中了领域/产品线但未选产品时仍拼接显示领域/产品线名称
+
+### 143. `project-info-dialog-content.tsx` — 版本选择框 font-weight
+
+- `versionSelectTriggerStyle` 新增 `"font-weight": "400"`
+
+### 144. 选中项配色统一 — `rgba(37,99,235,0.08)` / `#2563EB` → `rgba(10,89,247,0.08)` / `#0a59f7`
+
+- `project-product-select-panel.tsx` — `.panel-item-selected` 背景从 `rgba(37, 99, 235, 0.08)` 改为 `rgba(10, 89, 247, 0.08)`，文字从 `#2563EB` 改为 `#0a59f7`
+- `style/select.css` — 版本下拉 `[data-selected]` 和 `[data-selected][data-highlighted]` / `[data-selected]:hover` 的背景/文字同步修改

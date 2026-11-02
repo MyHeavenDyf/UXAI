@@ -71,6 +71,9 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [selectedDomainId, setSelectedDomainId] = createSignal(props.domain?.id)
   const [selectedProductLineId, setSelectedProductLineId] = createSignal(props.productLine?.id)
   const [selectedProductId, setSelectedProductId] = createSignal(props.product?.id)
+  const [selectedDomain, setSelectedDomain] = createSignal<Domain | undefined>(props.domain)
+  const [selectedProductLine, setSelectedProductLine] = createSignal<ProductLine | undefined>(props.productLine)
+  const [selectedProduct, setSelectedProduct] = createSignal<Product | undefined>(props.product)
   const [hideClosed, setHideClosed] = createSignal(false)
   const [search, setSearch] = createSignal("")
 
@@ -92,6 +95,19 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
     if (!list?.length) return
     if (!list.some(item => item.id === selectedProductLineId())) setSelectedProductLineId(list[0].id)
   })
+
+  const clearProductSelection = () => {
+    setSelectedProduct(undefined)
+    setSelectedProductId(undefined)
+  }
+
+  const confirmSelection = () => {
+    props.onProductConfirm({
+      domain: selectedDomain(),
+      productLine: selectedProductLine(),
+      product: selectedProduct(),
+    })
+  }
 
   const filteredProducts = () => {
     const list = allProducts() ?? []
@@ -120,7 +136,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
         .panel-item-list::-webkit-scrollbar-thumb { background: #dfdfdf; border: 1px solid transparent; border-radius: 4px; }
         .panel-item-list::-webkit-scrollbar-thumb:hover { background: #aeaeae }
         .panel-item { font-size: 14px; line-height: 22px; padding: 4px 8px; cursor: pointer; border-radius: 6px; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; }
-        .panel-item-selected { background: rgba(37, 99, 235, 0.08); color: #2563EB; }
+        .panel-item-selected { background: rgba(10, 89, 247, 0.08); color: #0a59f7; }
         .panel-item:not(.panel-item-selected):hover { background: #f3f3f3; }
         .panel-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
         .panel-item .pin-action { visibility: hidden; margin-left: auto; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; fill: #191919; }
@@ -210,14 +226,12 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                           if (isSecretDisabled) return
                           fetchDomainInfoByProduct(result.productId).then((info) => {
                             if (!info?.domain || !info?.subDomain || !info?.product) return
+                            setSelectedDomain(info.domain)
                             setSelectedDomainId(info.domain.id)
+                            setSelectedProductLine(info.subDomain)
                             setSelectedProductLineId(info.subDomain.id)
+                            setSelectedProduct(info.product)
                             setSelectedProductId(info.product.id)
-                            props.onProductConfirm({
-                              domain: info.domain,
-                              productLine: info.subDomain,
-                              product: info.product,
-                            })
                           }).catch(() => {})
                         }}
                       >
@@ -266,7 +280,9 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                             onClick={(e) => {
                               e.stopPropagation()
                               if (item.id === selectedDomainId()) return
+                              setSelectedDomain(item)
                               setSelectedDomainId(item.id)
+                              setSelectedProductLine(undefined)
                               setSelectedProductLineId(undefined)
                             }}
                           >
@@ -291,6 +307,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                               onClick={(e) => {
                                 e.stopPropagation()
                                 if (item.id === selectedProductLineId()) return
+                                setSelectedProductLine(item)
                                 setSelectedProductLineId(item.id)
                               }}
                             >
@@ -325,11 +342,10 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                                   if (isSecretDisabled) return
                                   const domainItem = safeDomains().find((d) => d.id === selectedDomainId())
                                   const productLineItem = safeProductLines().find((pl) => pl.id === selectedProductLineId())
-                                  props.onProductConfirm({
-                                    domain: domainItem,
-                                    productLine: productLineItem,
-                                    product: item,
-                                  })
+                                  setSelectedDomain(domainItem)
+                                  setSelectedProductLine(productLineItem)
+                                  setSelectedProduct(item)
+                                  setSelectedProductId(item.id)
                                 }}
                               >
                                 <Show when={item.isTop}>
@@ -369,6 +385,50 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
             </div>
         </Show>
       </ErrorBoundary>
+      <div style={{ display: "flex", "justify-content": "flex-end", gap: "8px", "margin-top": "16px" }}>
+        <button
+          style={{
+            width: "88px",
+            height: "32px",
+            "font-size": "13px",
+            "line-height": "20px",
+            color: "rgba(0,0,0,0.65)",
+            background: "rgba(0,0,0,0.05)",
+            border: "1px solid rgba(0,0,0,0.05)",
+            "border-radius": "16px",
+            cursor: "pointer",
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            clearProductSelection()
+            props.onProductConfirm({
+              domain: selectedDomain(),
+              productLine: selectedProductLine(),
+            })
+          }}
+        >
+          不选择
+        </button>
+        <button
+          style={{
+            width: "88px",
+            height: "32px",
+            "font-size": "13px",
+            "line-height": "20px",
+            color: "#fff",
+            background: "#0a59f7",
+            border: "1px solid #0a59f7",
+            "border-radius": "16px",
+            cursor: "pointer",
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            confirmSelection()
+          }}
+        >
+          确认
+        </button>
+      </div>
     </div>
   )
 }
