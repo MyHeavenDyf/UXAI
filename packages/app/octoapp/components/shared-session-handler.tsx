@@ -114,6 +114,11 @@ export function SharedSessionHandler() {
       server.projects.touch(result.directory)
       navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
     })
+    window.dispatchEvent(
+      new CustomEvent("octo:session-imported", {
+        detail: { sessionID: result.sessionID, directory: result.directory, agent: result.session.agent },
+      }),
+    )
     tracker.interaction({
       module: page === "make" ? "design" : page === "pattern" ? "prototype" : page,
       name: "share-import-success",
