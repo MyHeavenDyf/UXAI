@@ -7,7 +7,7 @@ export default function BestPracticesPage(): JSX.Element {
       style={{ background: "var(--octo-surface-page, #ffffff)" }}
     >
       <span class="text-sm" style={{ color: "var(--octo-text-primary, #191919)" }}>
-        这是优秀实践页面
+        暂无数据
       </span>
     </div>
   )

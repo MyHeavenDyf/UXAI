@@ -28,6 +28,16 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
+function NavTrailingIcon(): JSX.Element {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" width="14" height="14" fill="none"
+      style={{ "flex-shrink": "0", display: "inline-block" }}
+    >
+      <path d="M5.5 3.5L9 7L5.5 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  )
+}
+
 export function SidebarSectionHeader(props: {
   title: string
   icon?: () => JSX.Element
@@ -74,7 +84,7 @@ export function SidebarSectionHeader(props: {
 const DEFAULT_NAV_ITEMS = [
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
-  { key: "best_practice", label: "优秀实践", Icon: IconPractice, IconActive: IconPractice1 },
+  { key: "best_practice", label: "优秀实践", Icon: IconPractice, IconActive: IconPractice1, trailingIcon: NavTrailingIcon },
 ] as const
 
 export type SidebarShellProps = ParentProps & {
@@ -112,7 +122,7 @@ export type SidebarShellProps = ParentProps & {
   /** Nav item click handler. Receives item key. */
   onNavClick?: (key: string) => void
   /** Override NAV_ITEMS. Default: 技能库 + 资产库(hidden). */
-  navItems?: Array<{ key: string; label: string; Icon: typeof IconSkill; IconActive: typeof IconSkill1; hidden?: boolean }>
+  navItems?: Array<{ key: string; label: string; Icon: typeof IconSkill; IconActive: typeof IconSkill1; trailingIcon?: () => JSX.Element; hidden?: boolean }>
 
   // ── Settings ──
   /** Custom settings click handler. Default: opens DialogSettings. */
@@ -259,7 +269,12 @@ export function SidebarShell(props: SidebarShellProps) {
                       <item.IconActive size={20} />
                     </Show>
                   </span>
-                  <span class="truncate">{item.label}</span>
+                  <span class="flex items-center gap-[4px] min-w-0 flex-1">
+                    <span class="truncate min-w-0">{item.label}</span>
+                    <Show when={item.trailingIcon}>
+                      <span class="flex items-center shrink-0">{item.trailingIcon?.()}</span>
+                    </Show>
+                  </span>
                   <Show when={isActive()}>
                     <span
                       class="absolute right-0 top-1/2 rounded-l-[3px]"
