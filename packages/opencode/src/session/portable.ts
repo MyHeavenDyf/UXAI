@@ -739,7 +739,8 @@ async function normalizeBundlePaths(manifest: Manifest, zip: JSZip, maxLength?: 
     if (!value || typeof value !== "object") return value
     const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, references(entry)]))
     if ("url" in value && typeof value.url === "string" && typeof result.url === "string" && result.url !== value.url && typeof result.filename === "string") {
-      const filename = result.url.startsWith("file://") ? decodeURIComponent(new URL(result.url).pathname) : result.url
+      if (result.url.startsWith("file://") && !URL.canParse(result.url)) return result
+      const filename = result.url.startsWith("file://") ? new URL(result.url).pathname : result.url
       return { ...result, filename: path.posix.basename(filename.replaceAll("\\", "/")) }
     }
     return result
