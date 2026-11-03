@@ -142,4 +142,85 @@ describe("global sync bootstrap", () => {
     expect(completed).toBe(true)
     expect(store.status).toBe("complete")
   })
+
+  const makeState = (path: Path): State => ({
+    status: "loading",
+    agent: [],
+    command: [],
+    project: "",
+    projectMeta: undefined,
+    icon: undefined,
+    provider_ready: true,
+    provider: { all: [], connected: [], default: {} } as ProviderListResponse,
+    config: {},
+    path,
+    session: [],
+    sessionTotal: 0,
+    session_status: {},
+    session_diff: {},
+    todo: {},
+    permission: {},
+    question: {},
+    mcp_ready: true,
+    mcp: {},
+    lsp_ready: true,
+    lsp: [],
+    vcs: undefined,
+    limit: 5,
+    message: {},
+    part: {},
+  })
+
+  test("calls onPermissionsLoaded with re-pulled pending asks (断连恢复补拉通道)", async () => {
+    const directory = "/tmp/octo-bootstrap-perm"
+    const path = { directory } as Path
+    const project = { id: "project", worktree: directory } as Project
+    const [store, setStore] = createStore<State>(makeState(path))
+    const [vcs, setVcs] = createStore({ value: undefined })
+    const entry = {
+      id: "per_001",
+      sessionID: "ses_perm",
+      permission: "edit",
+      patterns: ["foo.ts"],
+      metadata: {},
+      always: [],
+    }
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: { id: "ses_perm" } }),
+      },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [entry] }) },
+      question: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as unknown as OpencodeClient
+    const loaded: Array<{ directory: string; permissions: unknown[] }> = []
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: { store: vcs, setStore: setVcs, ready: () => true } as VcsCache,
+      loadSessions: () => Promise.resolve(),
+      translate: (key) => key,
+      global: { config: {}, path, project: [project], provider: store.provider },
+      queryClient: new QueryClient(),
+      onPermissionsLoaded: (directory, permissions) => {
+        loaded.push({ directory, permissions: permissions.slice() })
+      },
+    })
+
+    expect(loaded).toEqual([
+      { directory, permissions: [entry] },
+    ])
+    // warmSessions 已把 pending ask 的会话拉进 store,父链遍历可用
+    expect(store.session.map((s) => s.id)).toContain("ses_perm")
+    expect(store.permission["ses_perm"]).toEqual([entry])
+  })
 })

@@ -258,6 +258,12 @@ export async function bootstrapDirectory(input: {
   queryClient: QueryClient
   /** SSE 重连后的补拉:session_status 信任服务端快照,清掉断连期间过期的本地 busy */
   trustStatusSnapshot?: boolean
+  /**
+   * REST 补拉到的 pending 权限询问就位(warmSessions 完成、store 已写入)后回调。
+   * 断连期间丢失的 permission.asked 事件只能靠补拉恢复,auto-accept 通道
+   * 需要在这里补发应答(SSE 事件监听器只覆盖实时路径)。
+   */
+  onPermissionsLoaded?: (directory: string, permissions: PermissionRequest[]) => void
 }) {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
@@ -320,9 +326,8 @@ export async function bootstrapDirectory(input: {
       retry(() =>
         input.sdk.permission.list().then((x) => {
           const ids = (x.data ?? []).map((perm) => perm?.sessionID).filter((id): id is string => !!id)
-          const grouped = groupBySession(
-            (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
-          )
+          const valid = (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID)
+          const grouped = groupBySession(valid)
           return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
             batch(() => {
               for (const sessionID of Object.keys(input.store.permission)) {
@@ -340,7 +345,7 @@ export async function bootstrapDirectory(input: {
                 )
               }
             }),
-          )
+          ).then(() => input.onPermissionsLoaded?.(input.directory, valid))
         }),
       ),
     () =>

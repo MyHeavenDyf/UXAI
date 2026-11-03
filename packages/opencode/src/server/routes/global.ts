@@ -6,6 +6,7 @@ import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { SyncEvent } from "@/sync"
 import { GlobalBus } from "@/bus/global"
+import { emitPendingAsks } from "@/permission/pending-registry"
 import { Bus } from "@/bus"
 import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "@/util/queue"
@@ -134,6 +135,10 @@ export const GlobalRoutes = lazy(() =>
             q.push(JSON.stringify(event))
           }
           GlobalBus.on("event", handler)
+          // 重播 pending 权限询问:handler 注册后同步 emit 必达本连接。
+          // 冻结/断连期间发布到死连接的 permission.asked 事件客户端永远收不到,
+          // 服务端又在无限等待应答(Deferred 无超时),不重播就永久卡死。
+          emitPendingAsks()
           return () => GlobalBus.off("event", handler)
         })
       },

@@ -1,5 +1,6 @@
 import { Config } from "@/config/config"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
+import { emitPendingAsks } from "@/permission/pending-registry"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { Installation } from "@/installation"
@@ -38,7 +39,12 @@ function eventResponse() {
   const events = Stream.callback<GlobalBusEvent>((queue) => {
     const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
     return Effect.acquireRelease(
-      Effect.sync(() => GlobalBus.on("event", handler)),
+      Effect.sync(() => {
+        GlobalBus.on("event", handler)
+        // 重播 pending 权限询问(与 Hono 后端 global.ts 同语义):断连期间
+        // 丢失 permission.asked 的客户端靠重连时的重播恢复,否则服务端无限等待
+        emitPendingAsks()
+      }),
       () => Effect.sync(() => GlobalBus.off("event", handler)),
     )
   })

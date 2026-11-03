@@ -2,6 +2,7 @@ import type {
   Config,
   OpencodeClient,
   Path,
+  PermissionRequest,
   Project,
   ProviderAuthResponse,
   ProviderListResponse,
@@ -84,6 +85,7 @@ function createGlobalSync() {
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
+  const permissionSyncListeners = new Set<(directory: string, permissions: PermissionRequest[]) => void>()
 
   const [configQuery, providerQuery, pathQuery] = useQueries(() => ({
     queries: [
@@ -333,6 +335,15 @@ function createGlobalSync() {
         translate: language.t,
         queryClient,
         trustStatusSnapshot: opts?.trustStatusSnapshot,
+        onPermissionsLoaded: (directory, permissions) => {
+          for (const listener of permissionSyncListeners) {
+            try {
+              listener(directory, permissions)
+            } catch (err) {
+              console.error("permission sync listener failed", err)
+            }
+          }
+        },
       })
     })
 
@@ -470,6 +481,10 @@ function createGlobalSync() {
     project: projectApi,
     todo: {
       set: setSessionTodo,
+    },
+    onPermissionsLoaded(listener: (directory: string, permissions: PermissionRequest[]) => void) {
+      permissionSyncListeners.add(listener)
+      return () => permissionSyncListeners.delete(listener)
     },
   }
 }
