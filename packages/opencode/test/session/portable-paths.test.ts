@@ -129,6 +129,19 @@ test("keeps file URL encoding, query/fragments and local base URLs correct after
   expect(percent.rewriteText("file:///work/assets%3A%2525.svg")).toBe("file:///work/assets~003a~%2525.svg")
 })
 
+test("keeps malformed file URLs unchanged instead of interrupting export", () => {
+  const plan = planPortablePaths({ sourceDirectory: "/work", files: files(["index.html", "assets:icon.svg"]) })
+  for (const value of ["file://%", "file://[invalid"]) {
+    expect(plan.reference(value, 0)).toBe(value)
+    expect(plan.rewriteText(value)).toBe(value)
+    expect(
+      rewritePortableDocument(`<img src="${value}">`, "index.html", (reference, base) =>
+        plan.reference(reference, 0, true, base),
+      ),
+    ).toBe(`<img src="${value}">`)
+  }
+})
+
 test("resolves resources with the same filename independently per session", () => {
   const plan = planPortablePaths({ sourceDirectory: "/work", files: [
     ...files(["outputs/index.html", "outputs/a:b.svg"], "session"),
