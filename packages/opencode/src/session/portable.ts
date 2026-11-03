@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import JSZip from "jszip"
-import { Cause, Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import { InstanceState } from "@/effect/instance-state"
 import { Filesystem } from "@/util/filesystem"
@@ -106,34 +106,6 @@ type Manifest = {
   exclusions: string[]
   sessions: SessionEntry[]
   files: FileEntry[]
-}
-
-function portableDiagnostic(
-  requestID: string | undefined,
-  event: string,
-  details: Record<string, unknown> = {},
-) {
-  if (!requestID) return
-  console.info(`[octo:share] ${event}`, JSON.stringify({ requestID, ...details }))
-}
-
-function portableDiagnosticError(
-  requestID: string,
-  event: string,
-  cause: unknown,
-  details: Record<string, unknown> = {},
-) {
-  const error = cause instanceof Error ? cause : new Error(String(cause))
-  console.error(
-    `[octo:share] ${event}`,
-    JSON.stringify({
-      requestID,
-      ...details,
-      errorName: error.name,
-      message: error.message,
-      stack: error.stack?.split("\n").slice(0, 12).join("\n"),
-    }),
-  )
 }
 
 const decodeManifest = (input: unknown) => Schema.decodeUnknownSync(Manifest)(input) as unknown as Manifest
@@ -314,46 +286,15 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   sessionID: SessionID
   output: string
   scope?: "project"
-  diagnosticID?: string
 }) {
-  const started = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:start", {
-    sessionID: input.sessionID,
-    scope: input.scope ?? "session",
-  })
   const context = yield* InstanceState.context
-  const collectSessionsStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:collect-sessions:start", { sessionID: input.sessionID })
   const entries = yield* collectSessions(input.sessionID)
-  portableDiagnostic(input.diagnosticID, "export:collect-sessions:success", {
-    sessionID: input.sessionID,
-    sessionCount: entries.length,
-    elapsedMs: Date.now() - collectSessionsStarted,
-  })
   const zip = new JSZip()
   const output = path.resolve(
     input.output.toLowerCase().endsWith(".zip") ? input.output : `${input.output.replace(/\.octosession$/i, "")}.zip`,
   )
   // Snapshot once per export: scanning, dependency collection and the manifest use the same rules.
-  const blacklistStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:blacklist:start")
   const blacklist = yield* Effect.promise(() => loadPortableFileBlacklist())
-  portableDiagnostic(input.diagnosticID, "export:blacklist:success", {
-    extensionCount: blacklist.length,
-    elapsedMs: Date.now() - blacklistStarted,
-  })
-  const collectFilesStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:collect-files:start", {
-    sessionID: input.sessionID,
-    sourceDirectory: context.directory,
-  })
-  const files = yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist)
-  portableDiagnostic(input.diagnosticID, "export:collect-files:success", {
-    sessionID: input.sessionID,
-    fileCount: files.length,
-    fileBytes: files.reduce((total, file) => total + file.size, 0),
-    elapsedMs: Date.now() - collectFilesStarted,
-  })
   const manifest: Manifest = {
     format: "octo-session",
     version: bundleVersion,
@@ -373,38 +314,15 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
         : []),
     ],
     sessions: entries,
-    files,
+    files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist),
   }
-  const normalizeStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:normalize-paths:start", { fileCount: files.length })
   yield* Effect.tryPromise({
     try: () => normalizeBundlePaths(manifest, zip),
     catch: (error) => new PortableValidationError({ message: error instanceof Error ? error.message : String(error) }),
   })
-  portableDiagnostic(input.diagnosticID, "export:normalize-paths:success", {
-    fileCount: files.length,
-    elapsedMs: Date.now() - normalizeStarted,
-  })
   zip.file(manifestName, JSON.stringify(manifest, null, 2))
-  const generateStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:generate-zip:start", { fileCount: files.length })
   const archive = yield* Effect.promise(() => zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
-  portableDiagnostic(input.diagnosticID, "export:generate-zip:success", {
-    zipBytes: archive.byteLength,
-    elapsedMs: Date.now() - generateStarted,
-  })
-  const writeStarted = Date.now()
-  portableDiagnostic(input.diagnosticID, "export:write-zip:start", { output })
   yield* Effect.promise(() => Filesystem.write(output, archive))
-  portableDiagnostic(input.diagnosticID, "export:success", {
-    sessionID: input.sessionID,
-    output,
-    sessionCount: entries.length,
-    fileCount: files.length,
-    zipBytes: archive.byteLength,
-    writeElapsedMs: Date.now() - writeStarted,
-    elapsedMs: Date.now() - started,
-  })
   return {
     output,
     sessions: entries.length,
@@ -417,12 +335,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   headers?: Record<string, string | undefined>
   scope?: "project"
 }) {
-  const requestID = randomUUID()
-  const started = Date.now()
-  portableDiagnostic(requestID, "share:start", {
-    sessionID: input.sessionID,
-    scope: input.scope ?? "session",
-  })
   const status = yield* SessionStatus.Service
   const sessions = yield* Session.Service
   const assertShareable = Effect.gen(function* () {
@@ -442,47 +354,28 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
-    const exported = yield* exportPortableSession({
-      sessionID: input.sessionID,
-      output,
-      scope: input.scope,
-      diagnosticID: requestID,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.sync(() =>
-          portableDiagnosticError(requestID, "export:failed", Cause.squash(cause), {
-            sessionID: input.sessionID,
-            elapsedMs: Date.now() - started,
-          }),
-        ).pipe(Effect.andThen(Effect.failCause(cause))),
-      ),
-    )
+    const exported = yield* exportPortableSession({ sessionID: input.sessionID, output, scope: input.scope })
     yield* assertShareable
     const result = yield* Effect.tryPromise({
       try: async () => {
         const token = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "uiplustoken")?.[1]
         const cookie = Object.entries(input.headers ?? {}).find(([name]) => name.toLowerCase() === "x-opencode-share-cookie")?.[1]
         const headers = { ...(token ? { uiplustoken: token } : {}), ...(cookie ? { Cookie: cookie } : {}) }
-        const archive = await readFile(exported.output)
         const form = new FormData()
         form.append(
           "file",
-          new Blob([new Uint8Array(archive)], { type: "application/zip" }),
+          new Blob([new Uint8Array(await readFile(exported.output))], { type: "application/zip" }),
           `${(info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim() || "session"}.zip`,
         )
         form.append("description", info.title || "")
         console.info("[octo:share] upload request", JSON.stringify({
-          requestID,
           sessionID: input.sessionID,
           uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
           method: "POST",
           fields: ["file", "description"],
-          zipBytes: archive.byteLength,
           authHeaders: Object.keys(headers ?? {}),
           tokenSuffix: token ? token.slice(-6) : null,
-          elapsedMs: Date.now() - started,
         }))
-        const uploadStarted = Date.now()
         const response = await fetch(uploadURL!, {
           method: "POST",
           headers,
@@ -491,7 +384,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
         const body = await response.text()
         const payload: unknown = await Promise.resolve().then(() => JSON.parse(body)).catch(() => undefined)
         console.info("[octo:share] upload response", JSON.stringify({
-          requestID,
           sessionID: input.sessionID,
           status: response.status,
           redirected: response.redirected,
@@ -500,7 +392,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
           body: payload === undefined ? "[非 JSON 响应]" : JSON.stringify(payload, (key, value) =>
             /token|cookie|authorization|password|secret|accesskey/i.test(key) ? "[REDACTED]" : value,
           ).slice(0, 8192),
-          elapsedMs: Date.now() - uploadStarted,
         }))
         if (!response.ok) throw new Error(`Share upload failed: ${response.status}`)
         if (payload === undefined) throw new Error("分享上传接口未返回有效 JSON，请检查接口地址及登录状态")
@@ -512,19 +403,11 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
       },
       catch: (cause) => {
         const error = cause instanceof Error ? cause : new Error(String(cause))
-        portableDiagnosticError(requestID, "upload:failed", error, {
-          sessionID: input.sessionID,
-          elapsedMs: Date.now() - started,
-        })
+        console.error("[octo:share] upload failed", JSON.stringify({ sessionID: input.sessionID, message: error.message }))
         return error
       },
     })
     if (!result.success || !result.content.uniqueId) throw new Error("Share upload did not return a uniqueId")
-    portableDiagnostic(requestID, "share:success", {
-      sessionID: input.sessionID,
-      uniqueId: result.content.uniqueId,
-      elapsedMs: Date.now() - started,
-    })
     return {
       uniqueId: result.content.uniqueId,
       url: (() => {
