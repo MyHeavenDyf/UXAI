@@ -1,3 +1,4 @@
+// jk-j60099994-replace-with-60062650-octoapp-pages-best-practices-1-start
 import type { JSX } from "solid-js"
 
 export default function BestPracticesPage(): JSX.Element {
@@ -12,3 +13,4 @@ export default function BestPracticesPage(): JSX.Element {
     </div>
   )
 }
+// jk-j60099994-replace-with-60062650-octoapp-pages-best-practices-1-end
