@@ -680,6 +680,7 @@ export function ActionBar(props: {
       modelKey,
       sync,
       sessionId: params.id,
+      sdkDirectory: props.sdkDirectory,
     }
 
     // 节流探测：handler 自报 busy 时静默返回，不 add 任务项、不再调 handleDownload
