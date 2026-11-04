@@ -132,31 +132,18 @@
 
   做图标替换（§3.0）。只处理 <Icon> 调用点和 icon import，不碰其他组件代码（改文件一律用 edit，禁用 PowerShell 读写文件，Windows GBK 会把中文变乱码）。
 
-  1. 读 {SRC}-eview-react/.umd-conversion.json 的 iconCallSites（预扫结果，跳过 grep），
-     确认调用点数量和分布。从 iconCallSites 的 file 字段得知哪些文件有 <Icon> 调用——
-     **只读这些文件**（通常 3-8 个，不是全部源文件），控制上下文。
-     如 iconCallSites 为空或不存在，grep 确认：
-     grep -rl "<Icon\b" {SRC}-eview-react/src/
-     输出非空即有图标站点，必须跑 match-icons.cjs。
+  1. 读 {SRC}-eview-react/.umd-conversion.json 的 iconCallSites（预扫，跳过 grep），只读其 file 字段指向的文件（通常 3-8 个，控制上下文）。空或不存在则 grep -rl "<Icon\b" {SRC}-eview-react/src/ 兜底——**有站点才继续（无站点跳过阶段3，直接写 .icon-result.json status=PASS/skipped）**。
 
-  2. 跑 match-icons.cjs --apply 自动改写 confirmed：
-     node <eview-skill>/scripts/match-icons.cjs {SRC}-eview-react --apply
+  2. 探测网络选 B/C（全项目统一一种，仅名匹配方式不同）：curl -sI https://octo.hdesign.huawei.com/（或 WebFetch），可达→B（在线 getIconInfo，catalog-free、无占位）/ 不可达→C（离线 catalog）。mode 记入 .icon-result.json。
 
-  3. 读 .icon-match.json 报告的 residual 部分（fuzzy/UNMATCHED/三元/数据数组），
-     按语义+token 重叠从 residual 的 top-K 候选中选取替换。
-     **不要扫整本 icon-plus-names.json catalog**（66KB），只看 residual 候选短名单；
-     候选都不对再按需查 catalog：
-     <eview-skill>/references/icons/icon-plus-names.json
+  3. 按 <eview-skill>/references/migration-workflow.md §3.0 + Icon.md「方案 B 在线匹配执行 recipe」跑 match-icons.cjs 做对应 mode 的结构改写（B 两段式 --plan → 去重唯一名 + 并行 getIconInfo + icon-b-decisions.json → --apply-decisions --decisions <log>，缺名即报错零改写、补齐重跑 / C --apply）。**residual 真相源 = 脚本 stdout**——产物根无 .icon-match.json（C 的临时报告 --apply 后清理、B 的 icon-leaves.json 在 OS 临时目录），不要去找文件。residual 名选取按 §3.0 B/C 各自规则（B：getIconInfo 候选须精确等于 / C：stdout top-K 候选短名单，候选都不对再按需查 icon-plus-names.json，勿整本读）。.js→.jsx 由脚本处理。
 
-  4. .js 引入 JSX 时自动转 .jsx（match-icons.cjs --apply 已处理）
+  4. untraced/residual 按 skill closed-set 契约：闭合集（含跨边界 props/useMemo/推入函数 + 对象地图 OBJ[runtimeKey].field）→ 转 icon+（按 Icon.md 追源）；仅真 OPEN（后端自由取值）→ shim。残留 <Icon> shim 可先 check-icon-shim --init-justified 预填 .icon-shim-justified.json 骨架（只补 closedSet+reason），再 check-icon-shim --strict 拦闭集误留。
 
-  5. untraced/residual 按 skill closed-set 契约：闭合集（含跨边界 props/useMemo/推入函数 + 对象地图 OBJ[runtimeKey].field）→ 转 icon+（按 Icon.md recipe 追源）；仅真 OPEN（后端自由取值）→ shim。运行时键不影响闭合性，值集合闭合即转。跑 check-icon-shim --strict 拦闭集误留。
-
-  6. 读 <eview-skill>/references/components/Icon.md 了解 {} 上下文规则、
-     图标-prop wrapper 组件改写规则、方案A shim 保留判定标准。
+  5. 读 <eview-skill>/references/components/Icon.md（{} 上下文规则 / wrapper 改写 / 方案A shim 判定 / B recipe）。
 
   完成后写 .icon-result.json：
-  { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "iconCallSites": <总数>, "confirmed": <自动改写数>, "residual": <手动处理数>, "shimRetained": [<保留原因>] }
+  { "status": "PASS"/"FAIL", "round": 1, "mode": "B"/"C", "failures": [...], "iconCallSites": <总数>, "confirmed": <自动改写数>, "residual": <手动处理数>, "shimRetained": [<保留原因>] }
 
 ══════════════════════════════════════════════════════════════
 阶段4 — 终检（orchestrator 直接做，不派子 agent）
@@ -222,7 +209,7 @@
 - 阶段3 触发条件看 iconCallSites（预扫）或 <Icon name> grep 站点，
   不看 antdIcons（ict-coder 产物用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
 
-- 阶段3 按 skill 契约转所有闭合集（含跨边界/object-map）；残留 shim 须 check-icon-shim --strict 验证仅真OPEN
+- 阶段3 先探测 B/C（octo.hdesign.huawei.com 可达→B 两段式 `--plan`/`--apply-decisions`，在线名、无占位、不读 catalog / 不可达→C `--apply` catalog）再按 skill §3.0 执行，**不硬编码单一 mode**；转所有闭合集（含跨边界/object-map），残留 shim 须 check-icon-shim --strict 验证仅真OPEN，residual 真相源是脚本 stdout（产物根无 .icon-match.json）
 
 - 阶段3 写独立的 .icon-result.json（不复用 .migration-result.json），
   与阶段2 结果分离，主 agent 分别判定
