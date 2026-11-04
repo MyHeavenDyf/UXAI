@@ -73,8 +73,9 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
   },
 
   // fastui 预览卡片(SPEC-DES-005):页面是 127.0.0.1 上的跨域 dev server,没有 bridge、
-  // 没有单文件源码,所以在 url 的基础上只多开分辨率切换(纯 CSS 缩放)和下载
-  // (下载的是整个工程的代码包,由 fastui handler 的 handleDownload 实现,SPEC-DES-007 §8)
+  // 没有单文件源码,所以在 url 的基础上只多开分辨率切换(纯 CSS 缩放)、下载与归档
+  // (下载的是整个工程的代码包,由 fastui handler 的 handleDownload 实现,SPEC-DES-007 §8;
+  //  归档只归档同一个源码 zip,由 handler 的 archiveUpload 实现,SPEC-DES-007 §7)
   fastui: {
     features: {
       refresh: true,
@@ -85,7 +86,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       drawEdit: false,
       canvasEdit: false,
       comment: false,
-      archive: false,
+      archive: { enabled: true, editOnly: true },
       history: false,
       download: true,
       fullscreen: true,

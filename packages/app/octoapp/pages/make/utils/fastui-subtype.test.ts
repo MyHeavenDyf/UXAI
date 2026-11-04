@@ -1,8 +1,9 @@
 /**
  * fastui 预览卡片的独立 subtype(SPEC-DES-005)。
  *
- * 判据:fastui tab 在 url 的能力之上多开分辨率切换与下载(SPEC-DES-007 §8);url(所有 http(s)
- * 外链 tab)的能力与按钮保持通用形态;下载只认 `fastui://` 身份,走标准下载入口。
+ * 判据:fastui tab 在 url 的能力之上多开分辨率切换、下载(SPEC-DES-007 §8)与归档(§7);url(所有
+ * http(s) 外链 tab)的能力与按钮保持通用形态;下载只认 `fastui://` 身份,走标准下载入口;
+ * 自定义归档上传只有 fastui 有,其他 subtype 仍走默认归档。
  *
  * 运行: bun test --preload ./happydom.ts ./octoapp/pages/make/utils/fastui-subtype.test.ts(在 packages/app 下)
  */
@@ -34,8 +35,13 @@ const URL_FEATURES: Features = {
 }
 
 describe("能力表", () => {
-  test("fastui = url + 分辨率切换 + 下载", () => {
-    expect(getSubtypeConfig("fastui").features).toEqual({ ...URL_FEATURES, viewport: true, download: true })
+  test("fastui = url + 分辨率切换 + 下载 + 归档", () => {
+    expect(getSubtypeConfig("fastui").features).toEqual({
+      ...URL_FEATURES,
+      viewport: true,
+      download: true,
+      archive: { enabled: true, editOnly: true },
+    })
   })
 
   test("url 保持原样", () => {
@@ -162,6 +168,45 @@ describe("下载(SPEC-DES-007 §8:导出代码包走标准下载入口)", () => 
     release()
     await running
     expect(h.isDownloadBusy(ctxFor("fastui://a"))).toBe(false)
+  })
+})
+
+describe("归档(SPEC-DES-007 §7:只归档源码 zip,走自定义归档上传)", () => {
+  test("fastui 有 archiveUpload,且不列已有交付件", () => {
+    const upload = getSubtypeHandler("fastui")?.archiveUpload
+    expect(upload).toBeDefined()
+    expect(upload?.showDeliverables).toBe(false)
+  })
+
+  // 隔离:html-renderer 只在 handler 带 archiveUpload 时改走自定义上传。这里钉死除 fastui 外没有
+  // 任何 subtype 带它 —— 包括 _default:handler 普遍 `...defaultHandler` 继承,加在那里会全体生效
+  test("其他 subtype(含回落到 _default 的)都没有 archiveUpload,仍走默认归档", () => {
+    const others = Object.keys(SUBTYPE_CONFIG).filter((k) => k !== "fastui")
+    expect(others).toContain("_default")
+    for (const subtype of others) {
+      expect({ subtype, has: !!getSubtypeHandler(subtype)?.archiveUpload }).toEqual({ subtype, has: false })
+    }
+  })
+
+  test("只认 fastui:// 身份:裸 loopback 地址返回 null,不去打包", async () => {
+    let called = false
+    ;(window as unknown as { api?: unknown }).api = {
+      fastuiExportZip: async () => {
+        called = true
+        return { ok: true, zipPath: "/x.zip", bytes: 1 }
+      },
+    }
+    const ctx = {
+      tab: { id: "t", title: "t", type: "html", subtype: "fastui", content: "", filePath: "http://127.0.0.1:8081" },
+      sdkDirectory: "/proj",
+      sessionId: "s1",
+      showOctoToast: () => {},
+      tracker: { interaction: () => {} },
+    } as unknown as SubtypeHandlerContext
+    const upload = getSubtypeHandler("fastui")!.archiveUpload!
+    expect(await upload.onConfirm(ctx, {} as never)).toBeNull()
+    expect(called).toBe(false)
+    ;(window as unknown as { api?: unknown }).api = undefined
   })
 })
 

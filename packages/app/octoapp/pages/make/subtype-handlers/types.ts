@@ -96,6 +96,22 @@ export interface SubtypeHandler {
   buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ files: { path: string; content: string | Uint8Array }[] } | null>
 
   /**
+   * 自定义归档上传（SPEC-DES-007 §7.2）
+   * 实现后，归档弹窗确认时调用 onConfirm，代替默认的「截图 + HTML zip」上传（handleArchiveConfirm）；
+   * 未实现的 subtype 行为不变。与 handleArchive 的区别：handleArchive 在点归档按钮、弹窗打开之前调用，
+   * 这里在弹窗选好目录、点确定之后调用。
+   */
+  archiveUpload?: {
+    /** 是否显示已有交付件并做同名覆盖判断（HTML 交付件才有覆盖语义，普通文件交付件为 false） */
+    showDeliverables: boolean
+    /** 返回成功弹窗要显示的路径与查看链接；返回 null 表示失败或取消（已自行提示） */
+    onConfirm: (
+      ctx: SubtypeHandlerContext,
+      data: import("@/components/dialog-archive").ArchiveConfirmData,
+    ) => Promise<{ path: string; viewUrl?: string } | null>
+  }
+
+  /**
    * 下载下拉选项
    * 声明且长度 > 1 时，action bar 渲染"下载"下拉按钮；每项 value 会作为 option 传给 handleDownload
    */

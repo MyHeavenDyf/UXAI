@@ -409,6 +409,8 @@ export function HtmlRenderer(props: {
   const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
   const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
   const [archiveSuccessUniqueId, setArchiveSuccessUniqueId] = createSignal("")
+  /** 自定义归档上传(archiveUpload)成功后的查看链接;为 null 时成功弹窗仍按 uniqueId 拼 HTML 交付件的预览地址 */
+  const [archiveSuccessLink, setArchiveSuccessLink] = createSignal<{ url?: string } | null>(null)
   const [saving, setSaving] = createSignal(false)
   
   // Pending style storage for Cancel/Save logic
@@ -476,6 +478,52 @@ export function HtmlRenderer(props: {
     setArchiveDialogOpen(props.archiving ?? false)
   })
   
+  // subtype 自定义归档上传(SPEC-DES-007 §7.2):handler 实现了 archiveUpload 才走这里,
+  // 其他 subtype 仍走下面的 handleArchiveConfirm,行为不变
+  const archiveUpload = createMemo(() => getSubtypeHandler(props.subtype)?.archiveUpload)
+
+  async function handleArchiveUploadConfirm(data: ArchiveConfirmData): Promise<void> {
+    const upload = archiveUpload()
+    if (!upload) return
+    const m = local.model.current()
+    const ctx: SubtypeHandlerContext = {
+      tab: {
+        id: props.tabId ?? "",
+        title: props.tabTitle ?? "",
+        type: "html",
+        subtype: props.subtype,
+        content: props.content,
+        filePath: props.filePath,
+        commentFilePath: props.commentFilePath,
+        sessionId: props.sessionId,
+        createdAt: new Date(),
+      } as ResultTab,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      sdk,
+      sync,
+      modelKey: m ? { providerID: m.provider.id, modelID: m.id } : undefined,
+      sessionId: props.sessionId,
+      sdkDirectory: props.sdkDirectory,
+      workspaceKind: props.workspaceKind,
+    }
+    const result = await upload.onConfirm(ctx, data)
+    if (!result) return
+    setArchiveSuccessPath(result.path)
+    setArchiveSuccessLink({ url: result.viewUrl })
+    setArchiveSuccessOpen(true)
+  }
+
+  /** 成功弹窗的查看链接:自定义归档用它返回的链接(可能没有),否则是 HTML 交付件的预览地址 */
+  const archiveShareLink = (): string | undefined => {
+    const custom = archiveSuccessLink()
+    if (custom) return custom.url
+    return `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`
+  }
+
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
     const isLoggedIn = !!localStorage.getItem("uiplusToken")
@@ -2832,21 +2880,25 @@ fetch(`${props.sdkUrl}/comment/file?${commentQueryString({ commentFilePath: comm
                   open={archiveDialogOpen()}
                   onClose={() => setArchiveDialogOpen(false)}
                   onResetArchiving={props.onResetArchiving}
-                  onConfirm={handleArchiveConfirm}
+                  onConfirm={archiveUpload() ? handleArchiveUploadConfirm : handleArchiveConfirm}
                   sessionId={props.sessionId || ""}
                   filePath={props.filePath || ""}
                   tabTitle={getArtifactFilename(props.filePath)}
+                  showDeliverables={archiveUpload()?.showDeliverables}
                 />
               </Show>
               <Show when={archiveSuccessOpen()}>
                 <DialogArchiveSuccess
                   open={archiveSuccessOpen()}
-                  onClose={() => setArchiveSuccessOpen(false)}
+                  onClose={() => {
+                    setArchiveSuccessOpen(false)
+                    setArchiveSuccessLink(null)
+                  }}
                   archivePath={archiveSuccessPath()}
-                  shareLink={`${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`}
+                  shareLink={archiveShareLink()}
                   onViewClick={() => {
-                    const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`
-                    getDesktopApi()?.openLink?.(url)
+                    const url = archiveShareLink()
+                    if (url) getDesktopApi()?.openLink?.(url)
                   }}
                 />
               </Show>
