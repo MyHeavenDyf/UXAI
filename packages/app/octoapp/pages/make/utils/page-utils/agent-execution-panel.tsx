@@ -1,4 +1,4 @@
-import { createMemo, Show, For, onMount, createEffect, type Accessor } from "solid-js"
+import { createMemo, Show, For, onMount, createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { useSync } from "@/context/sync"
@@ -29,6 +29,27 @@ function truncate(text: string, max: number): string {
   return t.length > max ? t.slice(0, max) + "…" : t
 }
 
+function ExpandableText(props: { text: string; max: number }): JSX.Element {
+  const trimmed = createMemo(() => (props.text ?? "").trim())
+  const overflow = createMemo(() => trimmed().length > props.max)
+  const [expanded, setExpanded] = createSignal(false)
+  const display = createMemo(() => {
+    const t = trimmed()
+    if (expanded() || !overflow()) return t
+    return t.slice(0, props.max) + "…"
+  })
+  return (
+    <span
+      class="agent-exec-expandable"
+      classList={{ "agent-exec-expandable-clickable": overflow() }}
+      onClick={() => { if (overflow()) setExpanded(v => !v) }}
+      title={overflow() ? (expanded() ? "点击折叠" : "点击展开") : undefined}
+    >
+      {display()}
+    </span>
+  )
+}
+
 function extractTaskTools(parts: Part[]): Array<{ part: ToolPart; subSessionId?: string; description: string; status: string }> {
   const tasks: Array<{ part: ToolPart; subSessionId?: string; description: string; status: string }> = []
   for (const p of parts) {
@@ -41,7 +62,7 @@ function extractTaskTools(parts: Part[]): Array<{ part: ToolPart; subSessionId?:
     const input = state.input as Record<string, unknown> | undefined
     const metadata = state.metadata as Record<string, unknown> | undefined
     const subSessionId = metadata?.sessionId as string | undefined
-    const description = (input?.description as string) ?? (input?.prompt as string)?.slice(0, 80) ?? "子任务"
+    const description = (input?.description as string) ?? (input?.prompt as string) ?? "子任务"
     tasks.push({
       part: p as ToolPart,
       subSessionId,
@@ -77,7 +98,7 @@ function SubAgentMessages(props: { subSessionId: string; sync: SyncApi }): JSX.E
                         <span class="agent-exec-tool-name">{truncate(toolTitle(p as ToolPart), 60)}</span>
                       </div>
                     </Show>}>
-                      <div class="agent-exec-sub-text">{truncate((p as { text: string }).text, 500)}</div>
+                      <div class="agent-exec-sub-text"><ExpandableText text={(p as { text: string }).text} max={500} /></div>
                     </Show>
                   )}
                 </For>
@@ -107,7 +128,7 @@ function AgentMessageRow(props: { message: Message; parts: Accessor<Part[]>; syn
       <div class="agent-exec-msg-role">Agent</div>
       <Show when={reasoningParts().length > 0}>
         <div class="agent-exec-reasoning">
-          <For each={reasoningParts()}>{(r) => <div class="agent-exec-reasoning-text">{truncate(r.text, 200)}</div>}</For>
+          <For each={reasoningParts()}>{(r) => <div class="agent-exec-reasoning-text"><ExpandableText text={r.text} max={200} /></div>}</For>
         </div>
       </Show>
       <For each={textParts()}>{(p) => <div class="agent-exec-text">{p.text}</div>}</For>
@@ -118,7 +139,7 @@ function AgentMessageRow(props: { message: Message; parts: Accessor<Part[]>; syn
               <div class="agent-exec-task" classList={{ "agent-exec-task-error": t.status === "error" }}>
                 <div class="agent-exec-task-header">
                   <span class="agent-exec-tool-icon">{t.status === "running" ? "⚡" : t.status === "completed" ? "✅" : t.status === "error" ? "❌" : "⏳"}</span>
-                  <span class="agent-exec-task-desc">{t.description}</span>
+                  <span class="agent-exec-task-desc"><ExpandableText text={t.description} max={80} /></span>
                 </div>
                 <Show when={t.subSessionId}>
                   <SubAgentMessages subSessionId={t.subSessionId!} sync={props.sync} />
@@ -152,7 +173,7 @@ function UserMessageRow(props: { message: Message; parts: Accessor<Part[]> }): J
   return (
     <div class="agent-exec-msg agent-exec-msg-user">
       <div class="agent-exec-msg-role">用户</div>
-      <For each={textParts()}>{(p) => <div class="agent-exec-text">{truncate(p.text, 300)}</div>}</For>
+      <For each={textParts()}>{(p) => <div class="agent-exec-text"><ExpandableText text={p.text} max={300} /></div>}</For>
     </div>
   )
 }
@@ -190,10 +211,41 @@ export function AgentExecutionPanel(props: { tabId: string }): JSX.Element {
     }
   })
 
+  const [panelWidth, setPanelWidth] = createSignal(460)
+  let moveHandler: ((e: MouseEvent) => void) | undefined
+  let upHandler: (() => void) | undefined
+  const onResizeStart = (e: MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startWidth = panelWidth()
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = "none"
+    moveHandler = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX
+      setPanelWidth(Math.min(Math.max(startWidth + delta, 320), window.innerWidth - 40))
+    }
+    upHandler = () => {
+      if (moveHandler) window.removeEventListener("mousemove", moveHandler)
+      if (upHandler) window.removeEventListener("mouseup", upHandler)
+      moveHandler = undefined
+      upHandler = undefined
+      document.body.style.userSelect = prevUserSelect
+    }
+    window.addEventListener("mousemove", moveHandler)
+    window.addEventListener("mouseup", upHandler)
+  }
+  onCleanup(() => {
+    if (moveHandler) window.removeEventListener("mousemove", moveHandler)
+    if (upHandler) window.removeEventListener("mouseup", upHandler)
+    document.body.style.userSelect = ""
+  })
+
   return (
     <Portal mount={document.body}>
       <div class="agent-exec-overlay" onClick={(e) => { if (e.target === e.currentTarget) hide() }}>
-        <div class="agent-exec-panel">
+        <div class="agent-exec-panel" style={{ width: `${panelWidth()}px` }}>
+          <div class="agent-exec-resizer" onMouseDown={onResizeStart} />
           <div class="agent-exec-header">
             <div class="agent-exec-header-title">
               <Show when={sessionStatus()?.type === "busy" || sessionStatus()?.type === "retry"}>
@@ -201,6 +253,7 @@ export function AgentExecutionPanel(props: { tabId: string }): JSX.Element {
               </Show>
               {state()?.title ?? "Agent 执行中"}
             </div>
+            <button class="agent-exec-close" onClick={hide} title="关闭" aria-label="关闭">×</button>
           </div>
           <div class="agent-exec-body" ref={scrollRef}>
             <For each={messages()}>
