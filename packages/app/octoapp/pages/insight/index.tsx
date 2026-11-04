@@ -103,6 +103,7 @@ import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-
 import { type FileReference, type MentionSelection, type MentionSkill } from "./components/mention-popover"
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
+import { lookupDisplayName, type SkillConfig } from "../make/components/skill-config-types"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
 import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
@@ -954,12 +955,14 @@ function InsightContent() {
       pmRefConv?.focus()
     })
   }
-  // 技能面板数据:平台(octo_insight)+ 自定义(common),@ 首次触发时惰性加载一次。
+  // 技能面板数据:平台(octo_insight)+ 自定义(common),挂载时预加载以支持新建会话自动注入。
   const [insightSkills, setInsightSkills] = createSignal<{ platform: MentionSkill[]; custom: MentionSkill[] }>({
     platform: [],
     custom: [],
   })
   let skillsLoaded = false
+  const [autoInjectMentions, setAutoInjectMentions] = createSignal<MentionSelection[]>([])
+  onMount(() => void loadInsightSkills())
   // 加载态单独暴露:首次 @ 唤起时列表还没到,面板要显示「正在加载」而不是「暂无技能」(后者是错误陈述)
   const [skillsLoading, setSkillsLoading] = createSignal(false)
   async function loadInsightSkills() {
@@ -967,11 +970,16 @@ function InsightContent() {
     skillsLoaded = true
     setSkillsLoading(true)
     try {
-      const [platform, custom] = await Promise.all([
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
+      const [platform, custom, config] = await Promise.all([
         loadSkillsFromPanel("octo_insight"),
         loadSkillsFromPanel("common"),
+        api?.getSkillConfig?.(),
       ])
       setInsightSkills({ platform, custom })
+      setAutoInjectMentions((config?.panel?.octo_insight ?? [])
+        .filter(s => s.autoInject === true && s.enable !== false)
+        .map(s => ({ type: "skill", name: s.label, label: lookupDisplayName(config?.skill, s.label) ?? s.label })))
     } catch (err) {
       skillsLoaded = false
       console.error("[octo:mention] load skills failed", err)
@@ -2779,6 +2787,7 @@ function InsightContent() {
                       <McpModeBadge selection={mcpSelection()} onClear={() => { handleMcpClear(); focusComposer() }} />
                       <ProseMirrorEditor
                         ref={(el) => (pmRefWelcome = el)}
+                        autoInjectMentions={autoInjectMentions()}
                         autofocus
                         platformSkills={insightSkills().platform}
                         customSkills={insightSkills().custom}
