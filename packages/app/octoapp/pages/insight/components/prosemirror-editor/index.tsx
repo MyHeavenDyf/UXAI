@@ -35,6 +35,7 @@ export interface InsightEditorRef {
 
 
 interface Props {
+  autoInjectMentions?: MentionSelection[]
   platformSkills: MentionSkill[]
   customSkills: MentionSkill[]
   files: MentionFiles | null
@@ -249,6 +250,29 @@ export function ProseMirrorEditor(props: Props) {
     }
 
     onCleanup(() => editorView.destroy())
+  })
+
+  // 与 Design 一致：每次挂载仅尝试一次，等待草稿回填后确认编辑器仍为空。
+  let autoInjected = false
+  createEffect(() => {
+    const injects = props.autoInjectMentions
+    if (!injects?.length) return
+    const v = view()
+    if (!v?.dom.isConnected || autoInjected) return
+    autoInjected = true
+    requestAnimationFrame(() => {
+      if (!v.dom.isConnected || !isEmpty()) return
+      for (const sel of injects) {
+        if (sel.type !== "skill") continue
+        const node = editorSchema.nodes.mention.create({
+          id: sel.name, name: sel.name, type: "skill", label: sel.label, path: "",
+        })
+        const from = v.state.selection.from
+        const tr = v.state.tr.replaceWith(from, v.state.selection.to, node)
+        tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+        v.dispatch(tr)
+      }
+    })
   })
 
   // disabled 变化时同步 editable
