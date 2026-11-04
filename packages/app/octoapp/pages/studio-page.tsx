@@ -856,11 +856,24 @@ export default function StudioPage() {
   const [conversationNavigation, setConversationNavigation] = createStore({ browsing: false, navigating: false })
   createEffect(on(() => params.id, () => setConversationNavigation({ browsing: false, navigating: false })))
   const resumeConversationScroll = () => setConversationNavigation("navigating", false)
+  const handleConversationWheel = (event: WheelEvent) => {
+    resumeConversationScroll()
+    if (event.deltaY >= 0 || event.ctrlKey) return
+    if (!conversationScrollRef || conversationScrollRef.scrollHeight <= conversationScrollRef.clientHeight) return
+    const target = event.target instanceof Element ? event.target : undefined
+    if (target?.closest("[data-scrollable], textarea")) return
+    cancelAnimationFrame(scrollFrame)
+    setPendingScrollRequest(undefined)
+    setConversationNavigation("browsing", true)
+    setStickToBottom(false)
+  }
   const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
   const handleConversationScroll = () => {
     const el = conversationScrollRef
     if (!el || conversationNavigation.navigating) return
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD
+    // 手动浏览后必须回到实际底部才恢复跟随，不能被贴底阈值重新拉回。
+    const threshold = conversationNavigation.browsing ? 2 : STUDIO_SCROLL_BOTTOM_THRESHOLD
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - threshold
     setStickToBottom(atBottom)
     if (atBottom) setConversationNavigation("browsing", false)
   }
@@ -874,6 +887,7 @@ export default function StudioPage() {
       if (!conversationScrollRef || !stickToBottom()) return
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
+        if (!stickToBottom() || conversationNavigation.browsing) return
         conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
       })
     })
@@ -2157,6 +2171,7 @@ export default function StudioPage() {
         if (!sessionChanged && !stickToBottom()) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (!sessionChanged && (!stickToBottom() || conversationNavigation.browsing)) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -2176,6 +2191,7 @@ export default function StudioPage() {
         if (conversationNavigation.browsing) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (conversationNavigation.browsing) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -5425,7 +5441,7 @@ if (!headerTitle.pendingRename) return
               })
             }}
             onScroll={handleConversationScroll}
-            onWheel={resumeConversationScroll}
+            onWheel={handleConversationWheel}
             onPointerDown={resumeConversationScroll}
             onKeyDown={resumeConversationScroll}
             onTouchStart={resumeConversationScroll}
