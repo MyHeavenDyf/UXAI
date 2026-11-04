@@ -1371,9 +1371,7 @@ function persistStudioSession(input: {
     time: input.createdAt,
   })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.createdAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: input.createdAt }).where(eq(SessionTable.id, input.sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: input.createdAt } } })
   return {
     assistantInfo,
     toolPart,
@@ -1511,9 +1509,7 @@ async function createEditorEntryImpl(input: StudioEditorEntryRequest): Promise<S
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: userTextPart, time: createdAt })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: assistantTextPart, time: createdAt })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: toolPart, time: createdAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: createdAt }).where(eq(SessionTable.id, sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID, info: { time: { updated: createdAt } } })
   return {
     entryID: input.entryID,
     userMessageID: userID,
@@ -1609,13 +1605,10 @@ function completeStudioSession(input: {
     part: toolPart,
     time: input.result.completedAt,
   })
-  Database.use((db) =>
-    db
-      .update(SessionTable)
-      .set({ time_updated: input.result.completedAt })
-      .where(eq(SessionTable.id, input.sessionID))
-      .run(),
-  )
+  SyncEvent.run(Session.Event.Updated, {
+    sessionID: input.sessionID,
+    info: { time: { updated: input.result.completedAt } },
+  })
 }
 
 function failStudioSession(input: {
@@ -1660,9 +1653,7 @@ function failStudioSession(input: {
   }
   SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: completedAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: completedAt } } })
 }
 
 function prepareStudioSessionRestore(input: {
@@ -1726,9 +1717,7 @@ function applyStudioSessionUpdate(input: {
     part: input.toolPart,
     time: input.updatedAt,
   })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: input.updatedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: input.updatedAt } } })
 }
 
 function restoreStudioSession(input: {
