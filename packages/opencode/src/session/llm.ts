@@ -397,6 +397,7 @@ const live: Layer.Layer<
               }),
           ...input.model.headers,
           ...headers,
+          "enable-keepalive": "true",
         },
         maxRetries: input.retries ?? 0,
         messages,
