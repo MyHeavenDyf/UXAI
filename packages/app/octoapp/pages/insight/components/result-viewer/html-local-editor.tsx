@@ -9,6 +9,7 @@ import { directModelEditConfig } from "../../../make/subtype-handlers/default"
 import { cleanBridgeContent } from "../../../make/utils/bridge-cleaner"
 import { applyManualEditPatch } from "../../../make/edit-mode/source-patches"
 import { stripCodeFence } from "../../utils/detect"
+import { applyHtmlEditMessage } from "../../utils/html-edit-source"
 import { useHtmlReview } from "./html-review"
 
 export function HtmlLocalEditor(props: { content: string; onReady?: () => void }) {
@@ -16,10 +17,19 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
   const original = props.content
   const [state, setState] = createStore({ target: null as ModelEditElement | null, url: "", revision: 0 })
   let frame: HTMLIFrameElement | undefined
-  const send = (data: unknown) => frame?.contentWindow?.postMessage(data, "*")
+  let source = annotateElementsWithIdsBrowser(stripCodeFence(original))
+  const send = (data: unknown) => {
+    try {
+      source = applyHtmlEditMessage(source, data)
+      frame?.contentWindow?.postMessage(data, "*")
+    } catch (error) {
+      showToast({ title: error instanceof Error ? error.message : "修改失败", variant: "error" })
+    }
+  }
   createEffect(() => {
     state.revision
-    const html = injectEditBridgeStyle(injectModelEditBridge(injectEditBridge(injectInspectStyleBridge(annotateElementsWithIdsBrowser(stripCodeFence(original))))))
+    source = annotateElementsWithIdsBrowser(stripCodeFence(original))
+    const html = injectEditBridgeStyle(injectModelEditBridge(injectEditBridge(injectInspectStyleBridge(source))))
     const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }))
     setState("url", url)
     onCleanup(() => URL.revokeObjectURL(url))
@@ -33,22 +43,7 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
   }
   window.addEventListener("message", receive)
   onCleanup(() => window.removeEventListener("message", receive))
-  const pending = new Set<() => void>()
-  onCleanup(() => pending.forEach(cancel => cancel()))
-  const snapshot = () => new Promise<string>((resolve, reject) => {
-    const source = frame?.contentWindow
-    const finish = () => { clearTimeout(timer); window.removeEventListener("message", listener); pending.delete(cancel) }
-    const cancel = () => { finish(); reject(new Error("编辑预览已关闭")) }
-    const listener = (event: MessageEvent) => {
-      if (event.source !== source || event.data?.type !== "od:html-snapshot" || typeof event.data.html !== "string") return
-      finish()
-      resolve(event.data.html)
-    }
-    const timer = setTimeout(() => { finish(); reject(new Error("读取页面内容超时，请重试")) }, 5000)
-    pending.add(cancel)
-    window.addEventListener("message", listener)
-    send({ type: "od:get-html-snapshot" })
-  })
+  const snapshot = () => Promise.resolve(source)
   const context = createMemo((): ModelEditContext | undefined => state.target ? {
     dom: state.target, type: state.target.elementKind, filePath: review.path() ?? "",
     postMessageToIframe: send, getIframeSnapshot: snapshot,
