@@ -23,6 +23,8 @@ import "./styles.css"
 export interface InsightEditorRef {
   insertMentions: (selections: MentionSelection[]) => void
   removeMention: (selection: MentionSelection) => void
+  /** 按原路径回写 chip 的引用路径(超限图片压缩后指向压缩产物;popover/addon 两条插入链的 id 口径不同,统一按 path 匹配) */
+  updateMentionPath: (path: string, newPath: string) => void
   getText: () => string
   getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
   focus: () => void
@@ -200,6 +202,17 @@ export function ProseMirrorEditor(props: Props) {
         const v = view()
         if (!connected(v)) return
         const tr = removeAddonMention(v.state, selection)
+        if (tr.docChanged) v.dispatch(tr)
+      },
+      updateMentionPath: (path, newPath) => {
+        const v = view()
+        if (!connected(v) || path === newPath) return
+        const tr = v.state.tr
+        v.state.doc.descendants((node, pos) => {
+          if (node.type.name === "mention" && node.attrs.type === "file" && node.attrs.path === path) {
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, path: newPath })
+          }
+        })
         if (tr.docChanged) v.dispatch(tr)
       },
       getText: () => (connected(view()) ? getDocTextWithMentions(view()!.state.doc) : ""),
