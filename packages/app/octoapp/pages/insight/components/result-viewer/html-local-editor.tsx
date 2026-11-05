@@ -19,7 +19,7 @@ import { useHtmlReview } from "./html-review"
 
 export function HtmlLocalEditor(props: { content: string; onReady?: () => void }) {
   const review = useHtmlReview()!
-  const original = props.content
+  let original = props.content
   const lifetime = new AbortController()
   onCleanup(() => lifetime.abort())
   const downloadAsset = async (file: AssetFile) => {
@@ -107,7 +107,10 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
           try {
             lifetime.signal.throwIfAborted()
             const prompt = await directModelEditConfig.assetConfig!.onConfirm(args)
-            await review.replaceAsset(prompt, cleanBridgeContent(await snapshot()), original)
+            await review.replaceAsset(prompt, cleanBridgeContent(await snapshot()), original, content => {
+              // 文件已落盘，即使发送失败也要使用新基线继续编辑或重试。
+              original = content
+            })
           } catch (error) {
             if (!lifetime.signal.aborted) showToast({ title: error instanceof Error ? error.message : "资产替换失败", variant: "error" })
           }

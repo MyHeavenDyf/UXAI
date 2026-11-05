@@ -86,7 +86,7 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
     productId: () => props.productId,
     directory,
     sessionId: () => params.id,
-    replaceAsset: async (prompt: string, content: string, original: string) => {
+    replaceAsset: async (prompt: string, content: string, original: string, onSaved: (content: string) => void) => {
       const sessionId = params.id
       const scope = key()
       const file = path()
@@ -96,6 +96,7 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
       try {
         await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
         if (scope !== key() || disposed) throw new Error("编辑页面已关闭")
+        onSaved(content)
         await props.onEditPrompt(sessionId, prompt)
         if (scope === key()) { setState("editing", false); props.onRestore() }
       } finally {
