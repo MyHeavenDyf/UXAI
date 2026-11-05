@@ -12,6 +12,19 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 import { sendTextToAgent } from "../../utils/agent-events"
+import {
+  selectedSkillFor,
+  selectAssessmentSkill,
+  exitPendingAssessment,
+  assessmentStatus,
+  pendingAssessment,
+  resumeAssessment,
+  recordAssessmentTurn,
+  clearAssessmentTurn,
+  loadPersistedAssessment,
+  enterPending,
+} from "../../utils/assessment-state"
+import { DialogSwitchAssessment } from "../dialog-switch-assessment"
 import type { PanelSkill, SkillConfig } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
@@ -28,6 +41,7 @@ import { useLocal } from "@/context/local"
 import { TaskStore } from "@/context/task"
 import { useParams } from "@solidjs/router"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -438,27 +452,78 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
   })
 
   const presetSkills = createMemo(() => props.skillConfig?.presetSkills ?? [])
+  const dialog = useDialog()
+  const selectedSkill = () => selectedSkillFor(props.tab.filePath ?? "")
+  const isPendingHere = () => assessmentStatus() === "pending" && pendingAssessment()?.fileKey === props.tab.filePath
+  const isPausedHere = () => assessmentStatus() === "paused" && pendingAssessment()?.fileKey === props.tab.filePath
 
-  /** 以 @ 技能方式发送评估请求（二级 presetSkills 项与一级 DMG预审 共用） */
+  /** 评估按钮点击 */
+  const handleTriggerClick = () => {
+    if (isPendingHere()) {
+      setOpen(!open())
+      return
+    }
+    if (open()) {
+      close()
+      return
+    }
+    if (isPausedHere()) {
+      resumeAssessment()
+      return
+    }
+    void loadPersistedAssessment(props.tab.filePath ?? "").then((data) => {
+      if (data) enterPending(data)
+      else setOpen(true)
+    })
+  }
+
+  /** 二级菜单项单击 */
+  const runAssessment = (skillName: string) => {
+    selectAssessmentSkill(props.tab.filePath ?? "", skillName)
+    close()
+    exitPendingAssessment()
+    void sendAssessment(skillName)
+  }
+
+  /** 禁用项（原生 disabled）不响应；待修改/暂停中点当前选中项无任何效果 */
+  const handleSkillClick = (skill: PanelSkill) => {
+    const current = selectedSkill()
+    const st = assessmentStatus()
+    if (current === skill.label && st !== "idle") return
+    if (st === "idle" || !current) {
+      runAssessment(skill.label)
+      return
+    }
+    dialog.show(() => (
+      <DialogSwitchAssessment
+        from={current}
+        to={skill.label}
+        onCancel={close}
+        onContinue={() => runAssessment(skill.label)}
+      />
+    ))
+  }
+
+  /** 以 @ 技能方式发送评估请求（二级 presetSkills 项与一级 DMG预审 共用）*/
   const sendAssessment = async (skillName: string) => {
-    const filePath = props.tab.filePath?.replace(/\\/g, "/")
+    const fileKey = props.tab.filePath ?? ""
+    const filePath = fileKey.replace(/\\/g, "/")
     if (!filePath) {
       showOctoToast({ title: "当前页面没有关联文件" })
       return
     }
     tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skillName }) })
+    recordAssessmentTurn({ fileKey, filePath, skillName })
     const displayName = lookupDisplayName(props.skillConfig?.skill, skillName) ?? skillName
-    const result = await sendTextToAgent(`\u200b@${skillName}\u200b 对页面进行评估、评估结果保存到当前目录: ${filePath}`, {
+    const result = await sendTextToAgent(`\u200b@${skillName}\u200b 对页面:${filePath} 进行评估、评估结果保存到当前目录`, {
       source: "assessment",
       timeoutMs: 1200000,
       mentions: [{ id: skillName, name: skillName, type: "skill" as const, label: displayName, path: "" }],
     })
-    if (!result.ok) showOctoToast({ title: "评估发送失败", description: result.message })
-  }
-
-  const handleSkillClick = (skill: PanelSkill) => {
-    close()
-    void sendAssessment(skill.label)
+    if (!result.ok) {
+      clearAssessmentTurn()
+      showOctoToast({ title: "评估发送失败", description: result.message })
+    }
   }
 
   return (
@@ -468,9 +533,9 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
           ref={btnRef}
           type="button"
           class="octo-action-btn"
-          classList={{ "octo-viewport-btn-active": open(), "octo-action-btn-disabled": !!props.disabled }}
+          classList={{ "octo-viewport-btn-active": open() || isPendingHere(), "octo-action-btn-disabled": !!props.disabled }}
           disabled={!!props.disabled}
-          onClick={() => (open() ? close() : setOpen(true))}
+          onClick={handleTriggerClick}
         >
           <IconAssessment size={16} />
           <span>评估</span>
@@ -518,7 +583,7 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
                       {(skill) => (
                         <button
                           type="button"
-                          class="octo-assessment-item"
+                          class={`octo-assessment-item${selectedSkill() === skill.label ? " octo-assessment-item--selected" : ""}`}
                           disabled={skill.enable === false}
                           onClick={() => handleSkillClick(skill)}
                         >

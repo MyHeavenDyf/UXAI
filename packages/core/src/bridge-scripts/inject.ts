@@ -10,6 +10,7 @@ import {
   EDIT_BRIDGE_STYLE,
 } from "./constants"
 import { COMMENT_BRIDGE_SCRIPT, COMMENT_OUTLINE_CSS, injectCommentBridge as injectCommentBridgeImpl } from "./comment"
+import { ASSESSMENT_BRIDGE_SCRIPT, ASSESSMENT_PIN_CSS, injectAssessmentBridge as injectAssessmentBridgeImpl } from "./assessment"
 import { RESOURCE_COLLECTOR_BRIDGE_SCRIPT } from "./resource-collector"
 import { MODEL_EDIT_BRIDGE_SCRIPT } from "./model-edit-bridge"
 
@@ -86,6 +87,10 @@ export function injectEditBridgeStyle(doc: string): string {
 
 export function injectCommentBridge(doc: string): string {
   return injectCommentBridgeImpl(doc)
+}
+
+export function injectAssessmentBridge(doc: string): string {
+  return injectAssessmentBridgeImpl(doc)
 }
 
 export function injectResourceCollectorBridge(doc: string): string {
