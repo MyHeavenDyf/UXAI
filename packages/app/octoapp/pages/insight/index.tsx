@@ -2744,9 +2744,9 @@ function InsightContent() {
   const renderResultViewer = (onCollapse?: () => void) => (
     <ResultViewer
       productId={projectSelection()?.product?.id}
-      onEditPrompt={async (sessionId, prompt) => {
+      onEditPrompt={async (sessionId, prompt, source) => {
         if (params.id !== sessionId || isWorking()) throw new Error("会话状态已变化，请重试")
-        await doSendPrompt(sessionId, prompt, { consumeAttachments: false, source: "html-asset-replace", throwOnError: true })
+        await doSendPrompt(sessionId, prompt, { consumeAttachments: false, source, throwOnError: true })
       }}
       working={isWorking()}
       tabs={tabStore.tabs()}
