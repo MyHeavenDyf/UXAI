@@ -4535,6 +4535,70 @@ const sessionMessagesLoaded = createMemo(() => {
 
   function handleAddonSelect(selection: MentionSelection) {
     getAliveEditor()?.insertMention(selection)
+    // 设计资产超限图片:chip 仍先插原路径,压缩完成后回写新路径(见 compressMentionImageIfNeeded)
+    void compressMentionImageIfNeeded(selection)
+  }
+
+  /** 设计资产/设计文件 mention chip 的超限图片自动压缩:
+   *  chip 发送时转「读取 <path>」指令,模型 read 后产出 >1MB 视觉附件,与附件入口受同一硬限制必失败。
+   *  选中即读盘压缩,产物落 .octo/tmps/make/uploads(发送时随 mention 搬进 session uploads),
+   *  再回写 chip 路径(与 URL 下载附件同落点/同模式);读不到/压不动保留原路径并 toast。 */
+  async function compressMentionImageIfNeeded(selection: MentionSelection) {
+    if (selection.type !== "file" || selection.isFolder || !isImageFile(selection.filename)) return
+    const mirror = artifactFilesMirror()
+    const listed = mirror ? [...mirror.generated, ...mirror.uploaded].find(f => f.path === selection.path) : undefined
+    const size = listed?.size ?? (await getDesktopApi()?.statFile?.(selection.path).catch(() => null))?.size
+    if (size === undefined || size <= MAKE_IMAGE_MAX) return
+    const raw = await readArtifactImageFile({ name: selection.filename, path: selection.path, mime: listed?.mime })
+    if (!raw) {
+      showOctoToast({ title: "图片压缩失败", description: `${selection.filename} 读取原图失败，将以原路径引用`, variant: "error" })
+      return
+    }
+    const compressed = await compressImageWithNotice(raw, MAKE_IMAGE_MAX)
+    if (!compressed) {
+      showOctoToast({ title: "图片过大", description: `${selection.filename} 超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限且无法自动压缩，请压缩后重新添加`, variant: "error" })
+      return
+    }
+    const dest = await writeMentionImageCopy(compressed).catch(() => null)
+    if (!dest) {
+      showOctoToast({ title: "图片压缩失败", description: "压缩产物写入失败，将以原路径引用", variant: "error" })
+      return
+    }
+    tracker.interaction({ module: "design", name: "image-auto-compress", extend: JSON.stringify({ before: raw.size, after: compressed.size, format: compressed.type }) })
+    getAliveEditor()?.updateMentionPath(selection.path, dest)
+  }
+
+  /** 压缩产物落盘拿新路径:桌面写 .octo/tmps/make/uploads(与 tmps 附件同落点,发送时搬进 session uploads;
+   *  原图在 session uploads/项目树,不同目录不会覆盖原图)。无 writeFileBuffer(纯 web)降级 HTTP
+   *  artifact/upload(服务端撞名自动加后缀,同样不动原图)。 */
+  async function writeMentionImageCopy(compressed: File): Promise<string> {
+    const baseDir = projectDir()
+    const api = getDesktopApi()
+    if (baseDir && api?.writeFileBuffer) {
+      const sep = baseDir.includes("\\") ? "\\" : "/"
+      const dest = [baseDir, ".octo", "tmps", "make", "uploads", compressed.name].join(sep)
+      await api.writeFileBuffer(dest, await compressed.arrayBuffer())
+      return dest
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        resolve(result.split(",")[1] || result)
+      }
+      reader.onerror = () => reject(new Error("读取文件失败"))
+      reader.readAsDataURL(compressed)
+    })
+    const result = await uploadArtifactFile(
+      globalSDK.url,
+      sdk.directory || "",
+      params.id ?? "",
+      compressed.name,
+      base64,
+      undefined,
+      isProjectScope() ? "project" : undefined,
+    )
+    return result.path
   }
 
   function handleAddonDeselect(selection: MentionSelection) {
@@ -4568,8 +4632,10 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
-  /** Add artifact file to session attachments (仅记录路径，不发内容) */
-  function addArtifactToSession(file: ArtifactFile) {
+  /** Add artifact file to session attachments (仅记录路径，不发内容)。
+   *  图片超 1MB 不能直接挂原图路径——发送走 vision FilePart(file://)受 1MB 硬限制必失败;
+   *  与 handleAddFiles 同口径:读盘成 File 复用 addImageAttachment 全链路(自动压缩 → 重新落盘换新路径)。 */
+  async function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
       showOctoToast({ title: "已添加", description: file.name })
       return
@@ -4577,6 +4643,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (maxAttachments()) {
       showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
+
+    if (isImageFile(file.name) && file.size > MAKE_IMAGE_MAX) {
+      const raw = await readArtifactImageFile(file)
+      if (!raw) {
+        showOctoToast({ title: "添加失败", description: "读取原图失败，无法自动压缩", variant: "error" })
+        return
+      }
+      addImageAttachment(raw)
       return
     }
 
@@ -4591,6 +4667,19 @@ const sessionMessagesLoaded = createMemo(() => {
       kind: file.kind,
     }])
     showOctoToast({ title: "已添加附件", description: file.name })
+  }
+
+  /** 超限产物图压缩前的读字节成 File:优先桌面 readFileBuffer IPC,无 IPC/读失败降级 HTTP artifact/content(base64)。 */
+  async function readArtifactImageFile(file: { name: string; path: string; mime?: string }): Promise<File | null> {
+    const mime = file.mime || imageMimeFor(file.name)
+    const buffer = await getDesktopApi()?.readFileBuffer?.(file.path).catch(() => null)
+    if (buffer) return new File([buffer], file.name, { type: mime })
+    const content = await fetchArtifactContent(globalSDK.url, sdk.directory || "", file.path).catch(() => null)
+    if (!content?.content) return null
+    const bytes = content.encoding === "base64"
+      ? Uint8Array.from(atob(content.content), c => c.charCodeAt(0))
+      : new TextEncoder().encode(content.content)
+    return new File([bytes], file.name, { type: content.mimeType || mime })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -6190,9 +6279,11 @@ onPreview={(url) => {
                         }}
                         ref={(el) => { proseMirrorRef1 = el }}
                         autoInjectMentions={autoInjectMentions()}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
                         productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
+                        onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
                       />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
@@ -6630,10 +6721,12 @@ onPreview={(url) => {
                          proseMirrorRef1?.clear()
                          proseMirrorRef2?.clear()
                        }}
-                       ref={(el) => { proseMirrorRef2 = el }}
-                       productId={projectSelection()?.product?.id}
+                        ref={(el) => { proseMirrorRef2 = el }}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
+                        productId={projectSelection()?.product?.id}
                        onDownloadProductAsset={downloadProductAsset}
                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                       onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
                     />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -6866,6 +6959,7 @@ onPreview={(url) => {
                 productId={projectSelection()?.product?.id}
                 onDownloadProductAsset={downloadProductAsset}
                 onUpdateMentionPath={handleAddonUpdateMentionPath}
+                onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>

@@ -215,14 +215,16 @@ function finish(
         const info = { ...message.data, id: message.id, sessionID: message.session_id } as MessageV2.Info
         if (info.role === "assistant") {
           closeExpansionPreview(info, PartID.make(resultPartID))
+          const completedAt = Date.now()
           SyncEvent.run(MessageV2.Event.Updated, {
             sessionID: value.sessionID,
             info: {
               ...info,
-              time: { ...info.time, completed: Date.now() },
+              time: { ...info.time, completed: completedAt },
               finish: finalStatus === "completed" ? "stop" : "other",
             },
           })
+          SyncEvent.run(Session.Event.Updated, { sessionID: value.sessionID, info: { time: { updated: completedAt } } })
         }
       }
     },
@@ -394,9 +396,7 @@ function messages(sessionID: SessionID, text: string, entry: boolean, model?: { 
     text,
     ...(entry ? { synthetic: true, metadata: { studioPromptRecommendationEntry: true } } : {}),
   })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: Date.now() }).where(eq(SessionTable.id, sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID, info: { time: { updated: Date.now() } } })
   return { user, assistant }
 }
 

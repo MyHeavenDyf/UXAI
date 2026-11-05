@@ -308,6 +308,38 @@ describe("portable session", () => {
     },
   )
 
+  test("does not inherit the source model for root or child sessions", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const root = await runSession((svc) => svc.create({ title: "Model root" }))
+      await runSession((svc) => svc.create({
+        parentID: root.id,
+        title: "Model child",
+      }))
+      return AppRuntime.runPromise(
+        exportPortableSession({ sessionID: root.id, output: path.join(source.path, "models.zip") }),
+      )
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+      sessions: { info: { model?: { providerID: string; id: string } } }[]
+    }
+    manifest.sessions.forEach((entry, index) => {
+      entry.info.model = { providerID: "source", id: index ? "child" : "root" }
+    })
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(exported.output, await zip.generateAsync({ type: "uint8array" }))
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const result = await AppRuntime.runPromise(importPortableSession(exported.output))
+      const root = await runSession((svc) => svc.get(result.sessionID))
+      const children = await runSession((svc) => svc.children(root.id))
+      expect(root.model).toBeUndefined()
+      expect(children).toHaveLength(1)
+      expect(children[0].model).toBeUndefined()
+    } })
+  })
+
   test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })

@@ -1,7 +1,7 @@
 import type { SubtypeHandler } from './types'
-import type { ModelEditConfig, IconConfig, SaveCallbackArgs, DeleteCallbackArgs } from '../components/model-edit-items/types'
+import type { ModelEditConfig, AssetConfig, SaveCallbackArgs, DeleteCallbackArgs } from '../components/model-edit-items/types'
 import gtsHandler, { gtsModelEditConfig, createGtsIconConfig } from './gts'
-import { defaultModelEditConfig } from './default'
+import { defaultModelEditConfig, directModelEditConfig } from './default'
 
 // GTS-EP 源码定位 prompt 包装（参照 components.tsx 的 wrapComponentsPrompt）
 // 不依赖 DOM 组件标记 / componentFlag — 点击元素走 native 分支,拿到标签/类名/选择器后,
@@ -27,15 +27,20 @@ function wrapGtsEpPrompt(filePath: string, body: string): string {
   ].join('\n')
 }
 
-// GTS-EP 图标配置 — 复用 gts.ts 的 createGtsIconConfig 工厂(SVG 落 public/icons + postMessage 预览 + 不写回容器),
-// 仅 wrapPrompt 换成 GTS-EP 专属的源码定位提示词(src/pages + var(--color-*) + index.gts-ep.html)。
-const gtsEpIconConfig: IconConfig = createGtsIconConfig(wrapGtsEpPrompt)
-
 const gtsEpModelEditConfig: ModelEditConfig = {
   ...gtsModelEditConfig,
-  iconConfig: gtsEpIconConfig,
+  /** 选中 svg/img 元素时开放图标弹窗替换（与 gts / components 一致）；确认产生的 prompt 再包一层
+   *  GTS-EP 源码定位/重编译指引——index.gts-ep.html 是编译产物，改源码后 rebuild */
+  iconConfig: createGtsIconConfig(wrapGtsEpPrompt),
   saveCallback: async (args: SaveCallbackArgs) => wrapGtsEpPrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
   deleteCallback: async (args: DeleteCallbackArgs) => wrapGtsEpPrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
+  /** 产品资产库：把确认 prompt 包上 GTS-EP 专属指引（定位源码 + 编译），与 saveCallback/deleteCallback 一致 */
+  assetConfig: {
+    ...directModelEditConfig.assetConfig,
+    onConfirm: async (args) => wrapGtsEpPrompt(args.filePath, await directModelEditConfig.assetConfig!.onConfirm(args)),
+  } satisfies AssetConfig,
+  /** 选中区域「AI 修改」对话框 prompt 前缀——包上 GTS-EP 专属指引，避免 agent 直接改 index.gts-ep.html */
+  promptCallback: (filePath, selector) => wrapGtsEpPrompt(filePath, directModelEditConfig.promptCallback!(filePath, selector)),
 }
 
 const gtsEpHandler: SubtypeHandler = {

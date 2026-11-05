@@ -209,7 +209,7 @@ test("video mode uses the recommendation session's image parameters ahead of the
     await Bun.sleep(0)
     buttons(value.container)[0]!.click()
     expect(value.requests[0]).toMatchObject({ capability: "image.generate", aspectRatio: "1:1", count: 2 })
-    expect(value.requests[0]).not.toHaveProperty("width")
-    expect(value.requests[0]).not.toHaveProperty("height")
+    expect(value.requests[0].width).toBe(0)
+    expect(value.requests[0].height).toBe(0)
   } finally { value.dispose() }
 })
