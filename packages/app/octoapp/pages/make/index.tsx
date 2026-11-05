@@ -6279,6 +6279,7 @@ onPreview={(url) => {
                         }}
                         ref={(el) => { proseMirrorRef1 = el }}
                         autoInjectMentions={autoInjectMentions()}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
                         productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
@@ -6721,11 +6722,12 @@ onPreview={(url) => {
                          proseMirrorRef2?.clear()
                        }}
                         ref={(el) => { proseMirrorRef2 = el }}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
                         productId={projectSelection()?.product?.id}
-                        onDownloadProductAsset={downloadProductAsset}
-                        onUpdateMentionPath={handleAddonUpdateMentionPath}
-                        onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
-                     />
+                       onDownloadProductAsset={downloadProductAsset}
+                       onUpdateMentionPath={handleAddonUpdateMentionPath}
+                       onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
+                    />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
@@ -6957,6 +6959,7 @@ onPreview={(url) => {
                 productId={projectSelection()?.product?.id}
                 onDownloadProductAsset={downloadProductAsset}
                 onUpdateMentionPath={handleAddonUpdateMentionPath}
+                onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>
