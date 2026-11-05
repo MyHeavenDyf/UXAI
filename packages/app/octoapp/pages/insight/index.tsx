@@ -2741,6 +2741,11 @@ function InsightContent() {
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse?: () => void) => (
     <ResultViewer
+      productId={projectSelection()?.product?.id}
+      onEditPrompt={async (sessionId, prompt) => {
+        if (params.id !== sessionId || isWorking()) throw new Error("会话状态已变化，请重试")
+        await sendInjectedPrompt(sessionId, prompt, "html-asset-replace")
+      }}
       working={isWorking()}
       tabs={tabStore.tabs()}
       activeId={tabStore.activeId()}

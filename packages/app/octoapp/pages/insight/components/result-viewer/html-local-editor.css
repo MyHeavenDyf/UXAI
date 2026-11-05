@@ -1,0 +1,4 @@
+/* 复用面板的菜单通过 Portal 挂到 body，只在 Insight 局部编辑期间提升层级。 */
+body:has(.insight-html-local-editor) .cc-select-panel {
+  z-index: 2147483646;
+}
