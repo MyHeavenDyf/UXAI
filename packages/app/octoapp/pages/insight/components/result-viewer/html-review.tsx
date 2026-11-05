@@ -13,7 +13,7 @@ import { createHtmlHistory } from "../../utils/html-history"
 import { createHtmlComments } from "../../utils/html-comments"
 import { tabLocalPath, type ResultTab } from "./tab-store"
 
-function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
+function createReview(props: { productId?: number; onEditPrompt?: (sessionId: string, prompt: string) => Promise<void>; tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
   const params = useParams()
   const sdk = useSDK()
   const directory = useProjectDir()
@@ -83,6 +83,26 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   }
   return {
     state, key, path, comments, history,
+    productId: () => props.productId,
+    directory,
+    sessionId: () => params.id,
+    replaceAsset: async (prompt: string, content: string, original: string, onSaved: (content: string) => void) => {
+      const sessionId = params.id
+      const scope = key()
+      const file = path()
+      const api = getDesktopApi()
+      if (!sessionId || !file || !api || !props.onEditPrompt || state.busy || props.working) throw new Error("当前无法替换资产")
+      setState("busy", true)
+      try {
+        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
+        if (scope !== key() || disposed) throw new Error("编辑页面已关闭")
+        onSaved(content)
+        await props.onEditPrompt(sessionId, prompt)
+        if (scope === key()) { setState("editing", false); props.onRestore() }
+      } finally {
+        if (scope === key()) setState("busy", false)
+      }
+    },
     editDisabled: () => !eligible() || !history() || !getDesktopApi()?.writeFileBuffer || !!props.working || state.busy,
     toggleEdit: () => setState({ editing: !state.editing, commenting: false }),
     saveEdit: async (content: string, original: string) => {
@@ -133,6 +153,7 @@ export const useHtmlReview = () => useContext(ReviewContext)
 const htmlReviewEnabled = true
 
 export function HtmlReviewProvider(props: {
+  productId?: number; onEditPrompt?: (sessionId: string, prompt: string) => Promise<void>;
   tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void; children: JSX.Element
 }) {
   const review = htmlReviewEnabled ? createReview(props) : undefined

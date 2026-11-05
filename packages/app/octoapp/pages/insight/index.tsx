@@ -1516,6 +1516,7 @@ function InsightContent() {
     opts: {
       consumeAttachments: boolean
       source: string
+      throwOnError?: boolean
       /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
        *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
       chip?: { selection: McpSelection }
@@ -1890,6 +1891,7 @@ function InsightContent() {
     } catch (err) {
       console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
       sync.session.optimistic.remove({ sessionID: sessionId, messageID })
+      if (opts.throwOnError) throw err
       showToast({
         title: "发送失败",
         description: errorDescription(err),
@@ -2741,6 +2743,11 @@ function InsightContent() {
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse?: () => void) => (
     <ResultViewer
+      productId={projectSelection()?.product?.id}
+      onEditPrompt={async (sessionId, prompt) => {
+        if (params.id !== sessionId || isWorking()) throw new Error("会话状态已变化，请重试")
+        await doSendPrompt(sessionId, prompt, { consumeAttachments: false, source: "html-asset-replace", throwOnError: true })
+      }}
       working={isWorking()}
       tabs={tabStore.tabs()}
       activeId={tabStore.activeId()}
