@@ -3,7 +3,7 @@ import type { MessageV2 } from "@/session/message-v2"
 import { PartTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "./studio-generation.sql"
-import { guideSchema, resultSchema, RecommendationError } from "./prompt-recommendation-schema"
+import { resultSchema, RecommendationError } from "./prompt-recommendation-schema"
 import { Context, Effect, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -53,12 +53,8 @@ export function assertCanGenerate(sessionID: string) {
   ).some((row) => {
     const part = row.data as Omit<MessageV2.TextPart, "id" | "messageID" | "sessionID">
     if (part.type !== "text") return false
-    const guide = guideSchema.safeParse(part.metadata?.studioPromptRecommendation)
     const result = resultSchema.safeParse(part.metadata?.studioPromptExpansion)
-    return (
-      (guide.success && guide.data.status === "armed") ||
-      (result.success && (result.data.status === "running" || result.data.status === "cancelling"))
-    )
+    return result.success && (result.data.status === "running" || result.data.status === "cancelling")
   })
   if (busy) throw new RecommendationError("SESSION_BUSY", 409)
 }

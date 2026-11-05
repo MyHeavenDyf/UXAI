@@ -1421,6 +1421,48 @@
   font-weight: 400;
 }
 
+.studio-recommendation-shortcuts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.studio-recommendation-shortcut {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(25, 25, 25, 0.05);
+  color: rgba(25, 25, 25, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.studio-recommendation-shortcut svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.studio-recommendation-shortcut:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.studio-recommendation-shortcut:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .studio-assistant-editor-link {
   width: fit-content;
   max-width: 100%;
