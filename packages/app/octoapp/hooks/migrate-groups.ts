@@ -53,7 +53,7 @@ async function doMigrate({ dir, namespace, client }: {
     return
   }
 
-  const listResult = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" })
+  const listResult = await client.sessionGroup.list({ namespace: namespace as "make" | "insight" | "studio" })
   if (listResult.error) throw new Error("failed to list session groups")
   const dbGroups = listResult.data?.groups ?? []
 
@@ -61,7 +61,7 @@ async function doMigrate({ dir, namespace, client }: {
   for (const g of localGroups) {
     const existing = dbGroups.find((d) => d.name === g.name)
     if (existing) { idMap.set(g.id, existing.id); continue }
-    const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight", name: g.name })
+    const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight" | "studio", name: g.name })
     if (result.error || !result.data) throw new Error(`failed to create group: ${g.name}`)
     idMap.set(g.id, result.data.id)
   }
@@ -92,7 +92,7 @@ export function fetchSessionGroupList(opts: {
   if (existing) return existing
   const p = (async () => {
     await migrateLocalGroupsToDB(opts)
-    const result = await opts.client.sessionGroup.list({ namespace: opts.namespace as "make" | "insight" })
+    const result = await opts.client.sessionGroup.list({ namespace: opts.namespace as "make" | "insight" | "studio" })
     return result.data
   })()
   listInFlight.set(key, p)

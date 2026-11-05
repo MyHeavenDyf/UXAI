@@ -7157,7 +7157,7 @@ export type SessionGroupListData = {
   query: {
     directory?: string
     workspace?: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
   }
   url: "/session-group"
 }
@@ -7180,7 +7180,7 @@ export type SessionGroupListResponses = {
       id: string
       project_id: string
       directory: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
       name: string
       position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -7199,7 +7199,7 @@ export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGr
 
 export type SessionGroupCreateData = {
   body?: {
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
   }
   path?: never
@@ -7227,7 +7227,7 @@ export type SessionGroupCreateResponses = {
     id: string
     project_id: string
     directory: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
     position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"

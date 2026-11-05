@@ -5101,7 +5101,7 @@ export class SessionGroup extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5133,7 +5133,7 @@ export class SessionGroup extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      namespace?: "make" | "insight"
+      namespace?: "make" | "insight" | "studio"
       name?: string
     },
     options?: Options<never, ThrowOnError>,

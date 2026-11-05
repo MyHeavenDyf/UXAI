@@ -61,6 +61,8 @@ interface Props {
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (filename: string, path: string) => void
   autoInjectMentions?: MentionSelection[]
+  /** @ 弹窗插入文件 chip 后回调(设计资产超限图片的自动压缩入口;产品资产等非本地路径由调用方自行跳过) */
+  onFileMentionInsert?: (selection: Extract<MentionSelection, { type: "file" }>) => void
 }
 
 export const ProseMirrorEditor = (props: Props) => {
@@ -603,6 +605,7 @@ export const ProseMirrorEditor = (props: Props) => {
       v.dispatch(tr)
     }
 
+    if (selection.type === "file" && !selection.isFolder) props.onFileMentionInsert?.(selection)
     v.focus()
   }
 
