@@ -8,12 +8,13 @@ import {
 } from "./context-usage"
 
 describe("insight context usage", () => {
-  test("uses summary output only after compaction succeeds", () => {
+  test("uses full context estimate only after compaction succeeds", () => {
     const completed = { summary: true, finish: "stop", output: 2_000, total: 100_000 }
     const failed = { ...completed, error: { name: "APIError", data: { message: "invalid summary" } } }
     const pending = { ...completed, finish: undefined }
 
-    expect(insightContextTokens({ message: completed, output: completed.output, total: completed.total })).toBe(2_000)
+    expect(insightContextTokens({ message: completed, output: completed.output, total: completed.total }, { tokens: 32_000 })).toBe(32_000)
+    expect(insightContextTokens({ message: completed, output: completed.output, total: completed.total })).toBeUndefined()
     expect(insightContextTokens({ message: failed, output: failed.output, total: failed.total })).toBe(100_000)
     expect(insightContextTokens({ message: pending, output: pending.output, total: pending.total })).toBe(100_000)
   })

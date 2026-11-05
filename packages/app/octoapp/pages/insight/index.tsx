@@ -103,7 +103,7 @@ import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-
 import { type FileReference, type MentionSelection, type MentionSkill } from "./components/mention-popover"
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
 import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
 import {
@@ -587,8 +587,24 @@ function InsightContent() {
     messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
     return getSessionContextMetrics(messages, providers.all()).context
   })
+  const compactedContextEstimate = createMemo(() => {
+    const context = contextMetrics()
+    if (!context || !isSuccessfulCompaction(context.message)) return
+    const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
+    if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
+    const model = local.model.current()
+    if (!isContextEstimateForModel(
+      resolveContextEstimateModel(
+        { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
+        context.message,
+      ),
+      model && { providerID: model.provider.id, modelID: model.id },
+    )) return
+    return { tokens: part.estimated_tokens, limit: part.estimated_limit }
+  })
   const contextLimit = createMemo(() =>
     [
+      compactedContextEstimate()?.limit,
       local.model.current()?.limit.input,
       local.model.current()?.limit.context,
       contextMetrics()?.model?.limit.input,
@@ -597,26 +613,27 @@ function InsightContent() {
     ].find((limit) => typeof limit === "number" && limit > 0),
   )
   const contextTokens = createMemo(() => {
-    return insightContextTokens(contextMetrics())
+    return insightContextTokens(contextMetrics(), compactedContextEstimate())
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+    const tokens = contextTokens()
+    return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens() ?? 0, contextLimit(), params.id))
   const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const [contextCommandPending, setContextCommandPending] = createSignal(false)
   const [abortPending, setAbortPending] = createSignal(false)
   const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
   const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
   const contextWarningVisible = createMemo(
-    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), isWorking()),
+    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage() ?? 0, params.id, ignoredContextWarningSession(), isWorking()),
   )
 
   createEffect(() => {
     const ignored = ignoredContextWarningSession()
     if (!ignored) return
-    if (ignored === params.id && contextUsage() >= 80) return
+    if (ignored === params.id && (contextUsage() ?? 0) >= 80) return
     setIgnoredContextWarningSession(undefined)
   })
 
@@ -1910,11 +1927,6 @@ function InsightContent() {
       return
     }
 
-    if (contextSendBlocked()) {
-      showToast({ title: "当前对话上下文已达上限", description: "请先进行上下文压缩，或新建对话。", variant: "error" })
-      return
-    }
-
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
       tracker.interaction({
@@ -2081,7 +2093,7 @@ function InsightContent() {
     isInsightSendDisabled({
       stopping: stopping(),
       settling: sessionSettling(),
-      contextBlocked: contextSendBlocked(),
+      contextBlocked: false,
       text: prompt(),
       uploading: hasUploadingAttachments() || assetsPending(),
     }),
@@ -2952,7 +2964,7 @@ function InsightContent() {
                   {(limit) => (
                     <div class="insight-context-notice-wrap">
                       <InsightContextOverflowNotice
-                        tokens={contextTokens()}
+                        tokens={contextTokens() ?? 0}
                         limit={limit()}
                         locale={language.intl()}
                         disabled={contextCompactionDisabled()}
@@ -2966,7 +2978,7 @@ function InsightContent() {
                   {(limit) => (
                     <div class="insight-context-notice-wrap">
                       <InsightContextUsageWarning
-                        tokens={contextTokens()}
+                        tokens={contextTokens() ?? 0}
                         limit={limit()}
                         locale={language.intl()}
                         disabled={contextCompactionDisabled()}
