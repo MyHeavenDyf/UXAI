@@ -290,7 +290,7 @@ export function SidebarShell(props: SidebarShellProps) {
       </Show>
 
       {/* ─── Settings ─── */}
-      <div class="relative shrink-0 px-[12px] pb-[24px]" style={{ "padding-top": props.showBottomNav === false ? "12px" : "0" }}>
+      <div class="relative shrink-0 px-[12px] pb-[24px]" style={{ "padding-top": "0" }}>
         <button
           type="button"
           title="设置"
