@@ -9,7 +9,7 @@ import { directModelEditConfig } from "../../../make/subtype-handlers/default"
 import { cleanBridgeContent } from "../../../make/utils/bridge-cleaner"
 import { applyManualEditPatch } from "../../../make/edit-mode/source-patches"
 import { stripCodeFence } from "../../utils/detect"
-import { applyHtmlEditMessage } from "../../utils/html-edit-source"
+import { applyHtmlEditMessage, prepareHtmlDeletion } from "../../utils/html-edit-source"
 import { HUI_COLOR_TOKENS } from "../../../make/components/model-edit-items/icon-data/hui-color-tokens"
 import type { AssetFile } from "../../../make/components/addon-menu/asset-library"
 import { importProductAsset } from "../../utils/product-asset-import"
@@ -82,8 +82,12 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
     if (!ctx || review.editDisabled() || state.importing) return false
     try {
       const html = await snapshot()
-      const result = remove ? applyManualEditPatch(html, { id: ctx.dom.dataOdId, kind: "remove-element" }) : { ok: true, source: html }
-      if (!result.ok) throw new Error("无法定位要删除的元素，请重新选择")
+      const result = remove ? prepareHtmlDeletion(html, ctx.dom, ctx.filePath) : { kind: "source" as const, source: html }
+      if (result.kind === "agent") {
+        await review.editWithAgent(result.prompt, cleanBridgeContent(html), original, content => { original = content }, "html-element-delete")
+        showToast({ title: "已请求 Agent 修改生成代码以删除该元素，请等待处理" })
+        return true
+      }
       await review.saveEdit(cleanBridgeContent(result.source), original)
       return true
     } catch (error) {
@@ -107,7 +111,7 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
           try {
             lifetime.signal.throwIfAborted()
             const prompt = await directModelEditConfig.assetConfig!.onConfirm(args)
-            await review.replaceAsset(prompt, cleanBridgeContent(await snapshot()), original, content => {
+            await review.editWithAgent(prompt, cleanBridgeContent(await snapshot()), original, content => {
               // 文件已落盘，即使发送失败也要使用新基线继续编辑或重试。
               original = content
             })

@@ -42,7 +42,7 @@ function MarkdownRenderer(props: { content: string; onReady?: () => void }): JSX
 // ── 主容器 ────────────────────────────────────────────────────
 export function ResultViewer(props: {
   productId?: number
-  onEditPrompt?: (sessionId: string, prompt: string) => Promise<void>
+  onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>
   tabs: ResultTab[]
   activeId: string | null
   onActivate: (id: string) => void
