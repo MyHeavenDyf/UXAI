@@ -340,7 +340,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               >
                 <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
-                  {language.t("session.portable.export") || "导出 Session"}
+                  {language.t("session.portable.export") || "导出"}
                 </span>
               </button>
               <button
@@ -351,7 +351,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               >
                 <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
-                  {language.t("session.portable.import") || "导入 Session"}
+                  {language.t("session.portable.import") || "导入"}
                 </span>
               </button>
             </Show>
