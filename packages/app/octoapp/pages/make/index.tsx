@@ -6190,6 +6190,7 @@ onPreview={(url) => {
                         }}
                         ref={(el) => { proseMirrorRef1 = el }}
                         autoInjectMentions={autoInjectMentions()}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
                         productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
@@ -6630,8 +6631,9 @@ onPreview={(url) => {
                          proseMirrorRef1?.clear()
                          proseMirrorRef2?.clear()
                        }}
-                       ref={(el) => { proseMirrorRef2 = el }}
-                       productId={projectSelection()?.product?.id}
+                        ref={(el) => { proseMirrorRef2 = el }}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
+                        productId={projectSelection()?.product?.id}
                        onDownloadProductAsset={downloadProductAsset}
                        onUpdateMentionPath={handleAddonUpdateMentionPath}
                     />
@@ -6866,6 +6868,7 @@ onPreview={(url) => {
                 productId={projectSelection()?.product?.id}
                 onDownloadProductAsset={downloadProductAsset}
                 onUpdateMentionPath={handleAddonUpdateMentionPath}
+                onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>

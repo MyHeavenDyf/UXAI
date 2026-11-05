@@ -209,6 +209,7 @@ export function HtmlRenderer(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
 }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -2257,6 +2258,7 @@ onFloatingPositionChange={setEditPanelPosition}
               productId={props.productId}
               onDownloadProductAsset={props.onDownloadProductAsset}
               onUpdateMentionPath={props.onUpdateMentionPath}
+              onFilesTabOpen={props.onFilesTabOpen}
               onClose={() => {
                 cancelManualEditStyleDraft()
                 setEditTarget(null)
@@ -2331,6 +2333,7 @@ onFloatingPositionChange={setEditPanelPosition}
               productId={props.productId}
               onDownloadProductAsset={props.onDownloadProductAsset}
               onUpdateMentionPath={props.onUpdateMentionPath}
+              onFilesTabOpen={props.onFilesTabOpen}
               onClose={() => {
                 setModelEditTarget(null)
                 iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')

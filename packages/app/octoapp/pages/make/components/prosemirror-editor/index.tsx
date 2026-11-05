@@ -61,6 +61,7 @@ interface Props {
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (filename: string, path: string) => void
   autoInjectMentions?: MentionSelection[]
+  onFilesTabOpen?: () => void
 }
 
 export const ProseMirrorEditor = (props: Props) => {
@@ -706,6 +707,7 @@ export const ProseMirrorEditor = (props: Props) => {
               productId={props.productId}
               onDownloadProductAsset={props.onDownloadProductAsset}
               onUpdateMentionPath={props.onUpdateMentionPath}
+              onFilesTabOpen={props.onFilesTabOpen}
             />
           </div>
         </Portal>
