@@ -14,10 +14,12 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogShareSession } from "@/components/dialog-share-session"
 import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { tracker } from "@/utils/tracker"
 import { decode64 } from "@/utils/base64"
 import { resolveStudioThumbnailUrl } from "./studio-media"
@@ -66,6 +68,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     y: number
     session: Session | null
   }>({ show: false, x: 0, y: 0, session: null })
+  const shareBlockReason = useSessionShareBlockReason(() => contextMenu.session, () => contextMenu.show)
 
   function closeContextMenu() {
     setContextMenu("show", false)
@@ -487,6 +490,19 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                     }}
                                   >
                                     <span data-slot="dropdown-menu-item-label">重命名</span>
+                                  </button>
+                                  <button
+                                    data-slot="dropdown-menu-item"
+                                    disabled={!!shareBlockReason()}
+                                    title={shareBlockReason()}
+                                    onClick={() => {
+                                      if (shareBlockReason()) return
+                                      tracker.interaction({ module: "studio", name: "session-share", extend: JSON.stringify({ sessionID: session.id }) })
+                                      closeContextMenu()
+                                      dialog.show(() => <DialogShareSession session={session} trackerModule="studio" />)
+                                    }}
+                                  >
+                                    <span data-slot="dropdown-menu-item-label">分享</span>
                                   </button>
                                   <div data-slot="dropdown-menu-separator" />
                                   <button

@@ -28,7 +28,10 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogShareSession } from "@/components/dialog-share-session"
+import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
 import { modelsApiHeaders } from "@/network/models-api"
@@ -331,6 +334,7 @@ export default function StudioPage() {
   const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  useSharedSessionImportDirectory("studio", projectDir, () => syncStore.status === "complete")
   if (syncStore.limit < 100) setSyncStore("limit", 100)
   onMount(() => {
     const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
@@ -386,6 +390,16 @@ export default function StudioPage() {
     if (!params.id) return
     return syncStore.session.find((session) => session.id === params.id && session.agent === "octo_studio")
   })
+  const headerShareSession = createMemo<Session | null>(() => {
+    if (!params.id) return null
+    return activeStudioSession() ?? {
+      id: params.id,
+      title: language.t("command.session.new"),
+      agent: "octo_studio",
+      directory: projectDir(),
+    } as Session
+  })
+  const headerShareBlockReason = useSessionShareBlockReason(headerShareSession)
   const historyOpen = createMemo(() => !params.id && new URLSearchParams(location.search).has("history"))
   const [historyRefreshKey, setHistoryRefreshKey] = createSignal(0)
   // 「我的资产」每次点击都递增 key，驱动列表重新查询；已在资产页时也能手动刷新。
@@ -5217,6 +5231,18 @@ if (!headerTitle.pendingRename) return
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        disabled={!!headerShareBlockReason()}
+                        title={headerShareBlockReason()}
+                        onSelect={() => {
+                          const session = headerShareSession()
+                          if (!session || headerShareBlockReason()) return
+                          tracker.interaction({ module: "studio", name: "session-share", extend: JSON.stringify({ sessionID: session.id }) })
+                          dialog.show(() => <DialogShareSession session={session} trackerModule="studio" />)
+                        }}
+                      >
+                        <DropdownMenu.ItemLabel>分享</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item

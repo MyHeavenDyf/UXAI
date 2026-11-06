@@ -10,7 +10,7 @@ export type ServerReadyData = {
 export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
-export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" }
+export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 

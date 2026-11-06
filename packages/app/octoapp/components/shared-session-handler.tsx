@@ -2,6 +2,7 @@ import { batch, createEffect, createRoot, onMount, onCleanup, untrack } from "so
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { usePlatform } from "@/context/platform"
 import { useLayout } from "@/context/layout"
 import { useServer } from "@/context/server"
@@ -49,6 +50,16 @@ export function SharedSessionHandler() {
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
 
+  const modulePage = (module: SharedSessionModule) => module === "design" ? "make" : module
+  const modulePath = (module: SharedSessionModule, directory: string, sessionID?: string) => {
+    if (module === "studio") {
+      const base = `/${base64Encode(directory)}/studio`
+      return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : `${base}?hint=${Date.now()}`
+    }
+    const base = `/${modulePage(module)}`
+    return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : base
+  }
+
   const waitForContext = (module: SharedSessionModule) =>
     new Promise<string>((resolve, reject) => {
       createRoot((dispose) => {
@@ -64,12 +75,16 @@ export function SharedSessionHandler() {
           lifetime.signal.removeEventListener("abort", aborted)
         })
         const ready = () => {
-          const page = module === "design" ? "make" : module
+          const page = modulePage(module)
+          const pathReady = module === "studio"
+            ? location.pathname === `/${base64Encode(sharedSessionImportContext.directory)}/studio`
+              || location.pathname.startsWith(`/${base64Encode(sharedSessionImportContext.directory)}/studio/`)
+            : location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)
           return (
             !lifetime.signal.aborted &&
             server.ready() &&
             !layout.onboarding.show() &&
-            (location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)) &&
+            pathReady &&
             sharedSessionImportContext.module === module &&
             sharedSessionImportContext.ready &&
             !!sharedSessionImportContext.directory &&
@@ -103,16 +118,17 @@ export function SharedSessionHandler() {
       push: () => {},
       loadLsp: () => {},
     })
-    const page = module === "design" ? "make" : module
+    const page = modulePage(module)
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
       if (page === "pattern") layout.lastSessionPerTab.setPattern(result.sessionID)
       if (page === "insight") layout.lastSessionPerTab.setCowork(result.sessionID)
+      if (page === "studio") layout.lastSessionPerTab.setStudio(result.directory, result.sessionID)
       layout.lastSessionPerTab.setNewConversation(page, false)
       if (page === "insight") layout.lastSessionPerTab.setNewConversation("cowork", false)
       layout.projects.open(result.directory)
       server.projects.touch(result.directory)
-      navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
+      navigate(modulePath(module, result.directory, result.sessionID))
     })
     window.dispatchEvent(
       new CustomEvent("octo:session-imported", {
@@ -133,9 +149,11 @@ export function SharedSessionHandler() {
       prepare: () => platform.prepareSharedSession!(uniqueId),
       select: (module) => {
         if (lifetime.signal.aborted) throw new Error("分享打开已取消")
-        const page = module === "design" ? "make" : module
+        const page = modulePage(module)
+        const directory = server.projects.last()
+        if (!directory) throw new Error("请先选择导入分享对话的目录")
         layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
-        navigate(`/${page}`)
+        navigate(modulePath(module, directory))
       },
       ready: waitForContext,
       importSession: (prepared, directory) => {
