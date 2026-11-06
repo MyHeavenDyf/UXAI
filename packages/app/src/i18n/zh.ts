@@ -552,8 +552,10 @@ export const dict = {
   "session.portable.import": "导入",
   "session.portable.export.picker": "选择 Session 导出位置",
   "session.portable.import.picker": "选择要导入的 Session 文件",
-  "session.portable.export.success": "Session 已导出",
-  "session.portable.import.success": "Session 已导入",
+  "session.portable.export.success": "导出成功",
+  "session.portable.export.success.description": "已成功导出 {{sessions}} 个 Session、{{files}} 个文件。保存位置：{{path}}",
+  "session.portable.import.success": "导入成功",
+  "session.portable.import.success.description": "已成功导入 {{sessions}} 个 Session、{{files}} 个文件，并已打开导入的对话。",
   "session.portable.failed": "Session 导入或导出失败",
   "session.portable.summary": "共 {{sessions}} 个 Session、{{files}} 个文件",
 

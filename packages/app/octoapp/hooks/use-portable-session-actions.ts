@@ -58,12 +58,13 @@ export function usePortableSessionActions(input: {
       .then((result) => {
         showToast({
           variant: "success",
-          icon: "circle-check",
           title: language.t("session.portable.export.success"),
-          description: language.t("session.portable.summary", {
+          description: language.t("session.portable.export.success.description", {
             sessions: result.data!.sessions,
             files: result.data!.files,
+            path: output,
           }),
+          duration: 5000,
         })
       })
       .catch(failed)
@@ -89,12 +90,12 @@ export function usePortableSessionActions(input: {
       .then((result) => {
         showToast({
           variant: "success",
-          icon: "circle-check",
           title: language.t("session.portable.import.success"),
-          description: language.t("session.portable.summary", {
+          description: language.t("session.portable.import.success.description", {
             sessions: result.sessions,
             files: result.files,
           }),
+          duration: 5000,
         })
       })
       .catch(failed)
