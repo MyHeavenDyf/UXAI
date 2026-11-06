@@ -10,10 +10,24 @@ import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
+import { addUserProject } from "@/network/pipelineRequest"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 interface DialogProjectOnboardingProps {
   onSelect: (data: { directory: string; domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
+}
+
+// 读取当前登录用户身份用于数据看板统计上报:
+//   userName ← localStorage.userInfo.nickName(昵称)
+//   userId   ← localStorage.userInfo.account(工号, 后端 userId 字段实际取工号)
+// 任一缺失返回空对象 → 调用方跳过上报(后端两字段均必传, 缺则不发必失败的请求)。
+function readUserIdentity(): { userName?: string; userId?: string } {
+  try {
+    const info = JSON.parse(localStorage.getItem("userInfo") ?? "{}") as { nickName?: string; account?: string }
+    return { userName: info.nickName?.trim(), userId: info.account?.trim() }
+  } catch {
+    return {}
+  }
 }
 
 export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
@@ -78,6 +92,18 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         dir
       }),
     })
+    // 数据看板统计: 上报用户项目选择(domain/productLine/product/version 取各对象 name; fire-and-forget, 失败 silent 不阻断)
+    const identity = readUserIdentity()
+    if (identity.userName && identity.userId) {
+      void addUserProject({
+        userName: identity.userName,
+        userId: identity.userId,
+        domain: domain?.name,
+        productLine: productLine?.name,
+        product: product?.name,
+        version: version?.name,
+      })
+    }
     layout.projects.open(dir)
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
