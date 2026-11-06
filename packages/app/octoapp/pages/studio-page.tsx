@@ -2139,7 +2139,12 @@ function StudioPageContent() {
 
   function closeMenu() {
     setHeaderTitle("menuOpen", false)
+    setMenuTriggerEl(undefined)
   }
+
+  // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
+  // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
+  createEffect(on(() => params.id, () => closeMenu()))
 
   const { togglePin: togglePinSession } = useSessionPin()
 
@@ -5523,10 +5528,10 @@ function StudioPageContent() {
                   aria-label={language.t("common.moreOptions")}
                   aria-expanded={headerTitle.menuOpen}
                   onClick={(e) => {
-                    tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    if (!headerTitle.menuOpen) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
                     setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
-                    setHeaderTitle("menuOpen", true)
+                    setHeaderTitle("menuOpen", !headerTitle.menuOpen)
                   }}
                 >
                   <Icon name="ellipsis" class="size-4" />

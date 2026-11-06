@@ -4,6 +4,7 @@ import path from "node:path"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { Instance } from "@/project/instance"
+import { MessageV2 } from "@/session/message-v2"
 import { SessionTable } from "@/session/session.sql"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "@/studio/studio-generation.sql"
@@ -16,6 +17,7 @@ import {
   listStudioHistoryMedia,
   markStudioHistoryThumbnailFailed,
   materializeStudioGeneration,
+  materializeStudioSessionParts,
   pruneStudioHistoryExcluded,
   snapshotSessionMedia,
   studioHistoryRevision,
@@ -746,6 +748,185 @@ describe("Studio history service", () => {
       expect(listStudioHistoryMedia(directory).items).toHaveLength(0)
       await flushStudioHistoryMaintenance(directory)
       expect(fs.existsSync(path.join(directory, ".octo", sessionID, "thumbnails"))).toBe(false)
+    })
+  })
+
+  function importedStudioPart(input: {
+    sessionID: SessionID
+    generationID: string
+    output: Record<string, unknown>
+    toolInput?: Record<string, unknown>
+    attachments?: { url: string; mime: string }[]
+    end?: number
+  }): MessageV2.Part {
+    return {
+      id: PartID.ascending(),
+      sessionID: input.sessionID,
+      messageID: MessageID.ascending(),
+      type: "tool",
+      callID: `studio_${input.generationID}`,
+      tool: "image-generation-tool",
+      state: {
+        status: "completed",
+        input: input.toolInput ?? {},
+        output: JSON.stringify(input.output),
+        title: "图片生成",
+        metadata: { studio: { generationID: input.generationID, status: "succeeded", progress: 100 } },
+        time: { start: 1_000, end: input.end ?? 2_000 },
+        ...(input.attachments
+          ? {
+              attachments: input.attachments.map((attachment) => ({
+                id: PartID.ascending(),
+                sessionID: input.sessionID,
+                messageID: MessageID.ascending(),
+                type: "file" as const,
+                mime: attachment.mime,
+                filename: "attachment",
+                url: attachment.url,
+              })),
+            }
+          : {}),
+      },
+    }
+  }
+
+  // 分享/文件导入的 octo_studio 会话没有 studio_generation 行，
+  // 历史媒体从导入的 tool parts 直接物化。
+  test("materializes imported session media from completed tool parts", async () => {
+    await withStudioHistory(async ({ directory, sessionID }) => {
+      const imagePart = importedStudioPart({
+        sessionID,
+        generationID: "gen-import-image",
+        end: 4_000,
+        output: {
+          ok: true,
+          provider: "internel",
+          capability: "image.generate",
+          toolAction: "generate",
+          model: "test-model",
+          aspectRatio: "16:9",
+          media: [
+            {
+              id: "img-import-0",
+              kind: "image",
+              url: "https://example.com/import-0.png",
+              remoteUrl: "https://example.com/import-0.png",
+              thumbnailUrl: "https://example.com/import-0.webp",
+              thumbnailStatus: "ready",
+              width: 1920,
+              height: 1080,
+            },
+          ],
+        },
+        toolInput: { effectivePrompt: "导入图片", displayPrompt: "导入图片展示", detailTitle: "导入标题", styleModel: "风格A" },
+      })
+      const videoPart = importedStudioPart({
+        sessionID,
+        generationID: "gen-import-video",
+        end: 5_000,
+        output: {
+          ok: true,
+          provider: "internel",
+          capability: "video.generate",
+          model: "test-model",
+          aspectRatio: "9:16",
+          videoQualityMode: "1080",
+          media: [
+            { id: "vid-import-0", kind: "video", url: "https://example.com/import-1.mp4", remoteUrl: "https://example.com/import-1.mp4", width: 1080, height: 1920 },
+          ],
+        },
+      })
+      const skipped: MessageV2.Part[] = [
+        { id: PartID.ascending(), sessionID, messageID: MessageID.ascending(), type: "text", text: "用户输入" },
+        {
+          id: PartID.ascending(),
+          sessionID,
+          messageID: MessageID.ascending(),
+          type: "tool",
+          callID: "studio-running",
+          tool: "image-generation-tool",
+          state: { status: "running", input: {}, title: "图片生成", time: { start: 1_000 } },
+        },
+        importedStudioPart({ sessionID, generationID: "gen-empty", output: {} }),
+      ]
+      expect(materializeStudioSessionParts(directory, sessionID, [imagePart, videoPart, ...skipped])).toBe(2)
+
+      const items = listStudioHistoryMedia(directory).items
+      expect(items).toHaveLength(2)
+      expect(items[0]).toMatchObject({
+        id: "vid-import-0",
+        sessionID,
+        generationID: "gen-import-video",
+        kind: "video",
+        url: "https://example.com/import-1.mp4",
+        createdAt: 5_000,
+      })
+      expect(items[1]).toMatchObject({
+        id: "img-import-0",
+        sessionID,
+        generationID: "gen-import-image",
+        kind: "image",
+        url: "https://example.com/import-0.png",
+        thumbnailUrl: "https://example.com/import-0.webp",
+        createdAt: 4_000,
+        prompt: "导入图片",
+        displayPrompt: "导入图片展示",
+        detailTitle: "导入标题",
+        styleModel: "风格A",
+        model: "test-model",
+        provider: "internel",
+        capability: "image.generate",
+        aspectRatio: "16:9",
+      })
+      expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id)).toEqual(["vid-import-0"])
+
+      // 重复导入同一分享：媒体 id 幂等，不产生重复历史行。
+      expect(materializeStudioSessionParts(directory, sessionID, [imagePart, videoPart])).toBe(2)
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(2)
+    })
+  })
+
+  test("falls back to attachments and URL lists when tool output has no media array", async () => {
+    await withStudioHistory(async ({ directory, sessionID }) => {
+      const part = importedStudioPart({
+        sessionID,
+        generationID: "gen-legacy",
+        output: {
+          ok: true,
+          capability: "image.generate",
+          images: ["https://example.com/legacy-a.png", "https://example.com/legacy-a.png"],
+          videos: ["https://example.com/legacy-b.mp4"],
+        },
+        attachments: [{ url: "https://example.com/legacy-c.png", mime: "image/png" }],
+      })
+      expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(3)
+
+      const items = listStudioHistoryMedia(directory).items
+      expect(items.map((item) => item.id)).toEqual(["gen-legacy-2", "gen-legacy-1", "gen-legacy-0"])
+      expect(items.map((item) => item.kind)).toEqual(["video", "image", "image"])
+      expect(items.map((item) => item.url)).toEqual([
+        "https://example.com/legacy-b.mp4",
+        "https://example.com/legacy-a.png",
+        "https://example.com/legacy-c.png",
+      ])
+    })
+  })
+
+  test("does not resurrect imported media deleted from history", async () => {
+    await withStudioHistory(async ({ directory, sessionID }) => {
+      const part = importedStudioPart({
+        sessionID,
+        generationID: "gen-import-image",
+        output: {
+          ok: true,
+          capability: "image.generate",
+          media: [{ id: "img-import-0", kind: "image", url: "https://example.com/import-0.png", remoteUrl: "https://example.com/import-0.png" }],
+        },
+      })
+      expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(1)
+      expect(await deleteStudioHistoryMedia(directory, ["img-import-0"])).toBe(1)
+      expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(0)
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(0)
     })
   })
 })

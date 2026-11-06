@@ -373,7 +373,7 @@ export function ConversationHeader(
             onClick={(e) => {
               setMenuTriggerEl(e.currentTarget as HTMLElement)
               setMenuPos({ x: e.clientX, y: e.clientY })
-              setTitle("menuOpen", true)
+              setTitle("menuOpen", !title.menuOpen)
             }}
           />
           <SessionContextMenu

@@ -7,6 +7,8 @@ import JSZip from "jszip"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import { AppRuntime } from "@/effect/app-runtime"
+import { eq } from "@/storage/db"
+import * as Database from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import {
   exportPortableSession,
@@ -20,6 +22,8 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Todo } from "@/session/todo"
+import { listStudioHistoryMedia } from "@/studio/studio-history-service"
+import { StudioHistoryExcludedTable, StudioHistoryTable } from "@/studio/studio-history.sql"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
 
 const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unknown>) =>
@@ -1044,4 +1048,80 @@ describe("portable session", () => {
     },
     { timeout: 30000 },
   )
+
+  // 分享/文件导入的 octo_studio 会话没有 studio_generation 行，
+  // 导入收尾必须把 tool parts 里的媒体物化进「我的资产」历史表。
+  test("materializes imported studio session media into history", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = path.join(source.path, "studio-session.zip")
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "分享的 Studio 对话", agent: "octo_studio" }))
+      const messageID = MessageID.ascending()
+      await runSession((service) =>
+        service.updateMessage({
+          id: messageID,
+          sessionID: session.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "octo_studio",
+          model: { providerID: ProviderID.make("octo_studio"), modelID: ModelID.make("octo_studio") },
+        }),
+      )
+      await runSession((service) =>
+        service.updatePart({
+          id: PartID.ascending(),
+          messageID,
+          sessionID: session.id,
+          type: "tool",
+          callID: `studio_${messageID}`,
+          tool: "image-generation-tool",
+          state: {
+            status: "completed",
+            input: { effectivePrompt: "分享图片", displayPrompt: "分享图片" },
+            output: JSON.stringify({
+              ok: true,
+              provider: "internel",
+              capability: "image.generate",
+              model: "test-model",
+              media: [
+                {
+                  id: "img-shared-0",
+                  kind: "image",
+                  url: "https://example.com/shared.png",
+                  remoteUrl: "https://example.com/shared.png",
+                  width: 1024,
+                  height: 1024,
+                },
+              ],
+            }),
+            title: "图片生成",
+            metadata: { studio: { generationID: "gen-shared", status: "succeeded", progress: 100 } },
+            time: { start: 1_000, end: 2_000 },
+          },
+        }),
+      )
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: archive }))
+    } })
+    try {
+      await provideTestInstance({ directory: target.path, fn: async () => {
+        const imported = await AppRuntime.runPromise(importPortableSession(archive))
+        const items = listStudioHistoryMedia(target.path).items
+        expect(items).toHaveLength(1)
+        expect(items[0]).toMatchObject({
+          id: "img-shared-0",
+          sessionID: imported.sessionID,
+          generationID: "gen-shared",
+          kind: "image",
+          url: "https://example.com/shared.png",
+          prompt: "分享图片",
+        })
+      } })
+    } finally {
+      Database.use((db) => {
+        db.delete(StudioHistoryTable).where(eq(StudioHistoryTable.directory, target.path)).run()
+        db.delete(StudioHistoryExcludedTable).where(eq(StudioHistoryExcludedTable.directory, target.path)).run()
+      })
+    }
+  })
 })
