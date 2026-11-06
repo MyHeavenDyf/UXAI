@@ -2,7 +2,31 @@ import z from "zod"
 import type { Part } from "@opencode-ai/sdk/v2/client"
 
 const base = { version: z.literal(1), revision: z.number().int().positive() }
-const guide = z.object({ ...base, kind: z.literal("guide"), status: z.enum(["armed", "consumed"]) })
+const reasoning = z.object({ version: z.literal(1) })
+const preview = z.object({ version: z.literal(1), attempt: z.union([z.literal(1), z.literal(2)]), resultPartID: z.string().min(1) })
+
+export function previewMetadata(part?: Part) {
+  if (part?.type !== "text" && part?.type !== "reasoning") return
+  const parsed = preview.safeParse(part.metadata?.studioPromptExpansionPreview)
+  return parsed.success ? parsed.data : undefined
+}
+
+export function isExpansionPreview(part?: Part): part is Extract<Part, { type: "text" | "reasoning" }> {
+  return previewMetadata(part) !== undefined
+}
+
+export function expansionPreviewParts(parts: Part[], resultPartID: string) {
+  const previews = parts.filter(isExpansionPreview)
+    .filter((part) => previewMetadata(part)?.resultPartID === resultPartID)
+  const attempt = Math.max(0, ...previews.map((part) => previewMetadata(part)!.attempt))
+  return previews.filter((part) => previewMetadata(part)!.attempt === attempt)
+    .sort((a, b) => a.id.localeCompare(b.id))
+}
+
+export function isExpansionReasoning(part?: Part): part is Extract<Part, { type: "reasoning" }> {
+  return part?.type === "reasoning" && reasoning.safeParse(part.metadata?.studioPromptExpansionReasoning).success
+}
+const guide = z.object({ ...base, kind: z.literal("guide"), status: z.enum(["armed", "consumed", "dismissed"]), visible: z.boolean().optional() })
 const result = z.object({
   ...base,
   kind: z.literal("result"),
@@ -20,6 +44,14 @@ export function promptMetadata(part?: Part) {
 }
 
 export function mergePromptPart(previous: Part | undefined, next: Part) {
+  if (previous?.id === next.id &&
+    ((isExpansionReasoning(previous) && isExpansionReasoning(next)) || (isExpansionPreview(previous) && isExpansionPreview(next)))) {
+    if (previous.time?.end !== undefined && next.time?.end === undefined) return previous
+    if (next.time?.end !== undefined) {
+      return previous.time?.end !== undefined && previous.text.startsWith(next.text) ? previous : next
+    }
+    return previous.text.startsWith(next.text) ? previous : next
+  }
   const old = promptMetadata(previous)
   const current = promptMetadata(next)
   return previous && old && (!current || old.revision >= current.revision) ? previous : next

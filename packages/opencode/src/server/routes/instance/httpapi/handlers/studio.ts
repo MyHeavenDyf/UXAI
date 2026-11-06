@@ -133,8 +133,8 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     const config = yield* Config.Service
     const llm = yield* LLM.Service
     const recommendation = (
-      action: "initialize" | "submit" | "state" | "cancel",
-      params?: { sessionID: string; assistantMessageID?: string },
+      action: "initialize" | "submit" | "state" | "cancel" | "dismiss",
+      params?: { sessionID: string; assistantMessageID?: string; guidePartID?: string },
     ) =>
       Effect.gen(function* () {
         const instance = yield* InstanceState.context
@@ -146,7 +146,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               WorkspaceContext.provide({
                 workspaceID: workspace,
                 fn: () =>
-                  recommendationRequest(request, action, params?.sessionID, params?.assistantMessageID, {
+                  recommendationRequest(request, action, params, {
                     provider,
                     config,
                     llm,
@@ -642,6 +642,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       .handleRaw("initializeRecommendation", () => recommendation("initialize"))
       .handleRaw("submitExpansion", () => recommendation("submit"))
       .handleRaw("getRecommendationState", (ctx) => recommendation("state", ctx.params))
+      .handleRaw("dismissRecommendation", (ctx) => recommendation("dismiss", ctx.params))
       .handleRaw("cancelExpansion", (ctx) => recommendation("cancel", ctx.params))
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)

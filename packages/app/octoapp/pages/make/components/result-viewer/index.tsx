@@ -137,6 +137,7 @@ export function ResultViewer(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
   onAssetConfirm?: (args: import("../model-edit-items/types").AssetConfirmArgs) => string | Promise<string>
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
@@ -718,9 +719,10 @@ archiving={featureMutex.state.archiving}
                       currentVersionId={props.currentVersionId}
                       onHistorySwitch={props.onHistorySwitch}
                       onHistoryToggle={props.onHistoryToggle}
-                      sessionId={props.sessionId}
-                      sdkDirectory={props.sdkDirectory}
-                       skillConfig={props.skillConfig}
+                       sessionId={props.sessionId}
+                       sdkDirectory={props.sdkDirectory}
+                        workspaceKind={workspaceKind()}
+                        skillConfig={props.skillConfig}
                         postMessageToIframe={(data: unknown) => iframePostMessages[tabId]?.(data)}
                        onFilesRefresh={props.onFilesRefresh}
                        disabled={props.disabled}
@@ -799,6 +801,7 @@ archiving={featureMutex.state.archiving}
                               productId={props.productId}
                               onDownloadProductAsset={props.onDownloadProductAsset}
                               onUpdateMentionPath={props.onUpdateMentionPath}
+                              onFilesTabOpen={props.onFilesTabOpen}
                               />
                     </Show>
                     </Match>
@@ -870,6 +873,7 @@ archiving={featureMutex.state.archiving}
       productId={props.productId}
       onDownloadProductAsset={props.onDownloadProductAsset}
       onUpdateMentionPath={props.onUpdateMentionPath}
+      onFilesTabOpen={props.onFilesTabOpen}
       onAssetConfirm={getSubtypeHandler(activeTab()?.subtype)?.onAssetConfirm ?? props.onAssetConfirm}
     />
     <Show when={activeAgentExec()?.visible}>

@@ -11,11 +11,33 @@ export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: str
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
 export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }
+export type SessionTransferProgress = {
+  operationID: string
+  type: "import"
+  stage: string
+  percent: number
+  processedBytes?: number
+  totalBytes?: number
+}
 
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
 export type WslConfig = { enabled: boolean }
 // jk-j60099994-replace-with-types-1-start
+export type LoginUserInfo = {
+  uid: string | number
+  [key: string]: unknown
+}
+
+export type StartLoginResult = {
+  loginCode: string
+  loginUrl: string
+}
+
+export type AuthStartupState = {
+  loginRequired: boolean
+  message?: string
+}
 // jk-j60099994-replace-with-types-1-end
 export type LinuxDisplayBackend = "wayland" | "auto"
 export type TitlebarTheme = {
@@ -59,10 +81,10 @@ export type ElectronAPI = {
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
-  prepareSharedSession: (uniqueId: string) => Promise<PreparedSharedSession>
+  prepareSharedSession: (uniqueId: string, operationID?: string) => Promise<PreparedSharedSession>
   inspectPortableSession: (archive: string) => Promise<Omit<PreparedSharedSession, "token">>
   releaseSharedSession: (token: string) => Promise<void>
-  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => Promise<SharedSessionResult | null>
+  importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string, operationID?: string) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
@@ -84,6 +106,7 @@ export type ElectronAPI = {
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
+  onSessionTransferProgress: (cb: (progress: SessionTransferProgress) => void) => () => void
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
   onDownloadSavePath: (cb: (info: DownloadSavePathInfo) => void) => () => void
 
@@ -176,6 +199,17 @@ export type ElectronAPI = {
   onResume: (callback: () => void) => () => void
   onReopen: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
+  startLogin: () => Promise<StartLoginResult>
+  cancelLogin: () => Promise<boolean>
+  onLoginOpened: (cb: (data: StartLoginResult) => void) => () => void
+  onLoginSuccess: (cb: (data: { uiplusToken: string; cookie: string; userInfo: LoginUserInfo }) => void) => () => void
+  onLoginTimeout: (cb: (data: { message: string }) => void) => () => void
+  onLoginPollError: (cb: (data: { message: string }) => void) => () => void
+  onTokenExpired: (cb: (data: { message: string }) => void) => () => void
+  onTokenRefreshed: (cb: (data: { uiplusToken: string }) => void) => () => void
+  onLoginExpiring: (cb: (data: { message: string }) => void) => () => void
+  stopTokenExpirationCheck: () => void
+  checkAuthReady: () => Promise<AuthStartupState>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
@@ -240,4 +274,6 @@ export type ElectronAPI = {
     curlUrl: string
     error?: string
   }>
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-start
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-end
 }

@@ -587,7 +587,7 @@ export function InsightTurn(props: {
   })
 
   return (
-    <div class="flex flex-col mb-4">
+    <div class="flex flex-col mb-4" data-turn-id={props.messageID}>
       <Show when={isCompactionTurn()} fallback={<>
       {/* 用户附件(贴合用户气泡上方,右对齐)——非图片走文件卡片,图片走缩略图,替代在气泡里暴露裸路径/URL */}
       <Show when={inputAttachments().length > 0 || inputImages().length > 0}>

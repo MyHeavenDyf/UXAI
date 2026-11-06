@@ -6,6 +6,7 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { requestPortableSessionImport } from "@/components/portable-session-import"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "@/components/session-transfer-progress"
 import { sessionTitle } from "@/utils/session-title"
 
 export function usePortableSessionActions(input: {
@@ -51,10 +52,20 @@ export function usePortableSessionActions(input: {
       })
     if (!output) return
     setAction("export")
+    const operationID = crypto.randomUUID()
+    const progress = showSessionTransferProgress("正在导出 Session")
+    const watcher = new AbortController()
+    void watchSessionTransferProgress({
+      url: globalSDK.url,
+      operationID,
+      fetch: platform.fetch ?? fetch,
+      signal: watcher.signal,
+      update: progress.update,
+    })
     await globalSDK
       .createClient({ directory: session.directory, throwOnError: true })
       .session
-      .portableExport({ sessionID: session.id, path: output })
+      .portableExport({ sessionID: session.id, path: output, operationID })
       .then((result) => {
         showToast({
           variant: "success",
@@ -68,7 +79,11 @@ export function usePortableSessionActions(input: {
         })
       })
       .catch(failed)
-      .finally(() => setAction())
+      .finally(() => {
+        watcher.abort()
+        progress.dismiss()
+        setAction()
+      })
   }
   const importSession = async () => {
     if (action() || !platform.openFilePickerDialog) return

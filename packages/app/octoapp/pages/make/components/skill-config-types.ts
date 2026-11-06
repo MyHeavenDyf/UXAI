@@ -4,6 +4,7 @@ export type PanelSkill = {
   path?: string
   enable?: boolean
   id?: number
+  autoInject?: boolean
 }
 
 export type SkillConfigEntry = {

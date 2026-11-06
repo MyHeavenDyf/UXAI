@@ -6,6 +6,7 @@ import { decode64 } from "@/utils/base64"
 import { useLayout } from "@/context/layout"
 import { useServer } from "@/context/server"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { AvatarComponent } from "@/components/avatar-component"
 import {
   OctoLogo, IconSearch,
 } from "./icons"
@@ -150,7 +151,7 @@ export function OctoTopbar(): JSX.Element {
         >
           <IconSearch size={20} />
         </button>
-        <img src="/AvatarUser.svg" alt="" style={{ width: "28px", height: "28px", "border-radius": "50%" }} />
+        <AvatarComponent />
       </div>
     </div>
   )

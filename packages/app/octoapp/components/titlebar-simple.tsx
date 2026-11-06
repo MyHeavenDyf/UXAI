@@ -12,6 +12,7 @@ import { decode64 } from "@/utils/base64"
 import { useCommand } from "@/context/command"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { TaskList } from "@/components/task-list"
+import { AvatarComponent } from "@/components/avatar-component"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -442,9 +443,7 @@ export function TitlebarSimple() {
           </Show>
         </div>
         <TaskList />
-        {/* jk// jk-j60099994-replace-with-titlebar-simple-2-start */}
-        <img src="/AvatarUser.svg" alt="" class="header-user-icon" />
-        {/* jk-j60099994-replace-with-titlebar-simple-2-end */}
+        <AvatarComponent class="header-user-icon" />
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />

@@ -5,7 +5,7 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "@/session/session"
-import { exportPortableSession, importPortableSession, sharePortableSession } from "@/session/portable"
+import { exportPortableSession, getPortableProgress, importPortableSession, sharePortableSession } from "@/session/portable"
 import { previewSession, PreviewPage } from "@/session/share-preview"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -150,10 +150,18 @@ export const SessionRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", z.object({ path: z.string().min(1), scope: z.enum(["project", "session"]).optional() })),
+      validator("json", z.object({
+        path: z.string().min(1),
+        scope: z.enum(["project", "session"]).optional(),
+        operationID: z.string().optional(),
+      })),
       async (c) =>
         jsonRequest("SessionRoutes.portableImport", c, function* () {
-          return yield* importPortableSession(c.req.valid("json").path, c.req.valid("json").scope)
+          return yield* importPortableSession(
+            c.req.valid("json").path,
+            c.req.valid("json").scope,
+            c.req.valid("json").operationID,
+          )
         }),
     )
     .post(
@@ -181,13 +189,18 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("json", z.object({ path: z.string().min(1), scope: z.literal("project").optional() })),
+      validator("json", z.object({
+        path: z.string().min(1),
+        scope: z.literal("project").optional(),
+        operationID: z.string().optional(),
+      })),
       async (c) =>
         jsonRequest("SessionRoutes.portableExport", c, function* () {
           return yield* exportPortableSession({
             sessionID: c.req.valid("param").sessionID,
             output: c.req.valid("json").path,
             scope: c.req.valid("json").scope,
+            operationID: c.req.valid("json").operationID,
           })
         }),
     )
@@ -210,17 +223,21 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
-      validator("query", z.object({ scope: z.literal("project").optional() })),
+      validator("query", z.object({ scope: z.literal("project").optional(), operationID: z.string().optional() })),
       async (c) =>
         jsonRequest("SessionRoutes.portableShare", c, function* () {
           return yield* sharePortableSession({
             sessionID: c.req.valid("param").sessionID,
             headers: Object.fromEntries(c.req.raw.headers.entries()),
             scope: c.req.valid("query").scope,
+            operationID: c.req.valid("query").operationID,
           }).pipe(
             Effect.mapError((error) => new HTTPException(400, { res: Response.json({ message: error.message }, { status: 400 }) })),
           )
         }),
+    )
+    .get("/portable-progress/:operationID", validator("param", z.object({ operationID: z.string().min(1) })), (c) =>
+      c.json(getPortableProgress(c.req.valid("param").operationID) ?? null),
     )
     .get(
       "/:sessionID/share-preview",

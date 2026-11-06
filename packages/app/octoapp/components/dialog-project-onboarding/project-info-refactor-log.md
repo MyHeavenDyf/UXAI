@@ -1245,3 +1245,116 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - **影响范围**：135 条预取改造让这一行为在「product 有缓存、version 为空」时于弹窗挂载即触发，同样符合设计，不需回退为延迟请求。
 - **不存在静默落库**：`onSelectionChange` 只写 `dialog-project-onboarding.tsx` 的本地 `selections` store；真正落库在 `handleConfirm()`（`server.projects.saveSelection` + `props.onSelect` + 埋点），仅用户点「确认」时触发，且该按钮 `disabled={!hasDirectory()}` 要求先选本地目录。故自动选中只是**预填默认值**，用户在确认前始终可改。
 - **为什么单独记一条**：132 的表述（「`store.version` 为 undefined → 不做任何操作」）与设计口径相反，已两次把评审引向「这是行为回退」的误判（一次是 132 自身，一次是 PR #439 评审）。此处订正并在 132 条顶部加推翻标记，避免第三次。
+
+---
+
+## 第三十七轮改动（不选择/确认按钮 + 移除新用户自动级联选中 + 选中色统一）
+
+### 138. `project-product-select-panel.tsx` — 新增"不选择"/"确认"按钮 + 选择确认机制
+
+- 面板底部新增按钮容器（`display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px`）
+- **"不选择"按钮**：88×32px、`border-radius: 16px`、背景/边框 `rgba(0,0,0,0.05)`、文字 `rgba(0,0,0,0.65)`
+  - 点击清空产品选中状态（`selectedProduct`/`selectedProductId`），保留领域/产品线选中状态
+  - 调用 `onProductConfirm({ domain, productLine })` 不传 product → 父组件清空 product 和 version 值
+- **"确认"按钮**：88×32px、`border-radius: 16px`、背景/边框 `#0a59f7`、文字 `#fff`
+  - 点击调用 `onProductConfirm` 传入当前暂存的领域/产品线/产品对象
+- 新增 `selectedDomain`/`selectedProductLine`/`selectedProduct` 三个 signal — 暂存选中对象，点击选项时写入，确认按钮读取
+- 新增 `clearProductSelection()` — 仅清空产品选中状态（不清空领域/产品线）
+- 新增 `confirmSelection()` — 调用 `onProductConfirm` 传入暂存对象
+- **产品 onClick（三列模式）**：从立即调用 `onProductConfirm` 改为仅设置 `selectedProductId` + 暂存对象（不触发确认）
+- **搜索结果 onClick**：从立即调用 `onProductConfirm` 改为仅设置 IDs + 暂存对象（不触发确认）
+- **领域 onClick**：新增 `setSelectedDomain(item)` + `setSelectedProductLine(undefined)`（产品线 ID 清空时同步清空对象）
+- **产品线 onClick**：新增 `setSelectedProductLine(item)`
+
+### 139. `project-info-dialog-content.tsx` — 移除新用户自动级联选中逻辑
+
+- 移除 `shouldAutoSelect` prop
+- 移除 `autoSelectFirstAvailable` 异步函数（原逻辑：新用户无历史选择时自动级联选中第一个领域/产品线/产品）
+- 移除触发 `autoSelectFirstAvailable` 的 `createEffect`
+- 移除 `userInteracted` / `autoSelectStarted` 变量及 `onProductConfirm` / `onSelect` 中的 `userInteracted = true` 赋值
+- 清理 import：移除不再使用的 `fetchDomains` / `fetchProductLines` / `fetchProducts`
+
+### 140. `dialog-project-onboarding.tsx` — 移除 shouldAutoSelect
+
+- 移除 `shouldAutoSelect` 计算（`!lastSelection?.domain && ...`）
+- 移除 `<ProjectInfoDialogContent>` 的 `shouldAutoSelect={shouldAutoSelect}` prop
+
+### 141. `project-info-dialog-content.tsx` — `safeVersionOptions` 增加 product 守卫
+
+- `safeVersionOptions()` 新增 `if (!store.product) return []` — 无产品时直接返回空数组
+- 原因：点击"不选择"后 `store.product` 被清空，但 SolidJS `createResource` 在 source 变为 falsy 时不清空旧数据（保留上次返回值），版本自动选中 effect（`store.version` 为空 → 选 `options[0]`）会从 stale 版本列表中重新选中第一项，导致版本值未清空。增加 product 守卫后 effect 提前返回，版本值保持 `undefined`
+
+### 142. `project-product-select.tsx` — `selectedLabel` 未选产品时显示"选择产品"
+
+- `selectedLabel()` 改为：`if (!props.product) return "选择产品"` — 未选中产品时直接返回占位文本，不再拼接领域/产品线名称
+- 原行为：仅当 domain/productLine/product 全部为空时才显示"选择产品"；选中了领域/产品线但未选产品时仍拼接显示领域/产品线名称
+
+### 143. `project-info-dialog-content.tsx` — 版本选择框 font-weight
+
+- `versionSelectTriggerStyle` 新增 `"font-weight": "400"`
+
+### 144. 选中项配色统一 — `rgba(37,99,235,0.08)` / `#2563EB` → `rgba(10,89,247,0.08)` / `#0a59f7`
+
+- `project-product-select-panel.tsx` — `.panel-item-selected` 背景从 `rgba(37, 99, 235, 0.08)` 改为 `rgba(10, 89, 247, 0.08)`，文字从 `#2563EB` 改为 `#0a59f7`
+- `style/select.css` — 版本下拉 `[data-selected]` 和 `[data-selected][data-highlighted]` / `[data-selected]:hover` 的背景/文字同步修改
+
+---
+
+## 第三十八轮改动（确认时未选产品则清空领域/产品线）
+
+### 145. `dialog-project-onboarding.tsx` — `handleConfirm` 未选产品时清空领域/产品线
+
+- `handleConfirm()` 新增条件：`const product = selections.product`，`domain` / `productLine` 改为 `product ? selections.domain : undefined` / `product ? selections.productLine : undefined`
+- 影响三处：tracker 埋点（`extend` JSON）、`server.projects.saveSelection`（持久化）、`props.onSelect`（回调）— 未选产品时 domain/productLine 均传 `undefined`
+- version 保持原值不变（`selections.version`），仅清空领域/产品线
+
+---
+
+## 第三十九轮改动（评审修复：配色漏改 + 暂存对象同步 + version 显式清空 + 文件末尾换行）
+
+### 146. `project-product-select-panel.tsx` — ErrorContent 重新加载按钮配色统一
+
+- ErrorContent 组件"重新加载"按钮 `color` 从 `#2563EB` 改为 `#0a59f7`，`background` 从 `rgba(37, 99, 235, 0.08)` 改为 `rgba(10, 89, 247, 0.08)` — 补齐 #144 遗漏的配色统一
+
+### 147. `project-product-select-panel.tsx` — 自动选中 effect 同步设置暂存对象
+
+- 领域 `createEffect`：`setSelectedDomainId(list[0].id)` 改为先 `setSelectedDomain(list[0])` 再 `setSelectedDomainId(list[0].id)` — ID 与对象同步
+- 产品线 `createEffect`：`setSelectedProductLineId(list[0].id)` 改为先 `setSelectedProductLine(list[0])` 再 `setSelectedProductLineId(list[0].id)` — ID 与对象同步
+- 原因：effect 只设 ID 不设对象时，UI 高亮了某项但 `selectedDomain()` / `selectedProductLine()` 返回 undefined，点"确认"传 undefined，中间状态不一致
+
+### 148. `dialog-project-onboarding.tsx` — `handleConfirm` 显式清空 version
+
+- 新增 `const version = product ? selections.version : undefined` — 未选产品时 version 也传 undefined
+- 三处引用（tracker `productVersion` / `saveSelection` / `onSelect`）从 `selections.version` 改为 `version`
+- 原因：version 依附于 product，无产品时 version 应同步清空；虽然 `safeVersionOptions` 守卫已保证此时 version 必为 undefined，但显式一致更健壮
+
+### 149. `project-product-select-panel.tsx` — 文件末尾补换行符
+
+- 文件末尾新增空行（`\ No newline at end of file` 修复）
+
+---
+
+## 第四十轮改动（选中产品线后自动选中产品第一项）
+
+### 150. `project-product-select-panel.tsx` — 新增产品自动选中 `createEffect`
+
+- 新增 `createEffect`：监听 `allProducts()` resource，产品列表加载后若当前 `selectedProductId` 不在列表中，自动选中第一项（`setSelectedProduct(list[0])` + `setSelectedProductId(list[0].id)`）
+- 与领域/产品线 effect 模式一致：条件 `!list.some(item => item.id === selectedProductId())` 确保仅在当前选中产品不在新列表时触发（切换产品线 → 旧产品不在新列表 → 自动选中第一项；手动选中的产品在列表中 → 保持选中）
+- 同步设置 `selectedProduct` 对象与 `selectedProductId`，保持 ID 与对象一致（与 #147 修复一致）
+
+---
+
+## 第四十一轮改动（评审修复：产品自动选中 effect 安全性 + 不选择冲突）
+
+### 151. `project-product-select-panel.tsx` — 产品自动选中 effect 跳过无权限/已结项产品
+
+- effect 中 `list[0]` 改为 `list.find(p => !(p.isSecret && !p.isProductMember) && (!hideClosed() || !p.isEnd))` — 跳过保密产品（用户非成员）和被 hideClosed 隐藏的已结项产品
+- 原因：原 effect 直接取 `list[0]`，可能选中无权限的 secret 产品（UI 不高亮但 confirmSelection 会提交）或被 hideClosed 过滤掉的已结项产品（用户看不到但会被提交）
+
+### 152. `project-product-select-panel.tsx` — `userClearedProduct` 标志防止"不选择"后自动重选
+
+- 新增 `let userClearedProduct = false` 标志
+- `clearProductSelection()` 中设置 `userClearedProduct = true` — 标记用户已主动清除产品选中
+- 产品自动选中 effect 新增 `if (userClearedProduct) return` — 用户清除后不再自动选中
+- 领域/产品线/产品/搜索结果 onClick 中设置 `userClearedProduct = false` — 用户重新开始选择时恢复自动选中
+- 原因：点"不选择"后 `selectedProductId` 为 undefined，effect 条件 `!list.some(item => item.id === selectedProductId())` 恒为 true，会立即把 list[0] 重新暂存回来，与"不选择"的意图矛盾

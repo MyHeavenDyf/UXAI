@@ -207,6 +207,7 @@ import type {
   SessionPortableExportResponses,
   SessionPortableImportErrors,
   SessionPortableImportResponses,
+  SessionPortableProgressResponses,
   SessionPortableShareErrors,
   SessionPortableShareResponses,
   SessionPromptAsyncErrors,
@@ -263,6 +264,8 @@ import type {
   StudioPromptExpansionsCreateResponses,
   StudioPromptGenCreateErrors,
   StudioPromptGenCreateResponses,
+  StudioPromptRecommendationsDismissErrors,
+  StudioPromptRecommendationsDismissResponses,
   StudioPromptRecommendationsGetErrors,
   StudioPromptRecommendationsGetResponses,
   StudioPromptRecommendationsInitializeErrors,
@@ -3934,6 +3937,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project" | "session"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3946,6 +3950,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -3978,6 +3983,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3991,6 +3997,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -4022,6 +4029,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4034,6 +4042,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "scope" },
+            { in: "query", key: "operationID" },
           ],
         },
       ],
@@ -4971,6 +4980,38 @@ export class Session2 extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Get portable session progress
+   *
+   * Get current progress for an import, export, or share operation.
+   */
+  public portableProgress<ThrowOnError extends boolean = false>(
+    parameters: {
+      operationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "operationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionPortableProgressResponses, unknown, ThrowOnError>({
+      url: "/session/portable-progress/{operationID}",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class Part extends HeyApiClient {
@@ -5060,7 +5101,7 @@ export class SessionGroup extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5092,7 +5133,7 @@ export class SessionGroup extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      namespace?: "make" | "insight"
+      namespace?: "make" | "insight" | "studio"
       name?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -6195,6 +6236,7 @@ export class PromptRecommendations extends HeyApiClient {
       requestID?: string
       sessionID?: string
       expectedStateToken?: string
+      showGuide?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6208,6 +6250,7 @@ export class PromptRecommendations extends HeyApiClient {
             { in: "body", key: "requestID" },
             { in: "body", key: "sessionID" },
             { in: "body", key: "expectedStateToken" },
+            { in: "body", key: "showGuide" },
           ],
         },
       ],
@@ -6225,6 +6268,42 @@ export class PromptRecommendations extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Dismiss unused Studio prompt recommendation
+   */
+  public dismiss<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      guidePartID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "guidePartID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptRecommendationsDismissResponses,
+      StudioPromptRecommendationsDismissErrors,
+      ThrowOnError
+    >({
+      url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss",
+      ...options,
+      ...params,
     })
   }
 

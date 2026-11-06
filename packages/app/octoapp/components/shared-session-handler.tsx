@@ -10,6 +10,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { tracker } from "@/utils/tracker"
+import { directoryHeader } from "@/utils/headers"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
 import { consumePendingDeepLinks, openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
@@ -18,7 +19,7 @@ import {
   PORTABLE_SESSION_IMPORT_EVENT,
   type PortableSessionImportRequest,
 } from "./portable-session-import"
-import { SessionTransferProgress } from "./session-transfer-progress"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
@@ -32,7 +33,7 @@ export function SharedSessionHandler() {
   onCleanup(() => lifetime.abort())
   const inFlight = new Set<string>()
   const cache = createSharedSessionCache({
-    importSession: async (uniqueId, directory, token) =>
+    importSession: async (uniqueId, directory, token, operationID) =>
       platform.importSharedSession?.(
         uniqueId,
         directory,
@@ -40,6 +41,7 @@ export function SharedSessionHandler() {
           ? "project"
           : "session",
         token,
+        operationID,
       ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
@@ -53,22 +55,7 @@ export function SharedSessionHandler() {
     },
   })
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
-  const [transfer, setTransfer] = createStore({ visible: false, label: "", value: 0 })
-  let transferTimer: ReturnType<typeof setTimeout> | undefined
   let queue = Promise.resolve()
-  const progress = (label: string, value: number) => {
-    clearTimeout(transferTimer)
-    setTransfer({ visible: true, label, value })
-  }
-  const finishProgress = () => {
-    setTransfer({ visible: true, label: "导入完成", value: 100 })
-    transferTimer = setTimeout(() => setTransfer("visible", false), 600)
-  }
-  const stopProgress = () => {
-    clearTimeout(transferTimer)
-    setTransfer("visible", false)
-  }
-  onCleanup(() => clearTimeout(transferTimer))
 
   const modulePage = (module: SharedSessionModule) => module === "design" ? "make" : module
   const modulePath = (module: SharedSessionModule, directory: string, sessionID?: string) => {
@@ -108,8 +95,6 @@ export function SharedSessionHandler() {
           const pathReady = module === "studio"
             ? location.pathname.split("/")[2] === "studio"
             : location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)
-          // Studio stores sessions in its config-backed directory, independently
-          // from the project selected in the main sidebar.
           const directoryReady = module === "studio"
             || sharedSessionImportContext.directory === server.projects.last()
           return (
@@ -184,41 +169,39 @@ export function SharedSessionHandler() {
   const open = async (uniqueId: string) => {
     if (!platform.prepareSharedSession || !platform.releaseSharedSession) throw new Error("请升级 App 后再打开分享对话")
     const connection = server.current?.http.url ?? globalSDK.url
-    progress("正在读取分享对话", 10)
-    const result = await openPreparedSharedSession({
-      prepare: async () => {
-        const prepared = await platform.prepareSharedSession!(uniqueId)
-        progress(`正在打开${prepared.module === "studio" ? " Studio" : "目标模块"}`, 35)
-        return prepared
-      },
+    const operationID = crypto.randomUUID()
+    const progress = showSessionTransferProgress("正在导入 Session")
+    const watcher = new AbortController()
+    const unsubscribe = platform.onSessionTransferProgress?.((event) => {
+      if (event.operationID === operationID) progress.update(event)
+    })
+    void watchSessionTransferProgress({
+      url: globalSDK.url,
+      operationID,
+      fetch: platform.fetch ?? fetch,
+      headers: directoryHeader(server.projects.last()),
+      signal: watcher.signal,
+      update: (value) => progress.update({ ...value, percent: 25 + value.percent * 0.75 }),
+    })
+    progress.update({ type: "import", stage: "正在下载分享文件", percent: 2 })
+    await openPreparedSharedSession({
+      prepare: () => platform.prepareSharedSession!(uniqueId, operationID),
       select: (module) => {
         selectModule(module)
-        progress("正在等待目标模块就绪", 50)
       },
-      ready: async (module) => {
-        const directory = await waitForContext(module)
-        progress("正在导入对话和文件", 70)
-        return directory
-      },
+      ready: waitForContext,
       importSession: (prepared, directory) => {
         if (lifetime.signal.aborted || connection !== (server.current?.http.url ?? globalSDK.url))
           throw new Error("连接已变更，请重新打开分享链接")
-        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token)
+        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token, operationID)
       },
-      open: (result, module) => {
-        progress("正在打开导入的对话", 95)
-        showImported(result, module)
-        finishProgress()
-      },
+      open: showImported,
       release: (token) => platform.releaseSharedSession!(token),
-    }).catch((error) => {
-      stopProgress()
-      throw error
+    }).finally(() => {
+      watcher.abort()
+      unsubscribe?.()
+      progress.dismiss()
     })
-    if (!result) {
-      stopProgress()
-      throw new Error("导入分享对话失败：接口未返回 Session 信息")
-    }
   }
 
   const handle = (urls: string[]) => {
@@ -273,33 +256,44 @@ export function SharedSessionHandler() {
     const portableListener = (event: Event) => {
       const request = (event as CustomEvent<PortableSessionImportRequest>).detail
       queue = queue
-        .then(async () => {
-          if (!platform.inspectPortableSession) throw new Error("当前客户端不支持识别 Session 模块，请升级客户端")
-          progress("正在识别 Session 所属模块", 10)
-          const inspected = await platform.inspectPortableSession(request.path)
-          selectModule(inspected.module)
-          progress(`正在打开${inspected.module === "studio" ? " Studio" : "目标模块"}`, 35)
-          const directory = await waitForContext(inspected.module)
-          progress("正在导入对话和文件", 65)
-          const client = globalSDK.createClient({ directory, throwOnError: true })
-          const imported = (await client.session.portableImport({ path: request.path })).data
-          if (!imported) throw new Error("导入接口未返回 Session 信息")
-          progress("正在打开导入的对话", 90)
-          const session = (await client.session.get({ sessionID: imported.sessionID })).data
-          if (!session) throw new Error("导入的对话不存在")
-          showImported({
-            sessionID: imported.sessionID,
-            directory,
-            agent: session.agent,
-            session,
-          }, inspected.module, "portable")
-          finishProgress()
-          return imported
+        .then(() => {
+          const operationID = crypto.randomUUID()
+          const progress = showSessionTransferProgress("正在导入 Session")
+          const watcher = new AbortController()
+          void watchSessionTransferProgress({
+            url: globalSDK.url,
+            operationID,
+            fetch: platform.fetch ?? fetch,
+            headers: directoryHeader(server.projects.last()),
+            signal: watcher.signal,
+            update: progress.update,
+          })
+          progress.update({ type: "import", stage: "正在识别 Session 所属模块", percent: 2 })
+          return (async () => {
+            if (!platform.inspectPortableSession) throw new Error("当前客户端不支持识别 Session 模块，请升级客户端")
+            const inspected = await platform.inspectPortableSession(request.path)
+            selectModule(inspected.module)
+            progress.update({ type: "import", stage: "正在等待目标模块就绪", percent: 5 })
+            const directory = await waitForContext(inspected.module)
+            const client = globalSDK.createClient({ directory, throwOnError: true })
+            const imported = (await client.session.portableImport({ path: request.path, operationID })).data
+            if (!imported) throw new Error("导入接口未返回 Session 信息")
+            progress.update({ type: "import", stage: "正在打开导入的对话", percent: 99 })
+            const session = (await client.session.get({ sessionID: imported.sessionID })).data
+            if (!session) throw new Error("导入的对话不存在")
+            showImported({
+              sessionID: imported.sessionID,
+              directory,
+              agent: session.agent,
+              session,
+            }, inspected.module, "portable")
+            return imported
+          })().finally(() => {
+            watcher.abort()
+            progress.dismiss()
+          })
         })
-        .then(request.resolve, (error) => {
-          stopProgress()
-          request.reject(error)
-        })
+        .then(request.resolve, request.reject)
     }
     window.addEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
     // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
@@ -309,5 +303,5 @@ export function SharedSessionHandler() {
       window.removeEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
     })
   })
-  return <SessionTransferProgress visible={transfer.visible} label={transfer.label} value={transfer.value} />
+  return null
 }

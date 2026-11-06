@@ -109,8 +109,8 @@ export function expansionGenerationInput(turn: StudioTurnData, text: string, set
     ...(settings ? {
       aspectRatio: settings.aspectRatio,
       count: settings.count,
-      ...(settings.isCustom && settings.customWidth > 0 && settings.customHeight > 0
-        ? { width: settings.customWidth, height: settings.customHeight } : {}),
+      width: settings.isCustom && settings.customWidth > 0 && settings.customHeight > 0 ? settings.customWidth : 0,
+      height: settings.isCustom && settings.customWidth > 0 && settings.customHeight > 0 ? settings.customHeight : 0,
     } : {}),
   }
 }

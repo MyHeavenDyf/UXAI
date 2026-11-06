@@ -1788,3 +1788,11 @@
     padding: 16px;
   }
 }
+
+.studio-conversation [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  color: var(--octo-brand);
+}
+
+.studio-conversation [data-component="reasoning-part"] [data-component="markdown"] hr {
+  margin: 24px 0;
+}

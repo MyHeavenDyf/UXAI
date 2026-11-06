@@ -523,7 +523,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const cached = store.message[sessionID] !== undefined && meta.limit[key] !== undefined
             if (cached && hasSession && !opts?.force) return
 
-            const limit = meta.limit[key] ?? initialMessagePageSize
+            // meta.limit 是上次 loadMessages 的快照,SSE 增长不更新它;
+            const limit = Math.max(meta.limit[key] ?? 0, initialMessagePageSize)
             const sessionReq =
               hasSession && !opts?.force
                 ? Promise.resolve()

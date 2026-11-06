@@ -13,6 +13,7 @@ import { SessionSharePreview } from "./session-share-preview"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { tracker } from "@/utils/tracker"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -23,50 +24,61 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
   const globalSDK = useGlobalSDK()
   const workspaceKind = useWorkspaceKind()
   const shareBlockReason = useSessionShareBlockReason(() => props.session)
-  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1, progress: "" })
+  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
   createEffect(() => {
     if (shareBlockReason()) setState("url", "")
   })
 
   const copyLink = async () => {
     if (state.sharing || shareBlockReason()) return
-    setState({
-      sharing: true,
-      error: "",
-      progress: state.url ? "正在复制分享链接" : "正在打包并上传对话",
-    })
+    setState({ sharing: true, error: "" })
     await (async () => {
       const url = state.url || await (async () => {
+        const operationID = crypto.randomUUID()
+        const progress = showSessionTransferProgress("正在导出 Session")
+        const controller = new AbortController()
         const token = modelsApiToken()
         const cookie = localStorage.getItem("uiplusCookie")?.trim()
-        const response = await (platform.fetch ?? fetch)(
-          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share${workspaceKind() === "code" ? "?scope=project" : ""}`,
-          {
-            method: "POST",
-            headers: {
-              ...directoryHeader(props.session.directory),
-              ...(token ? { uiplustoken: token } : {}),
-              ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
-            },
-          },
-        )
-        const result: unknown = await response.json().catch(() => null)
-        if (!response.ok) {
-          throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
-            ? result.message : `分享失败：${response.status}`)
+        const headers = {
+          ...directoryHeader(props.session.directory),
+          ...(token ? { uiplustoken: token } : {}),
+          ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
         }
-        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
-          throw new Error("分享接口未返回链接")
+        void watchSessionTransferProgress({
+          url: globalSDK.url,
+          operationID,
+          fetch: platform.fetch ?? fetch,
+          headers: directoryHeader(props.session.directory),
+          signal: controller.signal,
+          update: progress.update,
+        })
+        try {
+          const endpoint = new URL(
+            `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+          )
+          if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+          endpoint.searchParams.set("operationID", operationID)
+          const response = await (platform.fetch ?? fetch)(endpoint, { method: "POST", headers })
+          const result: unknown = await response.json().catch(() => null)
+          if (!response.ok) {
+            throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
+              ? result.message : `分享失败：${response.status}`)
+          }
+          if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
+            throw new Error("分享接口未返回链接")
+          }
+          progress.update({ type: "share", stage: "分享链接已生成", percent: 100 })
+          setState("url", result.url)
+          return result.url
+        } finally {
+          controller.abort()
+          progress.dismiss()
         }
-        setState("url", result.url)
-        setState("progress", "正在生成分享链接")
-        return result.url
       })()
       if (shareBlockReason()) {
         setState("url", "")
         throw new Error(shareBlockReason())
       }
-      setState("progress", "正在复制分享链接")
       const copied = platform.platform === "desktop"
         ? await (async () => {
           if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
@@ -100,7 +112,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       dialog.close()
     })().catch((error) => {
       setState("error", error instanceof Error ? error.message : String(error))
-    }).finally(() => setState({ sharing: false, progress: "" }))
+    }).finally(() => setState("sharing", false))
   }
 
   return (
@@ -115,14 +127,6 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         </Kobalte.CloseButton>
       </header>
       <SessionSharePreview session={props.session} />
-      <Show when={state.sharing}>
-        <div class="session-share-transfer" role="status" aria-live="polite">
-          <span>{state.progress}</span>
-          <div class="session-share-transfer-track" role="progressbar">
-            <div />
-          </div>
-        </div>
-      </Show>
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
       <Show when={shareBlockReason()}><p class="session-share-error" role="status">{shareBlockReason()}</p></Show>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>

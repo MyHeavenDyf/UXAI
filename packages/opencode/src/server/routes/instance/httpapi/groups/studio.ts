@@ -356,6 +356,9 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("initializeRecommendation", "/studio/prompt-recommendations", {
           payload: InitializePayload, success: RecommendationResponse, error: recommendationErrors,
         }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation" })),
+        HttpApiEndpoint.post("dismissRecommendation", "/studio/sessions/:sessionID/prompt-recommendations/:guidePartID/dismiss", {
+          params: { sessionID: Schema.String, guidePartID: Schema.String }, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.dismiss", summary: "Dismiss unused Studio prompt recommendation" })),
         HttpApiEndpoint.post("submitExpansion", "/studio/prompt-expansions", {
           payload: ExpansionPayload, success: RecommendationResponse.annotate({ httpApiStatus: 202 }), error: recommendationErrors,
         }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-expansions.create", summary: "Submit Studio prompt expansion" })),

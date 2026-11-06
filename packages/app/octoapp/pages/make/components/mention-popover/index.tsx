@@ -23,6 +23,7 @@ import {
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
+import { getDesktopApi } from "../../lib/electron-api"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'product-assets' | 'files'
@@ -50,6 +51,7 @@ interface MentionPopoverProps {
   productId?: number
   onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
@@ -573,6 +575,15 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     })
   }
 
+  // onboarding 版本选择支持「不选择」后 product 可为 undefined：
+  // 禁用产品资产库 Tab 并给 hover 提示（与附件面板/Insight 同一套）
+  const productAssetsDisabledReason = () =>
+    !props.productId
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
+
   const handleSkillClick = (skill: PanelSkill) => {
     const selection: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
     if (isSelected(selection)) {
@@ -629,6 +640,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'product-assets' ? 'mention-tab-btn--active' : ''}`}
+          disabled={!!productAssetsDisabledReason()}
+          title={productAssetsDisabledReason() ?? ""}
           onClick={() => { setActiveTab('product-assets') }}
         >
           产品资产库
@@ -636,7 +649,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('platform') }}
+          onClick={() => { setActiveTab('files'); setSelectedCategory('platform'); props.onFilesTabOpen?.() }}
         >
           设计文件
         </button>
