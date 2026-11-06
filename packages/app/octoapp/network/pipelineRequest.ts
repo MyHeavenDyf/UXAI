@@ -189,4 +189,3 @@ export type AddUserProjectBody = {
 export async function addUserProject(body: AddUserProjectBody): Promise<void> {
   await apiFetch({ path: "/userProject/addUserProject", method: "POST", prefix: API_PREFIXES.octoAiStatis, body, silent: true })
 }
-
