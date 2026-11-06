@@ -517,7 +517,8 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
     tracker.interaction({ module: "design", name: "assessment", extend: JSON.stringify({ skill: skillName }) })
     recordAssessmentTurn({ fileKey, filePath, skillName })
     const displayName = lookupDisplayName(props.skillConfig?.skill, skillName) ?? skillName
-    const result = await sendTextToAgent(`\u200b@${skillName}\u200b 对页面:${filePath} 进行评估、评估结果保存到当前目录`, {
+    const dirOf = filePath.slice(0, filePath.lastIndexOf("/") + 1)
+    const result = await sendTextToAgent(`\u200b@${skillName}\u200b 评估下这个页面: ${filePath}, 评估结果保存到目录: ${dirOf}`, {
       source: "assessment",
       timeoutMs: 1200000,
       mentions: [{ id: skillName, name: skillName, type: "skill" as const, label: displayName, path: "" }],

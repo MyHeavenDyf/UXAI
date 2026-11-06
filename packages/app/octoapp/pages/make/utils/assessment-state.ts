@@ -104,17 +104,15 @@ export function setAssessmentContext(ctx: { projectDir: string; sessionId: strin
 const sepOf = (p: string) => (p.includes("\\") ? "\\" : "/")
 
 /** 评审数据文件（技能写入，前端只读）：
- *  <产物目录>/评估报告_<文件名去扩展名>_<技能名>/annotations.json
- *  产物目录：normal = .octo/<sid>/outputs；code = 项目根本身（[Workspace] 产物目录即工作区） */
+ *  <被评估文件所在目录>/评估报告_<文件名去扩展名>_<技能名>/annotations.json
+ *  评估报告文件夹与被评估 html 同级（提示词"评估结果保存到目录: <文件所在目录>"），与工作区类型无关 */
 export function computeAssessmentReviewPath(filePath: string, skillName: string): string | null {
-  if (!assessCtx) return null
-  const { projectDir, sessionId, workspaceKind } = assessCtx
-  const sep = sepOf(projectDir)
-  const dir = workspaceKind === "code"
-    ? projectDir
-    : [projectDir, ".octo", sessionId, "outputs"].join(sep)
-  const base = (filePath.replace(/\\/g, "/").split("/").pop() ?? "").replace(/\.[^.]+$/, "")
-  return [dir, `评估报告_${base}_${skillName}`, "annotations.json"].join(sep)
+  if (!filePath) return null
+  const normalized = filePath.replace(/\\/g, "/")
+  const base = (normalized.split("/").pop() ?? "").replace(/\.[^.]+$/, "")
+  const slashIdx = normalized.lastIndexOf("/")
+  const dir = slashIdx === -1 ? "" : normalized.slice(0, slashIdx)
+  return [dir, `评估报告_${base}_${skillName}`, "annotations.json"].join("/")
 }
 
 /** 状态文件（前端写/读/删）：
