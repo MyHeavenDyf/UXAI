@@ -735,7 +735,9 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
   if (!input.fallback) return []
 
   // Reject fallback that belongs to a different session to avoid task ghosting.
-  if (input.currentSessionID && input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
+  // Also covers the blank new-conversation page (no current session): a pending
+  // generation scoped to a previously viewed session must not render there.
+  if (input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
 
   const fallbackGenerating = input.fallback.status === "creating" || input.fallback.status === "queued" || input.fallback.status === "running"
   return [

@@ -495,6 +495,38 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.capability).toBe("video.generate")
   })
 
+  test("rejects a fallback scoped to a different session", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_other" },
+      currentSessionID: "ses_current",
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("rejects a session-scoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_previous" },
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("keeps an unscoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("creating") },
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].toolRunning).toBe(true)
+  })
+
   test("restores queued generation progress from running tool metadata", () => {
     const user = userMessage("msg_progress_user")
     const assistant = assistantMessage("msg_progress_assistant", 2)
