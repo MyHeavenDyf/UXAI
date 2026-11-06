@@ -60,6 +60,7 @@ export type ElectronAPI = {
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
   prepareSharedSession: (uniqueId: string) => Promise<PreparedSharedSession>
+  inspectPortableSession: (archive: string) => Promise<Omit<PreparedSharedSession, "token">>
   releaseSharedSession: (token: string) => Promise<void>
   importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>

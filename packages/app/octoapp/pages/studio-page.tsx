@@ -29,6 +29,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
+import { usePortableSessionActions } from "@/hooks/use-portable-session-actions"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogShareSession } from "@/components/dialog-share-session"
 import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
@@ -400,6 +401,10 @@ export default function StudioPage() {
     } as Session
   })
   const headerShareBlockReason = useSessionShareBlockReason(headerShareSession)
+  const headerPortable = usePortableSessionActions({
+    session: headerShareSession,
+    close: () => setHeaderTitle("menuOpen", false),
+  })
   const historyOpen = createMemo(() => !params.id && new URLSearchParams(location.search).has("history"))
   const [historyRefreshKey, setHistoryRefreshKey] = createSignal(0)
   // 「我的资产」每次点击都递增 key，驱动列表重新查询；已在资产页时也能手动刷新。
@@ -5244,6 +5249,20 @@ if (!headerTitle.pendingRename) return
                       >
                         <DropdownMenu.ItemLabel>分享</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
+                      <Show when={headerPortable.supported()}>
+                        <DropdownMenu.Item
+                          disabled={!!headerPortable.action()}
+                          onSelect={() => void headerPortable.exportSession()}
+                        >
+                          <DropdownMenu.ItemLabel>导出</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          disabled={!!headerPortable.action()}
+                          onSelect={() => void headerPortable.importSession()}
+                        >
+                          <DropdownMenu.ItemLabel>导入</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                      </Show>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
                         onSelect={() => {

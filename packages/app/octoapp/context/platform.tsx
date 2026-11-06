@@ -11,6 +11,7 @@ type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: s
 
 export type Platform = {
   prepareSharedSession?(uniqueId: string): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }>
+  inspectPortableSession?(archive: string): Promise<{ agent?: string; module: "design" | "insight" | "pattern" | "studio" }>
   releaseSharedSession?(token: string): Promise<void>
   importSharedSession?(uniqueId: string, directory: string, scope?: "project" | "session", token?: string): Promise<{ sessionID: string; directory: string; agent?: string } | null>
   /** Platform discriminator */

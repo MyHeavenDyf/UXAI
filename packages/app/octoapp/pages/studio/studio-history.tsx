@@ -20,6 +20,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
+import { usePortableSessionActions } from "@/hooks/use-portable-session-actions"
 import { tracker } from "@/utils/tracker"
 import { decode64 } from "@/utils/base64"
 import { resolveStudioThumbnailUrl } from "./studio-media"
@@ -69,6 +70,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     session: Session | null
   }>({ show: false, x: 0, y: 0, session: null })
   const shareBlockReason = useSessionShareBlockReason(() => contextMenu.session, () => contextMenu.show)
+  const portable = usePortableSessionActions({ session: () => contextMenu.session, close: closeContextMenu })
 
   function closeContextMenu() {
     setContextMenu("show", false)
@@ -504,6 +506,24 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   >
                                     <span data-slot="dropdown-menu-item-label">分享</span>
                                   </button>
+                                  <Show when={portable.supported()}>
+                                    <button
+                                      data-slot="dropdown-menu-item"
+                                      disabled={!!portable.action()}
+                                      onClick={() => void portable.exportSession()}
+                                    >
+                                      <Icon name="download" size="small" />
+                                      <span data-slot="dropdown-menu-item-label">导出</span>
+                                    </button>
+                                    <button
+                                      data-slot="dropdown-menu-item"
+                                      disabled={!!portable.action()}
+                                      onClick={() => void portable.importSession()}
+                                    >
+                                      <Icon name="upload" size="small" />
+                                      <span data-slot="dropdown-menu-item-label">导入</span>
+                                    </button>
+                                  </Show>
                                   <div data-slot="dropdown-menu-separator" />
                                   <button
                                     data-slot="dropdown-menu-item"

@@ -130,6 +130,20 @@
 .session-share-close:focus-visible { outline: 2px solid #0a59f7; outline-offset: 3px; }
 .session-share-error { margin: 0; color: #c62828; font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
 
+.session-share-transfer { display: grid; gap: 8px; color: #555; font-size: 13px; line-height: 20px; }
+.session-share-transfer-track { height: 4px; overflow: hidden; border-radius: 999px; background: rgb(10 89 247 / 12%); }
+.session-share-transfer-track > div {
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: #0a59f7;
+  animation: session-share-transfer 1.2s ease-in-out infinite;
+}
+@keyframes session-share-transfer {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(290%); }
+}
+
 [data-component="toast"].session-share-copy-toast {
   position: fixed;
   top: 100px;

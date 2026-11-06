@@ -23,14 +23,18 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
   const globalSDK = useGlobalSDK()
   const workspaceKind = useWorkspaceKind()
   const shareBlockReason = useSessionShareBlockReason(() => props.session)
-  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
+  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1, progress: "" })
   createEffect(() => {
     if (shareBlockReason()) setState("url", "")
   })
 
   const copyLink = async () => {
     if (state.sharing || shareBlockReason()) return
-    setState({ sharing: true, error: "" })
+    setState({
+      sharing: true,
+      error: "",
+      progress: state.url ? "正在复制分享链接" : "正在打包并上传 Studio 对话",
+    })
     await (async () => {
       const url = state.url || await (async () => {
         const token = modelsApiToken()
@@ -55,12 +59,14 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
           throw new Error("分享接口未返回链接")
         }
         setState("url", result.url)
+        setState("progress", "正在生成分享链接")
         return result.url
       })()
       if (shareBlockReason()) {
         setState("url", "")
         throw new Error(shareBlockReason())
       }
+      setState("progress", "正在复制分享链接")
       const copied = platform.platform === "desktop"
         ? await (async () => {
           if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
@@ -94,7 +100,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       dialog.close()
     })().catch((error) => {
       setState("error", error instanceof Error ? error.message : String(error))
-    }).finally(() => setState("sharing", false))
+    }).finally(() => setState({ sharing: false, progress: "" }))
   }
 
   return (
@@ -109,6 +115,14 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         </Kobalte.CloseButton>
       </header>
       <SessionSharePreview session={props.session} />
+      <Show when={props.session.agent === "octo_studio" && state.sharing}>
+        <div class="session-share-transfer" role="status" aria-live="polite">
+          <span>{state.progress}</span>
+          <div class="session-share-transfer-track" role="progressbar">
+            <div />
+          </div>
+        </div>
+      </Show>
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
       <Show when={shareBlockReason()}><p class="session-share-error" role="status">{shareBlockReason()}</p></Show>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>

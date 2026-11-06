@@ -14,6 +14,7 @@ const api: ElectronAPI = {
   getWindowConfig: () => ipcRenderer.invoke("get-window-config"),
   consumeInitialDeepLinks: () => ipcRenderer.invoke("consume-initial-deep-links"),
   prepareSharedSession: (uniqueId) => ipcRenderer.invoke("prepare-shared-session", uniqueId),
+  inspectPortableSession: (archive) => ipcRenderer.invoke("inspect-portable-session", archive),
   releaseSharedSession: (token) => ipcRenderer.invoke("release-shared-session", token),
   importSharedSession: (uniqueId, directory, scope, token) => ipcRenderer.invoke("import-shared-session", uniqueId, directory, scope, token),
   getDefaultServerUrl: () => ipcRenderer.invoke("get-default-server-url"),
