@@ -33,7 +33,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
     setState({
       sharing: true,
       error: "",
-      progress: state.url ? "正在复制分享链接" : "正在打包并上传 Studio 对话",
+      progress: state.url ? "正在复制分享链接" : "正在打包并上传对话",
     })
     await (async () => {
       const url = state.url || await (async () => {
@@ -115,7 +115,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         </Kobalte.CloseButton>
       </header>
       <SessionSharePreview session={props.session} />
-      <Show when={props.session.agent === "octo_studio" && state.sharing}>
+      <Show when={state.sharing}>
         <div class="session-share-transfer" role="status" aria-live="polite">
           <span>{state.progress}</span>
           <div class="session-share-transfer-track" role="progressbar">
