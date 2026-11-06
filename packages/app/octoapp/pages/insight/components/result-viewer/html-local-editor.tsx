@@ -1,4 +1,4 @@
-import { createEffect, createMemo, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { showToast } from "@opencode-ai/ui/toast"
 import { annotateElementsWithIdsBrowser, injectEditBridge, injectEditBridgeStyle, injectInspectStyleBridge, injectModelEditBridge } from "@opencode-ai/core/bridge-scripts"
@@ -14,6 +14,7 @@ import { HUI_COLOR_TOKENS } from "../../../make/components/model-edit-items/icon
 import type { AssetFile } from "../../../make/components/addon-menu/asset-library"
 import { importProductAsset } from "../../utils/product-asset-import"
 import { getDesktopApi } from "../../lib/electron-api"
+import { attachPanelDrag } from "../../utils/panel-drag"
 import "./html-local-editor.css"
 import { useHtmlReview } from "./html-review"
 
@@ -41,7 +42,9 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
       setState("importing", false)
     }
   }
-  const [state, setState] = createStore({ target: null as ModelEditElement | null, url: "", revision: 0, importing: false })
+  const [state, setState] = createStore({
+    target: null as ModelEditElement | null, url: "", revision: 0, importing: false,
+  })
   let frame: HTMLIFrameElement | undefined
   let source = annotateElementsWithIdsBrowser(stripCodeFence(original))
   const send = (data: unknown) => {
@@ -95,11 +98,17 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
       return false
     }
   }
+  const draggablePanel = (host: HTMLDivElement) => {
+    onMount(() => {
+      const detach = attachPanelDrag(host, () => review.editDisabled() || state.importing)
+      onCleanup(detach)
+    })
+  }
   return <div class="insight-html-local-editor relative w-full h-full">
     <iframe ref={frame} src={state.url} sandbox="allow-scripts" title="HTML 局部修改"
       style={{ width: "100%", height: "100%", border: "none", background: "white", display: "block" }}
       onLoad={() => { send({ type: "od:model-edit-mode", enabled: true }); props.onReady?.() }} />
-    <Show when={state.target}>{target => <ModelEditPanel element={target()}
+    <Show when={state.target}>{target => <div ref={draggablePanel} class="insight-property-panel"><ModelEditPanel element={target()}
       config={getDefaultNativeConfig(target().elementKind, target().isLayoutContainer)}
       panelData={readNativeDefaults(target().elementKind, target())}
       panelTitle={target().tagName} panelInfo={target().htmlHint} filePath={review.path() ?? ""}
@@ -123,6 +132,6 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
         },
       }}
       onSave={() => save()} onDelete={() => save(true)}
-      onExit={() => { setState("target", null); setState("revision", value => value + 1) }} />}</Show>
+      onExit={() => { setState("target", null); setState("revision", value => value + 1) }} /></div>}</Show>
   </div>
 }
