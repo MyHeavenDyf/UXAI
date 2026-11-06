@@ -77,9 +77,12 @@ export function SharedSessionHandler() {
         const ready = () => {
           const page = modulePage(module)
           const pathReady = module === "studio"
-            ? location.pathname === `/${base64Encode(sharedSessionImportContext.directory)}/studio`
-              || location.pathname.startsWith(`/${base64Encode(sharedSessionImportContext.directory)}/studio/`)
+            ? location.pathname.split("/")[2] === "studio"
             : location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)
+          // Studio stores sessions in its config-backed directory, independently
+          // from the project selected in the main sidebar.
+          const directoryReady = module === "studio"
+            || sharedSessionImportContext.directory === server.projects.last()
           return (
             !lifetime.signal.aborted &&
             server.ready() &&
@@ -88,7 +91,7 @@ export function SharedSessionHandler() {
             sharedSessionImportContext.module === module &&
             sharedSessionImportContext.ready &&
             !!sharedSessionImportContext.directory &&
-            sharedSessionImportContext.directory === server.projects.last()
+            directoryReady
           )
         }
         if (lifetime.signal.aborted) return aborted()
@@ -119,16 +122,19 @@ export function SharedSessionHandler() {
       loadLsp: () => {},
     })
     const page = modulePage(module)
+    const routeDirectory = module === "studio" ? server.projects.last() || result.directory : result.directory
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
       if (page === "pattern") layout.lastSessionPerTab.setPattern(result.sessionID)
       if (page === "insight") layout.lastSessionPerTab.setCowork(result.sessionID)
-      if (page === "studio") layout.lastSessionPerTab.setStudio(result.directory, result.sessionID)
+      if (page === "studio") layout.lastSessionPerTab.setStudio(routeDirectory, result.sessionID)
       layout.lastSessionPerTab.setNewConversation(page, false)
       if (page === "insight") layout.lastSessionPerTab.setNewConversation("cowork", false)
-      layout.projects.open(result.directory)
-      server.projects.touch(result.directory)
-      navigate(modulePath(module, result.directory, result.sessionID))
+      if (module !== "studio") {
+        layout.projects.open(result.directory)
+        server.projects.touch(result.directory)
+      }
+      navigate(modulePath(module, routeDirectory, result.sessionID))
     })
     window.dispatchEvent(
       new CustomEvent("octo:session-imported", {
