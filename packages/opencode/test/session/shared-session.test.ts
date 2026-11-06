@@ -58,7 +58,7 @@ test.each([
 })
 
 test.each([
-  ["octo_make", "design"], ["octo_insight", "insight"], ["proto_triage", "pattern"],
+  ["octo_make", "design"], ["octo_insight", "insight"], ["proto_triage", "pattern"], ["octo_studio", "studio"],
 ])("identifies legacy ZIP module from root agent %s without restoring sessions", async (agent, module) => {
   await using source = await tmpdir()
   const zip = new JSZip()
@@ -82,7 +82,7 @@ test("rejects an unknown root agent rather than defaulting to the currently open
   await expect(inspectSharedSession(archive)).rejects.toThrow("无法识别分享所属模块")
 })
 
-test.each([["octo_make", "design"], ["octo_insight", "insight"]])("prepares %s before importing into the selected folder and cleans the temporary ZIP", async (agent, module) => {
+test.each([["octo_make", "design"], ["octo_insight", "insight"], ["octo_studio", "studio"]])("prepares %s before importing into the selected folder and cleans the temporary ZIP", async (agent, module) => {
   await using source = await tmpdir({ git: true })
   await using target = await tmpdir({ git: true })
   const directory = path.join(target.path, "默认选中的文件夹")

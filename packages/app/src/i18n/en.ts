@@ -606,8 +606,10 @@ export const dict = {
   "session.portable.import": "Import",
   "session.portable.export.picker": "Export session",
   "session.portable.import.picker": "Import session",
-  "session.portable.export.success": "Session exported",
-  "session.portable.import.success": "Session imported",
+  "session.portable.export.success": "Export complete",
+  "session.portable.export.success.description": "Exported {{sessions}} sessions and {{files}} files to {{path}}.",
+  "session.portable.import.success": "Import complete",
+  "session.portable.import.success.description": "Imported {{sessions}} sessions and {{files}} files and opened the imported session.",
   "session.portable.failed": "Session transfer failed",
   "session.portable.summary": "{{sessions}} sessions and {{files}} files",
 
