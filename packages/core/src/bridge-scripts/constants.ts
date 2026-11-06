@@ -524,7 +524,7 @@ window.addEventListener('message',function(ev){
     window.parent.postMessage({type:'od:inspect-overrides',overrides:result},'*');
   }
   if(d.type==='od:get-html-snapshot'){
-    var html=document.documentElement.outerHTML;
+    var html='<!DOCTYPE html>'+document.documentElement.outerHTML;
     window.parent.postMessage({type:'od:html-snapshot',html:html},'*');
   }
 });

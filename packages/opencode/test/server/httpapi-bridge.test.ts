@@ -217,7 +217,7 @@ describe("HttpApi server", () => {
     const hono = await Server.openapiHono()
     const effect = effectOpenApi()
     const routes = openApiRouteKeys(hono).filter((route) => route.includes("/studio/") && (route.includes("prompt-recommend") || route.includes("prompt-expansion")))
-    expect(routes).toHaveLength(4)
+    expect(routes).toHaveLength(5)
     expect(routes.every((route) => openApiRouteKeys(effect).includes(route))).toBe(true)
     const honoParams = openApiParameters(hono)
     const effectParams = openApiParameters(effect)
@@ -244,9 +244,30 @@ describe("HttpApi server", () => {
       const state = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation?guidePartID=${first.guidePartID}`, { headers })
       expect(state.status).toBe(200)
       expect(await state.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
+      const entry = await client.request("http://localhost/studio/editor-entries", {
+        method: "POST", headers,
+        body: JSON.stringify({ sessionID: first.sessionID, entryID: crypto.randomUUID(), capability: "image.upscale" }),
+      })
+      expect(entry.status).toBe(200)
+      expect(await entry.json()).toMatchObject({ entryID: expect.any(String), assistantMessageID: expect.any(String) })
+      const retained = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      expect(await retained.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
       const invalid = await client.request("http://localhost/studio/prompt-expansions", { method: "POST", headers, body: "{broken" })
       expect(invalid.status).toBe(400)
       expect(await invalid.json()).toMatchObject({ name: "StudioPromptRecommendationError", data: { code: "INVALID_INPUT" } })
+      const path = `http://localhost/studio/sessions/${first.sessionID}/prompt-recommendations/${first.guidePartID}/dismiss`
+      const dismissed = await client.request(path, { method: "POST", headers })
+      expect(dismissed.status).toBe(200)
+      expect(await dismissed.json()).toMatchObject({ status: "dismissed", guidePartID: first.guidePartID })
+      expect((await client.request(path, { method: "POST", headers })).status).toBe(200)
+      const nextState = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      const next = await nextState.json() as { stateToken: string }
+      const silent = await client.request("http://localhost/studio/prompt-recommendations", {
+        method: "POST", headers,
+        body: JSON.stringify({ requestID: crypto.randomUUID(), sessionID: first.sessionID, expectedStateToken: next.stateToken, showGuide: false }),
+      })
+      expect(silent.status).toBe(200)
+      expect(await silent.json()).toMatchObject({ status: "armed", sessionID: first.sessionID })
     }
   })
 

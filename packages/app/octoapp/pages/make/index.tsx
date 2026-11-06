@@ -7,7 +7,7 @@ import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
-import { type PanelSkill, type SkillConfig } from "./components/skill-config-types"
+import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lastSessionUserMessage, syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
@@ -45,6 +45,7 @@ import {
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
+import { compressImageWithNotice, ImageCompressNotice } from "@/components/image-compress-notice"
 import { closePrototypePanels } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -78,7 +79,7 @@ import { getMappingStore } from "@/hooks/use-session-groups"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { validateFile, validateFileForExternal, formatUploadsForPrompt, isImageFile, imageMimeFor, getExt } from "../insight/lib/upload"
 import { importFileToWorktree } from "../insight/utils/worktree-import"
 import { isBlockedLocalFile, isPreviewableMedia } from "../insight/utils/output-type"
 import { encodeFilePath } from "@/context/file/path"
@@ -110,6 +111,7 @@ import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
+import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
 import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -139,8 +141,9 @@ import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, 
 import { isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
-// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
-const MAKE_IMAGE_MAX = 10 * 1024 * 1024
+// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
+// 2026-10 起图片上限统一 1MB,超过即自动压缩(见 addImageAttachment / utils/image-compression)
+const MAKE_IMAGE_MAX = 1024 * 1024
 
 // 本地文件读入 tab content 的字节上限(与 result-viewer/text-renderer.tsx 的 MAX_PREVIEW_BYTES 同值):
 // 超过此规模的文本不做 decode/渲染,防止巨型文件撑爆 store 与渲染器
@@ -250,6 +253,22 @@ function MakeContent() {
   const projectSelection = useProjectSelection()
   // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
+
+  // 评估状态上下文:assessment-state 按此推导评审文件(产物目录分支)与状态文件路径
+  createEffect(() => {
+    const dir = projectDir()
+    if (!dir) return
+    const kind = workspaceKind()
+    const sid = params.id ?? ""
+    if (kind !== "code" && !sid) return
+    setAssessmentContext({ projectDir: dir, sessionId: sid, workspaceKind: kind })
+  })
+  // 切换 session:暂停待修改评估(磁盘数据保留,重新激活时可恢复)
+  createEffect(on(() => params.id, (id, prev) => {
+    if (prev && id !== prev) pauseAssessment()
+  }, { defer: true }))
+  // 切到其它页面(路由卸载 Make 页):暂停待修改评估
+  onCleanup(() => pauseAssessment())
 
   const local = useLocal()
   useTabModel("make")
@@ -527,9 +546,12 @@ function MakeContent() {
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
 
-  const menuSession = () => sessionInfoMirror()
+  // The first reply can update the generated title after sessionInfo's one-time
+  // request has completed. Use the live sync record so sharing immediately after
+  // the reply sees the same title as the page header; keep the request as fallback.
+  const menuSession = () => info() ?? sessionInfoMirror()
   const menuHasMessages = () => {
-    const s = sessionInfoMirror()
+    const s = menuSession()
     return !!s && s.time.updated > s.time.created
   }
 
@@ -1673,6 +1695,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
+      void harvestAssessmentReview()
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1751,6 +1775,13 @@ const sessionMessagesLoaded = createMemo(() => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
+  // onboarding 版本选择支持「不选择」后 product 可为 undefined:禁用产品资产库入口并给 hover 提示(与 Insight 同一套)
+  const productAssetsDisabledReason = () =>
+    !projectSelection()?.product?.id
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -1873,11 +1904,20 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
   
-  // 组件挂载时预加载 skill 配置
+  // 组件挂载时预加载 skill 配置（含新建 session 视图 — autoInject 需要）
   createEffect(() => {
-    if (params.id && !skillsLoaded()) {
+    if (!skillsLoaded()) {
       loadSkillConfig()
     }
+  })
+
+  // 自动注入技能 chip（panel.octo_make 中 autoInject: true 的技能）
+  // 仅用于新建 session 对话框（编辑器为空时注入，每次编辑器挂载注入一次）
+  const autoInjectMentions = createMemo(() => {
+    const cfg = skillConfig()
+    return (cfg.panel?.octo_make ?? [])
+      .filter(s => s.autoInject === true && s.enable !== false)
+      .map(s => ({ type: 'skill' as const, name: s.label, label: lookupDisplayName(cfg.skill, s.label) ?? s.label }))
   })
 
   // ── Slash Command List ──
@@ -2036,7 +2076,6 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (id) => {
     if (id) return
     const pending = pendingNewChatAttachments()
-    console.log("[octo:make] pending-attachments effect", { id, pending: pending?.length ?? null, current: attachments().length })
     if (!pending) return
     setPendingNewChatAttachments(null)
     setAttachments(pending)
@@ -2145,10 +2184,6 @@ const sessionMessagesLoaded = createMemo(() => {
     if (isFirst) {
       const draft = await executeRevert(msg)
       if (!draft) return
-      console.log("[octo:make] first-message revert draft", {
-        attachments: draft.attachments.length,
-        parts: ((sync.data.part[msg.id] ?? []) as RevertDraftPart[]).map((p) => `${p.type}${p.synthetic ? "(synthetic)" : ""}`).join(","),
-      })
       tracker.interaction({ module: "design", name: "revert-session-restart" })
       const ok = await removeSession(sdk.client, sid)
       if (!ok) return
@@ -2169,20 +2204,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // pending effect 因任何时序问题未消费时由此直接应用；两者幂等（都先置 null 再应用，先到先得）
       requestAnimationFrame(() => {
         const pending = pendingNewChatAttachments()
-        console.log("[octo:make] rAF fallback", { paramsId: params.id, pending: pending?.length ?? null, current: attachments().length })
         if (params.id) return
         if (!pending) return
         setPendingNewChatAttachments(null)
         setAttachments(pending)
       })
-      // 500ms 终态：判定「应用后被清」vs「从未应用」vs「应用了但没渲染」
-      setTimeout(() => {
-        console.log("[octo:make] revert final state", {
-          paramsId: params.id,
-          attachments: attachments().length,
-          pendingLeft: pendingNewChatAttachments()?.length ?? null,
-        })
-      }, 500)
       return
     }
 
@@ -2240,6 +2266,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments(draft.attachments)
     const ok = await sendMessage(sid, text, modelKey, mentions)
     if (!ok) {
+      // 真实发送失败（sendMessage 内部已 toast；slash 命令路径已返回 true 不落此处）：草稿落回输入框，不丢消息
       const ref = proseMirrorRef2?.isAlive() ? proseMirrorRef2 : (proseMirrorRef1?.isAlive() ? proseMirrorRef1 : undefined)
       if (ref) ref.replaceDoc(draft.docJSON)
       else setPromptDoc(draft.docJSON)
@@ -3578,6 +3605,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === id)
     if (tab) {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
+      // 关闭被评估的 tab:暂停待修改评估(磁盘数据保留)
+      if (tab.filePath && tab.filePath === pendingAssessment()?.fileKey) pauseAssessment()
     }
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
@@ -3966,7 +3995,10 @@ const sessionMessagesLoaded = createMemo(() => {
         if (failedCmds.length > 0) {
           restoreComposerText(failedCmds.map((cmd) => `/${cmd}`).join(" ") + (cleanPrompt ? ` ${cleanPrompt}` : ""))
         }
-        return  // Commands are self-contained, skip prompt
+        // 命令已自包含执行（含技能命令流式跑回复）= 发送成功；失败命令已由上方
+        // restoreComposerText + executeSessionCommand 内部 toast 处理。返回 true——
+        // 否则 handleRegenerateMessage 的 !ok 会把草稿误回填输入框（命令明明执行了）
+        return true  // Commands are self-contained, skip prompt
       }
       // ── End command detection ──
 
@@ -4524,6 +4556,70 @@ const sessionMessagesLoaded = createMemo(() => {
 
   function handleAddonSelect(selection: MentionSelection) {
     getAliveEditor()?.insertMention(selection)
+    // 设计资产超限图片:chip 仍先插原路径,压缩完成后回写新路径(见 compressMentionImageIfNeeded)
+    void compressMentionImageIfNeeded(selection)
+  }
+
+  /** 设计资产/设计文件 mention chip 的超限图片自动压缩:
+   *  chip 发送时转「读取 <path>」指令,模型 read 后产出 >1MB 视觉附件,与附件入口受同一硬限制必失败。
+   *  选中即读盘压缩,产物落 .octo/tmps/make/uploads(发送时随 mention 搬进 session uploads),
+   *  再回写 chip 路径(与 URL 下载附件同落点/同模式);读不到/压不动保留原路径并 toast。 */
+  async function compressMentionImageIfNeeded(selection: MentionSelection) {
+    if (selection.type !== "file" || selection.isFolder || !isImageFile(selection.filename)) return
+    const mirror = artifactFilesMirror()
+    const listed = mirror ? [...mirror.generated, ...mirror.uploaded].find(f => f.path === selection.path) : undefined
+    const size = listed?.size ?? (await getDesktopApi()?.statFile?.(selection.path).catch(() => null))?.size
+    if (size === undefined || size <= MAKE_IMAGE_MAX) return
+    const raw = await readArtifactImageFile({ name: selection.filename, path: selection.path, mime: listed?.mime })
+    if (!raw) {
+      showOctoToast({ title: "图片压缩失败", description: `${selection.filename} 读取原图失败，将以原路径引用`, variant: "error" })
+      return
+    }
+    const compressed = await compressImageWithNotice(raw, MAKE_IMAGE_MAX)
+    if (!compressed) {
+      showOctoToast({ title: "图片过大", description: `${selection.filename} 超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限且无法自动压缩，请压缩后重新添加`, variant: "error" })
+      return
+    }
+    const dest = await writeMentionImageCopy(compressed).catch(() => null)
+    if (!dest) {
+      showOctoToast({ title: "图片压缩失败", description: "压缩产物写入失败，将以原路径引用", variant: "error" })
+      return
+    }
+    tracker.interaction({ module: "design", name: "image-auto-compress", extend: JSON.stringify({ before: raw.size, after: compressed.size, format: compressed.type }) })
+    getAliveEditor()?.updateMentionPath(selection.path, dest)
+  }
+
+  /** 压缩产物落盘拿新路径:桌面写 .octo/tmps/make/uploads(与 tmps 附件同落点,发送时搬进 session uploads;
+   *  原图在 session uploads/项目树,不同目录不会覆盖原图)。无 writeFileBuffer(纯 web)降级 HTTP
+   *  artifact/upload(服务端撞名自动加后缀,同样不动原图)。 */
+  async function writeMentionImageCopy(compressed: File): Promise<string> {
+    const baseDir = projectDir()
+    const api = getDesktopApi()
+    if (baseDir && api?.writeFileBuffer) {
+      const sep = baseDir.includes("\\") ? "\\" : "/"
+      const dest = [baseDir, ".octo", "tmps", "make", "uploads", compressed.name].join(sep)
+      await api.writeFileBuffer(dest, await compressed.arrayBuffer())
+      return dest
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        resolve(result.split(",")[1] || result)
+      }
+      reader.onerror = () => reject(new Error("读取文件失败"))
+      reader.readAsDataURL(compressed)
+    })
+    const result = await uploadArtifactFile(
+      globalSDK.url,
+      sdk.directory || "",
+      params.id ?? "",
+      compressed.name,
+      base64,
+      undefined,
+      isProjectScope() ? "project" : undefined,
+    )
+    return result.path
   }
 
   function handleAddonDeselect(selection: MentionSelection) {
@@ -4557,8 +4653,10 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
-  /** Add artifact file to session attachments (仅记录路径，不发内容) */
-  function addArtifactToSession(file: ArtifactFile) {
+  /** Add artifact file to session attachments (仅记录路径，不发内容)。
+   *  图片超 1MB 不能直接挂原图路径——发送走 vision FilePart(file://)受 1MB 硬限制必失败;
+   *  与 handleAddFiles 同口径:读盘成 File 复用 addImageAttachment 全链路(自动压缩 → 重新落盘换新路径)。 */
+  async function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
       showOctoToast({ title: "已添加", description: file.name })
       return
@@ -4566,6 +4664,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (maxAttachments()) {
       showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
+
+    if (isImageFile(file.name) && file.size > MAKE_IMAGE_MAX) {
+      const raw = await readArtifactImageFile(file)
+      if (!raw) {
+        showOctoToast({ title: "添加失败", description: "读取原图失败，无法自动压缩", variant: "error" })
+        return
+      }
+      addImageAttachment(raw)
       return
     }
 
@@ -4580,6 +4688,19 @@ const sessionMessagesLoaded = createMemo(() => {
       kind: file.kind,
     }])
     showOctoToast({ title: "已添加附件", description: file.name })
+  }
+
+  /** 超限产物图压缩前的读字节成 File:优先桌面 readFileBuffer IPC,无 IPC/读失败降级 HTTP artifact/content(base64)。 */
+  async function readArtifactImageFile(file: { name: string; path: string; mime?: string }): Promise<File | null> {
+    const mime = file.mime || imageMimeFor(file.name)
+    const buffer = await getDesktopApi()?.readFileBuffer?.(file.path).catch(() => null)
+    if (buffer) return new File([buffer], file.name, { type: mime })
+    const content = await fetchArtifactContent(globalSDK.url, sdk.directory || "", file.path).catch(() => null)
+    if (!content?.content) return null
+    const bytes = content.encoding === "base64"
+      ? Uint8Array.from(atob(content.content), c => c.charCodeAt(0))
+      : new TextEncoder().encode(content.content)
+    return new File([bytes], file.name, { type: content.mimeType || mime })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -4605,11 +4726,13 @@ const sessionMessagesLoaded = createMemo(() => {
   let fileInputRef!: HTMLInputElement
 
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
-    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
+    // 外网模型:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;白名单内图片超 1MB 放行走自动压缩,
+    // 非图片与白名单外格式(含 gif/webp)仍按原校验拒绝并 toast 提示
     const isExternal = !!local.model.current()?.isExternal
     const accepted = isExternal
       ? files.filter((file) => {
-          const err = validateFileForExternal(file)
+          const compressible = file.size > MAKE_IMAGE_MAX && ["png", "jpg", "jpeg"].includes(getExt(file.name))
+          const err = compressible ? null : validateFileForExternal(file)
           if (err) {
             showInsightNotice("info", `上传失败：${file.name}（${err.message}）`)
             return false
@@ -4639,13 +4762,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   async function addImageAttachment(file: File) {
     const id = crypto.randomUUID()
-    const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
 
-    const imageErr = file.size > MAKE_IMAGE_MAX
-      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
-      : null
-    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    // validateFile 把 100MB 绝对上限/格式白名单/空文件挡在压缩之前;10MB 图片限制改走下方自动压缩
+    const validationErr = validateFile(file)
     if (validationErr) {
       setAttachments(prev => [...prev, {
         id, filename: file.name,
@@ -4659,10 +4779,33 @@ const sessionMessagesLoaded = createMemo(() => {
     setAttachments(prev => [...prev, {
       id, filename: file.name,
       mime: file.type || imageMimeFor(file.name),
-      size: file.size, status: 'uploading', source: 'pending', previewUrl,
+      size: file.size, status: 'uploading', source: 'pending',
+      previewUrl: URL.createObjectURL(file),
     }])
 
-    void doImageImport(id, file, file.name)
+    // 超限图片静默压缩(微信式):先挂 uploading chip 再压缩,期间有可见反馈;
+    // GIF/压不动返回 null 时回退原报错文案。上限统一 1MB(内外网一致),产物保持原格式
+    let uploadFile = file
+    if (file.size > MAKE_IMAGE_MAX) {
+      const compressed = await compressImageWithNotice(file, MAKE_IMAGE_MAX)
+      if (!compressed) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id
+            ? { ...a, status: 'error', error: `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`, retriable: false }
+            : a
+        ))
+        return
+      }
+      uploadFile = compressed
+      // retryUpload 从 filesById 取文件,必须换成压缩产物,重试才不会拿原图再撞限制
+      filesById.set(id, compressed)
+      tracker.interaction({ module: "design", name: "image-auto-compress", extend: JSON.stringify({ before: file.size, after: compressed.size, format: compressed.type }) })
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, filename: compressed.name, mime: compressed.type, size: compressed.size } : a
+      ))
+    }
+
+    void doImageImport(id, uploadFile, uploadFile.name)
   }
 
   async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
@@ -5448,21 +5591,42 @@ const sessionMessagesLoaded = createMemo(() => {
     // 标记：内容是否从文件加载（用于跳过不必要的持久化）
     let contentLoadedFromFile = false
     
-    // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    // ★ Step -1: 内容型 artifact 卡 → 确保磁盘文件存在 (每次点击复查,缺失即补写)
+    // 背景: card.filePath 赋值后随 outputCards memo 缓存跨点击存活,旧门 (!card.filePath) 会让
+    // 「赋值成功但落盘失败 / 文件事后被删」的卡片永久短路 → local:// 404 不再补写。
     // 代码工作区:推断/落盘到 output/<sid前缀>/<原名> (kind="code",与升级迁移落点一致);普通工作区:.octo/<sid>/outputs (原行为)
-    if (!isUrl && !card.filePath && projectDir() && params.id) {
+    if (!isUrl && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const kind = workspaceKind()
-        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
-        if (inferred.filePath) {
-          card.filePath = inferred.filePath
+        const api = getDesktopApi()
+        let targetPath = card.filePath
+        let needsWrite = false
+        if (targetPath) {
+          needsWrite = typeof api?.fileExists === "function" ? !(await api.fileExists(targetPath)) : false
+          if (needsWrite) console.log("[MakePage] Artifact file missing on disk, will re-create:", targetPath)
+        } else {
+          const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!, kind)
+          targetPath = inferred.filePath
+          needsWrite = !inferred.exists
           console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
-
-          // 如果文件不存在，先 autoSave 创建文件
-          if (!inferred.exists) {
-            await autoSaveArtifact(params.id!, card, projectDir()!, kind)
-            console.log("[MakePage] Created new file for artifact:", inferred.filePath)
+        }
+        if (targetPath) {
+          card.filePath = targetPath
+          if (needsWrite) {
+            try {
+              await autoSaveArtifact(params.id!, card, projectDir()!, kind)
+              console.log("[MakePage] Created new file for artifact:", targetPath)
+            } catch (err) {
+              // 典型成因:目录无写权限(EACCES)/Windows 保留名/超长路径。toast 给排障入口;
+              // 下次点击门会复查存在性并自动重试
+              console.error("[MakePage] Re-create artifact file failed:", targetPath, err)
+              showOctoToast({
+                title: "产物写入失败",
+                description: `${targetPath}${err instanceof Error ? ` (${err.message})` : ""}`,
+                variant: "error",
+              })
+            }
           }
         }
       }
@@ -6032,6 +6196,9 @@ const sessionMessagesLoaded = createMemo(() => {
                       </div>
                     </Show>
 
+                    {/* 超限图片自动压缩提示(输入框上方) */}
+                    <ImageCompressNotice />
+
                     <div
                       class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
@@ -6132,9 +6299,12 @@ onPreview={(url) => {
                           proseMirrorRef2?.clear()
                         }}
                         ref={(el) => { proseMirrorRef1 = el }}
+                        autoInjectMentions={autoInjectMentions()}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
                         productId={projectSelection()?.product?.id}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
+                        onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
                       />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
@@ -6197,6 +6367,7 @@ onPreview={(url) => {
                           onSkillsOpen={loadSkillConfig}
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
+                          productAssetsDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6325,7 +6496,7 @@ onPreview={(url) => {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleConversationCardOpen}
-                        onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                        onOpenLocalFile={handleOpenLocalFile}
                         onOpenAttachment={handleOpenAttachment}
                         projectDir={projectDir()}
                         onContinue={handleContinue}
@@ -6365,7 +6536,7 @@ onPreview={(url) => {
                             blockTime={blockTime()}
                             onAbort={halt}
                             onOpenResult={handleConversationCardOpen}
-                            onOpenLocalFile={(path: string) => handleOpenLocalFile(path, true)}
+                            onOpenLocalFile={handleOpenLocalFile}
                             onOpenAttachment={handleOpenAttachment}
                             projectDir={projectDir()}
                             onContinue={handleContinue}
@@ -6479,6 +6650,9 @@ onPreview={(url) => {
                   )}
                 </Show>
 
+                {/* 超限图片自动压缩提示(输入框上方) */}
+                <ImageCompressNotice />
+
                 <div
                   class="make-composer rounded-[16px] transition-all duration-300 relative group"
                   style={{
@@ -6568,10 +6742,12 @@ onPreview={(url) => {
                          proseMirrorRef1?.clear()
                          proseMirrorRef2?.clear()
                        }}
-                       ref={(el) => { proseMirrorRef2 = el }}
-                       productId={projectSelection()?.product?.id}
+                        ref={(el) => { proseMirrorRef2 = el }}
+                        onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
+                        productId={projectSelection()?.product?.id}
                        onDownloadProductAsset={downloadProductAsset}
                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                       onFileMentionInsert={(sel) => void compressMentionImageIfNeeded(sel)}
                     />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -6633,6 +6809,7 @@ onPreview={(url) => {
                         onSkillsOpen={loadSkillConfig}
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
+                        productAssetsDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6687,7 +6864,7 @@ onPreview={(url) => {
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
-          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0" }} onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0", "z-index": 20 }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
@@ -6803,6 +6980,7 @@ onPreview={(url) => {
                 productId={projectSelection()?.product?.id}
                 onDownloadProductAsset={downloadProductAsset}
                 onUpdateMentionPath={handleAddonUpdateMentionPath}
+                onFilesTabOpen={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>

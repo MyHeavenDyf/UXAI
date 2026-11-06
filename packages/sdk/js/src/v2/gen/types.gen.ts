@@ -1058,7 +1058,7 @@ export type ProviderConfig = {
         output: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
       experimental?: boolean
-      status?: "alpha" | "beta" | "deprecated"
+      status?: "alpha" | "beta" | "deprecated" | "active"
       provider?: {
         npm?: string
         api?: string
@@ -6021,6 +6021,7 @@ export type SessionPortableImportData = {
   body?: {
     path: string
     scope?: "project" | "session"
+    operationID?: string
   }
   path?: never
   query?: {
@@ -6056,6 +6057,7 @@ export type SessionPortableExportData = {
   body?: {
     path: string
     scope?: "project"
+    operationID?: string
   }
   path: {
     sessionID: string
@@ -6102,6 +6104,7 @@ export type SessionPortableShareData = {
     directory?: string
     workspace?: string
     scope?: "project"
+    operationID?: string
   }
   url: "/session/{sessionID}/portable-share"
 }
@@ -7119,13 +7122,42 @@ export type PartUpdateResponses = {
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
 
+export type SessionPortableProgressData = {
+  body?: never
+  path: {
+    operationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/portable-progress/{operationID}"
+}
+
+export type SessionPortableProgressResponses = {
+  /**
+   * Portable session transfer progress
+   */
+  200: {
+    type: "export" | "import" | "share"
+    stage: string
+    percent: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    total?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    processedBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    totalBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableProgressResponse = SessionPortableProgressResponses[keyof SessionPortableProgressResponses]
+
 export type SessionGroupListData = {
   body?: never
   path?: never
   query: {
     directory?: string
     workspace?: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
   }
   url: "/session-group"
 }
@@ -7148,7 +7180,7 @@ export type SessionGroupListResponses = {
       id: string
       project_id: string
       directory: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
       name: string
       position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -7167,7 +7199,7 @@ export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGr
 
 export type SessionGroupCreateData = {
   body?: {
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
   }
   path?: never
@@ -7195,7 +7227,7 @@ export type SessionGroupCreateResponses = {
     id: string
     project_id: string
     directory: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
     position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8172,6 +8204,7 @@ export type StudioPromptRecommendationsInitializeData = {
     requestID: string
     sessionID?: string
     expectedStateToken?: string
+    showGuide?: boolean
   }
   path?: never
   query?: {
@@ -8268,7 +8301,7 @@ export type StudioPromptRecommendationsInitializeResponses = {
     guideMessageID: string
     guidePartID: string
     guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
     resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     userMessageID?: string
     assistantMessageID?: string
@@ -8281,6 +8314,120 @@ export type StudioPromptRecommendationsInitializeResponses = {
 
 export type StudioPromptRecommendationsInitializeResponse =
   StudioPromptRecommendationsInitializeResponses[keyof StudioPromptRecommendationsInitializeResponses]
+
+export type StudioPromptRecommendationsDismissData = {
+  body?: never
+  path: {
+    sessionID: string
+    guidePartID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss"
+}
+
+export type StudioPromptRecommendationsDismissErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsDismissError =
+  StudioPromptRecommendationsDismissErrors[keyof StudioPromptRecommendationsDismissErrors]
+
+export type StudioPromptRecommendationsDismissResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptRecommendationsDismissResponse =
+  StudioPromptRecommendationsDismissResponses[keyof StudioPromptRecommendationsDismissResponses]
 
 export type StudioPromptExpansionsCreateData = {
   body?: {
@@ -8391,7 +8538,7 @@ export type StudioPromptExpansionsCreateResponses = {
     guideMessageID: string
     guidePartID: string
     guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
     resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     userMessageID?: string
     assistantMessageID?: string
@@ -8507,7 +8654,7 @@ export type StudioPromptRecommendationsGetResponses = {
       guideMessageID: string
       guidePartID: string
       guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled"
+      status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
       resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       userMessageID?: string
       assistantMessageID?: string
@@ -8621,7 +8768,7 @@ export type StudioPromptExpansionsCancelResponses = {
     guideMessageID: string
     guidePartID: string
     guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
     resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     userMessageID?: string
     assistantMessageID?: string

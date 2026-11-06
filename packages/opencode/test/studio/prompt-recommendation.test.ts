@@ -2,16 +2,60 @@ import { expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Database, eq, sql } from "@/storage/db"
 import { SessionTable, MessageTable, PartTable } from "@/session/session.sql"
-import { SessionID, PartID } from "@/session/schema"
+import { MessageID, SessionID, PartID } from "@/session/schema"
 import type { MessageV2 } from "@/session/message-v2"
-import { initializeRecommendation, getRecommendationState, submitExpansion } from "@/studio/prompt-recommendation"
+import {
+  initializeRecommendation,
+  getRecommendationState,
+  submitExpansion,
+  dismissRecommendation,
+} from "@/studio/prompt-recommendation"
 import { assertCanGenerate } from "@/studio/prompt-recommendation-state"
+import { createEditorEntry } from "@/studio/studio-service"
 import { createPreparation, readRecommendationBody } from "@/studio/prompt-recommendation-budget"
 import { InstanceState } from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.empty)
+
+it.instance("an armed guide allows editor entries while real expansion states block conflicting work", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() => Instance.restore(instance, async () => {
+      const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+      for (const capability of ["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"] as const) {
+        const input = { sessionID: initialized.sessionID, entryID: crypto.randomUUID(), capability }
+        const entry = await createEditorEntry(input)
+        expect(entry.entryID).toBe(input.entryID)
+        expect(await createEditorEntry(input)).toEqual(entry)
+      }
+      expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("armed")
+      const id = PartID.ascending()
+      for (const status of ["running", "cancelling", "completed", "failed", "cancelled"] as const) {
+        const data = {
+          type: "text" as const,
+          text: "",
+          metadata: { studioPromptExpansion: {
+            version: 1, kind: "result", revision: 1, guidePartID: initialized.guidePartID, status,
+          } },
+        }
+        Database.use((db) => db.insert(PartTable).values({
+          id, session_id: SessionID.make(initialized.sessionID), message_id: MessageID.make(initialized.guideMessageID),
+          time_created: Date.now(), time_updated: Date.now(), data,
+        }).onConflictDoUpdate({ target: PartTable.id, set: { data } }).run())
+        if (status === "running" || status === "cancelling") {
+          expect(() => assertCanGenerate(initialized.sessionID)).toThrow("SESSION_BUSY")
+          await expect(createEditorEntry({
+            sessionID: initialized.sessionID, entryID: crypto.randomUUID(), capability: "image.upscale",
+          })).rejects.toThrow("SESSION_BUSY")
+          continue
+        }
+        expect(() => assertCanGenerate(initialized.sessionID)).not.toThrow()
+      }
+    }))
+  }),
+)
 
 it.instance("one preparation deadline covers body reading and initialization without late persistence", () =>
   Effect.gen(function* () {
@@ -167,7 +211,7 @@ it.instance("recovers orphan running state and rejects a delayed initialization 
         })
         expect(next.guidePartID).not.toBe(first.guidePartID)
         expect((await getRecommendationState(first.sessionID, first.guidePartID)).recommendation?.status).toBe("failed")
-        expect(() => assertCanGenerate(first.sessionID)).toThrow("SESSION_BUSY")
+        expect(() => assertCanGenerate(first.sessionID)).not.toThrow()
       }),
     )
   }),
@@ -209,7 +253,7 @@ it.instance("atomically initializes a real session and replays the original blan
               .all(),
           ),
         ).toHaveLength(2)
-        expect(() => assertCanGenerate(first.sessionID)).toThrow("SESSION_BUSY")
+        expect(() => assertCanGenerate(first.sessionID)).not.toThrow()
         const duplicate = {
           requestID: crypto.randomUUID(),
           sessionID: first.sessionID,
@@ -219,6 +263,29 @@ it.instance("atomically initializes a real session and replays the original blan
         await expect(
           initializeRecommendation({ ...request, sessionID: first.sessionID, expectedStateToken: first.stateToken }),
         ).rejects.toThrow("IDEMPOTENCY_CONFLICT")
+      }),
+    )
+  }),
+)
+
+it.instance("rejects empty model pools without consuming the armed guide", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const first = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        await expect(
+          submitExpansion({
+            requestID: crypto.randomUUID(),
+            sessionID: first.sessionID,
+            guidePartID: first.guidePartID,
+            prompt: "雨后的城市",
+            availableModels: [],
+          }),
+        ).rejects.toThrow("NO_ELIGIBLE_MODEL")
+        const state = await getRecommendationState(first.sessionID, first.guidePartID)
+        expect(state.recommendation?.status).toBe("armed")
+        expect(state.stateToken).toBe(first.stateToken)
       }),
     )
   }),
@@ -242,6 +309,67 @@ it.instance("rejects invalid input without consuming the armed guide", () =>
         const state = await getRecommendationState(first.sessionID, first.guidePartID)
         expect(state.recommendation?.status).toBe("armed")
         expect(state.stateToken).toBe(first.stateToken)
+      }),
+    )
+  }),
+)
+
+it.instance("dismissing a non-blocking unused guide is idempotent and prevents its submission", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+        expect(() => assertCanGenerate(initialized.sessionID)).not.toThrow()
+        const dismissed = dismissRecommendation(initialized.sessionID, initialized.guidePartID)
+        expect(dismissed.status).toBe("dismissed")
+        expect(dismissed.guideRevision).toBe(initialized.guideRevision + 1)
+        expect(() => assertCanGenerate(initialized.sessionID)).not.toThrow()
+        expect(dismissRecommendation(initialized.sessionID, initialized.guidePartID)).toEqual(dismissed)
+        await expect(
+          submitExpansion({
+            requestID: crypto.randomUUID(),
+            sessionID: initialized.sessionID,
+            guidePartID: initialized.guidePartID,
+            prompt: "城市",
+            images: [],
+            availableModels: [{ providerID: "test", modelID: "test" }],
+          }),
+        ).rejects.toThrow("INVALID_RECOMMENDATION_STATE")
+      }),
+    )
+  }),
+)
+
+it.instance("silent preparation has a separate guide and preserves initialization replay", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() =>
+      Instance.restore(instance, async () => {
+        const payload = { requestID: crypto.randomUUID() }
+        const first = await initializeRecommendation(payload)
+        const dismissed = dismissRecommendation(first.sessionID, first.guidePartID)
+        const next = await initializeRecommendation({
+          requestID: crypto.randomUUID(),
+          sessionID: first.sessionID,
+          expectedStateToken: dismissed.stateToken,
+          showGuide: false,
+        })
+        expect(next.guidePartID).not.toBe(first.guidePartID)
+        const row = Database.use((db) =>
+          db
+            .select()
+            .from(PartTable)
+            .where(eq(PartTable.id, PartID.make(next.guidePartID)))
+            .get(),
+        )!
+        expect(row.data).toMatchObject({
+          text: "",
+          metadata: { studioPromptRecommendation: { visible: false, status: "armed" } },
+        })
+        expect((await initializeRecommendation(payload)).guidePartID).toBe(first.guidePartID)
+        expect(() => dismissRecommendation(first.sessionID, "prt_missing")).toThrow("RECOMMENDATION_NOT_FOUND")
+        dismissRecommendation(next.sessionID, next.guidePartID)
       }),
     )
   }),

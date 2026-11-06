@@ -1,10 +1,97 @@
 import { expect, spyOn, test } from "bun:test"
 import path from "node:path"
-import { symlink } from "node:fs/promises"
+import { mkdir, symlink } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { isExcludedPortableFile } from "@/session/portable-exclusions"
 import { tmpdir } from "../fixture/fixture"
+
+test("skips website-root references without guessing disk paths or changing source files", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const script = path.join(project.path, "runtime.js")
+  const css = path.join(project.path, "theme.css")
+  const html = '<script type="module" src="/src/entry.ts"></script><script src="/src/entry.ts"></script><script src="./runtime.js"></script><link rel="stylesheet" href="./theme.css">'
+  await Bun.write(page, html)
+  await Bun.write(script, 'import "/src/module.ts"; import "./keep.js";')
+  await Bun.write(css, 'body { background: url("/images/background.svg") }')
+  await Bun.write(path.join(project.path, "keep.js"), "window.ready = true")
+  // Even a matching project file does not establish the website's server root.
+  await Bun.write(path.join(project.path, "src/entry.ts"), "must not guess this location")
+  const reads: string[] = []
+  const logging = spyOn(console, "warn")
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => {
+        reads.push(file)
+        return new Uint8Array(await Bun.file(file).arrayBuffer())
+      },
+    })
+    expect(dependencies.map((entry) => path.basename(entry.file)).sort()).toEqual(["keep.js", "runtime.js", "theme.css"])
+    expect(reads.sort()).toEqual([page, script, css, path.join(project.path, "keep.js")].sort())
+    expect(await Bun.file(page).text()).toBe(html)
+    expect(logging).toHaveBeenCalledTimes(3)
+    expect(logging.mock.calls.every((call) => call[0] === "[octo:share] skipped dependency")).toBe(true)
+    expect(JSON.parse(String(logging.mock.calls[0]?.[1]))).toEqual({
+      source: page,
+      reference: "/src/entry.ts",
+      base: pathToFileURL(page).href,
+      reason: "web-root-relative",
+    })
+  } finally {
+    logging.mockRestore()
+  }
+})
+
+test.each(["relative escape", "explicit file URL", "hidden directory"])("skips a %s dependency without interrupting collection", async (mode) => {
+  await using project = await tmpdir()
+  await using outside = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const ref = mode === "relative escape" ? "../secret.js"
+    : mode === "explicit file URL" ? pathToFileURL(path.join(outside.path, "secret.js")).href
+    : "./.private/secret.js"
+  await Bun.write(page, `<script src="${ref}"></script>`)
+  const logging = spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    await expect(collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+    })).resolves.toEqual([])
+    expect(logging.mock.calls.some((call) => JSON.parse(String(call[1])).reason === "outside-portable-root")).toBe(true)
+  } finally {
+    logging.mockRestore()
+  }
+})
+
+test("skips unreadable referenced resources without interrupting collection", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const image = path.join(project.path, "image.png")
+  await Bun.write(page, '<img src="./image.png"><script src="./keep.js"></script>')
+  await Bun.write(image, "image bytes")
+  await Bun.write(path.join(project.path, "keep.js"), "window.ready = true")
+  const logging = spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path,
+      files: [page],
+      trustedRoots: [],
+      read: async (file) => {
+        if (file === image) throw new Error("access denied")
+        return new Uint8Array(await Bun.file(file).arrayBuffer())
+      },
+    })
+    expect(dependencies.map((item) => path.basename(item.file))).toEqual(["keep.js"])
+    expect(logging.mock.calls.some((call) => JSON.parse(String(call[1])).reason === "unreadable")).toBe(true)
+  } finally {
+    logging.mockRestore()
+  }
+})
 
 test("does not read blacklisted ASAR dependencies or virtual contents, but retains unpacked dependencies", async () => {
   await using project = await tmpdir()
@@ -319,7 +406,7 @@ test("copies only referenced linked assets while preserving their logical paths 
   expect(dependencies.every((file) => file.source.startsWith(resources.path + path.sep))).toBe(true)
 })
 
-test("allows missing dependencies but still rejects untrusted links and escaping paths", async () => {
+test("allows missing dependencies and external links while skipping escaping logical paths", async () => {
   await using project = await tmpdir()
   await using outside = await tmpdir()
   const page = path.join(project.path, "index.html")
@@ -334,9 +421,57 @@ test("allows missing dependencies but still rejects untrusted links and escaping
   await Bun.write(path.join(outside.path, "secret.js"), "not a trusted resource")
   await symlink(outside.path, path.join(project.path, "assets"), process.platform === "win32" ? "junction" : "dir")
   await Bun.write(page, '<script src="assets/secret.js"></script>')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("超出允许的资源目录")
+  await expect(collectPortableDependencies(input)).resolves.toEqual([{
+    file: path.join(project.path, "assets/secret.js"),
+    source: path.join(outside.path, "secret.js"),
+  }])
   await Bun.write(page, '<script src="../secret.js"></script>')
-  await expect(collectPortableDependencies(input)).rejects.toThrow("无法安全保留相对路径")
+  await expect(collectPortableDependencies(input)).resolves.toEqual([])
+})
+
+test("collects transitive scripts, styles, images and fonts through external directory link chains", async () => {
+  await using project = await tmpdir()
+  await using bridge = await tmpdir()
+  await using resources = await tmpdir()
+  const page = path.join(project.path, "ecommerce-dashboard/index.html")
+  await Bun.write(page, '<script type="module" src="./assets/index.js"></script><link rel="stylesheet" href="./assets/main.css">')
+  await Bun.write(path.join(resources.path, "index.js"), 'import "./chunks/runtime.mjs";')
+  await Bun.write(path.join(resources.path, "chunks/runtime.mjs"), 'import "../data.json";')
+  await Bun.write(path.join(resources.path, "data.json"), '{"ready":true}')
+  await Bun.write(path.join(resources.path, "main.css"), '@import "./theme.css"; .logo { background: url("./logo.svg") }')
+  await Bun.write(path.join(resources.path, "theme.css"), '@font-face { src: url("./font.woff2") }')
+  await Bun.write(path.join(resources.path, "logo.svg"), "<svg/>")
+  await Bun.write(path.join(resources.path, "font.woff2"), "font bytes")
+  await Bun.write(path.join(resources.path, "unused.js"), "not referenced")
+  await symlink(resources.path, path.join(bridge.path, "linked"), process.platform === "win32" ? "junction" : "dir")
+  await symlink(path.join(bridge.path, "linked"), path.join(project.path, "ecommerce-dashboard/assets"), process.platform === "win32" ? "junction" : "dir")
+  const dependencies = await collectPortableDependencies({
+    root: project.path, files: [page], trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })
+  expect(dependencies.map((item) => path.relative(project.path, item.file).split(path.sep).join("/")).sort()).toEqual([
+    "ecommerce-dashboard/assets/chunks/runtime.mjs", "ecommerce-dashboard/assets/data.json",
+    "ecommerce-dashboard/assets/font.woff2", "ecommerce-dashboard/assets/index.js",
+    "ecommerce-dashboard/assets/logo.svg", "ecommerce-dashboard/assets/main.css", "ecommerce-dashboard/assets/theme.css",
+  ])
+  expect(dependencies.every((item) => item.source.startsWith(resources.path + path.sep))).toBe(true)
+})
+
+test.each([".js", ".css", ".html", ".svg", ".png", ".woff2", ".wasm", ".json", ".txt"])("collects a linked %s dependency even when its real target has a different extension", async (extension) => {
+  await using project = await tmpdir()
+  await using resources = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const linked = path.join(project.path, `assets/resource${extension}`)
+  const actual = path.join(resources.path, "payload.data")
+  await Bun.write(page, `<object data="./assets/resource${extension}"></object>`)
+  await Bun.write(actual, "payload")
+  await mkdir(path.dirname(linked), { recursive: true })
+  await symlink(actual, linked, "file")
+  const dependencies = await collectPortableDependencies({
+    root: project.path, files: [page], trustedRoots: [],
+    read: async (file) => new Uint8Array(await Bun.file(file).arrayBuffer()),
+  })
+  expect(dependencies).toEqual([{ file: linked, source: actual }])
 })
 
 test("resolves bundled JSX image strings against the HTML document instead of the original component directory", async () => {

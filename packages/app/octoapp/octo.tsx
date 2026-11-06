@@ -65,6 +65,7 @@ import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 import { disableIframesDuringDrag } from "@/utils/iframe-drag"
+import { LoginController } from "@/components/dialog-login"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
@@ -121,6 +122,7 @@ declare global {
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
     }
+    openLogin?: () => void
   }
 }
 
@@ -316,7 +318,8 @@ function MakeSidebarArea(props: ParentProps) {
         body.make-left-drawer-open .make-sidebar.is-collapsed { transform: translateX(0); box-shadow: 11px 0 20px 0 rgba(0,0,0,0.08); }
         .make-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
         body.make-left-drawer-open .make-sidebar-overlay { display: block; }
-        .make-sidebar-resize { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 10; }
+        .make-sidebar-resize { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 20; }
+        .make-sidebar-resize::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 0.5px; background: rgba(0, 0, 0, 0.1); transform: translateX(-50%); }
         .make-right-panel { transition: transform 200ms ease; will-change: transform; }
         .make-right-panel.is-collapsed { position: fixed; top: 48px; bottom: 0; right: 0; height: auto; width: 650px; max-width: calc(100vw - 24px); z-index: 32; transform: translateX(100%); background: #fff; }
         body.make-right-drawer-open .make-right-panel.is-collapsed { transform: translateX(0); box-shadow: -11px 0 20px 0 rgba(0,0,0,0.08); }
@@ -567,6 +570,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
             >
               <QueryProvider>
                 <DialogProvider>
+                  <LoginController />
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
                   {/* jk-j60099994-replace-with-60062650-octo-2-start */}

@@ -89,6 +89,10 @@ export type SidebarShellProps = ParentProps & {
   newButtonText?: string
   /** Click handler for the "new" button */
   onNewClick?: () => void
+  /** Content rendered at the right edge of the new-session button row (e.g. a drawer toggle). */
+  newButtonSuffix?: () => JSX.Element
+  /** Content rendered between the new-session button and the divider (e.g. studio's history entry). */
+  headerExtra?: () => JSX.Element
 
   // ── Section header ──
   /** Icon element for the section header */
@@ -182,7 +186,15 @@ export function SidebarShell(props: SidebarShellProps) {
             <Icon name={props.newButtonIcon ?? "plus"} size="normal" class="shrink-0" />
             <span>{props.newButtonText ?? "新建对话"}</span>
           </button>
+          <Show when={props.newButtonSuffix}>
+            <div class="absolute right-0 top-0 flex items-center" style={{ height: "36px" }}>
+              {props.newButtonSuffix?.()}
+            </div>
+          </Show>
         </div>
+        <Show when={props.headerExtra}>
+          {props.headerExtra?.()}
+        </Show>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", "margin-bottom": "8px" }} />
       </div>
 

@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { pathToFileURL } from "node:url"
-import { symlink } from "node:fs/promises"
+import { lstat, symlink } from "node:fs/promises"
 import JSZip from "jszip"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
@@ -18,6 +18,7 @@ import {
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
+import { SessionStatus } from "@/session/status"
 import { Todo } from "@/session/todo"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
 
@@ -27,6 +28,50 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("exports and imports shared website-root references unchanged alongside project source files", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const html = '<script type="module" src="/src/entry.ts"></script>'
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Website-root dependency" }))
+      await Bun.write(path.join(source.path, "unrelated/index.html"), html)
+      await Bun.write(path.join(source.path, "src/entry.ts"), "export const ready = true")
+      return AppRuntime.runPromise(exportPortableSession({
+        sessionID: session.id,
+        output: path.join(source.path, "bundle.zip"),
+        scope: "project",
+      }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+      files: { path: string; blob: string }[]
+    }
+    expect(manifest.files.map((file) => file.path).sort()).toEqual(["src/entry.ts", "unrelated/index.html"])
+    expect(await zip.file(manifest.files.find((file) => file.path === "unrelated/index.html")!.blob)!.async("string")).toBe(html)
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      expect(await Bun.file(path.join(target.path, "unrelated/index.html")).text()).toBe(html)
+      expect(await Bun.file(path.join(target.path, "src/entry.ts")).text()).toBe("export const ready = true")
+    } })
+  })
+
+  test.each(["busy", "retry"] as const)("rejects sharing a %s session without blocking ordinary export", async (type) => {
+    await using source = await tmpdir({ git: true })
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Busy session" }))
+      await AppRuntime.runPromise(SessionStatus.Service.use((status) => status.set(session.id,
+        type === "busy" ? { type } : { type, attempt: 1, message: "Retrying", next: Date.now() + 1000 },
+      )))
+      await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+        .rejects.toThrow("对话正在进行中，请等待结束后再分享")
+      const exported = await AppRuntime.runPromise(exportPortableSession({
+        sessionID: session.id,
+        output: path.join(source.path, "bundle.zip"),
+      }))
+      expect(await Bun.file(exported.output).exists()).toBe(true)
+    } })
+  })
+
   test.each(["missing", "unavailable"] as const)("does not exclude files when remote blacklist is %s and uncached", async (mode) => {
     await using source = await tmpdir({ git: true })
     const previous = process.env.OCTO_PORTABLE_BLACKLIST_URL
@@ -263,6 +308,38 @@ describe("portable session", () => {
     },
   )
 
+  test("does not inherit the source model for root or child sessions", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const root = await runSession((svc) => svc.create({ title: "Model root" }))
+      await runSession((svc) => svc.create({
+        parentID: root.id,
+        title: "Model child",
+      }))
+      return AppRuntime.runPromise(
+        exportPortableSession({ sessionID: root.id, output: path.join(source.path, "models.zip") }),
+      )
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+      sessions: { info: { model?: { providerID: string; id: string } } }[]
+    }
+    manifest.sessions.forEach((entry, index) => {
+      entry.info.model = { providerID: "source", id: index ? "child" : "root" }
+    })
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(exported.output, await zip.generateAsync({ type: "uint8array" }))
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const result = await AppRuntime.runPromise(importPortableSession(exported.output))
+      const root = await runSession((svc) => svc.get(result.sessionID))
+      const children = await runSession((svc) => svc.children(root.id))
+      expect(root.model).toBeUndefined()
+      expect(children).toHaveLength(1)
+      expect(children[0].model).toBeUndefined()
+    } })
+  })
+
   test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
@@ -318,6 +395,34 @@ describe("portable session", () => {
       expect(await Bun.file(path.join(target.path, ".octo", privateSession.sessionID, "outputs/preview/assets/library/babel.min.js")).text()).toBe("window.Babel = {}")
       await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
       expect(await Bun.file(path.join(target.path, "preview/assets/font/Regular.woff2")).text()).toBe("font bytes")
+    } })
+  })
+
+  test("exports external dashboard dependencies without trusted roots and imports them as regular files", async () => {
+    await using source = await tmpdir({ git: true })
+    await using resources = await tmpdir()
+    await using target = await tmpdir({ git: true })
+    const html = '<script type="module" src="./assets/index.js"></script>'
+    await Bun.write(path.join(resources.path, "index.js"), 'import "./chunk.js";')
+    await Bun.write(path.join(resources.path, "chunk.js"), "window.ready = true")
+    await Bun.write(path.join(resources.path, "unused.txt"), "not referenced")
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "External dashboard assets" }))
+      await Bun.write(path.join(source.path, "ecommerce-dashboard/index.html"), html)
+      await symlink(resources.path, path.join(source.path, "ecommerce-dashboard/assets"), process.platform === "win32" ? "junction" : "dir")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, scope: "project", output: path.join(source.path, "bundle.zip") }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    expect(manifest.files.map((file) => file.path).sort()).toEqual([
+      "ecommerce-dashboard/assets/chunk.js", "ecommerce-dashboard/assets/index.js", "ecommerce-dashboard/index.html",
+    ])
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/index.html")).text()).toBe(html)
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/assets/index.js")).text()).toBe('import "./chunk.js";')
+      expect(await Bun.file(path.join(target.path, "ecommerce-dashboard/assets/chunk.js")).text()).toBe("window.ready = true")
+      expect((await lstat(path.join(target.path, "ecommerce-dashboard/assets/index.js"))).isSymbolicLink()).toBe(false)
     } })
   })
 
@@ -397,14 +502,10 @@ describe("portable session", () => {
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
-      if (conflict) {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "session"))).rejects.toThrow("私有文件同名且内容不同")
-        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
-        return
-      }
       const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
       expect(imported.files).toBe(1)
-      expect(await Bun.file(path.join(target.path, ".octo", imported.sessionID, "outputs", "index.html")).text()).toBe("shared page")
+      expect(await Bun.file(path.join(target.path, ".octo", imported.sessionID, "outputs", "index.html")).text())
+        .toBe(conflict ? "private page" : "shared page")
     } })
   })
 
@@ -484,15 +585,10 @@ describe("portable session", () => {
       return AppRuntime.runPromise(exportPortableSession({ sessionID: root.id, output: path.join(source.path, "session.zip") }))
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
-      if (conflict) {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output, "project"))).rejects.toThrow("共享文件同名且内容不同")
-        expect(await Bun.file(path.join(target.path, "brief.txt")).exists()).toBe(false)
-        expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(0)
-        return
-      }
       const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "project"))
       expect(imported.files).toBe(3)
       expect(await Bun.file(path.join(target.path, "brief.txt")).text()).toBe("root attachment")
+      expect(await runSession((svc) => svc.list({ directory: target.path }))).toHaveLength(2)
     } })
   })
 
@@ -526,9 +622,9 @@ describe("portable session", () => {
       await AppRuntime.runPromise(importPortableSession(archive.output, scope))
       await Bun.write(path.join(target.path, "资料", "说明.txt"), "existing file")
       const count = (await runSession((svc) => svc.list({ directory: target.path }))).length
-      await expect(AppRuntime.runPromise(importPortableSession(archive.output, scope))).rejects.toThrow("共享文件已存在且内容不同")
+      await expect(AppRuntime.runPromise(importPortableSession(archive.output, scope))).resolves.toMatchObject({ sessions: 1 })
       expect(await Bun.file(path.join(target.path, "资料", "说明.txt")).text()).toBe("existing file")
-      expect((await runSession((svc) => svc.list({ directory: target.path }))).length).toBe(count)
+      expect((await runSession((svc) => svc.list({ directory: target.path }))).length).toBe(count + 1)
     } })
   })
 
@@ -610,7 +706,7 @@ describe("portable session", () => {
     expect(await Bun.file(path.join(target.path, "other-session.html")).text()).toBe("unrelated shared artifact")
   })
 
-  test("rejects conflicting or symlinked shared paths without overwriting existing files", async () => {
+  test("skips conflicting or symlinked shared paths without interrupting import", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
     await using outside = await tmpdir()
@@ -632,9 +728,7 @@ describe("portable session", () => {
     await provideTestInstance({
       directory: target.path,
       fn: async () => {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).rejects.toThrow(
-          "共享文件已存在且内容不同",
-        )
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).resolves.toMatchObject({ sessions: 1 })
         expect(await Bun.file(path.join(target.path, "assets/index.html")).text()).toBe("existing artifact")
       },
     })
@@ -642,7 +736,7 @@ describe("portable session", () => {
     await provideTestInstance({
       directory: outside.path,
       fn: async () => {
-        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).rejects.toThrow("符号链接")
+        await expect(AppRuntime.runPromise(importPortableSession(archive.output))).resolves.toMatchObject({ sessions: 1 })
         expect(await Bun.file(path.join(outside.path, "index.html")).exists()).toBe(false)
       },
     })
@@ -700,6 +794,11 @@ describe("portable session", () => {
         if (!(file instanceof File)) return new Response("file is required", { status: 400 })
         const zip = await JSZip.loadAsync(await file.arrayBuffer())
         const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+        expect(manifest.sessions).toHaveLength(2)
+        expect(manifest.sessions).toEqual(expect.arrayContaining([
+          expect.objectContaining({ info: expect.objectContaining({ id: manifest.rootSessionID }) }),
+          expect.objectContaining({ info: expect.objectContaining({ parentID: manifest.rootSessionID }) }),
+        ]))
         expect(manifest.files).toHaveLength(2)
         expect(manifest.files).toEqual(expect.arrayContaining([
           expect.objectContaining({ scope: "project", path: "shared.html" }),
@@ -724,6 +823,12 @@ describe("portable session", () => {
         directory: source.path,
         fn: async () => {
           const session = await runSession((service) => service.create({ title: "Shared session" }))
+          await AppRuntime.runPromise(SessionStatus.Service.use((status) => status.set(session.id, { type: "busy" })))
+          await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+            .rejects.toThrow("对话正在进行中，请等待结束后再分享")
+          expect(uploads).toHaveLength(0)
+          await AppRuntime.runPromise(SessionStatus.Service.use((status) => status.set(session.id, { type: "idle" })))
+          await runSession((service) => service.create({ parentID: session.id, title: "Child session" }))
           await Bun.write(path.join(source.path, "shared.html"), "<h1>Shared</h1>")
           await Bun.write(path.join(source.path, "output/login.html"), '<img src="./outputs/resource/icon/missing.svg">')
           return AppRuntime.runPromise(

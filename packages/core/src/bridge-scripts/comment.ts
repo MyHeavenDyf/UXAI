@@ -351,6 +351,39 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     return null
   }
   
+  function buildStructureSelector(selector) {
+    if (!selector || selector === 'body') return null
+    var segments = selector.split(' > ')
+    var rebuilt = []
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i]
+      if (seg === 'body') continue
+      var idMatch = seg.match(/#[^.\s:]+/)
+      var tagMatch = seg.match(/^[a-z][a-z0-9]*/i)
+      if (!tagMatch && !idMatch) return null
+      var out = ''
+      if (tagMatch) out = tagMatch[0]
+      if (idMatch) out += idMatch[0]
+      var nthMatch = seg.match(/:nth-of-type\(\d+\)/)
+      if (nthMatch && tagMatch) out += nthMatch[0]
+      if (out) rebuilt.push(out)
+    }
+    if (rebuilt.length === 0) return null
+    var hasIdAnchor = rebuilt[0].indexOf('#') !== -1
+    if (!hasIdAnchor) {
+      return 'body > ' + rebuilt.join(' > ')
+    }
+    return rebuilt.join(' > ')
+  }
+
+  function matchStructureSelector(structureSelector) {
+    try {
+      var candidates = document.querySelectorAll(structureSelector)
+      if (candidates.length === 1) return candidates[0]
+    } catch (e) {}
+    return null
+  }
+
   function findElementByStrategies(comment) {
     var targetElement = null
     
@@ -358,6 +391,13 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       try {
         targetElement = document.querySelector(comment.selector)
       } catch (e) {}
+      
+      if (!targetElement) {
+        var structureSelector = buildStructureSelector(comment.selector)
+        if (structureSelector) {
+          targetElement = matchStructureSelector(structureSelector)
+        }
+      }
     }
     
     if (!targetElement && comment.contentSignature) {

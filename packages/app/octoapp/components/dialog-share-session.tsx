@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
 import { createStore } from "solid-js/store"
-import { Show } from "solid-js"
+import { createEffect, Show } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Toast, toaster } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -11,7 +11,9 @@ import { directoryHeader } from "@/utils/headers"
 import { modelsApiToken } from "@/network/models-api"
 import { SessionSharePreview } from "./session-share-preview"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
+import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { tracker } from "@/utils/tracker"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -21,37 +23,62 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
   const platform = usePlatform()
   const globalSDK = useGlobalSDK()
   const workspaceKind = useWorkspaceKind()
+  const shareBlockReason = useSessionShareBlockReason(() => props.session)
   const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
+  createEffect(() => {
+    if (shareBlockReason()) setState("url", "")
+  })
 
   const copyLink = async () => {
-    if (state.sharing) return
+    if (state.sharing || shareBlockReason()) return
     setState({ sharing: true, error: "" })
     await (async () => {
       const url = state.url || await (async () => {
+        const operationID = crypto.randomUUID()
+        const progress = showSessionTransferProgress("正在导出 Session")
+        const controller = new AbortController()
         const token = modelsApiToken()
         const cookie = localStorage.getItem("uiplusCookie")?.trim()
-        const response = await (platform.fetch ?? fetch)(
-          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share${workspaceKind() === "code" ? "?scope=project" : ""}`,
-          {
-            method: "POST",
-            headers: {
-              ...directoryHeader(props.session.directory),
-              ...(token ? { uiplustoken: token } : {}),
-              ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
-            },
-          },
-        )
-        const result: unknown = await response.json().catch(() => null)
-        if (!response.ok) {
-          throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
-            ? result.message : `分享失败：${response.status}`)
+        const headers = {
+          ...directoryHeader(props.session.directory),
+          ...(token ? { uiplustoken: token } : {}),
+          ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
         }
-        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
-          throw new Error("分享接口未返回链接")
+        void watchSessionTransferProgress({
+          url: globalSDK.url,
+          operationID,
+          fetch: platform.fetch ?? fetch,
+          headers: directoryHeader(props.session.directory),
+          signal: controller.signal,
+          update: progress.update,
+        })
+        try {
+          const endpoint = new URL(
+            `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+          )
+          if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+          endpoint.searchParams.set("operationID", operationID)
+          const response = await (platform.fetch ?? fetch)(endpoint, { method: "POST", headers })
+          const result: unknown = await response.json().catch(() => null)
+          if (!response.ok) {
+            throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
+              ? result.message : `分享失败：${response.status}`)
+          }
+          if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
+            throw new Error("分享接口未返回链接")
+          }
+          progress.update({ type: "share", stage: "分享链接已生成", percent: 100 })
+          setState("url", result.url)
+          return result.url
+        } finally {
+          controller.abort()
+          progress.dismiss()
         }
-        setState("url", result.url)
-        return result.url
       })()
+      if (shareBlockReason()) {
+        setState("url", "")
+        throw new Error(shareBlockReason())
+      }
       const copied = platform.platform === "desktop"
         ? await (async () => {
           if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
@@ -101,9 +128,10 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       </header>
       <SessionSharePreview session={props.session} />
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
+      <Show when={shareBlockReason()}><p class="session-share-error" role="status">{shareBlockReason()}</p></Show>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>
       <footer class="session-share-footer">
-        <button type="button" class="session-share-copy" disabled={state.sharing} aria-busy={state.sharing} onClick={() => void copyLink()}>
+        <button type="button" class="session-share-copy" disabled={state.sharing || !!shareBlockReason()} aria-busy={state.sharing} onClick={() => void copyLink()}>
           <img src={linkIcon} width="16" height="16" alt="" />
           <span>{state.sharing ? "正在生成…" : "复制链接"}</span>
         </button>

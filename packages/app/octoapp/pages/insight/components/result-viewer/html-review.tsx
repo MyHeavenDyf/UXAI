@@ -1,3 +1,4 @@
+import { saveHtmlEdit } from "../../utils/html-local-edit"
 import { createContext, createEffect, createMemo, onCleanup, Show, useContext, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
@@ -17,7 +18,7 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   const sdk = useSDK()
   const directory = useProjectDir()
   const [state, setState] = createStore({
-    commenting: false, busy: false, entries: [] as VersionEntry[], current: null as string | null,
+    editing: false, commenting: false, busy: false, entries: [] as VersionEntry[], current: null as string | null,
   })
   const path = createMemo(() => props.tab ? tabLocalPath(props.tab) : undefined)
   const key = createMemo(() => JSON.stringify([directory(), params.id, props.tab?.id, path()]))
@@ -39,10 +40,10 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   onCleanup(() => { disposed = true })
   createEffect(() => {
     key()
-    setState({ commenting: false, entries: [], current: null, busy: false })
+    setState({ editing: false, commenting: false, entries: [], current: null, busy: false })
   })
   createEffect(() => {
-    if (props.tab?.viewMode === "source") setState("commenting", false)
+    if (props.tab?.viewMode === "source" || props.working) setState({ commenting: false, editing: false })
   })
   createEffect(() => {
     props.refreshKey
@@ -82,10 +83,26 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   }
   return {
     state, key, path, comments, history,
+    editDisabled: () => !eligible() || !history() || !getDesktopApi()?.writeFileBuffer || !!props.working || state.busy,
+    toggleEdit: () => setState({ editing: !state.editing, commenting: false }),
+    saveEdit: async (content: string, original: string) => {
+      const api = getDesktopApi()
+      const file = path()
+      const store = history()
+      const scope = key()
+      if (!file || !store || !api?.writeFileBuffer || props.working || state.busy) throw new Error("当前无法保存 HTML")
+      setState("busy", true)
+      try {
+        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
+        if (scope === key()) { setState("editing", false); props.onRestore() }
+      } finally {
+        if (scope === key()) setState("busy", false)
+      }
+    },
     disabled: () => !eligible() ? "请先将 HTML 保存到本地并进入会话" : props.tab?.viewMode === "source" ? "请切换到预览视图" : "",
     toggle: () => {
       if (!localStorage.getItem("uiplusToken")) { showToast({ title: "请先登录" }); return }
-      setState("commenting", value => !value)
+      setState({ commenting: !state.commenting, editing: false })
     },
     refresh: () => run(async () => {
       const scope = key()
@@ -135,8 +152,13 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
+    <Tooltip value="局部修改" placement="top">
+      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
+        aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
+        onClick={() => review?.toggleEdit()}><span>{review?.state.editing ? "退出修改" : "局部修改"}</span></button>
+    </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
-      <button type="button" class={buttonClass()} disabled={!!disabled()}
+      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}
         classList={{ "opacity-40": !!disabled(), "octo-viewport-btn-active": review?.state.commenting }}
         style={review?.state.commenting ? { color: "#0a59f7", background: "rgba(10,89,247,0.08)" } : undefined}
         aria-pressed={review?.state.commenting} onClick={() => review?.toggle()}>
@@ -145,7 +167,7 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     </Tooltip>
     <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史版本"} placement="top">
       <button ref={button} type="button" class={buttonClass()}
-        disabled={!review?.history() || review?.state.busy || props.working}
+        disabled={!review?.history() || review?.state.busy || review?.state.editing || props.working}
         classList={{ "opacity-40": !review?.history() || review?.state.busy || props.working }}
         aria-label="历史版本" aria-expanded={state.open}
         onClick={() => {
