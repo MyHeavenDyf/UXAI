@@ -10,6 +10,8 @@ import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
+import { addUserProject } from "@/network/pipelineRequest"
+import { getUser } from "@/context/auth"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 interface DialogProjectOnboardingProps {
@@ -78,6 +80,20 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         dir
       }),
     })
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; fire-and-forget, 失败 silent 不阻断)
+    const user = getUser()
+    const userName = user?.nickName?.trim()
+    const userId = user?.account?.trim()
+    if (userName && userId) {
+      void addUserProject({
+        userName,
+        userId,
+        domain: domain?.name,
+        productLine: productLine?.name,
+        product: product?.name,
+        version: version?.name,
+      })
+    }
     layout.projects.open(dir)
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
