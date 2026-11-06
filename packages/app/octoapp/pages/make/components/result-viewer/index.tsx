@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For, untrack } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showOctoToast } from "../octo-toast"
@@ -182,10 +182,12 @@ export function ResultViewer(props: {
     disposeAllPrototypeSessions()
     featureMutex.disableAll()
   }, { defer: true }))
-  // ActionBar 切换到其它功能(局部修改/框选编辑/标注/归档等):暂停待修改评估
+  // ActionBar 切换到其它功能(局部修改/框选编辑/标注/归档等):暂停待修改评估。
   createEffect(() => {
     const s = featureMutex.state
-    if (s.editing || s.modelEditing || s.drawing || s.commenting || s.archiving || s.inspecting) pauseAssessment()
+    if (s.editing || s.modelEditing || s.drawing || s.commenting || s.archiving || s.inspecting) {
+      untrack(() => pauseAssessment())
+    }
   })
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [refreshKey, setRefreshKey] = createSignal(0)
@@ -724,8 +726,9 @@ archiving={featureMutex.state.archiving}
                       historyEntries={props.historyEntries}
                       currentVersionId={props.currentVersionId}
                       onHistorySwitch={props.onHistorySwitch}
-                      onHistoryToggle={props.onHistoryToggle}
-                       sessionId={props.sessionId}
+                       onHistoryToggle={props.onHistoryToggle}
+                       onAssessmentActivate={() => featureMutex.disableAll()}
+                        sessionId={props.sessionId}
                        sdkDirectory={props.sdkDirectory}
                         workspaceKind={workspaceKind()}
                         skillConfig={props.skillConfig}

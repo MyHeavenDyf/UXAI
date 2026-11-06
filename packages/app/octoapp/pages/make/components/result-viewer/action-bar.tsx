@@ -419,7 +419,7 @@ function CanvasEditDropdown(props: {
   )
 }
 
-function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; disabled?: boolean }): JSX.Element {
+function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; disabled?: boolean; onActivate?: () => void }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
   let btnRef: HTMLButtonElement | undefined
@@ -457,23 +457,25 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
   const isPendingHere = () => assessmentStatus() === "pending" && pendingAssessment()?.fileKey === props.tab.filePath
   const isPausedHere = () => assessmentStatus() === "paused" && pendingAssessment()?.fileKey === props.tab.filePath
 
-  /** 评估按钮点击 */
+  /** 评估按钮点击*/
   const handleTriggerClick = () => {
-    if (isPendingHere()) {
-      setOpen(!open())
-      return
-    }
+    props.onActivate?.()
     if (open()) {
       close()
       return
     }
     if (isPausedHere()) {
       resumeAssessment()
+      setOpen(true)
+      return
+    }
+    if (isPendingHere()) {
+      setOpen(true)
       return
     }
     void loadPersistedAssessment(props.tab.filePath ?? "").then((data) => {
       if (data) enterPending(data)
-      else setOpen(true)
+      setOpen(true)
     })
   }
 
@@ -718,6 +720,7 @@ export function ActionBar(props: {
     sdkDirectory?: string
     workspaceKind?: import("@/context/server").WorkspaceKind
     skillConfig?: SkillConfig
+    onAssessmentActivate?: () => void
     postMessageToIframe?: (data: unknown) => void
     onFilesRefresh?: () => void
     disabled?: boolean
@@ -1052,7 +1055,7 @@ export function ActionBar(props: {
             />
           )}
           {showAssessment() && (
-            <AssessmentDropdown tab={props.tab} skillConfig={props.skillConfig} disabled={props.disabled} />
+            <AssessmentDropdown tab={props.tab} skillConfig={props.skillConfig} disabled={props.disabled} onActivate={props.onAssessmentActivate} />
           )}
           <Show when={shouldShowCopy()}>
             <Tooltip placement="top" value="复制">
