@@ -8,6 +8,7 @@ import { useServer } from "@/context/server"
 import { requestPortableSessionImport } from "@/components/portable-session-import"
 import { showSessionTransferProgress, watchSessionTransferProgress } from "@/components/session-transfer-progress"
 import { sessionTitle } from "@/utils/session-title"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 
 export function usePortableSessionActions(input: {
   session: Accessor<Session | null>
@@ -17,6 +18,7 @@ export function usePortableSessionActions(input: {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const server = useServer()
+  const workspaceKind = useWorkspaceKind()
   const [action, setAction] = createSignal<"import" | "export">()
   const supported = createMemo(
     () =>
@@ -65,7 +67,12 @@ export function usePortableSessionActions(input: {
     await globalSDK
       .createClient({ directory: session.directory, throwOnError: true })
       .session
-      .portableExport({ sessionID: session.id, path: output, operationID })
+      .portableExport({
+        sessionID: session.id,
+        path: output,
+        operationID,
+        ...(workspaceKind() === "code" ? { scope: "project" as const } : {}),
+      })
       .then((result) => {
         showToast({
           variant: "success",
