@@ -32,6 +32,7 @@ import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
 import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
 import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -352,6 +353,7 @@ function StudioPageContent() {
   const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  useSharedSessionImportDirectory("studio", projectDir, () => syncStore.status === "complete")
   if (syncStore.limit < 100) setSyncStore("limit", 100)
   onMount(() => {
     const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
