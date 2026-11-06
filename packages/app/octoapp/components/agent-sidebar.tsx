@@ -54,7 +54,7 @@ export type BeforeSectionApi = {
 }
 
 export type AgentSidebarProps = {
-  onNavigation?: (target: "project" | "skills" | "assets" | "settings" | "update") => void
+  onNavigation?: (target: "project" | "skills" | "assets" | "best_practices" | "settings" | "update") => void
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
   directory: string | null | undefined
@@ -1115,14 +1115,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
       inlineBeforeSection={props.inlineBeforeSection}
       collapsed={collapsed()}
       onToggleCollapse={toggleRecentCollapse}
-      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : location.pathname === "/best-practices" ? "best_practice" : activeNav()}
       onNavClick={(key) => {
-        if (key === "skill_market" || key === "knowledge_base") {
+        if (key === "skill_market" || key === "knowledge_base" || key === "best_practice") {
           if (key === "skill_market" && props.onSkillClick) {
             props.onSkillClick()
           } else {
             if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-            navigate(key === "skill_market" ? "/skills" : "/assets")
+            navigate(key === "skill_market" ? "/skills" : key === "knowledge_base" ? "/assets" : "/best-practices")
           }
           return
         }
