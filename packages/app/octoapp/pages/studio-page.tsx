@@ -513,6 +513,9 @@ export default function StudioPage() {
   const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
   const videoMode = () => videoSettingStore.videoMode
   const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
+  createEffect(() => {
+    if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
+  })
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
@@ -4157,9 +4160,9 @@ export default function StudioPage() {
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
-    const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames

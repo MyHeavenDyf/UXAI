@@ -2560,6 +2560,7 @@ function VideoSettings(props: {
             <button
               type="button"
               onClick={() => { tracker.interaction({ module: "studio", name: "video-count", extend: JSON.stringify({ count: item }) }); props.onCount(item) }}
+              disabled={props.qualityMode === "4k" && item !== 1}
               class="studio-image-settings-count"
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
