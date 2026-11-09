@@ -106,12 +106,16 @@ export function nodeBinOf(envDir: string) {
 
 /** Electron 的 Node 模式不接受 --openssl-legacy-provider；保留其余 NODE_OPTIONS。 */
 export function electronNodeEnvironment(extra: Record<string, string> = {}) {
-  const nodeOptions = process.env.NODE_OPTIONS
-    ?.replace(/(^|\s)["']?--openssl-legacy-provider["']?(?=\s|$)/g, " ")
+  const entries = Object.entries(process.env)
+  const nodeOptions = entries
+    .filter(([key, value]) => key.toLowerCase() === "node_options" && value)
+    .map(([, value]) => value)
+    .join(" ")
+    .replace(/(^|\s)["']?--openssl-legacy-provider["']?(?=\s|$)/gi, " ")
     .trim()
   return {
-    ...process.env,
-    NODE_OPTIONS: nodeOptions || undefined,
+    ...Object.fromEntries(entries.filter(([key]) => key.toLowerCase() !== "node_options")),
+    ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
     ELECTRON_RUN_AS_NODE: "1",
     ...extra,
   }

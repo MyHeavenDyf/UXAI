@@ -79,13 +79,18 @@ afterAll(() => {
 
 test("Electron Node 模式过滤不支持的 openssl legacy 参数并保留其他参数", () => {
   const original = process.env.NODE_OPTIONS
+  const originalMixedCase = process.env.Node_Options
   process.env.NODE_OPTIONS = "--max-old-space-size=4096 --openssl-legacy-provider"
+  process.env.Node_Options = "'--openssl-legacy-provider'"
   const env = Host.electronNodeEnvironment({ OCTO_PORT: "8081" })
   expect(env.NODE_OPTIONS).toBe("--max-old-space-size=4096")
+  expect(Object.keys(env).filter((key) => key.toLowerCase() === "node_options")).toEqual(["NODE_OPTIONS"])
   expect(env.ELECTRON_RUN_AS_NODE).toBe("1")
   expect(env.OCTO_PORT).toBe("8081")
   if (original === undefined) delete process.env.NODE_OPTIONS
   else process.env.NODE_OPTIONS = original
+  if (originalMixedCase === undefined) delete process.env.Node_Options
+  else process.env.Node_Options = originalMixedCase
 })
 
 describe("open", () => {
