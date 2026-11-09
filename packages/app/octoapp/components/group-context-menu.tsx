@@ -80,7 +80,7 @@ export function GroupContextMenu(props: GroupContextMenuProps) {
     <Show when={props.show && props.group}>
       <Portal>
         <div
-          class="fixed inset-0 z-50"
+          class="fixed inset-0 z-[120]"
           onContextMenu={(e) => {
             e.preventDefault()
             if (props.onContextMenuBackdrop) { props.onContextMenuBackdrop(e); return }

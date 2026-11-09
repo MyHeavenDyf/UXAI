@@ -63,11 +63,12 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
   const [backdropRef, setBackdropRef] = createSignal<HTMLDivElement | undefined>(undefined)
 
-  // Elements stacked above the backdrop (e.g. studio-center-header kebab at
-  // z-60) never receive the backdrop's onClick/onContextMenu dismiss, so the
-  // menu would stay open behind them. Close on capture-phase pointerdown that
-  // lands outside the backdrop; presses on/inside the backdrop keep flowing to
-  // its own handlers (click-dismiss + right-click session re-targeting).
+  // Elements stacked above the backdrop (e.g. dialogs at z-150, popper
+  // dropdowns at z-99999) never receive the backdrop's onClick/onContextMenu
+  // dismiss, so the menu would stay open behind them. Close on capture-phase
+  // pointerdown that lands outside the backdrop; presses on/inside the
+  // backdrop keep flowing to its own handlers (click-dismiss + right-click
+  // session re-targeting).
   // Presses on the trigger element are skipped too: its own click handler
   // toggles the menu, otherwise pointerdown would close it and the ensuing
   // click would immediately reopen it (second click never hides the menu).
@@ -182,7 +183,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     <Show when={props.show && props.session}>
       <Portal>
         <div
-          class="fixed inset-0 z-50"
+          class="fixed inset-0 z-[120]"
           onContextMenu={(e) => {
             e.preventDefault()
             if (props.onContextMenuBackdrop) { props.onContextMenuBackdrop(e); return }
