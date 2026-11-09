@@ -104,6 +104,19 @@ export function nodeBinOf(envDir: string) {
   return process.platform === "win32" ? join(envDir, "node", "node.exe") : join(envDir, "node", "bin", "node")
 }
 
+/** Electron 的 Node 模式不接受 --openssl-legacy-provider；保留其余 NODE_OPTIONS。 */
+export function electronNodeEnvironment(extra: Record<string, string> = {}) {
+  const nodeOptions = process.env.NODE_OPTIONS
+    ?.replace(/(^|\s)["']?--openssl-legacy-provider["']?(?=\s|$)/g, " ")
+    .trim()
+  return {
+    ...process.env,
+    NODE_OPTIONS: nodeOptions || undefined,
+    ELECTRON_RUN_AS_NODE: "1",
+    ...extra,
+  }
+}
+
 /** 工程标记与运行时目录名,与 skill 的 scripts/lib/paths.mjs `MARKER_FILE` / `RUNTIME_DIR` 一致 */
 const MARKER_FILE = ".octo-fastui.json"
 const RUNTIME_DIR = ".octo-fastui"
@@ -465,12 +478,9 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
       child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=esnext"], {
         cwd: portalDir,
         // OCTO_DEPS 缺了 copy-webpack-plugin 找不到拷贝源;OCTO_PORT 是这一刻挑出来的端口
-        env: {
-          ...process.env,
-          ...(electronAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-          OCTO_DEPS: state.depsDir,
-          OCTO_PORT: String(port),
-        },
+        env: electronAsNode
+          ? electronNodeEnvironment({ OCTO_DEPS: state.depsDir!, OCTO_PORT: String(port) })
+          : { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(port) },
         windowsHide: true,
         // 非 Windows 下以独立进程组启动,结束时能连同 webpack 的子进程一起收掉
         detached: process.platform !== "win32",

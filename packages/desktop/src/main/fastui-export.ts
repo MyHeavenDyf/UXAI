@@ -13,7 +13,7 @@ import { dirname, join } from "node:path"
 
 import log from "electron-log/main.js"
 
-import { type FastuiTarget, nodeBinOf, resolveProject } from "./fastui-devserver"
+import { electronNodeEnvironment, type FastuiTarget, nodeBinOf, resolveProject } from "./fastui-devserver"
 import { effectiveXdgConfigHome } from "./storage"
 
 const SKILL_NAME = "fastui-vue-creator"
@@ -182,7 +182,7 @@ function runExportScript(projectDir: string, script: string, envDir: string | un
     const poolNode = envDir ? nodeBinOf(envDir) : null
     const usePoolNode = !!poolNode && existsSync(poolNode)
     const bin = usePoolNode ? poolNode! : process.execPath
-    const env = usePoolNode ? { ...process.env } : { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
+    const env = usePoolNode ? { ...process.env } : electronNodeEnvironment()
 
     let child: ChildProcess
     try {

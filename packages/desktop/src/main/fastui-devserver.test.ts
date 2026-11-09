@@ -77,6 +77,17 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test("Electron Node 模式过滤不支持的 openssl legacy 参数并保留其他参数", () => {
+  const original = process.env.NODE_OPTIONS
+  process.env.NODE_OPTIONS = "--max-old-space-size=4096 --openssl-legacy-provider"
+  const env = Host.electronNodeEnvironment({ OCTO_PORT: "8081" })
+  expect(env.NODE_OPTIONS).toBe("--max-old-space-size=4096")
+  expect(env.ELECTRON_RUN_AS_NODE).toBe("1")
+  expect(env.OCTO_PORT).toBe("8081")
+  if (original === undefined) delete process.env.NODE_OPTIONS
+  else process.env.NODE_OPTIONS = original
+})
+
 describe("open", () => {
   test("起服务并返回端口;该端口上跑的就是这个工程", async () => {
     const s = session("s1", ["alpha"])
