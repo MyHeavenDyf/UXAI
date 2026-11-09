@@ -27,6 +27,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { setStudioSessionGenerating } from "@/hooks/use-session-share-busy"
 import { getMappingStore } from "@/hooks/use-session-groups"
 import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
 import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
@@ -1228,6 +1229,19 @@ function StudioPageContent() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  let sharedBusySessionID: string | undefined
+  createEffect(() => {
+    const sessionID = pendingResult()?.sessionID ?? params.id
+    const busy = isBusy()
+    if (sharedBusySessionID && (!busy || sharedBusySessionID !== sessionID)) {
+      setStudioSessionGenerating(sharedBusySessionID, false)
+    }
+    if (sessionID && busy) setStudioSessionGenerating(sessionID, true)
+    sharedBusySessionID = busy ? sessionID : undefined
+  })
+  onCleanup(() => {
+    if (sharedBusySessionID) setStudioSessionGenerating(sharedBusySessionID, false)
+  })
   const isActionBusy = createMemo(() =>
     recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
