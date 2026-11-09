@@ -849,17 +849,20 @@ describe("Studio history service", () => {
         },
         importedStudioPart({ sessionID, generationID: "gen-empty", output: {} }),
       ]
+      const before = Date.now()
       expect(materializeStudioSessionParts(directory, sessionID, [imagePart, videoPart, ...skipped])).toBe(2)
 
       const items = listStudioHistoryMedia(directory).items
       expect(items).toHaveLength(2)
+      // 素材时间是导入成功时刻（视作刚刚生成），不是 part 里的原始生成时间。
+      expect(items.every((item) => item.createdAt >= before)).toBe(true)
+      expect(new Set(items.map((item) => item.createdAt)).size).toBe(1)
       expect(items[0]).toMatchObject({
         id: "vid-import-0",
         sessionID,
         generationID: "gen-import-video",
         kind: "video",
         url: "https://example.com/import-1.mp4",
-        createdAt: 5_000,
       })
       expect(items[1]).toMatchObject({
         id: "img-import-0",
@@ -868,7 +871,6 @@ describe("Studio history service", () => {
         kind: "image",
         url: "https://example.com/import-0.png",
         thumbnailUrl: "https://example.com/import-0.webp",
-        createdAt: 4_000,
         prompt: "导入图片",
         displayPrompt: "导入图片展示",
         detailTitle: "导入标题",
@@ -880,9 +882,15 @@ describe("Studio history service", () => {
       })
       expect(listStudioHistoryMedia(directory, { resolutions: ["1080P"] }).items.map((item) => item.id)).toEqual(["vid-import-0"])
 
-      // 重复导入同一分享：媒体 id 幂等，不产生重复历史行。
+      // 重复导入同一分享：媒体 id 幂等，不产生重复历史行，时间刷新为本次导入时间。
+      Database.use((db) =>
+        db.update(StudioHistoryTable).set({ created_at: 1_000 }).where(eq(StudioHistoryTable.directory, directory)).run()
+      )
+      const reimportedAt = Date.now()
       expect(materializeStudioSessionParts(directory, sessionID, [imagePart, videoPart])).toBe(2)
-      expect(listStudioHistoryMedia(directory).items).toHaveLength(2)
+      const refreshed = listStudioHistoryMedia(directory).items
+      expect(refreshed).toHaveLength(2)
+      expect(refreshed.every((item) => item.createdAt >= reimportedAt)).toBe(true)
     })
   })
 
