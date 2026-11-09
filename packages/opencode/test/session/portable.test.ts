@@ -1131,6 +1131,7 @@ describe("portable session", () => {
     } })
     try {
       await provideTestInstance({ directory: target.path, fn: async () => {
+        const before = Date.now()
         const imported = await AppRuntime.runPromise(importPortableSession(archive))
         const items = listStudioHistoryMedia(target.path).items
         expect(items).toHaveLength(1)
@@ -1142,6 +1143,19 @@ describe("portable session", () => {
           url: "https://example.com/shared.png",
           prompt: "分享图片",
         })
+        // 分享导入的素材时间取导入成功时刻，不沿用包里 part 的原始生成时间。
+        expect(items[0]!.createdAt).toBeGreaterThanOrEqual(before)
+        expect(items[0]!.createdAt).toBeLessThanOrEqual(Date.now())
+
+        // 重复导入同一分享：媒体 id 幂等去重，时间刷新为本次导入时间。
+        Database.use((db) =>
+          db.update(StudioHistoryTable).set({ created_at: 1_000 }).where(eq(StudioHistoryTable.directory, target.path)).run()
+        )
+        const reimportedAt = Date.now()
+        await AppRuntime.runPromise(importPortableSession(archive))
+        const refreshed = listStudioHistoryMedia(target.path).items
+        expect(refreshed).toHaveLength(1)
+        expect(refreshed[0]!.createdAt).toBeGreaterThanOrEqual(reimportedAt)
       } })
     } finally {
       Database.use((db) => {
@@ -1149,5 +1163,5 @@ describe("portable session", () => {
         db.delete(StudioHistoryExcludedTable).where(eq(StudioHistoryExcludedTable.directory, target.path)).run()
       })
     }
-  })
+  }, { timeout: 30000 })
 })

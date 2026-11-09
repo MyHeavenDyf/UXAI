@@ -271,6 +271,9 @@ function upsertMedia(directory: string, items: StudioHistoryMediaItem[]): number
         .onConflictDoUpdate({
           target: [StudioHistoryTable.directory, StudioHistoryTable.id],
           set: {
+            // 导入物化的 created_at 是导入时间，重导同一分享时刷新为最新导入时间；
+            // 生成路径的 created_at 源自 generation 完成时间，重写同值幂等。
+            created_at: sql`excluded.created_at`,
             url: sql`excluded.url`,
             thumbnail_url: sql`excluded.thumbnail_url`,
             thumbnail_status: sql`excluded.thumbnail_status`,
@@ -833,9 +836,11 @@ export function snapshotSessionMedia(directory: string, sessionID: string): numb
 
 // 分享/导出文件导入的 octo_studio 会话没有 studio_generation 行（分享包只含消息与
 // parts），而历史表 backfill 只扫 studio_generation，导入会话的媒体因此永远进不了
-// 「我的资产」。从导入后已完成 tool part 的 output/input 物化媒体，与生成完成时的
-// materializeStudioGeneration 写入等价；重复导入同一分享时按媒体 id 幂等去重。
+// 「我的资产」。从导入后已完成 tool part 的 output/input 物化媒体；素材时间取导入
+// 成功时刻——「我的资产」里视作刚刚生成，不沿用包里的原始生成时间；重复导入同一
+// 分享时按媒体 id 幂等去重，时间刷新为最新一次导入时间。
 export function materializeStudioSessionParts(directory: string, sessionID: SessionID, parts: MessageV2.Part[]): number {
+  const importedAt = Date.now()
   const items = parts.flatMap((part) => {
     if (part.type !== "tool" || part.state.status !== "completed") return []
     const output = parseToolOutput(part.state.output)
@@ -854,7 +859,7 @@ export function materializeStudioSessionParts(directory: string, sessionID: Sess
             || undefined,
       },
       sessionID,
-      part.state.time.end,
+      importedAt,
       input,
     )
   })
