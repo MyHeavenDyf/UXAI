@@ -28,6 +28,59 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([
+    { sourceScope: "project" as const, targetScope: "session" as const },
+    { sourceScope: undefined, targetScope: "project" as const },
+  ])("restores portable FastUI projects across private and shared layouts", async ({ sourceScope, targetScope }) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Portable FastUI" }))
+      const project = sourceScope === "project"
+        ? path.join(source.path, "dashboard")
+        : path.join(source.path, ".octo", session.id, "outputs", "dashboard")
+      await Bun.write(path.join(project, "packages", "portal", "src", "App.vue"), "<template>portable</template>")
+      await Bun.write(path.join(project, "node_modules", "large.js"), "do not export")
+      await Bun.write(path.join(project, ".octo-fastui", "devserver.json"), "do not export")
+      await Bun.write(path.join(project, ".octo-fastui.json"), JSON.stringify({
+        schema: 1,
+        skill: "fastui-vue-creator",
+        name: "dashboard",
+        title: "Portable dashboard",
+        sessions: [session.id],
+        envDir: "C:\\Users\\source\\fastui-env",
+        depsDir: "C:\\Users\\source\\fastui-env\\deps\\node_modules",
+        nodeBin: "C:\\Program Files\\nodejs\\node.exe",
+        skillDir: "C:\\Users\\source\\skills\\fastui-vue-creator",
+      }))
+      const archive = await AppRuntime.runPromise(exportPortableSession({
+        sessionID: session.id,
+        output: path.join(source.path, "fastui.zip"),
+        scope: sourceScope,
+      }))
+      return { archive, session }
+    } })
+
+    const zip = await JSZip.loadAsync(await Bun.file(exported.archive.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    expect(manifest.files.some((file) => file.path.endsWith("dashboard/.octo-fastui.json"))).toBe(true)
+    expect(manifest.files.some((file) => file.path.includes("node_modules") || file.path.includes(".octo-fastui/"))).toBe(false)
+
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(exported.archive.output, targetScope))
+      const project = targetScope === "project"
+        ? path.join(target.path, "dashboard")
+        : path.join(target.path, ".octo", imported.sessionID, "outputs", "dashboard")
+      expect(await Bun.file(path.join(project, "packages", "portal", "src", "App.vue")).text()).toBe("<template>portable</template>")
+      const marker = await Bun.file(path.join(project, ".octo-fastui.json")).json() as Record<string, unknown>
+      expect(marker.sessions).toEqual([imported.sessionID])
+      expect(marker.envDir).not.toBe("C:\\Users\\source\\fastui-env")
+      expect(marker.depsDir).toBe(path.join(String(marker.envDir), "deps", "node_modules"))
+      expect(marker.nodeBin).toBeUndefined()
+      expect(marker.skillDir).toBeUndefined()
+    } })
+  })
+
   test("exports and imports shared website-root references unchanged alongside project source files", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })

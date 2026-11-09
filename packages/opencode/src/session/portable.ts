@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import JSZip from "jszip"
@@ -21,6 +21,8 @@ import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-ex
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
 const sessionDirectory = ".octo"
+const fastuiMarkerName = ".octo-fastui.json"
+const fastuiRuntimeDirectory = ".octo-fastui"
 
 export class PortableValidationError extends Schema.TaggedErrorClass<PortableValidationError>()(
   "PortableValidationError",
@@ -176,11 +178,50 @@ function digest(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex")
 }
 
+function fastuiEnvDirectory() {
+  if (process.env.OCTO_FASTUI_ENV_DIR) return path.resolve(process.env.OCTO_FASTUI_ENV_DIR)
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || path.join(homedir(), "AppData", "Local"), "OctoAgent", "fastui-env")
+  }
+  if (process.platform === "darwin") {
+    return path.join(homedir(), "Library", "Application Support", "OctoAgent", "fastui-env")
+  }
+  return path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "OctoAgent", "fastui-env")
+}
+
+function importedFastuiMarker(file: FileEntry, content: Uint8Array, sessionIDs: Map<string, SessionID>) {
+  if (path.posix.basename(file.path.replaceAll("\\", "/")) !== fastuiMarkerName) return content
+  return Promise.resolve()
+    .then(() => JSON.parse(Buffer.from(content).toString("utf8")) as Record<string, unknown>)
+    .catch(() => undefined)
+    .then((marker) => {
+      if (!marker || typeof marker.schema !== "number") return content
+      const envDir = fastuiEnvDirectory()
+      const sessions = Array.isArray(marker.sessions)
+        ? marker.sessions.flatMap((id) => (typeof id === "string" && sessionIDs.has(id) ? [sessionIDs.get(id)!] : []))
+        : []
+      return new TextEncoder().encode(JSON.stringify({
+        ...Object.fromEntries(Object.entries(marker).filter(
+          ([key]) => !["projectDir", "writeDir", "port", "envDir", "depsDir", "nodeBin", "skillDir"].includes(key),
+        )),
+        sessions: sessions.length ? [...new Set(sessions)] : [sessionIDs.get(file.sessionID)!],
+        envDir,
+        depsDir: path.join(envDir, "deps", "node_modules"),
+        updatedAt: new Date().toISOString(),
+      }, null, 2))
+    })
+}
+
 function isProjectFile(value: string, legacy = false) {
   return value
     .replaceAll("\\", "/")
     .split("/")
-    .every((part) => part && !(legacy ? /\0/ : /[\0:]/).test(part) && !part.startsWith(".") && part !== "node_modules")
+    .every((part) =>
+      part &&
+      !(legacy ? /\0/ : /[\0:]/).test(part) &&
+      (!part.startsWith(".") || part === fastuiMarkerName) &&
+      part !== "node_modules"
+    )
 }
 
 async function listFiles(root: string, project = false, blacklist: readonly string[] = []) {
@@ -188,6 +229,7 @@ async function listFiles(root: string, project = false, blacklist: readonly stri
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
+      if (entry.isDirectory() && [fastuiRuntimeDirectory, "node_modules"].includes(entry.name)) continue
       if (project && !isProjectFile(entry.name, true)) continue
       const target = path.join(directory, entry.name)
       if (isExcludedPortableFile(target, blacklist)) continue
@@ -1062,6 +1104,9 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     let completedBytes = 0
     const totalBytes = files.reduce((total, file) => total + file.size, 0)
     for (const [index, fileEntry] of files.entries()) {
+      const content = yield* Effect.promise(() =>
+        Promise.resolve(importedFastuiMarker(fileEntry, bundle.blobs.get(fileEntry.blob)!, sessionIDs)),
+      )
       if (fileEntry.scope === "project") {
         yield* Effect.promise(async () => {
           const target = await sharedFileTarget(context.directory, fileEntry)
@@ -1081,7 +1126,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             },
           )
           if (!directory) return
-          await writeFile(target, bundle.blobs.get(fileEntry.blob)!, { flag: "wx" }).then(
+          await writeFile(target, content, { flag: "wx" }).then(
             () => {
               sharedFiles.push(target)
             },
@@ -1124,7 +1169,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             )
           : path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
       yield* Effect.promise(() =>
-        Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!).catch((error) => {
+        Filesystem.write(target, content).catch((error) => {
           console.warn(
             "[octo:import] skipped file",
             JSON.stringify({

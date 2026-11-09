@@ -425,8 +425,13 @@ async function waitReady(child: ChildProcess, port: number, deadline: number): P
 
 async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
   const envDir = state.envDir!
-  const nodeBin = state.nodeBin && existsSync(state.nodeBin) ? state.nodeBin : nodeBinOf(envDir)
-  if (!existsSync(nodeBin)) return { ok: false, error: `找不到用于启动预览服务的 node：${nodeBin}` }
+  const pooledNode = nodeBinOf(envDir)
+  const nodeBin = state.nodeBin && existsSync(state.nodeBin)
+    ? state.nodeBin
+    : existsSync(pooledNode)
+      ? pooledNode
+      : process.execPath
+  const electronAsNode = nodeBin === process.execPath
   const cli = join(state.depsDir!, "@turboui", "turbo-ui-cli-service", "bin", "turbo-ui-cli-service.js")
   if (!existsSync(cli)) return { ok: false, error: `共享依赖中缺少 turbo-ui-cli-service：${cli}` }
   const portalDir = join(e.projectDir, "packages", "portal")
@@ -460,7 +465,12 @@ async function launch(e: Entry, state: SessionState): Promise<OpenResult> {
       child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=esnext"], {
         cwd: portalDir,
         // OCTO_DEPS 缺了 copy-webpack-plugin 找不到拷贝源;OCTO_PORT 是这一刻挑出来的端口
-        env: { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(port) },
+        env: {
+          ...process.env,
+          ...(electronAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+          OCTO_DEPS: state.depsDir,
+          OCTO_PORT: String(port),
+        },
         windowsHide: true,
         // 非 Windows 下以独立进程组启动,结束时能连同 webpack 的子进程一起收掉
         detached: process.platform !== "win32",
