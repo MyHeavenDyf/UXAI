@@ -18,6 +18,7 @@ import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
+import { materializeStudioSessionParts } from "@/studio/studio-history-service"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
@@ -1009,8 +1010,11 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
 
     const totalMessages = ordered.reduce((total, entry) => total + entry.messages.length, 0)
     let completedMessages = 0
+    // octo_studio 会话收集重映射后的 parts，导入收尾时物化到「我的资产」历史表。
+    const studioSessionParts = new Map<SessionID, MessageV2.Part[]>()
     for (const entry of ordered) {
       const sessionID = sessionIDs.get(entry.info.id)!
+      if (entry.info.agent === "octo_studio") studioSessionParts.set(sessionID, [])
       if (entry.info.summary) {
         yield* sessions.setSummary({
           sessionID,
@@ -1045,18 +1049,18 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             : { ...message.info, id: messageID, sessionID }
         yield* sessions.updateMessage(info)
         for (const part of message.parts) {
-          yield* sessions.updatePart(
-            remapPart(part, {
-              sessionID,
-              messageID,
-              partID: PartID.ascending(),
-              messageIDs,
-              sessionIDs,
-              sourceDirectory: bundle.manifest.sourceDirectory,
-              targetDirectory: context.directory,
-              relocate,
-            }),
-          )
+          const remapped = remapPart(part, {
+            sessionID,
+            messageID,
+            partID: PartID.ascending(),
+            messageIDs,
+            sessionIDs,
+            sourceDirectory: bundle.manifest.sourceDirectory,
+            targetDirectory: context.directory,
+            relocate,
+          })
+          studioSessionParts.get(sessionID)?.push(remapped)
+          yield* sessions.updatePart(remapped)
         }
         completedMessages += 1
         update({
@@ -1155,6 +1159,13 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
         processedBytes: completedBytes,
         totalBytes,
       })
+    }
+
+    // 分享包不含 studio_generation 行：从导入的 tool parts 物化媒体，让「我的资产」
+    // 出现导入会话的图片/视频。放在全部步骤成功之后执行——前面任何一步失败都会回滚
+    // 已创建的会话，不留指向不存在会话的历史行。
+    for (const [sessionID, parts] of studioSessionParts) {
+      materializeStudioSessionParts(context.directory, sessionID, parts)
     }
 
     update({

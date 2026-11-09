@@ -61,6 +61,28 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     visibility: "hidden",
   })
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
+  const [backdropRef, setBackdropRef] = createSignal<HTMLDivElement | undefined>(undefined)
+
+  // Elements stacked above the backdrop (e.g. dialogs at z-150, popper
+  // dropdowns at z-99999) never receive the backdrop's onClick/onContextMenu
+  // dismiss, so the menu would stay open behind them. Close on capture-phase
+  // pointerdown that lands outside the backdrop; presses on/inside the
+  // backdrop keep flowing to its own handlers (click-dismiss + right-click
+  // session re-targeting).
+  // Presses on the trigger element are skipped too: its own click handler
+  // toggles the menu, otherwise pointerdown would close it and the ensuing
+  // click would immediately reopen it (second click never hides the menu).
+  createEffect(() => {
+    if (!(props.show && props.session)) return
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (backdropRef()?.contains(target)) return
+      if (props.triggerEl?.()?.contains(target)) return
+      props.onClose()
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true))
+  })
 
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
   const portable = usePortableSessionActions({ session: () => props.session, close: props.onClose })
@@ -123,7 +145,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
         const trigger = props.triggerEl?.()
         let top: number
         let left: number
-        if (trigger) {
+        // 触发元素已脱离 DOM（如切换会话后头部按钮被重建）时 getBoundingClientRect
+        // 全为 0，会把菜单顶到屏幕左上角；回退到打开菜单时记录的点击坐标。
+        if (trigger?.isConnected) {
           const rect = trigger.getBoundingClientRect()
           top = rect.bottom + 4
           left = rect.right - menuWidth
@@ -159,7 +183,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     <Show when={props.show && props.session}>
       <Portal>
         <div
-          class="fixed inset-0 z-50"
+          class="fixed inset-0 z-[120]"
           onContextMenu={(e) => {
             e.preventDefault()
             if (props.onContextMenuBackdrop) { props.onContextMenuBackdrop(e); return }
@@ -168,7 +192,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
           onClick={props.onClose}
           onKeyDown={(e) => { if (e.key === "Escape") props.onClose() }}
           tabIndex={-1}
-          ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
+          ref={(el) => { setBackdropRef(el); requestAnimationFrame(() => el?.focus()) }}
         >
           <div
             ref={setContextMenuRef}
