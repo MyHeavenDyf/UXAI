@@ -3,7 +3,8 @@
  *
  * 打包本身由主进程调 skill 的 `export-zip.mjs` 完成(前端自己压缩会跟随工程根的
  * node_modules 链接把共享池那 1GB 打进去,也拿不到 ZIP 的 UTF-8 flag);这里只负责
- * 「拿到 zip 之后交给用户」。入口是 action bar 的标准下载按钮(SPEC-DES-007 §8)。
+ * 「拿到 zip 之后交给用户」。入口是 action bar 的标准下载按钮(SPEC-DES-007 §8);
+ * 归档(SPEC-DES-007 §7,fastui-archive.ts)打的是同一个包,共用这里的打包锁。
  */
 import { createSignal } from "solid-js"
 
@@ -100,7 +101,7 @@ export async function fastuiProjectOfFile(target: FastuiTarget, filePath: string
 const [exporting, setExporting] = createSignal(false)
 
 /**
- * 有工程正在导出。锁是全局的(一次只跑一个打包脚本),所以 busy 也要按全局判 ——
+ * 有工程正在打包(下载或归档)。锁是全局的(一次只跑一个打包脚本),所以 busy 也要按全局判 ——
  * 只按自己那张卡片判的话,在另一个会话的 tab 上点下载会静默什么都不发生。
  */
 export function isExportingAny(): boolean {
@@ -113,8 +114,31 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function baseNameOf(p: string): string {
+export function baseNameOf(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? "project.zip"
+}
+
+type FastuiZip = { zipPath: string; bytes: number }
+
+/**
+ * 打包,并在锁内使用这个 zip。下载与归档都经过这里:主进程不加锁,同一工程的两个打包脚本
+ * 会同时写同一个 `export/<产物名>.zip`,所以锁必须在这一层共用。
+ * 锁被占用、环境不支持、打包失败都抛错,`error` 是可直接展示给用户的一句话。
+ */
+export async function withFastuiZip<T>(target: FastuiTarget, use: (zip: FastuiZip) => Promise<T>): Promise<T> {
+  if (exporting()) throw new Error("已有代码包正在打包，请稍后再试")
+  const api = getDesktopApi()
+  if (!api?.fastuiExportZip) throw new Error("当前环境不支持导出代码包")
+
+  setExporting(true)
+  try {
+    // 带产物名导出该工程:同一对话可以有多个工程
+    const result = await api.fastuiExportZip(target)
+    if (!result?.ok) throw new Error(result?.error || "未知原因")
+    return await use(result)
+  } finally {
+    setExporting(false)
+  }
 }
 
 /**
@@ -132,21 +156,15 @@ export async function exportFastuiZip(target: FastuiTarget): Promise<void> {
   if (!api?.fastuiExportZip || !api.saveFilePicker || !api.copyFileTo) {
     throw new Error("当前环境不支持导出代码包")
   }
+  const { saveFilePicker, copyFileTo } = api
 
-  setExporting(true)
-  try {
-    // 带产物名导出该工程:同一对话可以有多个工程
-    const result = await api.fastuiExportZip(target)
-    if (!result?.ok) throw new Error(result?.error || "未知原因")
-
-    const fileName = baseNameOf(result.zipPath)
-    const dest = await api.saveFilePicker({ title: "保存代码包", defaultPath: fileName })
+  await withFastuiZip(target, async (zip) => {
+    const fileName = baseNameOf(zip.zipPath)
+    const dest = await saveFilePicker({ title: "保存代码包", defaultPath: fileName })
     if (!dest) throw new DownloadCancelledError()
 
-    await api.copyFileTo(result.zipPath, dest)
-    const size = formatBytes(result.bytes)
+    await copyFileTo(zip.zipPath, dest)
+    const size = formatBytes(zip.bytes)
     showOctoToast({ title: "已导出代码包", description: size ? `${fileName}（${size}）` : fileName })
-  } finally {
-    setExporting(false)
-  }
+  })
 }

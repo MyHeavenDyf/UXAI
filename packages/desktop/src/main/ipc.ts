@@ -51,7 +51,7 @@ import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
 import { toExactArrayBuffer } from "./buffer-slice"
-import { importSharedSession, prepareSharedSession } from "./shared-session"
+import { importSharedSession, inspectSharedSession, prepareSharedSession } from "./shared-session"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -303,6 +303,12 @@ export function registerIpcHandlers(deps: Deps) {
     return { token, agent: prepared.agent, module: prepared.module }
   })
   ipcMain.handle("release-shared-session", (event: IpcMainInvokeEvent, token: string) => releaseShare(token, event.sender.id))
+  ipcMain.handle("inspect-portable-session", async (_event: IpcMainInvokeEvent, archive: string) => {
+    if (typeof archive !== "string" || !isAbsolute(archive) || !(await stat(archive)).isFile()) {
+      throw new Error("请选择有效的 Session 文件")
+    }
+    return inspectSharedSession(archive)
+  })
   ipcMain.handle("import-shared-session", async (
     event: IpcMainInvokeEvent,
     uniqueId: string,

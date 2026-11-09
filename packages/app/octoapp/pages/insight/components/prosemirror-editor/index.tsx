@@ -23,6 +23,8 @@ import "./styles.css"
 export interface InsightEditorRef {
   insertMentions: (selections: MentionSelection[]) => void
   removeMention: (selection: MentionSelection) => void
+  /** 按原路径回写 chip 的引用路径(超限图片压缩后指向压缩产物;popover/addon 两条插入链的 id 口径不同,统一按 path 匹配) */
+  updateMentionPath: (path: string, newPath: string) => void
   getText: () => string
   getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
   focus: () => void
@@ -35,6 +37,7 @@ export interface InsightEditorRef {
 
 
 interface Props {
+  autoInjectMentions?: MentionSelection[]
   platformSkills: MentionSkill[]
   customSkills: MentionSkill[]
   files: MentionFiles | null
@@ -201,6 +204,17 @@ export function ProseMirrorEditor(props: Props) {
         const tr = removeAddonMention(v.state, selection)
         if (tr.docChanged) v.dispatch(tr)
       },
+      updateMentionPath: (path, newPath) => {
+        const v = view()
+        if (!connected(v) || path === newPath) return
+        const tr = v.state.tr
+        v.state.doc.descendants((node, pos) => {
+          if (node.type.name === "mention" && node.attrs.type === "file" && node.attrs.path === path) {
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, path: newPath })
+          }
+        })
+        if (tr.docChanged) v.dispatch(tr)
+      },
       getText: () => (connected(view()) ? getDocTextWithMentions(view()!.state.doc) : ""),
       getMentions: () => (connected(view()) ? extractMentionsFromDoc(view()!.state.doc) : []),
       focus: () => {
@@ -249,6 +263,29 @@ export function ProseMirrorEditor(props: Props) {
     }
 
     onCleanup(() => editorView.destroy())
+  })
+
+  // 与 Design 一致：每次挂载仅尝试一次，等待草稿回填后确认编辑器仍为空。
+  let autoInjected = false
+  createEffect(() => {
+    const injects = props.autoInjectMentions
+    if (!injects?.length) return
+    const v = view()
+    if (!v?.dom.isConnected || autoInjected) return
+    autoInjected = true
+    requestAnimationFrame(() => {
+      if (!v.dom.isConnected || !isEmpty()) return
+      for (const sel of injects) {
+        if (sel.type !== "skill") continue
+        const node = editorSchema.nodes.mention.create({
+          id: sel.name, name: sel.name, type: "skill", label: sel.label, path: "",
+        })
+        const from = v.state.selection.from
+        const tr = v.state.tr.replaceWith(from, v.state.selection.to, node)
+        tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+        v.dispatch(tr)
+      }
+    })
   })
 
   // disabled 变化时同步 editable

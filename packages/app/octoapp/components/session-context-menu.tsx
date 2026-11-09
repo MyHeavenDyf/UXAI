@@ -6,7 +6,9 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
 import { DialogShareSession } from "@/components/dialog-share-session"
+import { useLanguage } from "@/context/language"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
+import { usePortableSessionActions } from "@/hooks/use-portable-session-actions"
 import { tracker } from "@/utils/tracker"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
@@ -51,6 +53,7 @@ export type SessionContextMenuProps = {
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
   const dialog = useDialog()
+  const language = useLanguage()
   const shareBlockReason = useSessionShareBlockReason(() => props.session, () => props.show)
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
@@ -60,6 +63,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
 
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
+  const portable = usePortableSessionActions({ session: () => props.session, close: props.onClose })
   const [hoveredGroupId, setHoveredGroupId] = createSignal<string | null>(null)
   const [submenuVertical, setSubmenuVertical] = createSignal<"down" | "up">("down")
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
@@ -223,6 +227,30 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">分享</span>
             </button>
+            <Show when={portable.supported()}>
+              <button
+                data-slot="dropdown-menu-item"
+                class="flex items-center gap-2"
+                disabled={!!portable.action()}
+                onClick={() => void portable.exportSession()}
+              >
+                <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
+                  {language.t("session.portable.export") || "导出"}
+                </span>
+              </button>
+              <button
+                data-slot="dropdown-menu-item"
+                class="flex items-center gap-2"
+                disabled={!!portable.action()}
+                onClick={() => void portable.importSession()}
+              >
+                <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
+                  {language.t("session.portable.import") || "导入"}
+                </span>
+              </button>
+            </Show>
             <button
               data-slot="dropdown-menu-item"
               class="flex items-center gap-2"

@@ -43,9 +43,9 @@ export function ConversationHeader(
     sidebarToggle?: JSX.Element
     panelToggle?: JSX.Element
     context?: {
-      tokens: number
+      tokens: number | undefined
       limit?: number
-      usage: number
+      usage: number | undefined
       blocked: boolean
       disabled: boolean
       onCompact: () => void
@@ -336,10 +336,10 @@ export function ConversationHeader(
                         当前对话 Session 上下文
                         {context().blocked
                           ? "已超过100%"
-                          : context().usage >= 80
+                          : (context().usage ?? 0) >= 80
                             ? "已超过80%"
-                            : `已使用${context().usage}%`}{" "}
-                        (<span classList={{ "is-critical": context().usage >= 80 }}>{context().tokens.toLocaleString(language.intl())}</span>{" "}
+                            : context().usage === undefined ? "用量暂不可用" : `已使用${context().usage}%`}{" "}
+                        (<span classList={{ "is-critical": (context().usage ?? 0) >= 80 }}>{context().tokens?.toLocaleString(language.intl()) ?? "--"}</span>{" "}
                         / {context().limit?.toLocaleString(language.intl()) ?? "--"})，
                       </p>
                       <p>
@@ -355,7 +355,7 @@ export function ConversationHeader(
                     style={{ background: "transparent", border: "none", padding: "0" }}
                     disabled={context().disabled}
                     onClick={context().onCompact}
-                    aria-label={`上下文已使用 ${context().usage}%，点击压缩上下文`}
+                    aria-label={context().usage === undefined ? "用量暂不可用，点击压缩上下文" : `上下文已使用 ${context().usage}%，点击压缩上下文`}
                   >
                     <ContextUsageCircle percentage={context().usage} />
                   </button>

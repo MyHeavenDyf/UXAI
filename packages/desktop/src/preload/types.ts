@@ -10,7 +10,7 @@ export type ServerReadyData = {
 export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
-export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" }
+export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }
 export type SessionTransferProgress = {
   operationID: string
   type: "import"
@@ -82,6 +82,7 @@ export type ElectronAPI = {
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
   prepareSharedSession: (uniqueId: string, operationID?: string) => Promise<PreparedSharedSession>
+  inspectPortableSession: (archive: string) => Promise<Omit<PreparedSharedSession, "token">>
   releaseSharedSession: (token: string) => Promise<void>
   importSharedSession: (uniqueId: string, directory: string, scope?: "project" | "session", token?: string, operationID?: string) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>

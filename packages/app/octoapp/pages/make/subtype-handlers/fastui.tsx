@@ -1,5 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import defaultHandler from './default'
+import { archiveFastuiZip } from '../utils/fastui-archive'
 import { exportFastuiZip, fastuiTargetOf, isExportingAny, parseFastuiPreview } from '../utils/fastui-export'
 
 /**
@@ -11,6 +12,7 @@ import { exportFastuiZip, fastuiTargetOf, isExportingAny, parseFastuiPreview } f
  *
  * 行为整体沿用 _default；下载走标准入口（SPEC-DES-007 §8），下的是整个工程的代码包：
  * 打包由主进程调 skill 的 `export-zip.mjs` 完成（SPEC-DES-001 §8.6.2），不是单个文件。
+ * 归档只归档同一个源码 zip，作为普通文件交付件上传（SPEC-DES-007 §7），不截图、不带标注。
  */
 /**
  * 卡片对应的目标(工作区, 会话, 产物名)。旧版卡片转来的产物名是空串,导出时由主进程在
@@ -36,6 +38,24 @@ const fastuiHandler: SubtypeHandler = {
     ctx.tracker.interaction({ module: 'design', name: 'fastui-export-zip' })
     await exportFastuiZip(target)
     return true
+  },
+
+  // 交付件是源码 zip，不是 HTML 交付件：没有同名覆盖语义，弹窗不列已有交付件
+  archiveUpload: {
+    showDeliverables: false,
+    async onConfirm(ctx, data) {
+      const target = exportTarget(ctx)
+      if (!target) {
+        ctx.showOctoToast({ title: '归档失败', description: '未找到预览工程' })
+        return null
+      }
+      ctx.tracker.interaction({
+        module: 'design',
+        name: 'confirm-archive',
+        extend: JSON.stringify({ subtype: 'fastui', spaceType: data.spaceType }),
+      })
+      return archiveFastuiZip(target, data)
+    },
   },
 }
 
