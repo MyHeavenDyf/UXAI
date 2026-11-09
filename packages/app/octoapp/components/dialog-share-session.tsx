@@ -13,6 +13,7 @@ import { SessionSharePreview } from "./session-share-preview"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
 import { tracker } from "@/utils/tracker"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 import linkIcon from "./assets/session-share-link.svg"
 import closeIcon from "./assets/session-share-close.svg"
 import "./dialog-share-session.css"
@@ -23,7 +24,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
   const globalSDK = useGlobalSDK()
   const workspaceKind = useWorkspaceKind()
   const shareBlockReason = useSessionShareBlockReason(() => props.session)
-  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1, progress: "" })
+  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
   createEffect(() => {
     if (shareBlockReason()) setState("url", "")
   })
@@ -33,8 +34,20 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
     setState({
       sharing: true,
       error: "",
-      progress: state.url ? "正在复制分享链接" : "正在打包并上传对话",
     })
+    const operationID = state.url ? undefined : crypto.randomUUID()
+    const progress = operationID ? showSessionTransferProgress("正在生成分享链接") : undefined
+    const watcher = operationID ? new AbortController() : undefined
+    if (operationID && watcher) {
+      void watchSessionTransferProgress({
+        url: globalSDK.url,
+        operationID,
+        fetch: platform.fetch ?? fetch,
+        headers: directoryHeader(props.session.directory),
+        signal: watcher.signal,
+        update: progress!.update,
+      })
+    }
     await (async () => {
       const url = state.url || await (async () => {
         const token = modelsApiToken()
@@ -43,6 +56,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
           `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
         )
         if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+        if (operationID) endpoint.searchParams.set("operationID", operationID)
         const response = await (platform.fetch ?? fetch)(endpoint, {
           method: "POST",
           headers: {
@@ -60,14 +74,12 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
           throw new Error("分享接口未返回链接")
         }
         setState("url", result.url)
-        setState("progress", "正在生成分享链接")
         return result.url
       })()
       if (shareBlockReason()) {
         setState("url", "")
         throw new Error(shareBlockReason())
       }
-      setState("progress", "正在复制分享链接")
       const copied = platform.platform === "desktop"
         ? await (async () => {
           if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
@@ -101,7 +113,11 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       dialog.close()
     })().catch((error) => {
       setState("error", error instanceof Error ? error.message : String(error))
-    }).finally(() => setState({ sharing: false, progress: "" }))
+    }).finally(() => {
+      watcher?.abort()
+      progress?.dismiss()
+      setState("sharing", false)
+    })
   }
 
   return (
@@ -116,14 +132,6 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         </Kobalte.CloseButton>
       </header>
       <SessionSharePreview session={props.session} />
-      <Show when={state.sharing}>
-        <div class="session-share-transfer" role="status" aria-live="polite">
-          <span>{state.progress}</span>
-          <div class="session-share-transfer-track" role="progressbar">
-            <div />
-          </div>
-        </div>
-      </Show>
       <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
       <Show when={shareBlockReason()}><p class="session-share-error" role="status">{shareBlockReason()}</p></Show>
       <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>

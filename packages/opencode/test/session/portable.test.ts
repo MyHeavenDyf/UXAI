@@ -32,6 +32,32 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([
+    ["octo_studio", 0],
+    ["octo_make", 9],
+  ] as const)("imports %s root session with sort_order %d", async (agent, expected) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({
+      directory: source.path,
+      fn: async () => {
+        const session = await runSession((service) => service.create({ title: "Portable order", agent }))
+        await runSession((service) => service.setSortOrder({ sessionID: session.id, sortOrder: 9 }))
+        return AppRuntime.runPromise(
+          exportPortableSession({ sessionID: session.id, output: path.join(source.path, `${agent}.zip`) }),
+        )
+      },
+    })
+    const imported = await provideTestInstance({
+      directory: target.path,
+      fn: async () => {
+        const result = await AppRuntime.runPromise(importPortableSession(archive.output))
+        return runSession((service) => service.get(result.sessionID))
+      },
+    })
+    expect(imported.sort_order).toBe(expected)
+  })
+
   test("exports and imports shared website-root references unchanged alongside project source files", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
