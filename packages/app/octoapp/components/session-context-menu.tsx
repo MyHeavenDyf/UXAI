@@ -253,10 +253,12 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
             </button>
             <Show when={portable.supported()}>
               <button
-                data-slot="dropdown-menu-item"
-                class="flex items-center gap-2"
-                disabled={!!portable.action()}
-                onClick={() => void portable.exportSession()}
+              data-slot="dropdown-menu-item"
+              class="flex items-center gap-2"
+              disabled={!!portable.action() || !!shareBlockReason()}
+              title={shareBlockReason()}
+              style={{ opacity: shareBlockReason() ? 0.5 : 1, cursor: shareBlockReason() ? "not-allowed" : undefined }}
+              onClick={() => void portable.exportSession()}
               >
                 <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">

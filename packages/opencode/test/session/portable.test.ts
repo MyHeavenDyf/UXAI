@@ -22,6 +22,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Todo } from "@/session/todo"
+import { StudioGenerationTable } from "@/studio/studio-generation.sql"
 import { listStudioHistoryMedia } from "@/studio/studio-history-service"
 import { StudioHistoryExcludedTable, StudioHistoryTable } from "@/studio/studio-history.sql"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
@@ -99,6 +100,32 @@ describe("portable session", () => {
         output: path.join(source.path, "bundle.zip"),
       }))
       expect(await Bun.file(exported.output).exists()).toBe(true)
+    } })
+  })
+
+  test.each(["creating", "queued", "running"] as const)("rejects sharing a Studio session while generation is %s", async (status) => {
+    await using source = await tmpdir({ git: true })
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "Studio generation", agent: "octo_studio" }))
+      const now = Date.now()
+      Database.use((db) =>
+        db.insert(StudioGenerationTable).values({
+          id: `studio_gen_${status}`,
+          session_id: session.id,
+          directory: source.path,
+          assistant_message_id: MessageID.ascending(),
+          tool_part_id: PartID.ascending(),
+          provider: "internel",
+          capability: "image.generate",
+          status,
+          request: { input: { prompt: "test", capability: "image.generate" } },
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_created: now,
+          time_updated: now,
+        }).run(),
+      )
+      await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+        .rejects.toThrow("对话正在进行中，请等待结束后再分享")
     } })
   })
 

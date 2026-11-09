@@ -9,6 +9,7 @@ import { Global } from "@opencode-ai/core/global"
 import { InstanceState } from "@/effect/instance-state"
 import { Filesystem } from "@/util/filesystem"
 import { NonNegativeInt } from "@/util/schema"
+import { isStudioSessionGenerating } from "@/studio/prompt-recommendation-state"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
@@ -414,8 +415,12 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
 }) {
   const status = yield* SessionStatus.Service
   const sessions = yield* Session.Service
+  const info = yield* sessions.get(input.sessionID)
   const assertShareable = Effect.gen(function* () {
-    if ((yield* status.get(input.sessionID)).type !== "idle") {
+    if (
+      (yield* status.get(input.sessionID)).type !== "idle" ||
+      (info.agent === "octo_studio" && (yield* Effect.promise(() => isStudioSessionGenerating(input.sessionID))))
+    ) {
       return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
     }
   })
@@ -427,7 +432,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
     return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
   }
-  const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
