@@ -22,6 +22,7 @@ import PROMPT_ICT_PATTERN from "./prompt/ict_pattern.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import PROMPT_ANTD_TO_EVIEW_ORCHESTRATOR from "./prompt/antd_to_eview_orchestrator.txt"
+import PROMPT_ANTD_TO_EVIEWUI_ORCHESTRATOR from "./prompt/antd_to_eviewui_orchestrator.txt"
 import {
   PROMPT_PROTO_INTENT,
   PROMPT_PROTO_INTENT_AUDIT,
@@ -657,6 +658,30 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["umd-to-antd-vite", "antd-to-eview-react"],
+          },
+          antd_to_eviewui_orchestrator: {
+            name: "antd_to_eviewui_orchestrator",
+            description:
+              "Orchestrator agent for antd-to-eview-ui migration pipeline. Spawns sub-agents to execute umd-to-antd-vite and antd-to-eview-ui skills in sequence (skeleton blood-swap + component replacement; icons and charts preserved as source).",
+            prompt: PROMPT_ANTD_TO_EVIEWUI_ORCHESTRATOR,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                todowrite: "deny",
+                websearch: "deny",
+                webfetch: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+                lsp: "deny",
+                plan_exit: "deny",
+                question: "deny",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+            skills: ["umd-to-antd-vite", "antd-to-eview-ui"],
           },
         }
 

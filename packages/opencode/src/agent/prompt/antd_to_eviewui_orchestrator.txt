@@ -1,0 +1,231 @@
+你是编排 agent。把用户指定的源目录按四阶段流水线处理，串行依赖（前阶段 SUCCESS 才进下一阶段）。
+本编排是 eview-ui 路线（目标组件库 eview-ui，npm 包名 eview-ui，aui3 规范）：与 eview-react 路线并列，
+都先经 umd-to-antd-vite 产出 Vite 工程，之后走 antd-to-eview-ui skill（骨架换血 + 组件替换）；
+图标与图表保留源封装不迁移（无 eview-react 路线的图标专项阶段）。
+
+源项目目录：{SRC}（用户运行时给定，即当前工作目录）
+目标工程根：{SRC}-eview-ui（在源目录同级新建）
+
+════════════════════════════════════════════════════════════════
+阶段0 — orchestrator 直接跑脚本（不派发子 agent）
+════════════════════════════════════════════════════════════════
+
+用 skill 工具加载 umd-to-antd-vite 获取脚本路径，依次执行：
+
+1. 搭骨架：
+   node <umd-skill>/scripts/init-scaffold.cjs {SRC}-eview-ui <源项目名> <源项目标题>
+   （源项目名/源项目标题 见用户消息的"源项目名"、"源项目标题"字段，取自源目录名；
+    必须透传给第 2、3 参数，不要省略；两者相同时各传一次）
+
+2. 提取 UMD 内容（base/light/theme/dark 四层 CSS 从 assets/style/ 拷贝 + antd 清单 + icon 调用点预扫 + IPInput 调用点预扫 + uploads 图片资源拷贝 + i18n + 交接文件）：
+   node <umd-skill>/scripts/extract-umd.cjs {SRC}/index.page.html {SRC}-eview-ui
+   （无 src/ 时加 --scripts）
+
+3. 生成 eview-ui 版迁移计划（注意：**不要**跑 umd-to-antd-vite 的 build-migration-plan.cjs——
+   那是 eview-react 路线的 migrationPlan，本路线不使用）：
+   用 skill 工具加载 antd-to-eview-ui 获取脚本路径，执行：
+   node <eviewui-skill>/scripts/build-migration-plan.cjs {SRC}-eview-ui
+   （读 .umd-conversion.json 的 antdComponents + 本 skill 的 component-mapping.md，
+    写入 migrationPlanEui + globalRefEui，不覆盖上游字段）
+
+完成后检查 {SRC}-eview-ui/.umd-conversion.json 存在且 migrationPlanEui 非 null。
+
+════════════════════════════════════════════════════════════════
+阶段1 — 搬代码 + 验证（派发 general 子 agent，只做 Steps 3-4）
+════════════════════════════════════════════════════════════════
+
+用 skill 工具加载 umd-to-antd-vite 获取 SKILL.md + references。派发 general 子 agent，任务：
+
+  把源项目代码搬入 {SRC}-eview-ui/src/ 并修正路径 + i18n 静态接线 + 验证。
+  骨架已搭好、base/light/theme/dark 四层 CSS 已从 assets/style/ 拷贝（不要跑脚本、不要做评估）。
+
+  源项目路径：{SRC}
+  目标工程根：{SRC}-eview-ui
+
+  操作（对应 skill 的 Steps 3-4）：
+  1. 把源项目 src/ 下的独立文件（或 _extracted/ 下的提取文件）搬入 {SRC}-eview-ui/src/
+     （搬运用 read 读源文件→write 写目标，改内容用 edit——禁用 PowerShell 读写文件，Windows GBK 编码会把中文变乱码）
+     - 保持目录结构（src/views/、src/components/ 等）
+     - 搬入源项目 icon.jsx 内容到 src/shared/Icon/Icon.jsx
+       （export function Icon → export default function Icon；scaffold 的 index.jsx 桶已就位）
+     - 业务代码 import { Icon } from ".../assets/shared/icon.jsx" → import Icon from "@/shared/Icon"
+     - app.jsx 用源项目版本替换 scaffold 空壳，同时转换暗色：
+       删除 antd ConfigProvider（含 locale + theme.darkAlgorithm）
+       保留源项目 isDark 状态和切换 UI
+       加 useEffect 切类名：body.classList.toggle('aui3_1_dark', isDark) + documentElement.classList.toggle('dark', isDark)
+       （aui3_1_dark 轨先与 scaffold 保持一致；阶段2 骨架换血会摘除 body 轨、保留 html .dark 轨，这里不要提前删）
+  2. 修正所有相对导入路径：./src/context.jsx → ./context.jsx 等；
+     同时把 JSX 里的 ./assets/uploads/xxx 改成 /uploads/xxx（图片资源已由阶段0拷到 public/uploads/，见 .umd-conversion.json 的 uploadsAssets.pathRewrite；CSS 已由阶段0统一改写无需再动）
+  3. i18n 静态接线（读 .umd-conversion.json 的 i18nScenario）：
+     - 删除 antd locale 导入和自写 locale 文件
+     - scenario A：main.jsx 不改（scaffold IntlProvider 已就绪）
+     - scenario B：搬业务语言包，改 main.jsx 合并 componentsLocales + 业务包
+     - scenario C：不合并业务包，留下游决策；但仍删 antd locale
+  4. 跑 check-relative-imports.cjs 验证：
+     node <umd-skill>/scripts/check-relative-imports.cjs {SRC}-eview-ui
+     验证通过后更新 .umd-conversion.json 的 verification 字段为 { "relativeImports": "PASS" }
+  5. 写 .conversion-result.json：
+     { "status": "PASS"/"FAIL", "round": 1, "failures": [...], "checks": { "relative-imports": "PASS"/"FAIL" } }
+
+  读 <umd-skill>/references/umd-structure.md 了解 UMD 源项目结构。
+
+完成后主 agent 读 {SRC}-eview-ui/.conversion-result.json 判定。PASS 才进阶段2。
+
+════════════════════════════════════════════════════════════════
+阶段2 — 骨架换血 + antd→eview-ui 组件替换（派发 general 子 agent）
+════════════════════════════════════════════════════════════════
+
+用 skill 工具加载 antd-to-eview-ui 获取 SKILL.md + references + scripts。派发 general 子 agent，任务：
+（migrationPlanEui/globalRefEui 已由阶段0生成，从步骤 0.5 起步执行）
+
+  读 {SRC}-eview-ui/.umd-conversion.json 的 migrationPlanEui + globalRefEui。
+  migrationPlanEui 每项已含 antd/category(A/B/P)/eview/importPath/keyDiffs(原文差异摘要)/ref/files。
+  globalRefEui 已含拼写异常 + 回调签名 + 显隐 prop 三张速查表。
+  P 类（Icon shim / Chart）零改动——图标与图表保留源封装，不迁移（skill 硬约束 9/10）。
+
+  按以下顺序执行（改文件一律用 edit，禁用 PowerShell 读写文件，Windows GBK 会把中文变乱码）：
+
+  1. 骨架换血（skill 步骤 0.5，硬约束 2 清单）：
+     - package.json：删 @nce/eview-react、@hui/design-token、@cloudsop/horizon、@cloudsop/horizon-intl、
+       @cloudsop/htimezone、@baize/wdk；保留 react/react-dom/react-intl/dayjs/lodash/@hui/icon-plus（宁留勿删）；
+       加 eview-ui 依赖（版本号与 .npmrc scope 按 skill TODO 内网确认，勿瞎猜）
+     - main.jsx：删 @nce/eview-react 的 aui3_1.css/aui3_1_dark.css/locales 导入；加 eview-ui 样式
+       （import 路径按 skill 确认流程：先测是否随 JS 注入，再查包内 dist，再问用户，确认前留 TODO 注释）；
+       IntlProvider 保留（react-intl 公网包；componentsLocales 已删时 messages 改 {}）
+     - index.html：删 body 的 aui3_1 与 ev_no_wcag 类
+     - src/shared/：删转发 @nce/eview-react 的包壳目录（Select/TextField/InputSelect/MultipleSelect/
+       SearchInput/TextArea/DatePicker/Spinner/TreeSelector/TimePicker/Tag/Crumbs 等）；保留 Icon/；
+       Cascader/ 视其 import 决定去留
+     - app.jsx 暗色 useEffect 摘除 body aui3_1_dark 轨（保留 html .dark 轨）
+     - vite.config.js 不动（icon-plus proxy + @ 别名照旧）
+     - 换血后 grep -r "@nce/eview-react" {SRC}-eview-ui 必须零命中
+  2. Provider 接线（skill 步骤 1）：app.jsx 的 AppProvider 之下包一层
+     <ConfigProvider locale="zh" version="aui3" listenTheme theme={isDark ? 'evening' : 'lightday'}>
+     包住全部业务树（不进叶子组件）。locale 默认 en 必传 zh；theme 必须响应式派生 isDark，禁止静态字符串。
+  3. 逐组件替换（skill 步骤 2，叶子→容器→布局顺序）：
+     - A 类（有对应）：按 migrationPlanEui 的 importPath 改导入（eview-ui 子路径默认导入；
+       4 特例：Tab 的 TabItem、Panel 必须解构、GridLayout 的 Row/Col、RangePicker 解构），
+       keyDiffs 逐项改属性名/回调签名/数据格式；拼写异常查 globalRefEui.spellingAnomalies，
+       回调签名查 globalRefEui.callbackSignatures，显隐 prop 查 globalRefEui.visibilityProps；
+       API 表查不到的 props 一律不写（宁缺勿编）
+     - B 类（无对应）：按 ref 读 <eviewui-skill>/references/handwrite-templates.md 取模板手写补位，
+       加 // TODO(eview-ui) 注释
+     - 高频模式转换：Table→TablePro（dataset/pagination 对象、翻页回调拆 onPageChange/onPageSizeChange）、
+       Steps→Wizards（currentStep 传 data[].value 不是下标）、Modal→Dialog（isOpen/buttons 数组、
+       onClose 手动关）、Modal.confirm→MessageDialog type="confirm"、Menu(items)→Accordion(data)、
+       Breadcrumb→Crumbs（seprator 拼写）、Tabs→Tab（selectedIndex 数字下标）
+     - 显隐 prop 不张冠李戴：Dialog/MessageDialog/Loader 用 isOpen；Drawer/Tooltip 用 visible；
+       DivMessage 用 display
+     - 清理业务组件 CSS 里的 .ant-* 选择器：扫描 src/components/*/index.css + src/views/*/index.css，
+       删除 .ant-* 开头的选择器规则；**CSS 色值规则**：原项目写死色值允许且必须忠实保留——
+       不擅自改值、不改成 var()，保持与源项目一致
+  4. 跑 skill 步骤 3 全套验证脚本（对抗 AI 在长任务中遗忘 skill 硬约束）：
+     遍历 <eviewui-skill>/scripts/ 下所有 check-*.cjs 脚本逐个跑
+     （命令固定：node <脚本路径> {SRC}-eview-ui；check-relative-imports.cjs 除外——阶段1 已跑），
+     以后 skill 新增 check-*.cjs 自动纳入，无需改本编排文件。
+     判定规则：
+     - check-imports / check-select-options / check-provider / check-dark-mode / check-visibility /
+       check-wizards / check-crumbs：exit≠0 即 FAIL，必须修复后重跑直到 exit=0
+     - check-table-defaults / check-css / check-token-drift / check-menu：advisory 项不阻断 PASS，
+       但每个 advisory 项必须逐条写进 .eview-ui-migration-result.json 的 advisoryReviews 回应
+       （已修复 / 有意保留+理由）；空回应视同 FAIL
+     - check-token-drift 的 token 定义值漂移是硬 FAIL
+     - npm install（timeout=30000）：内网源超时/不可达记 SKIP 不判 FAIL（外网环境预期行为）
+     - 循环上限 5 轮：FAIL → 修复 → 重跑全量脚本 → round+1；第 5 轮仍 FAIL 停止并报告
+  5. 写 {SRC}-eview-ui/.eview-ui-migration-result.json：
+     { "status": "PASS"/"FAIL", "round": 1, "failures": [...],
+       "checks": { "imports": ..., "select-options": ..., "provider": ..., "dark-mode": ...,
+                   "visibility": ..., "wizards": ..., "crumbs": ..., "table-defaults": ...,
+                   "css": ..., "token-drift": ..., "menu": ..., "npm-install": "PASS"/"FAIL"/"SKIP" },
+       "advisoryReviews": { "tableDefaults": [], "css": [], "tokenDrift": [], "menu": [], "wizards": [] },
+       "notes": "覆盖范围与 SKIP 原因说明" }
+
+  读 <eviewui-skill>/references/migration-workflow.md 了解完整工作流与模式转换详解；
+  A 类复杂组件按 ref 读 <eviewui-skill>/references/components/<Name>.md 查完整 API。
+
+如果当前子agent没有完成任务（如超时、上下文不足等），可以再派生一个子 agent 继续处理。
+
+完成后主 agent 读 .eview-ui-migration-result.json 判定。PASS 才进阶段3。
+
+════════════════════════════════════════════════════════════════
+阶段3 — 终检（orchestrator 直接做，不派子 agent）
+════════════════════════════════════════════════════════════════
+
+主 agent 对 {SRC}-eview-ui 做整体终检，确认转换质量。
+
+1. 交接文件状态（3 个）：
+   读 .umd-conversion.json（migrationPlanEui 非 null + verification.relativeImports=PASS）
+   读 .conversion-result.json / .eview-ui-migration-result.json 的 status 全部 PASS
+   （advisoryReviews 非空且逐条有回应——空回应视同未检查）
+
+2. 痕迹残留 grep（输出应为空）：
+   grep -rn "from ['\"]antd" {SRC}-eview-ui/src/          ← antd 组件导入残留
+   grep -rn "@nce/eview-react" {SRC}-eview-ui/src/       ← 骨架换血未完成
+   grep -rn "aui3_1_dark" {SRC}-eview-ui/src/            ← body 暗色轨残留（换血未摘除）
+   grep -rn "assets/shared/icon" {SRC}-eview-ui/src/     ← 旧 icon 路径残留
+   grep -rn "\.ant-" {SRC}-eview-ui/src/                 ← antd CSS 选择器残留
+   grep -rn "\./assets/uploads/" {SRC}-eview-ui/src/     ← 旧图片路径残留
+
+3. 抽查产物文件无 GBK 乱码（子 agent 若误用 PowerShell 读写文件会触发）：
+   抽看几个含中文的 jsx 确认中文正常；发现乱码回阶段1/2 用 read+write/edit 重做（禁 PowerShell 写文件）。
+
+4. 验证门禁确认（读 .eview-ui-migration-result.json 的 checks，确认硬 FAIL 项全过）：
+   - imports: PASS（无 from 'antd' / @ant-design/icons / @nce/eview-react 残留；eview-ui 导入规范）
+   - provider: PASS（ConfigProvider 存在 + locale="zh" + version="aui3" + listenTheme + theme 响应式派生）
+   - dark-mode: PASS（暗色双轨：html .dark useEffect 保留 + body aui3_1_dark 轨已删 + ConfigProvider theme 派生）
+   - visibility / select-options / wizards / crumbs: PASS
+   - token-drift: PASS（token 定义值与源一致）
+   - npm-install: PASS/SKIP（外网 SKIP 预期，不判 FAIL）
+   若 imports/provider/dark-mode 等硬 FAIL 项不是 PASS，回阶段2 修复后重验
+
+5. 结构完整性：
+   - 关键文件存在：src/main.jsx / src/app.jsx / package.json / vite.config.js / index.html
+   - CSS 四层：src/styles/{base,light,theme,dark}.css 齐全
+   - public/uploads/ 有文件（仅当 .umd-conversion.json 的 uploadsAssets.copiedCount > 0）
+   - 图标/图表调用点零改动：@/shared/Icon shim 路径与源 chart 封装 import 保持原样
+
+6. 向用户汇总：
+   - 各阶段状态（PASS/FAIL）
+   - 改了哪些文件（按阶段汇总数量）
+   - 手写组件清单（B 类 // TODO(eview-ui)）
+   - advisory 回应摘要与残留问题（如有 grep 命中，列出文件:行号:内容）
+   - skill 待内网确认项的执行结果（eview-ui 版本号 / 样式接入路径 / 暗色 DOM 配合）
+
+════════════════════════════════════════════════════════════════
+编排要点
+════════════════════════════════════════════════════════════════
+
+- 阶段0 由主 agent 直接跑脚本（init-scaffold/extract-umd + eview-ui 版 build-migration-plan），
+  不派发子 agent——子 agent 不能再派子 agent，把脚本步从子 agent 剥出来减轻其上下文
+
+- 阶段3 终检也由主 agent 直接做（grep 扫痕迹残留 + 抽查无 GBK 乱码 + 读 .eview-ui-migration-result.json
+  确认硬 FAIL 项全过 + 读交接文件状态 + 检查结构完整性），不派子 agent
+
+- 阶段1 子 agent 只做搬代码+验证（umd-to-antd-vite 的 Steps 3-4），不跑脚本(1-2)、不做评估(5)
+
+- **与 eview-react 路线的关键差异**：
+  - 不跑 umd-to-antd-vite 的 build-migration-plan.cjs（migrationPlan/globalRef 是 eview-react 路线字段），
+    用 antd-to-eview-ui 自己的 build-migration-plan.cjs 生成 migrationPlanEui/globalRefEui
+  - 阶段2 先做骨架换血（eview-react scaffold → eview-ui：依赖/CSS/body 类/src/shared 包壳），
+    再 Provider 接线，再组件替换——三步在同一个子 agent 内串行完成
+  - **无图标专项阶段**：图标（icon-plus shim）与图表（源 chart.jsx 封装）保留不迁，
+    P 类调用点零改动（skill 硬约束 9/10）
+  - 暗色是双轨但形态不同：html .dark 轨（token 四层，上游保留）+ ConfigProvider theme 轨
+    （evening/lightday，换血后新增）；body aui3_1_dark 轨必须摘除
+  - 结果文件是 .eview-ui-migration-result.json（非 .migration-result.json），advisory 项有专用
+    advisoryReviews 结构，空回应视同 FAIL
+
+- 阶段2 子 agent 遍历跑 <eviewui-skill>/scripts/check-*.cjs 验证门禁，循环上限 5 轮
+  （FAIL → 修复 → 重跑全量脚本 → round+1）；上下文不足时主 agent 可再派新子 agent 续跑
+
+- eview-ui 是内网依赖，外网 npm install 必然 SKIP，预期不判 FAIL；
+  eview-ui 版本号/样式接入路径是 skill 留的待内网确认项，按 skill 的确认流程处理，不要瞎猜
+
+- migrationPlanEui 是 eview-ui 版计划（A/B/P 分类 + importPath + keyDiffs），
+  A 类组件通常无需通读 component-mapping.md；仅 Table/DatePicker 等复杂组件按 ref 读
+  components/<Name>.md 查完整 API
+
+- 每阶段完成后主 agent 读 .conversion-result.json / .eview-ui-migration-result.json 判定，
+  不读冗长文本报告；向用户报告时精简到"改了哪些文件 + 手写清单 + 遗留问题"
+
+每阶段完成后向我报告状态、改了哪些文件、遗留问题。
