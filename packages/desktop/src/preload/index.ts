@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
+// jk-j60099994-replace-with-dyf-bridge-preload-import-start
 import type { DownloadSavePathInfo, ElectronAPI, InitStep, SessionTransferProgress, SqliteMigrationProgress } from "./types"
+// jk-j60099994-replace-with-dyf-bridge-preload-import-end
 
 const api: ElectronAPI = {
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
@@ -128,6 +130,8 @@ const api: ElectronAPI = {
     ipcRenderer.on("app-reopen", callback)
     return () => ipcRenderer.removeListener("app-reopen", callback)
   },
+  // jk-j60099994-replace-with-dyf-bridge-preload-api-start
+  // jk-j60099994-replace-with-dyf-bridge-preload-api-end
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
@@ -160,10 +164,13 @@ const api: ElectronAPI = {
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
   getPatternIndex: (category, theme) => ipcRenderer.invoke("get-pattern-index", category, theme),
   getPatternFile: (category, filename, theme) => ipcRenderer.invoke("get-pattern-file", category, filename, theme),
-  getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
-  getPatternAssets: (category, folderName, theme) => ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
+  getPatternPreview: (category, filename, theme) =>
+    ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
+  getPatternAssets: (category, folderName, theme) =>
+    ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
-  downloadHuiCode: (jsonData, options?: { targetLib?: string }) => ipcRenderer.invoke("download-hui-code", jsonData, options),
+  downloadHuiCode: (jsonData, options?: { targetLib?: string }) =>
+    ipcRenderer.invoke("download-hui-code", jsonData, options),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
   getTopixsoDir: () => ipcRenderer.invoke("get-topixso-dir"),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
@@ -171,7 +178,8 @@ const api: ElectronAPI = {
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
   listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
-  pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
+  pipelineRequest: (url, method, uiplusToken, body, headers) =>
+    ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   startLogin: () => ipcRenderer.invoke("auth:start-login"),
@@ -215,7 +223,8 @@ const api: ElectronAPI = {
   checkAuthReady: () => ipcRenderer.invoke("auth:check-ready"),
   // jk-j60099994-replace-with-index-1-end
   getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
-  configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) => ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
+  configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) =>
+    ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
   // jk-j60099994-replace-with-yjt-pixso-preload-index-1-start
   // jk-j60099994-replace-with-yjt-pixso-preload-index-1-end
 }

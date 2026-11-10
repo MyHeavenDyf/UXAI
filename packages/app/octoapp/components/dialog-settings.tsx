@@ -7,7 +7,8 @@ import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsMcp } from "./settings-mcp"
-
+// jk-j60099994-replace-with-dyf-bridge-setting-import-start
+// jk-j60099994-replace-with-dyf-bridge-setting-import-end
 // ── Dialog drag-to-move support ──
 // The settings dialog is a centered modal portaled to document.body. There is no
 // built-in move logic, so we translate the [data-slot="dialog-container"] box by
@@ -182,6 +183,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             transform: translateX(20px) !important;
             border: none !important;
           }
+          // jk-j60099994-replace-with-dyf-bridge-settion-css-start
           [data-settings-models],
           [data-settings-mcp] {
             scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
@@ -197,6 +199,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             background: rgba(0, 0, 0, 0.24);
             border-radius: 999px;
           }
+          // jk-j60099994-replace-with-dyf-bridge-settion-css-end
         `}</style>
         {/* Draggable title bar — press and drag to move the dialog */}
         <div
@@ -238,15 +241,23 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
               cursor: "pointer",
               color: "rgba(0, 0, 0, 0.6)",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.06)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(0,0,0,0.06)"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent"
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
             </svg>
           </button>
         </div>
-        <TabsRoot orientation="vertical" defaultValue={props.initialTab ?? "general"} style={{ display: "flex", flex: "0 1 auto", "min-height": "0" }}>
+        <TabsRoot
+          orientation="vertical"
+          defaultValue={props.initialTab ?? "general"}
+          style={{ display: "flex", flex: "0 1 auto", "min-height": "0" }}
+        >
           <TabsList
             style={{
               width: "240px",
@@ -306,8 +317,10 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                     "-webkit-mask-size": "15px 18.3167px",
                   }}
                 />
+                {/* jk-j60099994-replace-with-dyf-bridge-settion-tab-start*/}
                 {language.t("settings.mcp.title")}
               </TabsTrigger>
+              {/* jk-j60099994-replace-with-dyf-bridge-settion-tab-end*/}
             </div>
             <div
               style={{
@@ -316,7 +329,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                 "justify-content": "center",
                 gap: "12px",
                 padding: "0",
-                "margin-top": "24px"
+                "margin-top": "24px",
               }}
             >
               <img src="/setting/OctoAgentLogo.png" width={114} height={28} alt="" />
@@ -337,9 +350,14 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
           >
             <SettingsModels />
           </TabsContent>
-          <TabsContent value="mcp" style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}>
+          <TabsContent
+            value="mcp"
+            style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}
+          >
             <SettingsMcp />
           </TabsContent>
+          {/* jk-j60099994-replace-with-dyf-bridge-settion-content-start*/}
+          {/* jk-j60099994-replace-with-dyf-bridge-settion-content-end*/}
         </TabsRoot>
       </div>
     </Dialog>
