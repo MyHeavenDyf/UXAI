@@ -148,87 +148,90 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
             关联代码仓
           </div>
 
-          <Show when={status() === "no-directory"}>
-            <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
-              请先选择关联本地文件夹
-            </div>
-          </Show>
+          {/* 内容区:预留 min-height 避免 loading → found/not-found 切换时弹窗高度闪变 */}
+          <div style={{ "min-height": "108px", width: "100%" }}>
+            <Show when={status() === "no-directory"}>
+              <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
+                请先选择关联本地文件夹
+              </div>
+            </Show>
 
-          <Show when={status() === "loading"}>
-            <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
-              正在检测代码仓...
-            </div>
-          </Show>
+            <Show when={status() === "loading"}>
+              <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
+                正在检测代码仓...
+              </div>
+            </Show>
 
-          <Show when={status() === "found"}>
-            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
-              当前代码仓地址
-            </div>
-            <div
-              style={{
-                width: "100%",
-                "margin-top": "8px",
-                height: "40px",
-                padding: "0 12px",
-                display: "flex",
-                "align-items": "center",
-                border: "1px solid var(--octo-border-input, #D1D5DB)",
-                "border-radius": "6px",
-                background: "var(--octo-surface-disabled, #F3F4F6)",
-                "font-size": "14px",
-                "font-family": "monospace",
-                color: "var(--octo-text-base, #191919)",
-                overflow: "hidden",
-                "text-overflow": "ellipsis",
-                "white-space": "nowrap",
-              }}
-            >
-              {existingRemote()}
-            </div>
-          </Show>
+            <Show when={status() === "found"}>
+              <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
+                当前代码仓地址
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  "margin-top": "8px",
+                  height: "40px",
+                  padding: "0 12px",
+                  display: "flex",
+                  "align-items": "center",
+                  border: "1px solid var(--octo-border-input, #D1D5DB)",
+                  "border-radius": "6px",
+                  background: "var(--octo-surface-disabled, #F3F4F6)",
+                  "font-size": "14px",
+                  "font-family": "monospace",
+                  color: "var(--octo-text-base, #191919)",
+                  overflow: "hidden",
+                  "text-overflow": "ellipsis",
+                  "white-space": "nowrap",
+                }}
+              >
+                {existingRemote()}
+              </div>
+            </Show>
 
-          <Show when={status() === "not-found"}>
-            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
-              <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
-              <span>关联代码仓地址</span>
-            </div>
+            <Show when={status() === "not-found"}>
+              <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
+                <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
+                <span>关联代码仓地址</span>
+              </div>
 
-            <input
-              type="text"
-              value={repoUrl()}
-              onInput={(e) => {
-                setRepoUrl(e.currentTarget.value)
-                setTriedSubmit(false)
-              }}
-              placeholder="请输入代码仓地址"
-              aria-required="true"
-              aria-invalid={showError() || showFormatError()}
-              class="w-full"
-              style={{
-                height: "40px",
-                "margin-top": "8px",
-                padding: "0 12px",
-                border: `1px solid ${showError() || showFormatError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
-                "border-radius": "6px",
-                "font-size": "14px",
-                "font-family": "monospace",
-                outline: "none",
-                background: "var(--octo-surface, #fff)",
-              }}
-            />
+              <input
+                type="text"
+                value={repoUrl()}
+                onInput={(e) => {
+                  setRepoUrl(e.currentTarget.value)
+                  setTriedSubmit(false)
+                }}
+                placeholder="请输入代码仓地址"
+                aria-required="true"
+                aria-invalid={showError() || showFormatError()}
+                class="w-full"
+                style={{
+                  height: "40px",
+                  "margin-top": "8px",
+                  padding: "0 12px",
+                  border: `1px solid ${showError() || showFormatError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
+                  "border-radius": "6px",
+                  "font-size": "14px",
+                  "font-family": "monospace",
+                  outline: "none",
+                  background: "var(--octo-surface, #fff)",
+                }}
+              />
 
-            <div style={{ width: "100%", "min-height": "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px" }}>
-              <Show when={showError()}>
-                <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>请输入代码仓地址</span>
-              </Show>
-              <Show when={showFormatError()}>
-                <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>地址格式不正确，请输入有效的代码仓地址</span>
-              </Show>
-              <Show when={error()}>
-                <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>{error()}</span>
-              </Show>
-            </div>
-          </Show>
+              <div style={{ width: "100%", "min-height": "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px" }}>
+                <Show when={showError()}>
+                  <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>请输入代码仓地址</span>
+                </Show>
+                <Show when={showFormatError()}>
+                  <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>地址格式不正确，请输入有效的代码仓地址</span>
+                </Show>
+                <Show when={error()}>
+                  <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>{error()}</span>
+                </Show>
+              </div>
+            </Show>
+          </div>
 
           <div style={{ display: "flex", gap: "12px", "margin-top": "24px", "justify-content": "flex-end" }}>
             <button
