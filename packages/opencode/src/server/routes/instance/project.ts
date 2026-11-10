@@ -22,7 +22,7 @@ const GitRemoteAddedResponse = z.object({
 })
 
 const GitRemoteInput = z.object({
-  url: z.string().min(1).regex(/^https?:\/\/|git@|^ssh:\/\//, "Invalid repository URL format"),
+  url: z.string().min(1).regex(/^(https?:\/\/|git@|ssh:\/\/)/, "Invalid repository URL format"),
 })
 
 // 共享 directory 校验:拒绝根路径、空串、盘符根、含 .. 路径分段的路径穿越
