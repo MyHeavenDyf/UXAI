@@ -24,14 +24,11 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
   const [status, setStatus] = createSignal<RemoteStatus>("loading")
   const [existingRemote, setExistingRemote] = createSignal("")
   const [repoUrl, setRepoUrl] = createSignal("")
-  const [triedSubmit, setTriedSubmit] = createSignal(false)
   const [submitting, setSubmitting] = createSignal(false)
   const [error, setError] = createSignal("")
 
   const hasUrl = createMemo(() => repoUrl().trim().length > 0)
   const isValidUrl = createMemo(() => GIT_REPO_REGEX.test(repoUrl().trim()))
-  const showError = createMemo(() => triedSubmit() && !hasUrl())
-  // 输入内容不匹配正则时立即提示,不依赖 triedSubmit(按钮已禁用无法触发 submit)
   const showFormatError = createMemo(() => hasUrl() && !isValidUrl())
 
   // 弹窗打开时检测所选目录是否已关联远程仓库
@@ -62,7 +59,6 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
       return
     }
     if (status() !== "not-found") return
-    setTriedSubmit(true)
     const url = repoUrl().trim()
     if (!url || !isValidUrl()) return
     setSubmitting(true)
@@ -142,7 +138,6 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
             padding: "20px 24px",
             "box-shadow": "0 4px 24px rgba(0, 0, 0, 0.15)",
           }}
-          onClick={(e) => e.stopPropagation()}
         >
           <div style={{ "font-weight": 500, "font-size": "18px", "line-height": "24px", color: "var(--octo-text-base, #191919)" }}>
             关联代码仓
@@ -198,19 +193,18 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
               <input
                 type="text"
                 value={repoUrl()}
-                onInput={(e) => {
-                  setRepoUrl(e.currentTarget.value)
-                  setTriedSubmit(false)
-                }}
+              onInput={(e) => {
+                setRepoUrl(e.currentTarget.value)
+              }}
                 placeholder="请输入代码仓地址"
                 aria-required="true"
-                aria-invalid={showError() || showFormatError()}
+                aria-invalid={showFormatError()}
                 class="w-full"
                 style={{
                   height: "40px",
                   "margin-top": "8px",
                   padding: "0 12px",
-                  border: `1px solid ${showError() || showFormatError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
+                  border: `1px solid ${showFormatError() ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
                   "border-radius": "6px",
                   "font-size": "14px",
                   "font-family": "monospace",
@@ -220,9 +214,6 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
               />
 
               <div style={{ width: "100%", "min-height": "20px", display: "flex", "align-items": "center", gap: "4px", "margin-top": "4px" }}>
-                <Show when={showError()}>
-                  <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>请输入代码仓地址</span>
-                </Show>
                 <Show when={showFormatError()}>
                   <span style={{ "font-size": "12px", color: "var(--octo-danger, #ef4444)" }}>地址格式不正确，请输入有效的代码仓地址</span>
                 </Show>
