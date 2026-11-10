@@ -107,7 +107,7 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
-import { DesignSystemSelector } from "./components/design-system-selector"
+import { DesignSystemSelector, DESIGN_SYSTEM_NONE } from "./components/design-system-selector"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
@@ -6434,6 +6434,9 @@ onPreview={(url) => {
                             selected={designSystemSelected()}
                             onSelect={(label) => {
                               setDesignSystemChoice(label)
+                              getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
+                                console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
+                              )
                               tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
                             }}
                           />
