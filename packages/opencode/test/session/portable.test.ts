@@ -76,7 +76,9 @@ describe("portable session", () => {
     const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
     const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
       files: { path: string; blob: string }[]
+      models?: Record<string, string>
     }
+    expect(manifest.models).toEqual({})
     expect(manifest.files.map((file) => file.path).sort()).toEqual(["src/entry.ts", "unrelated/index.html"])
     expect(await zip.file(manifest.files.find((file) => file.path === "unrelated/index.html")!.blob)!.async("string")).toBe(html)
     await provideTestInstance({ directory: target.path, fn: async () => {
@@ -84,6 +86,39 @@ describe("portable session", () => {
       expect(await Bun.file(path.join(target.path, "unrelated/index.html")).text()).toBe(html)
       expect(await Bun.file(path.join(target.path, "src/entry.ts")).text()).toBe("export const ready = true")
     } })
+  })
+
+  test("exports model display names keyed by provider/model for assistant messages", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({
+      directory: source.path,
+      fn: async () => {
+        const session = await runSession((svc) => svc.create({ title: "Model names" }))
+        await runSession((svc) =>
+          svc.updateMessage({
+            id: MessageID.ascending(),
+            sessionID: session.id,
+            role: "assistant",
+            time: { created: Date.now() },
+            parentID: MessageID.ascending(),
+            modelID: ModelID.make("test-model"),
+            providerID: ProviderID.make("test"),
+            mode: "primary",
+            agent: "octo_make",
+            path: { cwd: source.path, root: source.path },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          }),
+        )
+        return AppRuntime.runPromise(
+          exportPortableSession({ sessionID: session.id, output: path.join(source.path, "models.zip") }),
+        )
+      },
+    })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    // 测试环境 provider 目录里没有 test/test-model → 回退为 modelID 本身
+    expect(manifest.models).toEqual({ "test/test-model": "test-model" })
   })
 
   test.each(["busy", "retry"] as const)("rejects sharing a %s session without blocking ordinary export", async (type) => {

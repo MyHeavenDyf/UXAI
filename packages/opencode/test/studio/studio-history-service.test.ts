@@ -920,7 +920,7 @@ describe("Studio history service", () => {
     })
   })
 
-  test("does not resurrect imported media deleted from history", async () => {
+  test("re-importing a share restores media deleted from history by clearing their tombstones", async () => {
     await withStudioHistory(async ({ directory, sessionID }) => {
       const part = importedStudioPart({
         sessionID,
@@ -933,8 +933,48 @@ describe("Studio history service", () => {
       })
       expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(1)
       expect(await deleteStudioHistoryMedia(directory, ["img-import-0"])).toBe(1)
-      expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(0)
-      expect(listStudioHistoryMedia(directory).items).toHaveLength(0)
+      expect(listStudioHistoryExcludedIds(directory)).toEqual(["img-import-0"])
+
+      // 重新导入是显式恢复动作：清掉墓碑，素材回到「我的资产」。
+      expect(materializeStudioSessionParts(directory, sessionID, [part])).toBe(1)
+      expect(listStudioHistoryExcludedIds(directory)).toEqual([])
+      const items = listStudioHistoryMedia(directory).items
+      expect(items.map((item) => item.id)).toEqual(["img-import-0"])
+    })
+  })
+
+  test("media without generation metadata dedup across re-imports via the stable callID fallback", async () => {
+    await withStudioHistory(async ({ directory, sessionID }) => {
+      // 无 metadata.studio.generationID 的旧格式 tool part：每次导入 part.id 都会被重映射，
+      // 兜底 id 必须取包内稳定的 callID，否则重导同一分享会产生重复历史行。
+      const legacyPart = (): MessageV2.Part => ({
+        id: PartID.ascending(),
+        sessionID,
+        messageID: MessageID.ascending(),
+        type: "tool",
+        callID: "call_stable_import",
+        tool: "image-generation-tool",
+        state: {
+          status: "completed",
+          input: {},
+          output: JSON.stringify({ ok: true, capability: "image.generate", images: ["https://example.com/call-stable.png"] }),
+          title: "图片生成",
+          metadata: {},
+          time: { start: 1_000, end: 2_000 },
+        },
+      })
+      expect(materializeStudioSessionParts(directory, sessionID, [legacyPart()])).toBe(1)
+      expect(listStudioHistoryMedia(directory).items.map((item) => item.id)).toEqual(["studio_call_stable_import-0"])
+
+      // 第二次导入：part.id 不同、callID 相同 → 幂等刷新，不产生重复行。
+      Database.use((db) =>
+        db.update(StudioHistoryTable).set({ created_at: 1_000 }).where(eq(StudioHistoryTable.directory, directory)).run()
+      )
+      const reimportedAt = Date.now()
+      expect(materializeStudioSessionParts(directory, sessionID, [legacyPart()])).toBe(1)
+      const refreshed = listStudioHistoryMedia(directory).items
+      expect(refreshed).toHaveLength(1)
+      expect(refreshed.every((item) => item.createdAt >= reimportedAt)).toBe(true)
     })
   })
 })
