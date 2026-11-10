@@ -131,6 +131,7 @@ import type {
   ProjectAddGitRemoteErrors,
   ProjectAddGitRemoteResponses,
   ProjectCurrentResponses,
+  ProjectGetGitRemoteErrors,
   ProjectGetGitRemoteResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
@@ -3112,7 +3113,7 @@ export class Project extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<ProjectGetGitRemoteResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<ProjectGetGitRemoteResponses, ProjectGetGitRemoteErrors, ThrowOnError>({
       url: "/project/git/remote",
       ...options,
       ...params,

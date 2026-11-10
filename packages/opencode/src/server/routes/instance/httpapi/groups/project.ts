@@ -45,12 +45,13 @@ export const ProjectApi = HttpApi.make("project")
             description: "Create a git repository for the current project and return the refreshed project info.",
           }),
         ),
-        // 查询当前项目的 origin 远程仓库地址(可能为 null)
+        // 查询当前项目的 origin 远程仓库地址(未配置时返回空串)
         HttpApiEndpoint.get("getGitRemote", `${root}/git/remote`, {
           success: described(
-            Schema.Struct({ remoteUrl: Schema.NullOr(Schema.String) }),
-            "Origin remote URL or null",
+            Schema.Struct({ remoteUrl: Schema.String }),
+            "Origin remote URL (empty string if not configured)",
           ),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "project.getGitRemote",

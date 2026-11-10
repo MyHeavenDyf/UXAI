@@ -5397,9 +5397,18 @@ export type ProjectGetGitRemoteData = {
   url: "/project/git/remote"
 }
 
+export type ProjectGetGitRemoteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
+
 export type ProjectGetGitRemoteResponses = {
   /**
-   * Origin remote URL or null
+   * Origin remote URL (empty string if not configured)
    */
   200: {
     remoteUrl: string

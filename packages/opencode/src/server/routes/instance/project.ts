@@ -10,14 +10,28 @@ import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
 import { jsonRequest, runRequest } from "./trace"
 
-// git remote 查询/关联接口的响应与请求体 schema
+// git remote 查询响应:remoteUrl 为空串表示未配置
 const GitRemoteResponse = z.object({
-  remoteUrl: z.string().nullable(),
+  remoteUrl: z.string(),
+})
+
+// POST 响应:remoteUrl 始终非空(service 成功后返回 input.url)
+const GitRemoteAddedResponse = z.object({
+  remoteUrl: z.string(),
 })
 
 const GitRemoteInput = z.object({
   url: z.string().min(1),
 })
+
+// 校验 directory:拒绝根路径、空串和盘符根,防止路径穿越
+function resolveDirectory(query: string | undefined): string {
+  const dir = query || Instance.directory
+  if (!dir || dir === "/" || /^[A-Z]:[\\/]?$/i.test(dir)) {
+    throw new Error("Invalid directory")
+  }
+  return dir
+}
 
 export const ProjectRoutes = lazy(() =>
   new Hono()
@@ -113,8 +127,7 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        // 优先从 query 参数取 directory,避免 onboarding 阶段实例尚未加载时 Instance.directory 抛错
-        const dir = c.req.query("directory") || Instance.directory
+        const dir = resolveDirectory(c.req.query("directory"))
         const result = await runRequest(
           "ProjectRoutes.getGitRemote",
           c,
@@ -136,7 +149,7 @@ export const ProjectRoutes = lazy(() =>
             description: "Git remote URL",
             content: {
               "application/json": {
-                schema: resolver(GitRemoteResponse),
+                schema: resolver(GitRemoteAddedResponse),
               },
             },
           },
@@ -146,8 +159,7 @@ export const ProjectRoutes = lazy(() =>
       validator("json", GitRemoteInput),
       async (c) =>
         jsonRequest("ProjectRoutes.addGitRemote", c, function* () {
-          // 优先从 query 参数取 directory,避免 onboarding 阶段实例尚未加载时 Instance.directory 抛错
-          const dir = c.req.query("directory") || Instance.directory
+          const dir = resolveDirectory(c.req.query("directory"))
           const body = c.req.valid("json") as z.infer<typeof GitRemoteInput>
           const svc = yield* Project.Service
           return yield* svc.addGitRemote({ directory: dir, url: body.url })

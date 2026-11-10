@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onMount, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { tracker } from "@/utils/tracker"
@@ -11,8 +11,8 @@ interface DialogRepoAssociateProps {
   onConfirm: (repoUrl: string) => void
 }
 
-// 代码仓地址格式校验:支持 HTTPS(https://host/path)和 SSH(git@host:path)
-const GIT_REPO_REGEX = /^(https?:\/\/[\w.-]+\/[\w./-]+|git@[\w.-]+:[\w./-]+)$/
+// 代码仓地址格式校验:支持 HTTPS(含端口)、SSH(git@host:path)、ssh:// 协议、~ 路径
+const GIT_REPO_REGEX = /^(https?:\/\/[\w.-]+(:\d+)?\/[\w./~-]+|ssh:\/\/git@[\w.-]+(:\d+)?\/[\w./~-]+|git@[\w.-]+:[~\w./~-]+)$/
 
 // 弹窗检测状态:no-directory=未选目录;loading=正在检测;found=已有远程;not-found=未配置远程
 type RemoteStatus = "loading" | "found" | "not-found" | "no-directory"
@@ -80,6 +80,13 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
       .finally(() => setSubmitting(false))
   }
 
+  // Escape 键关闭弹窗
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") props.onClose()
+  }
+  onMount(() => document.addEventListener("keydown", onKeyDown))
+  onCleanup(() => document.removeEventListener("keydown", onKeyDown))
+
   const canConfirm = createMemo(() => {
     if (status() === "found") return true
     if (status() === "not-found") return hasUrl() && isValidUrl() && !submitting()
@@ -95,6 +102,9 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
       >
         <div
           class="flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="关联代码仓"
           style={{
             width: "452px",
             "box-sizing": "border-box",
@@ -105,7 +115,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ "font-weight": 500, "font-size": "18px", "line-height": "24px", color: "#191919" }}>
+          <div style={{ "font-weight": 500, "font-size": "18px", "line-height": "24px", color: "var(--octo-text-base, #191919)" }}>
             关联代码仓
           </div>
 
@@ -122,7 +132,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
           </Show>
 
           <Show when={status() === "found"}>
-            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
+            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
               当前代码仓地址
             </div>
             <div
@@ -138,7 +148,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 background: "var(--octo-surface-disabled, #F3F4F6)",
                 "font-size": "14px",
                 "font-family": "monospace",
-                color: "#191919",
+                color: "var(--octo-text-base, #191919)",
                 overflow: "hidden",
                 "text-overflow": "ellipsis",
                 "white-space": "nowrap",
@@ -149,7 +159,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
           </Show>
 
           <Show when={status() === "not-found"}>
-            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
+            <div style={{ "font-weight": 500, "font-size": "14px", "line-height": "20px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)" }}>
               <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
               <span>关联代码仓地址</span>
             </div>
@@ -218,7 +228,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 height: "32px",
                 "border-radius": "20px",
                 border: "none",
-                background: canConfirm() ? "#0a59f7" : "rgba(10, 89, 247, 0.5)",
+                background: canConfirm() ? "var(--octo-brand, #0a59f7)" : "rgba(10, 89, 247, 0.5)",
                 "font-size": "14px",
                 "font-weight": 500,
                 color: "#fff",

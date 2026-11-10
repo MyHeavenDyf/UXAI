@@ -123,8 +123,8 @@ export interface Interface {
   readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
   readonly update: (input: UpdateInput) => Effect.Effect<Info>
   readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
-  readonly getGitRemote: (input: { directory: string }) => Effect.Effect<{ remoteUrl: string | null }>
-  readonly addGitRemote: (input: { directory: string; url: string }) => Effect.Effect<{ remoteUrl: string }>
+  readonly getGitRemote: (input: { directory: string }) => Effect.Effect<{ remoteUrl: string }, Error>
+  readonly addGitRemote: (input: { directory: string; url: string }) => Effect.Effect<{ remoteUrl: string }, Error>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
   readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
   readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
@@ -430,23 +430,28 @@ export const layer: Layer.Layer<
       return project
     })
 
-    // 查询当前目录的 origin 远程仓库地址;未配置 git 或无 origin 时返回 null。
+    // 查询当前目录的 origin 远程仓库地址;未安装 git 或无 origin 时返回空串。
     const getGitRemote = Effect.fn("Project.getGitRemote")(function* (input: { directory: string }) {
+      if (!(yield* Effect.sync(() => which("git")))) {
+        yield* Effect.fail(new Error("Git is not installed"))
+      }
       const result = yield* git(["remote", "get-url", "origin"], { cwd: input.directory })
-      if (result.code !== 0) return { remoteUrl: null }
-      return { remoteUrl: result.text.trim() || null }
+      if (result.code !== 0) return { remoteUrl: "" }
+      return { remoteUrl: result.text.trim() }
     })
 
     // 关联远程代码仓:若目录未初始化 git 则先 git init,再判断 origin 是否存在——
     // 已存在则 git remote set-url 更新,不存在则 git remote add 新增。
     const addGitRemote = Effect.fn("Project.addGitRemote")(function* (input: { directory: string; url: string }) {
-      if (!(yield* Effect.sync(() => which("git")))) throw new Error("Git is not installed")
+      if (!(yield* Effect.sync(() => which("git")))) {
+        yield* Effect.fail(new Error("Git is not installed"))
+      }
       // 检测目录是否已初始化 git(git rev-parse --git-dir 失败说明尚未 init)
       const initCheck = yield* git(["rev-parse", "--git-dir"], { cwd: input.directory })
       if (initCheck.code !== 0) {
         const initResult = yield* git(["init", "--quiet"], { cwd: input.directory })
         if (initResult.code !== 0) {
-          throw new Error(initResult.stderr.trim() || initResult.text.trim() || "Failed to initialize git repository")
+          yield* Effect.fail(new Error(initResult.stderr.trim() || initResult.text.trim() || "Failed to initialize git repository"))
         }
       }
       // origin 已存在 → set-url 更新;不存在 → add 新增
@@ -454,12 +459,12 @@ export const layer: Layer.Layer<
       if (existing.code === 0) {
         const setResult = yield* git(["remote", "set-url", "origin", input.url], { cwd: input.directory })
         if (setResult.code !== 0) {
-          throw new Error(setResult.stderr.trim() || setResult.text.trim() || "Failed to set git remote URL")
+          yield* Effect.fail(new Error(setResult.stderr.trim() || setResult.text.trim() || "Failed to set git remote URL"))
         }
       } else {
         const addResult = yield* git(["remote", "add", "origin", input.url], { cwd: input.directory })
         if (addResult.code !== 0) {
-          throw new Error(addResult.stderr.trim() || addResult.text.trim() || "Failed to add git remote")
+          yield* Effect.fail(new Error(addResult.stderr.trim() || addResult.text.trim() || "Failed to add git remote"))
         }
       }
       return { remoteUrl: input.url }

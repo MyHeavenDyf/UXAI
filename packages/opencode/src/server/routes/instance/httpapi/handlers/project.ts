@@ -2,10 +2,24 @@ import { AppRuntime } from "@/effect/app-runtime"
 import * as InstanceState from "@/effect/instance-state"
 import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiError } from "effect/unstable/httpapi"
+import { HttpServerRequest } from "effect/unstable/http"
 import { InstanceHttpApi } from "../api"
 import { markInstanceForReload } from "../lifecycle"
+
+// 优先从请求 URL 取 directory query 参数;不可用时 fallback 到 InstanceState.context
+function directoryFromRequestOrContext() {
+  return Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const url = Option.getOrElse(HttpServerRequest.toURL(request), () => new URL(request.url, "http://localhost"))
+    const fromQuery = url.searchParams.get("directory")
+    if (fromQuery) return fromQuery
+    const ctx = yield* InstanceState.context
+    return ctx.directory
+  })
+}
 
 export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", (handlers) =>
   Effect.gen(function* () {
@@ -32,18 +46,22 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       return next
     })
 
-    // 查询当前实例目录的 origin 远程仓库地址
+    // 查询当前实例目录的 origin 远程仓库地址;InstanceState 不可时 fallback 到 query 参数
     const getGitRemote = Effect.fn("ProjectHttpApi.getGitRemote")(function* () {
-      const ctx = yield* InstanceState.context
-      return yield* svc.getGitRemote({ directory: ctx.directory })
+      const dir = yield* directoryFromRequestOrContext()
+      return yield* svc.getGitRemote({ directory: dir }).pipe(
+        Effect.mapError(() => new HttpApiError.BadRequest({})),
+      )
     })
 
     // 关联远程代码仓:传 url,由 Service 层完成 git init(如需)+ remote add/set-url
     const addGitRemote = Effect.fn("ProjectHttpApi.addGitRemote")(function* (ctx: {
       payload: { url: string }
     }) {
-      const ictx = yield* InstanceState.context
-      return yield* svc.addGitRemote({ directory: ictx.directory, url: ctx.payload.url })
+      const dir = yield* directoryFromRequestOrContext()
+      return yield* svc.addGitRemote({ directory: dir, url: ctx.payload.url }).pipe(
+        Effect.mapError(() => new HttpApiError.BadRequest({})),
+      )
     })
 
     const update = Effect.fn("ProjectHttpApi.update")(function* (ctx: {

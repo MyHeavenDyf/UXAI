@@ -62,6 +62,12 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     }
   })
 
+  // 切换目录时清除已关联的代码仓地址,避免上报脏数据
+  createEffect(() => {
+    const dir = directory()
+    if (dir) setRepoUrl("")
+  })
+
   function handleConfirm() {
     const dir = directory()
     if (!dir) {
