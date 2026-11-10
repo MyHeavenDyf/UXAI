@@ -49,6 +49,8 @@ export type BeforeSectionApi = {
   onSessionDragOver: (e: DragEvent, session: Session) => void
   onSessionDragLeave: (e: DragEvent, session: Session) => void
   handleSessionDrop: (target: SessionDropTarget) => void
+  /** Leading content renderer passed through to nested session rows (e.g. studio thumbnails). */
+  renderLeading?: (session: Session) => JSX.Element
 }
 
 export type AgentSidebarProps = {
@@ -98,10 +100,21 @@ export type AgentSidebarProps = {
   beforeSection?: (api: BeforeSectionApi) => JSX.Element
   inlineBeforeSection?: boolean
 
+  /** Leading content rendered in each session row's left slot (e.g. studio thumbnails). Replaces the status indicator when provided. */
+  renderLeading?: (session: Session) => JSX.Element
+  /** Content rendered at the right edge of the new-session button row (passed to the shell). */
+  newButtonSuffix?: () => JSX.Element
+  /** Content rendered between the new-session button and the divider (passed to the shell). */
+  headerExtra?: () => JSX.Element
+  /** Called with the current session list whenever it changes (e.g. to batch-load thumbnails). */
+  onSessionsChange?: (sessions: Session[]) => void
+
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
-  /** Called when the user clicks the top "new session" button, before navigation. */
-  onNewSession?: () => void
+  /** Called when the user clicks the top "new session" button, before navigation. Returning false marks the action as fully
+   *  handled by the caller (it owns tracking + navigation), so AgentSidebar skips its own navigate() — e.g. studio's
+   *  composer-reset flow navigates with extra query state. */
+  onNewSession?: () => boolean | void
   /** Called after scrolling reveals more recent sessions. */
   onLoadMore?: (limit: number) => void
 
@@ -536,6 +549,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!data) return
     setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
+
+  // Notify callers (e.g. studio's thumbnail loader) whenever the session list
+  // changes — initial load, SSE merges, pin/unpin mutations and reorders.
+  createEffect(() => {
+    if (sessionList.length === 0) return
+    props.onSessionsChange?.(sessionList)
+  })
 
   const stable = createMemo(() => fetchedDir() === resolvedDir())
 
@@ -998,15 +1018,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
     setCreating(true)
     clearTimeout(createTimer)
     createTimer = setTimeout(() => setCreating(false), 500)
-    const mod = props.trackerModule ?? "session"
-    tracker.interaction({ module: mod, name: "new-session" })
     if (props.sidebarSourceKey) {
       layout.lastSessionPerTab.setNewConversation(
         props.sidebarSourceKey === "insight" ? "cowork" : props.sidebarSourceKey,
         true,
       )
     }
-    props.onNewSession?.()
+    // Caller fully handled the action (returned false): it also owns tracking
+    // and navigation (e.g. studio's composer-reset flow).
+    if (props.onNewSession?.() === false) return
+    const mod = props.trackerModule ?? "session"
+    tracker.interaction({ module: mod, name: "new-session" })
     navigate(props.buildNewRoute())
   }
 
@@ -1021,6 +1043,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionTitle={props.sectionTitle}
       sectionIcon={props.sectionIcon}
       listScrollRef={(el) => { scrollContainer = el }}
+      newButtonSuffix={props.newButtonSuffix}
+      headerExtra={props.headerExtra}
       beforeSection={() => (
         <>
           <Show when={pinnedSessions().length > 0}>
@@ -1037,6 +1061,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 stable={stable()}
                 hoverOnActive
                 useIndex
+                leading={props.renderLeading}
                 onSessionClick={handleSessionClick}
                 onSessionContextMenu={handleSessionContextMenu}
                 onSessionActionClick={handleSessionContextMenu}
@@ -1083,6 +1108,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onSessionDragOver: handleSessionDragOver,
             onSessionDragLeave: handleSessionDragLeave,
             handleSessionDrop: performSessionMove,
+            renderLeading: props.renderLeading,
           })}
         </>
       )}
@@ -1110,6 +1136,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         stable={stable()}
         isOnboarding={isOnboarding()}
         hoverOnActive
+        leading={props.renderLeading}
         onSessionClick={handleSessionClick}
         onSessionContextMenu={handleSessionContextMenu}
         onSessionActionClick={handleSessionContextMenu}

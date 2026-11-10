@@ -6,7 +6,9 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ScrollableText } from "@/components/session-list"
 import type { SidebarGroup } from "@/components/agent-sidebar"
 import { DialogShareSession } from "@/components/dialog-share-session"
+import { useLanguage } from "@/context/language"
 import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
+import { usePortableSessionActions } from "@/hooks/use-portable-session-actions"
 import { tracker } from "@/utils/tracker"
 import trashPng from "@/pages/_shell/icons/trash.png"
 import pinPng from "@/pages/_shell/icons/pin.png"
@@ -51,6 +53,7 @@ export type SessionContextMenuProps = {
  */
 export function SessionContextMenu(props: SessionContextMenuProps) {
   const dialog = useDialog()
+  const language = useLanguage()
   const shareBlockReason = useSessionShareBlockReason(() => props.session, () => props.show)
   const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
     left: "0px",
@@ -58,8 +61,31 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     visibility: "hidden",
   })
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
+  const [backdropRef, setBackdropRef] = createSignal<HTMLDivElement | undefined>(undefined)
+
+  // Elements stacked above the backdrop (e.g. dialogs at z-150, popper
+  // dropdowns at z-99999) never receive the backdrop's onClick/onContextMenu
+  // dismiss, so the menu would stay open behind them. Close on capture-phase
+  // pointerdown that lands outside the backdrop; presses on/inside the
+  // backdrop keep flowing to its own handlers (click-dismiss + right-click
+  // session re-targeting).
+  // Presses on the trigger element are skipped too: its own click handler
+  // toggles the menu, otherwise pointerdown would close it and the ensuing
+  // click would immediately reopen it (second click never hides the menu).
+  createEffect(() => {
+    if (!(props.show && props.session)) return
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (backdropRef()?.contains(target)) return
+      if (props.triggerEl?.()?.contains(target)) return
+      props.onClose()
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true))
+  })
 
   const [showGroupSubmenu, setShowGroupSubmenu] = createSignal(false)
+  const portable = usePortableSessionActions({ session: () => props.session, close: props.onClose })
   const [hoveredGroupId, setHoveredGroupId] = createSignal<string | null>(null)
   const [submenuVertical, setSubmenuVertical] = createSignal<"down" | "up">("down")
   let submenuHideTimer: ReturnType<typeof setTimeout> | undefined
@@ -119,7 +145,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
         const trigger = props.triggerEl?.()
         let top: number
         let left: number
-        if (trigger) {
+        // 触发元素已脱离 DOM（如切换会话后头部按钮被重建）时 getBoundingClientRect
+        // 全为 0，会把菜单顶到屏幕左上角；回退到打开菜单时记录的点击坐标。
+        if (trigger?.isConnected) {
           const rect = trigger.getBoundingClientRect()
           top = rect.bottom + 4
           left = rect.right - menuWidth
@@ -155,7 +183,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
     <Show when={props.show && props.session}>
       <Portal>
         <div
-          class="fixed inset-0 z-50"
+          class="fixed inset-0 z-[120]"
           onContextMenu={(e) => {
             e.preventDefault()
             if (props.onContextMenuBackdrop) { props.onContextMenuBackdrop(e); return }
@@ -164,7 +192,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
           onClick={props.onClose}
           onKeyDown={(e) => { if (e.key === "Escape") props.onClose() }}
           tabIndex={-1}
-          ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
+          ref={(el) => { setBackdropRef(el); requestAnimationFrame(() => el?.focus()) }}
         >
           <div
             ref={setContextMenuRef}
@@ -223,6 +251,32 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               <img src={sharePng} style={{ width: "14px", height: "14px", "flex-shrink": "0" }} alt="" draggable={false} />
               <span data-slot="dropdown-menu-item-label">分享</span>
             </button>
+            <Show when={portable.supported()}>
+              <button
+              data-slot="dropdown-menu-item"
+              class="flex items-center gap-2"
+              disabled={!!portable.action() || !!shareBlockReason()}
+              title={shareBlockReason()}
+              style={{ opacity: shareBlockReason() ? 0.5 : 1, cursor: shareBlockReason() ? "not-allowed" : undefined }}
+              onClick={() => void portable.exportSession()}
+              >
+                <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
+                  {language.t("session.portable.export") || "导出"}
+                </span>
+              </button>
+              <button
+                data-slot="dropdown-menu-item"
+                class="flex items-center gap-2"
+                disabled={!!portable.action()}
+                onClick={() => void portable.importSession()}
+              >
+                <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
+                  {language.t("session.portable.import") || "导入"}
+                </span>
+              </button>
+            </Show>
             <button
               data-slot="dropdown-menu-item"
               class="flex items-center gap-2"

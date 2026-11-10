@@ -11,6 +11,7 @@ import {
   injectInspectStyleBridge,
   injectPickerBridge,
   injectCommentBridge,
+  injectAssessmentBridge,
   injectResourceCollectorBridge,
   injectSnapshotBridge,
   injectCustomBridge,
@@ -452,6 +453,9 @@ export function registerLocalProtocol() {
         if (bridgeConfig.injectComment) {
           htmlStr = injectCommentBridge(htmlStr)
         }
+
+        // 评估 pins bridge:无数据时完全惰性(仅 message 监听),不经 subtype 配置门控
+        htmlStr = injectAssessmentBridge(htmlStr)
 
         if (bridgeConfig.injectSnapshot) {
           htmlStr = injectSnapshotBridge(htmlStr)

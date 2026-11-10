@@ -47,6 +47,46 @@ it.instance("preserves Insight tool-only messages without changing Design previe
   }),
 )
 
+it.instance("previews Studio turns from their user, assistant and generation tool structure", () =>
+  Effect.gen(function* () {
+    const service = yield* Session.Service
+    const session = yield* service.create({ title: "Studio 分享", agent: "octo_studio" })
+    const user = yield* service.updateMessage({
+      id: MessageID.ascending(), sessionID: session.id, role: "user", agent: "octo_studio",
+      time: { created: 1 }, model: { modelID: ModelID.make("test"), providerID: ProviderID.make("test") },
+    })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: user.id, sessionID: session.id, type: "text",
+      text: "系统内置说明\n用户需求：画一只戴墨镜的猫\n能力：图片生成\n工具参数JSON：PRIVATE_INPUT",
+    })
+    const assistant = yield* service.updateMessage({
+      id: MessageID.ascending(), sessionID: session.id, role: "assistant", parentID: user.id,
+      agent: "octo_studio", mode: "octo_studio", modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+      time: { created: 2, completed: 3 }, path: { cwd: "/tmp", root: "/tmp" }, cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: assistant.id, sessionID: session.id, type: "text", text: "正在为你生成。",
+    })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: assistant.id, sessionID: session.id,
+      type: "tool", tool: "image.generate", callID: "studio-image",
+      state: {
+        status: "completed",
+        input: { displayPrompt: "画一只戴墨镜的猫", capability: "image.generate" },
+        title: "图片生成", output: JSON.stringify({ capability: "image.generate", url: "PRIVATE_MEDIA_URL" }),
+        time: { start: 2, end: 3 }, metadata: {},
+      },
+    })
+    const page = yield* previewSession({ sessionID: session.id })
+    expect(page.messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "画一只戴墨镜的猫"],
+      ["assistant", "正在为你生成。\n图片生成完成"],
+    ])
+    expect(JSON.stringify(page)).not.toContain("PRIVATE_")
+  }),
+)
+
 it.instance("shows the same user input as Design instead of injected artifact or workspace prompts", () =>
   Effect.gen(function* () {
     const service = yield* Session.Service

@@ -1,4 +1,4 @@
-export type SharedSessionModule = "design" | "insight" | "pattern"
+export type SharedSessionModule = "design" | "insight" | "pattern" | "studio"
 export type PreparedSharedSession = { token: string; agent?: string; module: SharedSessionModule }
 
 export function consumePendingDeepLinks(target: { deepLinks?: string[] }) {

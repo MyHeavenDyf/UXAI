@@ -774,6 +774,477 @@
       border-top: 1px solid #E5E7EB;
     }
     .qf-locked-note { font-size: 12px; color: #9CA3AF; }
+
+    /* ── studio 会话区(对齐 studio 页面 StudioConversation / studio-01~03.css) ── */
+    /* 会话滚动区留白对齐 .studio-center-scroll .scroll-view__viewport: 36px 28px 22px */
+    body[data-module="studio"] .chat-scroll-view { padding: 36px 28px 22px 28px; }
+    body[data-module="studio"] .chat-content { padding-top: 0; gap: 0; }
+    /* 对齐 studio-02.css @media (max-width: 1227px) .studio-conversation { padding: 24px } */
+    @media (max-width: 1227px) {
+      body[data-module="studio"] .chat-scroll-view { padding: 24px; }
+    }
+
+    .studio-conversation {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .studio-conversation-turn {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 参考图(对齐 .studio-user-input-images / .studio-user-input-image) */
+    .studio-user-input-images {
+      width: fit-content;
+      max-width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-left: auto;
+      margin-bottom: 16px;
+    }
+    .studio-user-input-image {
+      width: 80px;
+      height: 80px;
+      display: block;
+      object-fit: cover;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.04);
+    }
+
+    /* 用户气泡:右对齐、蓝色 tint、不可折叠(对齐 .studio-user-bubble) */
+    .studio-user-bubble {
+      width: fit-content;
+      max-width: 450px;
+      min-width: 0;
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      margin-left: auto;
+      padding: 12px;
+      border-radius: 16px 16px 2px 16px;
+      background: rgba(10, 89, 247, 0.08);
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    /* @引用 chip(对齐 .studio-user-bubble-mention) */
+    .studio-user-bubble-mention {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 6px;
+      margin: 0 2px;
+      height: 22px;
+      background: rgba(15, 23, 42, 0.06);
+      border-radius: 4px;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .studio-user-bubble-mention img {
+      width: 16px;
+      height: 16px;
+      object-fit: cover;
+      border-radius: 2px;
+    }
+    .studio-user-bubble-mention-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100px;
+      min-width: 0;
+    }
+
+    /* 助手纯文本:左对齐、无 Markdown、pre-wrap(对齐 .studio-assistant-copy) */
+    .studio-assistant-copy {
+      margin-top: 20px;
+      color: #191919;
+      font-size: 14px;
+      line-height: 28px;
+      white-space: pre-wrap;
+      font-weight: 400;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    /* 引导快捷入口(对齐 .studio-recommendation-shortcuts;分享页静态展示) */
+    .studio-recommendation-shortcuts {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .studio-recommendation-shortcut {
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 34px;
+      padding: 6px 12px;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(25, 25, 25, 0.05);
+      color: rgba(25, 25, 25, 0.9);
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 22px;
+      white-space: nowrap;
+      cursor: default;
+    }
+    .studio-recommendation-shortcut svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    /* 编辑区入口(对齐 .studio-assistant-editor-link;分享页静态展示) */
+    .studio-assistant-editor-link {
+      width: fit-content;
+      max-width: 100%;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 28px;
+      padding: 0 18px;
+      border-radius: 999px;
+      color: #0a59f7;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 22px;
+    }
+    .studio-editor-link-arrow {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    /* 结果卡片(对齐 .studio-result-card 家族) */
+    .studio-result-card {
+      margin-top: 20px;
+      min-height: 258px;
+      padding: 12px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .studio-result-card.failed,
+    .studio-result-card.abnormal {
+      min-height: 0;
+    }
+    /* 对齐 studio-03.css:有图片网格的卡片不保留固定最小高度 */
+    .studio-result-card:has(.studio-result-grid) {
+      min-height: 0;
+    }
+    .studio-result-card.failed .studio-result-progress-preview,
+    .studio-result-card.abnormal .studio-result-progress-preview {
+      min-height: 0;
+    }
+    .studio-result-card:has(.studio-result-grid) .studio-result-progress-preview {
+      min-height: 0;
+    }
+    .studio-result-progress-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .studio-result-progress-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .studio-result-progress-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: #191919;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 100%;
+      white-space: nowrap;
+    }
+    /* 能力图标(对齐 .studio-capability-icon:imgCreate1~7.svg 按能力序号取图) */
+    .studio-result-progress-icon {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      background: url("./studio/imgCreate1.svg") center / contain no-repeat;
+    }
+    .studio-result-progress-icon-2 { background-image: url("./studio/imgCreate2.svg"); }
+    .studio-result-progress-icon-3 { background-image: url("./studio/imgCreate3.svg"); }
+    .studio-result-progress-icon-4 { background-image: url("./studio/imgCreate4.svg"); }
+    .studio-result-progress-icon-5 { background-image: url("./studio/imgCreate5.svg"); }
+    .studio-result-progress-icon-6 { background-image: url("./studio/imgCreate6.svg"); }
+    .studio-result-progress-icon-7 { background-image: url("./studio/imgCreate7.svg"); }
+    .studio-result-progress-status {
+      padding: 3px 4px;
+      border-radius: 6px;
+      background: rgba(97, 91, 255, 0.08);
+      color: #615bff;
+      font-size: 10px;
+      font-weight: 400;
+      line-height: 100%;
+      white-space: nowrap;
+    }
+    .studio-result-card.complete .studio-result-progress-status {
+      background: rgba(28, 137, 92, 0.1);
+      color: #1c895c;
+    }
+    .studio-result-card.failed .studio-result-progress-status {
+      background: rgba(0, 0, 0, 0.05);
+      color: rgba(0, 0, 0, 0.6);
+    }
+    .studio-result-meta {
+      margin-top: 8px;
+      color: rgba(25, 25, 25, 0.52);
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .studio-result-progress-preview {
+      min-height: 180px;
+      margin-top: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+    /* 失败/异常文案(对齐 .studio-result-error-box) */
+    .studio-result-error-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .studio-result-error-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .studio-result-error {
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.72);
+      color: #191919;
+      font-size: 12px;
+      line-height: 20px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* 图片网格(对齐 studio-03.css .studio-result-grid 及方向变体) */
+    .studio-result-grid {
+      display: flex;
+      align-items: stretch;
+      margin: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .studio-result-grid::-webkit-scrollbar { display: none; }
+
+    .studio-result-thumb {
+      position: relative;
+      width: 96px;
+      height: 144px;
+      min-width: 96px;
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+      border-radius: 3px;
+      background: #fff;
+      box-shadow: 0 8px 18px rgba(17, 24, 39, 0.08);
+    }
+    .studio-result-thumb img,
+    .studio-result-thumb video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .studio-result-grid.single-portrait,
+    .studio-result-grid.single-landscape,
+    .studio-result-grid.single-1x1 {
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+    .studio-result-grid.single-portrait .studio-result-thumb,
+    .studio-result-grid.single-landscape .studio-result-thumb,
+    .studio-result-grid.single-1x1 .studio-result-thumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: auto;
+      min-width: unset;
+      box-shadow: none;
+    }
+    .studio-result-grid.single-portrait .studio-result-thumb {
+      max-height: 210px;
+      background: #f7f7f7;
+    }
+    .studio-result-grid.single-landscape .studio-result-thumb,
+    .studio-result-grid.single-1x1 .studio-result-thumb {
+      max-height: 180px;
+    }
+    .studio-result-grid.single-portrait .studio-result-thumb img,
+    .studio-result-grid.single-portrait .studio-result-thumb video {
+      max-width: 100%; max-height: 210px; width: auto; height: auto; object-fit: contain;
+    }
+    .studio-result-grid.single-landscape .studio-result-thumb img,
+    .studio-result-grid.single-landscape .studio-result-thumb video,
+    .studio-result-grid.single-1x1 .studio-result-thumb img,
+    .studio-result-grid.single-1x1 .studio-result-thumb video {
+      max-width: 100%; max-height: 180px; width: auto; height: auto; object-fit: contain;
+    }
+
+    .studio-result-grid.multi-landscape,
+    .studio-result-grid.multi-1x1,
+    .studio-result-grid.multi-portrait {
+      gap: 4px;
+      overflow-x: hidden;
+    }
+    .studio-result-grid.multi-landscape .studio-result-thumb,
+    .studio-result-grid.multi-1x1 .studio-result-thumb,
+    .studio-result-grid.multi-portrait .studio-result-thumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      min-width: 0;
+      width: auto;
+      height: auto;
+      box-shadow: none;
+    }
+    .studio-result-grid.multi-landscape .studio-result-thumb img,
+    .studio-result-grid.multi-landscape .studio-result-thumb video,
+    .studio-result-grid.multi-1x1 .studio-result-thumb img,
+    .studio-result-grid.multi-1x1 .studio-result-thumb video {
+      max-width: 100%; max-height: 180px; width: auto; height: auto; object-fit: contain;
+    }
+    .studio-result-grid.multi-portrait .studio-result-thumb {
+      max-height: 210px;
+      background: #f7f7f7;
+    }
+    .studio-result-grid.multi-portrait .studio-result-thumb img,
+    .studio-result-grid.multi-portrait .studio-result-thumb video {
+      max-width: 100%; max-height: 210px; width: auto; height: auto; object-fit: contain;
+    }
+    /* 对齐 studio-03.css .multi-landscape-4:横构图 4 张固定宽度换行 */
+    .studio-result-grid.multi-landscape-4 {
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .studio-result-grid.multi-landscape-4 .studio-result-thumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 96px;
+      height: auto;
+      box-shadow: none;
+    }
+    .studio-result-grid.multi-landscape-4 .studio-result-thumb img,
+    .studio-result-grid.multi-landscape-4 .studio-result-thumb video {
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+    /* 视频缩略图容器(对齐 .studio-result-thumb-video:相对定位承载时长徽标) */
+    .studio-result-thumb-video {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      vertical-align: top;
+      line-height: 0;
+    }
+    /* 媒体占位(对齐 .studio-media-thumbnail-placeholder 及 image/video 图标) */
+    .studio-media-thumbnail-placeholder {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(145deg, #f3f4f6, #e5e7eb);
+      color: rgba(17, 24, 39, 0.35);
+    }
+    .studio-media-thumbnail-placeholder.failed {
+      background: #f2f2f2;
+    }
+    .studio-media-thumbnail-image-icon,
+    .studio-media-thumbnail-video-icon {
+      position: relative;
+      display: inline-block;
+      width: 22px;
+      height: 18px;
+      border: 1.5px solid currentColor;
+      border-radius: 3px;
+    }
+    .studio-media-thumbnail-image-icon::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      bottom: 3px;
+      width: 13px;
+      height: 7px;
+      background: currentColor;
+      clip-path: polygon(0 100%, 38% 35%, 58% 68%, 76% 42%, 100% 100%);
+    }
+    .studio-media-thumbnail-video-icon {
+      width: 18px;
+      height: 14px;
+    }
+    .studio-media-thumbnail-video-icon::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 3px;
+      border-top: 3px solid transparent;
+      border-bottom: 3px solid transparent;
+      border-left: 5px solid currentColor;
+    }
+    /* 视频时长徽标(对齐 .studio-file-manager-media-video-badge;结果卡仅文本 MM:SS) */
+    .studio-file-manager-media-video-badge {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      width: 49px;
+      height: 27px;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      transform: scale(0.9804);
+    }
+    .studio-file-manager-media-video-badge-text {
+      color: white;
+      font-size: 11px;
+      line-height: 1;
+      margin-left: 2.5px;
+      white-space: nowrap;
+    }
+    .studio-result-video-duration-badge .studio-file-manager-media-video-badge-text {
+      margin-left: 0;
+    }
   </style>
 </head>
 <body>
@@ -2173,6 +2644,11 @@
       // 填充头部标题(优先 manifest.title,回退 session.info.title,与内容区左对齐)
       const titleEl = document.getElementById("session-title")
       if (titleEl) titleEl.textContent = manifest.title || session.info?.title || ""
+      // studio 会话:走 studio 渲染分支(对齐 studio 页面 StudioConversation 结构,样式与 design 不同)
+      if (session.info?.agent === "octo_studio") {
+        renderStudioConversation(manifest, session, filePath, token, list)
+        return
+      }
       const messages = session.messages || []
       // 跨轮按消息顺序汇总快照；每轮只展示本轮涉及的任务，引用和资源仍留在原轮次。
       const insightTasks = session.info?.agent === "octo_insight"
@@ -2456,6 +2932,792 @@
         minute: "2-digit",
       })
     }
+
+    // ─────────────────────────────────────────────────────────
+    // studio 会话渲染(对齐 studio 页面 turns.ts buildStudioTurns /
+    // studio-conversation.tsx / studio-result-card.tsx / studio-01~03.css)
+    // studio 与 design 会话区差异:用户气泡右对齐不可折叠、助手纯文本无 Markdown、
+    // 引导/编辑入口静态展示、结果卡片带能力图标与状态徽标(完成绿/失败灰)、
+    // 图片网格按画幅比例定向;无工具调用/推理/子任务卡
+    // ─────────────────────────────────────────────────────────
+
+    var STUDIO_CAPABILITY_ORDER = [
+      "image.generate", "video.generate", "image.upscale", "image.cutout",
+      "image.inpaint", "image.outpaint", "image.fusion",
+    ]
+    var STUDIO_CAPABILITY_LABELS = {
+      "image.generate": "图片生成",
+      "video.generate": "视频生成",
+      "image.upscale": "变清晰",
+      "image.cutout": "抠图",
+      "image.inpaint": "智能重绘",
+      "image.outpaint": "扩图",
+      "image.fusion": "场景融合",
+    }
+    var STUDIO_PORTRAIT_RATIOS = ["2:3", "3:4", "9:16"]
+    var STUDIO_LANDSCAPE_RATIOS = ["16:9", "3:2", "4:3", "21:9"]
+    var STUDIO_EDITOR_CAPABILITIES = ["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"]
+    // 引导快捷入口文案(对齐 studio-conversation.tsx RECOMMENDATION_SHORTCUTS 的 label)
+    var STUDIO_RECOMMENDATION_SHORTCUT_LABELS = ["未来科技，英雄战斗，电影质感", "中式建筑，水彩", "人物，油画质感的少女"]
+
+    function studioCapabilityLabel(capability) {
+      return STUDIO_CAPABILITY_LABELS[capability] || "图片生成"
+    }
+    // 能力图标 class(对齐 studio-result-card.tsx capabilityIconClass:首项用基础类)
+    function studioCapabilityIconClass(capability) {
+      var index = STUDIO_CAPABILITY_ORDER.indexOf(capability)
+      return index <= 0 ? "studio-result-progress-icon" : "studio-result-progress-icon studio-result-progress-icon-" + (index + 1)
+    }
+    function studioNormalizeCapability(value) {
+      return STUDIO_CAPABILITY_ORDER.indexOf(value) !== -1 ? value : "image.generate"
+    }
+    function studioNormalizeAspectRatio(value) {
+      return ["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].indexOf(value) !== -1 ? value : "3:4"
+    }
+
+    // ── 提示词推荐/扩写元数据(对齐 studio-prompt-state.ts promptMetadata / previewMetadata) ──
+    function studioPromptMetadata(part) {
+      if (!part || part.type !== "text" || !part.metadata) return undefined
+      var raw = part.metadata.studioPromptRecommendation ?? part.metadata.studioPromptExpansion
+      if (!raw || typeof raw !== "object" || raw.version !== 1) return undefined
+      if (raw.kind === "guide" && ["armed", "consumed", "dismissed"].indexOf(raw.status) !== -1) {
+        return { kind: "guide", visible: raw.visible !== false }
+      }
+      if (raw.kind === "result" && typeof raw.guidePartID === "string" &&
+          ["running", "cancelling", "completed", "failed", "cancelled"].indexOf(raw.status) !== -1) {
+        return { kind: "result", status: raw.status }
+      }
+      return undefined
+    }
+    function studioIsPreviewPart(part) {
+      return !!part && (part.type === "text" || part.type === "reasoning") &&
+        !!(part.metadata && part.metadata.studioPromptExpansionPreview)
+    }
+    // 扩写完成时静态展示的预览文本(对齐 expansionPreviewParts:取最大 attempt 的分片)
+    function studioExpansionPreviewText(assistantParts) {
+      var previews = assistantParts.filter(studioIsPreviewPart)
+      if (previews.length === 0) return ""
+      var maxAttempt = Math.max(0, ...previews.map(function (part) { return (part.metadata.studioPromptExpansionPreview || {}).attempt || 0 }))
+      return previews
+        .filter(function (part) { return (part.metadata.studioPromptExpansionPreview || {}).attempt === maxAttempt })
+        .sort(function (left, right) { return String(left.id || "").localeCompare(String(right.id || "")) })
+        .map(function (part) { return part.text || "" })
+        .join("")
+        .trim()
+    }
+
+    // 从用户消息文本提取真实需求(对齐 turns.ts extractUserDemand)
+    function extractStudioUserDemand(text) {
+      var marker = "用户需求："
+      var index = text.lastIndexOf(marker)
+      var content = index === -1 ? text : text.slice(index + marker.length)
+      var stopMarkers = [
+        "\n能力：", "\n风格模型：", "\n画幅比例：", "\n生成数量：",
+        "\n当前选中的生图工具：", "\n工具参数JSON：", "\n调用生图工具", "\n输出时先简短说明",
+      ]
+      var stopIndex = stopMarkers
+        .map(function (m) { return content.indexOf(m) })
+        .filter(function (i) { return i >= 0 })
+        .sort(function (a, b) { return a - b })[0]
+      return content
+        .slice(0, stopIndex !== undefined ? stopIndex : content.length)
+        .split("\n")
+        .filter(function (line) { return !line.startsWith("工具参数JSON：") && !line.startsWith("调用生图工具") })
+        .join("\n")
+        .trim()
+    }
+
+    function sanitizeStudioAssistantText(text) {
+      if (!text) return ""
+      return text
+        .split("\n")
+        .filter(function (line) { return !line.includes("当前选中的生图工具") && !line.includes("内部模型") })
+        .join("\n")
+        .trim()
+    }
+
+    function isRenderableImageUrl(url) {
+      if (!url) return false
+      if (url.includes("visual.volcengineapi.com?Action=CVProcess&Version=2022-08-31")) return false
+      if (isRenderableVideoUrl(url)) return false
+      return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
+    }
+    function isRenderableVideoUrl(url) {
+      if (!url) return false
+      if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
+      if (!/^https?:\/\/\S+/i.test(url)) return false
+      return /\.(mp4|mov|webm)$/i.test((url.split(/[?#]/)[0] || ""))
+    }
+
+    // 从 tool output JSON 递归收集图片/视频 URL(对齐 turns.ts collectImageUrls / collectVideoUrls)
+    function collectImageUrls(value) {
+      if (!value) return []
+      if (typeof value === "string") {
+        var normalized = value.replaceAll("\\/", "/")
+        var parsed = void 0
+        try { parsed = JSON.parse(normalized) } catch (e) {}
+        var direct = /^(https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i.test(normalized) ? [normalized] : []
+        var embedded = (normalized.match(/https?:\/\/[^\s"'<>\\)]+/g) || []).concat(normalized.match(/data:image\/[a-z0-9.+-]+;base64,[^\s"'<>\\)]+/gi) || [])
+        return Array.from(new Set(direct.concat(embedded).concat(collectImageUrls(parsed)))).map(function (u) { return u.replace(/[,.，。]+$/, "") })
+      }
+      if (Array.isArray(value)) return Array.from(new Set(value.flatMap(collectImageUrls)))
+      if (typeof value !== "object") return []
+      return Array.from(new Set(Object.values(value).flatMap(collectImageUrls)))
+    }
+    function collectVideoUrls(value) {
+      if (!value) return []
+      if (typeof value === "string") {
+        var normalized = value.replaceAll("\\/", "/")
+        var parsed = void 0
+        try { parsed = JSON.parse(normalized) } catch (e) {}
+        var direct = isRenderableVideoUrl(normalized) ? [normalized] : []
+        var embedded = (normalized.match(/https?:\/\/[^\s"'<>\\)]+/g) || []).concat(normalized.match(/data:video\/[a-z0-9.+-]+;base64,[^\s"'<>\\)]+/gi) || []).filter(isRenderableVideoUrl)
+        return Array.from(new Set(direct.concat(embedded).concat(collectVideoUrls(parsed)))).map(function (u) { return u.replace(/[,.，。]+$/, "") })
+      }
+      if (Array.isArray(value)) return Array.from(new Set(value.flatMap(collectVideoUrls)))
+      if (typeof value !== "object") return []
+      return Array.from(new Set(Object.values(value).flatMap(collectVideoUrls)))
+    }
+
+    function parseToolOutput(output) {
+      if (!output) return {}
+      try {
+        var parsed = JSON.parse(output)
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+      } catch (e) { return {} }
+    }
+
+    // 从 tool output 提取结构化 media 数组(对齐 turns.ts parseToolMedia + studio-media.ts originalMediaSrc)
+    // 优先 remoteUrl(生成服务的远程 URL,分享页可直接渲染),回退 url(可能是本地 artifact 路径)
+    // 本地路径尝试从 imageBlobMap(manifest.files 的 blob 映射)解析
+    function parseStudioToolMedia(output, imageBlobMap) {
+      var parsed = parseToolOutput(output)
+      if (!Array.isArray(parsed.media)) return []
+      return parsed.media.flatMap(function (item, index) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return []
+        var remoteUrl = typeof item.remoteUrl === "string" ? item.remoteUrl : undefined
+        var url = (typeof item.url === "string" ? item.url : undefined) || remoteUrl
+        // 对齐 studio-media.ts originalMediaSrc:remoteUrl ?? url
+        var displayUrl = remoteUrl || url
+        if (!displayUrl || typeof displayUrl !== "string") return []
+        var kind = item.kind === "video" ? "video" : "image"
+        // 远程 URL 直接可用;本地路径尝试从 manifest blob 映射解析
+        var isBlob = false
+        if (kind === "image" && !isRenderableImageUrl(displayUrl)) {
+          var basename = displayUrl.split(/[/\\]/).pop()
+          var blobEntry = imageBlobMap && imageBlobMap[basename]
+          if (blobEntry) { displayUrl = blobEntry.url; isBlob = true }
+          else return []
+        }
+        if (kind === "video" && !isRenderableVideoUrl(displayUrl)) return []
+        return [{
+          id: item.id || ("studio_media_" + index),
+          kind: kind,
+          url: displayUrl,
+          isBlob: isBlob,
+          // 原始地址(remoteUrl ?? url):视频点击打开、缩略图失败回退用
+          originalUrl: remoteUrl || url,
+          thumbnailUrl: typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : undefined,
+          thumbnailStatus: item.thumbnailStatus === "ready" || item.thumbnailStatus === "pending" || item.thumbnailStatus === "failed"
+            ? item.thumbnailStatus
+            : undefined,
+          width: typeof item.width === "number" ? item.width : undefined,
+          height: typeof item.height === "number" ? item.height : undefined,
+        }]
+      })
+    }
+
+    // 从 tool output 提取图片/视频 URL(对齐 turns.ts parseToolImages / parseToolVideos)
+    function parseStudioToolImages(output) {
+      var parsed = parseToolOutput(output)
+      var direct = [parsed.images, parsed.primaryImage, parsed.primary_image]
+        .filter(function (v) { return Array.isArray(v) ? v : typeof v === "string" && v.length > 0 })
+        .flatMap(function (v) { return Array.isArray(v) ? v : [v] })
+        .filter(function (v) { return typeof v === "string" && v.length > 0 })
+        .filter(isRenderableImageUrl)
+      if (direct.length > 0) return Array.from(new Set(direct))
+      var response = parsed.response
+      if (response && typeof response === "object" && !Array.isArray(response)) {
+        var nested = [response.images, response.primaryImage, response.primary_image]
+          .filter(function (v) { return Array.isArray(v) ? v : typeof v === "string" && v.length > 0 })
+          .flatMap(function (v) { return Array.isArray(v) ? v : [v] })
+          .filter(function (v) { return typeof v === "string" && v.length > 0 })
+          .filter(isRenderableImageUrl)
+        if (nested.length > 0) return Array.from(new Set(nested))
+      }
+      return collectImageUrls(parsed).filter(isRenderableImageUrl)
+    }
+    function parseStudioToolVideos(output) {
+      var parsed = parseToolOutput(output)
+      var direct = [parsed.videos, parsed.primaryVideo, parsed.primary_video].flatMap(function (v) {
+        if (!v) return []
+        if (typeof v === "string") return isRenderableVideoUrl(v.replaceAll("\\/", "/").replace(/[,.，。]+$/, "")) ? [v] : []
+        if (Array.isArray(v)) return v.flatMap(function (i) { return typeof i === "string" && isRenderableVideoUrl(i.replaceAll("\\/", "/").replace(/[,.，。]+$/, "")) ? [i] : [] })
+        return []
+      })
+      if (direct.length > 0) return Array.from(new Set(direct))
+      return collectVideoUrls(parsed).filter(isRenderableVideoUrl)
+    }
+
+    // 从 tool part 的 state.attachments / state.content 提取媒体(对齐 turns.ts parseToolAttachments)
+    function parseStudioToolAttachments(part) {
+      var state = part.state || {}
+      var items = (Array.isArray(state.attachments) ? state.attachments : []).concat(Array.isArray(state.content) ? state.content : [])
+      return items.flatMap(function (item) {
+        if (!item || typeof item !== "object") return []
+        var url = typeof item.url === "string" ? item.url : typeof item.uri === "string" ? item.uri : undefined
+        if (!url) return []
+        var mime = typeof item.mime === "string" ? item.mime : undefined
+        var kind = mime && mime.startsWith("video/") ? "video" : mime && mime.startsWith("image/") ? "image" : isRenderableVideoUrl(url) ? "video" : "image"
+        if (kind === "image" && !isRenderableImageUrl(url)) return []
+        if (kind === "video" && !isRenderableVideoUrl(url)) return []
+        return [{ kind: kind, url: url }]
+      })
+    }
+
+
+    // 生成进度(对齐 turns.ts studioProgress:metadata.studio.status)
+    function studioToolProgress(part) {
+      var studio = ((((part || {}).state || {}).metadata || {}).studio) || {}
+      return ["creating", "queued", "running", "succeeded", "create_failed", "failed", "abnormal"].indexOf(studio.status) !== -1
+        ? studio.status
+        : "running"
+    }
+
+    // 编辑区入口(对齐 turns.ts editorEntry)
+    function studioEditorEntry(tools) {
+      for (var i = 0; i < tools.length; i++) {
+        if (tools[i].tool !== "studio_editor_entry") continue
+        var state = tools[i].state || {}
+        var metadata = (state.metadata || {}).studio || {}
+        var input = state.input || {}
+        var capability = metadata.capability ?? input.capability
+        var entryID = typeof metadata.entryID === "string" ? metadata.entryID : typeof input.entryID === "string" ? input.entryID : ""
+        if (STUDIO_EDITOR_CAPABILITIES.indexOf(capability) !== -1 && entryID) {
+          return { capability: capability, entryID: entryID }
+        }
+      }
+      return undefined
+    }
+
+    // 参考图(对齐 turns.ts buildStudioInputImages)
+    function studioBuildInputImages(input, capability) {
+      var referenceImages = (Array.isArray(input.referenceImages) ? input.referenceImages : [])
+        .filter(function (value) { return typeof value === "string" && value.trim() && !/^data:video\//i.test(value.trim()) })
+      var urls
+      if (capability === "image.generate" || capability === "image.fusion") urls = referenceImages
+      else if (capability === "video.generate") {
+        var extra = input.extra && typeof input.extra === "object" ? input.extra : {}
+        urls = [extra.firstFrame, extra.lastFrame].concat(referenceImages)
+      } else urls = [input.sourceImage]
+      var seen = {}
+      return (urls || []).filter(function (value) {
+        if (typeof value !== "string" || !value.trim()) return false
+        var key = value.trim()
+        if (seen[key]) return false
+        seen[key] = true
+        return true
+      })
+    }
+
+    // 一轮生成结果(对齐 turns.ts buildResult:完成的含媒体工具 > 运行中 > 失败)
+    function studioBuildResultTurn(input, imageBlobMap) {
+      var tools = input.tools
+      var completed, running, errored
+      for (var i = tools.length - 1; i >= 0; i--) {
+        var part = tools[i]
+        var state = part.state || {}
+        if (!completed && state.status === "completed" &&
+            (parseStudioToolMedia(state.output, imageBlobMap).length > 0 ||
+             parseStudioToolAttachments(part).length > 0 ||
+             parseStudioToolImages(state.output).length > 0 ||
+             parseStudioToolVideos(state.output).length > 0)) {
+          completed = part
+        }
+        if (!running && state.status === "running") running = part
+        if (!errored && state.status === "error") errored = part
+      }
+      var activeTool = completed || running || errored
+      var toolInput = activeTool && activeTool.state && activeTool.state.input && typeof activeTool.state.input === "object" ? activeTool.state.input : {}
+      var output = parseToolOutput(completed && completed.state && completed.state.output)
+      var capability = studioNormalizeCapability(output.capability || toolInput.capability)
+      // 媒体:结构化 media 优先,回退附件/图片/视频 URL(对齐 buildResult 的 media 提取)
+      var media = completed ? parseStudioToolMedia(completed.state.output, imageBlobMap) : []
+      if (completed && media.length === 0) {
+        var seen = {}
+        media = parseStudioToolAttachments(completed)
+          .concat(parseStudioToolVideos(completed.state.output).map(function (url) { return { kind: "video", url: url } }))
+          .concat(parseStudioToolImages(completed.state.output).map(function (url) { return { kind: "image", url: url } }))
+          .filter(function (item) { if (seen[item.url]) return false; seen[item.url] = true; return true })
+      }
+      var aspectRatio = studioNormalizeAspectRatio(output.aspectRatio || toolInput.aspectRatio)
+      // 视频时长(对齐 buildResult:output.duration ?? extra.duration,如 "5")
+      var extra = toolInput.extra && typeof toolInput.extra === "object" ? toolInput.extra : {}
+      var duration = typeof output.duration === "string" ? output.duration : typeof extra.duration === "string" ? extra.duration : undefined
+      // 状态(对齐 buildResult:有媒体即成功;失败按 metadata.studio.status 细分)
+      var failureStatus = errored
+        ? (["create_failed", "abnormal"].indexOf(studioToolProgress(errored)) !== -1 ? studioToolProgress(errored) : "failed")
+        : undefined
+      var status = media.length > 0
+        ? "succeeded"
+        : failureStatus ?? (running ? "running" : "failed")
+      var error = media.length > 0
+        ? undefined
+        : (errored && typeof errored.state.error === "string" && errored.state.error) ||
+          (status === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")
+      return {
+        kind: "result",
+        userText: (typeof toolInput.displayPrompt === "string" && toolInput.displayPrompt) || extractStudioUserDemand(input.userText),
+        hideUserBubble: input.hideUserBubble,
+        assistantText: input.assistantText,
+        mentionImages: toolInput.extra && typeof toolInput.extra === "object" && !Array.isArray(toolInput.extra) &&
+          toolInput.extra.mentionImages && typeof toolInput.extra.mentionImages === "object" && !Array.isArray(toolInput.extra.mentionImages)
+          ? Object.keys(toolInput.extra.mentionImages).reduce(function (acc, key) {
+              if (typeof toolInput.extra.mentionImages[key] === "string") acc[key] = toolInput.extra.mentionImages[key]
+              return acc
+            }, {})
+          : undefined,
+        inputImages: studioBuildInputImages(toolInput, capability),
+        result: {
+          status: status,
+          capability: capability,
+          aspectRatio: aspectRatio,
+          media: media,
+          duration: duration,
+          error: error,
+          createdAt: input.createdAt,
+        },
+      }
+    }
+
+    // 分轮(对齐 turns.ts buildStudioTurns:排序 → 过滤隐藏 guide 轮 → 推荐/编辑/生成三分支)
+    function buildStudioTurns(messages, imageBlobMap) {
+      var sorted = (messages || []).slice().sort(function (left, right) {
+        var lt = ((left.info || {}).time || {}).created
+        var rt = ((right.info || {}).time || {}).created
+        if (lt !== rt) return lt - rt
+        return String((left.info || {}).id || "").localeCompare(String((right.info || {}).id || ""))
+      })
+      // assistant 带 guide 元数据且 visible=false 的轮次整轮不展示
+      var kept = sorted.filter(function (message) {
+        if ((message.info || {}).role !== "user") return true
+        var assistant = sorted.find(function (item) {
+          var info = item.info || {}
+          return info.role === "assistant" && info.parentID === (message.info || {}).id
+        })
+        if (!assistant) return true
+        return !(assistant.parts || []).some(function (part) {
+          var meta = studioPromptMetadata(part)
+          return meta && meta.kind === "guide" && meta.visible === false
+        })
+      })
+      var turns = []
+      for (var i = 0; i < kept.length; i++) {
+        var user = kept[i]
+        if ((user.info || {}).role !== "user") continue
+        var assistant
+        for (var j = i + 1; j < kept.length; j++) {
+          var info = kept[j].info || {}
+          if (info.role === "assistant" && info.parentID === (user.info || {}).id) { assistant = kept[j]; break }
+        }
+        var userTextParts = (user.parts || []).filter(function (part) { return part.type === "text" })
+        var userText = userTextParts.map(function (part) { return part.text || "" }).join("\n").trim()
+        var hideUserBubble = userTextParts.length === 0 || userTextParts.some(function (part) {
+          var source = part.metadata && part.metadata.studioPromptExpansionSource
+          return !!(source && typeof source === "object" && typeof source.assistantMessageID === "string" && source.assistantMessageID.trim())
+        })
+        var assistantParts = assistant ? assistant.parts || [] : []
+        var assistantText = assistantParts
+          .filter(function (part) { return part.type === "text" && !studioIsPreviewPart(part) })
+          .map(function (part) { return part.text || "" })
+          .join("\n").trim()
+        var tools = assistantParts.filter(function (part) { return part.type === "tool" })
+        var createdAt = ((user.info || {}).time || {}).created
+        var recommendation = studioPromptMetadata(assistantParts.find(function (part) { return studioPromptMetadata(part) }))
+        if (recommendation) {
+          turns.push({
+            kind: "recommendation",
+            recommendation: recommendation,
+            userText: userText,
+            hideUserBubble: hideUserBubble,
+            assistantText: assistantText,
+            previewText: studioExpansionPreviewText(assistantParts),
+            // 推荐轮参考图来自用户消息的图片附件(对齐 turns.ts recommendation 分支)
+            inputImages: (user.parts || [])
+              .filter(function (part) { return part.type === "file" && typeof part.mime === "string" && part.mime.indexOf("image/") === 0 })
+              .map(function (part) { return part.url }),
+            createdAt: createdAt,
+          })
+          continue
+        }
+        var entry = studioEditorEntry(tools)
+        if (entry) {
+          turns.push({
+            kind: "editor",
+            capability: entry.capability,
+            userText: userText,
+            hideUserBubble: hideUserBubble,
+            assistantText: assistantText,
+            createdAt: createdAt,
+          })
+          continue
+        }
+        turns.push(studioBuildResultTurn({
+          userText: userText,
+          hideUserBubble: hideUserBubble,
+          assistantText: assistantText,
+          tools: tools,
+          createdAt: createdAt,
+        }, imageBlobMap))
+      }
+      return turns
+    }
+
+    // ── 渲染 ──
+
+    // 用户气泡文本:@引用渲染为 chip,其余按纯文本(对齐 StudioUserBubbleText)
+    function buildStudioUserBubbleText(text, mentionImages) {
+      var container = document.createElement("span")
+      var regex = /@[^@\u200B]*\u200B/g
+      var last = 0
+      var match
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > last) {
+          container.appendChild(document.createTextNode(text.slice(last, match.index).replace(/\u200B/g, "")))
+        }
+        var name = match[0].slice(1, -1)
+        var chip = document.createElement("span")
+        chip.className = "studio-user-bubble-mention"
+        var src = mentionImages && typeof mentionImages[name] === "string" ? mentionImages[name] : ""
+        if (/^https?:\/\//i.test(src) || /^data:image\//i.test(src)) {
+          var icon = document.createElement("img")
+          icon.src = src
+          icon.alt = name
+          chip.appendChild(icon)
+        }
+        var nameSpan = document.createElement("span")
+        nameSpan.className = "studio-user-bubble-mention-name"
+        nameSpan.textContent = name
+        chip.appendChild(nameSpan)
+        container.appendChild(chip)
+        last = match.index + match[0].length
+      }
+      if (last < text.length) {
+        container.appendChild(document.createTextNode(text.slice(last).replace(/\u200B/g, "")))
+      }
+      return container
+    }
+
+    // 参考图行(对齐 .studio-user-input-images:http/data 直显,本地路径走 manifest blob)
+    function appendStudioInputImages(turn, el, imageBlobMap, token) {
+      if (turn.hideUserBubble || !turn.inputImages || turn.inputImages.length === 0) return
+      var box = document.createElement("div")
+      box.className = "studio-user-input-images"
+      for (var i = 0; i < turn.inputImages.length; i++) {
+        var url = turn.inputImages[i]
+        var img = document.createElement("img")
+        img.className = "studio-user-input-image"
+        img.alt = ""
+        img.loading = "lazy"
+        if (/^https?:\/\//i.test(url) || /^data:image\//i.test(url)) {
+          img.src = url
+        } else {
+          var basename = String(url).split(/[/\\]/).pop()
+          var blobEntry = imageBlobMap[basename]
+          if (!blobEntry) continue
+          ;(function (imgEl, blobUrl, mime) {
+            loadBlobImage(blobUrl, token, mime).then(function (resolvedUrl) { imgEl.src = resolvedUrl })
+          })(img, blobEntry.url, blobEntry.mime)
+        }
+        box.appendChild(img)
+      }
+      if (box.children.length > 0) el.appendChild(box)
+    }
+
+    // 单轮渲染(对齐 studio-conversation.tsx StudioConversation 的 JSX 分支)
+    function buildStudioTurnElement(turn, imageBlobMap, token) {
+      var el = document.createElement("div")
+      el.className = "studio-conversation-turn"
+
+      appendStudioInputImages(turn, el, imageBlobMap, token)
+
+      // 用户气泡(guide 轮隐藏;文案对齐 turn.userText || "Octo Studio")
+      if (!turn.hideUserBubble && !(turn.recommendation && turn.recommendation.kind === "guide")) {
+        var bubble = document.createElement("div")
+        bubble.className = "studio-user-bubble"
+        bubble.appendChild(buildStudioUserBubbleText(turn.userText || "Octo Studio", turn.mentionImages))
+        el.appendChild(bubble)
+      }
+
+      if (turn.kind === "editor") {
+        // 编辑区入口(对齐 .studio-assistant-editor-link;分享页静态展示)
+        var link = document.createElement("span")
+        link.className = "studio-assistant-editor-link"
+        link.appendChild(document.createTextNode("点击前往编辑区"))
+        var arrow = document.createElement("img")
+        arrow.src = "./studio/stutdio_arrow_right.png"
+        arrow.alt = ""
+        arrow.className = "studio-editor-link-arrow"
+        link.appendChild(arrow)
+        el.appendChild(link)
+        return el
+      }
+
+      // 助手文案:扩写 running/cancelling/completed 时由预览文本替代(对齐 result 分支)
+      var suppressAssistantText = turn.recommendation && turn.recommendation.kind === "result" &&
+        ["running", "cancelling", "completed"].indexOf(turn.recommendation.status) !== -1
+      if (suppressAssistantText) {
+        if (turn.recommendation.status === "completed" && turn.previewText) {
+          var preview = document.createElement("div")
+          preview.className = "studio-assistant-copy"
+          preview.textContent = turn.previewText
+          el.appendChild(preview)
+        }
+      } else {
+        var copy = sanitizeStudioAssistantText(turn.assistantText)
+        if (copy) {
+          var copyEl = document.createElement("div")
+          copyEl.className = "studio-assistant-copy"
+          copyEl.textContent = copy
+          el.appendChild(copyEl)
+        }
+      }
+
+      // guide 轮:静态快捷入口(对齐 .studio-recommendation-shortcuts)
+      if (turn.recommendation && turn.recommendation.kind === "guide") {
+        var shortcuts = document.createElement("div")
+        shortcuts.className = "studio-recommendation-shortcuts"
+        for (var s = 0; s < STUDIO_RECOMMENDATION_SHORTCUT_LABELS.length; s++) {
+          var shortcut = document.createElement("span")
+          shortcut.className = "studio-recommendation-shortcut"
+          var label = document.createElement("span")
+          label.textContent = STUDIO_RECOMMENDATION_SHORTCUT_LABELS[s]
+          shortcut.appendChild(label)
+          shortcut.insertAdjacentHTML("beforeend",
+            '<svg viewBox="0 0 6 11" width="14" height="14" aria-hidden="true"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1"/></svg>')
+          shortcuts.appendChild(shortcut)
+        }
+        el.appendChild(shortcuts)
+      }
+
+      // 结果卡片(推荐/编辑轮不展示)
+      if (turn.result) el.appendChild(buildStudioResultCard(turn.result, token, imageBlobMap))
+      return el
+    }
+
+    // 图片网格方向(对齐 studio-result-card.tsx:媒体尺寸优先,回退画幅比例;横构图 4 张换行)
+    function studioGridClass(media, aspectRatio) {
+      var first = media[0]
+      var is1x1, isPortrait, isLandscape
+      if (first && first.width && first.height) {
+        is1x1 = first.width === first.height
+        isPortrait = first.height > first.width
+        isLandscape = first.width > first.height
+      } else {
+        var ratio = aspectRatio || "1:1"
+        is1x1 = ratio === "1:1"
+        isPortrait = STUDIO_PORTRAIT_RATIOS.indexOf(ratio) !== -1
+        isLandscape = STUDIO_LANDSCAPE_RATIOS.indexOf(ratio) !== -1
+      }
+      var count = media.length
+      if (isPortrait) return count === 1 ? "single-portrait" : "multi-portrait"
+      if (isLandscape) return count === 1 ? "single-landscape" : (count === 4 ? "multi-landscape multi-landscape-4" : "multi-landscape")
+      return count === 1 ? "single-1x1" : "multi-1x1"
+    }
+
+    // 结果卡片(对齐 studio-result-card.tsx:能力图标 + 标签 + 状态徽标 + 创建时间 + 网格/错误)
+    function buildStudioResultCard(result, token, imageBlobMap) {
+      var card = document.createElement("div")
+      card.className = "studio-result-card" +
+        (result.status === "succeeded" ? " complete"
+          : ["failed", "create_failed"].indexOf(result.status) !== -1 ? " failed"
+          : result.status === "abnormal" ? " abnormal" : "")
+      var statusLabel =
+        result.status === "succeeded" ? "生成完成" :
+        result.status === "create_failed" ? "创建失败" :
+        result.status === "abnormal" ? "状态异常" :
+        result.status === "running" ? "生成中" :
+        result.status === "queued" ? "排队中" :
+        result.status === "creating" ? "创建中" : "生成失败"
+      var header = document.createElement("div")
+      header.className = "studio-result-progress-header"
+      var left = document.createElement("div")
+      left.className = "studio-result-progress-left"
+      var title = document.createElement("div")
+      title.className = "studio-result-progress-title"
+      var icon = document.createElement("span")
+      icon.className = studioCapabilityIconClass(result.capability)
+      title.appendChild(icon)
+      title.appendChild(document.createTextNode(studioCapabilityLabel(result.capability)))
+      var status = document.createElement("span")
+      status.className = "studio-result-progress-status"
+      status.textContent = statusLabel
+      left.appendChild(title)
+      left.appendChild(status)
+      header.appendChild(left)
+      card.appendChild(header)
+      if (result.createdAt) {
+        var meta = document.createElement("div")
+        meta.className = "studio-result-meta"
+        meta.textContent = "创建时间：" + new Date(result.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+        card.appendChild(meta)
+      }
+      var preview = document.createElement("div")
+      preview.className = "studio-result-progress-preview"
+      if (result.status === "succeeded" && result.media.length > 0) {
+        var grid = document.createElement("div")
+        grid.className = "studio-result-grid " + studioGridClass(result.media, result.aspectRatio)
+        for (var i = 0; i < result.media.length; i++) {
+          grid.appendChild(buildStudioGridThumb(result.media[i], result, token, imageBlobMap))
+        }
+        preview.appendChild(grid)
+      } else {
+        // 失败/异常:错误文案(对齐 .studio-result-error-box)
+        var errorBox = document.createElement("div")
+        errorBox.className = "studio-result-error-box"
+        var errorIcon = document.createElement("img")
+        errorIcon.src = "./studio/studio-result-error.svg"
+        errorIcon.alt = ""
+        errorIcon.className = "studio-result-error-icon"
+        errorBox.appendChild(errorIcon)
+        errorBox.appendChild(makeSpan("studio-result-error", result.error || "生成失败"))
+        preview.appendChild(errorBox)
+      }
+      card.appendChild(preview)
+      return card
+    }
+
+    // 视频时长格式化(对齐 studio-media.ts formatStudioThumbnailDuration:MM:SS)
+    function studioFormatDuration(value) {
+      var duration = typeof value === "string" ? Number(value) : value
+      if (duration === undefined || !Number.isFinite(duration) || duration < 0) return ""
+      var seconds = Math.floor(duration)
+      return String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0")
+    }
+
+    // 缩略图来源(对齐 studio-media.ts thumbnailMediaSrc:ready 且为 thumbnails/ 相对路径才用,
+    // 经 manifest files blob 解析;导出后的 thumbnailUrl 形如 .octo/{sessionId}/thumbnails/xxx.webp)
+    function studioThumbnailEntry(item, imageBlobMap) {
+      if (!item.thumbnailUrl || item.thumbnailStatus !== "ready") return undefined
+      if (/^(https?:|data:)/i.test(item.thumbnailUrl)) return { url: item.thumbnailUrl, mime: undefined, isBlob: false }
+      var basename = item.thumbnailUrl.split(/[/\\]/).pop()
+      return imageBlobMap && imageBlobMap[basename]
+        ? { url: imageBlobMap[basename].url, mime: imageBlobMap[basename].mime, isBlob: true }
+        : undefined
+    }
+
+    // 网格内单个媒体(对齐 StudioMediaThumbnail:缩略图优先、失败回退原图/占位;视频带 MM:SS 时长徽标)
+    function buildStudioGridThumb(item, result, token, imageBlobMap) {
+      var thumb = document.createElement("div")
+      thumb.className = "studio-result-thumb"
+      var original = item.originalUrl || item.url
+      var originalHttp = /^https?:\/\//i.test(original) ? original : ""
+      var thumbnail = studioThumbnailEntry(item, imageBlobMap)
+
+      var applySource = function (source, fallback) {
+        // source 形如 { url, mime?, isBlob } 或字符串;失败时回退 fallback(如原图),再失败显示占位
+        var img = document.createElement("img")
+        img.className = "studio-result-thumb-media"
+        img.alt = ""
+        img.loading = "lazy"
+        img.decoding = "async"
+        img.addEventListener("error", function () {
+          if (fallback) {
+            if (img.src !== fallback) { img.src = fallback; return }
+            img.remove()
+          }
+          thumb.appendChild(studioMediaPlaceholder(item.kind))
+        })
+        if (typeof source === "string") {
+          img.src = source
+        } else {
+          ;(function (imgEl, blobUrl, mime) {
+            loadBlobImage(blobUrl, token, mime).then(function (resolvedUrl) { imgEl.src = resolvedUrl })
+          })(img, source.url, source.mime)
+        }
+        return img
+      }
+
+      if (item.kind === "video") {
+        // 对齐 .studio-result-thumb-video:缩略图优先,无缩略图回退 muted 预加载视频
+        var wrapper = document.createElement("span")
+        wrapper.className = "studio-result-thumb-video"
+        if (thumbnail) {
+          wrapper.appendChild(applySource(thumbnail, originalHttp))
+        } else if (isRenderableVideoUrl(item.url)) {
+          var video = document.createElement("video")
+          video.className = "studio-result-thumb-media"
+          video.src = item.url
+          video.muted = true
+          video.setAttribute("playsinline", "")
+          video.setAttribute("preload", "metadata")
+          video.addEventListener("error", function () {
+            video.remove()
+            wrapper.appendChild(studioMediaPlaceholder("video"))
+          })
+          wrapper.appendChild(video)
+        } else {
+          wrapper.appendChild(studioMediaPlaceholder("video"))
+        }
+        var badgeText = studioFormatDuration(result.duration)
+        if (badgeText) {
+          var badge = document.createElement("span")
+          badge.className = "studio-file-manager-media-video-badge studio-result-video-duration-badge"
+          badge.appendChild(makeSpan("studio-file-manager-media-video-badge-text", badgeText))
+          wrapper.appendChild(badge)
+        }
+        thumb.appendChild(wrapper)
+        // 分享页无画布:点击缩略图在新标签打开原始视频(远程地址可用时)
+        if (originalHttp) {
+          thumb.style.cursor = "pointer"
+          thumb.title = "打开视频"
+          thumb.addEventListener("click", function () {
+            window.open(originalHttp, "_blank", "noopener")
+          })
+        }
+        return thumb
+      }
+
+      // 图片:缩略图 ready 用缩略图,否则原图(对齐 thumbnailMediaSrc image 分支)
+      if (thumbnail) {
+        thumb.appendChild(applySource(thumbnail, originalHttp))
+      } else if (item.isBlob) {
+        thumb.appendChild(applySource({ url: item.url, mime: "image/png" }, originalHttp))
+      } else if (isRenderableImageUrl(item.url)) {
+        thumb.appendChild(applySource(item.url, ""))
+      } else {
+        thumb.appendChild(studioMediaPlaceholder("image"))
+      }
+      return thumb
+    }
+
+    // 媒体占位(对齐 .studio-media-thumbnail-placeholder 及 image/video 图标)
+    function studioMediaPlaceholder(kind) {
+      var placeholder = document.createElement("span")
+      placeholder.className = "studio-media-thumbnail-placeholder studio-result-thumb-media"
+      placeholder.setAttribute("aria-label", kind === "video" ? "视频缩略图" : "图片缩略图")
+      placeholder.appendChild(makeSpan(kind === "video" ? "studio-media-thumbnail-video-icon" : "studio-media-thumbnail-image-icon", ""))
+      return placeholder
+    }
+
+    // studio 会话主渲染(对齐 studio 页面 StudioConversation)
+    function renderStudioConversation(manifest, session, filePath, token, list) {
+      document.body.dataset.module = "studio"
+      list.innerHTML = ""
+      var conversation = document.createElement("div")
+      conversation.className = "studio-conversation"
+      var imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
+      var turns = buildStudioTurns(session.messages || [], imageBlobMap)
+      for (var i = 0; i < turns.length; i++) {
+        conversation.appendChild(buildStudioTurnElement(turns[i], imageBlobMap, token))
+      }
+      if (conversation.children.length === 0) {
+        showEmptyState()
+        return
+      }
+      list.appendChild(conversation)
+    }
+
   </script>
 </body>
 </html>
