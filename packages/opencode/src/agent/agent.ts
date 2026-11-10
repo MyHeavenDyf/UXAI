@@ -662,7 +662,7 @@ export const layer = Layer.effect(
           antd_to_eviewui_orchestrator: {
             name: "antd_to_eviewui_orchestrator",
             description:
-              "Orchestrator agent for antd-to-eview-ui migration pipeline. Spawns sub-agents to execute umd-to-antd-vite and antd-to-eview-ui skills in sequence (skeleton blood-swap + component replacement; icons and charts preserved as source).",
+              "Orchestrator agent for UMD-to-eview-ui migration. Executes the umd-to-eview-ui skill end-to-end as its main agent (UMD normalization + antd-to-eview-ui component replacement; icons and charts preserved as source).",
             prompt: PROMPT_ANTD_TO_EVIEWUI_ORCHESTRATOR,
             permission: Permission.merge(
               defaults,
@@ -681,7 +681,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
-            skills: ["umd-to-antd-vite", "antd-to-eview-ui"],
+            skills: ["umd-to-eview-ui"],
           },
         }
 
