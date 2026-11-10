@@ -5,8 +5,9 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { MessageV2 } from "@/session/message-v2"
-import { SessionTable } from "@/session/session.sql"
+import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { StudioGenerationTable } from "@/studio/studio-generation.sql"
 import { StudioHistoryExcludedTable, StudioHistoryTable } from "@/studio/studio-history.sql"
 import {
@@ -19,6 +20,7 @@ import {
   materializeStudioGeneration,
   materializeStudioSessionParts,
   pruneStudioHistoryExcluded,
+  rematerializeStudioSessionMedia,
   snapshotSessionMedia,
   studioHistoryRevision,
   updateStudioHistoryThumbnail,
@@ -109,6 +111,8 @@ async function withStudioHistory(
         Database.use((db) => {
           db.delete(StudioHistoryTable).where(eq(StudioHistoryTable.directory, Instance.directory)).run()
           db.delete(StudioHistoryExcludedTable).where(eq(StudioHistoryExcludedTable.directory, Instance.directory)).run()
+          db.delete(PartTable).where(eq(PartTable.session_id, sessionID)).run()
+          db.delete(MessageTable).where(eq(MessageTable.session_id, sessionID)).run()
           db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
         })
       }
@@ -975,6 +979,64 @@ describe("Studio history service", () => {
       const refreshed = listStudioHistoryMedia(directory).items
       expect(refreshed).toHaveLength(1)
       expect(refreshed.every((item) => item.createdAt >= reimportedAt)).toBe(true)
+    })
+  })
+
+  test("rematerializes session parts from storage to restore media deleted from history", async () => {
+    await withStudioHistory(async ({ directory, sessionID }) => {
+      // 模拟已导入的分享会话：parts 落在 part 存储（app 缓存命中重开分享时不重跑导入，
+      // 只能从存储重读 parts 走重物化）。
+      const assistant: MessageV2.Assistant = {
+        id: MessageID.ascending(),
+        sessionID,
+        role: "assistant",
+        time: { created: Date.now() },
+        parentID: MessageID.ascending(),
+        modelID: ModelID.make("test-model"),
+        providerID: ProviderID.make("test"),
+        mode: "primary",
+        agent: "octo_studio",
+        path: { cwd: directory, root: directory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      }
+      const part: MessageV2.Part = {
+        ...importedStudioPart({
+          sessionID,
+          generationID: "gen-remat",
+          output: {
+            ok: true,
+            capability: "image.generate",
+            media: [{ id: "img-remat-0", kind: "image", url: "https://example.com/remat-0.png", remoteUrl: "https://example.com/remat-0.png" }],
+          },
+        }),
+        messageID: assistant.id,
+      }
+      const { id: messageRowID, sessionID: messageSessionID, ...messageData } = assistant
+      const { id: partRowID, messageID: partMessageID, sessionID: partSessionID, ...partData } = part
+      Database.use((db) => {
+        db.insert(MessageTable)
+          .values({ id: messageRowID, session_id: messageSessionID, time_created: assistant.time.created, data: messageData })
+          .run()
+        db.insert(PartTable)
+          .values({ id: partRowID, message_id: partMessageID, session_id: partSessionID, time_created: 1_000, data: partData })
+          .run()
+      })
+
+      expect(rematerializeStudioSessionMedia(directory, sessionID)).toBe(1)
+      expect(listStudioHistoryMedia(directory).items.map((item) => item.id)).toEqual(["img-remat-0"])
+
+      expect(await deleteStudioHistoryMedia(directory, ["img-remat-0"])).toBe(1)
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(0)
+
+      // 重开分享触发 snapshot 端点的重物化：清墓碑，素材回到「我的资产」。
+      expect(rematerializeStudioSessionMedia(directory, sessionID)).toBe(1)
+      expect(listStudioHistoryExcludedIds(directory)).toEqual([])
+      expect(listStudioHistoryMedia(directory).items.map((item) => item.id)).toEqual(["img-remat-0"])
+
+      // 幂等：无删除时重物化只刷新，不产生重复行。
+      expect(rematerializeStudioSessionMedia(directory, sessionID)).toBe(1)
+      expect(listStudioHistoryMedia(directory).items).toHaveLength(1)
     })
   })
 })

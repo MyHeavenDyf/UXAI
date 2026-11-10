@@ -3,8 +3,8 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or,
 import { readdir, rm, stat } from "node:fs/promises"
 import path from "path"
 import { MessageV2 } from "@/session/message-v2"
-import type { SessionID } from "@/session/schema"
-import { SessionTable } from "@/session/session.sql"
+import { SessionID } from "@/session/schema"
+import { PartTable, SessionTable } from "@/session/session.sql"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { StudioHistoryExcludedTable, StudioHistoryTable } from "./studio-history.sql"
 import { resolveStudioVideoQualityMode } from "./image-provider"
@@ -886,6 +886,16 @@ function unexcludeMedia(directory: string, mediaIds: string[]): number {
         .all()
         .length,
     ), 0)
+}
+
+// 重新打开已导入的分享对话时，app 侧分享缓存命中会跳过服务端导入，「我的资产」里
+// 已删除的素材因此没有恢复通路。按 session 从 part 存储重读 parts 再走一遍导入
+// 物化（清墓碑 + 幂等 upsert）；/studio/history/snapshot 端点在生成快照之外调用它。
+export function rematerializeStudioSessionMedia(directory: string, sessionID: string): number {
+  const parts = Database.use((db) =>
+    db.select().from(PartTable).where(eq(PartTable.session_id, SessionID.make(sessionID))).all(),
+  ).map((row) => ({ ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id }) as MessageV2.Part)
+  return materializeStudioSessionParts(directory, SessionID.make(sessionID), parts)
 }
 
 function parseToolOutput(output: string): Record<string, unknown> {
