@@ -2,6 +2,7 @@ import { createSignal } from "solid-js"
 import type { WorkspaceKind } from "@/context/server"
 import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
+import { tracker } from "@/utils/tracker"
 
 
 export type AssessmentSolution = { desc: string; suggest: string }
@@ -234,27 +235,36 @@ export async function harvestAssessmentReview(): Promise<void> {
   const reviewPath = computeAssessmentReviewPath(turn.filePath, turn.skillName)
   const api = getDesktopApi()
   if (!reviewPath || !api?.readFileBuffer) return
+  // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 字段可区分 DMG预审 的预期未产出）
+  const track = (fields: Record<string, unknown>) =>
+    tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, ...fields }) })
   let raw: unknown
   try {
     const buf = await api.readFileBuffer(reviewPath)
     if (!buf) {
+      // 文件夹存在但 annotations.json 缺失 = 命名错误（toast 提示）；文件夹不存在 = 技能未产出（静默，DMG预审 正常路径）
       const dir = reviewPath.replace(/[\\/][^\\/]+$/, "")
-      if (await api.dirExists?.(dir)) {
+      const folderExists = await api.dirExists?.(dir)
+      if (folderExists) {
         showOctoToast({ title: "评审数据文件缺失", description: "请将评审数据文件命名为 annotations.json", variant: "error" })
       }
+      track({ ok: false, reason: folderExists ? "file-missing-in-folder" : "file-missing" })
       return
     }
     raw = JSON.parse(new TextDecoder().decode(buf))
   } catch (err) {
     console.warn("[assessment] 读取 annotations.json 失败", reviewPath, err)
     showOctoToast({ title: "评审数据读取失败", description: "annotations.json 不是合法的 JSON", variant: "error" })
+    track({ ok: false, reason: "json-parse" })
     return
   }
   const reviewData = parseReviewItems(raw)
   if (!reviewData) {
     console.warn("[assessment] annotations.json 结构非法", reviewPath)
     showOctoToast({ title: "评审数据格式异常", description: "annotations.json 结构不符合评审数据契约", variant: "error" })
+    track({ ok: false, reason: "invalid-structure" })
     return
   }
+  track({ ok: true, count: reviewData.length })
   enterPending({ fileKey: turn.fileKey, filePath: turn.filePath, skillName: turn.skillName, reviewData })
 }
