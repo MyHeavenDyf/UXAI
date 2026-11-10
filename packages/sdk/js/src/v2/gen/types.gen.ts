@@ -1629,6 +1629,14 @@ export type McpUnsupportedOAuthError = {
   error: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -1677,14 +1685,6 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type TextPartInput = {
@@ -5386,6 +5386,68 @@ export type ProjectInitGitResponses = {
 }
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
+
+export type ProjectGetGitRemoteData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectGetGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+}
+
+export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
+
+export type ProjectGetGitRemoteResponses = {
+  /**
+   * Origin remote URL (empty string if not configured)
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectGetGitRemoteResponse = ProjectGetGitRemoteResponses[keyof ProjectGetGitRemoteResponses]
+
+export type ProjectAddGitRemoteData = {
+  body?: {
+    url: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectAddGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+}
+
+export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]
+
+export type ProjectAddGitRemoteResponses = {
+  /**
+   * Origin remote URL after add/update
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectAddGitRemoteResponse = ProjectAddGitRemoteResponses[keyof ProjectAddGitRemoteResponses]
 
 export type ProjectUpdateData = {
   body?: {
