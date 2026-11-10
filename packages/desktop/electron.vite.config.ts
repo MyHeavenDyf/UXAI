@@ -131,6 +131,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_ARTIFACT_SUCCESS": JSON.stringify(env.OCTO_ARTIFACT_SUCCESS || "http-2xx"),
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-start
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-end
+        // jk-j60099994-replace-with-dyf-bridge-vite-define-start
+        // jk-j60099994-replace-with-dyf-bridge-vite-define-end
       },
       build: {
         rollupOptions: {

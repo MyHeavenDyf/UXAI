@@ -216,7 +216,8 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "授权码无效",
   "provider.connect.oauth.auto.visit.prefix": "访问 ",
   "provider.connect.oauth.auto.visit.link": "此链接",
-  "provider.connect.oauth.auto.visit.suffix": " 并输入以下代码，以连接你的帐户并在 OctoAgent 中使用 {{provider}} 模型。",
+  "provider.connect.oauth.auto.visit.suffix":
+    " 并输入以下代码，以连接你的帐户并在 OctoAgent 中使用 {{provider}} 模型。",
   "provider.connect.oauth.auto.confirmationCode": "确认码",
   "provider.connect.toast.connected.title": "{{provider}} 已连接",
   "provider.connect.toast.connected.description": "现在可以使用 {{provider}} 模型了。",
@@ -613,9 +614,11 @@ export const dict = {
   "session.portable.export.picker": "选择 Session 导出位置",
   "session.portable.import.picker": "选择要导入的 Session 文件",
   "session.portable.export.success": "导出成功",
-  "session.portable.export.success.description": "已成功导出 {{sessions}} 个 Session、{{files}} 个文件。保存位置：{{path}}",
+  "session.portable.export.success.description":
+    "已成功导出 {{sessions}} 个 Session、{{files}} 个文件。保存位置：{{path}}",
   "session.portable.import.success": "导入成功",
-  "session.portable.import.success.description": "已成功导入 {{sessions}} 个 Session、{{files}} 个文件，并已打开导入的对话。",
+  "session.portable.import.success.description":
+    "已成功导入 {{sessions}} 个 Session、{{files}} 个文件，并已打开导入的对话。",
   "session.portable.failed": "Session 导入或导出失败",
   "session.portable.summary": "共 {{sessions}} 个 Session、{{files}} 个文件",
 
@@ -882,7 +885,7 @@ export const dict = {
   "settings.mcp.type.http": "http",
   "settings.mcp.type.sse": "sse",
   "settings.mcp.delete.title": "删除 MCP",
-  "settings.mcp.delete.confirm": "确定删除 \"{{name}}\"?该操作会从配置文件中移除此 MCP 条目。",
+  "settings.mcp.delete.confirm": '确定删除 "{{name}}"?该操作会从配置文件中移除此 MCP 条目。',
   "settings.mcp.toast.saved.title": "MCP 已保存,正在重新连接",
   "settings.mcp.toast.deleted.title": "MCP 已删除",
   "settings.mcp.toast.failed.title": "MCP 配置操作失败",
@@ -924,6 +927,9 @@ export const dict = {
   "settings.mcp.form.err.json.url": "需要合法的 url 字段(http/https)",
   "settings.mcp.form.err.homepage": "主页链接必须是合法的 http/https URL",
   "settings.mcp.form.err.docs": "文档链接必须是合法的 http/https URL",
+
+  // jk-j60099994-replace-with-dyf-bridge-i18n-zh-start
+  // jk-j60099994-replace-with-dyf-bridge-i18n-zh-end
 
   "settings.permissions.title": "权限",
   "settings.permissions.description": "控制服务器默认可以使用哪些工具。",
@@ -1107,7 +1113,7 @@ export const dict = {
   "designFiles.kindDocument": "文档",
   "designFiles.kindBinary": "二进制",
   "designFiles.kindFolder": "文件夹",
-  
+
   "designFiles.group": "分组：",
   "designFiles.groupKind": "类型",
   "designFiles.groupModified": "修改时间",
@@ -1123,7 +1129,7 @@ export const dict = {
 
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",
-  
+
   "designFiles.timeToday": "今天",
   "designFiles.timeYesterday": "昨天",
   "designFiles.timePrevious7Days": "前7天",
