@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
-import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -111,6 +111,7 @@ import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
+import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
 import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -252,6 +253,22 @@ function MakeContent() {
   const projectSelection = useProjectSelection()
   // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
+
+  // 评估状态上下文:assessment-state 按此推导评审文件(产物目录分支)与状态文件路径
+  createEffect(() => {
+    const dir = projectDir()
+    if (!dir) return
+    const kind = workspaceKind()
+    const sid = params.id ?? ""
+    if (kind !== "code" && !sid) return
+    setAssessmentContext({ projectDir: dir, sessionId: sid, workspaceKind: kind })
+  })
+  // 切换 session:暂停待修改评估(磁盘数据保留,重新激活时可恢复)
+  createEffect(on(() => params.id, (id, prev) => {
+    if (prev && id !== prev) pauseAssessment()
+  }, { defer: true }))
+  // 切到其它页面(路由卸载 Make 页):暂停待修改评估
+  onCleanup(() => pauseAssessment())
 
   const local = useLocal()
   useTabModel("make")
@@ -1678,6 +1695,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
+      void harvestAssessmentReview()
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -3586,6 +3605,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === id)
     if (tab) {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
+      // 关闭被评估的 tab:暂停待修改评估(磁盘数据保留)
+      if (tab.filePath && tab.filePath === pendingAssessment()?.fileKey) pauseAssessment()
     }
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
@@ -5030,6 +5051,8 @@ const sessionMessagesLoaded = createMemo(() => {
       fileName: string
       s3BaseUrl?: string
       docPath?: string
+      parseS3BaseUrl?: string
+      parseDocPath?: string
       docId?: string
       fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
@@ -5047,10 +5070,12 @@ const sessionMessagesLoaded = createMemo(() => {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
-      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
-      downloadName = file.docPath
-      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件
+      const useParse = hasAssetParseSource(file)
+      const remotePath = useParse ? file.parseDocPath! : file.docPath
+      if (!remotePath) throw new Error("缺少 docPath,无法下载")
+      downloadName = remotePath
+      const fileUrl = encodeAssetUrl(joinUrl(useParse ? file.parseS3BaseUrl! : file.s3BaseUrl, remotePath))
       const response = await fetch(fileUrl, { signal })
       if (!response.ok) throw new Error(`下载失败: ${response.status}`)
       const blob = await response.blob()
@@ -5117,10 +5142,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
 
-    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77,带 parse 字段时后缀改 md),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
     let saveName: string
     if (file.type === 40) {
-      saveName = file.fileName
+      saveName = getAssetDisplayName(file)
     } else {
       const dot = downloadName.lastIndexOf(".")
       const ext = dot > 0 ? downloadName.slice(dot) : ""

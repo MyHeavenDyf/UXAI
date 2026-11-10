@@ -15,6 +15,7 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -398,7 +399,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
     }
