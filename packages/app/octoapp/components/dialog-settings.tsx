@@ -317,9 +317,9 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                     "-webkit-mask-size": "15px 18.3167px",
                   }}
                 />
-                {/* jk-j60099994-replace-with-dyf-bridge-settings-tab-start*/}
                 {language.t("settings.mcp.title")}
               </TabsTrigger>
+              {/* jk-j60099994-replace-with-dyf-bridge-settings-tab-start*/}
               {/* jk-j60099994-replace-with-dyf-bridge-settings-tab-end*/}
             </div>
             <div
