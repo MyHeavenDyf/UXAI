@@ -27,11 +27,13 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { setStudioSessionGenerating } from "@/hooks/use-session-share-busy"
 import { getMappingStore } from "@/hooks/use-session-groups"
-import { consumePendingGroup } from "@/context/pending-group"
+import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
 import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
 import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
 import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -352,6 +354,7 @@ function StudioPageContent() {
   const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  useSharedSessionImportDirectory("studio", projectDir, () => syncStore.status === "complete")
   if (syncStore.limit < 100) setSyncStore("limit", 100)
   onMount(() => {
     const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
@@ -687,6 +690,9 @@ function StudioPageContent() {
     reload: loadSessionMessages,
     navigate: (id, preserveDraft) => {
       if (params.id === id) return
+      // 空白页（分组右键「新建对话」入口）点击 AI 推荐时服务端会新建会话：
+      // 同样消费 pendingGroup，让会话落入对应分组而不是「最近」。
+      if (!params.id) assignSessionToPendingGroup(id)
       if (preserveDraft) pendingRecommendationSessionID = id
       navigate(`/${routeSlug()}/studio/${id}`)
     },
@@ -1223,6 +1229,19 @@ function StudioPageContent() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  let sharedBusySessionID: string | undefined
+  createEffect(() => {
+    const sessionID = pendingResult()?.sessionID ?? params.id
+    const busy = isBusy()
+    if (sharedBusySessionID && (!busy || sharedBusySessionID !== sessionID)) {
+      setStudioSessionGenerating(sharedBusySessionID, false)
+    }
+    if (sessionID && busy) setStudioSessionGenerating(sessionID, true)
+    sharedBusySessionID = busy ? sessionID : undefined
+  })
+  onCleanup(() => {
+    if (sharedBusySessionID) setStudioSessionGenerating(sharedBusySessionID, false)
+  })
   const isActionBusy = createMemo(() =>
     recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
@@ -1826,6 +1845,9 @@ function StudioPageContent() {
     on(
       () => params.id,
       (id) => {
+        // 从分组「新建对话」的空白页直接点开已有会话 = 放弃归组意图；发送消息 /
+        // AI 推荐等创建流程在导航到新会话前已消费 pendingGroup，此清理不会误伤。
+        if (id) clearPendingGroup(groupsCtx?.namespace ?? "studio")
         setOpenMenu(null)
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
@@ -2131,7 +2153,12 @@ function StudioPageContent() {
 
   function closeMenu() {
     setHeaderTitle("menuOpen", false)
+    setMenuTriggerEl(undefined)
   }
+
+  // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
+  // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
+  createEffect(on(() => params.id, () => closeMenu()))
 
   const { togglePin: togglePinSession } = useSessionPin()
 
@@ -3048,9 +3075,9 @@ function StudioPageContent() {
       })
   }
 
-  function startNewStudioConversation() {
+  /** 新建对话（顶部按钮 / 分组右键菜单 / hint 空白页进入）共用的生成态与草稿复位。 */
+  function resetStudioConversationState() {
     expansionReview.dismiss()
-    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
@@ -3075,7 +3102,29 @@ function StudioPageContent() {
     setPrompt("")
     setAssets([])
     clearVideoFrames()
+  }
+
+  function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
+    resetStudioConversationState()
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
+  }
+
+  /** 分组右键「新建对话」：把之后创建的新会话自动归入对应分组（与 design 页
+   * 行为一致）。发送消息（createStudioSession）与空白页点击 AI 推荐（推荐
+   * 初始化新建的会话）都经过这里；非分组入口的新会话没有 pendingGroup，
+   * 正常留在「最近」列表。 */
+  function assignSessionToPendingGroup(sessionID: string) {
+    const dir = projectDir()
+    if (!dir) return
+    const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "studio", dir, groupsCtx?.groups ?? [])
+    if (!pendingGroupId) return
+    const ns = groupsCtx?.namespace ?? "studio"
+    const { setMapping } = getMappingStore(ns)
+    setMapping(produce((draft) => { draft[sessionID] = { groupId: pendingGroupId, position: 0 } }))
+    const groupClient = globalSDK.createClient({ directory: dir })
+    void groupClient.sessionGroup.mapSession({ sessionId: sessionID, groupId: pendingGroupId })
+    groupsCtx?.expandGroup(pendingGroupId)
   }
 
   async function createStudioSession(title?: string) {
@@ -3088,16 +3137,7 @@ function StudioPageContent() {
     })
     const session = result.data as Session | undefined
     if (!session) return
-    // 分组右键「新建对话」：把新会话自动归入对应分组（与 design 页行为一致）。
-    const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "studio", dir, groupsCtx?.groups ?? [])
-    if (pendingGroupId) {
-      const ns = groupsCtx?.namespace ?? "studio"
-      const { setMapping } = getMappingStore(ns)
-      setMapping(produce((draft) => { draft[session.id] = { groupId: pendingGroupId, position: 0 } }))
-      const groupClient = globalSDK.createClient({ directory: dir })
-      void groupClient.sessionGroup.mapSession({ sessionId: session.id, groupId: pendingGroupId })
-      groupsCtx?.expandGroup(pendingGroupId)
-    }
+    assignSessionToPendingGroup(session.id)
     return session.id
   }
 
@@ -5201,6 +5241,20 @@ function StudioPageContent() {
     onCleanup(() => clearTimeout(timer))
   })
 
+  // 分组右键「新建对话」经 GroupedSidebar.handleNewSessionInGroup 直接 navigate
+  // 到 `?hint=` 空白页，不经过 startNewStudioConversation 的复位：上个会话处于
+  // 创建/生成中时，残留的 pendingResult/sending 会把空白页继续渲染成旧会话
+  // （表现为没有跳转到新建对话页）。这里对进入 hint 空白页统一补一次复位。
+  createEffect(
+    on(
+      () => [params.id, new URLSearchParams(location.search).has("hint")] as const,
+      ([id, hinted]) => {
+        if (id || !hinted) return
+        resetStudioConversationState()
+      },
+    ),
+  )
+
   return (
     <div
       ref={studioPageRef!}
@@ -5488,10 +5542,10 @@ function StudioPageContent() {
                   aria-label={language.t("common.moreOptions")}
                   aria-expanded={headerTitle.menuOpen}
                   onClick={(e) => {
-                    tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    if (!headerTitle.menuOpen) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
                     setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
-                    setHeaderTitle("menuOpen", true)
+                    setHeaderTitle("menuOpen", !headerTitle.menuOpen)
                   }}
                 >
                   <Icon name="ellipsis" class="size-4" />

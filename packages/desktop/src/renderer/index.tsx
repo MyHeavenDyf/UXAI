@@ -130,6 +130,7 @@ const createPlatform = (): Platform => {
   return {
     platform: "desktop",
     prepareSharedSession: (uniqueId, operationID) => window.api.prepareSharedSession(uniqueId, operationID),
+    inspectPortableSession: (archive) => window.api.inspectPortableSession(archive),
     releaseSharedSession: (token) => window.api.releaseSharedSession(token),
     onSessionTransferProgress: (callback) => window.api.onSessionTransferProgress(callback),
     importSharedSession: (uniqueId, directory, scope, token, operationID) =>

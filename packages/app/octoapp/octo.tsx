@@ -77,6 +77,8 @@ const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const AssetsPage = lazy(() => import("@/pages/assets"))
+const DesignSystemPage = lazy(() => import("@/pages/design-system"))
+const BestPracticesPage = lazy(() => import("@/pages/best-practices"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const Loading = () => <div class="size-full" />
 
@@ -492,6 +494,14 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/assets"
   }
 
+  const isBestPracticesPage = () => {
+    return location.pathname === "/best-practices"
+  }
+
+  const isDesignSystemPage = () => {
+    return location.pathname === "/design-system"
+  }
+
   // Whether skills is opened from make/pattern context (vs insight/cowork)
   const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
   const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
@@ -537,7 +547,15 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
                 <Show when={isAssetsPage()}>
                   <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
                 </Show>
-                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
+                {/* Best practices: 同 assets,复用 SidebarDispatchLayout 分发侧栏 */}
+                <Show when={isBestPracticesPage()}>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
+                </Show>
+                {/* Design system: 同 assets,复用 SidebarDispatchLayout 分发侧栏 */}
+                <Show when={isDesignSystemPage()}>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage() && !isBestPracticesPage() && !isDesignSystemPage()}>
                   {props.appChildren}
                   {props.children}
                 </Show>
@@ -751,6 +769,8 @@ export function AppInterface(props: {
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
                   <Route path="/assets" component={AssetsPage} />
+                  <Route path="/best-practices" component={BestPracticesPage} />
+                  <Route path="/design-system" component={DesignSystemPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={DirectoryIndexRoute} />
                     <Route path="/chat/:id?" component={ChatRedirectRoute} />

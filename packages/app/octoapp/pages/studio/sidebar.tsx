@@ -174,6 +174,8 @@ export function StudioSidebar(props: StudioSidebarProps): JSX.Element {
       }}
       sectionTitle="最近"
       trackerModule="studio"
+      showProjectInfo={false}
+      showBottomNav={false}
       inlineBeforeSection
       renderLeading={renderLeading}
       newButtonSuffix={() => (

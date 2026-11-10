@@ -2,6 +2,7 @@ import { batch, createEffect, createRoot, onMount, onCleanup, untrack } from "so
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { usePlatform } from "@/context/platform"
 import { useLayout } from "@/context/layout"
 import { useServer } from "@/context/server"
@@ -14,6 +15,10 @@ import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
 import { consumePendingDeepLinks, openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
 import { sharedSessionImportContext } from "./shared-session-import-context"
+import {
+  PORTABLE_SESSION_IMPORT_EVENT,
+  type PortableSessionImportRequest,
+} from "./portable-session-import"
 import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 
 export function SharedSessionHandler() {
@@ -52,6 +57,25 @@ export function SharedSessionHandler() {
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
 
+  const modulePage = (module: SharedSessionModule) => module === "design" ? "make" : module
+  const modulePath = (module: SharedSessionModule, directory: string, sessionID?: string) => {
+    if (module === "studio") {
+      const base = `/${base64Encode(directory)}/studio`
+      return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : `${base}?hint=${Date.now()}`
+    }
+    const base = `/${modulePage(module)}`
+    return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : base
+  }
+
+  const selectModule = (module: SharedSessionModule) => {
+    if (lifetime.signal.aborted) throw new Error("导入已取消")
+    const page = modulePage(module)
+    const directory = server.projects.last()
+    if (!directory) throw new Error("请先选择导入对话的目录")
+    layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
+    navigate(modulePath(module, directory))
+  }
+
   const waitForContext = (module: SharedSessionModule) =>
     new Promise<string>((resolve, reject) => {
       createRoot((dispose) => {
@@ -67,16 +91,21 @@ export function SharedSessionHandler() {
           lifetime.signal.removeEventListener("abort", aborted)
         })
         const ready = () => {
-          const page = module === "design" ? "make" : module
+          const page = modulePage(module)
+          const pathReady = module === "studio"
+            ? location.pathname.split("/")[2] === "studio"
+            : location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)
+          const directoryReady = module === "studio"
+            || sharedSessionImportContext.directory === server.projects.last()
           return (
             !lifetime.signal.aborted &&
             server.ready() &&
             !layout.onboarding.show() &&
-            (location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)) &&
+            pathReady &&
             sharedSessionImportContext.module === module &&
             sharedSessionImportContext.ready &&
             !!sharedSessionImportContext.directory &&
-            sharedSessionImportContext.directory === server.projects.last()
+            directoryReady
           )
         }
         if (lifetime.signal.aborted) return aborted()
@@ -93,7 +122,11 @@ export function SharedSessionHandler() {
       })
     })
 
-  const showImported = (result: NonNullable<Awaited<ReturnType<typeof cache.open>>>, module: SharedSessionModule) => {
+  const showImported = (
+    result: NonNullable<Awaited<ReturnType<typeof cache.open>>>,
+    module: SharedSessionModule,
+    source: "share" | "portable" = "share",
+  ) => {
     if (lifetime.signal.aborted) return
     const [store, setStore] = globalSync.child(result.directory, { bootstrap: false })
     // Import events can arrive before this directory's store is subscribed.
@@ -106,16 +139,20 @@ export function SharedSessionHandler() {
       push: () => {},
       loadLsp: () => {},
     })
-    const page = module === "design" ? "make" : module
+    const page = modulePage(module)
+    const routeDirectory = module === "studio" ? server.projects.last() || result.directory : result.directory
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
       if (page === "pattern") layout.lastSessionPerTab.setPattern(result.sessionID)
       if (page === "insight") layout.lastSessionPerTab.setCowork(result.sessionID)
+      if (page === "studio") layout.lastSessionPerTab.setStudio(routeDirectory, result.sessionID)
       layout.lastSessionPerTab.setNewConversation(page, false)
       if (page === "insight") layout.lastSessionPerTab.setNewConversation("cowork", false)
-      layout.projects.open(result.directory)
-      server.projects.touch(result.directory)
-      navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
+      if (module !== "studio") {
+        layout.projects.open(result.directory)
+        server.projects.touch(result.directory)
+      }
+      navigate(modulePath(module, routeDirectory, result.sessionID))
     })
     window.dispatchEvent(
       new CustomEvent("octo:session-imported", {
@@ -124,9 +161,9 @@ export function SharedSessionHandler() {
     )
     tracker.interaction({
       module: page === "make" ? "design" : page === "pattern" ? "prototype" : page,
-      name: "share-import-success",
+      name: source === "share" ? "share-import-success" : "portable-import-success",
     })
-    showToast({ variant: "success", title: "分享对话已打开" })
+    if (source === "share") showToast({ variant: "success", title: "分享对话已打开" })
   }
 
   const open = async (uniqueId: string) => {
@@ -150,10 +187,7 @@ export function SharedSessionHandler() {
     await openPreparedSharedSession({
       prepare: () => platform.prepareSharedSession!(uniqueId, operationID),
       select: (module) => {
-        if (lifetime.signal.aborted) throw new Error("分享打开已取消")
-        const page = module === "design" ? "make" : module
-        layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
-        navigate(`/${page}`)
+        selectModule(module)
       },
       ready: waitForContext,
       importSession: (prepared, directory) => {
@@ -219,9 +253,55 @@ export function SharedSessionHandler() {
     }
     const listener = (event: Event) => consume((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
     window.addEventListener("opencode:deep-link", listener)
+    const portableListener = (event: Event) => {
+      const request = (event as CustomEvent<PortableSessionImportRequest>).detail
+      queue = queue
+        .then(() => {
+          const operationID = crypto.randomUUID()
+          const progress = showSessionTransferProgress("正在导入 Session")
+          const watcher = new AbortController()
+          void watchSessionTransferProgress({
+            url: globalSDK.url,
+            operationID,
+            fetch: platform.fetch ?? fetch,
+            headers: directoryHeader(server.projects.last()),
+            signal: watcher.signal,
+            update: progress.update,
+          })
+          progress.update({ type: "import", stage: "正在识别 Session 所属模块", percent: 2 })
+          return (async () => {
+            if (!platform.inspectPortableSession) throw new Error("当前客户端不支持识别 Session 模块，请升级客户端")
+            const inspected = await platform.inspectPortableSession(request.path)
+            selectModule(inspected.module)
+            progress.update({ type: "import", stage: "正在等待目标模块就绪", percent: 5 })
+            const directory = await waitForContext(inspected.module)
+            const client = globalSDK.createClient({ directory, throwOnError: true })
+            const imported = (await client.session.portableImport({ path: request.path, operationID })).data
+            if (!imported) throw new Error("导入接口未返回 Session 信息")
+            progress.update({ type: "import", stage: "正在打开导入的对话", percent: 99 })
+            const session = (await client.session.get({ sessionID: imported.sessionID })).data
+            if (!session) throw new Error("导入的对话不存在")
+            showImported({
+              sessionID: imported.sessionID,
+              directory,
+              agent: session.agent,
+              session,
+            }, inspected.module, "portable")
+            return imported
+          })().finally(() => {
+            watcher.abort()
+            progress.dismiss()
+          })
+        })
+        .then(request.resolve, request.reject)
+    }
+    window.addEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
     // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
     consume()
-    onCleanup(() => window.removeEventListener("opencode:deep-link", listener))
+    onCleanup(() => {
+      window.removeEventListener("opencode:deep-link", listener)
+      window.removeEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
+    })
   })
   return null
 }

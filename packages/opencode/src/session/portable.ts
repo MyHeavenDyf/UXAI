@@ -9,6 +9,7 @@ import { Global } from "@opencode-ai/core/global"
 import { InstanceState } from "@/effect/instance-state"
 import { Filesystem } from "@/util/filesystem"
 import { NonNegativeInt } from "@/util/schema"
+import { isStudioSessionGenerating } from "@/studio/prompt-recommendation-state"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
 import { Session } from "./session"
@@ -17,6 +18,7 @@ import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
+import { materializeStudioSessionParts } from "@/studio/studio-history-service"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
@@ -413,8 +415,12 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
 }) {
   const status = yield* SessionStatus.Service
   const sessions = yield* Session.Service
+  const info = yield* sessions.get(input.sessionID)
   const assertShareable = Effect.gen(function* () {
-    if ((yield* status.get(input.sessionID)).type !== "idle") {
+    if (
+      (yield* status.get(input.sessionID)).type !== "idle" ||
+      (info.agent === "octo_studio" && (yield* Effect.promise(() => isStudioSessionGenerating(input.sessionID))))
+    ) {
       return yield* new PortableShareBusyError({ message: "对话正在进行中，请等待结束后再分享" })
     }
   })
@@ -426,7 +432,6 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
   if (![uploadURL, sharePageURL].every((value) => value && URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol))) {
     return yield* Effect.fail(new Error("分享配置错误：OCTO_SHARE_API_URL 和 OCTO_SHARE_PAGE_URL 必须是有效的 HTTP(S) 地址"))
   }
-  const info = yield* sessions.get(input.sessionID)
   const output = path.join(tmpdir(), `octo-session-${randomUUID()}.zip`)
 
   return yield* Effect.gen(function* () {
@@ -1005,8 +1010,11 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
 
     const totalMessages = ordered.reduce((total, entry) => total + entry.messages.length, 0)
     let completedMessages = 0
+    // octo_studio 会话收集重映射后的 parts，导入收尾时物化到「我的资产」历史表。
+    const studioSessionParts = new Map<SessionID, MessageV2.Part[]>()
     for (const entry of ordered) {
       const sessionID = sessionIDs.get(entry.info.id)!
+      if (entry.info.agent === "octo_studio") studioSessionParts.set(sessionID, [])
       if (entry.info.summary) {
         yield* sessions.setSummary({
           sessionID,
@@ -1017,7 +1025,13 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
         })
       }
       if (entry.info.time.archived) yield* sessions.setArchived({ sessionID, time: entry.info.time.archived })
-      yield* sessions.setSortOrder({ sessionID, sortOrder: entry.info.sort_order })
+      yield* sessions.setSortOrder({
+        sessionID,
+        sortOrder:
+          entry.info.id === bundle.manifest.rootSessionID && entry.info.agent === "octo_studio"
+            ? 0
+            : entry.info.sort_order,
+      })
       if (entry.todos.length) yield* todos.update({ sessionID, todos: [...entry.todos] })
 
       const messageIDs = new Map(entry.messages.map((message) => [message.info.id, MessageID.ascending()]))
@@ -1035,18 +1049,18 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             : { ...message.info, id: messageID, sessionID }
         yield* sessions.updateMessage(info)
         for (const part of message.parts) {
-          yield* sessions.updatePart(
-            remapPart(part, {
-              sessionID,
-              messageID,
-              partID: PartID.ascending(),
-              messageIDs,
-              sessionIDs,
-              sourceDirectory: bundle.manifest.sourceDirectory,
-              targetDirectory: context.directory,
-              relocate,
-            }),
-          )
+          const remapped = remapPart(part, {
+            sessionID,
+            messageID,
+            partID: PartID.ascending(),
+            messageIDs,
+            sessionIDs,
+            sourceDirectory: bundle.manifest.sourceDirectory,
+            targetDirectory: context.directory,
+            relocate,
+          })
+          studioSessionParts.get(sessionID)?.push(remapped)
+          yield* sessions.updatePart(remapped)
         }
         completedMessages += 1
         update({
@@ -1145,6 +1159,13 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
         processedBytes: completedBytes,
         totalBytes,
       })
+    }
+
+    // 分享包不含 studio_generation 行：从导入的 tool parts 物化媒体，让「我的资产」
+    // 出现导入会话的图片/视频。放在全部步骤成功之后执行——前面任何一步失败都会回滚
+    // 已创建的会话，不留指向不存在会话的历史行。
+    for (const [sessionID, parts] of studioSessionParts) {
+      materializeStudioSessionParts(context.directory, sessionID, parts)
     }
 
     update({

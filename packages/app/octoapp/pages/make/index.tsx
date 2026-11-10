@@ -6149,7 +6149,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   onClick={(e) => {
                     setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
-                    setTitleState("menuOpen", true)
+                    setTitleState("menuOpen", !titleState.menuOpen)
                   }}
                 >
                   <Icon name="ellipsis" class="size-4" />

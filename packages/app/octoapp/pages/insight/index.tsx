@@ -104,7 +104,7 @@ import { type FileReference, type MentionSelection, type MentionSkill } from "./
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lookupDisplayName, type SkillConfig } from "../make/components/skill-config-types"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
 import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
 import {
@@ -588,8 +588,24 @@ function InsightContent() {
     messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
     return getSessionContextMetrics(messages, providers.all()).context
   })
+  const compactedContextEstimate = createMemo(() => {
+    const context = contextMetrics()
+    if (!context || !isSuccessfulCompaction(context.message)) return
+    const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
+    if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
+    const model = local.model.current()
+    if (!isContextEstimateForModel(
+      resolveContextEstimateModel(
+        { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
+        context.message,
+      ),
+      model && { providerID: model.provider.id, modelID: model.id },
+    )) return
+    return { tokens: part.estimated_tokens, limit: part.estimated_limit }
+  })
   const contextLimit = createMemo(() =>
     [
+      compactedContextEstimate()?.limit,
       local.model.current()?.limit.input,
       local.model.current()?.limit.context,
       contextMetrics()?.model?.limit.input,
@@ -598,26 +614,27 @@ function InsightContent() {
     ].find((limit) => typeof limit === "number" && limit > 0),
   )
   const contextTokens = createMemo(() => {
-    return insightContextTokens(contextMetrics())
+    return insightContextTokens(contextMetrics(), compactedContextEstimate())
   })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+    const tokens = contextTokens()
+    return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens() ?? 0, contextLimit(), params.id))
   const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const [contextCommandPending, setContextCommandPending] = createSignal(false)
   const [abortPending, setAbortPending] = createSignal(false)
   const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
   const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
   const contextWarningVisible = createMemo(
-    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), isWorking()),
+    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage() ?? 0, params.id, ignoredContextWarningSession(), isWorking()),
   )
 
   createEffect(() => {
     const ignored = ignoredContextWarningSession()
     if (!ignored) return
-    if (ignored === params.id && contextUsage() >= 80) return
+    if (ignored === params.id && (contextUsage() ?? 0) >= 80) return
     setIgnoredContextWarningSession(undefined)
   })
 
@@ -1499,6 +1516,7 @@ function InsightContent() {
     opts: {
       consumeAttachments: boolean
       source: string
+      throwOnError?: boolean
       /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
        *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
       chip?: { selection: McpSelection }
@@ -1873,6 +1891,7 @@ function InsightContent() {
     } catch (err) {
       console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
       sync.session.optimistic.remove({ sessionID: sessionId, messageID })
+      if (opts.throwOnError) throw err
       showToast({
         title: "发送失败",
         description: errorDescription(err),
@@ -1981,11 +2000,6 @@ function InsightContent() {
       }
       clearComposers()
       await compactContext(contextCommand)
-      return
-    }
-
-    if (contextSendBlocked()) {
-      showToast({ title: "当前对话上下文已达上限", description: "请先进行上下文压缩，或新建对话。", variant: "error" })
       return
     }
 
@@ -2155,7 +2169,7 @@ function InsightContent() {
     isInsightSendDisabled({
       stopping: stopping(),
       settling: sessionSettling(),
-      contextBlocked: contextSendBlocked(),
+      contextBlocked: false,
       text: prompt(),
       uploading: hasUploadingAttachments() || assetsPending(),
     }),
@@ -2729,6 +2743,11 @@ function InsightContent() {
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse?: () => void) => (
     <ResultViewer
+      productId={projectSelection()?.product?.id}
+      onEditPrompt={async (sessionId, prompt, source) => {
+        if (params.id !== sessionId || isWorking()) throw new Error("会话状态已变化，请重试")
+        await doSendPrompt(sessionId, prompt, { consumeAttachments: false, source, throwOnError: true })
+      }}
       working={isWorking()}
       tabs={tabStore.tabs()}
       activeId={tabStore.activeId()}
@@ -3028,7 +3047,7 @@ function InsightContent() {
                   {(limit) => (
                     <div class="insight-context-notice-wrap">
                       <InsightContextOverflowNotice
-                        tokens={contextTokens()}
+                        tokens={contextTokens() ?? 0}
                         limit={limit()}
                         locale={language.intl()}
                         disabled={contextCompactionDisabled()}
@@ -3042,7 +3061,7 @@ function InsightContent() {
                   {(limit) => (
                     <div class="insight-context-notice-wrap">
                       <InsightContextUsageWarning
-                        tokens={contextTokens()}
+                        tokens={contextTokens() ?? 0}
                         limit={limit()}
                         locale={language.intl()}
                         disabled={contextCompactionDisabled()}
