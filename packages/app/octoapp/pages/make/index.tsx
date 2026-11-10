@@ -107,6 +107,7 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
+import { DesignSystemSelector } from "./components/design-system-selector"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
@@ -1920,6 +1921,24 @@ const sessionMessagesLoaded = createMemo(() => {
       .map(s => ({ type: 'skill' as const, name: s.label, label: lookupDisplayName(cfg.skill, s.label) ?? s.label }))
   })
 
+  // ── Design System Selector（新建 session 对话框，数据来自 skill_config.json 的 designSystemSkills）──
+  // undefined = 用户未手动选择（跟随 selectedSkillName 默认值），null = 手动选择“不使用设计系统”
+  const [designSystemChoice, setDesignSystemChoice] = createSignal<string | null | undefined>(undefined)
+  const designSystemOptions = createMemo(() => {
+    const seen = new Set<string>()
+    return (skillConfig().designSystemSkills?.skillList ?? []).map(s => s.label).filter(label => {
+      if (seen.has(label)) return false
+      seen.add(label)
+      return true
+    })
+  })
+  const designSystemSelected = createMemo(() => {
+    const choice = designSystemChoice()
+    if (choice !== undefined) return choice
+    const preset = skillConfig().designSystemSkills?.selectedSkillName
+    return preset && designSystemOptions().includes(preset) ? preset : null
+  })
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
@@ -3691,7 +3710,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -4053,8 +4072,9 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({
         module: "design",
         name: "send-message",
-        extend: JSON.stringify({ 
+        extend: JSON.stringify({
           hasAttachment: fileParts.length > 0 || localManifest.length > 0,
+          ...(injectedDesignSystem ? { designSystem: injectedDesignSystem } : {}),
         }),
       })
       
@@ -4124,6 +4144,17 @@ const sessionMessagesLoaded = createMemo(() => {
     if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
+    }
+
+    let injectedDesignSystem: string | undefined
+    if (!hasSessionView()) {
+      const designSystem = designSystemSelected()
+      if (designSystem && !mentions.some(m => m.type === "skill" && m.name === designSystem)) {
+        injectedDesignSystem = designSystem
+        text = `​@${designSystem}​ ` + text
+        mentions = [{ type: 'skill', name: designSystem, label: designSystem, id: designSystem, path: "" }, ...mentions]
+        tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem }) })
+      }
     }
     
     if (effectiveBusy() || !activeModelKey()) return
@@ -4347,7 +4378,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternBlockMatching(false)
             // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
             // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
-            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+            await sendMessage(existingChildId, text, capturedModelKey, mentions, injectedDesignSystem)
           } else {
             // 首次进入：创建新的 ict_pattern 子 session
             lastEnrichedPatternMatchMsgId = null
@@ -4364,12 +4395,12 @@ const sessionMessagesLoaded = createMemo(() => {
               setPatternSubPhase("match")
               setPatternMatches(null)
               sync.session.sync(patternChildSession.id).catch(() => {})
-              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, injectedDesignSystem)
             }
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -6396,9 +6427,17 @@ onPreview={(url) => {
                               }
                             }}
                          >
-                          <ModelTriggerLabel model={local.model} />
-                         </ModelSelectorPopover>
-                       </div>
+                           <ModelTriggerLabel model={local.model} />
+                          </ModelSelectorPopover>
+                          <DesignSystemSelector
+                            options={designSystemOptions()}
+                            selected={designSystemSelected()}
+                            onSelect={(label) => {
+                              setDesignSystemChoice(label)
+                              tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
+                            }}
+                          />
+                        </div>
  <IconButton
                           data-action="prompt-submit"
                           type="submit"
