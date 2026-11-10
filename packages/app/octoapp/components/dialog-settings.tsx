@@ -7,8 +7,8 @@ import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsMcp } from "./settings-mcp"
-// jk-j60099994-replace-with-dyf-bridge-setting-import-start
-// jk-j60099994-replace-with-dyf-bridge-setting-import-end
+// jk-j60099994-replace-with-dyf-bridge-settings-import-start
+// jk-j60099994-replace-with-dyf-bridge-settings-import-end
 // ── Dialog drag-to-move support ──
 // The settings dialog is a centered modal portaled to document.body. There is no
 // built-in move logic, so we translate the [data-slot="dialog-container"] box by
@@ -183,7 +183,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             transform: translateX(20px) !important;
             border: none !important;
           }
-          // jk-j60099994-replace-with-dyf-bridge-settion-css-start
+          // jk-j60099994-replace-with-dyf-bridge-settings-css-start
           [data-settings-models],
           [data-settings-mcp] {
             scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
@@ -199,7 +199,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             background: rgba(0, 0, 0, 0.24);
             border-radius: 999px;
           }
-          // jk-j60099994-replace-with-dyf-bridge-settion-css-end
+          // jk-j60099994-replace-with-dyf-bridge-settings-css-end
         `}</style>
         {/* Draggable title bar — press and drag to move the dialog */}
         <div
@@ -317,10 +317,10 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                     "-webkit-mask-size": "15px 18.3167px",
                   }}
                 />
-                {/* jk-j60099994-replace-with-dyf-bridge-settion-tab-start*/}
+                {/* jk-j60099994-replace-with-dyf-bridge-settings-tab-start*/}
                 {language.t("settings.mcp.title")}
               </TabsTrigger>
-              {/* jk-j60099994-replace-with-dyf-bridge-settion-tab-end*/}
+              {/* jk-j60099994-replace-with-dyf-bridge-settings-tab-end*/}
             </div>
             <div
               style={{
@@ -356,8 +356,8 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
           >
             <SettingsMcp />
           </TabsContent>
-          {/* jk-j60099994-replace-with-dyf-bridge-settion-content-start*/}
-          {/* jk-j60099994-replace-with-dyf-bridge-settion-content-end*/}
+          {/* jk-j60099994-replace-with-dyf-bridge-settings-content-start*/}
+          {/* jk-j60099994-replace-with-dyf-bridge-settings-content-end*/}
         </TabsRoot>
       </div>
     </Dialog>
