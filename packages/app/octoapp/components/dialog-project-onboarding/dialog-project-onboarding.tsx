@@ -162,7 +162,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
           />
         </div>
         {/* 关联本地文件夹标签行:左侧必填标题,右侧"关联代码仓"入口按钮 */}
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
           <div style={{ display: "flex", "align-items": "center" }}>
             <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
             <span>关联本地文件夹</span>
@@ -175,7 +175,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
               "font-size": "14px",
               "line-height": "20px",
               "font-weight": 400,
-              color: "#0a59f7",
+              color: "var(--octo-brand, #0a59f7)",
               background: "transparent",
               border: "none",
               cursor: "pointer",

@@ -4,18 +4,25 @@ import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
 import { Effect, Option } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { HttpApiError } from "effect/unstable/httpapi"
 import { HttpServerRequest } from "effect/unstable/http"
 import { InstanceHttpApi } from "../api"
 import { markInstanceForReload } from "../lifecycle"
+import { validateDirectory } from "../../project"
+import { ApiBadRequestError } from "../errors"
 
 // 优先从请求 URL 取 directory query 参数;不可用时 fallback 到 InstanceState.context
+// 统一调用 validateDirectory 校验,拒绝根路径/盘符根/含 .. 的路径穿越
 function directoryFromRequestOrContext() {
   return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
     const url = Option.getOrElse(HttpServerRequest.toURL(request), () => new URL(request.url, "http://localhost"))
     const fromQuery = url.searchParams.get("directory")
-    if (fromQuery) return fromQuery
+    if (fromQuery) {
+      if (!validateDirectory(fromQuery)) {
+        yield* Effect.fail(new ApiBadRequestError({ message: "Invalid directory" }))
+      }
+      return fromQuery
+    }
     const ctx = yield* InstanceState.context
     return ctx.directory
   })
@@ -50,7 +57,9 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
     const getGitRemote = Effect.fn("ProjectHttpApi.getGitRemote")(function* () {
       const dir = yield* directoryFromRequestOrContext()
       return yield* svc.getGitRemote({ directory: dir }).pipe(
-        Effect.mapError(() => new HttpApiError.BadRequest({})),
+        Effect.mapError((err) =>
+          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+        ),
       )
     })
 
@@ -60,7 +69,9 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
     }) {
       const dir = yield* directoryFromRequestOrContext()
       return yield* svc.addGitRemote({ directory: dir, url: ctx.payload.url }).pipe(
-        Effect.mapError(() => new HttpApiError.BadRequest({})),
+        Effect.mapError((err) =>
+          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+        ),
       )
     })
 

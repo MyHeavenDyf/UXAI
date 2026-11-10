@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
+import { Effect } from "effect"
 import { Instance } from "@/project/instance"
 import { InstanceRuntime } from "@/project/instance-runtime"
 import { Project } from "@/project/project"
@@ -24,13 +25,21 @@ const GitRemoteInput = z.object({
   url: z.string().min(1),
 })
 
-// 校验 directory:拒绝根路径、空串和盘符根,防止路径穿越
-function resolveDirectory(query: string | undefined): string {
+// 共享 directory 校验:拒绝根路径、空串、盘符根、含 .. 的路径穿越
+// legacy Hono 路由和 HttpApi handler 统一调用
+export function validateDirectory(dir: string): boolean {
+  if (!dir || dir === "/" || /^[A-Z]:[\\/]?$/i.test(dir)) return false
+  if (dir.includes("..")) return false
+  return true
+}
+
+// legacy Hono 路由专用:校验失败时 yield* Effect.fail(在 jsonRequest 生成器内使用)
+function resolveDirectoryEffect(query: string | undefined): Effect.Effect<string, Error> {
   const dir = query || Instance.directory
-  if (!dir || dir === "/" || /^[A-Z]:[\\/]?$/i.test(dir)) {
-    throw new Error("Invalid directory")
+  if (!validateDirectory(dir)) {
+    return Effect.fail(new Error("Invalid directory"))
   }
-  return dir
+  return Effect.succeed(dir)
 }
 
 export const ProjectRoutes = lazy(() =>
@@ -127,7 +136,11 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const dir = resolveDirectory(c.req.query("directory"))
+        const dir = await runRequest(
+          "ProjectRoutes.getGitRemote.resolveDir",
+          c,
+          resolveDirectoryEffect(c.req.query("directory")),
+        )
         const result = await runRequest(
           "ProjectRoutes.getGitRemote",
           c,
@@ -159,7 +172,7 @@ export const ProjectRoutes = lazy(() =>
       validator("json", GitRemoteInput),
       async (c) =>
         jsonRequest("ProjectRoutes.addGitRemote", c, function* () {
-          const dir = resolveDirectory(c.req.query("directory"))
+          const dir = yield* resolveDirectoryEffect(c.req.query("directory"))
           const body = c.req.valid("json") as z.infer<typeof GitRemoteInput>
           const svc = yield* Project.Service
           return yield* svc.addGitRemote({ directory: dir, url: body.url })

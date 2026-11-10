@@ -120,13 +120,13 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
           </div>
 
           <Show when={status() === "no-directory"}>
-            <div style={{ "font-size": "14px", "line-height": "20px", color: "rgba(0,0,0,0.45)", "margin-top": "16px", "text-align": "left", width: "100%" }}>
+            <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
               请先选择关联本地文件夹
             </div>
           </Show>
 
           <Show when={status() === "loading"}>
-            <div style={{ "font-size": "14px", "line-height": "20px", color: "rgba(0,0,0,0.45)", "margin-top": "16px", "text-align": "left", width: "100%" }}>
+            <div style={{ "font-size": "14px", "line-height": "20px", color: "var(--octo-text-weak, rgba(0,0,0,0.45))", "margin-top": "16px", "text-align": "left", width: "100%" }}>
               正在检测代码仓...
             </div>
           </Show>
@@ -184,7 +184,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 "font-size": "14px",
                 "font-family": "monospace",
                 outline: "none",
-                background: "#fff",
+                background: "var(--octo-surface, #fff)",
               }}
             />
 
@@ -210,10 +210,10 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 height: "32px",
                 "border-radius": "20px",
                 border: "1px solid var(--octo-border-input, #D1D5DB)",
-                background: "#fff",
+                background: "var(--octo-surface, #fff)",
                 "font-size": "14px",
                 "font-weight": 500,
-                color: "rgba(0,0,0,0.65)",
+                color: "var(--octo-text-secondary, rgba(0,0,0,0.65))",
                 cursor: "pointer",
               }}
             >
@@ -231,7 +231,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 background: canConfirm() ? "var(--octo-brand, #0a59f7)" : "rgba(10, 89, 247, 0.5)",
                 "font-size": "14px",
                 "font-weight": 500,
-                color: "#fff",
+                color: "var(--octo-text-on-brand, #fff)",
                 cursor: canConfirm() ? "pointer" : "default",
               }}
             >

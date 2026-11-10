@@ -6,6 +6,7 @@ import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
 import { described } from "./metadata"
+import { ApiBadRequestError } from "../errors"
 
 const root = "/project"
 const UpdatePayload = Schema.Struct({
@@ -51,7 +52,7 @@ export const ProjectApi = HttpApi.make("project")
             Schema.Struct({ remoteUrl: Schema.String }),
             "Origin remote URL (empty string if not configured)",
           ),
-          error: [HttpApiError.BadRequest],
+          error: [ApiBadRequestError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "project.getGitRemote",
@@ -67,7 +68,7 @@ export const ProjectApi = HttpApi.make("project")
             Schema.Struct({ remoteUrl: Schema.String }),
             "Origin remote URL after add/update",
           ),
-          error: [HttpApiError.BadRequest],
+          error: [ApiBadRequestError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "project.addGitRemote",

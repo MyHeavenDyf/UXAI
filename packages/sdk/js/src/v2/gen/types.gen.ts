@@ -1629,6 +1629,14 @@ export type McpUnsupportedOAuthError = {
   error: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -1677,14 +1685,6 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type TextPartInput = {
@@ -5399,7 +5399,7 @@ export type ProjectGetGitRemoteData = {
 
 export type ProjectGetGitRemoteErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
 }
@@ -5431,7 +5431,7 @@ export type ProjectAddGitRemoteData = {
 
 export type ProjectAddGitRemoteErrors = {
   /**
-   * Bad request
+   * BadRequestError
    */
   400: BadRequestError
 }
