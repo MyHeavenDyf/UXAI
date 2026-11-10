@@ -4,7 +4,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { MODEL_TRIGGER_BASE_CLASS } from "@/components/dialog-select-model"
 import { IconPaintPalette } from "../icons"
 
-const DESIGN_SYSTEM_NONE = "不使用设计系统"
+export const DESIGN_SYSTEM_NONE = "不使用设计系统"
 
 export function DesignSystemSelector(props: {
   options: string[]

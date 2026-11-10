@@ -1258,6 +1258,8 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("set-Design-System-Skill-Config", async (_event: IpcMainInvokeEvent, skillName: string) => {
+  })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
