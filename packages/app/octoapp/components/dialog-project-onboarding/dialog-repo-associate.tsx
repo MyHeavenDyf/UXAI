@@ -80,11 +80,39 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
       .finally(() => setSubmitting(false))
   }
 
-  // Escape 键关闭弹窗
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") props.onClose()
+  // Escape 键关闭弹窗 + Tab 键 focus trap
+  let dialogRef: HTMLDivElement | undefined
+  function getFocusable(): HTMLElement[] {
+    if (!dialogRef) return []
+    return Array.from(dialogRef.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'))
   }
-  onMount(() => document.addEventListener("keydown", onKeyDown))
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      props.onClose()
+      return
+    }
+    if (e.key === "Tab") {
+      const focusable = getFocusable()
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }
+  onMount(() => {
+    document.addEventListener("keydown", onKeyDown)
+    // 弹窗打开时自动聚焦第一个可交互元素
+    queueMicrotask(() => {
+      const focusable = getFocusable()
+      focusable[0]?.focus()
+    })
+  })
   onCleanup(() => document.removeEventListener("keydown", onKeyDown))
 
   const canConfirm = createMemo(() => {
@@ -101,6 +129,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
         onClick={props.onClose}
       >
         <div
+          ref={dialogRef}
           class="flex flex-col"
           role="dialog"
           aria-modal="true"

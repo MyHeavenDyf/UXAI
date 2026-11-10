@@ -3093,7 +3093,7 @@ export class Project extends HeyApiClient {
   /**
    * Get git remote URL
    *
-   * Retrieve the origin remote URL for the current project, or null if not configured.
+   * Retrieve the origin remote URL for the current project, or empty string if not configured.
    */
   public getGitRemote<ThrowOnError extends boolean = false>(
     parameters?: {

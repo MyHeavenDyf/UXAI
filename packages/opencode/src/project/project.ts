@@ -431,17 +431,26 @@ export const layer: Layer.Layer<
     })
 
     // 查询当前目录的 origin 远程仓库地址;未安装 git 或无 origin 时返回空串。
+    // spawn 失败(目录不存在/权限不足)时 Effect.fail,不误判为"未配置"。
     const getGitRemote = Effect.fn("Project.getGitRemote")(function* (input: { directory: string }) {
       if (!(yield* Effect.sync(() => which("git")))) {
         yield* Effect.fail(new Error("Git is not installed"))
       }
       const result = yield* git(["remote", "get-url", "origin"], { cwd: input.directory })
-      if (result.code !== 0) return { remoteUrl: "" }
+      if (result.code !== 0) {
+        // git 正常退出但返回非零(如"No remote configured")→ 未配置,返回空串
+        // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → 实际错误
+        if (!result.stderr && !result.text) {
+          yield* Effect.fail(new Error("Failed to read git remote (directory may not exist or git unavailable)"))
+        }
+        return { remoteUrl: "" }
+      }
       return { remoteUrl: result.text.trim() }
     })
 
     // 关联远程代码仓:若目录未初始化 git 则先 git init,再判断 origin 是否存在——
     // 已存在则 git remote set-url 更新,不存在则 git remote add 新增。
+    // git 命令中 URL 前加 -- 分隔,防止以 - 开头的 URL 被 git 解释为选项参数
     const addGitRemote = Effect.fn("Project.addGitRemote")(function* (input: { directory: string; url: string }) {
       if (!(yield* Effect.sync(() => which("git")))) {
         yield* Effect.fail(new Error("Git is not installed"))
@@ -457,12 +466,12 @@ export const layer: Layer.Layer<
       // origin 已存在 → set-url 更新;不存在 → add 新增
       const existing = yield* git(["remote", "get-url", "origin"], { cwd: input.directory })
       if (existing.code === 0) {
-        const setResult = yield* git(["remote", "set-url", "origin", input.url], { cwd: input.directory })
+        const setResult = yield* git(["remote", "set-url", "origin", "--", input.url], { cwd: input.directory })
         if (setResult.code !== 0) {
           yield* Effect.fail(new Error(setResult.stderr.trim() || setResult.text.trim() || "Failed to set git remote URL"))
         }
       } else {
-        const addResult = yield* git(["remote", "add", "origin", input.url], { cwd: input.directory })
+        const addResult = yield* git(["remote", "add", "origin", "--", input.url], { cwd: input.directory })
         if (addResult.code !== 0) {
           yield* Effect.fail(new Error(addResult.stderr.trim() || addResult.text.trim() || "Failed to add git remote"))
         }

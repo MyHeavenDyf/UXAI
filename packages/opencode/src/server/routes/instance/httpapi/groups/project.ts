@@ -58,7 +58,7 @@ export const ProjectApi = HttpApi.make("project")
             identifier: "project.getGitRemote",
             summary: "Get git remote URL",
             description:
-              "Retrieve the origin remote URL for the current project, or null if not configured.",
+              "Retrieve the origin remote URL for the current project, or empty string if not configured.",
           }),
         ),
         // 关联远程代码仓:自动 git init(如需)+ remote add/set-url origin

@@ -22,24 +22,26 @@ const GitRemoteAddedResponse = z.object({
 })
 
 const GitRemoteInput = z.object({
-  url: z.string().min(1),
+  url: z.string().min(1).regex(/^https?:\/\/|git@|^ssh:\/\//, "Invalid repository URL format"),
 })
 
-// 共享 directory 校验:拒绝根路径、空串、盘符根、含 .. 的路径穿越
+// 共享 directory 校验:拒绝根路径、空串、盘符根、含 .. 路径分段的路径穿越
 // legacy Hono 路由和 HttpApi handler 统一调用
 export function validateDirectory(dir: string): boolean {
   if (!dir || dir === "/" || /^[A-Z]:[\\/]?$/i.test(dir)) return false
-  if (dir.includes("..")) return false
+  if (dir.split(/[\/\\]/).includes("..")) return false
   return true
 }
 
-// legacy Hono 路由专用:校验失败时 yield* Effect.fail(在 jsonRequest 生成器内使用)
+// legacy Hono 路由专用:校验失败时 Effect.fail;Instance.directory 延迟到 Effect 内求值
 function resolveDirectoryEffect(query: string | undefined): Effect.Effect<string, Error> {
-  const dir = query || Instance.directory
-  if (!validateDirectory(dir)) {
-    return Effect.fail(new Error("Invalid directory"))
-  }
-  return Effect.succeed(dir)
+  return Effect.gen(function* () {
+    const dir = query ?? Instance.directory
+    if (!validateDirectory(dir)) {
+      yield* Effect.fail(new Error("Invalid directory"))
+    }
+    return dir
+  })
 }
 
 export const ProjectRoutes = lazy(() =>
