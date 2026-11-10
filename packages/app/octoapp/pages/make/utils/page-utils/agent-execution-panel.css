@@ -52,6 +52,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.agent-exec-header-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.agent-exec-usage {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--octo-text-secondary, #888);
+  white-space: nowrap;
+}
+
+.agent-exec-sub-usage {
+  font-size: 11px;
+  color: var(--octo-text-secondary, #777);
+  margin-bottom: 2px;
 }
 
 .agent-exec-close {
@@ -188,6 +209,49 @@
   padding: 4px 6px;
   background: rgba(239, 68, 68, 0.06);
   border-radius: 4px;
+}
+
+.agent-exec-compaction {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--octo-text-secondary, #777);
+  background: rgba(10, 89, 247, 0.04);
+  border: 1px dashed rgba(10, 89, 247, 0.3);
+  border-radius: 6px;
+  margin: 2px 8px;
+}
+
+.agent-exec-compaction-error {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.agent-exec-compaction-running {
+  animation: agent-exec-compaction-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes agent-exec-compaction-pulse {
+  50% { opacity: 0.55; }
+}
+
+.agent-exec-compaction-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.agent-exec-compaction-label {
+  font-weight: 600;
+}
+
+.agent-exec-compaction-detail {
+  color: var(--octo-text-secondary, #999);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-exec-tasks {

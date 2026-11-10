@@ -1,9 +1,9 @@
-import { createMemo, Show, For, onMount, createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
+import { createMemo, Show, For, Switch, Match, onMount, createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { useSync } from "@/context/sync"
 import { agentExecution, setAgentExecution } from "./agent-execution-state"
-import type { Message, Part, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
+import type { AssistantMessage, CompactionPart, Message, Part, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
 import "./agent-execution-panel.css"
 
 type SyncApi = ReturnType<typeof useSync>
@@ -27,6 +27,77 @@ function toolTitle(part: ToolPart): string {
 function truncate(text: string, max: number): string {
   const t = text.trim()
   return t.length > max ? t.slice(0, max) + "…" : t
+}
+
+function sessionUsage(messages: Message[]): { tokens: number; cost: number } {
+  return messages.reduce(
+    (acc, msg) => {
+      if (msg.role !== "assistant") return acc
+      return { tokens: acc.tokens + msg.tokens.input + msg.tokens.output, cost: acc.cost + msg.cost }
+    },
+    { tokens: 0, cost: 0 },
+  )
+}
+
+function formatUsage(usage: { tokens: number; cost: number }): string {
+  const tokens = usage.tokens >= 1000000
+    ? `${(usage.tokens / 1000000).toFixed(2)}M`
+    : usage.tokens >= 1000
+      ? `${(usage.tokens / 1000).toFixed(1)}k`
+      : `${usage.tokens}`
+  return usage.cost > 0 ? `${tokens} · $${usage.cost.toFixed(2)}` : tokens
+}
+
+function findCompactionPart(parts: Part[]): CompactionPart | undefined {
+  return parts.find((p): p is CompactionPart => p.type === "compaction")
+}
+
+function compactionState(messages: Message[], compactionID: string): "running" | "compacted" | "aborted" | "failed" {
+  const summaries = messages.filter(
+    (m): m is AssistantMessage => m.role === "assistant" && m.parentID === compactionID,
+  )
+  if (summaries.some((m) => m.summary === true && !!m.finish && !m.error)) return "compacted"
+  if (summaries.some((m) => m.error?.name === "MessageAbortedError")) return "aborted"
+  if (summaries.some((m) => m.error)) return "failed"
+  return "running"
+}
+
+function CompactionRow(props: { message: Message; parts: Accessor<Part[]>; sessionMessages: Accessor<Message[]> }): JSX.Element {
+  const compaction = createMemo(() => findCompactionPart(props.parts()))
+  const state = createMemo(() => compactionState(props.sessionMessages(), props.message.id))
+
+  const label = createMemo(() => {
+    if (state() === "compacted") return "上下文已压缩"
+    if (state() === "aborted") return "上下文压缩已停止"
+    if (state() === "failed") return "上下文压缩失败"
+    return "正在压缩上下文…"
+  })
+
+  const detail = createMemo(() => {
+    const c = compaction()
+    if (!c) return ""
+    const trigger = c.overflow ? "溢出触发" : c.auto ? "自动" : "手动"
+    const estimate = c.estimated_tokens ? ` · 压缩时约 ${formatUsage({ tokens: c.estimated_tokens, cost: 0 })} tokens` : ""
+    return `${trigger}${estimate}`
+  })
+
+  return (
+    <div
+      class="agent-exec-compaction"
+      classList={{
+        "agent-exec-compaction-error": state() === "failed",
+        "agent-exec-compaction-running": state() === "running",
+      }}
+    >
+      <span class="agent-exec-compaction-icon">
+        {state() === "running" ? "♻" : state() === "compacted" ? "✅" : state() === "failed" ? "❌" : "⏹"}
+      </span>
+      <span class="agent-exec-compaction-label">{label()}</span>
+      <Show when={detail()}>
+        <span class="agent-exec-compaction-detail">（{detail()}）</span>
+      </Show>
+    </div>
+  )
 }
 
 function ExpandableText(props: { text: string; max: number }): JSX.Element {
@@ -75,6 +146,7 @@ function extractTaskTools(parts: Part[]): Array<{ part: ToolPart; subSessionId?:
 
 function SubAgentMessages(props: { subSessionId: string; sync: SyncApi }): JSX.Element {
   const messages = createMemo(() => (props.sync.data.message?.[props.subSessionId] ?? []) as Message[])
+  const usage = createMemo(() => sessionUsage(messages()))
 
   createEffect(() => {
     if (props.sync.data.message?.[props.subSessionId] === undefined) {
@@ -84,26 +156,37 @@ function SubAgentMessages(props: { subSessionId: string; sync: SyncApi }): JSX.E
 
   return (
     <div class="agent-exec-subagent">
+      <Show when={usage().tokens > 0}>
+        <div class="agent-exec-sub-usage" title="子 Agent 累计上下文 tokens / 费用">上下文 {formatUsage(usage())}</div>
+      </Show>
       <For each={messages()}>
         {(msg) => {
           const parts = createMemo(() => (props.sync.data.part?.[msg.id] ?? []) as Part[])
           return (
-            <Show when={msg.role === "assistant"} fallback={<div class="agent-exec-sub-user">{msg.id}</div>}>
-              <div class="agent-exec-sub-msg">
-                <For each={parts()}>
-                  {(p) => (
-                    <Show when={p.type === "text"} fallback={<Show when={p.type === "tool"}>
-                      <div class="agent-exec-sub-tool">
-                        <span class="agent-exec-tool-icon">{toolStatusIcon((p as ToolPart).state)}</span>
-                        <span class="agent-exec-tool-name">{truncate(toolTitle(p as ToolPart), 60)}</span>
-                      </div>
-                    </Show>}>
-                      <div class="agent-exec-sub-text"><ExpandableText text={(p as { text: string }).text} max={500} /></div>
-                    </Show>
-                  )}
-                </For>
-              </div>
-            </Show>
+            <Switch>
+              <Match when={msg.role === "user" && findCompactionPart(parts())}>
+                <CompactionRow message={msg} parts={parts} sessionMessages={messages} />
+              </Match>
+              <Match when={msg.role === "assistant" && msg.summary !== true}>
+                <div class="agent-exec-sub-msg">
+                  <For each={parts()}>
+                    {(p) => (
+                      <Show when={p.type === "text"} fallback={<Show when={p.type === "tool"}>
+                        <div class="agent-exec-sub-tool">
+                          <span class="agent-exec-tool-icon">{toolStatusIcon((p as ToolPart).state)}</span>
+                          <span class="agent-exec-tool-name">{truncate(toolTitle(p as ToolPart), 60)}</span>
+                        </div>
+                      </Show>}>
+                        <div class="agent-exec-sub-text"><ExpandableText text={(p as { text: string }).text} max={500} /></div>
+                      </Show>
+                    )}
+                  </For>
+                </div>
+              </Match>
+              <Match when={true}>
+                <div class="agent-exec-sub-user">{msg.id}</div>
+              </Match>
+            </Switch>
           )
         }}
       </For>
@@ -195,6 +278,8 @@ export function AgentExecutionPanel(props: { tabId: string }): JSX.Element {
     return sync.data.session_status?.[s.childSessionId]
   })
 
+  const usage = createMemo(() => sessionUsage(messages()))
+
   let scrollRef: HTMLDivElement | undefined
 
   createEffect(() => {
@@ -253,19 +338,29 @@ export function AgentExecutionPanel(props: { tabId: string }): JSX.Element {
               </Show>
               {state()?.title ?? "Agent 执行中"}
             </div>
-            <button class="agent-exec-close" onClick={hide} title="关闭" aria-label="关闭">×</button>
+            <div class="agent-exec-header-side">
+              <Show when={usage().tokens > 0}>
+                <span class="agent-exec-usage" title="主 Agent 累计上下文 tokens / 费用">上下文 {formatUsage(usage())}</span>
+              </Show>
+              <button class="agent-exec-close" onClick={hide} title="关闭" aria-label="关闭">×</button>
+            </div>
           </div>
           <div class="agent-exec-body" ref={scrollRef}>
             <For each={messages()}>
               {(msg) => {
                 const parts = createMemo(() => (sync.data.part?.[msg.id] ?? []) as Part[])
                 return (
-                  <Show
-                    when={msg.role === "assistant"}
-                    fallback={<UserMessageRow message={msg} parts={parts} />}
-                  >
-                    <AgentMessageRow message={msg} parts={parts} sync={sync} />
-                  </Show>
+                  <Switch>
+                    <Match when={msg.role === "user" && findCompactionPart(parts())}>
+                      <CompactionRow message={msg} parts={parts} sessionMessages={messages} />
+                    </Match>
+                    <Match when={msg.role === "assistant" && msg.summary !== true}>
+                      <AgentMessageRow message={msg} parts={parts} sync={sync} />
+                    </Match>
+                    <Match when={msg.role === "user"}>
+                      <UserMessageRow message={msg} parts={parts} />
+                    </Match>
+                  </Switch>
                 )
               }}
             </For>
