@@ -93,17 +93,19 @@
   迁移时不要擅自改色值、也不要把写死色值改成 var()，保持与源项目一致。
 
   【明确跳过 §3.0 图标替换】——不要跑 match-icons.cjs、不要动 <Icon name=...> 调用点、
-  不要改 icon import 路径。图标由阶段3专门处理。
+  不要改 icon import 路径、不要动 @ant-design/icons 调用点。图标由阶段3专门处理。
 
   跑步骤 3 全套验证脚本门禁（对抗 AI 在长任务中遗忘 skill 硬约束）：
   遍历 <eview-skill>/scripts/ 下所有 check-*.cjs 脚本逐个跑（命令固定：node <脚本路径> {SRC}-eview-react），
-  除 check-relative-imports.cjs（阶段1 已跑）和 check-icon-shim.cjs（阶段3 跑）外全跑——
+  除 check-relative-imports.cjs（阶段1 已跑）、check-icon-shim.cjs（阶段3 跑）、
+  check-icon-names.cjs（C 专属、阶段3 条件跑，B 不跑）外全跑——
   以后 skill 新增 check-*.cjs 自动纳入，无需改本编排文件。
   判定规则（看脚本 stdout 的"结论:"行 + exit code）：
   - exit≠0 → 该项 FAIL（任一脚本 exit≠0 即整体 FAIL，必须修复后重跑直到 exit=0）
   - exit=0 且结论含"待核对"/"待核"/"advisory" → 该项 PASS，但须把输出里每个待核项写进
     .migration-result.json 的 reviews 数组逐条回应（每条含 check 脚本名 + 待核项内容 + 处理结论；未逐条回应视同 FAIL）
   - exit=0 且结论无待核 → 该项 PASS
+  **唯一例外，仅限 check-imports 一个脚本**：其 ICONS_RESIDUAL（@ant-design/icons 残留）在阶段2 图标未转时必然命中——违规条目全属该类 → checks.imports 标 "PASS-deferred"（阶段3 转完图标后重跑覆盖）；混有其余 6 类（antd 残留/RadioGroup 套错包/包壳错路径/Tab-data/Toggle-disable 等）任一 → 仍 FAIL。其余所有 check-*.cjs 无例外。
   check-token-drift/check-props-preserved/check-css 依赖 .umd-conversion.json 的
   sourceCssTokens/inputPropCallSites/sourceCssColors（由阶段0 extract-umd.cjs 生成）。
   详见 <eview-skill>/references/migration-workflow.md §4.13 验证。
@@ -114,7 +116,7 @@
 
   写 .migration-result.json：
   { "status": "PASS"/"FAIL", "round": 1, "failures": [...],
-    "checks": { "<脚本名去掉check-前缀和.cjs>": "PASS"/"FAIL"/"ADVISORY", ...（动态：每个跑过的脚本一项）, "relative-imports": "PASS(skip)", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" },
+    "checks": { "<脚本名去掉check-前缀和.cjs>": "PASS"/"FAIL"/"ADVISORY", ...（动态：每个跑过的脚本一项）, "imports": "PASS-deferred"（ICONS_RESIDUAL 延后判，阶段3 覆盖）, "relative-imports": "PASS(skip)", "antd-css": "PASS"/"FAIL", "npm-install": "SKIP" },
     "reviews": [ { "check": "table-defaults", "item": "...", "resolution": "..." }, ... ] }
   checks 的 key 用脚本名规范化（去 check- 前缀去 .cjs，保留连字符，如 check-table-defaults.cjs → "table-defaults"）。
   reviews 是统一数组，每条标明来源 check 脚本名 + 待核项 + 回应；无 advisory 待核项时留空 []。
@@ -130,20 +132,22 @@
 
 用 skill 工具加载 antd-to-eview-react 获取 scripts + references。派发**新的** general 子 agent，任务：
 
-  做图标替换（§3.0）。只处理 <Icon> 调用点和 icon import，不碰其他组件代码（改文件一律用 edit，禁用 PowerShell 读写文件，Windows GBK 会把中文变乱码）。
+  做图标替换（§3.0）。只处理 <Icon> / @ant-design/icons 调用点和 icon import，不碰其他组件代码（改文件用 edit，禁 PowerShell 读写——Windows GBK 会乱码）。
 
-  1. 读 {SRC}-eview-react/.umd-conversion.json 的 iconCallSites（预扫，跳过 grep），只读其 file 字段指向的文件（通常 3-8 个，控制上下文）。空或不存在则 grep -rl "<Icon\b" {SRC}-eview-react/src/ 兜底——**有站点才继续（无站点跳过阶段3，直接写 .icon-result.json status=PASS/skipped）**。
-
-  2. 探测网络选 B/C（全项目统一一种，仅名匹配方式不同）：curl -sI https://octo.hdesign.huawei.com/（或 WebFetch），可达→B（在线 getIconInfo，catalog-free、无占位）/ 不可达→C（离线 catalog）。mode 记入 .icon-result.json。
-
-  3. 按 <eview-skill>/references/migration-workflow.md §3.0 + Icon.md「方案 B 在线匹配执行 recipe」跑 match-icons.cjs 做对应 mode 的结构改写（B 两段式 --plan → 去重唯一名 + 并行 getIconInfo + icon-b-decisions.json → --apply-decisions --decisions <log>，缺名即报错零改写、补齐重跑 / C --apply）。**residual 真相源 = 脚本 stdout**——产物根无 .icon-match.json（C 的临时报告 --apply 后清理、B 的 icon-leaves.json 在 OS 临时目录），不要去找文件。residual 名选取按 §3.0 B/C 各自规则（B：getIconInfo 候选须精确等于 / C：stdout top-K 候选短名单，候选都不对再按需查 icon-plus-names.json，勿整本读）。.js→.jsx 由脚本处理。
-
-  4. untraced/residual 按 skill closed-set 契约：闭合集（含跨边界 props/useMemo/推入函数 + 对象地图 OBJ[runtimeKey].field）→ 转 icon+（按 Icon.md 追源）；仅真 OPEN（后端自由取值）→ shim。残留 <Icon> shim 可先 check-icon-shim --init-justified 预填 .icon-shim-justified.json 骨架（只补 closedSet+reason），再 check-icon-shim --strict 拦闭集误留。
-
-  5. 读 <eview-skill>/references/components/Icon.md（{} 上下文规则 / wrapper 改写 / 方案A shim 判定 / B recipe）。
+  1. 站点来源：读 .umd-conversion.json 的 iconCallSites.file（预扫，跳过 grep；通常 3-8 个文件，控制上下文），空则 grep -rl "<Icon\b" {SRC}-eview-react/src/ 兜底。无站点 → 跳过本阶段，写 .icon-result.json status=PASS/skipped。
+  2. 探测 B/C（全项目统一）：curl -sI https://octo.hdesign.huawei.com/，可达→B，不可达→C。mode 记入 .icon-result.json。
+  3. 跑 match-icons.cjs 做 <Icon> 结构改写（机制按 §3.0 + Icon.md recipe；residual 真相源=脚本 stdout，产物根无 .icon-match.json）。
+  4. residual 按 skill closed-set 契约处理（闭合集转 icon+ / 真 OPEN 保 shim），残留 shim 跑 check-icon-shim --init-justified 再 --strict，exit≠0 修复重跑至全 0。
+  5. C 模式加跑 check-icon-names.cjs（拦臆造非 catalog 名）；B 不跑。
+  6. 图标转完后重跑 check-imports.cjs（此时 @ant-design/icons 已转，ICONS_RESIDUAL 不再豁免），结果覆盖阶段2 PASS-deferred。
+  7. 读 Icon.md（{}规则 / wrapper / 方案A 判定 / props 保留硬约束）。
 
   完成后写 .icon-result.json：
-  { "status": "PASS"/"FAIL", "round": 1, "mode": "B"/"C", "failures": [...], "iconCallSites": <总数>, "confirmed": <自动改写数>, "residual": <手动处理数>, "shimRetained": [<保留原因>] }
+  { "status": "PASS"/"FAIL", "round": 1, "mode": "B"/"C", "failures": [...],
+    "iconCallSites": <总数>, "confirmed": <自动改写数>, "residual": <手动处理数>, "shimRetained": [<保留原因>],
+    "checks": { "icon-shim": "PASS"/"FAIL", "icon-names": "PASS"/"FAIL"/"SKIP(非C)", "imports": "PASS"/"FAIL" },
+    "confirmedSiteRepairs": [ { "file": "...", "line": .., "site": "...", "repair": "..." } ] }
+  （residual 手改 / Button 剥壳站点的 props 复核逐条写进 confirmedSiteRepairs，未回应视同 FAIL）
 
 ══════════════════════════════════════════════════════════════
 阶段4 — 终检（orchestrator 直接做，不派子 agent）
@@ -165,13 +169,16 @@
 3. 抽查产物文件无 GBK 乱码（子 agent 若误用 PowerShell 读写文件会触发）：
    抽看几个含中文的 jsx（如 top-nav/member-table/index.jsx）确认中文正常；发现乱码回阶段1/2/3 用 read+write/edit 重做（禁 PowerShell 写文件）。
 
-4. 验证门禁确认（读 .migration-result.json 的 checks，确认硬 FAIL 项全过）：
+4. 验证门禁确认（读 .migration-result.json + .icon-result.json 的 checks，确认硬 FAIL 项全过）：
    - dark-mode: PASS（黑白主题双轨切换完整——html.dark + body.aui3_1_dark + aui3_1_dark.css import）
-   - imports: PASS（无残留 from 'antd' / RadioGroup 套错包 / 包壳组件错路径）
+   - imports: PASS（无残留 from 'antd' / @ant-design/icons / RadioGroup 套错包 / 包壳组件错路径）
+   - icon-shim: PASS（5 项拦截项全 0）
+   - icon-names: PASS/SKIP(非C)
    - provider: PASS（IntlProvider 在 main.jsx、locale=zh）
    - token-drift: PASS（token 定义值与源一致）
    - chart-options: PASS/ADVISORY（图表 option 含 a2ui+theme）
-   若 dark-mode/token-drift 等硬 FAIL 项不是 PASS，回阶段2 修复后重验
+   （imports/icon-shim/icon-names ← .icon-result.json；余 ← .migration-result.json；阶段3 skipped 时 imports 读 .migration-result.json）
+   若 dark-mode/token-drift/imports/icon-shim 等硬 FAIL 项不是 PASS，回阶段2/3 修复后重验
 
 5. 结构完整性：
    - 关键文件存在：src/main.jsx / src/app.jsx / package.json / vite.config.js / index.html
@@ -182,7 +189,6 @@
    - 各阶段状态（PASS/FAIL）
    - 改了哪些文件（按阶段汇总数量）
    - 残留问题（如有 grep 命中，列出文件:行号:内容）
-   - icon shim 仅真OPEN（后端自由取值）；闭合集误留由 check-icon-shim 拦
 
 ══════════════════════════════════════════════════════════════
 编排要点
@@ -191,13 +197,14 @@
 - 阶段0 由主 agent 直接跑脚本（init-scaffold/extract-umd/build-migration-plan），
   不派发子 agent——子 agent 不能再派子 agent，把脚本步从子 agent 剥出来减轻其上下文
 
-- 阶段4 终检也由主 agent 直接做（grep 扫 antd 痕迹残留 + 抽查无 GBK 乱码 + 读 .migration-result.json 的 checks 确认硬 FAIL 项全过 + 读 4 个交接文件状态 + 检查结构完整性），
+- 阶段4 终检也由主 agent 直接做（grep 扫 antd 痕迹残留 + 抽查无 GBK 乱码 + 读 .migration-result.json + .icon-result.json 的 checks 确认硬 FAIL 项全过 + 读 4 个交接文件状态 + 检查结构完整性），
   不派子 agent
 
 - 阶段1 子 agent 只做搬代码+验证（Steps 3-4），不跑脚本(1-2)、不做评估(5)，
 
 - 阶段2 子 agent 遍历跑 <eview-skill>/scripts/check-*.cjs 全套验证门禁。
   判定看 exit code + stdout "结论:"行：exit≠0 即 FAIL；exit=0 但结论含"待核对"须逐条回应进对应 reviews。
+  **check-imports 例外**：ICONS_RESIDUAL（@ant-design/icons 残留）阶段2 图标未转延后判，阶段3 末尾重跑覆盖。
 
 - 阶段2 必须显式说"跳过图标"，否则子 agent 会按 §3.0 顺手做了，阶段3 空跑
 
@@ -209,7 +216,9 @@
 - 阶段3 触发条件看 iconCallSites（预扫）或 <Icon name> grep 站点，
   不看 antdIcons（ict-coder 产物用自定义 <Icon name> 运行时 shim，antdIcons 恒 [] 但调用点众多）
 
-- 阶段3 先探测 B/C（octo.hdesign.huawei.com 可达→B 两段式 `--plan`/`--apply-decisions`，在线名、无占位、不读 catalog / 不可达→C `--apply` catalog）再按 skill §3.0 执行，**不硬编码单一 mode**；转所有闭合集（含跨边界/object-map），残留 shim 须 check-icon-shim --strict 验证仅真OPEN，residual 真相源是脚本 stdout（产物根无 .icon-match.json）
+- 阶段3 按探测的 B/C 跑 match-icons.cjs（机制见 §3.0 + Icon.md），不硬编码单一 mode；residual 真相源=脚本 stdout（产物根无 .icon-match.json）。
+  **图标闸门三件套**（转完依次跑，写进 .icon-result.json checks）：check-icon-shim --strict（B/C，exit≠0 修复重跑至 0）→ check-icon-names（仅 C）→ check-imports 完整重跑（B/C，覆盖阶段2 PASS-deferred）。
+  check-icon-shim 的两次调用（skill §3.0 步7 residual 复核 + §4.20 步18 终检兜底）在本编排都落在阶段3 内（= step 4 + 上面的闸门三件套），调用次数与 skill 一致；阶段2 不跑（不动图标）。**结果写 .icon-result.json，显式覆盖 skill 默认的 .migration-result.json——以本编排为准。**
 
 - 阶段3 写独立的 .icon-result.json（不复用 .migration-result.json），
   与阶段2 结果分离，主 agent 分别判定
