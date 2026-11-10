@@ -234,7 +234,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
             </Show>
           </div>
 
-          <div style={{ display: "flex", gap: "12px", "margin-top": "24px", "justify-content": "flex-end" }}>
+          <div style={{ display: "flex", gap: "12px", "margin-top": "16px", "justify-content": "flex-end" }}>
             <button
               type="button"
               onClick={props.onClose}
