@@ -21,13 +21,17 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
+  readlinkSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs"
 import net from "node:net"
@@ -158,6 +162,66 @@ function identify(projectDir: string): SessionState | null {
   if (basename(outputs) !== "outputs") return null
   const legacy = readJson<SessionState & { schema?: number }>(join(dirname(outputs), MARKER_FILE))
   return legacy && !legacy.schema ? legacy : null
+}
+
+/**
+ * 分享包只带工程源码，不带机器相关的 node_modules 链接与运行目录。首次打开时把工程重新绑定到
+ * 当前机器的共享依赖池；旧机器写进 marker 的绝对路径失效时也在这里本机化。
+ */
+function restorePortableRuntime(projectDir: string, state: SessionState): { ok: true; state: SessionState } | { ok: false; error: string } {
+  const available = (depsDir: string | undefined) =>
+    !!depsDir && existsSync(join(depsDir, "@turboui", "turbo-ui-cli-service", "bin", "turbo-ui-cli-service.js"))
+  const envDir = available(state.depsDir) && state.envDir ? state.envDir : fastuiEnvDir()
+  const depsDir = available(state.depsDir) ? state.depsDir! : join(envDir, "deps", "node_modules")
+  if (!available(depsDir)) {
+    return { ok: false, error: "本机 FastUI 运行环境未就绪，请先完成 FastUI 环境初始化后重新打开产物" }
+  }
+
+  const modules = join(projectDir, "node_modules")
+  try {
+    const stat = lstatSync(modules)
+    if (stat.isSymbolicLink()) {
+      const linked = resolve(dirname(modules), readlinkSync(modules))
+      if (relative(linked, resolve(depsDir)) !== "") {
+        unlinkSync(modules)
+        symlinkSync(depsDir, modules, process.platform === "win32" ? "junction" : "dir")
+      }
+    } else if (!stat.isDirectory()) {
+      return { ok: false, error: `预览工程的 node_modules 不是目录：${modules}` }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      return { ok: false, error: `恢复预览工程依赖失败：${String(error)}` }
+    }
+    try {
+      symlinkSync(depsDir, modules, process.platform === "win32" ? "junction" : "dir")
+    } catch (linkError) {
+      return { ok: false, error: `恢复预览工程依赖失败：${String(linkError)}` }
+    }
+  }
+
+  const next = {
+    ...state,
+    envDir,
+    depsDir,
+    nodeBin: state.nodeBin && existsSync(state.nodeBin)
+      ? state.nodeBin
+      : existsSync(nodeBinOf(envDir))
+        ? nodeBinOf(envDir)
+        : process.execPath,
+  }
+  const markerPath = join(projectDir, MARKER_FILE)
+  const marker = readJson<Record<string, unknown>>(markerPath)
+  if (typeof marker?.schema === "number" && (
+    marker.envDir !== next.envDir || marker.depsDir !== next.depsDir || marker.nodeBin !== next.nodeBin
+  )) {
+    try {
+      writeFileSync(markerPath, JSON.stringify({ ...marker, ...next, updatedAt: new Date().toISOString() }, null, 2))
+    } catch (error) {
+      return { ok: false, error: `更新预览工程信息失败：${String(error)}` }
+    }
+  }
+  return { ok: true, state: next }
 }
 
 type Resolved = { ok: true; projectDir: string; name: string; state: SessionState } | { ok: false; error: string }
@@ -599,10 +663,11 @@ export async function open(target: FastuiTarget): Promise<OpenResult> {
 
 /** 已经定位到工程之后的打开;skill 的请求带的就是工程目录,直接走这里 */
 function openProject(projectDir: string, name: string, state: SessionState): Promise<OpenResult> {
-  if (!state.envDir || !state.depsDir) return Promise.resolve({ ok: false, error: "预览工程信息不完整，请让助手重新生成预览" })
+  const restored = restorePortableRuntime(projectDir, state)
+  if (!restored.ok) return Promise.resolve(restored)
   const inflight = opening.get(projectDir)
   if (inflight) return inflight
-  const task = openResolved(projectDir, name, state).finally(() => {
+  const task = openResolved(projectDir, name, restored.state).finally(() => {
     if (opening.get(projectDir) === task) opening.delete(projectDir)
   })
   opening.set(projectDir, task)

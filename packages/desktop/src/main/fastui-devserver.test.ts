@@ -105,6 +105,27 @@ describe("open", () => {
     expect(existsSync(join(s, "outputs", "alpha", ".octo-fastui", "devserver.json"))).toBe(true)
   })
 
+  test("分享导入的工程首次打开时重建本机环境信息与 node_modules 链接", async () => {
+    const dir = codeProject("ws-portable", "shared-dashboard")
+    writeFileSync(join(dir, ".octo-fastui.json"), JSON.stringify({
+      schema: 1,
+      skill: "fastui-vue-creator",
+      name: "shared-dashboard",
+      sessions: ["ses_a"],
+      envDir: "C:\\Users\\source\\fastui-env",
+      depsDir: "C:\\Users\\source\\fastui-env\\deps\\node_modules",
+      nodeBin: "C:\\Program Files\\nodejs\\node.exe",
+    }))
+
+    const result = await Host.open(codeTarget("ws-portable", "shared-dashboard"))
+    expect(result.ok).toBe(true)
+    expect(realpathSync(join(dir, "node_modules"))).toBe(realpathSync(depsDir))
+    const marker = JSON.parse(readFileSync(join(dir, ".octo-fastui.json"), "utf8"))
+    expect(marker.envDir).toBe(envDir)
+    expect(marker.depsDir).toBe(depsDir)
+    expect(existsSync(marker.nodeBin)).toBe(true)
+  })
+
   test("活着且应答就复用同一个进程与端口", async () => {
     const s = session("s2", ["alpha"])
     const a = await Host.open(target(s, "alpha"))
