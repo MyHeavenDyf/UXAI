@@ -5387,6 +5387,59 @@ export type ProjectInitGitResponses = {
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
 
+export type ProjectGetGitRemoteData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectGetGitRemoteResponses = {
+  /**
+   * Origin remote URL or null
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectGetGitRemoteResponse = ProjectGetGitRemoteResponses[keyof ProjectGetGitRemoteResponses]
+
+export type ProjectAddGitRemoteData = {
+  body?: {
+    url: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectAddGitRemoteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]
+
+export type ProjectAddGitRemoteResponses = {
+  /**
+   * Origin remote URL after add/update
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectAddGitRemoteResponse = ProjectAddGitRemoteResponses[keyof ProjectAddGitRemoteResponses]
+
 export type ProjectUpdateData = {
   body?: {
     name?: string

@@ -45,6 +45,36 @@ export const ProjectApi = HttpApi.make("project")
             description: "Create a git repository for the current project and return the refreshed project info.",
           }),
         ),
+        // 查询当前项目的 origin 远程仓库地址(可能为 null)
+        HttpApiEndpoint.get("getGitRemote", `${root}/git/remote`, {
+          success: described(
+            Schema.Struct({ remoteUrl: Schema.NullOr(Schema.String) }),
+            "Origin remote URL or null",
+          ),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.getGitRemote",
+            summary: "Get git remote URL",
+            description:
+              "Retrieve the origin remote URL for the current project, or null if not configured.",
+          }),
+        ),
+        // 关联远程代码仓:自动 git init(如需)+ remote add/set-url origin
+        HttpApiEndpoint.post("addGitRemote", `${root}/git/remote`, {
+          payload: Schema.Struct({ url: Schema.String }),
+          success: described(
+            Schema.Struct({ remoteUrl: Schema.String }),
+            "Origin remote URL after add/update",
+          ),
+          error: [HttpApiError.BadRequest],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.addGitRemote",
+            summary: "Add or update git remote",
+            description:
+              "Initialize git (if needed) and add or update the origin remote URL for the current project.",
+          }),
+        ),
         HttpApiEndpoint.patch("update", `${root}/:projectID`, {
           params: { projectID: ProjectID },
           payload: UpdatePayload,

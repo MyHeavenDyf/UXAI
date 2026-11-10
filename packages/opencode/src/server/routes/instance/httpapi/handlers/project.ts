@@ -32,6 +32,20 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       return next
     })
 
+    // 查询当前实例目录的 origin 远程仓库地址
+    const getGitRemote = Effect.fn("ProjectHttpApi.getGitRemote")(function* () {
+      const ctx = yield* InstanceState.context
+      return yield* svc.getGitRemote({ directory: ctx.directory })
+    })
+
+    // 关联远程代码仓:传 url,由 Service 层完成 git init(如需)+ remote add/set-url
+    const addGitRemote = Effect.fn("ProjectHttpApi.addGitRemote")(function* (ctx: {
+      payload: { url: string }
+    }) {
+      const ictx = yield* InstanceState.context
+      return yield* svc.addGitRemote({ directory: ictx.directory, url: ctx.payload.url })
+    })
+
     const update = Effect.fn("ProjectHttpApi.update")(function* (ctx: {
       params: { projectID: ProjectID }
       payload: Project.UpdatePayload
@@ -39,6 +53,12 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       return yield* svc.update({ ...ctx.payload, projectID: ctx.params.projectID })
     })
 
-    return handlers.handle("list", list).handle("current", current).handle("initGit", initGit).handle("update", update)
+    return handlers
+      .handle("list", list)
+      .handle("current", current)
+      .handle("initGit", initGit)
+      .handle("getGitRemote", getGitRemote)
+      .handle("addGitRemote", addGitRemote)
+      .handle("update", update)
   }),
 )

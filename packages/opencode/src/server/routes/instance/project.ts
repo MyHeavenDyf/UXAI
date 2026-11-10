@@ -10,6 +10,15 @@ import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
 import { jsonRequest, runRequest } from "./trace"
 
+// git remote 查询/关联接口的响应与请求体 schema
+const GitRemoteResponse = z.object({
+  remoteUrl: z.string().nullable(),
+})
+
+const GitRemoteInput = z.object({
+  url: z.string().min(1),
+})
+
 export const ProjectRoutes = lazy(() =>
   new Hono()
     .get(
@@ -84,6 +93,65 @@ export const ProjectRoutes = lazy(() =>
         await InstanceRuntime.reloadInstance({ directory: dir, worktree: dir, project: next })
         return c.json(next)
       },
+    )
+    // 查询当前项目的 origin 远程仓库地址(未配置时 remoteUrl 为 null)
+    .get(
+      "/git/remote",
+      describeRoute({
+        summary: "Get git remote URL",
+        description: "Retrieve the origin remote URL for the current project, or null if not configured.",
+        operationId: "project.getGitRemote",
+        responses: {
+          200: {
+            description: "Git remote URL",
+            content: {
+              "application/json": {
+                schema: resolver(GitRemoteResponse),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        // 优先从 query 参数取 directory,避免 onboarding 阶段实例尚未加载时 Instance.directory 抛错
+        const dir = c.req.query("directory") || Instance.directory
+        const result = await runRequest(
+          "ProjectRoutes.getGitRemote",
+          c,
+          Project.Service.use((svc) => svc.getGitRemote({ directory: dir })),
+        )
+        return c.json(result)
+      },
+    )
+    // 关联远程代码仓:自动 git init(如需)+ remote add/set-url origin
+    .post(
+      "/git/remote",
+      describeRoute({
+        summary: "Add or update git remote",
+        description:
+          "Initialize git (if needed) and add or update the origin remote URL for the current project.",
+        operationId: "project.addGitRemote",
+        responses: {
+          200: {
+            description: "Git remote URL",
+            content: {
+              "application/json": {
+                schema: resolver(GitRemoteResponse),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", GitRemoteInput),
+      async (c) =>
+        jsonRequest("ProjectRoutes.addGitRemote", c, function* () {
+          // 优先从 query 参数取 directory,避免 onboarding 阶段实例尚未加载时 Instance.directory 抛错
+          const dir = c.req.query("directory") || Instance.directory
+          const body = c.req.valid("json") as z.infer<typeof GitRemoteInput>
+          const svc = yield* Project.Service
+          return yield* svc.addGitRemote({ directory: dir, url: body.url })
+        }),
     )
     .patch(
       "/:projectID",
