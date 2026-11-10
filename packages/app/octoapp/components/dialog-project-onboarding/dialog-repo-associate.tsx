@@ -31,7 +31,8 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
   const hasUrl = createMemo(() => repoUrl().trim().length > 0)
   const isValidUrl = createMemo(() => GIT_REPO_REGEX.test(repoUrl().trim()))
   const showError = createMemo(() => triedSubmit() && !hasUrl())
-  const showFormatError = createMemo(() => triedSubmit() && hasUrl() && !isValidUrl())
+  // 输入内容不匹配正则时立即提示,不依赖 triedSubmit(按钮已禁用无法触发 submit)
+  const showFormatError = createMemo(() => hasUrl() && !isValidUrl())
 
   // 弹窗打开时检测所选目录是否已关联远程仓库
   // 使用 globalSDK.client(已配置 throwOnError: true),服务端返回错误时会 throw 而非静默返回 { data: undefined }
