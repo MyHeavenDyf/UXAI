@@ -8,7 +8,7 @@ import { HttpServerRequest } from "effect/unstable/http"
 import { InstanceHttpApi } from "../api"
 import { markInstanceForReload } from "../lifecycle"
 import { validateDirectory } from "../../project"
-import { ApiBadRequestError } from "../errors"
+import { ApiBadRequestError, ApiInternalServerError } from "../errors"
 
 // 优先从请求 URL 取 directory query 参数;不可用时 fallback 到 InstanceState.context
 // 统一调用 validateDirectory 校验,拒绝根路径/盘符根/含 .. 的路径穿越
@@ -44,7 +44,7 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       const ctx = yield* InstanceState.context
       const next = yield* svc.initGit({ directory: ctx.directory, project: ctx.project }).pipe(
         Effect.mapError((err) =>
-          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+          new ApiInternalServerError({ message: err instanceof Error ? err.message : String(err) }),
         ),
       )
       if (next.id === ctx.project.id && next.vcs === ctx.project.vcs && next.worktree === ctx.project.worktree)
@@ -62,7 +62,7 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       const dir = yield* directoryFromRequestOrContext()
       return yield* svc.getGitRemote({ directory: dir }).pipe(
         Effect.mapError((err) =>
-          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+          new ApiInternalServerError({ message: err instanceof Error ? err.message : String(err) }),
         ),
       )
     })
@@ -74,7 +74,7 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       const dir = yield* directoryFromRequestOrContext()
       return yield* svc.addGitRemote({ directory: dir, url: ctx.payload.url }).pipe(
         Effect.mapError((err) =>
-          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+          new ApiInternalServerError({ message: err instanceof Error ? err.message : String(err) }),
         ),
       )
     })
