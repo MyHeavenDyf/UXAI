@@ -73,7 +73,17 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
     void globalSDK.client.project
       .addGitRemote({ directory: props.directory, url })
       .then((res) => props.onConfirm(res.data?.remoteUrl ?? url))
-      .catch((err) => setError(err instanceof Error ? err.message : "关联代码仓失败"))
+      .catch((err) => {
+        // SDK throwOnError 时抛出的是 JSON 响应体(非 Error 实例),需从对象中提取 message
+        const message = err instanceof Error
+          ? err.message
+          : typeof err === "object" && err !== null && "message" in err
+            ? String(err.message)
+            : typeof err === "string"
+              ? err
+              : "关联代码仓失败"
+        setError(message)
+      })
       .finally(() => setSubmitting(false))
   }
 
