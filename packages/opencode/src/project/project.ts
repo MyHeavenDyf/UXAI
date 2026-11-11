@@ -8,7 +8,6 @@ import * as Log from "@opencode-ai/core/util/log"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
-import { which } from "../util/which"
 import { ProjectID } from "./schema"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
@@ -414,8 +413,9 @@ export const layer: Layer.Layer<
       if (result.code !== 0) {
         if (!result.stderr && !result.text) {
           yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
+        } else {
+          yield* Effect.fail(new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository"))
         }
-        yield* Effect.fail(new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository"))
       }
       const { project } = yield* fromDirectory(input.directory)
       return project
