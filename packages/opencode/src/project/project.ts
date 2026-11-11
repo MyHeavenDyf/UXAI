@@ -430,18 +430,16 @@ export const layer: Layer.Layer<
       return project
     })
 
-    // 查询当前目录的 origin 远程仓库地址;未安装 git 或无 origin 时返回空串。
-    // spawn 失败(目录不存在/权限不足)时 Effect.fail,不误判为"未配置"。
+    // 查询当前目录的 origin 远程仓库地址;未配置 origin 时返回空串。
+    // 不用 which("git") 预检 — GUI 启动的进程 PATH 可能不含 Homebrew 路径,
+    // 但 ChildProcess.spawn 仍能通过 OS 原生 exec 找到 git。
     const getGitRemote = Effect.fn("Project.getGitRemote")(function* (input: { directory: string }) {
-      if (!(yield* Effect.sync(() => which("git")))) {
-        yield* Effect.fail(new Error("Git is not installed"))
-      }
       const result = yield* git(["remote", "get-url", "origin"], { cwd: input.directory })
       if (result.code !== 0) {
         // git 正常退出但返回非零(如"No remote configured")→ 未配置,返回空串
-        // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → 实际错误
+        // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → git 不可用
         if (!result.stderr && !result.text) {
-          yield* Effect.fail(new Error("Failed to read git remote (directory may not exist or git unavailable)"))
+          yield* Effect.fail(new Error("Git is not available — ensure git is installed and in PATH"))
         }
         return { remoteUrl: "" }
       }
@@ -452,12 +450,12 @@ export const layer: Layer.Layer<
     // 已存在则 git remote set-url 更新,不存在则 git remote add 新增。
     // git 命令中 URL 前加 -- 分隔,防止以 - 开头的 URL 被 git 解释为选项参数
     const addGitRemote = Effect.fn("Project.addGitRemote")(function* (input: { directory: string; url: string }) {
-      if (!(yield* Effect.sync(() => which("git")))) {
-        yield* Effect.fail(new Error("Git is not installed"))
-      }
       // 检测目录是否已初始化 git(git rev-parse --git-dir 失败说明尚未 init)
       const initCheck = yield* git(["rev-parse", "--git-dir"], { cwd: input.directory })
       if (initCheck.code !== 0) {
+        if (!initCheck.stderr && !initCheck.text) {
+          yield* Effect.fail(new Error("Git is not available — ensure git is installed and in PATH"))
+        }
         const initResult = yield* git(["init", "--quiet"], { cwd: input.directory })
         if (initResult.code !== 0) {
           yield* Effect.fail(new Error(initResult.stderr.trim() || initResult.text.trim() || "Failed to initialize git repository"))
