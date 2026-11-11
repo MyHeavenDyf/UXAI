@@ -10,6 +10,7 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -153,7 +154,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: "file",
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
     }
@@ -176,7 +177,7 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const id = assetFileId(file)
     const selection: MentionSelection = {
       type: "file",
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
     }
     props.onDeselect(selection)

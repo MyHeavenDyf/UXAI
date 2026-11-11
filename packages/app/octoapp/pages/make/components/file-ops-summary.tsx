@@ -94,7 +94,7 @@ export function FileOpsSummary(props: { calls: ToolCallInfo[] }): JSX.Element {
         <div class="flex flex-col gap-0.5">
           <For each={entries()}>
             {(entry) => (
-              <div class="flex items-center gap-1.5 text-[11px]">
+              <div class="flex items-center gap-1.5 text-[11px]" title={entry.path}>
                 <span class="truncate flex-1 min-w-0" style={{ color: "var(--octo-text-primary)" }}>
                   {entry.name}
                 </span>

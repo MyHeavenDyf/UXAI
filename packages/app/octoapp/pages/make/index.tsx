@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
-import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -107,10 +107,12 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
+import { DesignSystemSelector, DESIGN_SYSTEM_NONE } from "./components/design-system-selector"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
+import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
 import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -252,6 +254,22 @@ function MakeContent() {
   const projectSelection = useProjectSelection()
   // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
+
+  // 评估状态上下文:assessment-state 按此推导评审文件(产物目录分支)与状态文件路径
+  createEffect(() => {
+    const dir = projectDir()
+    if (!dir) return
+    const kind = workspaceKind()
+    const sid = params.id ?? ""
+    if (kind !== "code" && !sid) return
+    setAssessmentContext({ projectDir: dir, sessionId: sid, workspaceKind: kind })
+  })
+  // 切换 session:暂停待修改评估(磁盘数据保留,重新激活时可恢复)
+  createEffect(on(() => params.id, (id, prev) => {
+    if (prev && id !== prev) pauseAssessment()
+  }, { defer: true }))
+  // 切到其它页面(路由卸载 Make 页):暂停待修改评估
+  onCleanup(() => pauseAssessment())
 
   const local = useLocal()
   useTabModel("make")
@@ -1678,6 +1696,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
+      void harvestAssessmentReview()
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1899,6 +1919,24 @@ const sessionMessagesLoaded = createMemo(() => {
     return (cfg.panel?.octo_make ?? [])
       .filter(s => s.autoInject === true && s.enable !== false)
       .map(s => ({ type: 'skill' as const, name: s.label, label: lookupDisplayName(cfg.skill, s.label) ?? s.label }))
+  })
+
+  // ── Design System Selector（新建 session 对话框，数据来自 skill_config.json 的 designSystemSkills）──
+  // undefined = 用户未手动选择（跟随 selectedSkillName 默认值），null = 手动选择“不使用设计系统”
+  const [designSystemChoice, setDesignSystemChoice] = createSignal<string | null | undefined>(undefined)
+  const designSystemOptions = createMemo(() => {
+    const seen = new Set<string>()
+    return (skillConfig().designSystemSkills?.skillList ?? []).map(s => s.label).filter(label => {
+      if (seen.has(label)) return false
+      seen.add(label)
+      return true
+    })
+  })
+  const designSystemSelected = createMemo(() => {
+    const choice = designSystemChoice()
+    if (choice !== undefined) return choice
+    const preset = skillConfig().designSystemSkills?.selectedSkillName
+    return preset && designSystemOptions().includes(preset) ? preset : null
   })
 
   // ── Slash Command List ──
@@ -3586,6 +3624,8 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === id)
     if (tab) {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
+      // 关闭被评估的 tab:暂停待修改评估(磁盘数据保留)
+      if (tab.filePath && tab.filePath === pendingAssessment()?.fileKey) pauseAssessment()
     }
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
@@ -3670,7 +3710,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -4032,8 +4072,9 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({
         module: "design",
         name: "send-message",
-        extend: JSON.stringify({ 
+        extend: JSON.stringify({
           hasAttachment: fileParts.length > 0 || localManifest.length > 0,
+          ...(injectedDesignSystem ? { designSystem: injectedDesignSystem } : {}),
         }),
       })
       
@@ -4103,6 +4144,17 @@ const sessionMessagesLoaded = createMemo(() => {
     if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
+    }
+
+    let injectedDesignSystem: string | undefined
+    if (!hasSessionView()) {
+      const designSystem = designSystemSelected()
+      if (designSystem && !mentions.some(m => m.type === "skill" && m.name === designSystem)) {
+        injectedDesignSystem = designSystem
+        text = `​@${designSystem}​ ` + text
+        mentions = [{ type: 'skill', name: designSystem, label: designSystem, id: designSystem, path: "" }, ...mentions]
+        tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem }) })
+      }
     }
     
     if (effectiveBusy() || !activeModelKey()) return
@@ -4326,7 +4378,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternBlockMatching(false)
             // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
             // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
-            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+            await sendMessage(existingChildId, text, capturedModelKey, mentions, injectedDesignSystem)
           } else {
             // 首次进入：创建新的 ict_pattern 子 session
             lastEnrichedPatternMatchMsgId = null
@@ -4343,12 +4395,12 @@ const sessionMessagesLoaded = createMemo(() => {
               setPatternSubPhase("match")
               setPatternMatches(null)
               sync.session.sync(patternChildSession.id).catch(() => {})
-              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, injectedDesignSystem)
             }
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -5030,6 +5082,8 @@ const sessionMessagesLoaded = createMemo(() => {
       fileName: string
       s3BaseUrl?: string
       docPath?: string
+      parseS3BaseUrl?: string
+      parseDocPath?: string
       docId?: string
       fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
@@ -5047,10 +5101,12 @@ const sessionMessagesLoaded = createMemo(() => {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
-      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
-      downloadName = file.docPath
-      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件
+      const useParse = hasAssetParseSource(file)
+      const remotePath = useParse ? file.parseDocPath! : file.docPath
+      if (!remotePath) throw new Error("缺少 docPath,无法下载")
+      downloadName = remotePath
+      const fileUrl = encodeAssetUrl(joinUrl(useParse ? file.parseS3BaseUrl! : file.s3BaseUrl, remotePath))
       const response = await fetch(fileUrl, { signal })
       if (!response.ok) throw new Error(`下载失败: ${response.status}`)
       const blob = await response.blob()
@@ -5117,10 +5173,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
 
-    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77,带 parse 字段时后缀改 md),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
     let saveName: string
     if (file.type === 40) {
-      saveName = file.fileName
+      saveName = getAssetDisplayName(file)
     } else {
       const dot = downloadName.lastIndexOf(".")
       const ext = dot > 0 ? downloadName.slice(dot) : ""
@@ -6371,9 +6427,20 @@ onPreview={(url) => {
                               }
                             }}
                          >
-                          <ModelTriggerLabel model={local.model} />
-                         </ModelSelectorPopover>
-                       </div>
+                           <ModelTriggerLabel model={local.model} />
+                          </ModelSelectorPopover>
+                          <DesignSystemSelector
+                            options={designSystemOptions()}
+                            selected={designSystemSelected()}
+                            onSelect={(label) => {
+                              setDesignSystemChoice(label)
+                              getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
+                                console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
+                              )
+                              tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
+                            }}
+                          />
+                        </div>
  <IconButton
                           data-action="prompt-submit"
                           type="submit"

@@ -103,7 +103,7 @@ export function TitlebarSimple() {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : source === "pattern" ? "pattern" : "cowork"
     }
-    if (path === "/assets" || path === "/best-practices") {
+    if (path === "/assets" || path === "/best-practices" || path === "/design-system") {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : source === "pattern" ? "pattern" : "cowork"
     }
