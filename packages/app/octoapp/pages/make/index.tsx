@@ -4024,10 +4024,6 @@ const sessionMessagesLoaded = createMemo(() => {
       }
       // ── End command detection ──
 
-      // Store display text for rendering (user's visible text with @mentions)
-      const hasMentions = selections.length > 0
-      const userDisplayText = hasMentions ? displayText : undefined
-
       let promptText = processedText
 
       const loadedSkills = skillToolCalls()
@@ -4054,11 +4050,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { 
         type: "text", 
         text: promptText,
-        ...(userDisplayText ? { metadata: { displayText: userDisplayText } } : {}),
+        metadata: { displayText: displayText },
       }
       
       console.log("[sendMessage] textPart:", textPart)
-      console.log("[sendMessage] userDisplayText:", userDisplayText)
+      console.log("[sendMessage] displayText:", displayText)
       
       // 本地文件清单 (synthetic)
       const manifestPart = localManifest.length > 0 
