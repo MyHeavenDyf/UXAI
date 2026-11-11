@@ -205,6 +205,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const scope = projectScope() ? ("project" as const) : undefined
 
     fileStore.setLoading(true)
+    fileStore.setError(null)
     try {
       if (!category) {
         if (scope) {
@@ -908,8 +909,22 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
 
           <Show when={fileStore.store.error}>
-            <div class="p-4 text-text-diff-delete-base text-[14px] leading-[22px]">
-              Error: {fileStore.store.error}
+            <div class="flex items-center gap-2 p-4 text-text-diff-delete-base text-[14px] leading-[22px]">
+              <span>Error: {fileStore.store.error}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  refresh()
+                  tracker.interaction({ module: "design", name: "files-refresh" })
+                }}
+                disabled={fileStore.store.loading}
+                class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
+                title="Refresh"
+              >
+                <Show when={fileStore.store.loading} fallback={<IconRefresh size={16} />}>
+                  <Spinner class="size-[16px]" />
+                </Show>
+              </button>
             </div>
           </Show>
 
