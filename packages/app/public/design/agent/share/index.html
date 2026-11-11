@@ -779,10 +779,16 @@
     /* 会话滚动区留白对齐 .studio-center-scroll .scroll-view__viewport: 36px 28px 22px */
     body[data-module="studio"] .chat-scroll-view { padding: 36px 28px 22px 28px; }
     body[data-module="studio"] .chat-content { padding-top: 0; gap: 0; }
+    /* design 基础留白(#conversation-list 12px 顶/60px 底)不适用于 studio:app 的 studio 视口自带全部留白 */
+    body[data-module="studio"] #conversation-list { padding: 0; }
     /* 对齐 studio-02.css @media (max-width: 1227px) .studio-conversation { padding: 24px } */
     @media (max-width: 1227px) {
       body[data-module="studio"] .chat-scroll-view { padding: 24px; }
     }
+    /* ── insight 会话区(对齐 insight 页 ScrollView: padding 0 12px,无额外顶/底留白) ── */
+    body[data-module="insight"] .chat-scroll-view { padding: 0 12px; }
+    body[data-module="insight"] .chat-content { padding-top: 0; }
+    body[data-module="insight"] #conversation-list { padding: 0; }
 
     .studio-conversation {
       display: flex;
@@ -907,6 +913,121 @@
       flex-shrink: 0;
     }
 
+    /* ── 提示词扩写状态/预览/审阅(对齐 studio-01.css studio-prompt-expansion 家族) ── */
+    .studio-prompt-expansion {
+      margin-top: 12px;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .studio-prompt-expansion-preview {
+      box-sizing: border-box;
+      min-width: 0;
+      margin-top: 12px;
+      overflow-wrap: anywhere;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    }
+    .studio-prompt-expansion-preview-viewport {
+      box-sizing: border-box;
+      max-height: 198px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 16px;
+    }
+    .studio-prompt-expansion-preview-content {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+    }
+    .studio-prompt-expansion-review {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+      margin-top: 12px;
+    }
+    .studio-prompt-expansion-copy {
+      margin: 0;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .studio-prompt-expansion-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .studio-prompt-expansion-tags > span {
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      max-width: 100%;
+      padding: 0 12px;
+      border-radius: 4px;
+      background: rgba(25, 25, 25, 0.05);
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 20px;
+    }
+    .studio-prompt-expansion-tags > span > span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .studio-prompt-expansion-editor {
+      box-sizing: border-box;
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background:
+        linear-gradient(#ffffff, #ffffff) padding-box,
+        linear-gradient(130.03deg, #6f69ff 5.795%, #ae42ff 18.126%, #179bff 26.732%, #00c4ff 34.809%, #00fffa 40.176%, #00fffa 47.663%, #4db3ff 57.608%, #db7bff 79.325%, #ff77eb 85.089%, #6784ff 95.104%) border-box;
+    }
+    .studio-prompt-expansion-editor-title {
+      width: fit-content;
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 22px;
+      background: linear-gradient(
+        -40.30deg,
+        rgba(255, 66, 210, 1) 0%,
+        rgba(112, 111, 255, 1) 63.828%,
+        rgba(0, 146, 255, 1) 108.418%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
+    .studio-prompt-expansion-editor-text {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      max-height: 480px;
+      overflow-y: auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 22px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+
     /* 编辑区入口(对齐 .studio-assistant-editor-link;分享页静态展示) */
     .studio-assistant-editor-link {
       width: fit-content;
@@ -1005,6 +1126,46 @@
     .studio-result-card.complete .studio-result-progress-status {
       background: rgba(28, 137, 92, 0.1);
       color: #1c895c;
+    }
+    .studio-result-card.queued .studio-result-progress-status {
+      background: rgba(247, 206, 0, 0.2);
+      color: rgba(153, 126, 57, 1);
+    }
+    .studio-result-card.abnormal .studio-result-progress-status {
+      color: #b54708;
+    }
+    .studio-result-queue-count {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 12px;
+      color: rgba(25, 25, 25, 1);
+    }
+    .studio-result-progress-track {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.1);
+    }
+    .studio-result-progress-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: #191919;
+      transition: width 240ms ease;
+    }
+    .studio-result-progress-percent {
+      color: #191919;
+      font-size: 12px;
+      line-height: 100%;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .studio-result-card.generating .studio-result-progress-preview {
+      background: rgba(25, 25, 25, 0.05);
+      border-radius: 8px;
     }
     .studio-result-card.failed .studio-result-progress-status {
       background: rgba(0, 0, 0, 0.05);
@@ -1245,13 +1406,332 @@
     .studio-result-video-duration-badge .studio-file-manager-media-video-badge-text {
       margin-left: 0;
     }
+
+    /* ── insight 会话区(对齐 insight 页 InsightTurn + 上游 SessionTurn/message-part)── */
+    .insight-turn {
+      /* session-turn px-3:会话内容整体 12px 内缩(design 分支为 16px) */
+      display: flex;
+      flex-direction: column;
+      padding: 0 12px;
+    }
+    .insight-turn--compaction { padding: 0; }
+    /* 输入附件:图片 48×48 缩略图(insight 层渲染)+ 文件卡片(octo-input-attachment-card) */
+    .insight-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      margin: 0 0 6px;
+    }
+    .insight-image-thumb {
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+      cursor: default;
+    }
+    .insight-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .insight-attachment-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 240px;
+      padding: 8px 12px;
+      background: #ffffff;
+      border: 1px solid #E5E7EB;
+      border-radius: 6px;
+      cursor: default;
+    }
+    .insight-attachment-card img { width: 24px; height: 24px; flex: 0 0 auto; display: block; }
+    .insight-attachment-card .insight-attachment-name {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #191919;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 用户气泡:上游 user-message-body 宽度 min(82%, 64ch);气泡下方 meta hover 显示 */
+    .insight-scope .bubble-user { max-width: min(82%, 64ch); }
+    .insight-user-row { display: flex; flex-direction: column; align-items: flex-end; }
+    .insight-user-meta {
+      min-height: 20px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      font-size: 12px;
+      line-height: 18px;
+      color: #8f8f8f;
+      padding-top: 2px;
+    }
+    .insight-user-row:hover .insight-user-meta,
+    .insight-user-row:focus-within .insight-user-meta { opacity: 1; }
+    /* assistant 内容:上游 assistant-content(flex 列 + 12px 间距) */
+    .insight-msgs { display: flex; flex-direction: column; gap: 12px; }
+    /* 思考过程:上游 reasoning-part(正文 Markdown、20px 顶距 + 左边线) */
+    .insight-reasoning { margin-bottom: 8px; }
+    .insight-reasoning-body {
+      margin-top: 20px;
+      padding-left: 12px;
+      border-left: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    /* 工具行:上游 BasicTool trigger(32px 行高)与 ContextToolGroup */
+    .insight-tool-row {
+      min-height: 32px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-size: 14px;
+      line-height: 22px;
+      text-align: left;
+    }
+    .insight-tool-title { flex-shrink: 0; color: #171717; font-weight: 500; }
+    .insight-tool-subtitle {
+      flex-shrink: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #6f6f6f;
+    }
+    .insight-ctx-trigger {
+      width: 100%;
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0;
+      background: none;
+      border: none;
+      cursor: default;
+      text-align: left;
+    }
+    .insight-ctx-title {
+      flex-shrink: 1;
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .insight-ctx-label { color: #171717; font-weight: 500; }
+    .insight-ctx-summary {
+      color: #6f6f6f;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .insight-ctx-chevron { color: #8f8f8f; display: inline-flex; margin-left: 4px; transition: transform 0.2s ease; }
+    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron { transform: rotate(180deg); }
+    .insight-ctx-items { padding-left: 12px; display: none; flex-direction: column; gap: 4px; }
+    .insight-ctx-items[data-open="true"] { display: flex; }
+    /* question 问答(上游 question-answers) */
+    .insight-question-answers { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
+    .insight-question-item { display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 20px; }
+    .insight-question-text { color: #8f8f8f; }
+    .insight-answer-text { color: #171717; }
+    /* 正文 text-part 下方 meta(hover 显示,上游 text-part-copy-wrapper) */
+    .insight-text-meta-row {
+      min-height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .insight-text:hover .insight-text-meta-row,
+    .insight-text:focus-within .insight-text-meta-row { opacity: 1; }
+    .insight-text-meta { font-size: 12px; color: #8f8f8f; user-select: none; cursor: default; }
+    /* 错误卡(上游 Card error + insight 强制黑字) */
+    .insight-error-card {
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: #fff8f6;
+      border: 1px solid rgba(237, 72, 49, 0.2);
+      color: #191919;
+      font-size: 14px;
+      line-height: 22px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+      user-select: text;
+    }
+    /* 压缩 turn 状态条(insight-compaction-status) */
+    .insight-compaction-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 12px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid rgba(200, 200, 200, 0.2);
+      background: rgba(200, 200, 200, 0.05);
+      color: #6e737a;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .insight-compaction-status-error { border: 0; background: #fee7e8; color: #191919; }
+    .insight-compaction-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 9999px;
+      background: #3b82f6;
+      animation: octo-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      flex-shrink: 0;
+    }
+    /* 知识库引用(octo-kb-refs) */
+    .insight-kb-refs { padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.07); }
+    .insight-kb-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0;
+      border: 0;
+      background: none;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 20px;
+      color: #777;
+    }
+    .insight-kb-toggle:hover { color: #191919; }
+    .insight-kb-caret { font-size: 10px; line-height: 1; }
+    .insight-kb-list { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .insight-kb-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12px; line-height: 18px; }
+    .insight-kb-index { flex-shrink: 0; color: #777; }
+    .insight-kb-link {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #0A59F7;
+      text-decoration: none;
+    }
+    .insight-kb-link:hover { text-decoration: underline; }
+    .insight-kb-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #191919; }
+    .insight-kb-meta { flex-shrink: 0; color: #777; }
+    /* 产物入口卡(octo-preview-entry) */
+    .insight-entry-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 25px 20px;
+      margin-top: 6px;
+      width: 100%;
+      box-sizing: border-box;
+      background: linear-gradient(90deg, rgb(245, 248, 255) 0%, rgb(255, 255, 255) 49.85%);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 12px;
+      cursor: default;
+      text-align: left;
+      font-family: "HarmonyOS Sans SC", system-ui, sans-serif;
+    }
+    .insight-entry-icon { flex: 0 0 auto; display: flex; align-items: center; }
+    .insight-entry-icon img { width: 28px; height: 28px; display: block; }
+    .insight-entry-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .insight-entry-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #191919;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .insight-entry-desc {
+      font-size: 11px;
+      color: #777;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 长任务卡(TaskCardView 静态版) */
+    .insight-task-card {
+      margin-bottom: 12px;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: linear-gradient(90deg, rgb(245, 248, 255) 0%, rgb(255, 255, 255) 49.85%);
+      box-shadow: 0 1px 3px rgba(16, 24, 40, 0.04), 0 1px 2px rgba(16, 24, 40, 0.03);
+      font-family: "HarmonyOS Sans SC", system-ui, sans-serif;
+    }
+    .insight-task-head { display: flex; align-items: center; gap: 10px; }
+    .insight-task-icon { flex-shrink: 0; display: inline-flex; }
+    .insight-task-icon img { width: 20px; height: 20px; display: block; }
+    .insight-task-status {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: #101828;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .insight-task-body { margin-top: 10px; font-size: 13px; line-height: 20px; color: #777777; }
+    .insight-task-msg-toggle {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      width: 100%;
+      padding: 0;
+      background: none;
+      border: none;
+      font-size: 12px;
+      color: #BFBFBF;
+      text-align: left;
+      cursor: pointer;
+    }
+    .insight-task-msg-toggle .file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insight-task-error-pre {
+      margin-top: 6px;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 18px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #DC2626;
+      background: rgba(220, 38, 38, 0.08);
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      user-select: text;
+    }
+    .insight-task-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: #BFBFBF;
+    }
+    .insight-task-foot .file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insight-task-id { flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
   <header class="header">
     <div class="header-inner">
-      <img src="/design/agent/share/headerLogo.png" alt="" class="header-logo" />
-      <button type="button" class="header-btn" id="continue-btn" aria-haspopup="dialog" aria-controls="open-app-dialog">在 Octo Agent 内继续<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></button>
+      <img src="./headerLogo.png" alt="" class="header-logo" />
+      <button type="button" class="header-btn" id="continue-btn" aria-haspopup="dialog" aria-controls="open-app-dialog">在 Octo Agent 内继续<img src="./arrow_up_right.png" alt="" class="header-btn-icon" /></button>
     </div>
     <div class="header-title-bar">
       <h1 class="header-title" id="session-title"></h1>
@@ -1261,7 +1741,7 @@
     <button type="button" class="dialog-close" id="close-app-dialog" aria-label="关闭">×</button>
     <h2 id="open-app-title">在 Octo Agent 内继续</h2>
     <p id="open-app-description">通过分享的链接开始你的对话</p>
-    <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="/design/agent/share/arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
+    <div class="dialog-action"><a id="open-app-link">打开 Octo Agent<img src="./arrow_up_right.png" alt="" class="header-btn-icon" /></a></div>
     <p class="dialog-hint" id="open-app-hint">你安装了此应用吗？<a href="#" target="_blank" rel="noopener noreferrer">点击下载安装</a></p>
   </dialog>
   <main class="content">
@@ -1299,7 +1779,7 @@
       return (
         '<div data-component="markdown-code">' +
         '<div data-slot="markdown-code-header">' +
-        '<span data-slot="markdown-code-lang">' + (lang ? escapeHtml(lang) : "") + "</span>" +
+        (lang ? '<span data-slot="markdown-code-lang">' + escapeHtml(lang.toUpperCase()) + "</span>" : "") +
         '<button type="button" class="markdown-code-btn" data-action="copy" title="复制" aria-label="复制">' +
         '<span class="icon-copy">' + CODE_COPY_SVG + "</span>" +
         '<span class="icon-check">' + CODE_CHECK_SVG + "</span>" +
@@ -1455,36 +1935,131 @@
       "text/design-plan": "design-plan",
       "text/link": "link",
     }
+    // markdown 上下文跳过区(对齐 design artifact-markdown-context.ts computeSkipRanges):
+    // 完整代码围栏 ```..``` 区间、行内代码 `..` 片段里的 <artifact> 开标签不参与产物解析,
+    // 标签文字保留在 prose 中由 markdown 渲染为代码块;未闭合围栏之后的内容同样跳过
+    function computeArtifactSkipRanges(buffer) {
+      const ranges = []
+      const blockRegions = []
+      let pos = 0
+      let inFence = false
+      let fenceStart = -1
+      let blockStart = -1
+      const closeBlockBefore = (idx) => {
+        if (blockStart !== -1 && idx > blockStart) blockRegions.push([blockStart, idx])
+        blockStart = -1
+      }
+      while (pos < buffer.length) {
+        const eol = buffer.indexOf("\n", pos)
+        const lineEnd = eol === -1 ? buffer.length : eol
+        const line = buffer.slice(pos, lineEnd)
+        const lineHasNewline = eol !== -1
+        if (!inFence) {
+          if (lineHasNewline && /^```(\w[\w+-]*)?\s*$/.test(line)) {
+            closeBlockBefore(pos)
+            inFence = true
+            fenceStart = pos
+          } else if (line.trim() === "") {
+            closeBlockBefore(pos)
+          } else if (/^#{1,4}\s+/.test(line) || /^\s*[-*+]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
+            closeBlockBefore(pos)
+            blockRegions.push([pos, lineEnd])
+          } else if (blockStart === -1) {
+            blockStart = pos
+          }
+        } else if (lineHasNewline && /^```\s*$/.test(line)) {
+          inFence = false
+          ranges.push([fenceStart, eol + 1])
+          fenceStart = -1
+        }
+        if (!lineHasNewline) break
+        pos = eol + 1
+      }
+      if (!inFence) closeBlockBefore(buffer.length)
+      for (const [s, e] of blockRegions) {
+        const segment = buffer.slice(s, e)
+        const inlineRe = /`[^`]+`/g
+        let m
+        while ((m = inlineRe.exec(segment))) ranges.push([s + m.index, s + m.index + m[0].length])
+      }
+      return { ranges, unclosedFenceStart: inFence ? fenceStart : null }
+    }
+    const rangeContainsSkipRange = (ranges, p) => ranges.some(([s, e]) => p >= s && p < e)
+    // 从 from 起找下一个可解析的 <artifact 开标签(对齐 design findOpenTag):
+    // 跳过围栏/行内代码区间与未闭合围栏之后的内容;<artifact 后必须跟空白(对齐 isRealArtifactOpenAt);
+    // 属性值引号内的 > 不结束开标签,单/双引号属性均支持
+    function findArtifactOpenTag(text, ranges, unclosedFenceStart, from) {
+      const openRe = /<artifact/gi
+      openRe.lastIndex = from
+      let m
+      while ((m = openRe.exec(text)) !== null) {
+        const idx = m.index
+        if (rangeContainsSkipRange(ranges, idx)) continue
+        if (unclosedFenceStart !== null && idx >= unclosedFenceStart) return null
+        const after = idx + "<artifact".length
+        const next = text.charAt(after)
+        if (next === "") return null
+        if (!/\s/.test(next)) continue
+        let j = after
+        let quote = null
+        while (j < text.length) {
+          const c = text.charAt(j)
+          if (quote !== null) {
+            if (c === quote) quote = null
+          } else if (c === '"' || c === "'") {
+            quote = c
+          } else if (c === ">") {
+            return { start: idx, openEnd: j + 1, attrs: text.slice(after, j) }
+          }
+          j++
+        }
+        return null
+      }
+      return null
+    }
     // 从 assistant 文本中提取已闭合的 <artifact> 标签(对齐 design parseAllArtifactsFromText)
-    // 返回 { artifacts, prose },prose 为剥离 artifact 后的可见文字
+    // 返回 { artifacts, prose },prose 为剥离 artifact 后的可见文字;
+    // 未闭合的 artifact 不出卡,开标签之后的内容也不进 prose(对齐 design 不调用 flush 的处理)
     function extractArtifacts(text) {
       const artifacts = []
       if (!text || !/<artifact/i.test(text)) return { artifacts, prose: text || "" }
-      const re = /<artifact\b([^>]*)>([\s\S]*?)<\/artifact>/gi
-      let prose = text.replace(re, (full, attrs, content) => {
+      const { ranges, unclosedFenceStart } = computeArtifactSkipRanges(text)
+      let prose = ""
+      let cursor = 0
+      while (cursor < text.length) {
+        const open = findArtifactOpenTag(text, ranges, unclosedFenceStart, cursor)
+        if (!open) {
+          prose += text.slice(cursor)
+          break
+        }
+        prose += text.slice(cursor, open.start)
+        const closeIdx = text.slice(open.openEnd).search(/<\/artifact>/i)
+        if (closeIdx === -1) break
+        const content = text.slice(open.openEnd, open.openEnd + closeIdx)
         const am = {}
-        attrs.replace(/(\w+)\s*=\s*"([^"]*)"/g, (s, k, v) => { am[k] = v })
+        open.attrs.replace(/(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g, (s, k, v1, v2) => { am[k] = v1 ?? v2 ?? "" })
         const artifactType = am.type || ""
         const mappedType = ARTIFACT_TYPE_MAP[artifactType]
-        // design-plan / plan- 前缀不显示卡片(走 plan banner)
-        if (!mappedType || mappedType === "design-plan" || (am.identifier || "").startsWith("plan-")) {
-          return ""
+        // design-plan / plan- 前缀不显示卡片(走 plan banner);未映射类型同样不出卡,
+        // 两种情况下标签内容都从 prose 剥离(对齐 design)
+        const isPlanArtifact = mappedType === "design-plan" || (am.identifier || "").startsWith("plan-")
+        if (mappedType && !isPlanArtifact) {
+          // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性;
+          // content 提取失败时才回退 title 属性(对齐 design parseAllArtifactsFromText)
+          let title = am.title
+          if (mappedType === "link") {
+            const fromContent = extractLinkTitle(content)
+            if (fromContent) title = fromContent
+          }
+          artifacts.push({
+            title: title || mappedType,
+            type: mappedType,
+            content: content,
+            artifactIdentifier: am.identifier || "",
+          })
         }
-        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性;
-        // content 提取失败时才回退 title 属性(对齐 design parseAllArtifactsFromText)
-        let title = am.title
-        if (mappedType === "link") {
-          const fromContent = extractLinkTitle(content)
-          if (fromContent) title = fromContent
-        }
-        artifacts.push({
-          title: title || mappedType,
-          type: mappedType,
-          content: content,
-          artifactIdentifier: am.identifier || "",
-        })
-        return ""
-      })
+        cursor = open.openEnd + closeIdx + "</artifact>".length
+      }
       return { artifacts, prose: prose.replace(/\n{3,}/g, "\n\n").trim() }
     }
     // 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题(对齐 design extractLinkTitle)
@@ -1717,7 +2292,10 @@
     // ─────────────────────────────────────────────────────────
     // 附件/文件图标(对齐 design kindFromMime + mimeFromFilename + file-type-icons kindIconMap)
     // ─────────────────────────────────────────────────────────
-    const FILE_ICON_BASE = "/design/agent/share/icons/"
+    // 图标基址用页面相对路径:独立部署的 share 服务挂载路径不一定是站根的
+    // /design/agent/share/,相对路径随 share/ 目录整体部署到任何路径都能命中,
+    // 与 ./studio/、./OctoLogo.svg 同一约定(dev/desktop 下解析结果不变)。
+    const FILE_ICON_BASE = "./icons/"
     function mimeFromFilename(filename) {
       const ext = (filename || "").split(".").pop()?.toLowerCase() ?? ""
       const map = {
@@ -1792,6 +2370,24 @@
       chip.appendChild(makeSpan("chip-name", filename))
       return chip
     }
+    // 用户气泡文本:@mention 渲染为带 8px 边距的 chip,其余纯文本
+    // (对齐 design renderMentionText:mention 边界由零宽空格标记,chip 前后各插一个)
+    function buildUserBubbleContent(text) {
+      const fragment = document.createDocumentFragment()
+      for (const part of String(text).split(/(@[^@\u200B]+)/g)) {
+        if (!part) continue
+        if (part.startsWith("@") && part.length > 1) {
+          const chip = document.createElement("span")
+          chip.style.marginLeft = "8px"
+          chip.style.marginRight = "8px"
+          chip.textContent = part
+          fragment.appendChild(chip)
+        } else {
+          fragment.appendChild(document.createTextNode(part))
+        }
+      }
+      return fragment
+    }
     // 用户消息行:附件(图片缩略图/文件 chip/[附件] 清单)+ 文字气泡(对齐 design userAttachments)
     function buildUserRow(turn, imageBlobMap, token) {
       const userRow = document.createElement("div")
@@ -1847,7 +2443,7 @@
         // 内容层 + 渐隐遮罩 + 展开按钮(对齐 design ExpandableBubble 的三层结构)
         const bubbleContent = document.createElement("div")
         bubbleContent.className = "bubble-user-content"
-        bubbleContent.textContent = userTextContent
+        bubbleContent.appendChild(buildUserBubbleContent(userTextContent))
         bubble.appendChild(bubbleContent)
         const mask = document.createElement("div")
         mask.className = "bubble-user-mask"
@@ -2165,15 +2761,36 @@
             const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
             if (proseOnly) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
           }
-          // 子会话产物补充(对齐 design 从 msgStore 补充的逻辑,数据源为 manifest.sessions)
+          // 子会话产物补充(对齐 design 从 msgStore 补充的逻辑,数据源为 manifest.sessions):
+          // text part 扫 <artifact> 标签;write/edit 工具入参 content/newString 为完整 HTML/产物标签时补产物卡
           const child = sessionsById.get(subSessionID)
           for (const msg of (child ? child.messages || [] : [])) {
             if ((msg.info || {}).role !== "assistant") continue
             for (const sp of msg.parts || []) {
-              if (sp.type !== "text" || typeof sp.text !== "string" || !sp.text.trim()) continue
-              for (const a of extractArtifacts(sp.text).artifacts) {
-                if (artifactOutputs.some(e2 => e2.identifier === (a.artifactIdentifier ?? ""))) continue
-                artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+              if (sp.type === "text" && typeof sp.text === "string" && sp.text.trim()) {
+                for (const a of extractArtifacts(sp.text).artifacts) {
+                  if (artifactOutputs.some(e2 => e2.identifier === (a.artifactIdentifier ?? ""))) continue
+                  artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+                }
+                continue
+              }
+              if (sp.type !== "tool") continue
+              const spInput = (sp.state || {}).input
+              if (!spInput || typeof spInput !== "object") continue
+              const content = spInput.content ?? spInput.newString
+              if (typeof content !== "string" || content.length <= 20 || !/<html|<!doctype|<artifact/i.test(content)) continue
+              const parsed = extractArtifacts(content).artifacts
+              if (parsed.length > 0) {
+                for (const a of parsed) {
+                  if (artifactOutputs.some(e2 => e2.identifier === (a.artifactIdentifier ?? ""))) continue
+                  artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+                }
+              } else if (/<html|<!doctype/i.test(content)) {
+                const filePath = typeof spInput.filePath === "string" ? spInput.filePath : typeof spInput.path === "string" ? spInput.path : ""
+                const name = (filePath.split(/[/\\]/).pop() || "").replace(/\.html?$/i, "")
+                if (!artifactOutputs.some(e2 => e2.identifier === (name || "component"))) {
+                  artifactOutputs.push({ identifier: name || "component", title: name || "HTML 片段", content: content })
+                }
               }
             }
           }
@@ -2307,7 +2924,44 @@
       stalled.textContent = "上下文压缩未完成（可能已超时或中断）"
       return stalled
     }
-    function buildTurnMeta(turn) {
+    // 普通 turn 的错误提示(对齐 design MakeErrorNotice:标题按错误名映射,
+    // ContextOverflowError 出专用文案;MessageAbortedError 走"已中断" divider 不进这里)
+    function buildTurnErrorNotice(turn) {
+      const failedMsg = turn.assistants.find(m => {
+        const err = (m.info || {}).error
+        return err && err.name !== "MessageAbortedError"
+      })
+      if (!failedMsg) return null
+      const err = failedMsg.info.error
+      const data = err.data || {}
+      const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+      const title = err.name === "ProviderAuthError" ? "认证失败"
+        : err.name === "ContextOverflowError" ? "上下文超出提示" : "生成出错"
+      const notice = document.createElement("div")
+      notice.className = "error-notice"
+      notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
+      const content = document.createElement("div")
+      content.style.minWidth = "0"
+      content.style.flex = "1"
+      content.appendChild(makeSpan("notice-title", title))
+      if (err.name === "ContextOverflowError") {
+        const overflowLine1 = document.createElement("div")
+        overflowLine1.textContent = "系统的单次处理能力已满。"
+        content.appendChild(overflowLine1)
+        const overflowLine2 = document.createElement("div")
+        overflowLine2.textContent = "请进行“上下文压缩”，或新建对话。"
+        content.appendChild(overflowLine2)
+      } else if (message) {
+        const msg = document.createElement("div")
+        msg.textContent = message
+        content.appendChild(msg)
+      }
+      notice.appendChild(content)
+      return notice
+    }
+    // turn 元信息:agent · 模型名 · 耗时 · 中断(对齐 design turnMeta;模型名优先 manifest.models
+    // 的展示名映射 — 导出时由 provider 目录解析,对齐 design 页 provider.models[name] 的取值)
+    function buildTurnMeta(turn, models) {
       if (turn.assistants.length === 0) return null
       const first = turn.assistants[0].info || {}
       const last = turn.assistants[turn.assistants.length - 1].info || {}
@@ -2321,7 +2975,9 @@
       let agent = last.agent
       if (agent === "octo_ai" || agent === "octo_make" || agent === "octo_make_plan") agent = "Octo_Design"
       const agentLabel = agent ? agent[0].toUpperCase() + agent.slice(1) : ""
-      const modelLabel = last.modelID ?? ""
+      const modelLabel = last.modelID
+        ? ((models || {})[last.providerID + "/" + last.modelID] ?? last.modelID)
+        : ""
       const interrupted = turn.assistants.some(m => ((m.info || {}).error || {}).name === "MessageAbortedError") ? "已中断" : ""
       const meta = [agentLabel, modelLabel, duration, interrupted].filter(Boolean).join(" · ")
       if (!meta) return null
@@ -2513,121 +3169,17 @@
       scroll.classList.add("is-empty")
       list.innerHTML =
         '<div class="empty-state">' +
-        '<img class="empty-state-img" src="/design/agent/share/empty.png" alt="" />' +
+        '<img class="empty-state-img" src="./empty.png" alt="" />' +
         '<p class="empty-state-text">暂无数据</p>' +
         "</div>"
-    }
-
-    // Insight 分享只展示快照，不轮询任务或执行工具。
-    function collectInsightTasks(parts) {
-      const tasks = new Map()
-      for (const part of parts) {
-        if (part?.type !== "tool" || part.state?.status !== "completed") continue
-        const meta = part.state.metadata || {}
-        let output = null
-        try { output = JSON.parse(part.state.output) } catch { /* 普通文本输出 */ }
-        const task = meta.structuredContent || (meta.task_id ? meta : output?.structuredContent)
-        if (!task?.task_id) continue
-        const id = String(task.task_id)
-        const text = task.status === "completed" && !/(^|[:_])stop_task$/.test(part.tool || "") && Array.isArray(output?.content)
-          ? output.content.find(item => item?.type === "text" && typeof item.text === "string" && item.text.length > 0)?.text
-          : undefined
-        tasks.set(id, { ...task, resultText: text || tasks.get(id)?.resultText })
-      }
-      return tasks
-    }
-
-    function buildInsightDetails(parts, snapshots = collectInsightTasks(parts)) {
-      const root = document.createElement("div")
-      root.className = "tool-cards"
-      const sources = new Map()
-      const tasks = collectInsightTasks(parts)
-      const resources = new Map()
-      const addResource = value => {
-        if (value && value.type === "resource_link" && typeof value.uri === "string") {
-          resources.set(value.uri, value)
-        }
-      }
-      for (const part of parts) {
-        if (!part || typeof part !== "object") continue
-        addResource(part)
-        addResource(part.metadata?.resource_link)
-        if (Array.isArray(part.metadata?.content)) part.metadata.content.forEach(addResource)
-        if (part.type !== "tool") continue
-        const state = part.state || {}
-        const meta = state.metadata || {}
-        if (["knowledge_search", "insight_report_search"].includes(part.tool) && Array.isArray(meta.sources)) {
-          for (const source of meta.sources) {
-            if (source && typeof source.title === "string") sources.set(source.url || source.id || source.title, source)
-          }
-        }
-        let output = null
-        if (state.status === "completed" && typeof state.output === "string") {
-          try { output = JSON.parse(state.output) } catch { /* 普通文本输出不作为结构化结果 */ }
-        }
-        // stop_task 返回控制信息，不是交付物。
-        if (/(^|[:_])stop_task$/.test(part.tool || "")) continue
-        addResource(meta.resource_link)
-        if (Array.isArray(meta.content)) meta.content.forEach(addResource)
-        if (Array.isArray(output?.content)) output.content.forEach(addResource)
-      }
-      const appendLink = (container, title, url) => {
-        // 分享文件内容不可信；禁止脚本、本地路径和自定义协议。
-        const link = document.createElement(typeof url === "string" && /^https?:\/\//i.test(url) ? "a" : "span")
-        link.textContent = title
-        if (link.tagName === "A") {
-          link.href = url
-          link.target = "_blank"
-          link.rel = "noopener noreferrer"
-        }
-        container.appendChild(link)
-      }
-      if (sources.size) {
-        const details = document.createElement("details")
-        const summary = document.createElement("summary")
-        summary.textContent = `引用 ${sources.size} 篇资料`
-        details.appendChild(summary)
-        const list = document.createElement("ol")
-        for (const source of sources.values()) {
-          const item = document.createElement("li")
-          appendLink(item, source.title, source.url)
-          list.appendChild(item)
-        }
-        details.appendChild(list)
-        root.appendChild(details)
-      }
-      const labels = { pending: "等待中", processing: "处理中", completed: "已完成", failed: "失败", stopped: "已停止" }
-      for (const [id, local] of tasks) {
-        const task = snapshots.get(id) || local
-        const card = document.createElement("div")
-        card.className = "tool-card"
-        card.textContent = `任务 ${id} · 分享时状态：${labels[task.status] || "未知"}${typeof task.message === "string" ? " · " + task.message : ""}`
-        root.appendChild(card)
-        if (task.resultText) {
-          const result = document.createElement("details")
-          const summary = document.createElement("summary")
-          summary.textContent = "查看任务结果"
-          const text = document.createElement("pre")
-          text.style.whiteSpace = "pre-wrap"
-          text.textContent = task.resultText
-          result.append(summary, text)
-          root.appendChild(result)
-        }
-      }
-      for (const resource of resources.values()) {
-        const card = document.createElement("div")
-        card.className = "tool-card"
-        appendLink(card, typeof resource.name === "string" && resource.name ? resource.name : "查看结果", resource.uri)
-        root.appendChild(card)
-      }
-      if (resources.size || sources.size) root.appendChild(makeSpan("tool-label", "远端资料及结果需要相应访问权限，链接可能过期。"))
-      return root
     }
 
     function renderConversation(manifest, filePath, token) {
       const list = document.getElementById("conversation-list")
       if (!list) return
       list.innerHTML = ""
+      list.classList.remove("insight-scope")
+      delete document.body.dataset.module
       // 代码块复制/展开按钮的事件委托(一次绑定,turns 渲染复用)
       bindMarkdownCodeActions(list)
       if (!manifest || manifest.format !== "octo-session") {
@@ -2649,11 +3201,13 @@
         renderStudioConversation(manifest, session, filePath, token, list)
         return
       }
+      // insight 会话:走 insight 渲染分支(对齐 insight 页会话区:上游 SessionTurn 分块、
+      // 任务卡/入口卡/引用列表、text-part-meta 等,与 design 分支样式不同)
+      if (session.info?.agent === "octo_insight") {
+        renderInsightConversation(manifest, session, filePath, token, list)
+        return
+      }
       const messages = session.messages || []
-      // 跨轮按消息顺序汇总快照；每轮只展示本轮涉及的任务，引用和资源仍留在原轮次。
-      const insightTasks = session.info?.agent === "octo_insight"
-        ? collectInsightTasks(messages.filter(message => message.info?.role === "assistant").flatMap(message => message.parts || []))
-        : undefined
 
       // 构建图片 blob 映射:filename → { url, mime }
       const imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
@@ -2695,8 +3249,12 @@
           // pattern agent 的 turn:标签外文字归思考过程,prose 只留引导语(对齐 design isPatternAgentTurn)
           const isPatternAgentTurn = turn.assistants.some(m => (m.info || {}).agent === "ict_pattern")
 
-          // 思考过程(对齐 design reasoningTexts:turn 内全部 reasoning part,折叠展示)
-          const reasoningTexts = allParts.filter(x => x.part.type === "reasoning" && x.part.text).map(x => x.part.text)
+          // 思考过程(对齐 design reasoningTexts:reasoning part + tool part 的 state.reasoning,折叠展示)
+          const reasoningTexts = allParts.flatMap(x => {
+            if (x.part.type === "reasoning" && x.part.text) return [x.part.text]
+            const toolReasoning = x.part.type === "tool" ? (x.part.state || {}).reasoning : undefined
+            return typeof toolReasoning === "string" && toolReasoning ? [toolReasoning] : []
+          })
           const textEntries = allParts.filter(x => x.part.type === "text" && x.part.text)
           const lastText = textEntries.length > 0 ? textEntries[textEntries.length - 1] : null
 
@@ -2753,10 +3311,6 @@
 
           const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
           if (proseRow) turnEl.appendChild(proseRow)
-          if (session.info?.agent === "octo_insight") {
-            const details = buildInsightDetails(allParts.map(entry => entry.part), insightTasks)
-            if (details.children.length) turnEl.appendChild(details)
-          }
 
           // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡,同一 8px 间距容器)
           const { skillCalls, otherCalls } = collectToolCalls(turn, allParts)
@@ -2775,38 +3329,49 @@
           const producedFiles = buildProducedFiles(otherCalls)
           if (producedFiles) turnEl.appendChild(producedFiles)
 
-          for (const a of artifacts) {
-            const card = document.createElement("div")
-            card.className = "artifact-card"
-            const icon = document.createElement("img")
-            icon.className = "artifact-card-icon"
-            icon.src = artifactIconSrc(a.type)
-            icon.alt = ""
-            const body = document.createElement("div")
-            body.className = "artifact-card-body"
-            const title = document.createElement("span")
-            title.className = "artifact-card-title"
-            title.textContent = a.title || a.type
-            body.appendChild(title)
-            if (cardTime !== null) {
-              const meta = document.createElement("span")
-              meta.className = "artifact-card-meta"
-              meta.textContent = formatTime(new Date(cardTime))
-              body.appendChild(meta)
+          // 错误提示(对齐 design MakeErrorNotice:生成出错/认证失败/上下文超出提示)
+          const errorNotice = buildTurnErrorNotice(turn)
+          if (errorNotice) turnEl.appendChild(errorNotice)
+
+          // 中断的 turn 不出产物卡(对齐 design outputCards 的 isAborted 门:中断轮次卡片全部隐藏)
+          const isAbortedTurn = turn.assistants.some(m => ((m.info || {}).error || {}).name === "MessageAbortedError")
+          if (!isAbortedTurn) {
+            for (const a of artifacts) {
+              const card = document.createElement("div")
+              card.className = "artifact-card"
+              // link 卡 tooltip 显示链接内容;截断的完整 HTML 文档用警示边框(对齐 design displayCards)
+              if (a.type === "link") card.title = a.content
+              if (a.type === "html" && isTruncatedHtml(a.content)) card.style.border = "1px solid rgba(234,179,8,0.3)"
+              const icon = document.createElement("img")
+              icon.className = "artifact-card-icon"
+              icon.src = artifactIconSrc(a.type)
+              icon.alt = ""
+              const body = document.createElement("div")
+              body.className = "artifact-card-body"
+              const title = document.createElement("span")
+              title.className = "artifact-card-title"
+              title.textContent = a.title || a.type
+              body.appendChild(title)
+              if (cardTime !== null) {
+                const meta = document.createElement("span")
+                meta.className = "artifact-card-meta"
+                meta.textContent = formatTime(new Date(cardTime))
+                body.appendChild(meta)
+              }
+              card.appendChild(icon)
+              card.appendChild(body)
+              turnEl.appendChild(card)
             }
-            card.appendChild(icon)
-            card.appendChild(body)
-            turnEl.appendChild(card)
           }
 
           // 中断提示(对齐 design isAborted 的 MessageDivider)
-          if (turn.assistants.some(m => ((m.info || {}).error || {}).name === "MessageAbortedError")) {
+          if (isAbortedTurn) {
             turnEl.appendChild(buildDivider("已中断"))
           }
         }
 
         // hover 元信息:agent · model · 耗时 · 中断(对齐 design turnMeta)
-        const meta = buildTurnMeta(turn)
+        const meta = buildTurnMeta(turn, manifest.models || {})
         if (meta) turnEl.appendChild(meta)
 
         list.appendChild(turnEl)
@@ -2821,6 +3386,1112 @@
       // 渲染完成后标记超长代码块为可展开(对齐 design updateCodeExpandState:scrollHeight > 320 + 4)
       markExpandableCodeBlocks(list)
       // 渲染完成后标记超长用户气泡为可展开(对齐 design ExpandableBubble:scrollHeight > 222 + 4)
+      markExpandableUserBubbles(list)
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // insight 会话渲染(对齐 insight 页 InsightTurn + 上游 SessionTurn/message-part:
+    // 附件 48px 缩略图/文件卡、assistant 内容 12px 内缩、ContextToolGroup 工具分组、
+    // 每条消息各自的 reasoning 折叠块、text-part-meta 与用户气泡 meta hover 显示、
+    // 知识库引用列表、产物入口卡、长任务卡、压缩 turn 状态条)
+    // ─────────────────────────────────────────────────────────
+
+    // 用户可见文本(对齐 insight 页:优先 metadata.displayText 回显资产胶囊,否则取第一个非 synthetic text part 原文)
+    function insightUserText(parts) {
+      const displayPart = parts.find(
+        (p) => p.type === "text" && p.metadata && Array.isArray(p.metadata.insightProductAssets) && typeof p.metadata.displayText === "string",
+      )
+      if (displayPart) return displayPart.metadata.displayText.trim()
+      const textPart = parts.find((p) => p.type === "text" && !p.synthetic && p.text)
+      return textPart ? textPart.text.trim() : ""
+    }
+
+    // agent 展示名(对齐上游:octo_ai → Octo_Agent,首字母大写)
+    function insightAgentLabel(agent) {
+      if (!agent) return ""
+      if (agent === "octo_ai") agent = "Octo_Agent"
+      return agent[0].toUpperCase() + agent.slice(1)
+    }
+
+    // 用时文案(对齐上游 i18n zh:"N秒" / "N分 NS秒")
+    function insightDurationText(ms) {
+      if (!(ms >= 0)) return ""
+      const total = Math.round(ms / 1000)
+      if (total < 60) return total + "秒"
+      const minutes = Math.floor(total / 60)
+      const seconds = total % 60
+      return minutes + "分 " + seconds + "秒"
+    }
+
+    // HH:mm 短时间(对齐上游 user-message metaTail 的 timeStyle: "short")
+    function insightShortTime(ts) {
+      if (typeof ts !== "number") return ""
+      return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+    }
+
+    // YYYY-MM-DD HH:mm(对齐 TaskCardView/OutputEntryCard formatFullTime/formatCreatedTime)
+    function insightFullTime(ts) {
+      if (typeof ts !== "number") return ""
+      const d = new Date(ts)
+      const p = (n) => String(n).padStart(2, "0")
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes())
+    }
+
+    // ── resource_link 扫描(对齐 insight utils/resource-link.ts)──
+    function insightReadResourceLink(part) {
+      if (!part || typeof part !== "object") return []
+      const found = []
+      if (part.type === "resource_link" && typeof part.uri === "string" && typeof part.mimeType === "string") {
+        found.push({
+          uri: part.uri,
+          name: typeof part.name === "string" ? part.name : "",
+          mimeType: part.mimeType,
+          description: typeof part.description === "string" ? part.description : undefined,
+        })
+        return found
+      }
+      const meta = part.metadata
+      if (meta && typeof meta === "object") {
+        const direct = meta.resource_link
+        if (direct && typeof direct === "object" && typeof direct.uri === "string" && typeof direct.mimeType === "string") {
+          found.push({
+            uri: direct.uri,
+            name: typeof direct.name === "string" ? direct.name : "",
+            mimeType: direct.mimeType,
+            description: typeof direct.description === "string" ? direct.description : undefined,
+          })
+        }
+        if (Array.isArray(meta.content)) {
+          for (const item of meta.content) found.push(...insightReadResourceLink(item))
+        }
+      }
+      if (part.type === "tool") {
+        const state = part.state
+        if (state && state.status === "completed" && typeof state.output === "string") {
+          try {
+            const parsed = JSON.parse(state.output)
+            if (parsed && typeof parsed === "object" && Array.isArray(parsed.content)) {
+              for (const item of parsed.content) found.push(...insightReadResourceLink(item))
+            }
+          } catch {}
+        }
+      }
+      return found
+    }
+    function insightFindResourceLinks(parts) {
+      const out = []
+      for (const part of parts) out.push(...insightReadResourceLink(part))
+      return out
+    }
+
+    // ── 长任务识别与聚合(对齐 insight utils/task-detect.ts + index.tsx taskCards memo)──
+    const INSIGHT_KNOWN_TASK_STATUSES = ["pending", "processing", "completed", "failed", "stopped"]
+    const INSIGHT_BUSINESS_TOOLS = ["key_findings", "run_guide_analysis", "run_usability_analysis", "mindmap"]
+    function insightIsBusinessTool(name) {
+      return INSIGHT_BUSINESS_TOOLS.some((biz) => name === biz || name.endsWith(":" + biz) || name.endsWith("_" + biz))
+    }
+    function insightIsStopTool(name) {
+      return name === "stop_task" || name.endsWith(":stop_task") || name.endsWith("_stop_task")
+    }
+    function insightToolDisplayName(name) {
+      const map = { key_findings: "观点解析", run_guide_analysis: "按提纲聚类", run_usability_analysis: "可用性测试分析", mindmap: "思维导图" }
+      const bare = name.includes(":") ? name.split(":").pop() : name
+      return map[bare] ?? bare
+    }
+    function insightParseToolResult(state) {
+      if (typeof state.output !== "string") return null
+      try {
+        const parsed = JSON.parse(state.output)
+        if (parsed && typeof parsed === "object") return parsed
+      } catch {}
+      return null
+    }
+    function insightReadTaskInfo(part) {
+      if (!part || typeof part !== "object" || part.type !== "tool") return null
+      const state = part.state
+      if (!state || state.status !== "completed") return null
+      let sc = null
+      const meta = state.metadata
+      if (meta && typeof meta === "object") {
+        if (meta.structuredContent && typeof meta.structuredContent === "object") sc = meta.structuredContent
+        else if (typeof meta.task_id === "string") sc = meta
+      }
+      if (!sc) {
+        const parsed = insightParseToolResult(state)
+        if (parsed && parsed.structuredContent && typeof parsed.structuredContent === "object") sc = parsed.structuredContent
+      }
+      if (!sc || !sc.task_id) return null
+      const toolName = typeof part.tool === "string" ? part.tool : "unknown"
+      const rawStatus = typeof sc.status === "string" ? sc.status : "processing"
+      const status = INSIGHT_KNOWN_TASK_STATUSES.includes(rawStatus) ? rawStatus : "failed"
+      const message =
+        typeof sc.message === "string" && sc.message.length > 0 ? sc.message
+          : status === "failed" && !INSIGHT_KNOWN_TASK_STATUSES.includes(rawStatus) ? "未知状态:" + rawStatus : undefined
+      let resultText
+      let resourceLinks = []
+      if (status === "completed" && !insightIsStopTool(toolName)) {
+        const parsed = insightParseToolResult(state)
+        if (parsed && Array.isArray(parsed.content)) {
+          const textItem = parsed.content.find((c) => c && typeof c === "object" && c.type === "text" && typeof c.text === "string")
+          if (textItem) resultText = textItem.text
+          resourceLinks = insightFindResourceLinks(parsed.content)
+        }
+        if (resourceLinks.length === 0) resourceLinks = insightFindResourceLinks([part])
+      }
+      return { taskId: String(sc.task_id), toolName, status, message, resultText, resourceLinks }
+    }
+    function insightAggregateTaskCards(messages) {
+      const items = []
+      let lastUserMsgID = ""
+      for (const msg of messages) {
+        const role = msg.info && msg.info.role
+        if (role === "user") {
+          lastUserMsgID = msg.info.id
+          continue
+        }
+        if (role !== "assistant" || !lastUserMsgID) continue
+        const msgTime = (msg.info.time || {}).created
+        for (const part of msg.parts || []) {
+          const info = insightReadTaskInfo(part)
+          if (info) items.push({ ...info, userMsgID: lastUserMsgID, time: typeof msgTime === "number" ? msgTime : 0 })
+        }
+      }
+      const grouped = new Map()
+      for (const item of items) {
+        const arr = grouped.get(item.taskId) ?? []
+        arr.push(item)
+        grouped.set(item.taskId, arr)
+      }
+      const result = new Map()
+      for (const [taskId, group] of grouped) {
+        group.sort((a, b) => a.time - b.time)
+        const first = group[0]
+        const latest = group[group.length - 1]
+        const businessItem = group.find((g) => insightIsBusinessTool(g.toolName))
+        const firstWithLinks = group.find((g) => g.status === "completed" && g.resourceLinks.length > 0)
+        const latestText = group.reduce((acc, g) => (g.resultText && g.resultText.length > 0 ? g.resultText : acc), undefined)
+        result.set(taskId, {
+          taskId,
+          status: latest.status,
+          message: latest.message,
+          toolName: businessItem ? businessItem.toolName : first.toolName,
+          anchorUserMessageID: first.userMsgID,
+          submittedAt: first.time,
+          lastUpdatedAt: latest.time,
+          resultText: latestText,
+          resourceLinks: firstWithLinks ? firstWithLinks.resourceLinks : latest.resourceLinks,
+        })
+      }
+      return result
+    }
+
+    // ── 产物类型判定(对齐 insight utils/output-type.ts resolveOutputType)──
+    const INSIGHT_RENDER_EXT = {
+      md: "markdown", markdown: "markdown", mdown: "markdown", mkd: "markdown",
+      html: "html", htm: "html", xhtml: "html",
+      json: "json", json5: "json", jsonc: "json",
+      png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image",
+      tiff: "image", tif: "image", ico: "image", svg: "image", heic: "image", heif: "image", avif: "image",
+    }
+    const INSIGHT_FILE_EXT = new Set([
+      "csv", "tsv", "xls", "xlsx", "xlsm", "xlsb", "ods", "doc", "docx", "ppt", "pptx", "odt", "odp", "rtf", "pdf",
+      "pages", "numbers", "key", "epub", "psd", "ai", "sketch", "fig", "mp4", "mov", "avi", "mkv", "webm", "flv", "wmv",
+      "m4v", "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "zip", "tar", "gz", "tgz", "bz2", "xz", "zst", "rar",
+      "7z", "iso", "dmg", "pkg", "deb", "rpm", "msi", "apk", "woff", "woff2", "ttf", "otf", "eot", "exe", "dll", "so",
+      "dylib", "bin", "o", "a", "lib", "obj", "class", "wasm", "app",
+    ])
+    function insightExtOf(filePath) {
+      const base = String(filePath || "").split(/[\\/]/).pop() || ""
+      const dot = base.lastIndexOf(".")
+      if (dot <= 0 || dot === base.length - 1) return ""
+      return base.slice(dot + 1).toLowerCase()
+    }
+    function insightResolveOutputType(filename, mimeType) {
+      const ext = insightExtOf(filename)
+      if (ext) {
+        if (INSIGHT_RENDER_EXT[ext]) return INSIGHT_RENDER_EXT[ext]
+        if (INSIGHT_FILE_EXT.has(ext)) return "file"
+        return "code"
+      }
+      const mime = String(mimeType || "").toLowerCase()
+      if (mime) {
+        if (mime === "text/html") return "html"
+        if (mime === "text/markdown") return "markdown"
+        if (mime === "application/json") return "json"
+        if (mime === "text/plain") return "code"
+        if (mime === "text/csv") return "file"
+        if (mime.startsWith("image/")) return "image"
+        if (!mime.startsWith("text/")) return "file"
+      }
+      return "code"
+    }
+
+    // ── 文件类型图标(对齐 insight icons/illustrations.tsx fileTypeIconUrl;svg 已拷贝至 share/icons)──
+    function insightFileIconUrl(fileName, mimeType) {
+      const ext = String(fileName || "").split(".").pop()?.toLowerCase() ?? ""
+      const mime = String(mimeType || "").toLowerCase()
+      if (ext === "doc" || ext === "docx" || mime.includes("wordprocessingml") || mime.includes("msword")) return FILE_ICON_BASE + "IconFileDoc.svg"
+      if (ext === "xls" || ext === "xlsx" || mime.includes("spreadsheetml") || mime.includes("ms-excel")) return FILE_ICON_BASE + "IconFileExcel.svg"
+      if (ext === "ppt" || ext === "pptx" || mime.includes("presentationml") || mime.includes("ms-powerpoint")) return FILE_ICON_BASE + "IconFilePpt.svg"
+      if (ext === "pdf" || mime === "application/pdf") return FILE_ICON_BASE + "IconFilePdf.svg"
+      if (ext === "html" || ext === "htm" || mime.includes("html")) return FILE_ICON_BASE + "IconFileHtml.svg"
+      if (ext === "md" || ext === "markdown" || mime.includes("markdown")) return FILE_ICON_BASE + "IconFileMarkdown.svg"
+      if (ext === "json" && mime.includes("mindmap")) return FILE_ICON_BASE + "IconFileMindmap.svg"
+      if (["mp4", "mov", "avi", "mkv", "webm", "flv"].includes(ext) || mime.startsWith("video/")) return FILE_ICON_BASE + "IconFileVideo.svg"
+      if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext) || mime.startsWith("image/")) return FILE_ICON_BASE + "IconFileImage.svg"
+      if (["js", "ts", "jsx", "tsx", "py", "java", "go", "rs", "c", "cpp", "cs", "rb", "php", "sh"].includes(ext) || mime.includes("javascript") || mime.includes("typescript")) return FILE_ICON_BASE + "IconFileCode.svg"
+      return FILE_ICON_BASE + "IconFileOther.svg"
+    }
+
+    // ── 思维导图 shape 判定(对齐 insight utils/mindmap-adapter.ts collectRoots)──
+    function insightMindmapRoots(json, declared) {
+      if (Array.isArray(json)) return json.flatMap((item) => insightMindmapRoots(item, declared))
+      if (json && typeof json === "object") {
+        if (Array.isArray(json.mindmaps)) return json.mindmaps.flatMap((m) => insightMindmapRoots(m, true))
+        if (Array.isArray(json.nodes)) return json.nodes.flatMap((n) => insightMindmapRoots(n, true))
+        if (declared) {
+          if (typeof json.name === "string" || Array.isArray(json.children)) return [json]
+          return []
+        }
+        if (Array.isArray(json.children)) return [json]
+      }
+      return []
+    }
+    function insightIsMindmapJSON(text) {
+      const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()
+      let json
+      try { json = JSON.parse(stripped) } catch { return false }
+      return insightMindmapRoots(json, false).length > 0
+    }
+
+    // ── ```html fence 嗅探(对齐 insight utils/detect.ts scanFencedHtml)──
+    function insightScanFencedHtml(textParts) {
+      const blocks = []
+      for (let i = 0; i < textParts.length; i++) {
+        const text = textParts[i] && textParts[i].text
+        if (typeof text !== "string" || text.length === 0) continue
+        const closedRe = /```html\b\s*\n([\s\S]+?)\n?```/gi
+        let m
+        let lastClosedEnd = 0
+        while ((m = closedRe.exec(text)) !== null) {
+          if (m[1].trim().length >= 50) blocks.push({ html: m[1], partIndex: i })
+          lastClosedEnd = closedRe.lastIndex
+        }
+        const tail = text.slice(lastClosedEnd)
+        const tailMatch = tail.match(/```html\b\s*\n([\s\S]+)$/i)
+        if (tailMatch && !tailMatch[1].includes("```") && tailMatch[1].trim().length >= 50) {
+          blocks.push({ html: tailMatch[1], partIndex: i })
+        }
+      }
+      return blocks
+    }
+
+    // ── write 产物(对齐 insight utils/write-output.ts findWriteCards:metadata.filepath 优先)──
+    function insightFindWriteCards(parts) {
+      const byPath = new Map()
+      for (const part of parts) {
+        if (!part || part.type !== "tool") continue
+        const tool = typeof part.tool === "string" ? part.tool : ""
+        const bare = tool.includes(":") ? tool.split(":").pop() : tool
+        if (!(bare === "write" || bare === "edit" || bare.endsWith("_write") || bare.endsWith("_edit"))) continue
+        const state = part.state
+        if (!state || state.status !== "completed") continue
+        let filePath
+        const meta = state.metadata
+        if (meta && typeof meta === "object" && typeof meta.filepath === "string" && meta.filepath.length > 0) {
+          filePath = meta.filepath
+        } else {
+          const input = state.input
+          if (input && typeof input === "object") {
+            const v = input.filePath ?? input.path ?? input.file_path
+            if (typeof v === "string" && v.length > 0) filePath = v
+          }
+        }
+        if (!filePath) continue
+        byPath.delete(filePath)
+        byPath.set(filePath, { filePath, type: insightResolveOutputType(filePath) })
+      }
+      return [...byPath.values()]
+    }
+
+    // ── 知识库来源(对齐 insight components/knowledge-references.ts readKnowledgeSources)──
+    function insightReadKnowledgeSources(parts) {
+      for (const part of parts) {
+        if (!part || part.type !== "tool") continue
+        if (!(part.tool === "knowledge_search" || part.tool === "insight_report_search")) continue
+        const meta = (part.state || {}).metadata
+        if (!meta || !Array.isArray(meta.sources)) continue
+        const sources = meta.sources.filter(
+          (s) => s && typeof s === "object" && typeof s.n === "number" && typeof s.title === "string",
+        )
+        if (sources.length > 0) return sources
+      }
+      return []
+    }
+
+    // ── 工具行(对齐上游 getToolInfo + insight TOOL_TITLE_OVERRIDES / GenericTool)──
+    function insightFilenameOf(p) {
+      return String(p || "").split(/[\\/]/).filter(Boolean).pop()
+    }
+    function insightToolLabel(input) {
+      if (!input) return undefined
+      for (const key of ["description", "query", "url", "filePath", "path", "pattern", "name"]) {
+        const v = input[key]
+        if (typeof v === "string" && v.length > 0) return v
+      }
+      return undefined
+    }
+    function insightToolArgs(input) {
+      if (!input) return []
+      const skip = new Set(["description", "query", "url", "filePath", "path", "pattern", "name"])
+      return Object.entries(input)
+        .filter(([k]) => !skip.has(k))
+        .flatMap(([k, v]) =>
+          typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? [k + "=" + v] : [])
+        .slice(0, 3)
+    }
+    function insightToolRowInfo(part) {
+      const input = (part.state || {}).input || {}
+      const tool = typeof part.tool === "string" ? part.tool : ""
+      switch (tool) {
+        case "read": return { title: "读取文件", subtitle: input.filePath ? insightFilenameOf(input.filePath) : undefined, args: [] }
+        case "list": return { title: "列表", subtitle: insightFilenameOf(input.path), args: [] }
+        case "glob": return { title: "查找文件", subtitle: input.pattern, args: [] }
+        case "grep": return { title: "检索内容", subtitle: input.pattern, args: [] }
+        case "webfetch": return { title: "Webfetch", subtitle: input.url, args: [] }
+        case "websearch": return { title: "网络搜索", subtitle: input.query, args: [] }
+        case "task": return { title: "子任务分析", subtitle: input.description, args: [] }
+        case "bash": return { title: "Shell", subtitle: input.description, args: [] }
+        case "edit": return { title: "编辑", subtitle: input.filePath ? insightFilenameOf(input.filePath) : undefined, args: [] }
+        case "write": return { title: "写入产物", subtitle: input.filePath ? insightFilenameOf(input.filePath) : undefined, args: [] }
+        case "apply_patch": return { title: "补丁", subtitle: undefined, args: [] }
+        case "todowrite": return { title: "todos", subtitle: undefined, args: [] }
+        case "skill": return { title: (typeof input.name === "string" && input.name) || "技能", subtitle: undefined, args: [] }
+        default: {
+          // GenericTool:"调用了 `tool`";extract_document 按参数特例中文化(对齐 withInsightToolTitles)
+          if (tool === "extract_document") return { title: "提取文档正文", subtitle: insightToolLabel(input), args: [] }
+          return { title: "调用了 `" + tool + "`", subtitle: insightToolLabel(input), args: insightToolArgs(input) }
+        }
+      }
+    }
+    // ContextToolGroup 单项(对齐 contextToolTrigger:subtitle 优先,兜底 error/title/description)
+    function insightCtxItemInfo(part) {
+      const input = (part.state || {}).input || {}
+      const path = typeof input.path === "string" ? input.path : "/"
+      const tool = typeof part.tool === "string" ? part.tool : ""
+      if (tool === "read") {
+        const args = []
+        if (typeof input.offset === "number") args.push("offset=" + input.offset)
+        if (typeof input.limit === "number") args.push("limit=" + input.limit)
+        return { title: "读取文件", subtitle: input.filePath ? insightFilenameOf(input.filePath) : "", args }
+      }
+      if (tool === "list") return { title: "列表", subtitle: insightFilenameOf(path), args: [] }
+      if (tool === "glob") {
+        return { title: "查找文件", subtitle: insightFilenameOf(path), args: input.pattern ? ["pattern=" + input.pattern] : [] }
+      }
+      if (tool === "grep") {
+        const args = []
+        if (typeof input.pattern === "string") args.push("pattern=" + input.pattern)
+        if (typeof input.include === "string") args.push("include=" + input.include)
+        return { title: "检索内容", subtitle: insightFilenameOf(path), args }
+      }
+      return { title: tool, subtitle: insightToolLabel(input) ?? "", args: [] }
+    }
+
+    // ── 元素构造 ──
+    function buildInsightToolRow(info) {
+      const row = document.createElement("div")
+      row.className = "insight-tool-row"
+      row.appendChild(makeSpan("insight-tool-title", info.title))
+      if (info.subtitle) row.appendChild(makeSpan("insight-tool-subtitle", info.subtitle))
+      for (const arg of info.args || []) row.appendChild(makeSpan("insight-tool-subtitle", arg))
+      return row
+    }
+    // ContextToolGroup:触发行「已探索 · N 次读取 · N 次搜索 · N 个列表」+ 可折叠明细(对齐上游 ContextToolGroup)
+    function buildInsightCtxGroup(parts) {
+      const wrap = document.createElement("div")
+      wrap.className = "insight-ctx-group"
+      const trigger = document.createElement("button")
+      trigger.type = "button"
+      trigger.className = "insight-ctx-trigger"
+      trigger.setAttribute("data-open", "false")
+      const title = document.createElement("span")
+      title.className = "insight-ctx-title"
+      title.appendChild(makeSpan("insight-ctx-label", "已探索"))
+      const read = parts.filter((p) => p.tool === "read").length
+      const search = parts.filter((p) => p.tool === "glob" || p.tool === "grep").length
+      const list = parts.filter((p) => p.tool === "list").length
+      // 只显示非零计数,逗号分隔(对齐上游 AnimatedCountList:count=0 的项隐藏)
+      const counts = [
+        read > 0 ? read + " 次读取" : "",
+        search > 0 ? search + " 次搜索" : "",
+        list > 0 ? list + " 个列表" : "",
+      ].filter(Boolean)
+      title.appendChild(makeSpan("insight-ctx-summary", counts.join(", ")))
+      trigger.appendChild(title)
+      const chevron = document.createElement("span")
+      chevron.className = "insight-ctx-chevron"
+      chevron.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+      trigger.appendChild(chevron)
+      const items = document.createElement("div")
+      items.className = "insight-ctx-items"
+      items.setAttribute("data-open", "false")
+      for (const part of parts) {
+        const info = insightCtxItemInfo(part)
+        items.appendChild(buildInsightToolRow(info))
+      }
+      trigger.addEventListener("click", () => {
+        const open = trigger.getAttribute("data-open") === "true"
+        trigger.setAttribute("data-open", String(!open))
+        items.setAttribute("data-open", String(!open))
+      })
+      wrap.appendChild(trigger)
+      wrap.appendChild(items)
+      return wrap
+    }
+    // reasoning 折叠块(对齐上游 reasoning-part:无正文兄弟 part 的消息自动展开,正文为 Markdown)
+    function buildInsightReasoning(text, durationMs, autoOpen) {
+      const wrap = document.createElement("div")
+      wrap.className = "insight-reasoning"
+      const toggle = document.createElement("button")
+      toggle.type = "button"
+      toggle.className = "reasoning-toggle"
+      toggle.setAttribute("data-open", String(autoOpen))
+      toggle.setAttribute("aria-expanded", String(autoOpen))
+      // 用时格式对齐上游 reasoning-part:"Ns"/"Nm Ns"(design 分支同款 formatDuration)
+      const duration = formatDuration(durationMs)
+      toggle.innerHTML =
+        "<span>已深度思考</span>" +
+        (duration ? "<span>（用时" + duration + "）</span>" : "") +
+        '<span style="display:inline-flex;align-items:center;flex-shrink:0;">' + CODE_CHEVRON_SVG + "</span>"
+      const body = document.createElement("div")
+      body.className = "insight-reasoning-body"
+      body.style.display = autoOpen ? "" : "none"
+      const markdown = document.createElement("div")
+      markdown.className = "text-assistant"
+      markdown.setAttribute("data-component", "markdown")
+      markdown.innerHTML = renderMarkdown(text)
+      body.appendChild(markdown)
+      toggle.addEventListener("click", () => {
+        const open = toggle.getAttribute("data-open") === "true"
+        toggle.setAttribute("data-open", String(!open))
+        toggle.setAttribute("aria-expanded", String(!open))
+        body.style.display = open ? "none" : ""
+      })
+      wrap.appendChild(toggle)
+      wrap.appendChild(body)
+      return wrap
+    }
+    // 知识库引用列表(对齐 KnowledgeReferences:折叠「引用 N 篇资料作为参考」)
+    function buildInsightKbRefs(sources) {
+      const wrap = document.createElement("div")
+      wrap.className = "insight-kb-refs"
+      const toggle = document.createElement("button")
+      toggle.type = "button"
+      toggle.className = "insight-kb-toggle"
+      const label = document.createElement("span")
+      label.textContent = "引用 " + sources.length + " 篇资料作为参考"
+      toggle.appendChild(label)
+      const caret = document.createElement("span")
+      caret.className = "insight-kb-caret"
+      caret.textContent = "▸"
+      toggle.appendChild(caret)
+      const ol = document.createElement("ol")
+      ol.className = "insight-kb-list"
+      ol.style.display = "none"
+      for (const s of sources) {
+        const li = document.createElement("li")
+        li.className = "insight-kb-item"
+        li.appendChild(makeSpan("insight-kb-index", s.n + "."))
+        // 分享内容不可信:仅 http(s) 可点,其余按纯文本标题渲染(沿用旧 insight 分支的安全策略)
+        const nameEl = typeof s.url === "string" && /^https?:\/\//i.test(s.url)
+          ? (() => {
+              const a = document.createElement("a")
+              a.className = "insight-kb-link"
+              a.href = s.url
+              a.target = "_blank"
+              a.rel = "noopener noreferrer"
+              a.title = s.title
+              a.textContent = s.title
+              return a
+            })()
+          : (() => {
+              const span = document.createElement("span")
+              span.className = "insight-kb-title"
+              span.title = s.title
+              span.textContent = s.title
+              return span
+            })()
+        li.appendChild(nameEl)
+        if (typeof s.classification === "string" && s.classification) {
+          li.appendChild(makeSpan("insight-kb-meta", "· " + s.classification))
+        }
+        ol.appendChild(li)
+      }
+      toggle.addEventListener("click", () => {
+        const open = ol.style.display !== "none"
+        ol.style.display = open ? "none" : ""
+        caret.textContent = open ? "▸" : "▾"
+      })
+      wrap.appendChild(toggle)
+      wrap.appendChild(ol)
+      return wrap
+    }
+    // 产物入口卡(对齐 OutputEntryCard 静态版:图标/标题/「创建时间: …」)
+    function insightEntryLabel(card) {
+      if (card.title && card.title.length > 0 && card.title !== "分析结果") return card.title
+      if (card.type === "json" && card.content && insightIsMindmapJSON(card.content)) return "思维导图"
+      switch (card.type) {
+        case "html": return "可视化页面"
+        case "markdown": return "Markdown 文档"
+        case "json": return "JSON 数据"
+        case "code": return card.fileName || "代码文件"
+        case "file": return card.fileName || "文件"
+        case "image": return card.fileName || "图片"
+      }
+      return card.title || ""
+    }
+    function insightCardIconUrl(card) {
+      if (card.type === "json" && card.content && insightIsMindmapJSON(card.content)) {
+        return insightFileIconUrl("x.json", "application/json+mindmap")
+      }
+      if (card.fileName || card.mimeType) return insightFileIconUrl(card.fileName, card.mimeType)
+      const synth = { html: "x.html", markdown: "x.md", json: "x.json" }[card.type]
+      return insightFileIconUrl(synth)
+    }
+    function buildInsightEntryCard(card) {
+      const el = document.createElement("div")
+      el.className = "insight-entry-card"
+      const icon = document.createElement("span")
+      icon.className = "insight-entry-icon"
+      const img = document.createElement("img")
+      img.src = insightCardIconUrl(card)
+      img.alt = ""
+      icon.appendChild(img)
+      const body = document.createElement("span")
+      body.className = "insight-entry-body"
+      const label = insightEntryLabel(card)
+      const title = document.createElement("span")
+      title.className = "insight-entry-title"
+      title.textContent = label
+      title.title = label
+      const desc = document.createElement("span")
+      desc.className = "insight-entry-desc"
+      desc.textContent = "创建时间: " + insightFullTime(card.createdAt)
+      body.appendChild(title)
+      body.appendChild(desc)
+      el.appendChild(icon)
+      el.appendChild(body)
+      return el
+    }
+    // 长任务卡(对齐 TaskCardView 静态版:状态图标/文案/提交时间/ID;分享页不出交互按钮)
+    function insightTaskStatusLabel(s) {
+      return { pending: "任务排队中", processing: "任务进行中", completed: "任务完成", failed: "任务失败", stopped: "任务已终止" }[s] ?? "任务失败"
+    }
+    function insightCnNum(n) {
+      const map = ["零", "一", "两", "三", "四", "五", "六", "七", "八", "九", "十"]
+      return map[n] ?? String(n)
+    }
+    function buildInsightTaskCard(entry) {
+      const card = document.createElement("div")
+      card.className = "insight-task-card"
+      const head = document.createElement("div")
+      head.className = "insight-task-head"
+      const icon = document.createElement("span")
+      icon.className = "insight-task-icon"
+      const status = entry.status
+      if (status === "pending" || status === "processing") {
+        const img = document.createElement("img")
+        img.src = FILE_ICON_BASE + "IconTaskProcessing.svg"
+        img.alt = ""
+        icon.appendChild(img)
+      } else if (status === "completed") {
+        const img = document.createElement("img")
+        img.src = FILE_ICON_BASE + "IconTaskCompleted.svg"
+        img.alt = ""
+        icon.appendChild(img)
+      } else if (status === "failed") {
+        const img = document.createElement("img")
+        img.src = FILE_ICON_BASE + "IconTaskFailed.svg"
+        img.alt = ""
+        icon.appendChild(img)
+      } else {
+        icon.style.color = "#BFBFBF"
+        icon.innerHTML = '<svg viewBox="0 0 16 16" width="18" height="18" fill="none" style="display:inline-block"><path d="M10.6019 10.036C10.6019 10.311 10.3769 10.536 10.1019 10.536L5.89893 10.536C5.81116 10.536 5.72494 10.5129 5.64893 10.469C5.57292 10.4251 5.5098 10.362 5.46591 10.286C5.42203 10.21 5.39893 10.1238 5.39893 10.036L5.39893 5.96399C5.39893 5.87622 5.42203 5.79 5.46591 5.71399C5.5098 5.63798 5.57292 5.57486 5.64893 5.53098C5.72494 5.48709 5.81116 5.46399 5.89893 5.46399L10.1019 5.46399C10.3769 5.46399 10.6019 5.68899 10.6019 5.96399L10.6019 10.036Z" fill="currentColor"/><path d="M15.8679 8.00197C15.8708 6.61969 15.5087 5.26115 14.8184 4.06358C14.1281 2.86602 13.1339 1.87186 11.9363 1.18153C10.7388 0.491198 9.38023 0.129156 7.99795 0.131974C6.9647 0.130307 5.9413 0.332717 4.98647 0.727584C4.03165 1.12245 3.16421 1.702 2.43395 2.43297C1.70207 3.16365 1.1219 4.03185 0.726831 4.9876C0.331762 5.94335 0.12959 6.96779 0.131949 8.00197C0.126391 9.03665 0.326303 10.0621 0.72009 11.019C1.11388 11.9758 1.6937 12.8449 2.42595 13.576C3.15643 14.308 4.02508 14.8876 4.98144 15.281C5.93781 15.6745 6.96282 15.874 7.99695 15.868C12.3299 15.824 15.8679 12.333 15.8679 8.00197ZM1.05595 8.00197C1.05525 6.78295 1.37556 5.58523 1.98467 4.52928C2.59377 3.47334 3.4702 2.59641 4.52579 1.98669C5.58139 1.37698 6.77892 1.05597 7.99795 1.05597C11.8569 1.05597 14.9869 4.18297 14.9869 8.00197C14.9869 11.815 11.8569 14.946 7.99795 14.946C6.77758 14.9515 5.57751 14.6337 4.51977 14.025C3.46203 13.4163 2.58434 12.5383 1.97593 11.4804C1.36753 10.4225 1.05011 9.22235 1.05595 8.00197Z" fill="currentColor"/></svg>'
+      }
+      head.appendChild(icon)
+      head.appendChild(makeSpan("insight-task-status", insightTaskStatusLabel(status)))
+      card.appendChild(head)
+      const body = document.createElement("div")
+      body.className = "insight-task-body"
+      if (status === "pending" || status === "processing") {
+        body.textContent = entry.message ?? ""
+      } else if (status === "completed") {
+        const n = entry.resourceLinks.length
+        body.textContent = n <= 0 ? "分析已完成" : "共生成" + insightCnNum(n) + "份文件"
+      } else if (status === "failed") {
+        body.textContent = "请稍后重试"
+        if (entry.message) {
+          const toggle = document.createElement("button")
+          toggle.type = "button"
+          toggle.className = "insight-task-msg-toggle"
+          const firstLine = entry.message.split("\n")[0]
+          toggle.appendChild(makeSpan("file-name", firstLine))
+          const chev = document.createElement("span")
+          chev.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" style="display:inline-block;transition:transform 150ms ease"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          toggle.appendChild(chev)
+          const pre = document.createElement("pre")
+          pre.className = "insight-task-error-pre"
+          pre.textContent = entry.message
+          pre.style.display = "none"
+          toggle.addEventListener("click", () => {
+            const open = pre.style.display !== "none"
+            pre.style.display = open ? "none" : ""
+            chev.firstChild.style.transform = open ? "none" : "rotate(180deg)"
+          })
+          card.appendChild(body)
+          card.appendChild(toggle)
+          card.appendChild(pre)
+          appendInsightTaskFooter(card, entry)
+          return card
+        }
+      } else if (status === "stopped") {
+        body.textContent = "任务已被终止"
+      }
+      card.appendChild(body)
+      appendInsightTaskFooter(card, entry)
+      return card
+    }
+    function appendInsightTaskFooter(card, entry) {
+      if (entry.status === "failed") return
+      const foot = document.createElement("div")
+      foot.className = "insight-task-foot"
+      foot.appendChild(makeSpan("file-name", "提交时间: " + insightFullTime(entry.submittedAt)))
+      const id = document.createElement("span")
+      id.className = "insight-task-id"
+      id.textContent = "ID: " + entry.taskId
+      id.title = entry.taskId
+      foot.appendChild(id)
+      card.appendChild(foot)
+    }
+    // 任务结果产物卡(对齐 index.tsx buildOutputCardsFromTask:资源链接 → 入口卡;无链接时 resultText → Markdown 卡)
+    function insightTaskResultCards(entry) {
+      if (entry.status !== "completed") return []
+      const baseTitle = insightToolDisplayName(entry.toolName) + " 结果"
+      if (entry.resourceLinks.length > 0) {
+        return entry.resourceLinks.map((link, idx) => ({
+          title: link.name || baseTitle + " " + (idx + 1),
+          type: insightResolveOutputType(link.name ?? "", link.mimeType),
+          mimeType: link.mimeType,
+          fileName: link.name,
+          createdAt: entry.lastUpdatedAt,
+        }))
+      }
+      if (entry.resultText && entry.resultText.length > 0) {
+        return [{ title: baseTitle, type: "markdown", content: entry.resultText, createdAt: entry.lastUpdatedAt }]
+      }
+      return []
+    }
+    // turn 产物卡(对齐 insight-turn outputCards memo:任务卡在场时抑制;A 资源链接(已完结任务取跨轮稳定产物)→ C write(md/html)→ B fence/mindmap 嗅探)
+    function insightOutputCards(turn, taskCardsForTurn, taskCardsAll) {
+      if (taskCardsForTurn.length > 0) return []
+      const parts = turn.assistants.flatMap((m) => m.parts || [])
+      const firstInfo = (turn.assistants[0] || {}).info || {}
+      const msgDate = typeof (firstInfo.time || {}).created === "number" ? firstInfo.time.created : Date.now()
+      let completedTask
+      for (const part of parts) {
+        const info = insightReadTaskInfo(part)
+        if (info && info.status === "completed") {
+          completedTask = info
+          break
+        }
+      }
+      const canonical = completedTask ? taskCardsAll.get(completedTask.taskId) : undefined
+      const links = canonical && canonical.resourceLinks.length > 0 ? canonical.resourceLinks : insightFindResourceLinks(parts)
+      const writeCards = insightFindWriteCards(parts)
+        .filter((w) => w.type === "markdown" || w.type === "html")
+        .map((w) => {
+          const name = insightFilenameOf(w.filePath)
+          return { title: name, type: w.type, fileName: name, createdAt: msgDate }
+        })
+      if (links.length > 0 || writeCards.length > 0) {
+        const linkCards = links.map((link, idx) => ({
+          title: link.name || "分析结果 " + (idx + 1),
+          type: insightResolveOutputType(link.name ?? "", link.mimeType),
+          mimeType: link.mimeType,
+          fileName: link.name,
+          createdAt: msgDate,
+        }))
+        return [...linkCards, ...writeCards]
+      }
+      const textParts = parts.filter((p) => p.type === "text" && typeof p.text === "string")
+      const cards = []
+      const blocks = insightScanFencedHtml(textParts)
+      blocks.forEach((block, idx) => {
+        const heading = block.html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim()
+        cards.push({
+          title: heading || (blocks.length > 1 ? "可视化页面 " + (idx + 1) : "可视化页面"),
+          type: "html",
+          content: block.html,
+          createdAt: msgDate,
+        })
+      })
+      const lastText = (textParts.length > 0 ? textParts[textParts.length - 1].text : "").trim()
+      if (lastText.length >= 10 && insightIsMindmapJSON(lastText)) {
+        cards.push({
+          title: lastText.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? "思维导图",
+          type: "json",
+          content: lastText,
+          createdAt: msgDate,
+        })
+      }
+      return cards
+    }
+
+    // ── insight turn 渲染 ──
+    function renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token) {
+      const turnEl = document.createElement("div")
+      const userParts = (turn.user && turn.user.parts) || []
+      const isCompactionTurn = userParts.some((p) => p.type === "compaction")
+
+      if (isCompactionTurn) {
+        // 压缩 turn(对齐 InsightCompactionTurn:手动 /compact 输入回显气泡 + 状态条)
+        turnEl.className = "insight-turn insight-turn--compaction"
+        const text = (userParts.find((p) => p.type === "text" && typeof p.text === "string" && p.text.trim()) || {}).text?.trim() || "/compact"
+        const inner = document.createElement("div")
+        inner.style.display = "flex"
+        inner.style.justifyContent = "flex-end"
+        inner.style.margin = "0 12px"
+        const bubble = document.createElement("div")
+        bubble.className = "bubble-user"
+        bubble.textContent = text
+        inner.appendChild(bubble)
+        turnEl.appendChild(inner)
+        const compacted = turn.assistants.some((m) => (m.info || {}).summary === true && !!(m.info || {}).finish && !(m.info || {}).error)
+        const aborted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
+        const failed = turn.assistants.some((m) => {
+          const err = (m.info || {}).error
+          return !!err && err.name !== "MessageAbortedError"
+        })
+        if (compacted) {
+          turnEl.appendChild(buildDivider("会话已压缩"))
+        } else if (aborted) {
+          const pill = document.createElement("div")
+          pill.className = "insight-compaction-status"
+          pill.style.marginTop = "12px"
+          pill.textContent = "上下文压缩已停止"
+          turnEl.appendChild(pill)
+        } else if (failed) {
+          const pill = document.createElement("div")
+          pill.className = "insight-compaction-status insight-compaction-status-error"
+          pill.style.marginTop = "12px"
+          pill.textContent = "上下文压缩失败"
+          turnEl.appendChild(pill)
+        } else {
+          const pill = document.createElement("div")
+          pill.className = "insight-compaction-status"
+          pill.style.marginTop = "12px"
+          const dot = document.createElement("span")
+          dot.className = "insight-compaction-dot"
+          pill.appendChild(dot)
+          pill.appendChild(document.createTextNode("正在压缩上下文…"))
+          turnEl.appendChild(pill)
+        }
+        return turnEl
+      }
+
+      turnEl.className = "insight-turn"
+      // 1. 附件(对齐 insight 层:FilePart 图片 → 48px 缩略图;[附件] 清单 → 文件卡片)
+      const fileParts = userParts.filter((p) => p.type === "file" && p.filename)
+      const seenUrls = new Set()
+      const attBox = document.createElement("div")
+      attBox.className = "insight-attachments"
+      for (const part of fileParts) {
+        if (part.mime && part.mime.startsWith("image/")) {
+          const directUrl = part.url && /^(data:|https?:)/.test(part.url) ? part.url : null
+          if (directUrl) {
+            if (seenUrls.has(directUrl)) continue
+            seenUrls.add(directUrl)
+          }
+          const blobEntry = !directUrl ? imageBlobMap[part.filename] : undefined
+          if (directUrl || blobEntry) {
+            const thumb = document.createElement("div")
+            thumb.className = "insight-image-thumb"
+            thumb.title = part.filename || ""
+            const img = document.createElement("img")
+            img.alt = part.filename || ""
+            if (directUrl) img.src = directUrl
+            else loadBlobImage(blobEntry.url, token, blobEntry.mime).then((u) => { img.src = u })
+            thumb.appendChild(img)
+            attBox.appendChild(thumb)
+          } else {
+            attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+          }
+        } else if (part.url && /^data:/.test(part.url)) {
+          // chat 时代的内联附件:上游渲染为附件 chip,此处与其样式对齐(文件卡片)
+          attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+        }
+      }
+      const attachBlock = userParts.find(
+        (p) => p.type === "text" && p.synthetic === true && typeof p.text === "string" && p.text.startsWith("[附件]"),
+      )
+      if (attachBlock) {
+        for (const f of parseUploadedFilesBlock(attachBlock.text)) {
+          attBox.appendChild(buildInsightAttachmentCard(f.filename, kindFromMime(mimeFromFilename(f.filename))))
+        }
+      }
+      if (attBox.children.length > 0) turnEl.appendChild(attBox)
+
+      // 2. 用户气泡 + 气泡下方 meta(agent · 模型 · 时间,hover 显示)
+      if (turn.user) {
+        const row = document.createElement("div")
+        row.className = "insight-user-row"
+        const userTextContent = insightUserText(userParts)
+        if (userTextContent) {
+          const bubble = document.createElement("div")
+          bubble.className = "bubble-user"
+          bubble.setAttribute("data-expanded", "false")
+          const bubbleContent = document.createElement("div")
+          bubbleContent.className = "bubble-user-content"
+          bubbleContent.textContent = userTextContent
+          bubble.appendChild(bubbleContent)
+          const mask = document.createElement("div")
+          mask.className = "bubble-user-mask"
+          bubble.appendChild(mask)
+          bubble.appendChild(buildBubbleExpandButton())
+          row.appendChild(bubble)
+        }
+        const info = turn.user.info || {}
+        const metaItems = [insightAgentLabel(info.agent), (info.model || {}).modelID].filter(Boolean)
+        const meta = document.createElement("div")
+        meta.className = "insight-user-meta"
+        if (metaItems.length > 0 || typeof (info.time || {}).created === "number") {
+          if (metaItems.length > 0) meta.appendChild(makeSpan("", metaItems.join(" · ")))
+          if (typeof (info.time || {}).created === "number") {
+            if (metaItems.length > 0) meta.appendChild(makeSpan("", "·"))
+            meta.appendChild(makeSpan("", insightShortTime(info.time.created)))
+          }
+        }
+        row.appendChild(meta)
+        turnEl.appendChild(row)
+      }
+
+      // 3. assistant 内容(对齐 AssistantParts:全部可见消息的 part 按序扁平渲染,连续 read/glob/grep/list 合并为 ContextToolGroup)
+      const visibleMsgs = turn.assistants.filter((m) => !(m.info || {}).summary || (m.info || {}).error)
+      const renderableParts = visibleMsgs.flatMap((m) =>
+        (m.parts || [])
+          .filter((p) => {
+            if (p.type === "tool") {
+              if (p.tool === "todowrite") return false
+              if (p.tool === "question") return !["pending", "running"].includes((p.state || {}).status)
+              return true
+            }
+            if (p.type === "text") return !!(p.text && p.text.trim())
+            if (p.type === "reasoning") return !!(p.text && p.text.trim())
+            return false
+          })
+          .map((p) => ({ part: p, msg: m })),
+      )
+      if (renderableParts.length > 0) {
+        const msgs = document.createElement("div")
+        msgs.className = "insight-msgs"
+        // 最后一个非空 text part(跨消息,对齐 showAssistantCopyPartID)挂 meta
+        let lastTextEntry = null
+        for (const entry of renderableParts) {
+          if (entry.part.type === "text") lastTextEntry = entry
+        }
+        // turnDurationMs(对齐上游:用户消息 created → 最后一条 assistant completed)
+        const userCreated = ((turn.user || {}).info || {}).time?.created
+        const maxCompleted = turn.assistants.reduce((max, m) => {
+          const c = (m.info || {}).time?.completed
+          return typeof c === "number" && c > max ? c : max
+        }, -Infinity)
+        const turnDurationMs = typeof userCreated === "number" && maxCompleted !== -Infinity && maxCompleted >= userCreated ? maxCompleted - userCreated : -1
+        const interrupted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
+
+        let i = 0
+        while (i < renderableParts.length) {
+          const { part, msg } = renderableParts[i]
+          if (part.type === "tool" && ["read", "glob", "grep", "list"].includes(part.tool)) {
+            // 连续 context 工具合并(对齐 groupParts)
+            let j = i
+            while (j < renderableParts.length && renderableParts[j].part.type === "tool" && ["read", "glob", "grep", "list"].includes(renderableParts[j].part.tool)) j++
+            msgs.appendChild(buildInsightCtxGroup(renderableParts.slice(i, j).map((e) => e.part)))
+            i = j
+            continue
+          }
+          if (part.type === "reasoning") {
+            // 无正文兄弟 part 的消息自动展开(对齐上游 reasoning-part;用时按该消息自身 completed-created)
+            const info = msg.info || {}
+            const hasTextSibling = (msg.parts || []).some((p) => p.type === "text" && p.text && p.text.trim())
+            const created = (info.time || {}).created
+            const completed = (info.time || {}).completed
+            const durationMs = typeof created === "number" && typeof completed === "number" ? completed - created : -1
+            msgs.appendChild(buildInsightReasoning(part.text, durationMs, !hasTextSibling))
+            i++
+            continue
+          }
+          if (part.type === "text") {
+            const textEl = document.createElement("div")
+            textEl.className = "insight-text"
+            const markdown = document.createElement("div")
+            markdown.className = "text-assistant"
+            markdown.setAttribute("data-component", "markdown")
+            markdown.innerHTML = renderMarkdown(part.text)
+            textEl.appendChild(markdown)
+            if (entryRefEquals(renderableParts[i], lastTextEntry)) {
+              const metaRow = document.createElement("div")
+              metaRow.className = "insight-text-meta-row"
+              const metaItems = [
+                insightAgentLabel((msg.info || {}).agent),
+                (msg.info || {}).modelID,
+                insightDurationText(turnDurationMs),
+                interrupted ? "已中断" : "",
+              ].filter(Boolean)
+              if (metaItems.length > 0) {
+                metaRow.appendChild(makeSpan("insight-text-meta", metaItems.join(" · ")))
+              }
+              textEl.appendChild(metaRow)
+            }
+            msgs.appendChild(textEl)
+            i++
+            continue
+          }
+          if (part.type === "tool") {
+            // question 完成态:问题行 + 问答明细;其余工具:BasicTool 触发行
+            if (part.tool === "question") {
+              const wrap = document.createElement("div")
+              wrap.appendChild(buildInsightToolRow(insightQuestionRowInfo(part)))
+              const answers = insightQuestionAnswers(part)
+              if (answers.length > 0) {
+                const qa = document.createElement("div")
+                qa.className = "insight-question-answers"
+                const questions = ((part.state || {}).input || {}).questions ?? []
+                for (let q = 0; q < questions.length; q++) {
+                  const item = document.createElement("div")
+                  item.className = "insight-question-item"
+                  item.appendChild(makeSpan("insight-question-text", String(questions[q].question ?? "")))
+                  item.appendChild(makeSpan("insight-answer-text", (answers[q] || []).join(", ") || "未回答"))
+                  qa.appendChild(item)
+                }
+                wrap.appendChild(qa)
+              }
+              msgs.appendChild(wrap)
+            } else {
+              msgs.appendChild(buildInsightToolRow(insightToolRowInfo(part)))
+            }
+            i++
+            continue
+          }
+          i++
+        }
+        // 中断 divider(对齐上游 session-turn divider)
+        if (interrupted) {
+          const divider = buildDivider("已中断")
+          divider.style.marginTop = "0"
+          msgs.appendChild(divider)
+        }
+        // 错误卡(对齐上游 error Card + insight 黑字覆盖)
+        const failedMsg = turn.assistants.find((m) => {
+          const err = (m.info || {}).error
+          return err && err.name !== "MessageAbortedError"
+        })
+        if (failedMsg) {
+          const err = failedMsg.info.error
+          const data = err.data || {}
+          const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+          const errorCard = document.createElement("div")
+          errorCard.className = "insight-error-card"
+          errorCard.textContent = message
+          msgs.appendChild(errorCard)
+        }
+        turnEl.appendChild(msgs)
+      }
+
+      // 4. 知识库引用 + 产物入口卡 + 长任务卡(对齐 InsightTurn 尾部三个区)
+      const turnParts = turn.assistants.flatMap((m) => m.parts || [])
+      const kbSources = insightReadKnowledgeSources(turnParts)
+      if (kbSources.length > 0) turnEl.appendChild(buildInsightKbRefs(kbSources))
+      const taskCardsForTurn = turn.user ? (taskCardsByAnchor.get(turn.user.info.id) || []) : []
+      for (const card of insightOutputCards(turn, taskCardsForTurn, taskCardsAll)) {
+        turnEl.appendChild(buildInsightEntryCard(card))
+      }
+      for (const entry of taskCardsForTurn) {
+        turnEl.appendChild(buildInsightTaskCard(entry))
+        // 分享页无结果查看器:完结任务的结果产物按入口卡静态列出(对齐「查看结果」的内容)
+        for (const card of insightTaskResultCards(entry)) {
+          turnEl.appendChild(buildInsightEntryCard(card))
+        }
+      }
+      return turnEl
+    }
+    function entryRefEquals(a, b) {
+      return a === b || (!!a && !!b && a.part === b.part && a.msg === b.msg)
+    }
+    function insightQuestionRowInfo(part) {
+      const questions = ((part.state || {}).input || {}).questions ?? []
+      const answers = insightQuestionAnswers(part)
+      const count = Array.isArray(questions) ? questions.length : 0
+      const subtitle = count === 0 ? undefined : answers.length > 0 ? count + " 已回答" : count + " 个问题"
+      return { title: "问题", subtitle, args: [] }
+    }
+    function insightQuestionAnswers(part) {
+      const answers = ((part.state || {}).metadata || {}).answers
+      return Array.isArray(answers) ? answers.map((a) => (Array.isArray(a) ? a.map(String) : [])) : []
+    }
+    function buildInsightAttachmentCard(filename, kind) {
+      const card = document.createElement("div")
+      card.className = "insight-attachment-card"
+      card.title = filename
+      const icon = document.createElement("img")
+      icon.src = getFileIconUrl(kind, filename)
+      icon.alt = ""
+      card.appendChild(icon)
+      card.appendChild(makeSpan("insight-attachment-name", filename))
+      return card
+    }
+
+    function renderInsightConversation(manifest, session, filePath, token, list) {
+      document.body.dataset.module = "insight"
+      list.classList.add("insight-scope")
+      const messages = (session.messages || []).slice().sort((a, b) => {
+        const at = ((a.info || {}).time || {}).created ?? 0
+        const bt = ((b.info || {}).time || {}).created ?? 0
+        if (at !== bt) return at - bt
+        return a.info.id < b.info.id ? -1 : a.info.id > b.info.id ? 1 : 0
+      })
+      const taskCardsAll = insightAggregateTaskCards(messages)
+      const taskCardsByAnchor = new Map()
+      for (const card of taskCardsAll.values()) {
+        const arr = taskCardsByAnchor.get(card.anchorUserMessageID) ?? []
+        arr.push(card)
+        taskCardsByAnchor.set(card.anchorUserMessageID, arr)
+      }
+      const imageBlobMap = filePath ? buildImageBlobMap(manifest, filePath) : {}
+      // 按 user 分组(对齐 insight userMessages 可见性规则:自动压缩(无 text part)不渲染)
+      const turns = []
+      let current = null
+      for (const msg of messages) {
+        const role = msg.info && msg.info.role
+        if (role === "user") {
+          const parts = msg.parts || []
+          if (parts.some((p) => p.type === "compaction") && !parts.some((p) => p.type === "text")) continue
+          if (current) turns.push(current)
+          current = { user: msg, assistants: [] }
+        } else if (role === "assistant") {
+          if (!current) current = { user: null, assistants: [] }
+          current.assistants.push(msg)
+        }
+      }
+      if (current) turns.push(current)
+      for (const turn of turns) {
+        list.appendChild(renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token))
+      }
+      if (list.children.length === 0) {
+        showEmptyState()
+        return
+      }
+      markExpandableCodeBlocks(list)
       markExpandableUserBubbles(list)
     }
 
@@ -2923,6 +4594,13 @@
       return FILE_ICON_BASE + "AI_doc_plaintext.svg"
     }
 
+    // 完整文档(<!DOCTYPE html> 或 <html> 开头)缺 </html> 视为截断(对齐 design artifact-parser.ts isTruncatedHtml)
+    // 分享页不出 ResultViewer,只对齐卡片的警示边框样式
+    function isTruncatedHtml(content) {
+      const isFullDoc = /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content)
+      return isFullDoc && !content.toLowerCase().includes("</html>")
+    }
+
     // 时间格式化(对齐 design insight-turn.tsx formatTime)
     function formatTime(d) {
       return d.toLocaleString("zh-CN", {
@@ -2985,7 +4663,12 @@
       }
       if (raw.kind === "result" && typeof raw.guidePartID === "string" &&
           ["running", "cancelling", "completed", "failed", "cancelled"].indexOf(raw.status) !== -1) {
-        return { kind: "result", status: raw.status }
+        return {
+          kind: "result",
+          status: raw.status,
+          // 扩写标签(审阅卡 chips 来源,对齐 promptMetadata result.tags)
+          tags: Array.isArray(raw.tags) ? raw.tags.filter(function (t) { return typeof t === "string" && t.length > 0 }) : undefined,
+        }
       }
       return undefined
     }
@@ -2993,9 +4676,14 @@
       return !!part && (part.type === "text" || part.type === "reasoning") &&
         !!(part.metadata && part.metadata.studioPromptExpansionPreview)
     }
-    // 扩写完成时静态展示的预览文本(对齐 expansionPreviewParts:取最大 attempt 的分片)
-    function studioExpansionPreviewText(assistantParts) {
-      var previews = assistantParts.filter(studioIsPreviewPart)
+    // 扩写预览分片文本(对齐 expansionPreviewParts:按 resultPartID 归属过滤,取最大 attempt,按 id 排序拼接)
+    function studioExpansionPreviewText(assistantParts, resultPart) {
+      if (!resultPart) return ""
+      var resultPartID = resultPart.id
+      var previews = assistantParts.filter(function (part) {
+        if (!studioIsPreviewPart(part)) return false
+        return (part.metadata.studioPromptExpansionPreview || {}).resultPartID === resultPartID
+      })
       if (previews.length === 0) return ""
       var maxAttempt = Math.max(0, ...previews.map(function (part) { return (part.metadata.studioPromptExpansionPreview || {}).attempt || 0 }))
       return previews
@@ -3123,6 +4811,8 @@
             : undefined,
           width: typeof item.width === "number" ? item.width : undefined,
           height: typeof item.height === "number" ? item.height : undefined,
+          // 单媒体时长(对齐 buildResult images.duration;结果卡视频徽标优先取它,回退轮级 duration)
+          duration: typeof item.duration === "number" ? item.duration : undefined,
         }]
       })
     }
@@ -3252,15 +4942,47 @@
       }
       var aspectRatio = studioNormalizeAspectRatio(output.aspectRatio || toolInput.aspectRatio)
       // 视频时长(对齐 buildResult:output.duration ?? extra.duration,如 "5")
-      var extra = toolInput.extra && typeof toolInput.extra === "object" ? toolInput.extra : {}
+      var extra = toolInput.extra && typeof toolInput.extra === "object" && !Array.isArray(toolInput.extra) ? toolInput.extra : {}
       var duration = typeof output.duration === "string" ? output.duration : typeof extra.duration === "string" ? extra.duration : undefined
-      // 状态(对齐 buildResult:有媒体即成功;失败按 metadata.studio.status 细分)
+      // 状态(对齐 buildResult:有媒体即成功;运行中按 metadata.studio.status 细分 creating/queued/running;
+      // 失败按 metadata.studio.status 细分)
       var failureStatus = errored
         ? (["create_failed", "abnormal"].indexOf(studioToolProgress(errored)) !== -1 ? studioToolProgress(errored) : "failed")
         : undefined
+      // 运行中状态细分:studioToolProgress 直接返回 "creating"/"queued"/"running" 字符串
+      var runningStatus = running ? (studioToolProgress(running) || "running") : undefined
       var status = media.length > 0
         ? "succeeded"
-        : failureStatus ?? (running ? "running" : "failed")
+        : failureStatus ?? runningStatus ?? "failed"
+      // 运行中的进度/排队序号(对齐 buildResult:metadata.studio.progress/order,回退 output.progress/order)
+      var progress = running
+        ? (typeof (((running.state || {}).metadata || {}).studio || {}).progress === "number"
+            ? ((running.state || {}).metadata || {}).studio.progress
+            : (typeof output.progress === "number" ? output.progress : 0))
+        : 0
+      var order = running
+        ? (typeof (((running.state || {}).metadata || {}).studio || {}).order === "number"
+            ? ((running.state || {}).metadata || {}).studio.order
+            : (typeof output.order === "number" ? output.order : undefined))
+        : undefined
+      // 媒体缺尺寸时回填 output/response/input 的像素宽高(对齐 buildResult images 的 w/h 链,保证网格方向判定一致)
+      var size = toolInput.target_size && typeof toolInput.target_size === "object" ? toolInput.target_size : undefined
+      var outputWidth = typeof output.width === "number" ? output.width
+        : output.response && typeof output.response === "object" && typeof output.response.width === "number" ? output.response.width
+        : size && typeof size.width === "number" ? size.width
+        : typeof toolInput.width === "number" ? toolInput.width
+        : typeof extra.width === "number" ? extra.width : undefined
+      var outputHeight = typeof output.height === "number" ? output.height
+        : output.response && typeof output.response === "object" && typeof output.response.height === "number" ? output.response.height
+        : size && typeof size.height === "number" ? size.height
+        : typeof toolInput.height === "number" ? toolInput.height
+        : typeof extra.height === "number" ? extra.height : undefined
+      for (var mi = 0; mi < media.length; mi++) {
+        if (!media[mi].width && !media[mi].height && typeof outputWidth === "number" && typeof outputHeight === "number") {
+          media[mi].width = outputWidth
+          media[mi].height = outputHeight
+        }
+      }
       var error = media.length > 0
         ? undefined
         : (errored && typeof errored.state.error === "string" && errored.state.error) ||
@@ -3268,12 +4990,15 @@
       return {
         kind: "result",
         userText: (typeof toolInput.displayPrompt === "string" && toolInput.displayPrompt) || extractStudioUserDemand(input.userText),
-        hideUserBubble: input.hideUserBubble,
+        // 隐藏气泡:用户消息无文本 / 扩写来源 synthetic 文本 / 工具入参 extra.promptExpansionSource(对齐 buildResult)
+        hideUserBubble: input.hideUserBubble || !!(extra.promptExpansionSource &&
+          typeof extra.promptExpansionSource === "object" &&
+          typeof extra.promptExpansionSource.assistantMessageID === "string" &&
+          extra.promptExpansionSource.assistantMessageID.trim()),
         assistantText: input.assistantText,
-        mentionImages: toolInput.extra && typeof toolInput.extra === "object" && !Array.isArray(toolInput.extra) &&
-          toolInput.extra.mentionImages && typeof toolInput.extra.mentionImages === "object" && !Array.isArray(toolInput.extra.mentionImages)
-          ? Object.keys(toolInput.extra.mentionImages).reduce(function (acc, key) {
-              if (typeof toolInput.extra.mentionImages[key] === "string") acc[key] = toolInput.extra.mentionImages[key]
+        mentionImages: extra.mentionImages && typeof extra.mentionImages === "object" && !Array.isArray(extra.mentionImages)
+          ? Object.keys(extra.mentionImages).reduce(function (acc, key) {
+              if (typeof extra.mentionImages[key] === "string") acc[key] = extra.mentionImages[key]
               return acc
             }, {})
           : undefined,
@@ -3285,6 +5010,8 @@
           media: media,
           duration: duration,
           error: error,
+          progress: progress,
+          order: order,
           createdAt: input.createdAt,
         },
       }
@@ -3333,7 +5060,8 @@
           .join("\n").trim()
         var tools = assistantParts.filter(function (part) { return part.type === "tool" })
         var createdAt = ((user.info || {}).time || {}).created
-        var recommendation = studioPromptMetadata(assistantParts.find(function (part) { return studioPromptMetadata(part) }))
+        var recommendationPart = assistantParts.find(function (part) { return studioPromptMetadata(part) })
+        var recommendation = studioPromptMetadata(recommendationPart)
         if (recommendation) {
           turns.push({
             kind: "recommendation",
@@ -3341,7 +5069,7 @@
             userText: userText,
             hideUserBubble: hideUserBubble,
             assistantText: assistantText,
-            previewText: studioExpansionPreviewText(assistantParts),
+            previewText: studioExpansionPreviewText(assistantParts, recommendationPart),
             // 推荐轮参考图来自用户消息的图片附件(对齐 turns.ts recommendation 分支)
             inputImages: (user.parts || [])
               .filter(function (part) { return part.type === "file" && typeof part.mime === "string" && part.mime.indexOf("image/") === 0 })
@@ -3374,6 +5102,61 @@
     }
 
     // ── 渲染 ──
+
+    // 扩写流式预览区(对齐 StudioPromptExpansionPreview 静态版:圆角面板 + 198px 限高滚动 + aria 标签)
+    function buildStudioExpansionPreview(text) {
+      var box = document.createElement("div")
+      box.className = "studio-prompt-expansion-preview"
+      var viewport = document.createElement("div")
+      viewport.className = "studio-prompt-expansion-preview-viewport"
+      viewport.setAttribute("aria-label", "提示词扩写过程")
+      var content = document.createElement("div")
+      content.className = "studio-prompt-expansion-preview-content"
+      content.textContent = text
+      viewport.appendChild(content)
+      box.appendChild(viewport)
+      return box
+    }
+    // 扩写完成审阅卡(对齐 StudioPromptExpansionReviewView 静态版:两段文案 + 标签 chips +
+    // 渐变边框编辑框;分享页为历史快照,无交互故不出确认/忽略按钮 —— 与非最新轮的 app 渲染一致)
+    function buildStudioExpansionReview(turn) {
+      var review = document.createElement("div")
+      review.className = "studio-prompt-expansion-review"
+      var p1 = document.createElement("p")
+      p1.className = "studio-prompt-expansion-copy"
+      p1.textContent = "已完成图文反推，以下是基于参考图生成的可执行Prompt，可直接编辑后确认使用："
+      review.appendChild(p1)
+      if (turn.recommendation && turn.recommendation.tags && turn.recommendation.tags.length > 0) {
+        var tags = document.createElement("div")
+        tags.className = "studio-prompt-expansion-tags"
+        for (var t = 0; t < turn.recommendation.tags.length; t++) {
+          var chip = document.createElement("span")
+          chip.title = turn.recommendation.tags[t]
+          var inner = document.createElement("span")
+          inner.textContent = turn.recommendation.tags[t]
+          chip.appendChild(inner)
+          tags.appendChild(chip)
+        }
+        review.appendChild(tags)
+      }
+      var p2 = document.createElement("p")
+      p2.className = "studio-prompt-expansion-copy"
+      p2.textContent = "已基于您选中的图片风格进行扩写，可直接编辑后确认使用："
+      review.appendChild(p2)
+      var editor = document.createElement("div")
+      editor.className = "studio-prompt-expansion-editor"
+      var title = document.createElement("div")
+      title.className = "studio-prompt-expansion-editor-title"
+      title.textContent = "扩写结果（可编辑）"
+      editor.appendChild(title)
+      var text = document.createElement("div")
+      text.className = "studio-prompt-expansion-editor-text"
+      // 审阅文本 = 扩写产出的 assistant 正文(对齐 expansionReview.text 的 draft ?? turn.assistantText 静态分支)
+      text.textContent = turn.assistantText || turn.previewText || ""
+      editor.appendChild(text)
+      review.appendChild(editor)
+      return review
+    }
 
     // 用户气泡文本:@引用渲染为 chip,其余按纯文本(对齐 StudioUserBubbleText)
     function buildStudioUserBubbleText(text, mentionImages) {
@@ -3463,15 +5246,20 @@
         return el
       }
 
-      // 助手文案:扩写 running/cancelling/completed 时由预览文本替代(对齐 result 分支)
+      // 助手文案:扩写 running/cancelling/completed 时由扩写状态/预览/审阅卡替代(对齐 studio-conversation result 分支)
       var suppressAssistantText = turn.recommendation && turn.recommendation.kind === "result" &&
         ["running", "cancelling", "completed"].indexOf(turn.recommendation.status) !== -1
       if (suppressAssistantText) {
-        if (turn.recommendation.status === "completed" && turn.previewText) {
-          var preview = document.createElement("div")
-          preview.className = "studio-assistant-copy"
-          preview.textContent = turn.previewText
-          el.appendChild(preview)
+        if (turn.recommendation.status === "completed") {
+          el.appendChild(buildStudioExpansionReview(turn))
+        } else if (turn.recommendation.status === "running" && turn.previewText) {
+          el.appendChild(buildStudioExpansionPreview(turn.previewText))
+        } else {
+          var expansionStatus = document.createElement("div")
+          expansionStatus.className = "studio-prompt-expansion"
+          expansionStatus.setAttribute("role", "status")
+          expansionStatus.textContent = turn.recommendation.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"
+          el.appendChild(expansionStatus)
         }
       } else {
         var copy = sanitizeStudioAssistantText(turn.assistantText)
@@ -3520,15 +5308,20 @@
         isLandscape = STUDIO_LANDSCAPE_RATIOS.indexOf(ratio) !== -1
       }
       var count = media.length
+      // 注意:app 的 StudioResultCard 实际从不应用 multi-landscape-4(studio-03.css 中为死样式),不追加
       if (isPortrait) return count === 1 ? "single-portrait" : "multi-portrait"
-      if (isLandscape) return count === 1 ? "single-landscape" : (count === 4 ? "multi-landscape multi-landscape-4" : "multi-landscape")
+      if (isLandscape) return count === 1 ? "single-landscape" : "multi-landscape"
       return count === 1 ? "single-1x1" : "multi-1x1"
     }
 
-    // 结果卡片(对齐 studio-result-card.tsx:能力图标 + 标签 + 状态徽标 + 创建时间 + 网格/错误)
+    // 结果卡片(对齐 studio-result-card.tsx:能力图标 + 标签 + 状态徽标(含 creating/queued/running 细分
+    // + 排队数 + 进度条) + 创建时间 + 网格/错误;分享页不出取消/重编/刷新等交互按钮)
     function buildStudioResultCard(result, token, imageBlobMap) {
+      var generating = ["creating", "queued", "running"].indexOf(result.status) !== -1
       var card = document.createElement("div")
       card.className = "studio-result-card" +
+        (generating ? " generating" : "") +
+        (result.status === "queued" ? " queued" : "") +
         (result.status === "succeeded" ? " complete"
           : ["failed", "create_failed"].indexOf(result.status) !== -1 ? " failed"
           : result.status === "abnormal" ? " abnormal" : "")
@@ -3554,6 +5347,27 @@
       status.textContent = statusLabel
       left.appendChild(title)
       left.appendChild(status)
+      // 排队人数(对齐 StudioResultCard:queued 时显示「当前排队N人」)
+      if (result.status === "queued") {
+        left.appendChild(makeSpan("studio-result-queue-count", "当前排队" + (result.order || 1) + "人"))
+      }
+      // 进度条 + 百分比(对齐 StudioResultCard:running 时显示 progress track/fill/percent)
+      if (result.status === "running") {
+        var percent = Math.round(Math.min(100, Math.max(0, result.progress ?? 0)))
+        var track = document.createElement("div")
+        track.className = "studio-result-progress-track"
+        track.setAttribute("role", "progressbar")
+        track.setAttribute("aria-label", studioCapabilityLabel(result.capability) + statusLabel)
+        track.setAttribute("aria-valuemin", "0")
+        track.setAttribute("aria-valuemax", "100")
+        track.setAttribute("aria-valuenow", String(percent))
+        var fill = document.createElement("div")
+        fill.className = "studio-result-progress-fill"
+        fill.style.width = percent + "%"
+        track.appendChild(fill)
+        left.appendChild(track)
+        left.appendChild(makeSpan("studio-result-progress-percent", percent + "%"))
+      }
       header.appendChild(left)
       card.appendChild(header)
       if (result.createdAt) {
@@ -3571,8 +5385,8 @@
           grid.appendChild(buildStudioGridThumb(result.media[i], result, token, imageBlobMap))
         }
         preview.appendChild(grid)
-      } else {
-        // 失败/异常:错误文案(对齐 .studio-result-error-box)
+      } else if (["failed", "create_failed", "abnormal"].indexOf(result.status) !== -1) {
+        // 失败/异常:错误文案(对齐 .studio-result-error-box;abnormal 为固定提示文案)
         var errorBox = document.createElement("div")
         errorBox.className = "studio-result-error-box"
         var errorIcon = document.createElement("img")
@@ -3580,7 +5394,10 @@
         errorIcon.alt = ""
         errorIcon.className = "studio-result-error-icon"
         errorBox.appendChild(errorIcon)
-        errorBox.appendChild(makeSpan("studio-result-error", result.error || "生成失败"))
+        errorBox.appendChild(makeSpan("studio-result-error",
+          result.status === "abnormal"
+            ? "生成耗时较长，状态异常，请刷新状态"
+            : result.error || "生成失败"))
         preview.appendChild(errorBox)
       }
       card.appendChild(preview)
@@ -3659,7 +5476,7 @@
         } else {
           wrapper.appendChild(studioMediaPlaceholder("video"))
         }
-        var badgeText = studioFormatDuration(result.duration)
+        var badgeText = studioFormatDuration(item.duration !== undefined ? item.duration : result.duration)
         if (badgeText) {
           var badge = document.createElement("span")
           badge.className = "studio-file-manager-media-video-badge studio-result-video-duration-badge"

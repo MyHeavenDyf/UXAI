@@ -27,6 +27,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { setStudioSessionGenerating } from "@/hooks/use-session-share-busy"
 import { getMappingStore } from "@/hooks/use-session-groups"
 import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
 import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
@@ -1233,6 +1234,19 @@ function StudioPageContent() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  let sharedBusySessionID: string | undefined
+  createEffect(() => {
+    const sessionID = pendingResult()?.sessionID ?? params.id
+    const busy = isBusy()
+    if (sharedBusySessionID && (!busy || sharedBusySessionID !== sessionID)) {
+      setStudioSessionGenerating(sharedBusySessionID, false)
+    }
+    if (sessionID && busy) setStudioSessionGenerating(sessionID, true)
+    sharedBusySessionID = busy ? sessionID : undefined
+  })
+  onCleanup(() => {
+    if (sharedBusySessionID) setStudioSessionGenerating(sharedBusySessionID, false)
+  })
   const isActionBusy = createMemo(() =>
     recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
@@ -2144,7 +2158,12 @@ function StudioPageContent() {
 
   function closeMenu() {
     setHeaderTitle("menuOpen", false)
+    setMenuTriggerEl(undefined)
   }
+
+  // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
+  // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
+  createEffect(on(() => params.id, () => closeMenu()))
 
   const { togglePin: togglePinSession } = useSessionPin()
 
@@ -5527,10 +5546,10 @@ function StudioPageContent() {
                   aria-label={language.t("common.moreOptions")}
                   aria-expanded={headerTitle.menuOpen}
                   onClick={(e) => {
-                    tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    if (!headerTitle.menuOpen) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
                     setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
-                    setHeaderTitle("menuOpen", true)
+                    setHeaderTitle("menuOpen", !headerTitle.menuOpen)
                   }}
                 >
                   <Icon name="ellipsis" class="size-4" />

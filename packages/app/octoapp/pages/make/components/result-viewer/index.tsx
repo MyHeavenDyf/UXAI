@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, onCleanup, Show, Switch, Match, For, untrack } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showOctoToast } from "../octo-toast"
@@ -34,6 +34,7 @@ import { tracker } from "@/utils/tracker"
 import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
+import { pauseAssessment } from "../../utils/assessment-state"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { sendTextToAgent } from "../../utils/agent-events"
@@ -181,6 +182,13 @@ export function ResultViewer(props: {
     disposeAllPrototypeSessions()
     featureMutex.disableAll()
   }, { defer: true }))
+  // ActionBar 切换到其它功能(局部修改/框选编辑/标注/归档等):暂停待修改评估。
+  createEffect(() => {
+    const s = featureMutex.state
+    if (s.editing || s.modelEditing || s.drawing || s.commenting || s.archiving || s.inspecting) {
+      untrack(() => pauseAssessment())
+    }
+  })
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [refreshKey, setRefreshKey] = createSignal(0)
   // ★ 每个 HTML tab 的 iframe 句柄,按 tabId 索引(切换 tab 时不再销毁 iframe,所以句柄要分开存)
@@ -718,8 +726,9 @@ archiving={featureMutex.state.archiving}
                       historyEntries={props.historyEntries}
                       currentVersionId={props.currentVersionId}
                       onHistorySwitch={props.onHistorySwitch}
-                      onHistoryToggle={props.onHistoryToggle}
-                       sessionId={props.sessionId}
+                       onHistoryToggle={props.onHistoryToggle}
+                       onAssessmentActivate={() => featureMutex.disableAll()}
+                        sessionId={props.sessionId}
                        sdkDirectory={props.sdkDirectory}
                         workspaceKind={workspaceKind()}
                         skillConfig={props.skillConfig}

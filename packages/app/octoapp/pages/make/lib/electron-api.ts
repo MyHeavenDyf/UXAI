@@ -99,6 +99,8 @@ export type DesktopApi = {
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
+  /** 设计系统下拉选择持久化（主进程 handler 由后续任务实现） */
+  setDesignSystemSkillConfig?: (skillName: string) => Promise<void>
   /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: CodeManifest }>
   /** 导出 ZIP 压缩包 */
