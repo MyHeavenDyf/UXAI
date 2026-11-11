@@ -220,6 +220,9 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                   "font-family": "monospace",
                   outline: "none",
                   background: "var(--octo-surface, #fff)",
+                  overflow: "hidden",
+                  "text-overflow": "ellipsis",
+                  "white-space": "nowrap",
                 }}
               />
 
