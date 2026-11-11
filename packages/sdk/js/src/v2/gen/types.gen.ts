@@ -1637,6 +1637,10 @@ export type BadRequestError = {
   success: false
 }
 
+export type InternalServerError = {
+  message: string
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -5378,6 +5382,19 @@ export type ProjectInitGitData = {
   url: "/project/git/init"
 }
 
+export type ProjectInitGitErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+
 export type ProjectInitGitResponses = {
   /**
    * Project information after git initialization
@@ -5402,6 +5419,10 @@ export type ProjectGetGitRemoteErrors = {
    * BadRequestError
    */
   400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
 }
 
 export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
@@ -5434,6 +5455,10 @@ export type ProjectAddGitRemoteErrors = {
    * BadRequestError
    */
   400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
 }
 
 export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]

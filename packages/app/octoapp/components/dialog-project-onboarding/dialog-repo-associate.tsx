@@ -73,7 +73,17 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
     void globalSDK.client.project
       .addGitRemote({ directory: props.directory, url })
       .then((res) => props.onConfirm(res.data?.remoteUrl ?? url))
-      .catch((err) => setError(err instanceof Error ? err.message : "关联代码仓失败"))
+      .catch((err) => {
+        // SDK throwOnError 时抛出的是 JSON 响应体(非 Error 实例),需从对象中提取 message
+        const message = err instanceof Error
+          ? err.message
+          : typeof err === "object" && err !== null && "message" in err
+            ? err.message
+            : typeof err === "string"
+              ? err
+              : "关联代码仓失败"
+        setError(message)
+      })
       .finally(() => setSubmitting(false))
   }
 
@@ -117,6 +127,8 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
     if (status() === "not-found") return hasUrl() && isValidUrl() && !submitting()
     return false
   })
+
+  const [inputFocused, setInputFocused] = createSignal(false)
 
   return (
     <Portal>
@@ -193,9 +205,11 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
               <input
                 type="text"
                 value={repoUrl()}
-              onInput={(e) => {
-                setRepoUrl(e.currentTarget.value)
-              }}
+                onInput={(e) => {
+                  setRepoUrl(e.currentTarget.value)
+                }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 placeholder="请输入代码仓地址"
                 aria-required="true"
                 aria-invalid={showFormatError()}
@@ -210,6 +224,9 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                   "font-family": "monospace",
                   outline: "none",
                   background: "var(--octo-surface, #fff)",
+                  overflow: inputFocused() ? "visible" : "hidden",
+                  "text-overflow": inputFocused() ? "clip" : "ellipsis",
+                  "white-space": inputFocused() ? "normal" : "nowrap",
                 }}
               />
 
