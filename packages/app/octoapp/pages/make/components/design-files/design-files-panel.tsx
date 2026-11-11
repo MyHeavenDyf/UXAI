@@ -121,6 +121,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const isExternal = createMemo(() => !!local.model.current()?.isExternal)
 
+  // 代码工作区「拉取/提交代码」:git 经桌面端 git-command IPC 执行(白名单子命令),
+  // 浏览器 dev 环境无 window.api.gitCommand 时按钮保持禁用
+  const [gitAvailable, setGitAvailable] = createSignal(false)
+  const [gitBusy, setGitBusy] = createSignal<"pull" | "commit" | null>(null)
+
   // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
   function checkExternalFile(file: File): boolean {
     if (!local.model.current()?.isExternal) return true
@@ -196,6 +201,14 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     () => props.refreshKey,
     () => {
       void refresh()
+    }
+  ))
+
+  // git remote -v 有输出(是代码仓且已关联远程)才启用拉取/提交按钮;非代码仓/无远程/spawn 失败均禁用
+  createEffect(on(
+    [() => sdk.directory, projectScope],
+    () => {
+      void detectGit()
     }
   ))
 
@@ -436,6 +449,80 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
     api.showItemInFolder(file.path)
     tracker.interaction({ module: "design", name: "files-open-in-explorer" })
+  }
+
+  // git 执行入口:桌面端 git-command IPC;不可用(浏览器 dev/无目录)或 spawn 级失败返回 undefined
+  async function runGit(args: string[]): Promise<{ ok: boolean; code: number; stdout: string; stderr: string } | undefined> {
+    const api = getDesktopApi()
+    const dir = sdk.directory
+    if (!api?.gitCommand || !dir) return undefined
+    try {
+      return await api.gitCommand(dir, args)
+    } catch (err) {
+      console.error("[DesignFilesPanel] git spawn failed:", args.join(" "), err)
+      return undefined
+    }
+  }
+
+  async function detectGit() {
+    if (!projectScope()) return
+    const result = await runGit(["remote", "-v"])
+    setGitAvailable(!!result && result.ok && result.stdout.trim() !== "")
+  }
+
+  const gitBusyGuard = () => gitBusy() !== null || !gitAvailable()
+
+  async function handleGitPull() {
+    if (gitBusyGuard()) return
+    setGitBusy("pull")
+    try {
+      const result = await runGit(["pull", "--rebase"])
+      if (result?.ok) {
+        showOctoToast({ title: "拉取完成", description: result.stdout.trim().split("\n")[0] || undefined })
+        tracker.interaction({ module: "design", name: "files-git-pull" })
+        await refresh()
+        props.onFilesRefresh?.()
+      } else {
+        showOctoToast({ title: "拉取失败", description: result ? result.stderr.trim() || `exit ${result.code}` : "当前环境不支持此操作", variant: "error" })
+      }
+    } finally {
+      setGitBusy(null)
+      void detectGit()
+    }
+  }
+
+  async function handleGitCommitPush() {
+    if (gitBusyGuard()) return
+    setGitBusy("commit")
+    try {
+      const addResult = await runGit(["add", "."])
+      if (!addResult?.ok) {
+        showOctoToast({ title: "提交失败", description: addResult ? addResult.stderr.trim() || `exit ${addResult.code}` : "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      const commitResult = await runGit(["commit", "-m", "octoagent commit"])
+      if (!commitResult) {
+        showOctoToast({ title: "提交失败", description: "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      // nothing to commit:本地无新变更(可能存在未推送提交),继续 push
+      if (!commitResult.ok && !/nothing to commit/i.test(commitResult.stderr + commitResult.stdout)) {
+        showOctoToast({ title: "提交失败", description: commitResult.stderr.trim() || `exit ${commitResult.code}`, variant: "error" })
+        return
+      }
+      const pushResult = await runGit(["push"])
+      if (!pushResult?.ok) {
+        showOctoToast({ title: "推送失败", description: pushResult ? pushResult.stderr.trim() || `exit ${pushResult.code}` : "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      showOctoToast({ title: "提交完成" })
+      tracker.interaction({ module: "design", name: "files-git-commit-push" })
+      await refresh()
+      props.onFilesRefresh?.()
+    } finally {
+      setGitBusy(null)
+      void detectGit()
+    }
   }
 
   const handleUpload = async (files: FileList) => {
@@ -833,6 +920,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
           showDelete={!projectScope()}
+          gitEnabled={projectScope() ? gitAvailable : undefined}
+          gitBusy={projectScope() ? gitBusy : undefined}
+          onGitPull={projectScope() ? handleGitPull : undefined}
+          onGitPush={projectScope() ? handleGitCommitPush : undefined}
         />
       </Show>
 

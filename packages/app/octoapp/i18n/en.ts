@@ -1175,6 +1175,8 @@ export const dict = {
 
   "designFiles.download": "Download",
   "designFiles.batchDelete": "Delete",
+  "designFiles.pullCode": "Pull",
+  "designFiles.pushCode": "Commit",
 
   "designFiles.timeToday": "Today",
   "designFiles.timeYesterday": "Yesterday",
