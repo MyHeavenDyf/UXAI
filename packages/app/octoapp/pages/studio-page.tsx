@@ -43,6 +43,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  isSeedreamStyleModel,
   referenceImageLimit,
   styleModelId,
   styleModelLabel,
@@ -105,6 +106,7 @@ import {
   hasVideoFrameAssets,
   isVideoMedia,
   isStudioGenerationFailure,
+  isStudioCustomSizeValid,
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
@@ -137,7 +139,7 @@ import { createRecommendationSettings, type RecommendationImageSettings } from "
 import { createRecommendationMode } from "./studio/studio-recommendation-mode"
 import { createStudioDraftCapture, restoreStudioDraft } from "./studio/studio-draft-restore"
 import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
+import { createExpansionReview, generateExpansion, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
@@ -2490,25 +2492,26 @@ function StudioPageContent() {
       currentTemplate &&
         !options?.preserveStyleTemplate &&
         value !== styleModel() &&
-        nextStyleModelID !== "seedream-5-lite" &&
+        !isSeedreamStyleModel(value) &&
         nextStyleModelID !== "qwen",
     )
-    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    // 规则变化时清空不兼容尺寸，Lite/Pro 间保留仍然有效的自定义尺寸。
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
-    if (prevIsSeedream !== nextIsSeedream) {
+    const resetCustomSize = prevIsSeedream !== nextIsSeedream || (
+      isCustomStore() &&
+      isSeedreamStyleModel(styleModel()) &&
+      isSeedreamStyleModel(value) &&
+      !isStudioCustomSizeValid(value, customWidth(), customHeight())
+    )
+    if (resetCustomSize) {
       setIsCustomStore(false)
       setCustomWidth(0)
       setCustomHeight(0)
-    } else if (isCustomStore()) {
-      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
-      const prevIsQwen = styleModel() === "qwen"
-      const nextIsQwen = value === "qwen"
-      if (!prevIsQwen && nextIsQwen) {
-        // 从其他模型切到千问：钳位到千问上限 1664
-        setCustomWidth(Math.min(customWidth(), 1664))
-        setCustomHeight(Math.min(customHeight(), 1664))
-      }
+    }
+    if (!resetCustomSize && isCustomStore() && styleModelId(styleModel()) !== "qwen" && nextStyleModelID === "qwen") {
+      setCustomWidth(Math.min(customWidth(), 1664))
+      setCustomHeight(Math.min(customHeight(), 1664))
     }
     if (recommendationActive()) {
       setStyleModel(value)
@@ -4304,6 +4307,10 @@ function StudioPageContent() {
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
+    if (nextCapability === "image.generate" && nextIsCustom && !isStudioCustomSizeValid(nextStyleModel, nextWidth, nextHeight)) {
+      showFloatingNotice("info", "当前自定义尺寸不符合所选模型要求，请调整后重试。")
+      return
+    }
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
     const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
@@ -5167,22 +5174,16 @@ function StudioPageContent() {
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
-  async function generateFromExpansion(turn: StudioTurnData, choice: "confirmed" | "ignored") {
-    if (!canGenerateExpansion() || !expansionReview.editable(turn)) return
-    const text = (choice === "confirmed" ? expansionReview.text(turn) : turn.userText).trim()
-    if (!text) return
-    if ((turn.inputImages?.length ?? 0) > referenceImageLimit(styleModel())) {
-      showFloatingNotice("info", "参考图数量超过当前模型上限，请调整模型后重试。")
-      return
-    }
-    if (!expansionReview.choose(turn, choice)) return
-    await runGeneration({
-      ...expansionGenerationInput(turn, text, recommendationSettings.image()),
-      inputPolicy: "preserve",
-      styleModel: styleModel(),
-      detailTitle: buildStudioDisplayPrompt(text),
-    })
-  }
+  const generateFromExpansion = (turn: StudioTurnData, choice: "confirmed" | "ignored") => generateExpansion({
+    turn,
+    choice,
+    ready: canGenerateExpansion(),
+    review: expansionReview,
+    styleModel: styleModel(),
+    settings: recommendationSettings.image(),
+    notify: (message) => showFloatingNotice("info", message),
+    generate: (request) => runGeneration({ ...request, detailTitle: buildStudioDisplayPrompt(request.prompt) }),
+  })
 
   function exitRecommendation() {
     setDraftAction("revision", (value) => value + 1)

@@ -4,7 +4,7 @@ import solid from "vite-plugin-solid"
 import { createComponent, createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio-prompt-expansion-review"
+import { createExpansionReview, expansionGenerationInput, generateExpansion, type ExpansionReviews } from "./studio-prompt-expansion-review"
 import type { StudioTurnData } from "./turns"
 import type { StudioCapability } from "./types"
 import { createRecommendationSettings, type RecommendationImageSettings } from "./studio-recommendation-settings"
@@ -37,12 +37,14 @@ const turn: StudioTurnData = {
 
 function setup(input = turn, options?: {
   capability?: StudioCapability
+  styleModel?: string
   last?: RecommendationImageSettings
   cached?: RecommendationImageSettings
 }) {
   return createRoot((dispose) => {
     const [state, setState] = createStore({
       busy: false, canGenerate: true, capability: options?.capability ?? "image.generate",
+      styleModel: options?.styleModel ?? "qwen",
       shared: {
         aspectRatio: options?.capability === "video.generate" ? "21:9" : "3:4",
         count: options?.capability === "video.generate" ? 1 : 4,
@@ -80,8 +82,16 @@ function setup(input = turn, options?: {
       get canGenerate() { return state.canGenerate },
       onInput: (text) => review.update(input, text),
       onChoose: (choice) => {
-        const text = choice === "confirmed" ? review.text(input) : input.userText
-        if (review.choose(input, choice)) requests.push(expansionGenerationInput(input, text, settings.image()))
+        void generateExpansion({
+          turn: input,
+          choice,
+          ready: !state.busy && state.canGenerate,
+          review,
+          styleModel: state.styleModel,
+          settings: settings.image(),
+          notify: () => {},
+          generate: async (request) => { requests.push(request) },
+        })
       },
     }), container)
     return {
@@ -156,6 +166,33 @@ test("busy or unavailable image generation disables both actions", async () => {
     value.setState("canGenerate", false)
     expect(buttons(value.container).every((button) => button.disabled)).toBe(true)
     expect(textarea(value.container).readOnly).toBe(false)
+  } finally { value.dispose() }
+})
+
+test.each(["confirmed", "ignored"] as const)("%s keeps the editor and buttons available after invalid restored dimensions", async (choice) => {
+  const value = setup(turn, {
+    styleModel: "seedream-5-lite",
+    cached: { aspectRatio: "16:9", count: 1, customWidth: 1280, customHeight: 720, isCustom: true },
+  })
+  try {
+    await Bun.sleep(0)
+    textarea(value.container).value = "保留的编辑稿"
+    textarea(value.container).dispatchEvent(new Event("input", { bubbles: true }))
+    buttons(value.container)[choice === "confirmed" ? 0 : 1]!.click()
+    expect(value.requests).toHaveLength(0)
+    expect(buttons(value.container)).toHaveLength(2)
+    expect(textarea(value.container).readOnly).toBe(false)
+    expect(textarea(value.container).value).toBe("保留的编辑稿")
+
+    value.setState("styleModel", "seedream-5-pro")
+    buttons(value.container)[choice === "confirmed" ? 0 : 1]!.click()
+    expect(value.requests).toHaveLength(1)
+    expect(value.requests[0]).toMatchObject({
+      prompt: choice === "confirmed" ? "保留的编辑稿" : turn.userText,
+      width: 1280,
+      height: 720,
+    })
+    expect(buttons(value.container)).toHaveLength(0)
   } finally { value.dispose() }
 })
 
