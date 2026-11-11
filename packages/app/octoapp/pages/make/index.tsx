@@ -3793,6 +3793,9 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
+
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
       
       // Clear mention selections after processing
       setMentionSelections([])
@@ -4047,9 +4050,6 @@ const sessionMessagesLoaded = createMemo(() => {
       if (artifactFolderPrefix) {
         promptText = artifactFolderPrefix + "\n" + promptText
       }
-
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
 
       const textPart: TextPartInput = { 
         type: "text", 
