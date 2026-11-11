@@ -1696,8 +1696,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
-      void harvestAssessmentReview()
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
+      void harvestAssessmentReview(() => effectiveBusy())
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
