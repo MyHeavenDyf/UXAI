@@ -122,7 +122,7 @@ export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
   readonly update: (input: UpdateInput) => Effect.Effect<Info>
-  readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
+  readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info, Error>
   readonly getGitRemote: (input: { directory: string }) => Effect.Effect<{ remoteUrl: string }, Error>
   readonly addGitRemote: (input: { directory: string; url: string }) => Effect.Effect<{ remoteUrl: string }, Error>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
@@ -217,18 +217,7 @@ export const layer: Layer.Layer<
         }
 
         let sandbox = pathSvc.dirname(dotgit)
-        const gitBinary = yield* Effect.sync(() => which("git"))
         let id = yield* readCachedProjectId(dotgit)
-
-        if (!gitBinary) {
-          log.info("fromDirectory:no-git-binary", { directory, dotgit })
-          return {
-            id: id ?? ProjectID.global,
-            worktree: sandbox,
-            sandbox,
-            vcs: fakeVcs,
-          }
-        }
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
         if (commonDir.code !== 0) {
@@ -421,10 +410,12 @@ export const layer: Layer.Layer<
 
     const initGit = Effect.fn("Project.initGit")(function* (input: { directory: string; project: Info }) {
       if (input.project.vcs === "git") return input.project
-      if (!(yield* Effect.sync(() => which("git")))) throw new Error("Git is not installed")
       const result = yield* git(["init", "--quiet"], { cwd: input.directory })
       if (result.code !== 0) {
-        throw new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository")
+        if (!result.stderr && !result.text) {
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
+        }
+        yield* Effect.fail(new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository"))
       }
       const { project } = yield* fromDirectory(input.directory)
       return project
@@ -439,7 +430,7 @@ export const layer: Layer.Layer<
         // git 正常退出但返回非零(如"No remote configured")→ 未配置,返回空串
         // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → git 不可用
         if (!result.stderr && !result.text) {
-          yield* Effect.fail(new Error("Git is not available — ensure git is installed and in PATH"))
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
         }
         return { remoteUrl: "" }
       }
@@ -454,7 +445,7 @@ export const layer: Layer.Layer<
       const initCheck = yield* git(["rev-parse", "--git-dir"], { cwd: input.directory })
       if (initCheck.code !== 0) {
         if (!initCheck.stderr && !initCheck.text) {
-          yield* Effect.fail(new Error("Git is not available — ensure git is installed and in PATH"))
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
         }
         const initResult = yield* git(["init", "--quiet"], { cwd: input.directory })
         if (initResult.code !== 0) {

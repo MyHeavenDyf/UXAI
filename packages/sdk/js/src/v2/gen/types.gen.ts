@@ -5378,6 +5378,15 @@ export type ProjectInitGitData = {
   url: "/project/git/init"
 }
 
+export type ProjectInitGitErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+}
+
+export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+
 export type ProjectInitGitResponses = {
   /**
    * Project information after git initialization

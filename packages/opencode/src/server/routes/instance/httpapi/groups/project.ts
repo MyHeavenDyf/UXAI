@@ -39,6 +39,7 @@ export const ProjectApi = HttpApi.make("project")
         ),
         HttpApiEndpoint.post("initGit", `${root}/git/init`, {
           success: described(Project.Info, "Project information after git initialization"),
+          error: [ApiBadRequestError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "project.initGit",

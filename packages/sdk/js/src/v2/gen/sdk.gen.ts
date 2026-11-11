@@ -133,6 +133,7 @@ import type {
   ProjectCurrentResponses,
   ProjectGetGitRemoteErrors,
   ProjectGetGitRemoteResponses,
+  ProjectInitGitErrors,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectUpdateErrors,
@@ -3083,7 +3084,7 @@ export class Project extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).post<ProjectInitGitResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).post<ProjectInitGitResponses, ProjectInitGitErrors, ThrowOnError>({
       url: "/project/git/init",
       ...options,
       ...params,

@@ -78,7 +78,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
         const message = err instanceof Error
           ? err.message
           : typeof err === "object" && err !== null && "message" in err
-            ? String(err.message)
+            ? err.message
             : typeof err === "string"
               ? err
               : "关联代码仓失败"
@@ -130,6 +130,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
 
   return (
     <Portal>
+      <style>{`.repo-url-input:focus { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }`}</style>
       <div
         class="fixed inset-0 z-[60] flex items-center justify-center"
         style={{ background: "rgba(0, 0, 0, 0.5)" }}
@@ -209,7 +210,7 @@ export function DialogRepoAssociate(props: DialogRepoAssociateProps) {
                 placeholder="请输入代码仓地址"
                 aria-required="true"
                 aria-invalid={showFormatError()}
-                class="w-full"
+                class="w-full repo-url-input"
                 style={{
                   height: "40px",
                   "margin-top": "8px",

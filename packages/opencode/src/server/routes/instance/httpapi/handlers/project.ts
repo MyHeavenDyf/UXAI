@@ -42,7 +42,11 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
 
     const initGit = Effect.fn("ProjectHttpApi.initGit")(function* () {
       const ctx = yield* InstanceState.context
-      const next = yield* svc.initGit({ directory: ctx.directory, project: ctx.project })
+      const next = yield* svc.initGit({ directory: ctx.directory, project: ctx.project }).pipe(
+        Effect.mapError((err) =>
+          new ApiBadRequestError({ message: err instanceof Error ? err.message : String(err) }),
+        ),
+      )
       if (next.id === ctx.project.id && next.vcs === ctx.project.vcs && next.worktree === ctx.project.worktree)
         return next
       yield* markInstanceForReload(ctx, {
