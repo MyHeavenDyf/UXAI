@@ -2,7 +2,7 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { For, Show, createSignal } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { MODEL_TRIGGER_BASE_CLASS } from "@/components/dialog-select-model"
-import { IconPaintPalette } from "../icons"
+import { IconPaintPalette, IconSizeCheckmark } from "../icons"
 
 export const DESIGN_SYSTEM_NONE = "不使用设计系统"
 
@@ -36,7 +36,7 @@ export function DesignSystemSelector(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="max-w-[180px] flex flex-col px-2 pt-2 pb-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          class="max-w-[320px] flex flex-col px-2 pt-2 pb-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
           style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
         >
           <Kobalte.Title class="sr-only">选择设计系统</Kobalte.Title>
@@ -45,10 +45,10 @@ export function DesignSystemSelector(props: {
               {(item) => (
                 <button
                   type="button"
-                  class={`flex w-full items-center h-9 px-3 mb-1 rounded-[6px] text-left text-[14px] leading-[22px] text-[#191919] transition-colors ${
+                  class={`flex w-full items-center h-9 px-3 mb-1 rounded-[6px] text-left text-[14px] leading-[22px] transition-colors ${
                     props.selected === item
-                      ? "bg-[rgba(0,0,0,0.05)]"
-                      : "hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      ? "text-[#0A59F7]"
+                      : "text-[#191919] hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
                   }`}
                   title={item ?? DESIGN_SYSTEM_NONE}
                   onClick={() => {
@@ -57,6 +57,9 @@ export function DesignSystemSelector(props: {
                   }}
                 >
                   <span class="truncate">{item ?? DESIGN_SYSTEM_NONE}</span>
+                  <Show when={props.selected === item}>
+                    <IconSizeCheckmark size={14} class="ml-auto shrink-0" />
+                  </Show>
                 </button>
               )}
             </For>
