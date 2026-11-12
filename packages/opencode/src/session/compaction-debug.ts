@@ -1,12 +1,14 @@
 import { mkdirSync } from "node:fs"
+import os from "os"
 import path from "path"
 import { Cause, Effect, Exit } from "effect"
-import { InstanceState } from "@/effect/instance-state"
 import { Token } from "@/util/token"
 import * as Log from "@opencode-ai/core/util/log"
 import type { SessionID } from "./schema"
 
 const log = Log.create({ service: "session.compaction-debug" })
+
+const ANALYSIS_DIR = path.join(os.homedir(), ".temp", "octo-compact-analysis")
 
 const triggers = new Map<SessionID, { index: number; stamp: string }>()
 
@@ -35,7 +37,6 @@ type DumpInput = {
 }
 
 const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpInput) {
-  const ctx = yield* InstanceState.context
   const trigger =
     input.phase === "before"
       ? { index: (triggers.get(input.sessionID)?.index ?? 0) + 1, stamp: stamp() }
@@ -73,10 +74,9 @@ const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpIn
     "",
   ].join("\n")
 
-  const dir = path.join(ctx.directory, "analysis")
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(ANALYSIS_DIR, { recursive: true })
   yield* Effect.promise(() =>
-    Bun.write(path.join(dir, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content),
+    Bun.write(path.join(ANALYSIS_DIR, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content),
   )
 })
 

@@ -856,7 +856,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           activeTools: request.activeTools,
         })
       }).pipe(Effect.exit)
-      if (Exit.isFailure(exit)) yield* elog.warn("compaction debug dump failed", { error: Cause.squash(exit.cause) })
+      if (Exit.isSuccess(exit)) return
+      const error = Cause.squash(exit.cause)
+      yield* elog.warn("compaction debug dump failed", { error })
+      yield* CompactionDebug.dump({
+        sessionID: input.sessionID,
+        phase: input.phase,
+        outcome: input.outcome,
+        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+        model: `${input.model.providerID}/${input.model.id}`,
+        system: [],
+        modelMsgs: [],
+        activeTools: {},
+      })
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
