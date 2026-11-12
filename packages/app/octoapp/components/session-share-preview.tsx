@@ -12,7 +12,7 @@ import {
 
 function PreviewMessage(props: { message: SharePreviewMessage; assistantLabel: string; top: number; resize: (height: number) => void }) {
   const content = createMemo(() => previewMessageContent(props.message))
-  const [state, setState] = createStore({ expanded: false })
+  const [state, setState] = createStore({ expanded: false, reasoningExpanded: true })
   let root!: HTMLElement
   onMount(() => {
     const observer = new ResizeObserver(() => props.resize(root.getBoundingClientRect().height))
@@ -29,7 +29,28 @@ function PreviewMessage(props: { message: SharePreviewMessage; assistantLabel: s
       <div class="share-preview-role">{props.message.role === "user" ? "用户" : props.assistantLabel}</div>
       <Show when={content().files.length}>
         <div class="share-preview-files">
-          <For each={content().files}>{(file) => <span title={file.name}>▧ {file.name}</span>}</For>
+          <For each={content().files}>{(file) => (
+            <div class="share-preview-file" title={file.name}>
+              <img src="/AI_doc_plaintext.svg" class="share-preview-file-icon" alt="" />
+              <span>{file.name}</span>
+            </div>
+          )}</For>
+        </div>
+      </Show>
+      <Show when={content().reasoning}>
+        <div class="share-preview-reasoning">
+          <button
+            type="button"
+            class="share-preview-reasoning-toggle"
+            aria-expanded={state.reasoningExpanded}
+            onClick={() => setState("reasoningExpanded", (value) => !value)}
+          >
+            <span>思考过程</span>
+            <span classList={{ "is-expanded": state.reasoningExpanded }} aria-hidden="true">›</span>
+          </button>
+          <Show when={state.reasoningExpanded}>
+            <p class="share-preview-reasoning-text">{content().reasoning}</p>
+          </Show>
         </div>
       </Show>
       <Show when={content().text}>

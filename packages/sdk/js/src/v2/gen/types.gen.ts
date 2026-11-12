@@ -6257,6 +6257,7 @@ export type SessionSharePreviewResponses = {
       id: string
       role: "user" | "assistant"
       text: string
+      reasoning?: string
       truncated: boolean
       files: Array<{
         name: string

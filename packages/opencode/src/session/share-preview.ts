@@ -11,6 +11,7 @@ export const PreviewMessage = Schema.Struct({
   id: Schema.String,
   role: Schema.Literals(["user", "assistant"]),
   text: Schema.String,
+  reasoning: Schema.optional(Schema.String),
   truncated: Schema.Boolean,
   files: Schema.Array(Schema.Struct({ name: Schema.String, mime: Schema.String })),
 })
@@ -156,8 +157,10 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
             and(
               eq(PartTable.message_id, row.id),
               (session.agent === "octo_insight" || session.agent === "octo_studio") && row.role === "assistant"
-                ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'tool')`
-                : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
+                ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'tool', 'reasoning')`
+                : row.role === "assistant"
+                  ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'reasoning')`
+                  : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.ignored'), 0) != 1`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.synthetic'), 0) != 1`,
             ),
@@ -206,17 +209,27 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
               .filter((part) => part.type === "text" || ((session.agent === "octo_insight" || session.agent === "octo_studio") && part.type === "tool"))
               .map((part) => part.text ?? "")
               .join("\n")
+      const reasoningText = row.role === "assistant"
+        ? parts
+            .slice(0, 16)
+            .filter((part) => part.type === "reasoning")
+            .map((part) => part.text ?? "")
+            .join("\n")
+            .trim()
+        : ""
+      const reasoning = reasoningText.slice(0, 4096)
       const files = parts
         .slice(0, 16)
         .filter((part) => part.type === "file")
         .map((part) => ({ name: part.name || "附件", mime: part.mime || "application/octet-stream" }))
-      if (!text.trim() && !files.length) return []
+      if (!text.trim() && !reasoning && !files.length) return []
       return [
         {
           id: row.id,
           role: row.role as "user" | "assistant",
           text: text.slice(0, 8192),
-          truncated: text.length > 8192 || parts.length > 16,
+          ...(reasoning ? { reasoning } : {}),
+          truncated: text.length > 8192 || reasoningText.length > 4096 || parts.length > 16,
           files,
         },
       ]
