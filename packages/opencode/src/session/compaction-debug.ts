@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import os from "os"
 import path from "path"
 import { Cause, Effect, Exit } from "effect"
@@ -75,9 +75,7 @@ const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpIn
   ].join("\n")
 
   mkdirSync(ANALYSIS_DIR, { recursive: true })
-  yield* Effect.promise(() =>
-    Bun.write(path.join(ANALYSIS_DIR, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content),
-  )
+  writeFileSync(path.join(ANALYSIS_DIR, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content)
 })
 
 export const dump = Effect.fn("SessionCompactionDebug.dump")(function* (input: DumpInput) {
