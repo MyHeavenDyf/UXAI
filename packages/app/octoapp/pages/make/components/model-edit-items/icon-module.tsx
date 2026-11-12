@@ -39,6 +39,7 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
 
 const DEFAULT_SHAPE_OPTIONS = [
   { key: '线性', label: '线性', value: 'outline' },
+  { key: '面性', label: '面性', value: 'filled' },
   { key: '线性双色', label: '线性双色', value: 'two-tone' },
   { key: '方底托', label: '方底托', value: 'square' },
   { key: '圆底托', label: '圆底托', value: 'circle' },

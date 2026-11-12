@@ -125,6 +125,7 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
  *  key 为传给 store 的 style 入参（即后端 getIcon 所需的中文标签，与 label 一致） */
 const SHAPE_OPTIONS = [
   { key: '线性', label: '线性', value: 'outline' },
+  { key: '面性', label: '面性', value: 'filled' },
   { key: '线性双色', label: '线性双色', value: 'two-tone' },
   { key: '方底托', label: '方底托', value: 'square' },
   { key: '圆底托', label: '圆底托', value: 'circle' },
